@@ -1,0 +1,85 @@
+{
+  "name": "dhvani",
+  "productName": "DHVANI",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "description": "Local AI dubbing studio. ElevenLabs for transcription, word-accurate subtitle timestamps and voice; Gemini for translation.",
+  "keywords": [
+    "subtitles",
+    "srt",
+    "transcription",
+    "translation",
+    "dubbing",
+    "elevenlabs",
+    "gemini",
+    "speech-to-text"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/dhvani-studio/dhvani#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dhvani-studio/dhvani.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dhvani-studio/dhvani/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "vite",
+    "server": "node server/index.js",
+    "autostart:install": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1",
+    "autostart:uninstall": "powershell -ExecutionPolicy Bypass -File scripts/install-autostart.ps1 -Uninstall",
+    "build": "vite build",
+    "start": "npm run build && cross-env NODE_ENV=production node server/index.js",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test server/env.test.js server/lib/srt.test.js server/lib/pipeline.test.js server/providers/llmGateway/client.test.js server/providers/llmGateway/url.test.js server/providers/llmGateway/discovery.test.js",
+    "verify": "npm run typecheck && npm test && npm run build",
+    "icon": "node scripts/generate-icon.mjs",
+    "desktop": "npm run build && cross-env NODE_ENV=production electron .",
+    "dist:desktop": "npm run build && electron-builder --publish never",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:mac": "npm run build && electron-builder --mac --publish never",
+    "dist:linux": "npm run build && electron-builder --linux --publish never",
+    "dist:zip": "node scripts/package-release.mjs",
+    "docker:build": "docker build -t dhvani:latest .",
+    "docker:run": "docker compose up -d"
+  },
+  "dependencies": {
+    "@google/genai": "^1.30.0",
+    "compression": "^1.8.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.3.0",
+    "jszip": "^3.10.2",
+    "lucide-react": "^1.45.0",
+    "multer": "^2.0.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.1"
+  },
+  "optionalDependencies": {
+    "ffmpeg-static": "^5.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^22.14.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "concurrently": "^9.1.2",
+    "cross-env": "^10.1.0",
+    "electron": "^44.4.2",
+    "electron-builder": "^26.15.3",
+    "tailwindcss": "^4.3.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

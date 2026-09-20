@@ -1,0 +1,74 @@
+# electron-builder configuration for the DHVANI desktop installers.
+#
+# The packaged app is the same Express backend and the same built frontend the
+# other distributions run. The Electron main process forks `server/index.js`
+# as a child process and points a window at it.
+
+appId: studio.dhvani.app
+productName: DHVANI
+copyright: Copyright © 2026 DHVANI contributors
+
+directories:
+  output: release
+  buildResources: desktop/icons
+
+# electron-builder resolves production `dependencies` (and optionalDependencies,
+# which is how ffmpeg-static ships) from package.json automatically and leaves
+# devDependencies out. Listing node_modules here by hand only fights that.
+files:
+  - desktop/main.cjs
+  - desktop/icons/**
+  - server/**
+  - '!server/**/*.test.js'
+  - dist/**
+  - package.json
+
+# Kept unpacked rather than in an asar archive.
+#
+# The backend runs as a forked Node process and ffmpeg-static ships a real
+# executable; neither is reliable from inside an archive, and the startup cost
+# of asar is not worth the trouble for a self-hosted tool.
+asar: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: desktop/icons/icon.png
+  artifactName: DHVANI-${version}-Setup-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DHVANI
+  # API keys saved in the user-data folder must survive an uninstall/reinstall.
+  deleteAppDataOnUninstall: false
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  icon: desktop/icons/icon.png
+  category: public.app-category.video
+  artifactName: DHVANI-${version}-${arch}.${ext}
+  # The app forks a Node child process and writes to its own user-data folder.
+  hardenedRuntime: true
+  entitlements: desktop/entitlements.mac.plist
+  entitlementsInherit: desktop/entitlements.mac.plist
+
+dmg:
+  title: DHVANI ${version}
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+  icon: desktop/icons/icon.png
+  category: AudioVideo
+  artifactName: DHVANI-${version}-${arch}.${ext}
+
+# Unsigned builds should not advertise an auto-update feed that does not exist.
+publish: null

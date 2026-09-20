@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation you run into, not just the feature you want.
+      placeholder: When I dub a 2-hour lecture I have to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+
+  - type: checkboxes
+    id: timing
+    attributes:
+      label: Timing guarantee
+      description: |
+        DHVANI's core rule is that ElevenLabs measures every subtitle timestamp and Gemini
+        never creates or alters timing. Requests that would weaken this cannot be accepted.
+      options:
+        - label: This request does not require a language model to generate or adjust subtitle timestamps.
+          required: true

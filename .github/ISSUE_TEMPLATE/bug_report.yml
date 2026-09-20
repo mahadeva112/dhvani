@@ -1,0 +1,84 @@
+name: Bug report
+description: Something is not working the way it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report.
+
+        **Never paste an API key here**, not even a partial one. If you have leaked one,
+        revoke it at the provider first.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what happened, and what did you expect instead?
+      placeholder: I uploaded a 40-minute MP4 and...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: DHVANI version
+      description: Shown at http://localhost:8787/api/health, or in the app's Help menu.
+      placeholder: 1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How are you running it?
+      options:
+        - npm run dev (from source)
+        - npm start (production build)
+        - Docker
+        - Desktop app (Windows)
+        - Desktop app (macOS)
+        - Desktop app (Linux)
+        - Portable zip
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: Windows 11, macOS 15.2, Ubuntu 24.04
+    validations:
+      required: true
+
+  - type: textarea
+    id: media
+    attributes:
+      label: Source media (for transcription or timing issues)
+      description: Format, duration, language, and whether it is audio or video. Do not upload the file itself.
+      placeholder: 42-minute MP4, Tamil with some English, stereo
+
+  - type: textarea
+    id: subtitles
+    attributes:
+      label: Subtitle excerpt (for timing issues)
+      description: A few cues from the SRT showing the problem. This is the single most useful thing for a timing bug.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server log
+      description: Output from the terminal, or Help -> Open Engine Log in the desktop app. Check it for keys before pasting.
+      render: shell

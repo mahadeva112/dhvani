@@ -1,0 +1,46 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment / secrets — never commit real API keys
+.env
+.env.local
+.env.*.local
+# Scratch notes holding raw keys (ElevenLabs key, gateway URL + bearer token).
+API.txt
+
+# Build output
+dist
+
+# Local uploads / scratch
+tmp
+uploads
+
+# Desktop / release artifacts
+release
+desktop/icons/*.ico
+desktop/icons/*.icns
+
+# Local, machine-specific Claude Code permissions
+.claude/settings.local.json

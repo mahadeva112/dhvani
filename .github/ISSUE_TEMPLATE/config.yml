@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/dhvani-studio/dhvani/security/advisories/new
+    about: Report security issues privately, never as a public issue.
+  - name: Setup help and questions
+    url: https://github.com/dhvani-studio/dhvani/discussions
+    about: Ask a question or get help getting started.

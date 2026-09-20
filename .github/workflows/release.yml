@@ -1,0 +1,98 @@
+name: Release
+
+# Builds the desktop installers and the zip distribution when a version tag is
+# pushed, then attaches them to a draft GitHub release for you to review.
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows installer
+            command: npm run dist:win
+          - os: macos-latest
+            label: macOS disk image
+            command: npm run dist:mac
+          - os: ubuntu-latest
+            label: Linux AppImage
+            command: npm run dist:linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build installer
+        run: ${{ matrix.command }}
+        env:
+          # Unsigned builds. Add signing credentials here when you have them:
+          # CSC_LINK / CSC_KEY_PASSWORD for macOS and Windows code signing.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhvani-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+          if-no-files-found: error
+
+  zip:
+    name: Portable zip
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run dist:zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dhvani-portable
+          path: release/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Draft release
+    needs: [build, zip]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Draft, so the release notes can be reviewed before anyone sees it.
+          draft: true
+          generate_release_notes: true
+          files: artifacts/*

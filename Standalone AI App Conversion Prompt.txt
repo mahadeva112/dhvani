@@ -1,0 +1,103 @@
+This application was originally built using Google AI Studio. I want to convert it into a completely standalone application that runs locally on my system without depending on the Google AI Studio platform.
+
+Please analyze the existing codebase first, identify all Google AI Studio-specific dependencies, and then refactor the application while preserving the existing UI, features, and workflow as much as possible.
+
+### Core Requirements
+
+1. **Remove Google AI Studio Dependency**
+
+   * Remove all Google AI Studio-specific SDKs, integrations, configurations, and platform dependencies.
+   * The application must run independently on my local system.
+   * Using the Gemini API itself is allowed, but the application must communicate with Gemini directly through its API and must not depend on the Google AI Studio environment.
+
+2. **Audio/Video → Transcription → SRT**
+
+   * Use the **ElevenLabs API** for speech-to-text/transcription.
+   * Use ElevenLabs' returned **word/segment timestamps** to generate accurate subtitle timing.
+   * Generate standard `.srt` subtitle files from these timestamps.
+   * Preserve subtitle timing based on the actual ElevenLabs transcription timestamps rather than asking an LLM to estimate timestamps.
+   * Support common audio/video input formats where practical.
+   * If a video is uploaded, extract/process its audio for transcription without changing the original video.
+
+3. **Translation**
+
+   * Use the **Gemini API** for subtitle/text translation.
+
+   * The workflow should be:
+
+     **Audio/Video → ElevenLabs Transcription + Timestamps → Original SRT → Gemini Translation → Translated SRT**
+
+   * Gemini should translate only the subtitle text while preserving the original ElevenLabs-generated subtitle timestamps.
+
+   * Translation must **never regenerate, estimate, shift, or modify timestamps**.
+
+   * Preserve subtitle numbering and SRT structure.
+
+   * Allow the user to select the source and target languages.
+
+   * Keep translations natural and context-aware while preserving the original meaning.
+
+4. **API Architecture**
+
+   * Keep ElevenLabs and Gemini integrations separate and modular.
+
+   * Design the application so additional custom APIs/providers can be added later.
+
+   * Do not hardcode API keys.
+
+   * Store credentials securely using environment variables such as:
+
+     `ELEVENLABS_API_KEY`
+
+     `GEMINI_API_KEY`
+
+   * Provide an `.env.example` file without real API keys.
+
+5. **Local Application**
+
+   * The entire application should be runnable locally.
+   * Keep the existing UI and user experience as close to the current application as possible.
+   * Replace Google AI Studio-specific backend functionality with independent local/backend code.
+   * The frontend should communicate only with the local backend where possible, so API keys are not exposed in browser/client-side code.
+
+6. **Subtitle Workflow**
+   The application should support this complete workflow:
+
+   **Upload Audio/Video**
+   ↓
+   **Send Audio to ElevenLabs**
+   ↓
+   **Receive Transcription + Accurate Timestamps**
+   ↓
+   **Generate Original-Language SRT**
+   ↓
+   **Send Subtitle Text to Gemini API**
+   ↓
+   **Translate Text**
+   ↓
+   **Reinsert Translation Into the Exact Same Timestamps**
+   ↓
+   **Generate Translated SRT**
+   ↓
+   **Preview / Edit / Download SRT**
+
+7. **Reliability**
+
+   * Handle API errors, rate limits, invalid API keys, unsupported files, network failures, and failed transcription/translation gracefully.
+   * Add progress/status indicators for uploading, transcription, SRT generation, and translation.
+   * Do not lose completed transcription data if translation fails.
+   * For long files, process data safely without breaking subtitle order or timestamps.
+
+8. **Project Setup**
+
+   * Include all required dependencies and configuration files.
+   * Provide clear local installation and startup instructions.
+   * Document the project structure.
+   * Explain which existing files were modified and which new files were created.
+   * Keep the code clean, modular, and maintainable.
+
+### Important Rule
+
+**ElevenLabs is the source of truth for transcription and subtitle timestamps. Gemini is used only for translation. Gemini must not create or alter subtitle timing.**
+
+The final application must work independently on my computer without requiring Google AI Studio, while still using the ElevenLabs API for transcription/timestamps and the Gemini API for translation.

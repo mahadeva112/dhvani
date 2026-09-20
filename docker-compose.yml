@@ -1,0 +1,44 @@
+services:
+  dhvani:
+    build: .
+    image: dhvani:latest
+    container_name: dhvani
+    restart: unless-stopped
+
+    # Bound to localhost by default. Change to "8787:8787" only if you have put
+    # authentication in front of it — anyone who can reach this port can spend
+    # your ElevenLabs and Gemini credits.
+    ports:
+      - "127.0.0.1:8787:8787"
+
+    environment:
+      # Required. Put the real values in a .env file next to this one;
+      # Compose substitutes them automatically and they stay out of git.
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+      # The container serves the UI itself, so same-origin needs no CORS entry.
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8787}
+
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-1024}
+      TRANSLATION_BATCH_SIZE: ${TRANSLATION_BATCH_SIZE:-40}
+      ELEVENLABS_STT_MODEL: ${ELEVENLABS_STT_MODEL:-scribe_v1}
+      GEMINI_TRANSLATION_MODELS: ${GEMINI_TRANSLATION_MODELS:-gemini-2.5-flash,gemini-2.0-flash}
+
+      # Keys are supplied above, so the in-app setup screen is unnecessary.
+      ALLOW_KEY_SETUP: ${ALLOW_KEY_SETUP:-false}
+
+    volumes:
+      # Persists keys saved from the UI when ALLOW_KEY_SETUP is enabled.
+      - dhvani-config:/config
+
+    # Transcoding a large video needs real scratch space; the default 64MB
+    # /tmp is not enough for a long recording.
+    tmpfs:
+      - /tmp:size=4g
+
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  dhvani-config:

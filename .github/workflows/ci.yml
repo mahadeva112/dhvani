@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same branch cancels the in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Confirm no API key was compiled into the bundle
+        run: |
+          # A key must never reach client code. Fail loudly if one ever does.
+          if grep -rElq 'sk_[a-f0-9]{32}|AIza[0-9A-Za-z_-]{35}' dist/; then
+            echo "::error::A credential-shaped string was found in the build output."
+            exit 1
+          fi
+          echo "No credentials found in dist/."
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: dhvani:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Boot the container and check health
+        run: |
+          docker run -d --name dhvani-ci -p 8787:8787 \
+            -e HOST=0.0.0.0 -e ALLOW_KEY_SETUP=false dhvani:ci
+
+          # The container starts without API keys on purpose: health must still
+          # answer so the UI can explain what is missing.
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8787/api/health > /tmp/health.json; then
+              echo "Healthy after ${attempt}s"
+              cat /tmp/health.json
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::Container did not become healthy in 30s."
+          docker logs dhvani-ci
+          exit 1
+
+      - name: Stop the container
+        if: always()
+        run: docker rm -f dhvani-ci || true

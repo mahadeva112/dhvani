@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "//": "Single process: the backend builds the UI and serves it, so there",
+      "//2": "is one origin and one port. server/index.js reads PORT from the",
+      "//3": "environment, so autoPort can assign whatever is free.",
+      "name": "dhvani",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "autoPort": true
+    }
+  ]
+}
