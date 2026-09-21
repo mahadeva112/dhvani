@@ -45,6 +45,7 @@
     "desktop": "npm run build && cross-env NODE_ENV=production electron .",
     "dist:desktop": "npm run build && electron-builder --publish never",
     "dist:win": "npm run build && electron-builder --win --publish never",
+    "dist:portable": "npm run build && electron-builder --win zip portable --publish never",
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:linux": "npm run build && electron-builder --linux --publish never",
     "dist:zip": "node scripts/package-release.mjs",

@@ -31,13 +31,34 @@ files:
 asar: false
 
 win:
+  # Lands next to the executable (not inside resources/). The zip distribution
+  # uses this folder to keep keys and settings with the app; the NSIS install
+  # ignores it — see resolvePortableDataDir in desktop/main.cjs.
+  extraFiles:
+    - from: desktop/portable
+      to: .
   target:
     - target: nsis
       arch: [x64]
+    # The portable pair. `zip` is the one to hand people: unpack the folder and
+    # run DHVANI.exe. `portable` is a single self-extracting .exe, which is
+    # tidier to download but re-extracts the whole app to %TEMP% on every
+    # launch — noticeable here because asar is off and ffmpeg ships inside.
+    - target: zip
+      arch: [x64]
+    - target: portable
+      arch: [x64]
   icon: desktop/icons/icon.png
-  artifactName: DHVANI-${version}-Setup-${arch}.${ext}
+  # Only the zip falls through to this name; nsis and portable set their own.
+  artifactName: DHVANI-${version}-Portable-${arch}.${ext}
+
+portable:
+  artifactName: DHVANI-${version}-Portable-${arch}.${ext}
+  # Same extraction folder across versions, so the unpack cost is paid once.
+  unpackDirName: DHVANI-${version}
 
 nsis:
+  artifactName: DHVANI-${version}-Setup-${arch}.${ext}
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
