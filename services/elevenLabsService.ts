@@ -14,13 +14,22 @@ export interface ElevenLabsVoiceSettings {
   similarity_boost: number;
   style?: number;
   use_speaker_boost?: boolean;
+  /** ElevenLabs speaking rate. 1.0 is the model default; below 1.0 is slower. */
+  speed?: number;
 }
+
+/** ElevenLabs accepts 0.7–1.2 for `speed`; anything outside is rejected. */
+export const MIN_VOICE_SPEED = 0.7;
+export const MAX_VOICE_SPEED = 1.2;
 
 export const DEFAULT_VOICE_SETTINGS: ElevenLabsVoiceSettings = {
   stability: 0.5, // Natural & expressive
   similarity_boost: 0.75, // High clarity & authenticity
   style: 0.0, // No artificial exaggeration
   use_speaker_boost: true,
+  // The raw model default (1.0) reads dubbing cues noticeably faster than a
+  // human narrator. 0.9 lands on an unhurried, natural delivery out of the box.
+  speed: 0.9,
 };
 
 const keys = (apiKey?: string) => ({ keys: { elevenLabsKey: apiKey } });
@@ -39,7 +48,12 @@ export const cleanTextForNaturalSpeech = (rawText: string): string => {
     .replace(/^\[[^\]]+\]:\s*/gm, '')
     .replace(/^\([^)]+\):\s*/gm, '')
     .replace(/\[[a-zA-Z0-9_\-\s]+\]/g, '')
-    .replace(/\s+/g, ' ')
+    // Collapse runs of spaces/tabs but keep line breaks: ElevenLabs uses them
+    // as breathing points, and flattening everything to one line is what makes
+    // a multi-cue script sound rushed.
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 };
 

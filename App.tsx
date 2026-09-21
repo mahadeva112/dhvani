@@ -1122,13 +1122,16 @@ export default function App() {
   const handleSynthesizeMaster = async () => {
     if (!activeJob) return;
 
-    // Use dialogue segment target texts as priority
+    // Use dialogue segment target texts as priority.
+    // Cues are joined with a blank line rather than a space: ElevenLabs treats
+    // the break as a breathing point, so the master reads at a natural pace
+    // instead of running every cue together into one breathless sentence.
     const textToSynthesize =
       activeJob.segments && activeJob.segments.length > 0
         ? activeJob.segments
-            .map((s) => s.textTarget || (s as any).targetText || '')
+            .map((s) => String(s.textTarget || (s as any).targetText || '').trim())
             .filter(Boolean)
-            .join(' ')
+            .join('\n\n')
         : activeJob.script.trim();
 
     if (!textToSynthesize) {
