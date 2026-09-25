@@ -110,6 +110,8 @@ export interface Voice {
   };
   preview_url?: string;
   high_quality_base_model_ids?: string[];
+  /** Languages ElevenLabs has verified the voice in, e.g. `{ language: 'hi', locale: 'hi-IN' }`. */
+  verified_languages?: { language?: string; accent?: string; locale?: string | null }[];
 }
 
 export interface ElevenLabsModel {

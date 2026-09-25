@@ -347,7 +347,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                        <span className="font-mono text-cyan-400 font-semibold">{job.language || 'Bengali'}</span>
+                        <span className="font-mono text-cyan-400 font-semibold">{job.language || 'Hindi'}</span>
                         <span>•</span>
                         <span>{durationStr}</span>
                         {cueCount > 0 && (

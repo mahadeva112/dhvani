@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
-import { ProHeader, DEFAULT_LANGUAGES, ThemeMode } from './components/ProHeader';
+import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, ThemeMode } from './components/ProHeader';
 import { ExpressDubWizard } from './components/ExpressDubWizard';
 import { VoiceSettingsModal } from './components/VoiceSettingsModal';
 import { BatchQueueModal } from './components/BatchQueueModal';
@@ -278,9 +278,18 @@ export default function App() {
   // Target Dubbing Language State (Persistent across sessions & new jobs)
   const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
     try {
-      return localStorage.getItem('dhvani_target_language') || 'Bengali';
+      // Bengali used to be the default. An install still on it from before
+      // Hindi became the default moves to Hindi once; choosing Bengali again
+      // afterwards sticks.
+      if (!localStorage.getItem('dhvani_target_language_default_hindi')) {
+        localStorage.setItem('dhvani_target_language_default_hindi', '1');
+        if (localStorage.getItem('dhvani_target_language') === 'Bengali') {
+          localStorage.setItem('dhvani_target_language', DEFAULT_TARGET_LANGUAGE);
+        }
+      }
+      return localStorage.getItem('dhvani_target_language') || DEFAULT_TARGET_LANGUAGE;
     } catch {
-      return 'Bengali';
+      return DEFAULT_TARGET_LANGUAGE;
     }
   });
   const [isTranslatingLanguage, setIsTranslatingLanguage] = useState<boolean>(false);

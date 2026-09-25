@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Hindi is the default dub language, and the voice picker suggests Indian voices.** A new install
+  starts on Hindi; an install still on the old Bengali default moves to Hindi once, and picking
+  Bengali again afterwards sticks. The voice picker opens on an **Indian** filter — voices with an
+  Indian accent or an Indian language on ElevenLabs, plus your own clones named for one ("Hindi dub
+  2") — with voices that speak the dub language listed first and tagged with it. Click **Indian** to
+  see the whole library; the choice is remembered. While it is on, the accent chips list Indian accents
+  (Standard, Indian, Gujarati, Marathi, …) instead of American, British or Latin American.
+
 - **Settings entered in the app now take precedence over `.env`.** DHVANI is installed per person,
   and each person has their own keys, gateway host and models. Previously an environment variable
   won and the setup screen went read-only over it — so a build shared with a colleague kept running
