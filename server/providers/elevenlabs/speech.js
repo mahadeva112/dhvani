@@ -181,8 +181,9 @@ export const synthesizeSpeech = async (
 const SCRIPT_CONCURRENCY = 2;
 
 /**
- * Joins the passages' audio into one file (see audioJoin.js). Without ffmpeg
- * the files are appended as they are, which plays but leaves the joins audible.
+ * Joins the passages' audio into one file with a lead-in and run-out (see
+ * audioJoin.js). Without ffmpeg the files are appended as they are, which
+ * plays but leaves the joins and the ending abrupt.
  */
 const joinAudio = async (parts, passages, outputFormat) => {
   try {
@@ -260,7 +261,8 @@ export const synthesizeScript = async (
     await Promise.all(Array.from({ length: Math.min(SCRIPT_CONCURRENCY, chunks.length) }, worker));
   }
 
-  const buffer = parts.length === 1 ? parts[0] : await joinAudio(parts, passages, outputFormat);
+  // Even a one-passage dub goes through the join for its lead-in and run-out.
+  const buffer = isJoinable(outputFormat) ? await joinAudio(parts, passages, outputFormat) : parts[0];
   return { contentType, buffer };
 };
 

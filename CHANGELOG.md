@@ -35,6 +35,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   Smooth joins need ffmpeg (bundled with DHVANI); without it passages are appended as before.
 
+- **Dubs no longer start or stop abruptly.** ElevenLabs often begins a generation on the first
+  syllable and ends it on the last one (Eleven v3 left about 0.05 s either side), so a dub sounded
+  cut off. Every dub now has a fixed 0.3 s lead-in and 0.7 s run-out of silence, whatever the take
+  left, and the final word keeps its full decay.
+
 - **Dubbed voices sound like they do on the ElevenLabs website, not robotic.** Four causes, all fixed:
   - Every dub forced one fixed set of voice settings, including a slowed-down speed of 0.9 that made
     voices drawl. A dub now uses the voice's own ElevenLabs settings, as the website does, and the
