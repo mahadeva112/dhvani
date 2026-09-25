@@ -420,7 +420,7 @@ Everything below is optional; `.env.example` documents each one.
 | `ALLOW_KEY_SETUP` | `true` | Lets the in-app setup screen save keys. Loopback-only regardless. |
 | `DHVANI_CONFIG_DIR` | OS config dir | Where keys saved from the UI are stored. |
 | `ELEVENLABS_STT_MODEL` | `scribe_v1` | Speech-to-text model. |
-| `ELEVENLABS_TTS_MODEL` | `eleven_multilingual_v2` | Default voice model. |
+| `ELEVENLABS_TTS_MODEL` | `eleven_v3` | Default voice model. |
 | `GEMINI_TRANSLATION_MODELS` | `gemini-2.5-flash,gemini-2.0-flash` | Tried in order. |
 | `GEMINI_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Only for the Gemini TTS provider. |
 | `MAX_UPLOAD_MB` | `1024` | Upload size limit. |

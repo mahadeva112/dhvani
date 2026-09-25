@@ -418,7 +418,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     {
       key: 'elevenLabsTtsModel',
       label: 'Voice model',
-      placeholder: 'eleven_multilingual_v2',
+      placeholder: 'eleven_v3',
       origin: server?.origins.elevenLabsTtsModel,
     },
   ];
