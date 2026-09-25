@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   FileText,
   Copy,
@@ -11,6 +11,10 @@ import {
   SlidersHorizontal,
   Table,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import {
@@ -44,6 +48,24 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [copiedNotification, setCopiedNotification] = useState<string | null>(null);
+
+  // Long scripts (hundreds of cues) are paged like the Step 2 review list.
+  const CUES_PER_PAGE = 35;
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const totalPages = Math.max(1, Math.ceil(segments.length / CUES_PER_PAGE));
+  const pageStart = (currentPage - 1) * CUES_PER_PAGE;
+  const pageSegments = segments.slice(pageStart, pageStart + CUES_PER_PAGE);
+
+  // Keep the page in range if cues are removed or re-segmented.
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.min(totalPages, Math.max(1, page)));
+    bodyRef.current?.scrollTo({ top: 0 });
+  };
 
   // Script Statistics
   const stats = useMemo(() => {
@@ -101,6 +123,55 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
     const ext = format === 'json' ? 'json' : format === 'csv' ? 'csv' : 'txt';
     const mime = format === 'json' ? 'application/json' : format === 'csv' ? 'text/csv' : 'text/plain;charset=utf-8';
     downloadFile(scriptContent, `dhvani_${cleanLang}_final_script_${format}.${ext}`, mime);
+  };
+
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+    const navBtn =
+      'rounded-lg border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-pointer';
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 py-2 px-3 bg-slate-50 dark:bg-slate-950/80 rounded-xl border border-slate-200 dark:border-slate-800 text-[11px]">
+        <div className="text-slate-500 dark:text-slate-400 font-medium">
+          Cues{' '}
+          <span className="text-indigo-600 dark:text-indigo-400 font-bold">
+            {pageStart + 1} - {Math.min(segments.length, pageStart + CUES_PER_PAGE)}
+          </span>{' '}
+          of <span className="text-slate-900 dark:text-white font-bold">{segments.length}</span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <button type="button" disabled={currentPage === 1} onClick={() => goToPage(1)} className={`p-1 ${navBtn}`} title="First Page">
+            <ChevronsLeft className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" disabled={currentPage === 1} onClick={() => goToPage(currentPage - 1)} className={`px-2 py-1 ${navBtn}`}>
+            <ChevronLeft className="w-3.5 h-3.5" />
+            <span>Prev</span>
+          </button>
+          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 font-medium">
+            <span className="text-slate-500 dark:text-slate-400">Page</span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={currentPage}
+              onChange={(e) => {
+                const val = parseInt(e.target.value);
+                if (val >= 1 && val <= totalPages) goToPage(val);
+              }}
+              className="w-8 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-center rounded text-slate-900 dark:text-white font-bold text-xs focus:outline-none focus:border-indigo-500 py-0.5"
+            />
+            <span className="text-slate-400 dark:text-slate-500">of {totalPages}</span>
+          </div>
+          <button type="button" disabled={currentPage === totalPages} onClick={() => goToPage(currentPage + 1)} className={`px-2 py-1 ${navBtn}`}>
+            <span>Next</span>
+            <ChevronRight className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" disabled={currentPage === totalPages} onClick={() => goToPage(totalPages)} className={`p-1 ${navBtn}`} title="Last Page">
+            <ChevronsRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -213,9 +284,15 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
         </div>
       </div>
 
+      {renderPagination()}
+
       {/* Script Reader Body */}
-      <div className="bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-4 max-h-96 overflow-y-auto custom-scrollbar space-y-3.5">
-        {segments.map((seg, idx) => {
+      <div
+        ref={bodyRef}
+        className="bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-4 max-h-[70vh] overflow-y-auto custom-scrollbar space-y-3.5"
+      >
+        {pageSegments.map((seg, pageIdx) => {
+          const idx = pageStart + pageIdx;
           const targetText = seg.textTarget || (seg as any).targetText || '';
           const sourceText = seg.textSource || (seg as any).originalText || '';
 
@@ -271,6 +348,8 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
           );
         })}
       </div>
+
+      {renderPagination()}
 
       {/* Script Actions Footer */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
