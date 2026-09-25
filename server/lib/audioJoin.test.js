@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { joinPassages, speechLoudness } from './audioJoin.js';
+import { joinPassages, speechLoudness, DUB_LEAD_IN_SECONDS, DUB_RUN_OUT_SECONDS } from './audioJoin.js';
 
 const RATE = 8000;
 
@@ -15,37 +15,44 @@ const passage = ({ lead = 0, tone = 0.5, tail = 0, level = 0.3 } = {}) => {
 
 const seconds = (samples) => samples.length / RATE;
 
-test('a single passage is returned untouched', () => {
-  const only = passage({ lead: 0.2, tail: 0.4 });
-  assert.equal(joinPassages([only], { sampleRate: RATE }), only);
+const leadingSilence = (samples) => samples.findIndex((s) => Math.abs(s) > 0.0032) / RATE;
+const trailingSilence = (samples) => {
+  let last = samples.length - 1;
+  while (Math.abs(samples[last]) <= 0.0032) last--;
+  return (samples.length - 1 - last) / RATE;
+};
+
+test('a dub that starts on its first syllable and stops on its last gets a lead-in and run-out', () => {
+  const joined = joinPassages([passage({ lead: 0, tail: 0 })], { sampleRate: RATE });
+  assert.ok(Math.abs(leadingSilence(joined) - DUB_LEAD_IN_SECONDS) < 0.005);
+  assert.ok(trailingSilence(joined) >= DUB_RUN_OUT_SECONDS);
+});
+
+test('the lead-in and run-out are the same however much silence a take left', () => {
+  const joined = joinPassages(
+    [passage({ lead: 1.2, tail: 0 }), passage({ lead: 0, tail: 2 })],
+    { sampleRate: RATE, pauses: [0.3] }
+  );
+  // The lead-in plus the 30 ms kept before the first sound, not the take's 1.2 s.
+  assert.ok(Math.abs(leadingSilence(joined) - (DUB_LEAD_IN_SECONDS + 0.03)) < 0.005);
+  // The run-out plus the ending's kept decay, not the take's two seconds.
+  assert.ok(Math.abs(trailingSilence(joined) - (DUB_RUN_OUT_SECONDS + 0.15)) < 0.005);
 });
 
 test('silence at a join is replaced by the requested pause, whatever each take left', () => {
   // One take ends with no tail at all (an abrupt cut), the next starts late.
   const joined = joinPassages(
     [passage({ lead: 0.1, tail: 0 }), passage({ lead: 0.9, tail: 0.1 })],
-    { sampleRate: RATE, pauses: [0.35] }
+    { sampleRate: RATE, pauses: [0.35], leadIn: 0, runOut: 0 }
   );
-  // 0.1 lead + 0.5 tone | 0.35 pause + 0.03 kept lead | 0.5 tone + 0.1 tail
-  assert.ok(Math.abs(seconds(joined) - (0.1 + 0.5 + 0.35 + 0.03 + 0.5 + 0.1)) < 0.01, `got ${seconds(joined)}s`);
-});
-
-test('the first passage keeps its start and the last keeps its end', () => {
-  const joined = joinPassages(
-    [passage({ lead: 0.25, tail: 1 }), passage({ lead: 1, tail: 0.4 })],
-    { sampleRate: RATE, pauses: [0] }
-  );
-  const firstSound = joined.findIndex((s) => Math.abs(s) > 0.0032);
-  assert.ok(Math.abs(firstSound / RATE - 0.25) < 0.005);
-  let lastSound = joined.length - 1;
-  while (Math.abs(joined[lastSound]) <= 0.0032) lastSound--;
-  assert.ok(Math.abs((joined.length - 1 - lastSound) / RATE - 0.4) < 0.005);
+  // 0.03 kept lead + 0.5 tone | 0.35 pause + 0.03 kept lead | 0.5 tone + 0.1 kept ending
+  assert.ok(Math.abs(seconds(joined) - (0.03 + 0.5 + 0.35 + 0.03 + 0.5 + 0.1)) < 0.01, `got ${seconds(joined)}s`);
 });
 
 test('joins are faded so the waveform never jumps', () => {
   // Takes that start and end mid-waveform, at full level, with no silence.
   const loud = () => passage({ tone: 0.3, level: 0.5 });
-  const joined = joinPassages([loud(), loud(), loud()], { sampleRate: RATE, pauses: [0, 0] });
+  const joined = joinPassages([loud(), loud(), loud()], { sampleRate: RATE, pauses: [0, 0], leadIn: 0, runOut: 0 });
   let biggestStep = 0;
   for (let i = 1; i < joined.length; i++) biggestStep = Math.max(biggestStep, Math.abs(joined[i] - joined[i - 1]));
   // A 220 Hz sine at 0.5 moves at most ~0.087 per sample at 8 kHz.
@@ -55,7 +62,7 @@ test('joins are faded so the waveform never jumps', () => {
 test('passages are brought to the same speech loudness', () => {
   const joined = joinPassages(
     [passage({ level: 0.3 }), passage({ level: 0.15 }), passage({ level: 0.3 })],
-    { sampleRate: RATE, pauses: [0.5, 0.5] }
+    { sampleRate: RATE, pauses: [0.5, 0.5], leadIn: 0, runOut: 0 }
   );
   const piece = (n) => joined.subarray(Math.round(n * RATE), Math.round((n + 0.4) * RATE));
   // Passage one fills 0-0.5 s, then a 0.5 s pause; passage two starts at 1.0 s.
@@ -67,7 +74,7 @@ test('passages are brought to the same speech loudness', () => {
 test('loudness correction is capped and never clips', () => {
   const joined = joinPassages(
     [passage({ level: 0.9 }), passage({ level: 0.9 }), passage({ level: 0.02 })],
-    { sampleRate: RATE, pauses: [0.2, 0.2] }
+    { sampleRate: RATE, pauses: [0.2, 0.2], leadIn: 0, runOut: 0 }
   );
   const peak = joined.reduce((max, s) => Math.max(max, Math.abs(s)), 0);
   assert.ok(peak <= 0.98 + 1e-6);
@@ -79,7 +86,7 @@ test('loudness correction is capped and never clips', () => {
 test('a passage with no speech contributes only its pause', () => {
   const joined = joinPassages(
     [passage({ tail: 0.2 }), new Float32Array(RATE), passage({ lead: 0.2 })],
-    { sampleRate: RATE, pauses: [0.3, 0.3] }
+    { sampleRate: RATE, pauses: [0.3, 0.3], leadIn: 0, runOut: 0 }
   );
-  assert.ok(seconds(joined) < 0.5 + 0.08 + 0.3 + 0.03 + 0.5 + 0.02);
+  assert.ok(seconds(joined) < 0.03 + 0.5 + 0.08 + 0.3 + 0.03 + 0.5 + 0.15 + 0.02);
 });

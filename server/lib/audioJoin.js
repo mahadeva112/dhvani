@@ -12,7 +12,10 @@
  * - the trimmed edges are faded over a few milliseconds so no join clicks;
  * - every passage is brought to the same speech loudness.
  *
- * The start of the first passage and the end of the last are left as generated.
+ * The dub's own start and end are evened out the same way: generations often
+ * begin on the first syllable and stop on the last one, which sounds like the
+ * audio was cut off. The silence there is replaced with a fixed lead-in and
+ * run-out (DUB_LEAD_IN_SECONDS / DUB_RUN_OUT_SECONDS).
  */
 
 /** Anything quieter than this (about -50 dBFS) counts as silence when trimming a join. */
@@ -24,6 +27,16 @@ const SILENCE_THRESHOLD = 0.0032;
  */
 const LEAD_KEEP_SECONDS = 0.03;
 const TAIL_KEEP_SECONDS = 0.08;
+
+/**
+ * The last word of the whole dub keeps more of its decay, since nothing
+ * follows it to mask a shortened ending.
+ */
+const END_KEEP_SECONDS = 0.15;
+
+/** Silence before the first word and after the last, so the dub neither starts nor stops abruptly. */
+export const DUB_LEAD_IN_SECONDS = 0.3;
+export const DUB_RUN_OUT_SECONDS = 0.7;
 
 /** Fade over the trimmed edges; short enough to be inaudible, long enough to stop a click. */
 const FADE_SECONDS = 0.012;
@@ -95,17 +108,15 @@ const matchingGains = (passages, sampleRate) => {
   });
 };
 
-/**
- * Where to cut a passage: silence is trimmed from the start unless it is the
- * first passage and from the end unless it is the last.
- */
-const trimBounds = (samples, sampleRate, { trimStart, trimEnd }) => {
+/** Where speech starts and ends in a passage, with a margin kept each side; null if it has none. */
+const trimBounds = (samples, sampleRate, { isLast }) => {
   const first = firstAbove(samples, SILENCE_THRESHOLD);
-  if (first === -1) return null; // no speech at all
+  if (first === -1) return null;
   const last = lastAbove(samples, SILENCE_THRESHOLD);
+  const tailKeep = isLast ? END_KEEP_SECONDS : TAIL_KEEP_SECONDS;
   return {
-    start: trimStart ? Math.max(0, first - Math.round(LEAD_KEEP_SECONDS * sampleRate)) : 0,
-    end: trimEnd ? Math.min(samples.length, last + 1 + Math.round(TAIL_KEEP_SECONDS * sampleRate)) : samples.length,
+    start: Math.max(0, first - Math.round(LEAD_KEEP_SECONDS * sampleRate)),
+    end: Math.min(samples.length, last + 1 + Math.round(tailKeep * sampleRate)),
   };
 };
 
@@ -113,47 +124,49 @@ const trimBounds = (samples, sampleRate, { trimStart, trimEnd }) => {
 const fadeWeight = (i, length) => 0.5 - 0.5 * Math.cos((Math.PI * (i + 0.5)) / length);
 
 /**
- * Joins mono float passages. `pauses[i]` is the silence, in seconds, placed
- * between passage `i` and passage `i + 1`. Returns one Float32Array.
+ * Joins mono float passages into one dub. `pauses[i]` is the silence, in
+ * seconds, placed between passage `i` and passage `i + 1`; `leadIn` and
+ * `runOut` are the silence before the first word and after the last.
+ * Returns one Float32Array. A single passage gets the same treatment.
  */
-export const joinPassages = (passages, { sampleRate, pauses = [] }) => {
-  if (passages.length === 0) return new Float32Array(0);
-  if (passages.length === 1) return passages[0];
-
+export const joinPassages = (
+  passages,
+  { sampleRate, pauses = [], leadIn = DUB_LEAD_IN_SECONDS, runOut = DUB_RUN_OUT_SECONDS }
+) => {
   const gains = matchingGains(passages, sampleRate);
   const fadeLength = Math.max(1, Math.round(FADE_SECONDS * sampleRate));
-  const last = passages.length - 1;
+  const lastIndex = passages.length - 1;
+  const toSamples = (seconds) => Math.round(Math.max(0, seconds ?? 0) * sampleRate);
 
   const pieces = [];
   passages.forEach((samples, index) => {
-    const bounds = trimBounds(samples, sampleRate, { trimStart: index > 0, trimEnd: index < last });
+    const bounds = trimBounds(samples, sampleRate, { isLast: index === lastIndex });
     if (!bounds) return; // a silent passage adds nothing but its pause
     pieces.push({ index, samples, ...bounds, gain: gains[index] });
   });
+  if (pieces.length === 0) return new Float32Array(0);
 
-  const gapSamples = (index) => Math.round(Math.max(0, pauses[index] ?? 0) * sampleRate);
+  const lead = toSamples(leadIn);
+  const gapAfter = (n) => (n < pieces.length - 1 ? toSamples(pauses[pieces[n].index]) : toSamples(runOut));
 
-  let total = 0;
+  let total = lead;
   pieces.forEach((piece, n) => {
-    total += piece.end - piece.start;
-    if (n < pieces.length - 1) total += gapSamples(piece.index);
+    total += piece.end - piece.start + gapAfter(n);
   });
 
-  const output = new Float32Array(total);
-  let offset = 0;
+  const output = new Float32Array(total); // zero-filled, so every gap is already silence
+  let offset = lead;
   pieces.forEach((piece, n) => {
     const length = piece.end - piece.start;
-    const fadeIn = piece.index > 0 ? Math.min(fadeLength, Math.floor(length / 2)) : 0;
-    const fadeOut = piece.index < last ? Math.min(fadeLength, Math.floor(length / 2)) : 0;
+    const fade = Math.min(fadeLength, Math.floor(length / 2));
 
     for (let i = 0; i < length; i++) {
       let weight = piece.gain;
-      if (i < fadeIn) weight *= fadeWeight(i, fadeIn);
-      if (i >= length - fadeOut) weight *= fadeWeight(length - 1 - i, fadeOut);
+      if (i < fade) weight *= fadeWeight(i, fade);
+      if (i >= length - fade) weight *= fadeWeight(length - 1 - i, fade);
       output[offset + i] = piece.samples[piece.start + i] * weight;
     }
-    offset += length;
-    if (n < pieces.length - 1) offset += gapSamples(piece.index); // already zero
+    offset += length + gapAfter(n);
   });
 
   return output;
