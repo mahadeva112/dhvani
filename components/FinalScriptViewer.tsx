@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
+  ChevronDown,
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import {
@@ -48,6 +49,9 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isEditing, setIsEditing] = useState<boolean>(false);
   const [copiedNotification, setCopiedNotification] = useState<string | null>(null);
+  // The cue list is long, so it starts collapsed to a short preview.
+  const PREVIEW_CUES = 3;
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
   // Long scripts (hundreds of cues) are paged like the Step 2 review list.
   const CUES_PER_PAGE = 35;
@@ -56,6 +60,9 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
   const totalPages = Math.max(1, Math.ceil(segments.length / CUES_PER_PAGE));
   const pageStart = (currentPage - 1) * CUES_PER_PAGE;
   const pageSegments = segments.slice(pageStart, pageStart + CUES_PER_PAGE);
+  const visibleStart = isExpanded ? pageStart : 0;
+  const visibleSegments = isExpanded ? pageSegments : segments.slice(0, PREVIEW_CUES);
+  const hiddenCueCount = segments.length - visibleSegments.length;
 
   // Keep the page in range if cues are removed or re-segmented.
   useEffect(() => {
@@ -178,7 +185,13 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
     <div className="w-full bg-white dark:bg-slate-950/90 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 sm:p-5 space-y-4 shadow-xl">
       {/* Header with Title and Metadata */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
-        <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          aria-expanded={isExpanded}
+          title={isExpanded ? 'Hide script' : 'Show script'}
+          className="flex items-center gap-3 text-left cursor-pointer group/toggle"
+        >
           <div className="w-10 h-10 rounded-2xl bg-purple-500/10 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-200 dark:border-purple-500/30 shrink-0">
             <FileText className="w-5 h-5" />
           </div>
@@ -198,7 +211,12 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
               Polished dialogue script translated with <span className="text-indigo-600 dark:text-indigo-300 font-semibold">{promptPresetName}</span> prompt.
             </p>
           </div>
-        </div>
+          <ChevronDown
+            className={`w-4 h-4 shrink-0 text-slate-400 group-hover/toggle:text-slate-700 dark:group-hover/toggle:text-white transition-transform ${
+              isExpanded ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
 
         {/* Top Controls: Format Switcher & Actions */}
         <div className="flex items-center gap-2 flex-wrap">
@@ -243,7 +261,10 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
           {onUpdateSegment && (
             <button
               type="button"
-              onClick={() => setIsEditing(!isEditing)}
+              onClick={() => {
+                if (!isEditing) setIsExpanded(true);
+                setIsEditing(!isEditing);
+              }}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
                 isEditing
                   ? 'bg-indigo-600 text-white border-indigo-400'
@@ -284,72 +305,90 @@ export const FinalScriptViewer: React.FC<FinalScriptViewerProps> = ({
         </div>
       </div>
 
-      {renderPagination()}
+      {isExpanded && renderPagination()}
 
       {/* Script Reader Body */}
-      <div
-        ref={bodyRef}
-        className="bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-4 max-h-[70vh] overflow-y-auto custom-scrollbar space-y-3.5"
-      >
-        {pageSegments.map((seg, pageIdx) => {
-          const idx = pageStart + pageIdx;
-          const targetText = seg.textTarget || (seg as any).targetText || '';
-          const sourceText = seg.textSource || (seg as any).originalText || '';
+      <div className="relative">
+        <div
+          ref={bodyRef}
+          className={`bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800/90 rounded-2xl p-4 space-y-3.5 ${
+            isExpanded ? 'max-h-[70vh] overflow-y-auto custom-scrollbar' : 'overflow-hidden'
+          }`}
+        >
+          {visibleSegments.map((seg, pageIdx) => {
+            const idx = visibleStart + pageIdx;
+            const targetText = seg.textTarget || (seg as any).targetText || '';
+            const sourceText = seg.textSource || (seg as any).originalText || '';
 
-          return (
-            <div
-              key={seg.id || idx}
-              className="group p-3 rounded-xl bg-white dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/70 hover:border-indigo-400 dark:hover:border-indigo-500/40 transition-all space-y-1.5 shadow-2xs"
-            >
-              {/* Cue Info Row */}
-              <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800/60">
-                    {seg.speaker || `Speaker ${idx + 1}`}
-                  </span>
-                  <span className="text-slate-400 dark:text-slate-500">#{idx + 1}</span>
+            return (
+              <div
+                key={seg.id || idx}
+                className="group p-3 rounded-xl bg-white dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/70 hover:border-indigo-400 dark:hover:border-indigo-500/40 transition-all space-y-1.5 shadow-2xs"
+              >
+                {/* Cue Info Row */}
+                <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-800/60">
+                      {seg.speaker || `Speaker ${idx + 1}`}
+                    </span>
+                    <span className="text-slate-400 dark:text-slate-500">#{idx + 1}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />
+                      <span>{formatSeconds(seg.startTime)} - {formatSeconds(seg.endTime)}</span>
+                    </span>
+                    <span className="text-slate-300 dark:text-slate-600 font-bold">•</span>
+                    <span className="text-cyan-700 dark:text-cyan-400 font-semibold">{seg.duration.toFixed(1)}s</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3 text-cyan-600 dark:text-cyan-400" />
-                    <span>{formatSeconds(seg.startTime)} - {formatSeconds(seg.endTime)}</span>
-                  </span>
-                  <span className="text-slate-300 dark:text-slate-600 font-bold">•</span>
-                  <span className="text-cyan-700 dark:text-cyan-400 font-semibold">{seg.duration.toFixed(1)}s</span>
-                </div>
+
+                {/* Bilingual Source text if selected */}
+                {formatMode === 'bilingual' && sourceText && (
+                  <div className="text-xs text-slate-500 dark:text-slate-400 italic pl-2 border-l-2 border-slate-300 dark:border-slate-700 font-sans">
+                    {sourceText}
+                  </div>
+                )}
+
+                {/* Target Translated Text (Editable or Read-only) */}
+                {isEditing && onUpdateSegment ? (
+                  <textarea
+                    rows={2}
+                    value={targetText}
+                    onChange={(e) =>
+                      onUpdateSegment(seg.id, {
+                        textTarget: e.target.value,
+                        targetText: e.target.value,
+                      })
+                    }
+                    className="w-full rounded-xl bg-white dark:bg-slate-900 border border-indigo-400 dark:border-indigo-500/50 p-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-400 leading-relaxed font-sans"
+                  />
+                ) : (
+                  <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-100 font-medium leading-relaxed font-sans select-text">
+                    {targetText || <span className="text-slate-400 dark:text-slate-500 italic">No translated dialogue</span>}
+                  </p>
+                )}
               </div>
+            );
+          })}
+        </div>
 
-              {/* Bilingual Source text if selected */}
-              {formatMode === 'bilingual' && sourceText && (
-                <div className="text-xs text-slate-500 dark:text-slate-400 italic pl-2 border-l-2 border-slate-300 dark:border-slate-700 font-sans">
-                  {sourceText}
-                </div>
-              )}
-
-              {/* Target Translated Text (Editable or Read-only) */}
-              {isEditing && onUpdateSegment ? (
-                <textarea
-                  rows={2}
-                  value={targetText}
-                  onChange={(e) =>
-                    onUpdateSegment(seg.id, {
-                      textTarget: e.target.value,
-                      targetText: e.target.value,
-                    })
-                  }
-                  className="w-full rounded-xl bg-white dark:bg-slate-900 border border-indigo-400 dark:border-indigo-500/50 p-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-400 leading-relaxed font-sans"
-                />
-              ) : (
-                <p className="text-xs sm:text-sm text-slate-800 dark:text-slate-100 font-medium leading-relaxed font-sans select-text">
-                  {targetText || <span className="text-slate-400 dark:text-slate-500 italic">No translated dialogue</span>}
-                </p>
-              )}
-            </div>
-          );
-        })}
+        {/* Collapsed preview: fade the last cue and offer the full list */}
+        {!isExpanded && hiddenCueCount > 0 && (
+          <div className="absolute inset-x-0 bottom-0 h-24 rounded-b-2xl bg-gradient-to-t from-slate-50 via-slate-50/90 dark:from-slate-900 dark:via-slate-900/90 to-transparent flex items-end justify-center pb-3">
+            <button
+              type="button"
+              onClick={() => setIsExpanded(true)}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white dark:bg-slate-950 hover:bg-slate-50 dark:hover:bg-slate-800 text-indigo-600 dark:text-indigo-300 border border-slate-300 dark:border-slate-700 text-xs font-semibold shadow-sm transition-all cursor-pointer"
+            >
+              <span>Show all {segments.length} cues</span>
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
       </div>
 
-      {renderPagination()}
+      {isExpanded && renderPagination()}
 
       {/* Script Actions Footer */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
