@@ -1,7 +1,11 @@
 import fs from 'node:fs';
+import { randomInt } from 'node:crypto';
 import { config } from '../../env.js';
 import { ApiError } from '../../errors.js';
-import { splitTextForSpeech, contextAround } from '../../lib/ttsText.js';
+import { logger } from '../../logger.js';
+import { splitPassages, contextAround, MAX_TTS_CHUNK_CHARS, PASSAGE_PAUSE_SECONDS } from '../../lib/ttsText.js';
+import { joinPassages } from '../../lib/audioJoin.js';
+import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
 import { elevenLabsJson, elevenLabsBinary, elevenLabsMultipart } from './client.js';
 
 /** ElevenLabs accepts 0.7-1.2 for `speed`; anything outside is rejected. */
@@ -85,11 +89,28 @@ const supportsSpeed = (modelId) => !/_v1$/.test(modelId);
 const supportsContext = (modelId) => !/^eleven_v3/.test(modelId);
 
 /**
- * Formats whose files can be joined by appending bytes: MP3 is a stream of
- * independent frames and PCM/μ-law/A-law are headerless. Anything else (Opus
- * in Ogg, WAV) is generated in one request rather than risk a broken file.
+ * Request stitching: each passage is conditioned on the audio of the ones
+ * before it (by request id), so voice and intonation continue across the join.
+ * It is ElevenLabs' own answer to splitting a long read into requests, and is
+ * not available for eleven_v3 or the legacy v1 models.
  */
-const isConcatenable = (outputFormat) => /^(mp3|pcm|ulaw|alaw)_/.test(outputFormat);
+const supportsStitching = (modelId) => supportsContext(modelId) && supportsSpeed(modelId);
+
+/** ElevenLabs accepts at most this many previous_request_ids. */
+const MAX_STITCHED_REQUESTS = 3;
+
+/**
+ * Longest passage per request. eleven_v3 can neither stitch nor take the
+ * neighbouring text, so every passage is an independent take and every join a
+ * chance for the voice to shift; its passages are made as long as is safe
+ * (its hard limit is 5000) so a dub has as few joins as possible. Stitched
+ * models join cleanly, so they keep short passages, which avoids the drift of
+ * one long generation.
+ */
+const passageLimit = (modelId) => (/^eleven_v3/.test(modelId) ? 3000 : MAX_TTS_CHUNK_CHARS);
+
+/** Formats a multi-passage script can be generated in: DHVANI can decode and re-encode them. */
+const isJoinable = (outputFormat) => Boolean(parseOutputFormat(outputFormat));
 
 const requireVoiceId = (voiceId) => {
   const cleanVoiceId = String(voiceId || '').trim();
@@ -116,7 +137,17 @@ const resolveSettings = async (voiceId, voiceSettings, apiKey) => {
 
 /** One text-to-speech request. Returns the raw Response so the route can stream it through. */
 export const synthesizeSpeech = async (
-  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings, previousText, nextText },
+  {
+    voiceId,
+    text,
+    modelId,
+    outputFormat = 'mp3_44100_128',
+    voiceSettings,
+    previousText,
+    nextText,
+    previousRequestIds,
+    seed,
+  },
   { apiKey } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
@@ -137,20 +168,43 @@ export const synthesizeSpeech = async (
       voice_settings: normalizeSettings(settings, { withSpeed: supportsSpeed(resolvedModel) }),
       ...(supportsContext(resolvedModel) && previousText ? { previous_text: previousText } : {}),
       ...(supportsContext(resolvedModel) && nextText ? { next_text: nextText } : {}),
+      ...(supportsStitching(resolvedModel) && previousRequestIds?.length
+        ? { previous_request_ids: previousRequestIds.slice(-MAX_STITCHED_REQUESTS) }
+        : {}),
+      ...(Number.isInteger(seed) ? { seed } : {}),
     },
     { apiKey }
   );
 };
 
-/** Passages generated at once; ElevenLabs' lowest paid tiers allow 2-3 concurrent requests. */
+/** Passages generated at once when they don't stitch; ElevenLabs' lowest paid tiers allow 2-3 concurrent requests. */
 const SCRIPT_CONCURRENCY = 2;
+
+/**
+ * Joins the passages' audio into one file (see audioJoin.js). Without ffmpeg
+ * the files are appended as they are, which plays but leaves the joins audible.
+ */
+const joinAudio = async (parts, passages, outputFormat) => {
+  try {
+    const decoded = await Promise.all(parts.map((part) => decodeAudio(part, outputFormat)));
+    const joined = joinPassages(decoded, {
+      sampleRate: parseOutputFormat(outputFormat).sampleRate,
+      pauses: passages.slice(0, -1).map((passage) => PASSAGE_PAUSE_SECONDS[passage.breakAfter] ?? 0),
+    });
+    return await encodeAudio(joined, outputFormat);
+  } catch (err) {
+    logger.warn(`Could not join dub passages smoothly (${err.message}); appending them as generated.`);
+    return Buffer.concat(parts);
+  }
+};
 
 /**
  * Text-to-speech for a whole dub script.
  *
- * A long script is generated passage by passage, each told the text either
- * side of it so intonation carries over, then joined into one file. Returns
- * `{ contentType, buffer }`.
+ * A long script is generated passage by passage and joined into one file.
+ * Every passage shares one seed so the voice is sampled the same way
+ * throughout; on models that support it, each is also stitched to the audio
+ * before it and told the text either side. Returns `{ contentType, buffer }`.
  */
 export const synthesizeScript = async (
   { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings },
@@ -162,34 +216,52 @@ export const synthesizeScript = async (
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
 
-  const chunks = isConcatenable(outputFormat) ? splitTextForSpeech(cleanText) : [cleanText];
+  const resolvedModel = modelId || config.elevenlabs.ttsModel;
+  const passages = isJoinable(outputFormat)
+    ? splitPassages(cleanText, passageLimit(resolvedModel))
+    : [{ text: cleanText, breakAfter: null }];
+  const chunks = passages.map((passage) => passage.text);
   // Load the voice's settings once instead of once per passage.
   const settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
+  const seed = randomInt(0, 2 ** 32 - 1);
 
   const parts = new Array(chunks.length);
   let contentType = 'audio/mpeg';
-  let next = 0;
-  const worker = async () => {
-    while (next < chunks.length) {
-      const index = next++;
-      const response = await synthesizeSpeech(
-        {
-          voiceId: cleanVoiceId,
-          text: chunks[index],
-          modelId,
-          outputFormat,
-          voiceSettings: settings,
-          ...contextAround(chunks, index),
-        },
-        { apiKey }
-      );
-      if (index === 0) contentType = response.headers.get('content-type') || contentType;
-      parts[index] = Buffer.from(await response.arrayBuffer());
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(SCRIPT_CONCURRENCY, chunks.length) }, worker));
+  const requestIds = [];
 
-  return { contentType, buffer: Buffer.concat(parts) };
+  const generate = async (index) => {
+    const response = await synthesizeSpeech(
+      {
+        voiceId: cleanVoiceId,
+        text: chunks[index],
+        modelId: resolvedModel,
+        outputFormat,
+        voiceSettings: settings,
+        seed,
+        previousRequestIds: requestIds.slice(0, index).filter(Boolean),
+        ...contextAround(chunks, index),
+      },
+      { apiKey }
+    );
+    if (index === 0) contentType = response.headers.get('content-type') || contentType;
+    // A stitched request may only reference a generation that has fully arrived.
+    parts[index] = Buffer.from(await response.arrayBuffer());
+    requestIds[index] = response.headers.get('request-id') || null;
+  };
+
+  if (supportsStitching(resolvedModel)) {
+    // Stitching needs each passage finished before the next one starts.
+    for (let index = 0; index < chunks.length; index++) await generate(index);
+  } else {
+    let next = 0;
+    const worker = async () => {
+      while (next < chunks.length) await generate(next++);
+    };
+    await Promise.all(Array.from({ length: Math.min(SCRIPT_CONCURRENCY, chunks.length) }, worker));
+  }
+
+  const buffer = parts.length === 1 ? parts[0] : await joinAudio(parts, passages, outputFormat);
+  return { contentType, buffer };
 };
 
 /** Speech-to-speech voice conversion. */
