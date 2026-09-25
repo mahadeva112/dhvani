@@ -59,7 +59,7 @@ geminiRouter.post(
         segments: parseJsonField(body.segments, []),
         manualDuration: body.manualDuration ? Number(body.manualDuration) : undefined,
         pronunciations: parseJsonField(body.pronunciations, []),
-        language: body.language || 'Bengali',
+        language: body.language || 'Hindi',
         file: req.file,
       },
       { apiKey: apiKey(req) }

@@ -217,7 +217,7 @@ export const generateElevenLabsXml = async (
   expression?: string,
   pronunciations?: { original: string; replacement: string }[],
   audioFile?: File | null,
-  language: string = 'Bengali',
+  language: string = 'Hindi',
   onStatusUpdate?: (status: string) => void
 ): Promise<string> => {
   onStatusUpdate?.('Generating SSML with Gemini...');

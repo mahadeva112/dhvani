@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { Voice } from '../services/elevenLabsService';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
+import { isIndianVoice, languageFit } from '../services/indianVoices';
 
 export interface VoiceItem {
   id: string;
@@ -174,6 +175,8 @@ interface VoiceSelectorCardProps {
   onElVoiceIdChange: (voiceId: string) => void;
   availableVoices?: Voice[];
   onOpenVoiceChanger?: () => void;
+  /** The dub language; voices that speak it are suggested first. */
+  targetLanguage?: string;
 }
 
 /** A voice plus the precomputed fields the search ranks against. */
@@ -183,6 +186,9 @@ interface IndexedVoice extends VoiceItem {
   haystack: string;
   accentKey: string;
   styleKey: string;
+  indian: boolean;
+  /** 2: the dub language is the voice's own, 1: verified in it, 0: neither. */
+  languageFit: number;
 }
 
 type CategoryFilter = 'all' | 'premade' | 'cloned' | 'custom';
@@ -190,6 +196,16 @@ type GenderFilter = 'all' | 'female' | 'male';
 
 /** Rows rendered per page; the list grows as you scroll so thousands of voices stay fast. */
 const PAGE_SIZE = 60;
+
+/** Whether the list shows only Indian voices; on unless the user turned it off. */
+const INDIAN_ONLY_KEY = 'dhvani_voice_indian_only';
+const readIndianOnly = () => {
+  try {
+    return localStorage.getItem(INDIAN_ONLY_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+};
 
 const CATEGORY_LABELS: Record<CategoryFilter, string> = {
   all: 'All',
@@ -311,6 +327,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   elVoiceId,
   onElVoiceIdChange,
   availableVoices = [],
+  targetLanguage = 'Hindi',
 }) => {
   const [isVoiceBrowserOpen, setIsVoiceBrowserOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -319,6 +336,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   const [accentFilter, setAccentFilter] = useState<string>('all');
   const [styleFilter, setStyleFilter] = useState<string>('all');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [indianOnly, setIndianOnly] = useState(readIndianOnly);
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -369,7 +387,9 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         ? availableVoices.map((v) => {
             const labels = v.labels || {};
             const gender = (labels.gender || '').toLowerCase();
-            const accent = titleCase(prettify(labels.accent)) || 'Neutral';
+            // "en-indian" and "hi-standard" carry a language prefix; without it
+            // they merge with "Indian" and "Standard".
+            const accent = titleCase(prettify((labels.accent || '').trim().replace(/^[a-z]{2,3}-(?=[a-z])/i, ''))) || 'Neutral';
             // Accent and gender already have their own badges; the description carries the rest.
             const desc =
               [labels.age, labels.use_case, labels.description]
@@ -386,11 +406,13 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
               desc,
               previewUrl: v.preview_url,
               labels,
+              indian: isIndianVoice(v),
+              fit: languageFit(v, targetLanguage),
             };
           })
         : POPULAR_ELEVENLABS_VOICES;
 
-    return base.map((raw) => {
+    return (base as (VoiceItem & { indian?: boolean; fit?: number })[]).map((raw) => {
       // Library names sometimes carry stray whitespace (" Knightley Javier"), which blanks the avatar initial
       const v = { ...raw, name: (raw.name || '').trim() || raw.id };
       const nameLc = v.name.toLowerCase();
@@ -404,12 +426,35 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         haystack: [nameLc, v.accent, v.category, v.desc, labelText, v.id].join(' ').toLowerCase(),
         accentKey: v.accent && v.accent !== 'Neutral' ? v.accent : '',
         styleKey: capitalize(prettify(v.labels?.use_case)),
+        indian: Boolean(raw.indian),
+        languageFit: raw.fit || 0,
       };
     });
-  }, [availableVoices]);
+  }, [availableVoices, targetLanguage]);
 
-  const accentOptions = useMemo(() => topValues(allVoices, 'accentKey', 8), [allVoices]);
-  const styleOptions = useMemo(() => topValues(allVoices, 'styleKey', 8), [allVoices]);
+  const indianCount = useMemo(() => allVoices.filter((v) => v.indian).length, [allVoices]);
+  // With no Indian voices in the library (or only the built-in list), the filter would empty the list.
+  const showIndianOnly = indianOnly && indianCount > 0;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(INDIAN_ONLY_KEY, String(indianOnly));
+    } catch {}
+  }, [indianOnly]);
+
+  // Chips count the voices on offer, so with the Indian filter on they show
+  // Indian accents rather than American, British or Latin American.
+  const chipPool = useMemo(
+    () => (showIndianOnly ? allVoices.filter((v) => v.indian) : allVoices),
+    [allVoices, showIndianOnly],
+  );
+  const accentOptions = useMemo(() => topValues(chipPool, 'accentKey', 8), [chipPool]);
+  const styleOptions = useMemo(() => topValues(chipPool, 'styleKey', 8), [chipPool]);
+
+  // An accent picked from the full library may not exist among Indian voices.
+  useEffect(() => {
+    if (accentFilter !== 'all' && !chipPool.some((v) => v.accentKey === accentFilter)) setAccentFilter('all');
+  }, [chipPool, accentFilter]);
 
   const categoryCounts = useMemo(() => {
     const counts: Record<CategoryFilter, number> = { all: allVoices.length, premade: 0, cloned: 0, custom: 0 };
@@ -421,18 +466,19 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     return counts;
   }, [allVoices]);
 
-  // Filter + rank: best name matches first while searching, favourites then A to Z otherwise
+  // Filter + rank: best name matches first while searching, favourites, then dub-language voices, then A to Z otherwise
   const filteredVoices = useMemo(() => {
     const scored: { v: IndexedVoice; score: number }[] = [];
     for (const v of allVoices) {
       if (favoritesOnly && !isFavorite(v.id)) continue;
+      if (showIndianOnly && !v.indian) continue;
       if (!matchesCategory(v.category, categoryFilter)) continue;
       if (genderFilter !== 'all' && v.gender !== genderFilter) continue;
       if (accentFilter !== 'all' && v.accentKey !== accentFilter) continue;
       if (styleFilter !== 'all' && v.styleKey !== styleFilter) continue;
       const score = tokens.length ? scoreVoice(v, tokens) : 0;
       if (score === null) continue;
-      scored.push({ v, score: score + (isFavorite(v.id) ? 5 : 0) });
+      scored.push({ v, score: score + (isFavorite(v.id) ? 5 : 0) + v.languageFit * 8 });
     }
 
     return scored
@@ -440,10 +486,12 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         if (tokens.length && b.score !== a.score) return b.score - a.score;
         const favDelta = Number(isFavorite(b.v.id)) - Number(isFavorite(a.v.id));
         if (favDelta !== 0) return favDelta;
+        // Voices that speak the dub language come first.
+        if (b.v.languageFit !== a.v.languageFit) return b.v.languageFit - a.v.languageFit;
         return a.v.name.localeCompare(b.v.name, undefined, { sensitivity: 'base' });
       })
       .map((s) => s.v);
-  }, [allVoices, tokens, categoryFilter, genderFilter, accentFilter, styleFilter, favoritesOnly, isFavorite]);
+  }, [allVoices, tokens, categoryFilter, genderFilter, accentFilter, styleFilter, favoritesOnly, showIndianOnly, isFavorite]);
 
   // New results: start from the top again
   useEffect(() => {
@@ -474,6 +522,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     setAccentFilter('all');
     setStyleFilter('all');
     setFavoritesOnly(false);
+    setIndianOnly(false);
   };
 
   // Current active selected voice object
@@ -872,6 +921,18 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                 Favourites
                 {favorites.length > 0 && <span className="opacity-70 tabular-nums">{favorites.length}</span>}
               </button>
+              {indianCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIndianOnly((on) => !on)}
+                  className={chipClass(indianOnly, 'purple')}
+                  title={`Show only Indian voices; those that speak ${targetLanguage} are listed first`}
+                >
+                  <Globe className="w-3 h-3" />
+                  Indian
+                  <span className="opacity-70 tabular-nums">{indianCount}</span>
+                </button>
+              )}
               {(Object.keys(CATEGORY_LABELS) as CategoryFilter[]).map((cat) => (
                 <button
                   key={cat}
@@ -947,7 +1008,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
               <span className="text-slate-300 font-semibold tabular-nums">{filteredVoices.length.toLocaleString()}</span>
               {' '}
               {filteredVoices.length === 1 ? 'voice' : 'voices'}
-              {tokens.length > 0 ? ' · best match first' : ' · favourites, then A–Z'}
+              {tokens.length > 0 ? ' · best match first' : ` · favourites, then ${targetLanguage} voices, then A–Z`}
             </span>
             {(activeFilterCount > 0 || searchQuery) && (
               <button
@@ -1063,6 +1124,18 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                           <span className="shrink-0 text-[9px] font-mono font-semibold px-1 rounded bg-slate-900 text-slate-400 uppercase border border-slate-800">
                             {v.category}
                           </span>
+                          {v.languageFit > 0 && (
+                            <span
+                              className="shrink-0 text-[9px] font-semibold px-1 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30"
+                              title={
+                                v.languageFit === 2
+                                  ? `A ${targetLanguage} voice`
+                                  : `Verified by ElevenLabs in ${targetLanguage}`
+                              }
+                            >
+                              {targetLanguage}
+                            </span>
+                          )}
                           {v.gender !== 'neutral' && <span className="shrink-0 capitalize">{v.gender}</span>}
                           {v.accent !== 'Neutral' && (
                             <>

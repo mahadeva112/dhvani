@@ -154,7 +154,7 @@ Respond with ONLY this JSON:
 
 /** Generates ElevenLabs SSML from the reviewed script and the measured rhythm. */
 export const generateSsml = async (
-  { script, segments = [], manualDuration, pronunciations = [], language = 'Bengali', file },
+  { script, segments = [], manualDuration, pronunciations = [], language = 'Hindi', file },
   { apiKey, models } = {}
 ) => {
   const sorted = [...segments].sort((a, b) => a.startTime - b.startTime);

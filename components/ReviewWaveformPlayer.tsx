@@ -72,7 +72,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   onSeek,
   onSelectSegment,
   activeSegmentId,
-  targetLanguage = 'Bengali',
+  targetLanguage = 'Hindi',
   playbackRate = 1.0,
   onPlaybackRateChange,
   trackMode = 'source',

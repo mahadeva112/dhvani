@@ -22,6 +22,9 @@ import { BatchJob, ProcessingStatus } from '../types';
 
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
+/** The dub language a new install starts on. */
+export const DEFAULT_TARGET_LANGUAGE = 'Hindi';
+
 export const DEFAULT_LANGUAGES = [
   { code: 'Assamese', label: 'Assamese (অসমীয়া)' },
   { code: 'Bengali', label: 'Bengali (বাংলা)' },
@@ -123,7 +126,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   onThemeModeChange,
   onToggleTheme,
 }) => {
-  const currentLanguage = targetLanguage || language || activeJob?.language || 'Bengali';
+  const currentLanguage = targetLanguage || language || activeJob?.language || DEFAULT_TARGET_LANGUAGE;
   const handleLangChange = onTargetLanguageChange || onLanguageChange || (() => {});
 
   // Tools menu: collapses the six tool/settings dialogs into a single header control.

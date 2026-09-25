@@ -740,6 +740,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   elVoiceId={elVoiceId}
                   onElVoiceIdChange={onElVoiceIdChange}
                   availableVoices={availableVoices}
+                  targetLanguage={targetLanguage}
                 />
               </div>
 
@@ -2198,6 +2199,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 elVoiceId={elVoiceId}
                 onElVoiceIdChange={onElVoiceIdChange}
                 availableVoices={availableVoices}
+                targetLanguage={targetLanguage}
               />
 
               <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
@@ -2259,6 +2261,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 elVoiceId={elVoiceId}
                 onElVoiceIdChange={onElVoiceIdChange}
                 availableVoices={availableVoices}
+                targetLanguage={targetLanguage}
               />
 
             {/* A/B Track Audition Switcher */}
