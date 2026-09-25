@@ -1,20 +1,24 @@
 import fs from 'node:fs';
 import { config } from '../../env.js';
 import { ApiError } from '../../errors.js';
+import { splitTextForSpeech, contextAround } from '../../lib/ttsText.js';
 import { elevenLabsJson, elevenLabsBinary, elevenLabsMultipart } from './client.js';
 
 /** ElevenLabs accepts 0.7-1.2 for `speed`; anything outside is rejected. */
 export const MIN_VOICE_SPEED = 0.7;
 export const MAX_VOICE_SPEED = 1.2;
 
+/**
+ * Fallback only. A dub normally uses the voice's own settings as saved on
+ * ElevenLabs (see getVoiceSettings), which is what the ElevenLabs website does.
+ * Speed stays at the model's 1.0: slowing the model down makes it drawl.
+ */
 export const DEFAULT_VOICE_SETTINGS = {
   stability: 0.5,
   similarity_boost: 0.75,
   style: 0.0,
   use_speaker_boost: true,
-  // The raw model default (1.0) reads dubbing cues noticeably faster than a
-  // human narrator. 0.9 lands on an unhurried, natural delivery out of the box.
-  speed: 0.9,
+  speed: 1.0,
 };
 
 /**
@@ -67,15 +71,55 @@ const normalizeSettings = (settings = {}, { withSpeed = true } = {}) => {
   return normalized;
 };
 
-/** Text-to-speech. Returns the raw Response so the route can stream it through. */
-export const synthesizeSpeech = async (
-  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings },
-  { apiKey } = {}
-) => {
+/** The settings a voice was saved with on ElevenLabs. */
+export const getVoiceSettings = ({ voiceId, apiKey } = {}) =>
+  elevenLabsJson(`/voices/${encodeURIComponent(String(voiceId || '').trim())}/settings`, {
+    apiKey,
+    timeoutMs: 20000,
+  });
+
+/** The legacy v1 models predate the `speed` control and reject it. */
+const supportsSpeed = (modelId) => !/_v1$/.test(modelId);
+
+/** eleven_v3 does not take previous_text / next_text. */
+const supportsContext = (modelId) => !/^eleven_v3/.test(modelId);
+
+/**
+ * Formats whose files can be joined by appending bytes: MP3 is a stream of
+ * independent frames and PCM/μ-law/A-law are headerless. Anything else (Opus
+ * in Ogg, WAV) is generated in one request rather than risk a broken file.
+ */
+const isConcatenable = (outputFormat) => /^(mp3|pcm|ulaw|alaw)_/.test(outputFormat);
+
+const requireVoiceId = (voiceId) => {
   const cleanVoiceId = String(voiceId || '').trim();
   if (!cleanVoiceId) {
     throw new ApiError('No ElevenLabs voice was selected.', { status: 400, code: 'missing_voice_id' });
   }
+  return cleanVoiceId;
+};
+
+/**
+ * Settings the caller chose, or else the voice's own saved settings. A voice's
+ * saved settings are what it sounds like on the ElevenLabs website; replacing
+ * them with one fixed set is what made voices sound flat and robotic.
+ */
+const resolveSettings = async (voiceId, voiceSettings, apiKey) => {
+  if (voiceSettings) return voiceSettings;
+  try {
+    return await getVoiceSettings({ voiceId, apiKey });
+  } catch (err) {
+    console.warn(`[elevenlabs] Could not load settings for voice ${voiceId}; using defaults.`, err?.message);
+    return DEFAULT_VOICE_SETTINGS;
+  }
+};
+
+/** One text-to-speech request. Returns the raw Response so the route can stream it through. */
+export const synthesizeSpeech = async (
+  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings, previousText, nextText },
+  { apiKey } = {}
+) => {
+  const cleanVoiceId = requireVoiceId(voiceId);
 
   const cleanText = cleanTextForNaturalSpeech(text);
   if (!cleanText) {
@@ -83,17 +127,69 @@ export const synthesizeSpeech = async (
   }
 
   const resolvedModel = modelId || config.elevenlabs.ttsModel;
+  const settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
 
   return elevenLabsBinary(
     `/text-to-speech/${encodeURIComponent(cleanVoiceId)}?output_format=${encodeURIComponent(outputFormat)}`,
     {
       text: cleanText,
       model_id: resolvedModel,
-      // The legacy v1 models predate the `speed` control and reject it.
-      voice_settings: normalizeSettings(voiceSettings, { withSpeed: !/_v1$/.test(resolvedModel) }),
+      voice_settings: normalizeSettings(settings, { withSpeed: supportsSpeed(resolvedModel) }),
+      ...(supportsContext(resolvedModel) && previousText ? { previous_text: previousText } : {}),
+      ...(supportsContext(resolvedModel) && nextText ? { next_text: nextText } : {}),
     },
     { apiKey }
   );
+};
+
+/** Passages generated at once; ElevenLabs' lowest paid tiers allow 2-3 concurrent requests. */
+const SCRIPT_CONCURRENCY = 2;
+
+/**
+ * Text-to-speech for a whole dub script.
+ *
+ * A long script is generated passage by passage, each told the text either
+ * side of it so intonation carries over, then joined into one file. Returns
+ * `{ contentType, buffer }`.
+ */
+export const synthesizeScript = async (
+  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings },
+  { apiKey } = {}
+) => {
+  const cleanVoiceId = requireVoiceId(voiceId);
+  const cleanText = cleanTextForNaturalSpeech(text);
+  if (!cleanText) {
+    throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
+  }
+
+  const chunks = isConcatenable(outputFormat) ? splitTextForSpeech(cleanText) : [cleanText];
+  // Load the voice's settings once instead of once per passage.
+  const settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
+
+  const parts = new Array(chunks.length);
+  let contentType = 'audio/mpeg';
+  let next = 0;
+  const worker = async () => {
+    while (next < chunks.length) {
+      const index = next++;
+      const response = await synthesizeSpeech(
+        {
+          voiceId: cleanVoiceId,
+          text: chunks[index],
+          modelId,
+          outputFormat,
+          voiceSettings: settings,
+          ...contextAround(chunks, index),
+        },
+        { apiKey }
+      );
+      if (index === 0) contentType = response.headers.get('content-type') || contentType;
+      parts[index] = Buffer.from(await response.arrayBuffer());
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SCRIPT_CONCURRENCY, chunks.length) }, worker));
+
+  return { contentType, buffer: Buffer.concat(parts) };
 };
 
 /** Speech-to-speech voice conversion. */
@@ -101,10 +197,7 @@ export const speechToSpeech = async (
   { voiceId, file, modelId = 'eleven_multilingual_sts_v2', voiceSettings, removeBackgroundNoise },
   { apiKey } = {}
 ) => {
-  const cleanVoiceId = String(voiceId || '').trim();
-  if (!cleanVoiceId) {
-    throw new ApiError('No ElevenLabs voice was selected.', { status: 400, code: 'missing_voice_id' });
-  }
+  const cleanVoiceId = requireVoiceId(voiceId);
   if (!file) {
     throw new ApiError('No source audio was uploaded for voice conversion.', {
       status: 400,

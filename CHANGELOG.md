@@ -17,6 +17,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Settings** is written to this computer's own config file and takes over from there. Set
   `ALLOW_KEY_SETUP=false` to make the environment the last word instead.
 
+### Fixed
+
+- **Dubbed voices sound like they do on the ElevenLabs website, not robotic.** Four causes, all fixed:
+  - Every dub forced one fixed set of voice settings, including a slowed-down speed of 0.9 that made
+    voices drawl. A dub now uses the voice's own ElevenLabs settings, as the website does, and the
+    Voice Settings sliders show them. Moving a slider stores a custom override for that voice;
+    **Reset to this voice's own settings** clears it, and picking another voice clears it too.
+    Settings saved by earlier versions are not carried over, because they were the old forced values.
+  - Subtitle cues were joined with blank lines, so ElevenLabs treated each on-screen fragment as its
+    own paragraph and paused mid-sentence. Cues are now rejoined into flowing sentences, with a line
+    break only where a sentence ends at a real pause in the original audio.
+  - A long script went to ElevenLabs as one request, and quality drifted over the length of the
+    audio. It is now generated in passages of up to 1,000 characters, each given the text before
+    and after it so the intonation carries across, then joined into one file.
+  - Step 3 said "ElevenLabs v3" whatever model was chosen; it now names the model actually used.
+- **Eleven v3 is in the built-in model list**, so it can be chosen even when the live model list
+  cannot be loaded. v3 ignores the Speaking Speed setting.
+
 ### Added
 
 - **QA & sign-off cockpit.** A fifth review layout in Step 2, beside Studio Cards and Cue Sheet

@@ -32,6 +32,7 @@ import {
   getModels,
   getVoices,
   synthesizeSamplePreview,
+  getVoiceSettings,
 } from '../services/elevenLabsService';
 import { isServerManagedKey } from '../services/apiClient';
 
@@ -44,8 +45,9 @@ interface VoiceSettingsModalProps {
   onElVoiceIdChange: (voiceId: string) => void;
   elModelId: string;
   onElModelIdChange: (modelId: string) => void;
-  elVoiceSettings?: ElevenLabsVoiceSettings;
-  onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings) => void;
+  /** Null means the selected voice's own ElevenLabs settings are used. */
+  elVoiceSettings?: ElevenLabsVoiceSettings | null;
+  onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
   availableVoices: Voice[];
   isLoadingVoices: boolean;
   onRefreshVoices: () => void;
@@ -61,7 +63,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   onElVoiceIdChange,
   elModelId,
   onElModelIdChange,
-  elVoiceSettings = DEFAULT_VOICE_SETTINGS,
+  elVoiceSettings = null,
   onElVoiceSettingsChange,
   availableVoices,
   isLoadingVoices,
@@ -88,6 +90,27 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   const [isFetchingRealtimeVoices, setIsFetchingRealtimeVoices] = useState<boolean>(false);
 
   const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
+
+  /*
+   * The selected voice's own ElevenLabs settings. They are what a dub uses
+   * until the sliders are moved, so the sliders show them rather than a
+   * generic default.
+   */
+  const [voiceOwnSettings, setVoiceOwnSettings] = useState<ElevenLabsVoiceSettings | null>(null);
+  useEffect(() => {
+    if (!isOpen || !elVoiceId) return;
+    let cancelled = false;
+    setVoiceOwnSettings(null);
+    getVoiceSettings(elApiKey, elVoiceId)
+      .then((settings) => !cancelled && setVoiceOwnSettings(settings))
+      .catch(() => !cancelled && setVoiceOwnSettings(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, elApiKey, elVoiceId]);
+
+  const usingVoiceOwnSettings = !elVoiceSettings;
+  const shownSettings = elVoiceSettings || voiceOwnSettings || DEFAULT_VOICE_SETTINGS;
 
   // Validate API key and fetch real-time voices & all models
   const handleValidateApiKey = useCallback(
@@ -485,13 +508,21 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 {onElVoiceSettingsChange && (
                   <button
                     type="button"
-                    onClick={() => onElVoiceSettingsChange(DEFAULT_VOICE_SETTINGS)}
-                    className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 transition-colors underline"
+                    onClick={() => onElVoiceSettingsChange(null)}
+                    disabled={usingVoiceOwnSettings}
+                    className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 transition-colors underline disabled:no-underline disabled:text-slate-500 disabled:cursor-default"
                   >
-                    Reset to Official Defaults
+                    Reset to this voice's own settings
                   </button>
                 )}
               </div>
+              <p className="text-[10px] text-slate-400">
+                {usingVoiceOwnSettings
+                  ? voiceOwnSettings
+                    ? "Using this voice's own ElevenLabs settings — the same as on the ElevenLabs website."
+                    : "Using this voice's own ElevenLabs settings."
+                  : 'Custom settings for this voice. Picking another voice goes back to its own settings.'}
+              </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-slate-950/70 border border-slate-800">
                 {/* Stability Slider */}
@@ -499,8 +530,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-300 font-medium">Stability:</span>
                     <span className="font-mono text-indigo-400 font-bold">
-                      {((elVoiceSettings.stability ?? 0.5) * 100).toFixed(0)}% (
-                      {(elVoiceSettings.stability ?? 0.5) === 0.5 ? 'Natural' : (elVoiceSettings.stability ?? 0.5) < 0.5 ? 'Expressive' : 'Steady'}
+                      {((shownSettings.stability ?? 0.5) * 100).toFixed(0)}% (
+                      {(shownSettings.stability ?? 0.5) === 0.5 ? 'Natural' : (shownSettings.stability ?? 0.5) < 0.5 ? 'Expressive' : 'Steady'}
                       )
                     </span>
                   </div>
@@ -509,10 +540,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     min="0"
                     max="1"
                     step="0.05"
-                    value={elVoiceSettings.stability ?? 0.5}
+                    value={shownSettings.stability ?? 0.5}
                     onChange={(e) =>
                       onElVoiceSettingsChange?.({
-                        ...elVoiceSettings,
+                        ...shownSettings,
                         stability: parseFloat(e.target.value),
                       })
                     }
@@ -530,8 +561,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-300 font-medium">Clarity + Similarity:</span>
                     <span className="font-mono text-indigo-400 font-bold">
-                      {((elVoiceSettings.similarity_boost ?? 0.75) * 100).toFixed(0)}% (
-                      {(elVoiceSettings.similarity_boost ?? 0.75) === 0.75 ? 'Authentic' : 'Custom'}
+                      {((shownSettings.similarity_boost ?? 0.75) * 100).toFixed(0)}% (
+                      {(shownSettings.similarity_boost ?? 0.75) === 0.75 ? 'Authentic' : 'Custom'}
                       )
                     </span>
                   </div>
@@ -540,10 +571,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     min="0"
                     max="1"
                     step="0.05"
-                    value={elVoiceSettings.similarity_boost ?? 0.75}
+                    value={shownSettings.similarity_boost ?? 0.75}
                     onChange={(e) =>
                       onElVoiceSettingsChange?.({
-                        ...elVoiceSettings,
+                        ...shownSettings,
                         similarity_boost: parseFloat(e.target.value),
                       })
                     }
@@ -561,8 +592,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-300 font-medium">Style Exaggeration:</span>
                     <span className="font-mono text-indigo-400 font-bold">
-                      {((elVoiceSettings.style ?? 0.0) * 100).toFixed(0)}% (
-                      {(elVoiceSettings.style ?? 0.0) === 0.0 ? 'Natural Clean' : 'Exaggerated'}
+                      {((shownSettings.style ?? 0.0) * 100).toFixed(0)}% (
+                      {(shownSettings.style ?? 0.0) === 0.0 ? 'Natural Clean' : 'Exaggerated'}
                       )
                     </span>
                   </div>
@@ -571,10 +602,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     min="0"
                     max="1"
                     step="0.05"
-                    value={elVoiceSettings.style ?? 0.0}
+                    value={shownSettings.style ?? 0.0}
                     onChange={(e) =>
                       onElVoiceSettingsChange?.({
-                        ...elVoiceSettings,
+                        ...shownSettings,
                         style: parseFloat(e.target.value),
                       })
                     }
@@ -591,13 +622,12 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   <div className="flex items-center justify-between text-[11px]">
                     <span className="text-slate-300 font-medium">Speaking Speed:</span>
                     <span className="font-mono text-indigo-400 font-bold">
-                      {(elVoiceSettings.speed ?? DEFAULT_VOICE_SETTINGS.speed ?? 0.9).toFixed(2)}x (
+                      {(shownSettings.speed ?? 1.0).toFixed(2)}x (
                       {(() => {
-                        const spd = elVoiceSettings.speed ?? DEFAULT_VOICE_SETTINGS.speed ?? 0.9;
-                        if (spd < 0.85) return 'Slow';
-                        if (spd <= 0.95) return 'Natural';
-                        if (spd <= 1.05) return 'Model Default';
-                        return 'Fast';
+                        const spd = shownSettings.speed ?? 1.0;
+                        if (spd < 0.95) return 'Slower';
+                        if (spd <= 1.05) return 'Natural';
+                        return 'Faster';
                       })()}
                       )
                     </span>
@@ -607,10 +637,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     min={MIN_VOICE_SPEED}
                     max={MAX_VOICE_SPEED}
                     step="0.01"
-                    value={elVoiceSettings.speed ?? DEFAULT_VOICE_SETTINGS.speed ?? 0.9}
+                    value={shownSettings.speed ?? 1.0}
                     onChange={(e) =>
                       onElVoiceSettingsChange?.({
-                        ...elVoiceSettings,
+                        ...shownSettings,
                         speed: parseFloat(e.target.value),
                       })
                     }
@@ -618,7 +648,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   />
                   <div className="flex justify-between text-[9px] text-slate-500 font-mono">
                     <span>0.70x Slow</span>
-                    <span className="text-emerald-400">0.90x Natural (Default)</span>
+                    <span className="text-emerald-400">1.00x Natural (Default)</span>
                     <span>1.20x Fast</span>
                   </div>
                 </div>
@@ -628,10 +658,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={elVoiceSettings.use_speaker_boost !== false}
+                      checked={shownSettings.use_speaker_boost !== false}
                       onChange={(e) =>
                         onElVoiceSettingsChange?.({
-                          ...elVoiceSettings,
+                          ...shownSettings,
                           use_speaker_boost: e.target.checked,
                         })
                       }

@@ -22,14 +22,18 @@ export interface ElevenLabsVoiceSettings {
 export const MIN_VOICE_SPEED = 0.7;
 export const MAX_VOICE_SPEED = 1.2;
 
+/**
+ * Shown only while a voice's own settings are loading or unavailable. A dub
+ * normally uses the voice's own ElevenLabs settings (see getVoiceSettings),
+ * which is what the ElevenLabs website does. Speed stays at the model's 1.0:
+ * slowing the model down makes it drawl and sound mechanical.
+ */
 export const DEFAULT_VOICE_SETTINGS: ElevenLabsVoiceSettings = {
-  stability: 0.5, // Natural & expressive
-  similarity_boost: 0.75, // High clarity & authenticity
-  style: 0.0, // No artificial exaggeration
+  stability: 0.5,
+  similarity_boost: 0.75,
+  style: 0.0,
   use_speaker_boost: true,
-  // The raw model default (1.0) reads dubbing cues noticeably faster than a
-  // human narrator. 0.9 lands on an unhurried, natural delivery out of the box.
-  speed: 0.9,
+  speed: 1.0,
 };
 
 const keys = (apiKey?: string) => ({ keys: { elevenLabsKey: apiKey } });
@@ -67,16 +71,29 @@ export const synthesizeSpeech = async (
   text: string,
   modelId: string = 'eleven_multilingual_v2',
   outputFormat: string = 'mp3_44100_128',
-  voiceSettings: ElevenLabsVoiceSettings = DEFAULT_VOICE_SETTINGS
+  /** Null uses the voice's own ElevenLabs settings. */
+  voiceSettings: ElevenLabsVoiceSettings | null = null
 ): Promise<Blob> => {
   const cleanText = cleanTextForNaturalSpeech(text);
   if (!cleanText) throw new Error('No dialogue text provided for synthesis.');
 
   return apiAudio(
     '/elevenlabs/tts',
-    { voiceId, text: cleanText, modelId, outputFormat, voiceSettings },
+    { voiceId, text: cleanText, modelId, outputFormat, voiceSettings: voiceSettings || undefined },
     keys(apiKey)
   );
+};
+
+/** The settings a voice was saved with on ElevenLabs — how it sounds on the website. */
+export const getVoiceSettings = async (
+  apiKey: string,
+  voiceId: string
+): Promise<ElevenLabsVoiceSettings> => {
+  const data = await apiGet<{ settings: ElevenLabsVoiceSettings }>(
+    `/elevenlabs/voices/${encodeURIComponent(voiceId)}/settings`,
+    keys(apiKey)
+  );
+  return { ...DEFAULT_VOICE_SETTINGS, ...data.settings };
 };
 
 export interface Voice {
@@ -136,6 +153,14 @@ export interface ValidationResponse {
 
 /** Offline catalog used when the live model list cannot be fetched. */
 export const ALL_ELEVENLABS_MODELS: ElevenLabsModel[] = [
+  {
+    model_id: 'eleven_v3',
+    name: 'Eleven v3',
+    description:
+      'The most expressive model, supporting 70+ languages. The Speaking Speed slider has no effect on it.',
+    can_do_text_to_speech: true,
+    token_cost_factor: 1.0,
+  },
   {
     model_id: 'eleven_multilingual_v2',
     name: 'Eleven Multilingual v2',

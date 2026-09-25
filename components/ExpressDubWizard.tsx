@@ -91,6 +91,8 @@ interface ExpressDubWizardProps {
   onAutoTranscribe: () => Promise<void>;
   isTranscribing: boolean;
   onSynthesizeMaster: () => Promise<void>;
+  /** Display name of the ElevenLabs model the dub is generated with. */
+  ttsModelName?: string;
   isSynthesizing: boolean;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
   onPlaySegmentSolo: (segment: AudioSegment) => void;
@@ -137,6 +139,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onAutoTranscribe,
   isTranscribing,
   onSynthesizeMaster,
+  ttsModelName = 'ElevenLabs',
   isSynthesizing,
   onUpdateSegment,
   onPlaySegmentSolo,
@@ -2234,7 +2237,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       Step 3: Dubbed Audio Master Ready ({targetLanguage})
                     </h2>
                     <p className="text-xs text-slate-400">
-                      Speech generated with ElevenLabs v3 Multilingual. Natural pauses and prosody aligned to original audio.
+                      Speech generated with {ttsModelName}.
                     </p>
                   </div>
                 </div>
