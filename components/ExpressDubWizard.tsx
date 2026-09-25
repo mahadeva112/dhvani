@@ -2113,16 +2113,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <span className="text-[11px] hidden sm:inline">Top</span>
               </button>
 
-              {/* Primary Next Action: Finalize Script & Dub */}
+              {/*
+                Primary Next Action: only moves on to Step 3. Dubbing spends
+                ElevenLabs credits, so it starts from Step 3 once a voice is picked.
+              */}
               <button
                 type="button"
-                onClick={async () => {
+                onClick={() => {
                   setStepOverride(3);
-                  if (!activeJob.synthesizedAudioUrl && !isSynthesizing) {
-                    await onSynthesizeMaster();
-                  }
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                disabled={activeJob.segments.length === 0 || isSynthesizing}
+                disabled={activeJob.segments.length === 0}
                 className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-indigo-600 to-cyan-500 hover:from-emerald-500 hover:to-cyan-400 text-white text-xs sm:text-sm font-bold shadow-xl shadow-emerald-600/30 disabled:opacity-50 transition-all active:scale-95 cursor-pointer"
               >
                 {isSynthesizing ? (
@@ -2132,8 +2133,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 )}
                 <span>
                   {isSynthesizing
-                    ? 'Dubbing with ElevenLabs...'
-                    : 'Finalize & Dub with ElevenLabs (Step 3) ➔'}
+                    ? 'Dubbing in progress — view Step 3 ➔'
+                    : 'Finalize Script & Choose Voice (Step 3) ➔'}
                 </span>
               </button>
 
@@ -2170,37 +2171,36 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {/* ========================================================================= */}
       {activeStep === 3 && activeJob && (
         <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
-          {/* Final Script Viewer & Exporter */}
-          <FinalScriptViewer
-            segments={segments}
-            targetLanguage={targetLanguage}
-            onUpdateSegment={onUpdateSegment}
-            onOpenPromptModal={() => {
-              if (onOpenPromptModal) onOpenPromptModal();
-              else setIsLocalPromptModalOpen(true);
-            }}
-            promptPresetName={getPresetById(promptPresetId || 'conversational').name}
-          />
-
           {!activeJob.synthesizedAudioUrl ? (
             <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-indigo-950/90 border border-emerald-500/40 p-5 sm:p-6 rounded-3xl space-y-4 shadow-xl">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
-                    <Volume2 className="w-6 h-6 text-emerald-400" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-white font-display flex items-center gap-2">
-                      <span>Dub Final Script with ElevenLabs</span>
-                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-mono font-bold uppercase">
-                        11 Labs AI
-                      </span>
-                    </h2>
-                    <p className="text-xs text-slate-300 mt-1">
-                      Generate ultra-realistic human audio in <span className="text-emerald-400 font-semibold">{targetLanguage}</span> using ElevenLabs AI voice synthesis models.
-                    </p>
-                  </div>
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
+                  <Volume2 className="w-6 h-6 text-emerald-400" />
                 </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-white font-display flex items-center gap-2">
+                    <span>Step 3: Dub Final Script with ElevenLabs</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-mono font-bold uppercase">
+                      11 Labs AI
+                    </span>
+                  </h2>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Pick the dubbing voice, then start generating <span className="text-emerald-400 font-semibold">{targetLanguage}</span> audio. Nothing is sent to ElevenLabs until you press Start Dubbing.
+                  </p>
+                </div>
+              </div>
+
+              {/* Voice search: choose the ElevenLabs voice before any credits are spent */}
+              <VoiceSelectorCard
+                elVoiceId={elVoiceId}
+                onElVoiceIdChange={onElVoiceIdChange}
+                availableVoices={availableVoices}
+              />
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <span className="text-xs text-slate-400">
+                  {segments.length} cues ready to dub
+                </span>
 
                 <button
                   type="button"
@@ -2250,6 +2250,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <span>Re-Dub Audio</span>
                 </button>
               </div>
+
+              {/* Switch voice here, then Re-Dub Audio to hear the script in it */}
+              <VoiceSelectorCard
+                elVoiceId={elVoiceId}
+                onElVoiceIdChange={onElVoiceIdChange}
+                availableVoices={availableVoices}
+              />
 
             {/* A/B Track Audition Switcher */}
             <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 space-y-3">
@@ -2508,6 +2515,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             </div>
           </div>
         )}
+
+          {/* Final Script Viewer & Exporter */}
+          <FinalScriptViewer
+            segments={segments}
+            targetLanguage={targetLanguage}
+            onUpdateSegment={onUpdateSegment}
+            onOpenPromptModal={() => {
+              if (onOpenPromptModal) onOpenPromptModal();
+              else setIsLocalPromptModalOpen(true);
+            }}
+            promptPresetName={getPresetById(promptPresetId || 'conversational').name}
+          />
       </div>
     )}
 
