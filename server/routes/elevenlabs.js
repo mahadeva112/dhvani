@@ -7,7 +7,8 @@ import {
   getUser,
   getVoices,
   getModels,
-  synthesizeSpeech,
+  synthesizeScript,
+  getVoiceSettings,
   speechToSpeech,
   cloneVoice,
 } from '../providers/elevenlabs/speech.js';
@@ -79,16 +80,27 @@ elevenLabsRouter.get(
   })
 );
 
+/** GET /api/elevenlabs/voices/:voiceId/settings — the settings a voice was saved with on ElevenLabs. */
+elevenLabsRouter.get(
+  '/elevenlabs/voices/:voiceId/settings',
+  asyncHandler(async (req, res) => {
+    res.json({ settings: await getVoiceSettings({ voiceId: req.params.voiceId, apiKey: apiKey(req) }) });
+  })
+);
+
 /** POST /api/elevenlabs/tts — text to speech. */
 elevenLabsRouter.post(
   '/elevenlabs/tts',
   asyncHandler(async (req, res) => {
     const { voiceId, text, modelId, outputFormat, voiceSettings } = req.body || {};
-    const providerResponse = await synthesizeSpeech(
-      { voiceId, text, modelId, outputFormat, voiceSettings },
+    // No voiceSettings means "use the voice's own settings", as the ElevenLabs website does.
+    const { contentType, buffer } = await synthesizeScript(
+      { voiceId, text, modelId, outputFormat, voiceSettings: voiceSettings || undefined },
       { apiKey: apiKey(req) }
     );
-    await streamAudio(providerResponse, res);
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Length', buffer.length);
+    res.end(buffer);
   })
 );
 

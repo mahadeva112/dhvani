@@ -40,8 +40,12 @@ import {
   getVoices,
   Voice,
   ElevenLabsVoiceSettings,
-  DEFAULT_VOICE_SETTINGS,
+  ALL_ELEVENLABS_MODELS,
 } from './services/elevenLabsService';
+import { buildSpeechScript } from './services/speechScript';
+
+/** Renamed from 'elVoiceSettings' so the old forced defaults every install saved are dropped. */
+const VOICE_SETTINGS_STORAGE_KEY = 'elVoiceSettingsV2';
 import {
   generateSrtContent,
   generateTargetLanguageScript,
@@ -172,12 +176,14 @@ export default function App() {
     }
   });
   const [elOutputFormat, setElOutputFormat] = useState<string>('mp3_44100_128');
-  const [elVoiceSettings, setElVoiceSettings] = useState<ElevenLabsVoiceSettings>(() => {
+  // Null means "use the voice's own ElevenLabs settings", as the website does;
+  // only a deliberate change in Voice Settings stores an override.
+  const [elVoiceSettings, setElVoiceSettings] = useState<ElevenLabsVoiceSettings | null>(() => {
     try {
-      const saved = localStorage.getItem('elVoiceSettings');
+      const saved = localStorage.getItem(VOICE_SETTINGS_STORAGE_KEY);
       if (saved) return JSON.parse(saved);
     } catch {}
-    return DEFAULT_VOICE_SETTINGS;
+    return null;
   });
   const [availableVoices, setAvailableVoices] = useState<Voice[]>([]);
   const [isLoadingVoices, setIsLoadingVoices] = useState<boolean>(false);
@@ -800,6 +806,9 @@ export default function App() {
 
   // Save ElevenLabs settings to local storage
   const handleElVoiceIdChange = (id: string) => {
+    // Custom slider values were tuned for the previous voice; a new voice
+    // starts from its own ElevenLabs settings.
+    if (id !== elVoiceId) handleElVoiceSettingsChange(null);
     setElVoiceId(id);
     try {
       localStorage.setItem('elVoiceId', id);
@@ -813,10 +822,11 @@ export default function App() {
     } catch {}
   };
 
-  const handleElVoiceSettingsChange = (settings: ElevenLabsVoiceSettings) => {
+  const handleElVoiceSettingsChange = (settings: ElevenLabsVoiceSettings | null) => {
     setElVoiceSettings(settings);
     try {
-      localStorage.setItem('elVoiceSettings', JSON.stringify(settings));
+      if (settings) localStorage.setItem(VOICE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+      else localStorage.removeItem(VOICE_SETTINGS_STORAGE_KEY);
     } catch {}
   };
 
@@ -1120,16 +1130,10 @@ export default function App() {
   const handleSynthesizeMaster = async () => {
     if (!activeJob) return;
 
-    // Use dialogue segment target texts as priority.
-    // Cues are joined with a blank line rather than a space: ElevenLabs treats
-    // the break as a breathing point, so the master reads at a natural pace
-    // instead of running every cue together into one breathless sentence.
+    // Subtitle cues are rejoined into flowing sentences; see buildSpeechScript.
     const textToSynthesize =
       activeJob.segments && activeJob.segments.length > 0
-        ? activeJob.segments
-            .map((s) => String(s.textTarget || (s as any).targetText || '').trim())
-            .filter(Boolean)
-            .join('\n\n')
+        ? buildSpeechScript(activeJob.segments)
         : activeJob.script.trim();
 
     if (!textToSynthesize) {
@@ -1141,7 +1145,6 @@ export default function App() {
     updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null });
 
     try {
-      // Pure natural human-grade ElevenLabs synthesis with default natural acoustic settings
       const blob = await synthesizeSpeech(
         elApiKey,
         elVoiceId,
@@ -1634,6 +1637,9 @@ export default function App() {
           onAutoTranscribe={handleAutoTranscribe}
           isTranscribing={isTranscribing}
           onSynthesizeMaster={handleSynthesizeMaster}
+          ttsModelName={
+            ALL_ELEVENLABS_MODELS.find((model) => model.model_id === elModelId)?.name || elModelId
+          }
           isSynthesizing={isBatchProcessing}
           onUpdateSegment={handleUpdateSegment}
           onPlaySegmentSolo={handlePlaySoloSegment}
