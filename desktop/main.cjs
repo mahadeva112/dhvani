@@ -27,6 +27,46 @@ let backend = null;
 let mainWindow = null;
 let isQuitting = false;
 
+/**
+ * Portable mode: keep keys, settings and logs next to the executable.
+ *
+ * Two shapes count as portable. The single-file `portable` target sets
+ * PORTABLE_EXECUTABLE_DIR to the folder the .exe was launched from; the
+ * unpacked zip has no such hint, so it opts in with a `dhvani-data` folder
+ * sitting beside DHVANI.exe. Either way the data folder travels with the app
+ * instead of living in AppData, which is the whole point of a portable build.
+ *
+ * Must run before the first `app.getPath('userData')` call below.
+ */
+const resolvePortableDataDir = () => {
+  const beside = process.env.PORTABLE_EXECUTABLE_DIR || path.dirname(app.getPath('exe'));
+  if (!beside) return null;
+
+  // The NSIS build ships the same `dhvani-data` folder, but an installed copy
+  // must keep using AppData so an uninstall/reinstall cannot lose the keys.
+  // Only the installer leaves an uninstaller beside the executable.
+  if (fs.existsSync(path.join(beside, `Uninstall ${app.getName()}.exe`))) return null;
+
+  const dataDir = path.join(beside, 'dhvani-data');
+  const optedIn = Boolean(process.env.PORTABLE_EXECUTABLE_DIR) || fs.existsSync(dataDir);
+  if (!optedIn) return null;
+
+  // An app dropped in Program Files (or on read-only media) cannot write next
+  // to itself. Falling back to AppData beats failing to start.
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.accessSync(dataDir, fs.constants.W_OK);
+    return dataDir;
+  } catch {
+    return null;
+  }
+};
+
+if (app.isPackaged) {
+  const portableDataDir = resolvePortableDataDir();
+  if (portableDataDir) app.setPath('userData', portableDataDir);
+}
+
 const logFile = path.join(app.getPath('userData'), 'backend.log');
 
 const appendLog = (line) => {

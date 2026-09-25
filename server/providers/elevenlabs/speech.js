@@ -3,11 +3,18 @@ import { config } from '../../env.js';
 import { ApiError } from '../../errors.js';
 import { elevenLabsJson, elevenLabsBinary, elevenLabsMultipart } from './client.js';
 
+/** ElevenLabs accepts 0.7-1.2 for `speed`; anything outside is rejected. */
+export const MIN_VOICE_SPEED = 0.7;
+export const MAX_VOICE_SPEED = 1.2;
+
 export const DEFAULT_VOICE_SETTINGS = {
   stability: 0.5,
   similarity_boost: 0.75,
   style: 0.0,
   use_speaker_boost: true,
+  // The raw model default (1.0) reads dubbing cues noticeably faster than a
+  // human narrator. 0.9 lands on an unhurried, natural delivery out of the box.
+  speed: 0.9,
 };
 
 /**
@@ -21,19 +28,44 @@ export const cleanTextForNaturalSpeech = (rawText) => {
     .replace(/^\[[^\]]+\]:\s*/gm, '')
     .replace(/^\([^)]+\):\s*/gm, '')
     .replace(/\[[a-zA-Z0-9_\-\s]+\]/g, '')
-    .replace(/\s+/g, ' ')
+    // Collapse runs of spaces/tabs but keep line breaks: ElevenLabs uses them
+    // as breathing points, and flattening a multi-cue script onto one line is
+    // what makes the read sound rushed.
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 };
 
-const normalizeSettings = (settings = {}) => ({
-  stability: typeof settings.stability === 'number' ? settings.stability : DEFAULT_VOICE_SETTINGS.stability,
-  similarity_boost:
-    typeof settings.similarity_boost === 'number'
-      ? settings.similarity_boost
-      : DEFAULT_VOICE_SETTINGS.similarity_boost,
-  style: typeof settings.style === 'number' ? settings.style : DEFAULT_VOICE_SETTINGS.style,
-  use_speaker_boost: settings.use_speaker_boost !== false,
-});
+const clampSpeed = (value) =>
+  Math.min(MAX_VOICE_SPEED, Math.max(MIN_VOICE_SPEED, value));
+
+/**
+ * `withSpeed` is false for speech-to-speech, where the source recording sets
+ * the pacing and ElevenLabs rejects a `speed` in the voice settings.
+ */
+const normalizeSettings = (settings = {}, { withSpeed = true } = {}) => {
+  const normalized = {
+    stability:
+      typeof settings.stability === 'number' ? settings.stability : DEFAULT_VOICE_SETTINGS.stability,
+    similarity_boost:
+      typeof settings.similarity_boost === 'number'
+        ? settings.similarity_boost
+        : DEFAULT_VOICE_SETTINGS.similarity_boost,
+    style: typeof settings.style === 'number' ? settings.style : DEFAULT_VOICE_SETTINGS.style,
+    use_speaker_boost: settings.use_speaker_boost !== false,
+  };
+
+  if (withSpeed) {
+    normalized.speed = clampSpeed(
+      typeof settings.speed === 'number' && Number.isFinite(settings.speed)
+        ? settings.speed
+        : DEFAULT_VOICE_SETTINGS.speed
+    );
+  }
+
+  return normalized;
+};
 
 /** Text-to-speech. Returns the raw Response so the route can stream it through. */
 export const synthesizeSpeech = async (
@@ -50,12 +82,15 @@ export const synthesizeSpeech = async (
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
 
+  const resolvedModel = modelId || config.elevenlabs.ttsModel;
+
   return elevenLabsBinary(
     `/text-to-speech/${encodeURIComponent(cleanVoiceId)}?output_format=${encodeURIComponent(outputFormat)}`,
     {
       text: cleanText,
-      model_id: modelId || config.elevenlabs.ttsModel,
-      voice_settings: normalizeSettings(voiceSettings),
+      model_id: resolvedModel,
+      // The legacy v1 models predate the `speed` control and reject it.
+      voice_settings: normalizeSettings(voiceSettings, { withSpeed: !/_v1$/.test(resolvedModel) }),
     },
     { apiKey }
   );
@@ -84,7 +119,9 @@ export const speechToSpeech = async (
     file.originalname || 'audio.wav'
   );
   form.append('model_id', modelId);
-  if (voiceSettings) form.append('voice_settings', JSON.stringify(normalizeSettings(voiceSettings)));
+  if (voiceSettings) {
+    form.append('voice_settings', JSON.stringify(normalizeSettings(voiceSettings, { withSpeed: false })));
+  }
   if (removeBackgroundNoise !== undefined) {
     form.append('remove_background_noise', String(removeBackgroundNoise));
   }

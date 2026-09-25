@@ -25,6 +25,8 @@ import {
   ElevenLabsUser,
   ElevenLabsVoiceSettings,
   DEFAULT_VOICE_SETTINGS,
+  MIN_VOICE_SPEED,
+  MAX_VOICE_SPEED,
   ALL_ELEVENLABS_MODELS,
   validateApiKey,
   getModels,
@@ -581,6 +583,43 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   <div className="flex justify-between text-[9px] text-slate-500 font-mono">
                     <span className="text-emerald-400">0% Natural (Recommended)</span>
                     <span>100% Dramatic</span>
+                  </div>
+                </div>
+
+                {/* Speaking Speed */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-300 font-medium">Speaking Speed:</span>
+                    <span className="font-mono text-indigo-400 font-bold">
+                      {(elVoiceSettings.speed ?? DEFAULT_VOICE_SETTINGS.speed ?? 0.9).toFixed(2)}x (
+                      {(() => {
+                        const spd = elVoiceSettings.speed ?? DEFAULT_VOICE_SETTINGS.speed ?? 0.9;
+                        if (spd < 0.85) return 'Slow';
+                        if (spd <= 0.95) return 'Natural';
+                        if (spd <= 1.05) return 'Model Default';
+                        return 'Fast';
+                      })()}
+                      )
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={MIN_VOICE_SPEED}
+                    max={MAX_VOICE_SPEED}
+                    step="0.01"
+                    value={elVoiceSettings.speed ?? DEFAULT_VOICE_SETTINGS.speed ?? 0.9}
+                    onChange={(e) =>
+                      onElVoiceSettingsChange?.({
+                        ...elVoiceSettings,
+                        speed: parseFloat(e.target.value),
+                      })
+                    }
+                    className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[9px] text-slate-500 font-mono">
+                    <span>0.70x Slow</span>
+                    <span className="text-emerald-400">0.90x Natural (Default)</span>
+                    <span>1.20x Fast</span>
                   </div>
                 </div>
 

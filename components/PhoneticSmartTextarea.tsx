@@ -33,6 +33,11 @@ export interface PhoneticSmartTextareaProps {
   id?: string;
   /** Show the Quick Symbols & Matras toggle + drawer (hidden on the Review screen) */
   showQuickSymbols?: boolean;
+  /**
+   * Whether AI Polish starts enabled for this cue. Off by default: polish is an
+   * opt-in per quote, so nothing is rewritten unless the reviewer asks for it.
+   */
+  defaultAiPolish?: boolean;
 }
 
 interface UndoEntry {
@@ -52,6 +57,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   onOpenKeyboardModal,
   id,
   showQuickSymbols = true,
+  defaultAiPolish = false,
 }) => {
   // Enabled state for phonetic auto-transliteration (persisted or on by default)
   const [isPhoneticOn, setIsPhoneticOn] = useState<boolean>(true);
@@ -60,7 +66,8 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   const [selectedCandidateIdx, setSelectedCandidateIdx] = useState<number>(0);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
 
-  // AI Polish states
+  // AI Polish states — opt-in per cue, so it stays off until the reviewer asks
+  const [isAiPolishOn, setIsAiPolishOn] = useState<boolean>(defaultAiPolish);
   const [isPolishingAI, setIsPolishingAI] = useState<boolean>(false);
   const [aiNote, setAiNote] = useState<string | null>(null);
 
@@ -318,6 +325,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
 
   // AI Polish with Gemini
   const handlePolishWithAI = async () => {
+    if (!isAiPolishOn) return;
     if (!value || !value.trim()) return;
     setIsPolishingAI(true);
     setAiNote(null);
@@ -400,30 +408,44 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
             <span>Phonetic: {isPhoneticOn ? 'ON' : 'OFF'}</span>
           </button>
 
-          {/* AI Polish Button */}
+          {/* AI Polish opt-in toggle — OFF by default, decided per cue */}
           <button
             type="button"
-            onClick={handlePolishWithAI}
-            disabled={isPolishingAI || !value}
+            onClick={() => setIsAiPolishOn((on) => !on)}
             className={`px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 transition-all border ${
-              isPolishingAI
-                ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                : 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+              isAiPolishOn
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold'
+                : 'bg-slate-200 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-emerald-600'
             }`}
-            title="AI Indic Spellcheck & Grammar Polish: Corrects broken matras, incorrect conjuncts, and refines natural dialogue nuance using Gemini."
+            title="AI Polish is off by default. Turn it on for this cue only when you want Gemini to repair matras, conjuncts and dialogue nuance."
           >
-            {isPolishingAI ? (
-              <>
-                <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
-                <span>Polishing...</span>
-              </>
-            ) : (
-              <>
-                <CheckCheck className="w-3 h-3 text-emerald-400" />
-                <span>AI Polish</span>
-              </>
-            )}
+            <CheckCheck className={`w-3 h-3 ${isAiPolishOn ? 'text-emerald-400' : 'text-slate-400'}`} />
+            <span>AI Polish: {isAiPolishOn ? 'ON' : 'OFF'}</span>
           </button>
+
+          {/* Run the polish for this cue — only once it has been switched on */}
+          {isAiPolishOn && (
+            <button
+              type="button"
+              onClick={handlePolishWithAI}
+              disabled={isPolishingAI || !value}
+              className={`px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 transition-all border disabled:opacity-50 ${
+                isPolishingAI
+                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
+                  : 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-500'
+              }`}
+              title="Run AI Indic Spellcheck & Grammar Polish on this cue."
+            >
+              {isPolishingAI ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                  <span>Polishing...</span>
+                </>
+              ) : (
+                <span>Run Polish</span>
+              )}
+            </button>
+          )}
 
           {/* Batch Transliterate Cue if Roman text remains */}
           {isPhoneticOn && value && /[a-zA-Z]{2,}/.test(value) && (
