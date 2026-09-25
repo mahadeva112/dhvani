@@ -154,6 +154,14 @@ export interface ValidationResponse {
 /** Offline catalog used when the live model list cannot be fetched. */
 export const ALL_ELEVENLABS_MODELS: ElevenLabsModel[] = [
   {
+    model_id: 'eleven_v3',
+    name: 'Eleven v3',
+    description:
+      'The most expressive model, supporting 70+ languages. The Speaking Speed slider has no effect on it.',
+    can_do_text_to_speech: true,
+    token_cost_factor: 1.0,
+  },
+  {
     model_id: 'eleven_multilingual_v2',
     name: 'Eleven Multilingual v2',
     description: 'Cutting-edge multilingual speech synthesis supporting 29 languages with authentic emotions & accents.',
