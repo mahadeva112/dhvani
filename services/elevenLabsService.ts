@@ -72,14 +72,19 @@ export const synthesizeSpeech = async (
   modelId: string = 'eleven_v3',
   outputFormat: string = 'mp3_44100_128',
   /** Null uses the voice's own ElevenLabs settings. */
-  voiceSettings: ElevenLabsVoiceSettings | null = null
+  voiceSettings: ElevenLabsVoiceSettings | null = null,
+  /**
+   * `expressive` asks the backend to add Eleven v3 delivery cues so a dub is
+   * performed rather than read; `language` is the script's language.
+   */
+  { expressive = false, language }: { expressive?: boolean; language?: string } = {}
 ): Promise<Blob> => {
   const cleanText = cleanTextForNaturalSpeech(text);
   if (!cleanText) throw new Error('No dialogue text provided for synthesis.');
 
   return apiAudio(
     '/elevenlabs/tts',
-    { voiceId, text: cleanText, modelId, outputFormat, voiceSettings: voiceSettings || undefined },
+    { voiceId, text: cleanText, modelId, outputFormat, voiceSettings: voiceSettings || undefined, expressive, language },
     keys(apiKey)
   );
 };
