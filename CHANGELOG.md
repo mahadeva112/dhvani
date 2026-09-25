@@ -19,6 +19,22 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Long dubs play as one continuous read, without cuts or voice changes between sections.** A long
+  script is generated in passages, and the passages' MP3 files were appended byte for byte. Each
+  generation carries its own edge silence — Eleven v3 leaves almost none, so one sentence ran
+  straight into the next — plus its own encoder padding and level, and v3 passages had no link to
+  one another at all. Now:
+  - passages are decoded and joined as audio: the silence at each join is replaced by a pause
+    matching the script (sentence, breath or paragraph), the joins are faded so they cannot click,
+    and every passage is brought to the same speech loudness;
+  - every passage of a dub shares one seed, so the voice is sampled the same way throughout;
+  - on models that support it (Multilingual v2, Flash, Turbo) each passage is stitched to the audio
+    before it with ElevenLabs request stitching, so voice and intonation carry across the join;
+  - Eleven v3, which cannot stitch, is generated in passages of up to 3000 characters instead of
+    1000, so a dub has a third as many joins.
+
+  Smooth joins need ffmpeg (bundled with DHVANI); without it passages are appended as before.
+
 - **Dubbed voices sound like they do on the ElevenLabs website, not robotic.** Four causes, all fixed:
   - Every dub forced one fixed set of voice settings, including a slowed-down speed of 0.9 that made
     voices drawl. A dub now uses the voice's own ElevenLabs settings, as the website does, and the

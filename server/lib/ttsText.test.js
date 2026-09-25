@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitTextForSpeech, contextAround } from './ttsText.js';
+import { splitTextForSpeech, splitPassages, contextAround } from './ttsText.js';
 
 test('short text is sent as a single passage', () => {
   assert.deepEqual(splitTextForSpeech('Hello there. How are you?'), ['Hello there. How are you?']);
@@ -47,4 +47,22 @@ test('context comes from the neighbouring passages only', () => {
   assert.deepEqual(contextAround(chunks, 0), { previousText: undefined, nextText: 'Two.' });
   assert.deepEqual(contextAround(chunks, 1), { previousText: 'One.', nextText: 'Three.' });
   assert.deepEqual(contextAround(chunks, 2), { previousText: 'Two.', nextText: undefined });
+});
+
+test('each passage reports the boundary it ends on, so the join can pause to match', () => {
+  const para = 'A paragraph that ends here.';
+  const line = 'A sentence followed by a breath.';
+  const sentence = 'Then another sentence.';
+  const text = `${para}\n\n${line}\n${sentence} Then the last one that runs on`;
+  const passages = splitPassages(text, 40);
+  assert.deepEqual(
+    passages.map((p) => p.breakAfter),
+    ['paragraph', 'line', 'sentence', null]
+  );
+  assert.deepEqual(passages.map((p) => p.text), splitTextForSpeech(text, 40));
+});
+
+test('a passage cut mid-sentence reports a word break', () => {
+  const [first] = splitPassages('word '.repeat(100), 60);
+  assert.equal(first.breakAfter, 'word');
 });

@@ -42,21 +42,60 @@ const findCut = (window) => {
   return window.length;
 };
 
-/** Splits `text` into passages of at most `maxChars`, each ending on a natural boundary. */
-export const splitTextForSpeech = (text, maxChars = MAX_TTS_CHUNK_CHARS) => {
+/**
+ * What separated a passage from the next one in the script. The join between
+ * the two passages' audio gets a pause of matching length (see PASSAGE_PAUSE_SECONDS).
+ *
+ * buildSpeechScript writes a blank line where the source audio paused for a
+ * paragraph and a single line break for a breath after a sentence.
+ */
+const breakAfter = (chunk, separator) => {
+  if (/\n\s*\n/.test(separator)) return 'paragraph';
+  if (/\n/.test(separator)) return 'line';
+  if (!separator) return 'none';
+  return /[.!?…।॥。！？؟]+["'”’)\]]*$/u.test(chunk) ? 'sentence' : 'word';
+};
+
+/**
+ * Silence placed between two passages, by what separated them. Roughly what
+ * ElevenLabs itself leaves at the same boundary inside one generation, so a
+ * join sounds like any other pause in the read.
+ */
+export const PASSAGE_PAUSE_SECONDS = {
+  paragraph: 0.8,
+  line: 0.55,
+  sentence: 0.35,
+  word: 0.08,
+  none: 0,
+};
+
+/**
+ * Splits `text` into passages of at most `maxChars`, each ending on a natural
+ * boundary. Every passage but the last reports the boundary it ends on as
+ * `breakAfter`.
+ */
+export const splitPassages = (text, maxChars = MAX_TTS_CHUNK_CHARS) => {
   let remaining = String(text || '').trim();
-  const chunks = [];
+  const passages = [];
 
   while (remaining.length > maxChars) {
     const cut = findCut(remaining.slice(0, maxChars));
-    const chunk = remaining.slice(0, cut).trim();
-    if (chunk) chunks.push(chunk);
-    remaining = remaining.slice(cut).trim();
+    const head = remaining.slice(0, cut);
+    const rest = remaining.slice(cut);
+    const chunk = head.trim();
+    // The whitespace either side of the cut is what separated the passages.
+    const separator = head.slice(head.trimEnd().length) + rest.slice(0, rest.length - rest.trimStart().length);
+    if (chunk) passages.push({ text: chunk, breakAfter: breakAfter(chunk, separator) });
+    remaining = rest.trim();
   }
-  if (remaining) chunks.push(remaining);
+  if (remaining) passages.push({ text: remaining, breakAfter: null });
 
-  return chunks;
+  return passages;
 };
+
+/** Splits `text` into passages of at most `maxChars`, each ending on a natural boundary. */
+export const splitTextForSpeech = (text, maxChars = MAX_TTS_CHUNK_CHARS) =>
+  splitPassages(text, maxChars).map((passage) => passage.text);
 
 /** The tail of the passage before `index` and the head of the one after it. */
 export const contextAround = (chunks, index, contextChars = TTS_CONTEXT_CHARS) => ({
