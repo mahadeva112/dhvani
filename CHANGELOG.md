@@ -32,8 +32,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     audio. It is now generated in passages of up to 1,000 characters, each given the text before
     and after it so the intonation carries across, then joined into one file.
   - Step 3 said "ElevenLabs v3" whatever model was chosen; it now names the model actually used.
-- **Eleven v3 is in the built-in model list**, so it can be chosen even when the live model list
-  cannot be loaded. v3 ignores the Speaking Speed setting.
+- **Eleven v3 is in the built-in model list and is now the default voice model** (it was Eleven
+  Multilingual v2). A model already picked in Voice Settings, or set with `ELEVENLABS_TTS_MODEL`,
+  is kept. v3 ignores the Speaking Speed setting.
 
 ### Added
 

@@ -170,9 +170,9 @@ export default function App() {
   });
   const [elModelId, setElModelId] = useState<string>(() => {
     try {
-      return localStorage.getItem('elModelId') || 'eleven_multilingual_v2';
+      return localStorage.getItem('elModelId') || 'eleven_v3';
     } catch {
-      return 'eleven_multilingual_v2';
+      return 'eleven_v3';
     }
   });
   const [elOutputFormat, setElOutputFormat] = useState<string>('mp3_44100_128');

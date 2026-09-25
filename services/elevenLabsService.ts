@@ -69,7 +69,7 @@ export const synthesizeSpeech = async (
   apiKey: string,
   voiceId: string,
   text: string,
-  modelId: string = 'eleven_multilingual_v2',
+  modelId: string = 'eleven_v3',
   outputFormat: string = 'mp3_44100_128',
   /** Null uses the voice's own ElevenLabs settings. */
   voiceSettings: ElevenLabsVoiceSettings | null = null
@@ -260,7 +260,7 @@ export const synthesizeSamplePreview = async (
   apiKey: string,
   voiceId: string,
   sampleText: string = 'Hello! This is a real-time preview of my dubbed voice in ElevenLabs.',
-  modelId: string = 'eleven_multilingual_v2'
+  modelId: string = 'eleven_v3'
 ): Promise<Blob> => synthesizeSpeech(apiKey, voiceId, sampleText, modelId, 'mp3_44100_128');
 
 /** Speech-to-speech voice conversion. */
