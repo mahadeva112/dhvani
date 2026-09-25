@@ -92,11 +92,19 @@ elevenLabsRouter.get(
 elevenLabsRouter.post(
   '/elevenlabs/tts',
   asyncHandler(async (req, res) => {
-    const { voiceId, text, modelId, outputFormat, voiceSettings } = req.body || {};
+    const { voiceId, text, modelId, outputFormat, voiceSettings, expressive, language } = req.body || {};
     // No voiceSettings means "use the voice's own settings", as the ElevenLabs website does.
     const { contentType, buffer } = await synthesizeScript(
-      { voiceId, text, modelId, outputFormat, voiceSettings: voiceSettings || undefined },
-      { apiKey: apiKey(req) }
+      {
+        voiceId,
+        text,
+        modelId,
+        outputFormat,
+        voiceSettings: voiceSettings || undefined,
+        expressive: expressive === true,
+        language,
+      },
+      { apiKey: apiKey(req), textModelKey: req.get('x-gemini-key') || undefined }
     );
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', buffer.length);

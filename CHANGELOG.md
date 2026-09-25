@@ -27,6 +27,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Dubs sound spoken, not read aloud.** Three causes:
+  - Translation was briefed as subtitles, so it came back as written language. It is now briefed as
+    a dub to be spoken: everyday spoken vocabulary rather than bookish words, the speaker's own
+    rhythm, and punctuation for the ear. The chosen style preset still sets the tone.
+  - Eleven v3 reads plain text evenly. Before a v3 dub, the text model now adds delivery cues —
+    sparse audio tags such as `[thoughtful]` or `[chuckles]`, and speech punctuation such as "…" —
+    as the Enhance button on the ElevenLabs website does. The words themselves are checked to be
+    unchanged; if the model altered any, or is unavailable, the passage is spoken as written.
+  - A voice's saved settings are usually tuned for older models, and their stability put v3 in its
+    "Robust" mode, which ElevenLabs describes as similar to v2 and less responsive. A dub on the
+    voice's own settings now uses v3's "Natural" mode; a stability you set yourself is kept.
+
 - **Long dubs play as one continuous read, without cuts or voice changes between sections.** A long
   script is generated in passages, and the passages' MP3 files were appended byte for byte. Each
   generation carries its own edge silence — Eleven v3 leaves almost none, so one sentence ran

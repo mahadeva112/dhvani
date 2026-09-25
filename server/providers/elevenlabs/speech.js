@@ -5,6 +5,7 @@ import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { splitPassages, contextAround, MAX_TTS_CHUNK_CHARS, PASSAGE_PAUSE_SECONDS } from '../../lib/ttsText.js';
 import { joinPassages } from '../../lib/audioJoin.js';
+import { AUDIO_TAGS, addDeliveryCues } from '../../lib/deliveryCues.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
 import { elevenLabsJson, elevenLabsBinary, elevenLabsMultipart } from './client.js';
 
@@ -27,15 +28,18 @@ export const DEFAULT_VOICE_SETTINGS = {
 
 /**
  * Strips SSML tags, speaker labels and bracketed stage directions so the voice
- * model receives plain spoken text.
+ * model receives plain spoken text. With `keepAudioTags`, the Eleven v3 audio
+ * tags in AUDIO_TAGS ([curious], [sighs], ...) stay: v3 performs them.
  */
-export const cleanTextForNaturalSpeech = (rawText) => {
+export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false } = {}) => {
   if (!rawText) return '';
   return String(rawText)
     .replace(/<[^>]+>/g, ' ')
     .replace(/^\[[^\]]+\]:\s*/gm, '')
     .replace(/^\([^)]+\):\s*/gm, '')
-    .replace(/\[[a-zA-Z0-9_\-\s]+\]/g, '')
+    .replace(/\[([a-zA-Z0-9_\-\s]+)\]/g, (tag, name) =>
+      keepAudioTags && AUDIO_TAGS.includes(name.trim().toLowerCase()) ? tag : ''
+    )
     // Collapse runs of spaces/tabs but keep line breaks: ElevenLabs uses them
     // as breathing points, and flattening a multi-cue script onto one line is
     // what makes the read sound rushed.
@@ -85,8 +89,19 @@ export const getVoiceSettings = ({ voiceId, apiKey } = {}) =>
 /** The legacy v1 models predate the `speed` control and reject it. */
 const supportsSpeed = (modelId) => !/_v1$/.test(modelId);
 
+const isV3 = (modelId) => /^eleven_v3/.test(modelId);
+
 /** eleven_v3 does not take previous_text / next_text. */
-const supportsContext = (modelId) => !/^eleven_v3/.test(modelId);
+const supportsContext = (modelId) => !isV3(modelId);
+
+/**
+ * Eleven v3 reads stability as a mode: Creative below 0.5, Natural at 0.5 and
+ * Robust above, which ElevenLabs describes as "similar to v2" and less
+ * responsive to direction — the flat, read-aloud sound. Saved voice settings
+ * are usually tuned for v2 and sit above 0.5, so a dub on the voice's own
+ * settings is held at Natural. A stability the user set explicitly is kept.
+ */
+const V3_NATURAL_STABILITY = 0.5;
 
 /**
  * Request stitching: each passage is conditioned on the audio of the ones
@@ -107,7 +122,7 @@ const MAX_STITCHED_REQUESTS = 3;
  * models join cleanly, so they keep short passages, which avoids the drift of
  * one long generation.
  */
-const passageLimit = (modelId) => (/^eleven_v3/.test(modelId) ? 3000 : MAX_TTS_CHUNK_CHARS);
+const passageLimit = (modelId) => (isV3(modelId) ? 3000 : MAX_TTS_CHUNK_CHARS);
 
 /** Formats a multi-passage script can be generated in: DHVANI can decode and re-encode them. */
 const isJoinable = (outputFormat) => Boolean(parseOutputFormat(outputFormat));
@@ -152,12 +167,12 @@ export const synthesizeSpeech = async (
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
 
-  const cleanText = cleanTextForNaturalSpeech(text);
+  const resolvedModel = modelId || config.elevenlabs.ttsModel;
+  const cleanText = cleanTextForNaturalSpeech(text, { keepAudioTags: isV3(resolvedModel) });
   if (!cleanText) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
 
-  const resolvedModel = modelId || config.elevenlabs.ttsModel;
   const settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
 
   return elevenLabsBinary(
@@ -205,11 +220,14 @@ const joinAudio = async (parts, passages, outputFormat) => {
  * A long script is generated passage by passage and joined into one file.
  * Every passage shares one seed so the voice is sampled the same way
  * throughout; on models that support it, each is also stitched to the audio
- * before it and told the text either side. Returns `{ contentType, buffer }`.
+ * before it and told the text either side.
+ *
+ * With `expressive`, a v3 dub gets delivery cues first (see deliveryCues.js)
+ * so it is performed rather than read. Returns `{ contentType, buffer }`.
  */
 export const synthesizeScript = async (
-  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings },
-  { apiKey } = {}
+  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings, expressive = false, language },
+  { apiKey, textModelKey } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
   const cleanText = cleanTextForNaturalSpeech(text);
@@ -221,9 +239,16 @@ export const synthesizeScript = async (
   const passages = isJoinable(outputFormat)
     ? splitPassages(cleanText, passageLimit(resolvedModel))
     : [{ text: cleanText, breakAfter: null }];
-  const chunks = passages.map((passage) => passage.text);
+  let chunks = passages.map((passage) => passage.text);
+  if (expressive && isV3(resolvedModel)) {
+    chunks = await Promise.all(chunks.map((chunk) => addDeliveryCues(chunk, { language, apiKey: textModelKey })));
+  }
+
   // Load the voice's settings once instead of once per passage.
-  const settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
+  let settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
+  if (isV3(resolvedModel) && !voiceSettings && (settings.stability ?? V3_NATURAL_STABILITY) > V3_NATURAL_STABILITY) {
+    settings = { ...settings, stability: V3_NATURAL_STABILITY };
+  }
   const seed = randomInt(0, 2 ** 32 - 1);
 
   const parts = new Array(chunks.length);

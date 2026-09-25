@@ -28,12 +28,20 @@ const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batc
     ? `The source language is ${sourceLanguage}.`
     : 'Infer the source language from the text itself.';
 
-  return `You are a professional subtitle translator working on part ${batchIndex + 1} of ${batchCount} of one continuous transcript.
+  return `You are a professional dubbing translator working on part ${batchIndex + 1} of ${batchCount} of one continuous transcript.
 
 ${sourceNote}
 Translate every cue below into ${targetLanguage}.
 
 ${styleDirective}
+
+SPOKEN, NOT WRITTEN
+These lines will be spoken aloud by a voice as a dub, and must sound like a person talking, not someone reading a text.
+- Write the ${targetLanguage} people actually speak: everyday words and sentence shapes, not bookish, literary or officialese vocabulary. Where a common spoken word exists, prefer it over a rare formal one. Keep the English words a ${targetLanguage} speaker would naturally say in English.
+- Follow the speaker's own rhythm: if they speak in short bursts, restart a sentence or trail off, keep that; do not smooth speech into polished prose.
+- Punctuate for the ear: commas where the speaker breathes, "?" and "!" where their voice rises, "…" where a thought trails off.
+- Write out anything a voice would stumble on: no abbreviations, symbols, brackets or slashes; numbers as they are said.
+The style directive above still sets the tone (formal, witty, cinematic...) — this only makes it sound spoken.
 
 HARD RULES
 1. Return exactly one translation for every input id. Never merge, split, drop or reorder cues.

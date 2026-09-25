@@ -1160,7 +1160,8 @@ export default function App() {
         textToSynthesize,
         elModelId,
         elOutputFormat,
-        elVoiceSettings
+        elVoiceSettings,
+        { expressive: true, language: activeJob.language || selectedLanguage }
       );
 
       const url = URL.createObjectURL(blob);
