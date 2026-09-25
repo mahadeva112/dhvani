@@ -36,7 +36,7 @@ const END_KEEP_SECONDS = 0.15;
 
 /** Silence before the first word and after the last, so the dub neither starts nor stops abruptly. */
 export const DUB_LEAD_IN_SECONDS = 0.3;
-export const DUB_RUN_OUT_SECONDS = 0.7;
+export const DUB_RUN_OUT_SECONDS = 1.2;
 
 /** Fade over the trimmed edges; short enough to be inaudible, long enough to stop a click. */
 const FADE_SECONDS = 0.012;
