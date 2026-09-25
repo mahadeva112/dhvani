@@ -369,12 +369,10 @@ export default function App() {
     return null;
   }, [backendChecked, backendHealth, backendSettings]);
 
-  // Keep selectedLanguage in sync when switching active jobs
-  useEffect(() => {
-    if (activeJob?.language && activeJob.language !== selectedLanguage) {
-      setSelectedLanguage(activeJob.language);
-    }
-  }, [activeJob?.id, activeJob?.language]);
+  // selectedLanguage is the last language the user picked, not the active
+  // job's: the UI already shows `activeJob?.language || selectedLanguage`, so
+  // switching to (or restoring) an older job must not overwrite it — new jobs
+  // should start in the language the user chose most recently.
 
   // Overall Duration
   const totalDuration = useMemo(() => {
@@ -1484,6 +1482,12 @@ export default function App() {
     [activeJob, updateJob]
   );
 
+  // Once ElevenLabs cues exist, local VAD re-segmentation would discard their
+  // text, so the pause-sensitivity control is only offered before transcription.
+  const activeJobHasTranscript = Boolean(
+    activeJob?.segments?.some((seg) => (seg.textSource || seg.textTarget || '').trim())
+  );
+
   // Resegment Audio based on Pause Sensitivity Slider
   const handleSensitivityChange = useCallback(
     (newSensitivity: number) => {
@@ -1655,7 +1659,7 @@ export default function App() {
           onOpenPromptModal={() => setIsPromptModalOpen(true)}
           onOpenVoiceChanger={() => setIsVoiceChangerOpen(true)}
           analysisSensitivity={activeJob?.analysisSensitivity ?? 50}
-          onSensitivityChange={handleSensitivityChange}
+          onSensitivityChange={activeJobHasTranscript ? undefined : handleSensitivityChange}
         />
       </main>
 

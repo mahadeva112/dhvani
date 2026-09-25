@@ -329,6 +329,14 @@ export const resegmentAudioBuffer = (
   sensitivity: number,
   previousSegments: AudioSegment[] = []
 ): AudioSegment[] => {
+  // Transcribed cues are timed by ElevenLabs word timestamps. Re-cutting them
+  // on local VAD boundaries keeps only one cue's text per new segment and
+  // silently drops the rest of the transcript, so they are never re-cut here.
+  const hasTranscript = previousSegments.some(
+    (seg) => (seg.textSource || seg.textTarget || '').trim().length > 0
+  );
+  if (hasTranscript) return previousSegments;
+
   const newSegments = detectSpeechSegments(buffer, { sensitivity });
 
   if (previousSegments.length === 0 || newSegments.length === 0) {
