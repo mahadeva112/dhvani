@@ -7,7 +7,8 @@ import { splitPassages, contextAround, MAX_TTS_CHUNK_CHARS, PASSAGE_PAUSE_SECOND
 import { joinPassages } from '../../lib/audioJoin.js';
 import { AUDIO_TAGS, addDeliveryCues } from '../../lib/deliveryCues.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
-import { elevenLabsJson, elevenLabsBinary, elevenLabsMultipart } from './client.js';
+import { cancelledError } from '../../lib/http.js';
+import { elevenLabsJson, elevenLabsBinary, elevenLabsMultipart, PROVIDER_LABEL } from './client.js';
 
 /** ElevenLabs accepts 0.7-1.2 for `speed`; anything outside is rejected. */
 export const MIN_VOICE_SPEED = 0.7;
@@ -163,7 +164,7 @@ export const synthesizeSpeech = async (
     previousRequestIds,
     seed,
   },
-  { apiKey } = {}
+  { apiKey, signal, stream = false } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
 
@@ -175,8 +176,9 @@ export const synthesizeSpeech = async (
 
   const settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
 
+  // The streaming endpoint takes the same body and sends audio as it is generated.
   return elevenLabsBinary(
-    `/text-to-speech/${encodeURIComponent(cleanVoiceId)}?output_format=${encodeURIComponent(outputFormat)}`,
+    `/text-to-speech/${encodeURIComponent(cleanVoiceId)}${stream ? '/stream' : ''}?output_format=${encodeURIComponent(outputFormat)}`,
     {
       text: cleanText,
       model_id: resolvedModel,
@@ -188,8 +190,51 @@ export const synthesizeSpeech = async (
         : {}),
       ...(Number.isInteger(seed) ? { seed } : {}),
     },
-    { apiKey }
+    { apiKey, signal }
   );
+};
+
+/** Seconds of audio in `bytes` of the given output format, or null when it can't be told. */
+export const secondsOfAudio = (bytes, outputFormat) => {
+  const format = parseOutputFormat(outputFormat);
+  if (!format) return null;
+  if (format.codec === 'mp3') return format.bitrate ? (bytes * 8) / (format.bitrate * 1000) : null;
+  if (format.codec === 'pcm') return bytes / (format.sampleRate * 2);
+  return bytes / format.sampleRate; // ulaw and alaw: one byte per sample
+};
+
+/** Statuses that mean "this model or account can't stream", as opposed to a real failure. */
+const STREAM_UNSUPPORTED = new Set([400, 404, 405, 422]);
+
+/**
+ * Voices one passage, streaming it so `onBytes` can report progress as audio
+ * arrives. Falls back to the plain request when streaming is refused.
+ */
+const synthesizePassage = async (request, { apiKey, signal, onBytes, streamState }) => {
+  if (streamState.enabled) {
+    try {
+      const response = await synthesizeSpeech(request, { apiKey, signal, stream: true });
+      const chunks = [];
+      let received = 0;
+      for await (const chunk of response.body) {
+        if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+        chunks.push(Buffer.from(chunk));
+        received += chunk.length;
+        onBytes(received);
+      }
+      return { response, buffer: Buffer.concat(chunks) };
+    } catch (err) {
+      if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+      if (!(err instanceof ApiError) || !STREAM_UNSUPPORTED.has(err.status)) throw err;
+      logger.warn(`ElevenLabs refused to stream (${err.status} ${err.code}); voicing the rest without live progress.`);
+      streamState.enabled = false;
+      onBytes(0); // report the switch now, not once the whole passage is back
+    }
+  }
+  const response = await synthesizeSpeech(request, { apiKey, signal });
+  const buffer = Buffer.from(await response.arrayBuffer());
+  onBytes(buffer.length);
+  return { response, buffer };
 };
 
 /** Passages generated at once when they don't stitch; ElevenLabs' lowest paid tiers allow 2-3 concurrent requests. */
@@ -227,7 +272,7 @@ const joinAudio = async (parts, passages, outputFormat) => {
  */
 export const synthesizeScript = async (
   { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings, expressive = false, language },
-  { apiKey, textModelKey } = {}
+  { apiKey, textModelKey, signal, onProgress = () => {} } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
   const cleanText = cleanTextForNaturalSpeech(text);
@@ -240,9 +285,15 @@ export const synthesizeScript = async (
     ? splitPassages(cleanText, passageLimit(resolvedModel))
     : [{ text: cleanText, breakAfter: null }];
   let chunks = passages.map((passage) => passage.text);
+  // Progress is counted against the script as written, before any delivery cues are added.
+  const passageChars = passages.map((passage) => passage.text.length);
+  const totalChars = passageChars.reduce((sum, n) => sum + n, 0);
+  onProgress({ phase: 'preparing', passageCount: chunks.length, passagesDone: 0, totalChars, charsDone: 0, secondsGenerated: 0 });
+
   if (expressive && isV3(resolvedModel)) {
     chunks = await Promise.all(chunks.map((chunk) => addDeliveryCues(chunk, { language, apiKey: textModelKey })));
   }
+  if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
 
   // Load the voice's settings once instead of once per passage.
   let settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
@@ -254,9 +305,24 @@ export const synthesizeScript = async (
   const parts = new Array(chunks.length);
   let contentType = 'audio/mpeg';
   const requestIds = [];
+  const bytesPerPassage = new Array(chunks.length).fill(0);
+  const finished = new Array(chunks.length).fill(false);
+  const streamState = { enabled: true };
+
+  const report = () =>
+    onProgress({
+      phase: 'voicing',
+      passageCount: chunks.length,
+      passagesDone: finished.filter(Boolean).length,
+      totalChars,
+      charsDone: passageChars.reduce((sum, n, i) => sum + (finished[i] ? n : 0), 0),
+      secondsGenerated: bytesPerPassage.reduce((sum, bytes) => sum + (secondsOfAudio(bytes, outputFormat) || 0), 0),
+      streaming: streamState.enabled,
+    });
+  report();
 
   const generate = async (index) => {
-    const response = await synthesizeSpeech(
+    const { response, buffer } = await synthesizePassage(
       {
         voiceId: cleanVoiceId,
         text: chunks[index],
@@ -267,12 +333,22 @@ export const synthesizeScript = async (
         previousRequestIds: requestIds.slice(0, index).filter(Boolean),
         ...contextAround(chunks, index),
       },
-      { apiKey }
+      {
+        apiKey,
+        signal,
+        streamState,
+        onBytes: (bytes) => {
+          bytesPerPassage[index] = bytes;
+          report();
+        },
+      }
     );
     if (index === 0) contentType = response.headers.get('content-type') || contentType;
     // A stitched request may only reference a generation that has fully arrived.
-    parts[index] = Buffer.from(await response.arrayBuffer());
+    parts[index] = buffer;
     requestIds[index] = response.headers.get('request-id') || null;
+    finished[index] = true;
+    report();
   };
 
   if (supportsStitching(resolvedModel)) {
@@ -286,6 +362,8 @@ export const synthesizeScript = async (
     await Promise.all(Array.from({ length: Math.min(SCRIPT_CONCURRENCY, chunks.length) }, worker));
   }
 
+  if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+  onProgress({ phase: 'joining', passageCount: chunks.length, passagesDone: chunks.length, totalChars, charsDone: totalChars });
   // Even a one-passage dub goes through the join for its lead-in and run-out.
   const buffer = isJoinable(outputFormat) ? await joinAudio(parts, passages, outputFormat) : parts[0];
   return { contentType, buffer };
