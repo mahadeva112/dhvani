@@ -1,4 +1,4 @@
-import { apiAudio, apiAudioUpload, apiGet, apiUpload, DhvaniApiError } from './apiClient';
+import { apiAudio, apiAudioUpload, apiGet, apiJson, apiUpload, DhvaniApiError } from './apiClient';
 
 /**
  * ElevenLabs client.
@@ -77,17 +77,49 @@ export const synthesizeSpeech = async (
    * `expressive` asks the backend to add Eleven v3 delivery cues so a dub is
    * performed rather than read; `language` is the script's language.
    */
-  { expressive = false, language }: { expressive?: boolean; language?: string } = {}
+  {
+    expressive = false,
+    language,
+    jobId,
+    signal,
+  }: {
+    expressive?: boolean;
+    language?: string;
+    /** Names the dub so its progress can be polled and it can be cancelled. */
+    jobId?: string;
+    signal?: AbortSignal;
+  } = {}
 ): Promise<Blob> => {
   const cleanText = cleanTextForNaturalSpeech(text);
   if (!cleanText) throw new Error('No dialogue text provided for synthesis.');
 
   return apiAudio(
     '/elevenlabs/tts',
-    { voiceId, text: cleanText, modelId, outputFormat, voiceSettings: voiceSettings || undefined, expressive, language },
-    keys(apiKey)
+    { voiceId, text: cleanText, modelId, outputFormat, voiceSettings: voiceSettings || undefined, expressive, language, jobId },
+    { ...keys(apiKey), signal }
   );
 };
+
+/** How far a dub started with a `jobId` has got. */
+export interface DubProgress {
+  phase: 'preparing' | 'voicing' | 'joining' | 'done' | 'cancelled' | 'failed';
+  passageCount: number;
+  passagesDone: number;
+  /** Characters of the script, and those in passages already voiced. */
+  totalChars: number;
+  charsDone: number;
+  /** Seconds of dub audio received so far, across all passages. */
+  secondsGenerated: number;
+  /** False once ElevenLabs refuses to stream, so progress only moves per passage. */
+  streaming: boolean;
+}
+
+export const getDubProgress = (jobId: string): Promise<DubProgress> =>
+  apiGet<DubProgress>(`/elevenlabs/tts/jobs/${encodeURIComponent(jobId)}`);
+
+/** Stops a dub. No passage after the one in flight is requested. */
+export const cancelDub = (jobId: string): Promise<{ cancelled: boolean }> =>
+  apiJson(`/elevenlabs/tts/jobs/${encodeURIComponent(jobId)}/cancel`, { body: {} });
 
 /** The settings a voice was saved with on ElevenLabs — how it sounds on the website. */
 export const getVoiceSettings = async (

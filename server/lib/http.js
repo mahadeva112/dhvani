@@ -3,6 +3,10 @@ import { logger } from '../logger.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The error a request stopped by its caller ends with; never retried. */
+export const cancelledError = (provider) =>
+  new ApiError('The request was cancelled.', { status: 499, code: 'cancelled', provider });
+
 const parseBody = async (response) => {
   const type = response.headers.get('content-type') || '';
   try {
@@ -22,17 +26,22 @@ const parseBody = async (response) => {
 export const requestWithRetry = async (
   url,
   init = {},
-  { provider = 'Provider', retries = 2, timeoutMs = 180000, baseDelayMs = 900 } = {}
+  { provider = 'Provider', retries = 2, timeoutMs = 180000, baseDelayMs = 900, signal } = {}
 ) => {
   let lastError = null;
 
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    if (signal?.aborted) throw cancelledError(provider);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // `signal` is the caller's: aborting it stops this request and any retry.
+    const onCallerAbort = () => controller.abort();
+    signal?.addEventListener('abort', onCallerAbort, { once: true });
 
     try {
       const response = await fetch(url, { ...init, signal: controller.signal });
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onCallerAbort);
 
       if (response.ok) return response;
 
@@ -43,6 +52,8 @@ export const requestWithRetry = async (
       lastError = error;
     } catch (err) {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onCallerAbort);
+      if (signal?.aborted) throw cancelledError(provider);
 
       if (err instanceof ApiError) {
         if (!err.retryable || attempt === retries) throw err;

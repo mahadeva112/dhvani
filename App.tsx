@@ -37,6 +37,9 @@ import {
 import { SetupWizard } from './components/SetupWizard';
 import {
   synthesizeSpeech,
+  getDubProgress,
+  cancelDub,
+  DubProgress,
   getVoices,
   Voice,
   ElevenLabsVoiceSettings,
@@ -190,6 +193,10 @@ export default function App() {
 
   // Processing Flags
   const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
+  // The dub in flight: its progress, and what cancelling it needs.
+  const [dubProgress, setDubProgress] = useState<DubProgress | null>(null);
+  const [isCancellingDub, setIsCancellingDub] = useState(false);
+  const dubRunRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
 
   /** Live stage message from the transcription/translation pipeline. */
@@ -1151,7 +1158,25 @@ export default function App() {
     }
 
     setIsBatchProcessing(true);
+    const hadDub = Boolean(activeJob.synthesizedAudioUrl);
     updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null });
+
+    const jobId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `dub-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const controller = new AbortController();
+    dubRunRef.current = { jobId, controller };
+    setDubProgress(null);
+    setIsCancellingDub(false);
+    const poll = window.setInterval(() => {
+      getDubProgress(jobId)
+        .then((progress) => {
+          if (dubRunRef.current?.jobId === jobId) setDubProgress(progress);
+        })
+        // The job is only registered once the request reaches the server; until then, keep waiting.
+        .catch(() => {});
+    }, 700);
 
     try {
       const blob = await synthesizeSpeech(
@@ -1161,7 +1186,7 @@ export default function App() {
         elModelId,
         elOutputFormat,
         elVoiceSettings,
-        { expressive: true, language: activeJob.language || selectedLanguage }
+        { expressive: true, language: activeJob.language || selectedLanguage, jobId, signal: controller.signal }
       );
 
       const url = URL.createObjectURL(blob);
@@ -1201,14 +1226,36 @@ export default function App() {
       // Switch monitor to Dubbed Master
       setTrackMode('synth');
     } catch (err: any) {
-      console.error('Synthesis Error:', err);
-      updateJob(activeJob.id, {
-        status: ProcessingStatus.ERROR,
-        errorMsg: `Speech Synthesis Failed: ${err.message}`,
-      });
+      if (controller.signal.aborted || err?.code === 'cancelled') {
+        // A cancelled re-dub keeps the dub that was there before.
+        updateJob(activeJob.id, {
+          status: hadDub ? ProcessingStatus.COMPLETED : ProcessingStatus.IDLE,
+          errorMsg: null,
+        });
+      } else {
+        console.error('Synthesis Error:', err);
+        updateJob(activeJob.id, {
+          status: ProcessingStatus.ERROR,
+          errorMsg: `Speech Synthesis Failed: ${err.message}`,
+        });
+      }
     } finally {
+      window.clearInterval(poll);
+      if (dubRunRef.current?.jobId === jobId) dubRunRef.current = null;
+      setDubProgress(null);
+      setIsCancellingDub(false);
       setIsBatchProcessing(false);
     }
+  };
+
+  /** Stops the dub in flight: the server stops requesting passages, and the upload is dropped. */
+  const handleCancelSynthesis = () => {
+    const run = dubRunRef.current;
+    if (!run) return;
+    setIsCancellingDub(true);
+    cancelDub(run.jobId)
+      .catch(() => {})
+      .finally(() => run.controller.abort());
   };
 
   // Segment Text Update Handler
@@ -1651,6 +1698,9 @@ export default function App() {
             ALL_ELEVENLABS_MODELS.find((model) => model.model_id === elModelId)?.name || elModelId
           }
           isSynthesizing={isBatchProcessing}
+          dubProgress={dubProgress}
+          isCancellingDub={isCancellingDub}
+          onCancelSynthesis={handleCancelSynthesis}
           onUpdateSegment={handleUpdateSegment}
           onPlaySegmentSolo={handlePlaySoloSegment}
           isPlaying={isPlaying}

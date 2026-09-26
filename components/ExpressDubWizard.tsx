@@ -44,7 +44,7 @@ import {
   X,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, ProcessingStatus } from '../types';
-import { Voice } from '../services/elevenLabsService';
+import { Voice, DubProgress } from '../services/elevenLabsService';
 import { audioBufferToWav } from '../services/audioService';
 import {
   generateTargetLanguageScript,
@@ -103,6 +103,10 @@ const getPace = (text: string, duration: number) => {
   };
 };
 
+/** Rough time left, in words. */
+const formatTimeLeft = (seconds: number) =>
+  seconds < 60 ? 'Less than a minute left' : `About ${Math.round(seconds / 60)} min left`;
+
 /** 125.4 -> "2:05", 3725 -> "1:02:05" */
 const formatClock = (seconds: number) => {
   const t = Math.max(0, Math.floor(seconds || 0));
@@ -137,6 +141,10 @@ interface ExpressDubWizardProps {
   /** Display name of the ElevenLabs model the dub is generated with. */
   ttsModelName?: string;
   isSynthesizing: boolean;
+  /** Progress of the dub in flight, polled from the server; null before the first report. */
+  dubProgress?: DubProgress | null;
+  isCancellingDub?: boolean;
+  onCancelSynthesis?: () => void;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
   onPlaySegmentSolo: (segment: AudioSegment) => void;
   isPlaying: boolean;
@@ -184,6 +192,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onSynthesizeMaster,
   ttsModelName = 'ElevenLabs',
   isSynthesizing,
+  dubProgress = null,
+  isCancellingDub = false,
+  onCancelSynthesis,
   onUpdateSegment,
   onPlaySegmentSolo,
   isPlaying,
@@ -444,6 +455,55 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       '';
     return full.trim().split(/\s+[-–—|]\s+/)[0];
   }, [availableVoices, elVoiceId]);
+
+  /**
+   * Where a dub in flight has got to, as a cue. Streamed audio is measured in
+   * seconds against the source's length; without streaming only finished
+   * passages count, so the cue range of the passage being voiced is shown.
+   */
+  const dubStartedAtRef = useRef<number | null>(null);
+  if (isSynthesizing && dubStartedAtRef.current === null) dubStartedAtRef.current = Date.now();
+  if (!isSynthesizing) dubStartedAtRef.current = null;
+
+  const dubRun = useMemo(() => {
+    if (!isSynthesizing) return null;
+    // Cumulative share of the script's characters at the end of each cue.
+    const lengths = segments.map((seg) => getTargetText(seg).length);
+    const total = lengths.reduce((a, b) => a + b, 0) || 1;
+    let running = 0;
+    const cueEnds = lengths.map((n) => (running += n) / total);
+    const cueAt = (fraction: number) => {
+      const i = cueEnds.findIndex((end) => end > fraction);
+      return i === -1 ? segments.length - 1 : i;
+    };
+
+    const p = dubProgress;
+    const sourceLength =
+      activeJob?.audioBuffer?.duration || segments[segments.length - 1]?.endTime || 0;
+    const charsFraction = p && p.totalChars > 0 ? p.charsDone / p.totalChars : 0;
+    const secondsFraction = p?.streaming && sourceLength > 0 ? p.secondsGenerated / sourceLength : 0;
+    const joining = p?.phase === 'joining';
+    // Never claim the end before the last passage is in.
+    const fraction = joining ? 1 : Math.min(0.98, Math.max(charsFraction, secondsFraction));
+
+    // Without streaming, the passage being voiced runs from what's done to the next boundary.
+    const passageEnd = p && p.passageCount > 0 ? Math.min(1, charsFraction + 1 / p.passageCount) : 1;
+    const elapsed = dubStartedAtRef.current ? (Date.now() - dubStartedAtRef.current) / 1000 : 0;
+    const secondsLeft = fraction > 0.05 && !joining ? (elapsed * (1 - fraction)) / fraction : null;
+
+    return {
+      phase: p?.phase || 'preparing',
+      streaming: p?.streaming !== false,
+      fraction,
+      currentCue: cueAt(fraction),
+      rangeStart: cueAt(charsFraction),
+      rangeEnd: cueAt(Math.max(charsFraction, passageEnd - 0.0001)),
+      cuesDone: fraction >= 1 ? segments.length : cueAt(fraction),
+      secondsLeft,
+      passagesDone: p?.passagesDone ?? 0,
+      passageCount: p?.passageCount ?? 0,
+    };
+  }, [isSynthesizing, dubProgress, segments, activeJob?.audioBuffer]);
 
   const pacingCounts = useMemo(() => {
     const counts = { natural: 0, tight: 0, fast: 0 };
@@ -1933,20 +1993,93 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         <div className="flex flex-col gap-4 animate-in fade-in duration-200">
           {/* Dub panel: ready, dubbing, or finished */}
           <section aria-label="Dub" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
-            {isSynthesizing ? (
+            {isSynthesizing && dubRun ? (
               <>
                 <div className="flex flex-wrap items-center gap-3">
                   <h2 className="text-[17px] font-semibold text-slate-100">Dubbing in {targetLanguage}</h2>
-                  <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">In progress</span>
-                  <span className="text-xs text-slate-400">{ttsModelName}</span>
+                  <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">
+                    {isCancellingDub ? 'Cancelling…' : 'In progress'}
+                  </span>
+                  <span className="text-xs text-slate-400">{[voiceShortName, ttsModelName].filter(Boolean).join(' · ')}</span>
+                  {onCancelSynthesis && (
+                    <button
+                      type="button"
+                      onClick={onCancelSynthesis}
+                      disabled={isCancellingDub}
+                      className={`ml-auto ${railButton}`}
+                      title="Stop the dub. The passage being voiced finishes on ElevenLabs; nothing after it is requested."
+                    >
+                      <X className="w-3.5 h-3.5" /> {isCancellingDub ? 'Cancelling…' : 'Cancel'}
+                    </button>
+                  )}
                 </div>
-                {/* One ElevenLabs request covers the whole script, so progress can't be counted per cue. */}
+
                 <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                  <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
+                  {dubRun.phase === 'preparing' ? (
+                    <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
+                  ) : (
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-[width] duration-500"
+                      style={{ width: `${Math.max(2, dubRun.fraction * 100)}%` }}
+                    />
+                  )}
                 </div>
-                <p className="text-xs text-slate-400">
-                  Voicing {segments.length} cues ({dubCharacterCount.toLocaleString()} characters). You can keep reading the script while it works.
-                </p>
+
+                {/* One block per cue: voiced, being voiced, still to come */}
+                <div
+                  aria-hidden="true"
+                  className="grid gap-0.5"
+                  style={{ gridTemplateColumns: `repeat(${Math.min(segments.length, 120) || 1}, minmax(0, 1fr))` }}
+                >
+                  {Array.from({ length: Math.min(segments.length, 120) }, (_, cell) => {
+                    const perCell = segments.length / Math.min(segments.length, 120);
+                    const first = Math.floor(cell * perCell);
+                    const last = Math.max(first, Math.ceil((cell + 1) * perCell) - 1);
+                    const active =
+                      dubRun.phase === 'voicing' &&
+                      (dubRun.streaming
+                        ? dubRun.currentCue >= first && dubRun.currentCue <= last
+                        : last >= dubRun.rangeStart && first <= dubRun.rangeEnd);
+                    const done = last < dubRun.cuesDone && !active;
+                    return (
+                      <span
+                        key={cell}
+                        className={`h-3.5 rounded-sm ${done ? 'bg-indigo-500' : active ? 'bg-cyan-400 animate-pulse' : 'bg-slate-800'}`}
+                      />
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[12.5px] text-slate-400" role="status" aria-live="polite">
+                  <span className="min-w-0">
+                    {dubRun.phase === 'preparing' && 'Preparing the script for the voice…'}
+                    {dubRun.phase === 'joining' && 'All cues voiced. Putting the passages together…'}
+                    {dubRun.phase === 'voicing' &&
+                      (dubRun.streaming ? (
+                        <>
+                          Voicing cue <b className="text-slate-100 font-medium tabular-nums">{dubRun.currentCue + 1} of {segments.length}</b>
+                          {segments[dubRun.currentCue] && (
+                            <span className="text-slate-500">: “{getTargetText(segments[dubRun.currentCue])}”</span>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          Voicing cues{' '}
+                          <b className="text-slate-100 font-medium tabular-nums">
+                            {dubRun.rangeStart + 1}–{dubRun.rangeEnd + 1} of {segments.length}
+                          </b>
+                          {dubRun.passageCount > 1 && (
+                            <span className="text-slate-500">
+                              {' '}(part {Math.min(dubRun.passagesDone + 1, dubRun.passageCount)} of {dubRun.passageCount})
+                            </span>
+                          )}
+                        </>
+                      ))}
+                  </span>
+                  {dubRun.secondsLeft !== null && (
+                    <span className="shrink-0 text-slate-300">{formatTimeLeft(dubRun.secondsLeft)}</span>
+                  )}
+                </div>
               </>
             ) : !hasDub ? (
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 items-center">

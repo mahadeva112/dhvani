@@ -12,6 +12,7 @@ import {
   speechToSpeech,
   cloneVoice,
 } from '../providers/elevenlabs/speech.js';
+import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
 
 export const elevenLabsRouter = Router();
 
@@ -88,29 +89,66 @@ elevenLabsRouter.get(
   })
 );
 
-/** POST /api/elevenlabs/tts — text to speech. */
+/**
+ * POST /api/elevenlabs/tts — text to speech.
+ *
+ * An optional `jobId` makes the dub trackable: its progress can be polled and
+ * it can be cancelled while it runs. Closing the request cancels it as well,
+ * so no further passages are paid for once nobody is waiting for them.
+ */
 elevenLabsRouter.post(
   '/elevenlabs/tts',
   asyncHandler(async (req, res) => {
-    const { voiceId, text, modelId, outputFormat, voiceSettings, expressive, language } = req.body || {};
-    // No voiceSettings means "use the voice's own settings", as the ElevenLabs website does.
-    const { contentType, buffer } = await synthesizeScript(
-      {
-        voiceId,
-        text,
-        modelId,
-        outputFormat,
-        voiceSettings: voiceSettings || undefined,
-        expressive: expressive === true,
-        language,
-      },
-      { apiKey: apiKey(req), textModelKey: req.get('x-gemini-key') || undefined }
-    );
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', buffer.length);
-    res.end(buffer);
+    const { voiceId, text, modelId, outputFormat, voiceSettings, expressive, language, jobId } = req.body || {};
+    const job = startDubJob(jobId);
+    const controller = job?.controller || new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
+
+    try {
+      // No voiceSettings means "use the voice's own settings", as the ElevenLabs website does.
+      const { contentType, buffer } = await synthesizeScript(
+        {
+          voiceId,
+          text,
+          modelId,
+          outputFormat,
+          voiceSettings: voiceSettings || undefined,
+          expressive: expressive === true,
+          language,
+        },
+        {
+          apiKey: apiKey(req),
+          textModelKey: req.get('x-gemini-key') || undefined,
+          signal: controller.signal,
+          onProgress: (progress) => job && updateDubJob(jobId, progress),
+        }
+      );
+      if (job) finishDubJob(jobId, 'done');
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Length', buffer.length);
+      res.end(buffer);
+    } catch (err) {
+      if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
+      throw err;
+    }
   })
 );
+
+/** GET /api/elevenlabs/tts/jobs/:jobId — how far a tracked dub has got. */
+elevenLabsRouter.get('/elevenlabs/tts/jobs/:jobId', (req, res) => {
+  const progress = getDubProgress(req.params.jobId);
+  if (!progress) {
+    throw new ApiError('No dub with that id is running.', { status: 404, code: 'dub_not_found' });
+  }
+  res.json(progress);
+});
+
+/** POST /api/elevenlabs/tts/jobs/:jobId/cancel — stops a tracked dub. */
+elevenLabsRouter.post('/elevenlabs/tts/jobs/:jobId/cancel', (req, res) => {
+  res.json({ cancelled: cancelDubJob(req.params.jobId) });
+});
 
 /** POST /api/elevenlabs/speech-to-speech — voice conversion. */
 elevenLabsRouter.post(

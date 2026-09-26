@@ -52,8 +52,8 @@ export const elevenLabsMultipart = async (endpoint, formData, { apiKey, timeoutM
     { provider: PROVIDER_LABEL, timeoutMs: timeoutMs || 600000, retries: retries ?? 1 }
   );
 
-/** JSON POST that returns binary audio. */
-export const elevenLabsBinary = async (endpoint, body, { apiKey, accept = 'audio/mpeg', timeoutMs } = {}) =>
+/** JSON POST that returns binary audio. `signal` lets the caller cancel it. */
+export const elevenLabsBinary = async (endpoint, body, { apiKey, accept = 'audio/mpeg', timeoutMs, signal } = {}) =>
   requestWithRetry(
     url(endpoint),
     {
@@ -65,5 +65,5 @@ export const elevenLabsBinary = async (endpoint, body, { apiKey, accept = 'audio
       },
       body: JSON.stringify(body),
     },
-    { provider: PROVIDER_LABEL, timeoutMs: timeoutMs || 300000, retries: 1 }
+    { provider: PROVIDER_LABEL, timeoutMs: timeoutMs || 300000, retries: 1, signal }
   );
