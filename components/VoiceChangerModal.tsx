@@ -8,17 +8,18 @@ import {
   RefreshCw,
   Download,
   Check,
-  Volume2,
   Sliders,
   AudioWaveform,
   Radio,
   UserPlus,
   AlertCircle,
-  ChevronRight,
-  Layers,
-  Search,
-  Filter,
-  Star,
+  ArrowLeftRight,
+  FileAudio,
+  Film,
+  ChevronsDown,
+  ChevronsUp,
+  Wind,
+  Bot,
 } from 'lucide-react';
 import {
   speechToSpeech,
@@ -33,8 +34,34 @@ import {
   decodeAudioBlobUrl,
   VoiceEffectPreset,
 } from '../services/audioService';
-import { POPULAR_ELEVENLABS_VOICES } from './VoiceSelectorCard';
+import { POPULAR_ELEVENLABS_VOICES, VoiceSelectorCard } from './VoiceSelectorCard';
+import { MiniWaveform } from './MediaStrip';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
+
+/** The effects the audio engine offers, in the order shown. */
+const EFFECTS: { id: VoiceEffectPreset; label: string; desc: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'studio', label: 'Studio broadcast', desc: 'Clear, close, even', Icon: Mic },
+  { id: 'deep', label: 'Deeper', desc: 'Lower pitch, fuller', Icon: ChevronsDown },
+  { id: 'high', label: 'Brighter', desc: 'Higher pitch, lighter', Icon: ChevronsUp },
+  { id: 'radio', label: 'Vintage radio', desc: 'Warm, narrow, old set', Icon: Radio },
+  { id: 'whisper', label: 'Whisper', desc: 'Airy and breathy', Icon: Wind },
+  { id: 'robot', label: 'Robot', desc: 'Vocoder, metallic', Icon: Bot },
+];
+
+/** 125 -> "2:05", 3725 -> "1:02:05" */
+const formatLength = (seconds: number) => {
+  const t = Math.max(0, Math.round(seconds || 0));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const sec = String(t % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+};
+
+const primaryButton =
+  'h-[42px] px-[18px] flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer';
+
+const actionButton =
+  'w-full flex items-center gap-3 p-2.5 rounded-[11px] border border-slate-800 bg-slate-900 hover:bg-slate-800/70 text-left transition-colors cursor-pointer';
 
 interface VoiceChangerModalProps {
   isOpen: boolean;
@@ -48,6 +75,8 @@ interface VoiceChangerModalProps {
   onApplyTransformedAudio: (file: File, buffer: AudioBuffer) => void;
   onSetDubbedMaster?: (audioBlob: Blob, audioBuffer: AudioBuffer) => void;
   onRefreshVoices?: () => Promise<void>;
+  /** The dub language, so the voice library suggests voices that speak it. */
+  targetLanguage?: string;
 }
 
 type ModeTab = 'sts' | 'clone' | 'effects';
@@ -64,6 +93,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   onApplyTransformedAudio,
   onSetDubbedMaster,
   onRefreshVoices,
+  targetLanguage = 'Hindi',
 }) => {
   const [activeTab, setActiveTab] = useState<ModeTab>('sts');
 
@@ -81,23 +111,8 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const [similarity, setSimilarity] = useState<number>(0.75);
   const [removeBackgroundNoise, setRemoveBackgroundNoise] = useState<boolean>(false);
 
-  // Target Voice Search & Category Filters
-  const [voiceSearchQuery, setVoiceSearchQuery] = useState<string>('');
-  const [voiceCategoryFilter, setVoiceCategoryFilter] = useState<string>('all');
-
   // Favourites, shared with the text-to-speech voice picker
-  const { favorites, isFavorite, toggleFavorite } = useFavoriteVoices();
-
-  const handleToggleFavorite = (voice: Voice) => {
-    toggleFavorite({
-      id: voice.voice_id,
-      name: voice.name,
-      category: voice.category,
-      gender: voice.labels?.gender,
-      accent: voice.labels?.accent,
-      previewUrl: voice.preview_url,
-    });
-  };
+  const { favorites } = useFavoriteVoices();
 
   // Unified & filtered list of voices
   const allAvailableVoices = useMemo<Voice[]>(() => {
@@ -118,55 +133,6 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     }));
   }, [availableVoices]);
 
-  const filteredVoices = useMemo<Voice[]>(() => {
-    const q = voiceSearchQuery.trim().toLowerCase();
-
-    const matched = allAvailableVoices.filter((voice) => {
-      // Category / Gender filter
-      if (voiceCategoryFilter === 'favorites') {
-        if (!isFavorite(voice.voice_id)) return false;
-      } else if (voiceCategoryFilter === 'cloned') {
-        if (voice.category !== 'cloned') return false;
-      } else if (voiceCategoryFilter === 'premade') {
-        if (voice.category !== 'premade') return false;
-      } else if (voiceCategoryFilter === 'female') {
-        const g = (voice.labels?.gender || '').toLowerCase();
-        if (!g.includes('female')) return false;
-      } else if (voiceCategoryFilter === 'male') {
-        const g = (voice.labels?.gender || '').toLowerCase();
-        if (!g.includes('male') || g.includes('female')) return false;
-      } else if (voiceCategoryFilter === 'narration') {
-        const u = (
-          (voice.labels?.use_case || '') +
-          ' ' +
-          (voice.labels?.description || '') +
-          ' ' +
-          (voice.category || '')
-        ).toLowerCase();
-        if (!u.includes('narrat') && !u.includes('audiobook') && !u.includes('story') && !u.includes('deep')) {
-          return false;
-        }
-      }
-
-      // Search keyword filter
-      if (!q) return true;
-
-      const nameMatch = (voice.name || '').toLowerCase().includes(q);
-      const accentMatch = (voice.labels?.accent || '').toLowerCase().includes(q);
-      const genderMatch = (voice.labels?.gender || '').toLowerCase().includes(q);
-      const descMatch = (voice.labels?.description || '').toLowerCase().includes(q);
-      const useCaseMatch = (voice.labels?.use_case || '').toLowerCase().includes(q);
-      const catMatch = (voice.category || '').toLowerCase().includes(q);
-
-      return nameMatch || accentMatch || genderMatch || descMatch || useCaseMatch || catMatch;
-    });
-
-    // Favourites float to the top so a saved voice is always one glance away.
-    return [...matched].sort(
-      (a, b) => Number(isFavorite(b.voice_id)) - Number(isFavorite(a.voice_id))
-    );
-  }, [allAvailableVoices, voiceSearchQuery, voiceCategoryFilter, isFavorite]);
-
   /** Favourites resolved against the live library, for the quick-pick row. */
   const favoriteVoices = useMemo<Voice[]>(() => {
     return favorites.map((fav) => {
@@ -186,11 +152,41 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const [cloneName, setCloneName] = useState<string>('');
   const [cloneDescription, setCloneDescription] = useState<string>('');
   const [cloneGender, setCloneGender] = useState<string>('unspecified');
-  const [cloneAccent, setCloneAccent] = useState<string>('American');
+  const [cloneAccent, setCloneAccent] = useState<string>('Indian');
   const [cloneFiles, setCloneFiles] = useState<File[]>([]);
+  // Total length of the added clone samples, read from each file's metadata.
+  const [cloneSampleSeconds, setCloneSampleSeconds] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(
+      cloneFiles.map(
+        (file) =>
+          new Promise<number>((resolve) => {
+            const url = URL.createObjectURL(file);
+            const probe = new Audio();
+            probe.preload = 'metadata';
+            probe.onloadedmetadata = () => {
+              URL.revokeObjectURL(url);
+              resolve(Number.isFinite(probe.duration) ? probe.duration : 0);
+            };
+            probe.onerror = () => {
+              URL.revokeObjectURL(url);
+              resolve(0);
+            };
+            probe.src = url;
+          })
+      )
+    ).then((lengths) => !cancelled && setCloneSampleSeconds(lengths.reduce((a, b) => a + b, 0)));
+    return () => {
+      cancelled = true;
+    };
+  }, [cloneFiles]);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  // Who or what the result was made with, for its label.
+  const [outputLabel, setOutputLabel] = useState('');
 
   // DSP effect preset
-  const [selectedEffect, setSelectedEffect] = useState<VoiceEffectPreset>('deep');
+  const [selectedEffect, setSelectedEffect] = useState<VoiceEffectPreset>('studio');
 
   // Mic recording state
   const [isRecording, setIsRecording] = useState<boolean>(false);
@@ -499,746 +495,621 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     a.click();
   };
 
+  const targetVoice = allAvailableVoices.find((v) => v.voice_id === targetVoiceId) || null;
+  // A built-in voice missing from the live library still has a known name.
+  const builtIn = POPULAR_ELEVENLABS_VOICES.find((v) => v.id === targetVoiceId);
+  const targetFull = (targetVoice?.name || builtIn?.name || 'Choose a voice').trim();
+  const hasTarget = Boolean(targetVoice || builtIn);
+  const [targetName, ...targetTagParts] = targetFull.split(/\s+[-–—|]\s+/);
+  const targetMeta = [
+    targetTagParts.join(' – ') || targetVoice?.labels?.description || targetVoice?.labels?.use_case,
+    targetVoice?.labels?.accent,
+    targetVoice?.labels?.gender,
+  ]
+    .filter(Boolean)
+    .map((t) => String(t).replace(/[_-]+/g, ' '))
+    .join(' · ');
+  const shortName = (name?: string) => (name || '').trim().split(/\s+[-–—|]\s+/)[0];
+  const sourceLength = sourceAudioBuffer ? formatLength(sourceAudioBuffer.duration) : null;
+  const sampleSeconds =
+    (cloneFiles.length === 0 && sourceAudioBuffer ? sourceAudioBuffer.duration : 0) + cloneSampleSeconds;
+  const effect = EFFECTS.find((e) => e.id === selectedEffect) || EFFECTS[0];
+
+  const runLabel =
+    activeTab === 'sts'
+      ? `Changing to ${targetName}…`
+      : activeTab === 'clone'
+        ? `Creating “${cloneName.trim() || 'new voice'}”…`
+        : `Applying ${effect.label}…`;
+
+  const tabButton = (id: ModeTab, label: string, Icon: React.ComponentType<{ className?: string }>) => (
+    <button
+      key={id}
+      type="button"
+      role="tab"
+      aria-selected={activeTab === id}
+      onClick={() => {
+        setActiveTab(id);
+        setErrorMessage(null);
+      }}
+      className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-1.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+        activeTab === id ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+      }`}
+    >
+      <Icon className="hidden sm:block w-3.5 h-3.5" />
+      <span>{label}</span>
+    </button>
+  );
+
+  const slider = (label: string, hint: string, value: number, onChange: (v: number) => void, ends: [string, string]) => (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[13px] font-semibold text-slate-100">{label}</span>
+        <span className="font-mono text-xs text-slate-100 tabular-nums">{value.toFixed(2)}</span>
+      </div>
+      <p className="text-[11.5px] text-slate-400 mt-0.5 mb-2">{hint}</p>
+      <input
+        type="range"
+        min={0}
+        max={1}
+        step={0.05}
+        value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        aria-label={label}
+        className="w-full accent-indigo-500 cursor-pointer"
+      />
+      <div className="flex justify-between text-[10.5px] text-slate-500 mt-0.5">
+        <span>{ends[0]}</span>
+        <span>{ends[1]}</span>
+      </div>
+    </div>
+  );
+
+  const field = 'w-full h-10 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[10px] px-3 text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none';
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={onClose}
     >
-      <div
-        className="bg-slate-900 border border-slate-700/80 rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="voice-changer-title"
+        className="w-full max-w-[62.5rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Hidden Audio Players */}
         <audio ref={audioPlayerRef} />
 
-        {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 text-white flex items-center justify-center shadow-md shadow-indigo-500/20">
-              <AudioWaveform className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-white font-display flex items-center gap-2">
-                <span>Voice Studio: Change Voice from Audio</span>
-              </h2>
-              <p className="text-xs text-slate-400">
-                Transform speech into a new voice identity, clone voices from clips, or apply DSP effects
-              </p>
-            </div>
+        {/* Header with the three modes */}
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+          <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
+            <AudioWaveform className="w-[18px] h-[18px]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="voice-changer-title" className="text-lg font-semibold text-slate-100 leading-tight">
+              Voice changer
+            </h2>
+            <p className="text-[12.5px] text-slate-400 mt-0.5">Keep how it was said, change who says it.</p>
+          </div>
+          <div
+            role="tablist"
+            aria-label="Mode"
+            className="order-3 sm:order-none w-full sm:w-auto flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950/60 border border-slate-800"
+          >
+            {tabButton('sts', 'Change voice', ArrowLeftRight)}
+            {tabButton('clone', 'Clone a voice', UserPlus)}
+            {tabButton('effects', 'Effects', Sliders)}
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            aria-label="Close"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Mode Navigation Tabs */}
-        <div className="px-4 pt-3 border-b border-slate-800/80 bg-slate-950/40 flex items-center gap-2">
+        {/* Source audio, shared by every mode */}
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-5 sm:px-6 py-3 border-b border-slate-800 bg-slate-950/40 shrink-0">
+          <span className="hidden sm:block w-14 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 shrink-0">Source</span>
+          <span className="w-[34px] h-[34px] rounded-[9px] bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
+            {isRecording ? <Mic className="w-4 h-4" /> : <FileAudio className="w-4 h-4" />}
+          </span>
+          <span className="min-w-0 basis-[calc(100%-46px)] sm:basis-auto sm:w-60">
+            <span className="block text-[13px] font-semibold text-slate-100 truncate" title={sourceAudioFile?.name}>
+              {isRecording ? 'Recording…' : sourceAudioFile?.name || 'No audio yet'}
+            </span>
+            <span className="block text-[11.5px] text-slate-400 font-mono tabular-nums">
+              {isRecording
+                ? formatLength(recordDuration)
+                : sourceAudioFile
+                  ? [sourceLength, sourceAudioFile === activeAudioFile ? 'from this project' : 'your file'].filter(Boolean).join(' · ')
+                  : 'Choose a file or record'}
+            </span>
+          </span>
           <button
-            onClick={() => setActiveTab('sts')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === 'sts'
-                ? 'border-indigo-500 text-indigo-300 bg-slate-900/90'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
-            }`}
+            type="button"
+            onClick={() => playTrack('source')}
+            disabled={!sourceAudioUrl || isRecording}
+            className="w-[30px] h-[30px] rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center shrink-0 disabled:opacity-30 cursor-pointer"
+            aria-label={playingTrack === 'source' ? 'Stop source' : 'Play source'}
           >
-            <AudioWaveform className="w-4 h-4 text-indigo-400" />
-            <span>Speech-to-Speech (AI Voice Changer)</span>
+            {playingTrack === 'source' ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-px" />}
           </button>
-
-          <button
-            onClick={() => setActiveTab('clone')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === 'clone'
-                ? 'border-indigo-500 text-indigo-300 bg-slate-900/90'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
-            }`}
-          >
-            <UserPlus className="w-4 h-4 text-purple-400" />
-            <span>Clone Voice from Audio</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('effects')}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === 'effects'
-                ? 'border-indigo-500 text-indigo-300 bg-slate-900/90'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-900/40'
-            }`}
-          >
-            <Sliders className="w-4 h-4 text-cyan-400" />
-            <span>Instant Audio DSP Filters</span>
-          </button>
-        </div>
-
-        {/* Modal Scrollable Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1 custom-scrollbar">
-          {/* Status Alerts */}
-          {errorMessage && (
-            <div className="p-3 bg-red-950/40 border border-red-800/80 rounded-xl flex items-start gap-2.5 text-xs text-red-300">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          {successMessage && (
-            <div className="p-3 bg-emerald-950/40 border border-emerald-800/80 rounded-xl flex items-start gap-2.5 text-xs text-emerald-300">
-              <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-              <span>{successMessage}</span>
-            </div>
-          )}
-
-          {/* SECTION 1: Source Audio Selector */}
-          <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  1. Source Speech Audio
-                </span>
-                {sourceAudioFile && (
-                  <span className="text-xs font-mono text-cyan-300 bg-cyan-950/80 border border-cyan-800/80 px-2 py-0.5 rounded-md truncate max-w-xs">
-                    {sourceAudioFile.name}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                {sourceAudioUrl && (
-                  <button
-                    type="button"
-                    onClick={() => playTrack('source')}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                      playingTrack === 'source'
-                        ? 'bg-amber-500 text-white border-amber-400 animate-pulse'
-                        : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
-                    }`}
-                  >
-                    {playingTrack === 'source' ? (
-                      <>
-                        <Square className="w-3.5 h-3.5 fill-current" />
-                        <span>Stop</span>
-                      </>
-                    ) : (
-                      <>
-                        <Play className="w-3.5 h-3.5 fill-current" />
-                        <span>Play Original</span>
-                      </>
-                    )}
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-850 text-slate-300 hover:text-white border border-slate-800 text-xs font-semibold cursor-pointer"
-                >
-                  <Upload className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Choose Other File</span>
-                </button>
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="audio/*"
-                  onChange={(e) => {
-                    if (e.target.files?.[0]) handleCustomFileUpload(e.target.files[0]);
-                  }}
-                  className="hidden"
-                />
-
-                {/* Mic Recorder */}
-                <button
-                  type="button"
-                  onClick={isRecording ? stopRecording : startRecording}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                    isRecording
-                      ? 'bg-red-600 text-white border-red-500 animate-pulse'
-                      : 'bg-slate-900 hover:bg-slate-850 text-slate-300 border-slate-800'
-                  }`}
-                >
-                  <Mic className="w-3.5 h-3.5" />
-                  <span>{isRecording ? `Recording (${recordDuration}s)...` : 'Record Mic'}</span>
-                </button>
-              </div>
-            </div>
-
-            {!sourceAudioFile && !sourceAudioBuffer && (
-              <div className="py-6 text-center text-xs text-slate-500 border border-dashed border-slate-800 rounded-lg">
-                No audio loaded. Upload an audio file or record your microphone to begin voice conversion.
-              </div>
-            )}
+          <div className="order-last sm:order-none basis-full sm:basis-auto flex-1 min-w-0 h-[34px]">
+            {sourceAudioBuffer && <MiniWaveform buffer={sourceAudioBuffer} className="text-cyan-400/70" />}
           </div>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isRecording}
+            className="h-8 px-3 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 shrink-0 cursor-pointer"
+          >
+            Other file
+          </button>
+          <button
+            type="button"
+            onClick={isRecording ? stopRecording : startRecording}
+            className={`h-8 px-3 flex items-center gap-2 rounded-[9px] border text-[12.5px] font-medium shrink-0 cursor-pointer ${
+              isRecording ? 'border-rose-500/60 bg-rose-500/15 text-rose-200' : 'border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-200'
+            }`}
+          >
+            <span className={`w-2 h-2 rounded-full bg-rose-400 ${isRecording ? 'animate-pulse' : ''}`} />
+            {isRecording ? 'Stop' : 'Record'}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*,video/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleCustomFileUpload(file);
+              e.target.value = '';
+            }}
+          />
+        </div>
 
-          {/* TAB 1: SPEECH TO SPEECH (AI VOICE CHANGER) */}
-          {activeTab === 'sts' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-                {/* Voice Selection Header */}
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                      2. Select Target Voice Model
+        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[minmax(0,1fr)_23.75rem]">
+          {/* Settings for the chosen mode */}
+          <div className="px-5 sm:px-6 py-5 flex flex-col gap-4 min-w-0">
+            {activeTab === 'sts' && (
+              <>
+                <p className="text-[13px] text-slate-400 max-w-[60ch]">
+                  The new voice follows the original's timing, pauses and emotion, so it lines up with the video.
+                </p>
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Change into</span>
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+                    <span className="w-[38px] h-[38px] rounded-full bg-gradient-to-br from-amber-600 to-orange-400 text-white font-semibold flex items-center justify-center shrink-0">
+                      {(targetName.charAt(0) || '?').toUpperCase()}
                     </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-cyan-300">
-                      {filteredVoices.length} {filteredVoices.length === 1 ? 'voice' : 'voices'}
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13.5px] font-semibold text-slate-100 truncate" title={targetFull}>{targetName}</span>
+                      {targetMeta && <span className="block text-[11.5px] text-slate-400 truncate capitalize">{targetMeta}</span>}
                     </span>
-                  </div>
-
-                  {onRefreshVoices && (
+                    {targetVoice?.preview_url && (
+                      <button
+                        type="button"
+                        onClick={() => handleAuditionVoice(targetVoice)}
+                        className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-pointer"
+                      >
+                        {auditionVoiceId === targetVoice.voice_id ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+                        Sample
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => onRefreshVoices()}
-                      title="Refresh voice library from ElevenLabs API"
-                      className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-cyan-300 hover:bg-slate-900 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                      onClick={() => setIsPickerOpen(true)}
+                      className="h-8 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-pointer"
                     >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>Sync Library</span>
+                      Change
                     </button>
+                  </div>
+                  {favoriteVoices.length > 0 && (
+                    <div role="group" aria-label="Favourite voices" className="flex flex-wrap gap-1.5">
+                      {favoriteVoices.slice(0, 5).map((v) => {
+                        const on = v.voice_id === targetVoiceId;
+                        const name = shortName(v.name);
+                        return (
+                          <button
+                            key={v.voice_id}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => setTargetVoiceId(v.voice_id)}
+                            className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-pointer ${
+                              on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                            }`}
+                          >
+                            <span className="w-5 h-5 rounded-full bg-slate-700 text-white text-[10px] font-semibold flex items-center justify-center">
+                              {(name.charAt(0) || '?').toUpperCase()}
+                            </span>
+                            <span className="truncate max-w-[7rem]">{name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
 
-                {/* QUICK PICK: one click to switch between favourite voices */}
-                {favoriteVoices.length > 0 && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] uppercase font-bold text-amber-400/90 tracking-wider flex items-center gap-1 shrink-0">
-                      <Star className="w-3 h-3 fill-current" /> Favourites:
-                    </span>
-                    {favoriteVoices.map((v) => {
-                      const isActive = targetVoiceId === v.voice_id;
-                      return (
-                        <button
-                          key={v.voice_id}
-                          type="button"
-                          onClick={() => setTargetVoiceId(v.voice_id)}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${
-                            isActive
-                              ? 'bg-cyan-600 text-white border-cyan-500 shadow-xs'
-                              : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-cyan-200 border-slate-800 hover:border-cyan-500/40'
-                          }`}
-                          title={`Convert into ${v.name}`}
-                        >
-                          {isActive && <Check className="w-3 h-3 shrink-0" />}
-                          <span className="truncate max-w-[9rem]">{v.name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* Voice Search Input & Category Filters */}
-                <div className="space-y-2">
-                  {/* Search bar */}
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={voiceSearchQuery}
-                      onChange={(e) => setVoiceSearchQuery(e.target.value)}
-                      placeholder="Search voice by name, accent (e.g. British), gender, narration..."
-                      className="w-full bg-slate-900/90 border border-slate-700/80 rounded-xl pl-9 pr-8 py-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/50 transition-all shadow-inner"
-                    />
-                    {voiceSearchQuery && (
-                      <button
-                        type="button"
-                        onClick={() => setVoiceSearchQuery('')}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded-md hover:bg-slate-800 transition-colors"
-                        title="Clear search"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-
-                  {/* Category Filter Chips */}
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 text-[11px] no-scrollbar">
-                    {[
-                      { id: 'all', label: 'All Voices' },
-                      {
-                        id: 'favorites',
-                        label: `★ Favourites${favorites.length > 0 ? ` (${favorites.length})` : ''}`,
-                      },
-                      { id: 'premade', label: 'Premade' },
-                      { id: 'cloned', label: 'Cloned / Custom' },
-                      { id: 'female', label: 'Female' },
-                      { id: 'male', label: 'Male' },
-                      { id: 'narration', label: 'Narration & Deep' },
-                    ].map((cat) => {
-                      const isActive = voiceCategoryFilter === cat.id;
-                      return (
-                        <button
-                          key={cat.id}
-                          type="button"
-                          onClick={() => setVoiceCategoryFilter(cat.id)}
-                          className={`px-2.5 py-1 rounded-lg font-medium whitespace-nowrap transition-all cursor-pointer ${
-                            isActive
-                              ? cat.id === 'favorites'
-                                ? 'bg-amber-500 text-slate-950 font-bold shadow-xs'
-                                : 'bg-cyan-600 text-white font-semibold shadow-xs'
-                              : 'bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800'
-                          }`}
-                        >
-                          {cat.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  {slider('Match the original', 'Higher keeps rhythm and pitch closer to the speaker.', stability, setStability, ['Freer', 'Closer'])}
+                  {slider(
+                    'Likeness',
+                    `How strongly it sounds like ${hasTarget ? targetName : 'the chosen voice'}.`,
+                    similarity,
+                    setSimilarity,
+                    ['Looser', 'Stronger']
+                  )}
                 </div>
 
-                {/* Voice Cards Grid */}
-                {filteredVoices.length > 0 ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-64 overflow-y-auto p-1 custom-scrollbar">
-                    {filteredVoices.map((voice) => {
-                      const isSelected = targetVoiceId === voice.voice_id;
-                      const isAuditioning = auditionVoiceId === voice.voice_id;
-                      const gender = voice.labels?.gender || (voice as any).gender || '';
-                      const accent = voice.labels?.accent || (voice as any).accent || '';
-                      const isCloned = voice.category === 'cloned';
-
-                      return (
-                        <div
-                          key={voice.voice_id}
-                          onClick={() => setTargetVoiceId(voice.voice_id)}
-                          className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition-all ${
-                            isSelected
-                              ? 'bg-indigo-950/90 border-cyan-500 text-white shadow-md ring-1 ring-cyan-500/50'
-                              : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 hover:bg-slate-850 text-slate-300'
-                          }`}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="text-xs font-bold truncate text-white">{voice.name}</span>
-                              {isSelected && <Check className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
-                              {isCloned && (
-                                <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-purple-950/80 text-purple-300 border border-purple-800/60">
-                                  Cloned
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 mt-0.5 text-[10px] text-slate-400 truncate">
-                              {gender && <span className="capitalize">{gender}</span>}
-                              {gender && accent && <span>•</span>}
-                              {accent && <span>{accent}</span>}
-                              {!gender && !accent && (
-                                <span className="capitalize">{voice.category || 'Voice'}</span>
-                              )}
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggleFavorite(voice);
-                            }}
-                            className={`p-1.5 rounded-lg border transition-all cursor-pointer shrink-0 ${
-                              isFavorite(voice.voice_id)
-                                ? 'bg-amber-500/15 text-amber-300 border-amber-500/50'
-                                : 'bg-slate-950 hover:bg-slate-800 text-slate-500 hover:text-amber-200 border-slate-800 hover:border-amber-500/40'
-                            }`}
-                            title={
-                              isFavorite(voice.voice_id)
-                                ? 'Remove from favourites'
-                                : 'Add to favourites'
-                            }
-                          >
-                            <Star
-                              className={`w-3 h-3 ${isFavorite(voice.voice_id) ? 'fill-current' : ''}`}
-                            />
-                          </button>
-
-                          {voice.preview_url && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAuditionVoice(voice);
-                              }}
-                              className={`p-1.5 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer shrink-0 ${
-                                isAuditioning
-                                  ? 'bg-amber-500 text-white border-amber-400 animate-pulse'
-                                  : 'bg-slate-950 hover:bg-slate-800 text-slate-400 hover:text-white border-slate-800'
-                              }`}
-                              title={isAuditioning ? 'Stop audition' : 'Audition voice audio'}
-                            >
-                              {isAuditioning ? (
-                                <Square className="w-3 h-3 fill-current" />
-                              ) : (
-                                <Volume2 className="w-3 h-3" />
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <div className="py-8 px-4 text-center rounded-xl bg-slate-900/40 border border-dashed border-slate-800 space-y-2">
-                    <Search className="w-6 h-6 text-slate-500 mx-auto opacity-60" />
-                    {voiceCategoryFilter === 'favorites' && !voiceSearchQuery ? (
-                      <>
-                        <p className="text-xs text-slate-300 font-medium">No favourite voices yet</p>
-                        <p className="text-[11px] text-slate-500">
-                          Star a voice with the <Star className="w-3 h-3 inline -mt-0.5" /> button to pin it here
-                          and in the dubbing voice picker.
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-xs text-slate-300 font-medium">
-                          No voices found matching <span className="text-cyan-400 font-mono font-bold">"{voiceSearchQuery}"</span>
-                        </p>
-                        <p className="text-[11px] text-slate-500">
-                          Try searching with a different name, accent (e.g. American, British), or reset your filter.
-                        </p>
-                      </>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setVoiceSearchQuery('');
-                        setVoiceCategoryFilter('all');
-                      }}
-                      className="mt-2 inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
-                    >
-                      <RefreshCw className="w-3 h-3" />
-                      <span>Reset Filters</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* STS Model & Fine-Tuning Controls */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-800/80">
-                  <div>
-                    <label className="text-xs font-bold text-slate-300 block mb-1">
-                      STS AI Engine
-                    </label>
-                    <select
-                      value={stsModelId}
-                      onChange={(e) => setStsModelId(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                    >
-                      <option value="eleven_multilingual_sts_v2">
-                        Eleven Multilingual STS v2 (Authentic Multilingual Nuance)
-                      </option>
-                      <option value="eleven_english_sts_v2">
-                        Eleven English STS v2 (Optimized English Inflection)
-                      </option>
+                <div className="grid sm:grid-cols-2 gap-4 items-end">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="sts-model" className="text-xs text-slate-400">Model</label>
+                    <select id="sts-model" value={stsModelId} onChange={(e) => setStsModelId(e.target.value)} className={`${field} cursor-pointer`}>
+                      <option value="eleven_multilingual_sts_v2" className="bg-slate-900">Multilingual (29 languages)</option>
+                      <option value="eleven_english_sts_v2" className="bg-slate-900">English only</option>
                     </select>
                   </div>
-
-                  <div className="flex items-center gap-4 pt-4">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
-                      <input
-                        type="checkbox"
-                        checked={removeBackgroundNoise}
-                        onChange={(e) => setRemoveBackgroundNoise(e.target.checked)}
-                        className="rounded border-slate-700 text-indigo-600 focus:ring-indigo-500"
-                      />
-                      <span>Clean Background Noise in Audio</span>
-                    </label>
+                  <div className="flex items-center gap-3 h-10">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold text-slate-100">Clean up background</span>
+                      <span className="block text-[11.5px] text-slate-400">Removes hum and room noise first</span>
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={removeBackgroundNoise}
+                      aria-label="Clean up background"
+                      onClick={() => setRemoveBackgroundNoise((v) => !v)}
+                      className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer ${removeBackgroundNoise ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                    >
+                      <span className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${removeBackgroundNoise ? 'left-[17px]' : 'left-[3px]'}`} />
+                    </button>
                   </div>
                 </div>
 
-                {/* Sliders */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-400 mb-1">
-                      <span>Vocal Stability (Cadence Match)</span>
-                      <span className="font-mono text-indigo-400">{stability.toFixed(2)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.0"
-                      step="0.05"
-                      value={stability}
-                      onChange={(e) => setStability(parseFloat(e.target.value))}
-                      className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg"
-                    />
-                  </div>
-
-                  <div>
-                    <div className="flex justify-between text-xs text-slate-400 mb-1">
-                      <span>Similarity / Voice Authenticity</span>
-                      <span className="font-mono text-indigo-400">{similarity.toFixed(2)}</span>
-                    </div>
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.0"
-                      step="0.05"
-                      value={similarity}
-                      onChange={(e) => setSimilarity(parseFloat(e.target.value))}
-                      className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg"
-                    />
-                  </div>
+                <div className="mt-auto flex flex-wrap items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOutputLabel(targetName);
+                      handleRunSpeechToSpeech();
+                    }}
+                    disabled={isProcessing || isRecording || !hasTarget || (!sourceAudioFile && !sourceAudioBuffer)}
+                    className={primaryButton}
+                  >
+                    <ArrowLeftRight className="w-4 h-4" /> {hasTarget ? `Change to ${targetName}` : 'Change voice'}
+                  </button>
+                  <span className="text-[11.5px] text-slate-500">
+                    Uses ElevenLabs credits{sourceLength ? ` for ${sourceLength} of audio` : ''}.
+                  </span>
                 </div>
-              </div>
+              </>
+            )}
 
-              {/* Action Button */}
-              <button
-                type="button"
-                onClick={handleRunSpeechToSpeech}
-                disabled={isProcessing || !sourceAudioFile}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-sm font-bold shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all active:scale-98"
-              >
-                {isProcessing ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>{processingStatus || 'Converting Voice...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <AudioWaveform className="w-4 h-4" />
-                    <span>Transform Voice with ElevenLabs STS</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {/* TAB 2: CLONE VOICE FROM AUDIO */}
-          {activeTab === 'clone' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-                  Clone Voice Identity from Audio
-                </span>
-                <p className="text-xs text-slate-400">
-                  Extract the unique vocal identity from your audio clip to create a permanent voice
-                  model for all your dubbing projects.
+            {activeTab === 'clone' && (
+              <>
+                <p className="text-[13px] text-slate-400 max-w-[60ch]">
+                  Make a new ElevenLabs voice from clean recordings of one speaker. It joins your library and can dub or change voices.
                 </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-slate-300 block mb-1">Voice Name</label>
-                    <input
-                      type="text"
-                      value={cloneName}
-                      onChange={(e) => setCloneName(e.target.value)}
-                      placeholder="e.g. My Custom Narrator Voice"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                    />
+                <div className="grid sm:grid-cols-2 gap-3.5">
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="clone-name" className="text-xs text-slate-400">Name</label>
+                    <input id="clone-name" value={cloneName} onChange={(e) => setCloneName(e.target.value)} placeholder="e.g. Hindi narrator" className={field} />
                   </div>
-
-                  <div>
-                    <label className="text-xs font-bold text-slate-300 block mb-1">
-                      Gender / Accent Tags
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <select
-                        value={cloneGender}
-                        onChange={(e) => setCloneGender(e.target.value)}
-                        className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                      >
-                        <option value="unspecified">Unspecified</option>
-                        <option value="male">Male</option>
-                        <option value="female">Female</option>
-                      </select>
-                      <input
-                        type="text"
-                        value={cloneAccent}
-                        onChange={(e) => setCloneAccent(e.target.value)}
-                        placeholder="Accent (e.g. British)"
-                        className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                      />
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-slate-400">Gender</span>
+                    <div role="group" aria-label="Gender" className="flex h-10 p-[3px] gap-0.5 bg-slate-950/60 border border-slate-700 rounded-[10px]">
+                      {([
+                        ['female', 'Female'],
+                        ['male', 'Male'],
+                        ['unspecified', 'Not set'],
+                      ] as const).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          aria-pressed={cloneGender === value}
+                          onClick={() => setCloneGender(value)}
+                          className={`flex-1 rounded-[7px] text-xs font-medium transition-colors cursor-pointer ${
+                            cloneGender === value ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="clone-accent" className="text-xs text-slate-400">Accent</label>
+                    <input id="clone-accent" value={cloneAccent} onChange={(e) => setCloneAccent(e.target.value)} placeholder="e.g. Indian" className={field} />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="clone-desc" className="flex justify-between text-xs text-slate-400">
+                      <span>Description</span>
+                      <span className="text-slate-500">optional</span>
+                    </label>
+                    <input id="clone-desc" value={cloneDescription} onChange={(e) => setCloneDescription(e.target.value)} placeholder="Calm, measured, warm" className={field} />
                   </div>
                 </div>
 
-                <div>
-                  <label className="text-xs font-bold text-slate-300 block mb-1">
-                    Voice Sample Source
-                  </label>
-                  <div className="p-3 bg-slate-900 rounded-lg border border-slate-800 flex items-center justify-between gap-3">
-                    <span className="text-xs text-slate-300">
-                      {cloneFiles.length > 0
-                        ? `${cloneFiles.length} sample file(s) selected`
-                        : sourceAudioFile
-                        ? `Using current audio: ${sourceAudioFile.name}`
-                        : 'No audio selected'}
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Samples</span>
+                  <div className="flex items-center gap-3 p-3 border-[1.5px] border-dashed border-slate-700 rounded-xl">
+                    <span className="w-[34px] h-[34px] rounded-[9px] bg-indigo-500/15 text-indigo-400 flex items-center justify-center shrink-0">
+                      <Upload className="w-4 h-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold text-slate-100">Add recordings</span>
+                      <span className="block text-[11.5px] text-slate-400">Up to 25 files. One speaker, no music.</span>
                     </span>
                     <button
                       type="button"
                       onClick={() => cloneFileInputRef.current?.click()}
-                      className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 rounded-md cursor-pointer"
+                      className="h-8 px-3 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-pointer"
                     >
-                      Choose Other Sample
+                      Browse
                     </button>
                     <input
                       ref={cloneFileInputRef}
                       type="file"
                       accept="audio/*"
                       multiple
-                      onChange={(e) => {
-                        if (e.target.files) {
-                          setCloneFiles(Array.from(e.target.files));
-                        }
-                      }}
                       className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files) setCloneFiles((prev) => [...prev, ...Array.from(e.target.files!)].slice(0, 25));
+                        e.target.value = '';
+                      }}
                     />
                   </div>
-                </div>
-              </div>
-
-              {/* Action Button */}
-              <button
-                type="button"
-                onClick={handleRunVoiceClone}
-                disabled={isProcessing}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white text-sm font-bold shadow-lg shadow-purple-600/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all active:scale-98"
-              >
-                {isProcessing ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Cloning Voice Model...</span>
-                  </>
-                ) : (
-                  <>
-                    <UserPlus className="w-4 h-4" />
-                    <span>Clone & Activate New Voice from Audio</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
-
-          {/* TAB 3: INSTANT AUDIO DSP FILTERS */}
-          {activeTab === 'effects' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
-                  Select Instant Audio Filter (No API Key Required)
-                </span>
-
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  {[
-                    { id: 'deep', label: 'Deep Male Pitch', desc: 'Resonant bass & low timbre' },
-                    { id: 'high', label: 'Higher Pitch', desc: 'Bright pitch shift & youthful tone' },
-                    { id: 'studio', label: 'Studio Broadcast', desc: 'High-clarity air & compressor' },
-                    { id: 'radio', label: 'Vintage Radio', desc: 'Bandpass telephone transceiver' },
-                    { id: 'robot', label: 'Robot Vocoder', desc: 'Metallic ring modulation' },
-                    { id: 'whisper', label: 'Whisper Texture', desc: 'Airy breath highpass filter' },
-                  ].map((eff) => (
-                    <div
-                      key={eff.id}
-                      onClick={() => setSelectedEffect(eff.id as VoiceEffectPreset)}
-                      className={`p-3 rounded-xl border cursor-pointer transition-all ${
-                        selectedEffect === eff.id
-                          ? 'bg-cyan-950/80 border-cyan-500 text-white ring-1 ring-cyan-500/50'
-                          : 'bg-slate-900 border-slate-800 hover:border-slate-700 text-slate-300'
-                      }`}
-                    >
-                      <span className="text-xs font-bold block">{eff.label}</span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">{eff.desc}</span>
+                  <div className="flex flex-col gap-1.5">
+                    {cloneFiles.length === 0 && sourceAudioFile && (
+                      <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-slate-800 text-[12.5px]">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-slate-200">Source audio ({sourceAudioFile.name})</span>
+                        {sourceLength && <span className="font-mono text-[11.5px] text-slate-500">{sourceLength}</span>}
+                      </div>
+                    )}
+                    {cloneFiles.map((f, i) => (
+                      <div key={`${f.name}-${i}`} className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-slate-800 text-[12.5px]">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-slate-200">{f.name}</span>
+                        <span className="font-mono text-[11.5px] text-slate-500">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
+                        <button
+                          type="button"
+                          onClick={() => setCloneFiles((prev) => prev.filter((_, j) => j !== i))}
+                          className="p-0.5 text-slate-500 hover:text-slate-200 cursor-pointer"
+                          aria-label={`Remove ${f.name}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  {sampleSeconds > 0 && (
+                    <div className="flex flex-col gap-1.5">
+                      <div className="h-[5px] rounded-full bg-slate-800 overflow-hidden">
+                        <div className="h-full rounded-full bg-emerald-400" style={{ width: `${Math.min(100, (sampleSeconds / 180) * 100)}%` }} />
+                      </div>
+                      <span className="text-[11.5px] text-slate-400">
+                        {formatLength(sampleSeconds)} of speech. 1 to 3 minutes is enough for a good clone.
+                      </span>
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
 
-              {/* Action Button */}
+                <div className="mt-auto flex flex-wrap items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleRunVoiceClone}
+                    disabled={isProcessing || isRecording || !cloneName.trim() || (cloneFiles.length === 0 && !sourceAudioFile)}
+                    className={primaryButton}
+                  >
+                    <UserPlus className="w-4 h-4" /> Create voice
+                  </button>
+                  <span className="text-[11.5px] text-slate-500">Only clone a voice you have permission to use.</span>
+                </div>
+              </>
+            )}
+
+            {activeTab === 'effects' && (
+              <>
+                <p className="text-[13px] text-slate-400 max-w-[60ch]">
+                  Quick sound treatments. They run on this computer and don't touch ElevenLabs.
+                </p>
+                <div role="radiogroup" aria-label="Effect" className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {EFFECTS.map((fx) => {
+                    const on = fx.id === selectedEffect;
+                    return (
+                      <button
+                        key={fx.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        onClick={() => setSelectedEffect(fx.id)}
+                        className={`flex flex-col items-start gap-2 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+                          on ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/40'
+                        }`}
+                      >
+                        <span
+                          className={`w-[30px] h-[30px] rounded-lg border flex items-center justify-center ${
+                            on ? 'text-indigo-300 border-indigo-500/40 bg-slate-950/60' : 'text-slate-400 border-slate-800 bg-slate-950/60'
+                          }`}
+                        >
+                          <fx.Icon className="w-4 h-4" />
+                        </span>
+                        <span>
+                          <span className="block text-[12.5px] font-semibold text-slate-100">{fx.label}</span>
+                          <span className="block text-[11px] text-slate-400 leading-snug">{fx.desc}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-auto flex flex-wrap items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOutputLabel(effect.label);
+                      handleRunDspEffect();
+                    }}
+                    disabled={isProcessing || isRecording || (!sourceAudioFile && !sourceAudioBuffer)}
+                    className={primaryButton}
+                  >
+                    Apply {effect.label}
+                  </button>
+                  <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+                    <Check className="w-3.5 h-3.5" /> Free, no credits used
+                  </span>
+                </div>
+              </>
+            )}
+
+            {errorMessage && (
+              <p className="flex items-start gap-2 px-3 py-2.5 rounded-[10px] bg-rose-500/10 border border-rose-500/30 text-[12.5px] text-slate-200" role="alert">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-px" /> {errorMessage}
+              </p>
+            )}
+          </div>
+
+          {/* Result */}
+          <aside aria-label="Result" className="px-5 py-5 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/40 flex flex-col gap-3.5 min-w-0">
+            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Result</span>
+
+            {isProcessing ? (
+              <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-slate-900 border border-slate-800" role="status" aria-live="polite">
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-100">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" /> {runLabel}
+                </span>
+                <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
+                </div>
+                <span className="text-[11.5px] text-slate-400">{processingStatus || 'Working…'}</span>
+              </div>
+            ) : successMessage && activeTab === 'clone' && !outputUrl ? (
+              <div className="flex flex-col gap-2 p-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-emerald-200">
+                  <Check className="w-4 h-4" /> Voice created
+                </span>
+                <span className="text-[12px] text-slate-300 leading-relaxed">
+                  {successMessage} It's now selected for dubbing, and you can change into it from the first tab.
+                </span>
+              </div>
+            ) : outputUrl ? (
+              <>
+                <span className="flex items-center gap-2 text-[12.5px] text-emerald-300">
+                  <Check className="w-3.5 h-3.5" /> Ready. Compare, then choose what to do with it.
+                </span>
+                {[
+                  { track: 'source' as const, title: 'Original', sub: 'Speaker', buffer: sourceAudioBuffer, color: 'text-cyan-400/80' },
+                  { track: 'output' as const, title: 'Changed', sub: outputLabel, buffer: outputBuffer, color: 'text-indigo-400' },
+                ].map((lane) => (
+                  <div
+                    key={lane.track}
+                    className={`flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900 border ${
+                      lane.track === 'output' ? 'border-indigo-500/50' : 'border-slate-800'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => playTrack(lane.track)}
+                      className="w-[30px] h-[30px] rounded-full border border-slate-700 bg-slate-950/60 text-slate-100 flex items-center justify-center shrink-0 cursor-pointer"
+                      aria-label={`${playingTrack === lane.track ? 'Stop' : 'Play'} ${lane.title.toLowerCase()}`}
+                    >
+                      {playingTrack === lane.track ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-px" />}
+                    </button>
+                    <span className="w-[4.5rem] shrink-0">
+                      <span className="block text-[12.5px] font-semibold text-slate-100">{lane.title}</span>
+                      <span className="block text-[11px] text-slate-400 truncate">{lane.sub}</span>
+                    </span>
+                    <div className="flex-1 min-w-0 h-[30px]">
+                      {lane.buffer && <MiniWaveform buffer={lane.buffer} className={lane.color} />}
+                    </div>
+                  </div>
+                ))}
+
+                <span className="mt-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Use it</span>
+                <div className="flex flex-col gap-2">
+                  {onSetDubbedMaster && (
+                    <button type="button" onClick={handleSetMasterDub} className={`${actionButton} border-indigo-500/50 bg-indigo-950/30`}>
+                      <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-indigo-300 flex items-center justify-center shrink-0">
+                        <Film className="w-4 h-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold text-slate-100">Use as the dub</span>
+                        <span className="block text-[11.5px] text-slate-400">Becomes the finished audio in Final dub</span>
+                      </span>
+                    </button>
+                  )}
+                  <button type="button" onClick={handleApplyToProject} className={actionButton}>
+                    <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                      <RefreshCw className="w-4 h-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-semibold text-slate-100">Use as the source audio</span>
+                      <span className="block text-[11.5px] text-slate-400">Replaces the project's audio with this</span>
+                    </span>
+                  </button>
+                  <button type="button" onClick={handleDownloadOutput} className={actionButton}>
+                    <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                      <Download className="w-4 h-4" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-semibold text-slate-100">Download .wav</span>
+                      <span className="block text-[11.5px] text-slate-400 font-mono">
+                        {outputBuffer ? `${formatLength(outputBuffer.duration)} · ${(outputBuffer.sampleRate / 1000).toFixed(1)} kHz` : 'Audio file'}
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 min-h-[13.75rem] flex flex-col items-center justify-center gap-2.5 p-6 text-center rounded-xl border-[1.5px] border-dashed border-slate-700 text-[12.5px] text-slate-500">
+                <span className="w-10 h-10 rounded-[11px] bg-slate-900 border border-slate-800 text-slate-400 flex items-center justify-center">
+                  <AudioWaveform className="w-5 h-5" />
+                </span>
+                <span className="max-w-[16rem]">Your result appears here, next to the original, so you can compare before using it.</span>
+              </div>
+            )}
+          </aside>
+        </div>
+      </section>
+
+      {/* The full voice library, to pick who to change into */}
+      {isPickerOpen && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose a voice to change into"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (e.target === e.currentTarget) setIsPickerOpen(false);
+          }}
+          onKeyDown={(e) => e.key === 'Escape' && setIsPickerOpen(false)}
+        >
+          <div className="w-full max-w-5xl flex flex-col gap-3">
+            <div className="flex justify-end">
               <button
                 type="button"
-                onClick={handleRunDspEffect}
-                disabled={isProcessing}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white text-sm font-bold shadow-lg shadow-cyan-600/30 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 transition-all active:scale-98"
+                onClick={() => setIsPickerOpen(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
               >
-                {isProcessing ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Processing Audio Filter...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sliders className="w-4 h-4" />
-                    <span>Apply Audio Voice Filter</span>
-                  </>
-                )}
+                <X className="w-3.5 h-3.5" /> Done
               </button>
             </div>
-          )}
-
-          {/* SECTION 3: Transformed Audio Preview & Direct Actions */}
-          {outputUrl && (
-            <div className="bg-slate-950 border border-indigo-900/60 rounded-xl p-4 space-y-3 animate-in fade-in zoom-in-95 duration-200">
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
-                    <Check className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-white">Transformed Audio Output Ready</h4>
-                    <p className="text-[10px] text-slate-400">
-                      Compare A/B with original speech, then apply to project
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {/* A/B Track Controls */}
-                  <button
-                    type="button"
-                    onClick={() => playTrack('source')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                      playingTrack === 'source'
-                        ? 'bg-amber-500 text-white border-amber-400'
-                        : 'bg-slate-900 text-slate-300 border-slate-800'
-                    }`}
-                  >
-                    {playingTrack === 'source' ? 'Stop' : 'Play Original'}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => playTrack('output')}
-                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold border transition-all shadow-sm cursor-pointer ${
-                      playingTrack === 'output'
-                        ? 'bg-emerald-500 text-white border-emerald-400 animate-pulse'
-                        : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500'
-                    }`}
-                  >
-                    {playingTrack === 'output' ? 'Stop' : 'Play Transformed'}
-                  </button>
-                </div>
-              </div>
-
-              {/* Apply Actions Bar */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-slate-800/80">
-                <button
-                  type="button"
-                  onClick={handleApplyToProject}
-                  className="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Use as Active Audio</span>
-                </button>
-
-                {onSetDubbedMaster && (
-                  <button
-                    type="button"
-                    onClick={handleSetMasterDub}
-                    className="px-3.5 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Set as Dubbed Master</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleDownloadOutput}
-                  className="px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-bold border border-slate-700 transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-95"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Audio</span>
-                </button>
-              </div>
-            </div>
-          )}
+            <VoiceSelectorCard
+              elVoiceId={targetVoiceId}
+              onElVoiceIdChange={setTargetVoiceId}
+              availableVoices={availableVoices}
+              targetLanguage={targetLanguage}
+              className="h-[78vh]"
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
