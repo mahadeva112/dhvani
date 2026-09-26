@@ -299,8 +299,10 @@ export const synthesizeSamplePreview = async (
   apiKey: string,
   voiceId: string,
   sampleText: string = 'Hello! This is a real-time preview of my dubbed voice in ElevenLabs.',
-  modelId: string = 'eleven_v3'
-): Promise<Blob> => synthesizeSpeech(apiKey, voiceId, sampleText, modelId, 'mp3_44100_128');
+  modelId: string = 'eleven_v3',
+  /** Null or omitted uses the voice's own settings, as a dub would. */
+  voiceSettings: ElevenLabsVoiceSettings | null = null
+): Promise<Blob> => synthesizeSpeech(apiKey, voiceId, sampleText, modelId, 'mp3_44100_128', voiceSettings);
 
 /** Speech-to-speech voice conversion. */
 export const speechToSpeech = async (
