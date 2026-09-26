@@ -56,13 +56,13 @@ import {
   DEFAULT_SRT_OPTIONS,
 } from '../services/srtService';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
-import { VoiceSelectorCard, SelectedVoiceSummary } from './VoiceSelectorCard';
-import { MediaStrip } from './MediaStrip';
+import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES } from './VoiceSelectorCard';
+import { MediaStrip, MiniWaveform } from './MediaStrip';
+import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { PhoneticSmartTextarea } from './PhoneticSmartTextarea';
 import { SrtExportModal } from './SrtExportModal';
 import { CustomScriptAlignModal } from './CustomScriptAlignModal';
 import { TranslationPromptCard } from './TranslationPromptCard';
-import { FinalScriptViewer } from './FinalScriptViewer';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
@@ -101,6 +101,15 @@ const getPace = (text: string, duration: number) => {
           : 'bg-emerald-500/15 text-emerald-300',
     barClass: level === 'fast' ? 'bg-rose-400' : level === 'tight' ? 'bg-amber-400' : 'bg-emerald-400',
   };
+};
+
+/** 125.4 -> "2:05", 3725 -> "1:02:05" */
+const formatClock = (seconds: number) => {
+  const t = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const sec = String(t % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 };
 
 const railButton =
@@ -211,6 +220,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight'>('all');
   const [scriptExportFormat, setScriptExportFormat] = useState<TargetScriptFormat>('dialogue');
+  const [finalScriptLayout, setFinalScriptLayout] = useState<'dialogue' | 'timecoded' | 'bilingual'>('bilingual');
+  const [isVoicePickerOpen, setIsVoicePickerOpen] = useState(false);
+  const { favorites: favoriteVoices } = useFavoriteVoices();
   const [spotlightIndex, setSpotlightIndex] = useState<number>(0);
   const [copiedCueId, setCopiedCueId] = useState<string | number | null>(null);
   // The views scroll inside the editor panel, so their own height caps are off.
@@ -418,6 +430,21 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     () => runQa(segments, { language: targetLanguage, glossary: glossaryTerms, config: qaConfig }),
     [segments, targetLanguage, glossaryTerms, qaConfig]
   );
+  /** What ElevenLabs is asked to voice, which is what a dub is billed on. */
+  const dubCharacterCount = useMemo(
+    () => segments.reduce((sum, seg) => sum + getTargetText(seg).length, 0),
+    [segments]
+  );
+
+  /** "Aaditya" out of "Aaditya - Rich, Deep and Suspenseful", for button labels. */
+  const voiceShortName = useMemo(() => {
+    const full =
+      availableVoices?.find((v) => v.voice_id === elVoiceId)?.name ||
+      POPULAR_ELEVENLABS_VOICES.find((v) => v.id === elVoiceId)?.name ||
+      '';
+    return full.trim().split(/\s+[-–—|]\s+/)[0];
+  }, [availableVoices, elVoiceId]);
+
   const pacingCounts = useMemo(() => {
     const counts = { natural: 0, tight: 0, fast: 0 };
     segments.forEach((seg) => {
@@ -516,9 +543,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     setTimeout(() => setExportSuccessMessage(null), 3000);
   };
 
-  const handleCopyFullTargetScript = () => {
+  const handleCopyFullTargetScript = (format: TargetScriptFormat = 'dialogue') => {
     if (!segments || segments.length === 0) return;
-    const scriptContent = generateTargetLanguageScript(segments, targetLanguage, 'dialogue');
+    const scriptContent = generateTargetLanguageScript(segments, targetLanguage, format);
     try {
       navigator.clipboard.writeText(scriptContent);
       setExportSuccessMessage(`Copied full ${targetLanguage} script to clipboard!`);
@@ -1509,7 +1536,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           </button>
                           <button
                             type="button"
-                            onClick={handleCopyFullTargetScript}
+                            onClick={() => handleCopyFullTargetScript()}
                             className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-semibold transition-all shadow-xs"
                             title="Copy full translated script to clipboard"
                           >
@@ -1798,7 +1825,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={handleCopyFullTargetScript}
+                      onClick={() => handleCopyFullTargetScript()}
                       disabled={segments.length === 0}
                       className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 shrink-0 cursor-pointer"
                       title={`Copy the ${targetLanguage} script`}
@@ -1891,370 +1918,494 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 3: FINAL SCRIPT & DUBBED AUDIO MASTER */}
+      {/* STEP 3: FINAL DUB */}
       {/* ========================================================================= */}
-      {activeStep === 3 && activeJob && (
-        <div className="space-y-4 animate-in fade-in zoom-in-95 duration-200">
-          {!activeJob.synthesizedAudioUrl ? (
-            <div className="bg-gradient-to-r from-emerald-950/90 via-slate-900 to-indigo-950/90 border border-emerald-500/40 p-5 sm:p-6 rounded-3xl space-y-4 shadow-xl">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
-                  <Volume2 className="w-6 h-6 text-emerald-400" />
+      {activeStep === 3 && activeJob && (() => {
+        const hasDub = Boolean(activeJob.synthesizedAudioUrl);
+        const dubBuffer = activeJob.synthAudioBuffer;
+        const sourceBuffer = activeJob.audioBuffer;
+        const totalLength = duration || dubBuffer?.duration || sourceBuffer?.duration || 0;
+        const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
+        const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
+        const openIssues = openFindings.length;
+
+        return (
+        <div className="flex flex-col gap-4 animate-in fade-in duration-200">
+          {/* Dub panel: ready, dubbing, or finished */}
+          <section aria-label="Dub" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
+            {isSynthesizing ? (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-[17px] font-semibold text-slate-100">Dubbing in {targetLanguage}</h2>
+                  <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">In progress</span>
+                  <span className="text-xs text-slate-400">{ttsModelName}</span>
                 </div>
-                <div>
-                  <h2 className="text-base sm:text-lg font-bold text-white font-display flex items-center gap-2">
-                    <span>Step 3: Dub Final Script with ElevenLabs</span>
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30 font-mono font-bold uppercase">
-                      11 Labs AI
-                    </span>
-                  </h2>
-                  <p className="text-xs text-slate-300 mt-1">
-                    Pick the dubbing voice, then start generating <span className="text-emerald-400 font-semibold">{targetLanguage}</span> audio. Nothing is sent to ElevenLabs until you press Start Dubbing.
-                  </p>
+                {/* One ElevenLabs request covers the whole script, so progress can't be counted per cue. */}
+                <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
+                </div>
+                <p className="text-xs text-slate-400">
+                  Voicing {segments.length} cues ({dubCharacterCount.toLocaleString()} characters). You can keep reading the script while it works.
+                </p>
+              </>
+            ) : !hasDub ? (
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 items-center">
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h2 className="text-[17px] font-semibold text-slate-100">Ready to dub</h2>
+                    <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full border border-slate-700 text-slate-400">Not started</span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-8 gap-y-3">
+                    {[
+                      { value: segments.length.toLocaleString(), label: 'cues' },
+                      { value: dubCharacterCount.toLocaleString(), label: 'characters to voice' },
+                      { value: formatClock(totalLength), label: 'dub length' },
+                      {
+                        value: String(openIssues),
+                        label: openIssues === 1 ? 'QA issue open' : 'QA issues open',
+                        tone: openIssues > 0 ? 'text-amber-300' : 'text-emerald-300',
+                      },
+                    ].map((f) => (
+                      <div key={f.label}>
+                        <span className={`block text-[22px] font-semibold tabular-nums leading-tight ${f.tone || 'text-slate-100'}`}>{f.value}</span>
+                        <span className="text-xs text-slate-400">{f.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex flex-col md:items-end gap-1.5">
+                  <button
+                    type="button"
+                    onClick={onSynthesizeMaster}
+                    className="h-13 px-6 py-3.5 flex items-center justify-center gap-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[15px] font-semibold transition-colors cursor-pointer active:translate-y-px"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    Dub in {targetLanguage}
+                    {voiceShortName && ` with ${voiceShortName}`}
+                  </button>
+                  <p className="text-xs text-slate-500">Uses about {dubCharacterCount.toLocaleString()} ElevenLabs characters.</p>
                 </div>
               </div>
-
-              {/* Voice search: choose the ElevenLabs voice before any credits are spent */}
-              <VoiceSelectorCard
-                elVoiceId={elVoiceId}
-                onElVoiceIdChange={onElVoiceIdChange}
-                availableVoices={availableVoices}
-                targetLanguage={targetLanguage}
-              />
-
-              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                <span className="text-xs text-slate-400">
-                  {segments.length} cues ready to dub
-                </span>
-
-                <button
-                  type="button"
-                  onClick={onSynthesizeMaster}
-                  disabled={isSynthesizing}
-                  className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm shadow-xl shadow-emerald-600/40 disabled:opacity-50 transition-all active:scale-95 cursor-pointer ring-1 ring-emerald-400/50"
-                >
-                  {isSynthesizing ? (
-                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                  ) : (
-                    <AudioWaveform className="w-4 h-4 text-emerald-200" />
-                  )}
-                  <span>
-                    {isSynthesizing
-                      ? 'Generating Audio in ElevenLabs...'
-                      : 'Start Dubbing Now (ElevenLabs) ➔'}
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-[17px] font-semibold text-slate-100">{targetLanguage} dub</h2>
+                  <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
+                    <Check className="w-3 h-3" /> Ready
                   </span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-3xl space-y-4 shadow-xl">
-              {/* Success Header */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
-                    <CheckCircle2 className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base sm:text-lg font-bold text-white font-display">
-                      Step 3: Dubbed Audio Master Ready ({targetLanguage})
-                    </h2>
-                    <p className="text-xs text-slate-400">
-                      Speech generated with {ttsModelName}.
-                    </p>
+                  <span className="text-xs text-slate-400">
+                    {[voiceShortName, ttsModelName].filter(Boolean).join(' · ')}
+                  </span>
+                  <div role="group" aria-label="Listen to" className="ml-auto flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+                    {[
+                      { id: 'synth' as const, label: 'Dub', dot: 'bg-indigo-400' },
+                      { id: 'source' as const, label: 'Original', dot: 'bg-cyan-400' },
+                      { id: 'both' as const, label: 'Both', dot: '' },
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        aria-pressed={trackMode === m.id}
+                        onClick={() => onTrackModeChange(m.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                          trackMode === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {m.dot && <span className={`w-2 h-2 rounded-sm ${m.dot}`} />}
+                        {m.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                {/* Redo Synthesis button */}
-                <button
-                  type="button"
-                  onClick={onSynthesizeMaster}
-                  disabled={isSynthesizing}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-semibold transition-all active:scale-95 cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isSynthesizing ? 'animate-spin' : ''}`} />
-                  <span>Re-Dub Audio</span>
-                </button>
-              </div>
+                {/* Dub and original, one lane each; click a lane to jump there */}
+                <div className="grid grid-cols-1 sm:grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
+                  {[
+                    { label: `${targetLanguage} dub`, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400', muted: trackMode === 'source' },
+                    { label: 'Original', buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400', muted: trackMode === 'synth' },
+                  ].map((lane) => (
+                    <React.Fragment key={lane.label}>
+                      <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
+                        <span className={`w-2 h-2 rounded-sm shrink-0 ${lane.dot}`} />
+                        {lane.label}
+                      </span>
+                      <div
+                        role="slider"
+                        tabIndex={0}
+                        aria-label={`${lane.label} position`}
+                        aria-valuemin={0}
+                        aria-valuemax={Math.round(totalLength)}
+                        aria-valuenow={Math.round(currentTime)}
+                        onClick={(e) => {
+                          const r = e.currentTarget.getBoundingClientRect();
+                          onSeek(((e.clientX - r.left) / r.width) * totalLength);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'ArrowRight') onSeek(Math.min(totalLength, currentTime + 5));
+                          if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
+                        }}
+                        className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer transition-opacity ${lane.muted ? 'opacity-40' : ''}`}
+                      >
+                        {lane.buffer ? (
+                          <MiniWaveform buffer={lane.buffer} className={lane.color} />
+                        ) : (
+                          <span className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-500">
+                            Waveform not available
+                          </span>
+                        )}
+                        {totalLength > 0 && (
+                          <span
+                            className="absolute top-0 bottom-0 w-0.5 bg-slate-100 pointer-events-none"
+                            style={{ left: `${Math.min(100, (currentTime / totalLength) * 100)}%` }}
+                          />
+                        )}
+                      </div>
+                    </React.Fragment>
+                  ))}
+                  <div className="sm:col-start-2 flex justify-between font-mono text-[10px] text-slate-500 tabular-nums">
+                    {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+                      <span key={f}>{formatClock(totalLength * f)}</span>
+                    ))}
+                  </div>
+                </div>
 
-              {/* Switch voice here, then Re-Dub Audio to hear the script in it */}
-              <VoiceSelectorCard
-                elVoiceId={elVoiceId}
-                onElVoiceIdChange={onElVoiceIdChange}
-                availableVoices={availableVoices}
-                targetLanguage={targetLanguage}
-              />
-
-            {/* A/B Track Audition Switcher */}
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="text-slate-400 font-semibold flex items-center gap-1.5">
-                  <Headphones className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>A/B Comparison Audition:</span>
-                </span>
-
-                {/* Track Mode Selector */}
-                <div className="flex items-center bg-slate-900 p-1 rounded-xl border border-slate-800 gap-1 text-xs">
+                {/* Transport and live caption */}
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => onTrackModeChange('synth')}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                      trackMode === 'synth'
-                        ? 'bg-emerald-600 text-white shadow'
-                        : 'text-slate-400 hover:text-indigo-200'
-                    }`}
+                    onClick={() => activeCueIndex > 0 && onSeek(segments[activeCueIndex - 1].startTime)}
+                    className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
+                    aria-label="Previous cue"
                   >
-                    Dubbed Master Only
+                    <ChevronsLeft className="w-4 h-4" />
                   </button>
-
                   <button
                     type="button"
-                    onClick={() => onTrackModeChange('source')}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                      trackMode === 'source'
-                        ? 'bg-indigo-600 text-white shadow'
-                        : 'text-slate-400 hover:text-indigo-200'
-                    }`}
+                    onClick={onTogglePlay}
+                    className="w-11 h-11 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-pointer"
+                    aria-label={isPlaying ? 'Pause' : 'Play'}
                   >
-                    Original Audio Only
+                    {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={() => onTrackModeChange('both')}
-                    className={`px-3 py-1 rounded-lg font-bold transition-all ${
-                      trackMode === 'both'
-                        ? 'bg-cyan-600 text-white shadow'
-                        : 'text-slate-400 hover:text-indigo-200'
-                    }`}
-                  >
-                    Simultaneous Mix (A+B)
-                  </button>
-                </div>
-              </div>
-
-              {/* Master Playback Scrub bar */}
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={onTogglePlay}
-                  className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 hover:scale-105 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30 transition-all active:scale-95 shrink-0"
-                >
-                  {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-0.5" />}
-                </button>
-
-                <div className="flex-1 space-y-1">
-                  <div className="flex justify-between text-[11px] font-mono text-slate-400">
-                    <span className="text-cyan-400 font-bold">{formatSeconds(currentTime)}</span>
-                    <span>{formatSeconds(duration || 0)}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={duration || 100}
-                    step={0.05}
-                    value={currentTime}
-                    onChange={(e) => onSeek(parseFloat(e.target.value))}
-                    className="w-full accent-cyan-400 h-2 bg-slate-800 rounded-lg cursor-pointer"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Download Master Outputs Section (4-Column Layout: Audio, Subtitles, Target Script, Voice Changer) */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
-              {/* Card 1: WAV Master Download */}
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3 shadow-sm">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <Music className="w-4 h-4 text-emerald-400" />
-                    <h3 className="text-sm font-bold text-white">Lossless WAV Audio</h3>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Uncompressed broadcast-grade dubbed master with speech timing & pauses.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={onDownloadWav}
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download Master WAV</span>
-                </button>
-              </div>
-
-              {/* Card 2: Subtitles & Captions Download */}
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3 shadow-sm">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <FileText className="w-4 h-4 text-cyan-400" />
-                      <h3 className="text-sm font-bold text-white">Subtitles ({targetLanguage})</h3>
-                    </div>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-950 border border-indigo-800 text-indigo-300 font-semibold">
-                      {srtOptions.maxLinesPerCue}L • {srtOptions.maxWordsPerLine}W
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Synchronized .SRT captions ({srtOptions.maxLinesPerCue} line, max {srtOptions.maxWordsPerLine} words/line).
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleExportSrtWithSettings()}
-                    className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download .SRT Subtitles</span>
-                  </button>
-
-                  <div className="grid grid-cols-2 gap-1 text-[10px]">
-                    <button
-                      type="button"
-                      onClick={() => setIsSrtModalOpen(true)}
-                      className="py-1 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-indigo-300 hover:text-indigo-200 font-semibold transition-colors text-center flex items-center justify-center gap-1"
-                      title="Customize max characters, seconds, words, lines & live preview"
-                    >
-                      <Sliders className="w-3 h-3 text-indigo-400" />
-                      <span>Settings</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleExportVttWithSettings()}
-                      className="py-1 px-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-indigo-200 font-mono transition-colors text-center"
-                      title="Download WebVTT format"
-                    >
-                      .VTT Format
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 3: Target Language Script Export */}
-              <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 flex flex-col justify-between gap-3 shadow-sm">
-                <div>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Languages className="w-4 h-4 text-purple-400" />
-                      <h3 className="text-sm font-bold text-white">Target Script</h3>
-                    </div>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-purple-950 border border-purple-800 text-purple-300 font-semibold">
-                      {segments.length} Cues
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Dialogue script in {targetLanguage} for voice artists, teleprompter, or records.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleExportTargetScript('dialogue')}
-                    className="w-full py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Download Script (.TXT)</span>
-                  </button>
-
-                  <div className="grid grid-cols-3 gap-1 text-[10px]">
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript('timecoded')}
-                      className="py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-indigo-200 font-mono transition-colors text-center"
-                      title="Export timestamped cues"
-                    >
-                      Cues
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript('csv')}
-                      className="py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-indigo-200 font-mono transition-colors text-center"
-                      title="Export CSV spreadsheet"
-                    >
-                      CSV
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript('json')}
-                      className="py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-indigo-200 font-mono transition-colors text-center"
-                      title="Export JSON"
-                    >
-                      JSON
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Card 4: AI Voice Changer from Audio (Speech-to-Speech) */}
-              <div className="p-4 rounded-2xl bg-slate-950 border border-purple-900/50 flex flex-col justify-between gap-3 shadow-sm">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <AudioWaveform className="w-4 h-4 text-purple-400" />
-                    <h3 className="text-sm font-bold text-white">Voice Changer</h3>
-                  </div>
-                  <p className="text-xs text-purple-300/80 mt-1">
-                    Convert voice timbre & identity from audio with Speech-to-Speech or Voice Clone.
-                  </p>
-                </div>
-
-                <div className="space-y-1.5">
                   <button
                     type="button"
                     onClick={() => {
-                      if (onOpenVoiceChanger) onOpenVoiceChanger();
+                      const next = segments.find((s) => s.startTime > currentTime + 0.05);
+                      if (next) onSeek(next.startTime);
                     }}
-                    className="w-full py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md active:scale-95 cursor-pointer"
+                    className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
+                    aria-label="Next cue"
                   >
-                    <AudioWaveform className="w-3.5 h-3.5" />
-                    <span>Change Voice (STS)</span>
+                    <ChevronsRight className="w-4 h-4" />
                   </button>
-                  <p className="text-[10px] text-center text-slate-500">
-                    ElevenLabs STS • Audio Cloning
-                  </p>
+                  <span className="font-mono text-sm text-slate-100 tabular-nums">
+                    {formatClock(currentTime)} <span className="text-slate-500">/ {formatClock(totalLength)}</span>
+                  </span>
+
+                  <div
+                    aria-live="polite"
+                    className="flex-1 min-w-[15rem] flex items-center gap-3 px-3.5 py-2 rounded-xl bg-slate-950/60 border border-slate-800 min-h-[3.25rem]"
+                  >
+                    {activeCue ? (
+                      <>
+                        <span className="font-mono text-[10.5px] text-slate-500 shrink-0">
+                          #{String(activeCueIndex + 1).padStart(2, '0')}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-[15px] font-medium text-slate-100 leading-snug">{getTargetText(activeCue)}</span>
+                          <span className="block text-[11.5px] text-slate-400 truncate">{getSourceText(activeCue)}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-xs text-slate-500">Press play to follow the dub line by line.</span>
+                    )}
+                  </div>
+
+                  <select
+                    value={playbackRate}
+                    onChange={(e) => onPlaybackRateChange(Number(e.target.value))}
+                    className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    aria-label="Playback speed"
+                  >
+                    {[0.75, 1, 1.25, 1.5].map((r) => (
+                      <option key={r} value={r} className="bg-slate-900">
+                        {r}×
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+          </section>
+
+          {/* Script and delivery share one height */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] gap-4 items-stretch">
+            <section
+              aria-label="Final script"
+              className="flex flex-col min-h-0 lg:h-0 lg:min-h-full bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
+            >
+              <div className="flex flex-wrap items-center gap-3 px-4 py-3.5 border-b border-slate-800">
+                <div className="min-w-0">
+                  <h2 className="text-[15px] font-semibold text-slate-100">Final script</h2>
+                  <p className="text-xs text-slate-400">What the voice says, cue by cue. Click a line to jump there.</p>
+                </div>
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  <div role="group" aria-label="Script layout" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+                    {[
+                      { id: 'dialogue' as const, label: 'Dialogue' },
+                      { id: 'timecoded' as const, label: 'Timecoded' },
+                      { id: 'bilingual' as const, label: 'Bilingual' },
+                    ].map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        aria-pressed={finalScriptLayout === m.id}
+                        onClick={() => setFinalScriptLayout(m.id)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                          finalScriptLayout === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyFullTargetScript(finalScriptLayout)}
+                    className={railButton}
+                    title={`Copy the ${targetLanguage} script in this layout`}
+                  >
+                    <Copy className="w-3.5 h-3.5" /> Copy
+                  </button>
+                  <button type="button" onClick={() => setStepOverride(2)} className={railButton}>
+                    <Edit3 className="w-3.5 h-3.5" /> Edit in review
+                  </button>
                 </div>
               </div>
-            </div>
 
-            {/* Bottom Actions */}
-            <div className="pt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => setStepOverride(2)}
-                className="text-xs text-slate-400 hover:text-indigo-200 flex items-center gap-1"
-              >
-                ← Back to Review & Edit Script
-              </button>
+              <div className="flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar py-1.5">
+                {segments.map((seg, i) => {
+                  const isNow = seg.id === activeSegmentId;
+                  return (
+                    <button
+                      key={seg.id}
+                      type="button"
+                      onClick={() => onSeek(seg.startTime)}
+                      className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${
+                        finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
+                      } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
+                    >
+                      <span className={`font-mono text-[11px] pt-1 tabular-nums ${isNow ? 'text-indigo-300' : 'text-slate-500'}`}>
+                        {String(i + 1).padStart(2, '0')}
+                      </span>
+                      {finalScriptLayout !== 'dialogue' && (
+                        <span className="font-mono text-[11.5px] text-slate-400 pt-1 tabular-nums">{formatClock(seg.startTime)}</span>
+                      )}
+                      <span className="min-w-0">
+                        {seg.speaker && (i === 0 || segments[i - 1].speaker !== seg.speaker) && (
+                          <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500">{seg.speaker}</span>
+                        )}
+                        <span className="block text-[15px] text-slate-100 leading-relaxed">{getTargetText(seg)}</span>
+                        {finalScriptLayout === 'bilingual' && (
+                          <span className="block text-xs text-slate-500 mt-0.5">{getSourceText(seg)}</span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
 
-              {onResetSession && (
+            {/* Deliver panel */}
+            <aside aria-label="Deliver" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden">
+              <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
+                <h2 className="text-[15px] font-semibold text-slate-100">Deliver</h2>
+                <button type="button" onClick={() => setStepOverride(2)} className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+                  ← Review
+                </button>
+              </div>
+
+              <div className="px-4 sm:px-5 py-4 flex flex-col gap-2.5">
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsVoicePickerOpen(true)}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+                  >
+                    Change
+                  </button>
+                </div>
+                {favoriteVoices.length > 0 && (
+                  <div role="group" aria-label="Favourite voices" className="flex flex-wrap gap-1.5">
+                    {favoriteVoices.slice(0, 4).map((fav) => {
+                      const on = fav.id === elVoiceId;
+                      const name = (fav.name || fav.id).split(/\s+[-–—|]\s+/)[0];
+                      return (
+                        <button
+                          key={fav.id}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => onElVoiceIdChange(fav.id)}
+                          className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-pointer ${
+                            on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                          }`}
+                          title={fav.name}
+                        >
+                          <span className="w-5 h-5 rounded-full bg-slate-700 text-white text-[10px] font-semibold flex items-center justify-center">
+                            {name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="truncate max-w-[7rem]">{name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex justify-between text-xs text-slate-400">
+                  <span>Model</span>
+                  <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
+                </div>
+              </div>
+
+              <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2">
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Downloads</span>
+                {[
+                  {
+                    tag: 'WAV',
+                    tone: 'bg-emerald-500/15 text-emerald-300',
+                    title: `${targetLanguage} dub audio`,
+                    detail: hasDub && dubBuffer
+                      ? `${formatClock(dubBuffer.duration)} · ${Math.round(dubBuffer.sampleRate / 1000)} kHz`
+                      : 'Available once the dub is made',
+                    onClick: onDownloadWav,
+                    disabled: !hasDub || !onDownloadWav,
+                    hero: hasDub,
+                  },
+                  {
+                    tag: 'SRT',
+                    tone: 'bg-indigo-500/15 text-indigo-300',
+                    title: `${targetLanguage} subtitles`,
+                    detail: `${segments.length} cues · ${srtOptions.maxLinesPerCue} line, ${srtOptions.maxWordsPerLine} words max`,
+                    onClick: () => handleExportSrtWithSettings(),
+                    disabled: segments.length === 0,
+                  },
+                  {
+                    tag: 'TXT',
+                    tone: 'bg-cyan-500/15 text-cyan-300',
+                    title: `${targetLanguage} script`,
+                    detail: `${finalScriptLayout.charAt(0).toUpperCase()}${finalScriptLayout.slice(1)} layout`,
+                    onClick: () => handleExportTargetScript(finalScriptLayout),
+                    disabled: segments.length === 0,
+                  },
+                ].map((d) => (
+                  <button
+                    key={d.tag}
+                    type="button"
+                    onClick={d.onClick}
+                    disabled={d.disabled}
+                    className={`w-full flex items-center gap-3 p-2.5 rounded-xl border text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer ${
+                      d.hero ? 'border-emerald-800/70 bg-emerald-950/30 hover:bg-emerald-950/50' : 'border-slate-800 hover:bg-slate-800/50'
+                    }`}
+                  >
+                    <span className={`w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[9.5px] font-semibold shrink-0 ${d.tone}`}>
+                      {d.tag}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold text-slate-100">{d.title}</span>
+                      <span className="block text-[11.5px] text-slate-400 truncate">{d.detail}</span>
+                    </span>
+                    <Download className="w-4 h-4 text-slate-500 shrink-0" />
+                  </button>
+                ))}
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => handleExportVttWithSettings()} disabled={segments.length === 0} className={railButton}>
+                    .vtt subtitles
+                  </button>
+                  <button type="button" onClick={() => setIsSrtModalOpen(true)} className={railButton}>
+                    <Sliders className="w-3.5 h-3.5" /> Subtitle settings
+                  </button>
+                </div>
+              </div>
+
+              {onOpenVoiceChanger && (
+                <div className="px-4 sm:px-5 py-4 border-t border-slate-800">
+                  <button type="button" onClick={onOpenVoiceChanger} className={`${railButton} w-full`}>
+                    <AudioWaveform className="w-3.5 h-3.5" /> Voice changer
+                  </button>
+                </div>
+              )}
+
+              <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2">
                 <button
                   type="button"
-                  onClick={onResetSession}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-indigo-200 border border-slate-700 text-xs font-semibold transition-all"
+                  onClick={onSynthesizeMaster}
+                  disabled={isSynthesizing || segments.length === 0}
+                  className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
                 >
-                  <RotateCcw className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Dub Another Audio</span>
+                  {isSynthesizing ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Dubbing…
+                    </>
+                  ) : hasDub ? (
+                    <>
+                      <RefreshCw className="w-4 h-4" /> Dub again
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-4 h-4 fill-current" /> Dub in {targetLanguage}
+                    </>
+                  )}
                 </button>
-              )}
-            </div>
+                {onResetSession && (
+                  <button type="button" onClick={onResetSession} className={`${railButton} h-9`}>
+                    <RotateCcw className="w-3.5 h-3.5" /> Start a new dub
+                  </button>
+                )}
+                <p className="text-center text-[11.5px] text-slate-500">
+                  {isSynthesizing
+                    ? 'You can keep reading while it works.'
+                    : `${hasDub ? 'Dubbing again uses' : 'Uses'} about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`}
+                </p>
+              </div>
+            </aside>
           </div>
-        )}
 
-          {/* Final Script Viewer & Exporter */}
-          <FinalScriptViewer
-            segments={segments}
-            targetLanguage={targetLanguage}
-            onUpdateSegment={onUpdateSegment}
-            onOpenPromptModal={() => {
-              if (onOpenPromptModal) onOpenPromptModal();
-              else setIsLocalPromptModalOpen(true);
-            }}
-            promptPresetName={getPresetById(promptPresetId || 'conversational').name}
-          />
-      </div>
-    )}
+          {/* Full voice library, opened from Change */}
+          {isVoicePickerOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Choose a voice"
+              onClick={(e) => e.target === e.currentTarget && setIsVoicePickerOpen(false)}
+              onKeyDown={(e) => e.key === 'Escape' && setIsVoicePickerOpen(false)}
+            >
+              <div className="w-full max-w-5xl flex flex-col gap-3">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setIsVoicePickerOpen(false)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" /> Done
+                  </button>
+                </div>
+                <VoiceSelectorCard
+                  elVoiceId={elVoiceId}
+                  onElVoiceIdChange={onElVoiceIdChange}
+                  availableVoices={availableVoices}
+                  targetLanguage={targetLanguage}
+                  className="h-[78vh]"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        );
+      })()}
 
       {/* Floating Export Toast Notification */}
       {exportSuccessMessage && (

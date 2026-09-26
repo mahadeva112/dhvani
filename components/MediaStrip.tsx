@@ -23,8 +23,11 @@ const formatSize = (bytes: number) =>
       ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
       : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-/** Peak overview of the source audio, drawn at the canvas's own width. */
-const MiniWaveform: React.FC<{ buffer: AudioBuffer }> = ({ buffer }) => {
+/** Peak overview of an audio buffer, drawn at the canvas's own width in its text colour. */
+export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string }> = ({
+  buffer,
+  className = 'text-cyan-400/70',
+}) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -73,7 +76,7 @@ const MiniWaveform: React.FC<{ buffer: AudioBuffer }> = ({ buffer }) => {
     return () => observer.disconnect();
   }, [buffer]);
 
-  return <canvas ref={canvasRef} className="w-full h-full block text-cyan-400/70" aria-hidden="true" />;
+  return <canvas ref={canvasRef} className={`w-full h-full block ${className}`} aria-hidden="true" />;
 };
 
 /**
