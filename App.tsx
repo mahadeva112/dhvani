@@ -1801,6 +1801,7 @@ export default function App() {
         onApplyTransformedAudio={handleApplyTransformedAudio}
         onSetDubbedMaster={handleSetDubbedMaster}
         onRefreshVoices={fetchVoices}
+        targetLanguage={activeJob?.language || selectedLanguage}
       />
 
       {/* Custom Translation Prompt Modal */}
