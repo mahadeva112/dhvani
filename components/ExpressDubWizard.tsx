@@ -119,7 +119,17 @@ const formatClock = (seconds: number) => {
 const railButton =
   'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
 
+/**
+ * The step a job belongs on when nobody has picked one: source until there are
+ * cues, review until there is a dub, then the final dub.
+ */
+export const stepForJob = (job: BatchJob | null): number =>
+  !job || job.segments.length === 0 ? 1 : job.synthesizedAudioUrl || job.synthAudioBuffer ? 3 : 2;
+
 interface ExpressDubWizardProps {
+  /** The step on screen, owned by App so the header can show and change it. */
+  activeStep: number;
+  onStepChange: (step: number) => void;
   activeJob: BatchJob | null;
   onFileSelect: (files: FileList | File[]) => void;
   onLoadSampleSession: (sampleType: 'podcast' | 'keynote') => void;
@@ -174,6 +184,8 @@ interface ExpressDubWizardProps {
 }
 
 export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
+  activeStep,
+  onStepChange,
   activeJob,
   onFileSelect,
   onLoadSampleSession,
@@ -357,20 +369,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     );
   };
 
-  // Compute Current Step in Express Wizard:
-  // Step 1: No audio uploaded yet OR audio uploaded but 0 segments transcribed
-  // Step 2: Audio uploaded AND segments exist, but no synthesized dub yet
-  // Step 3: Dub synthesized (synthAudioBuffer / synthesizedAudioUrl exists)
-  const currentStep = !activeJob
-    ? 1
-    : activeJob.segments.length === 0
-    ? 1
-    : activeJob.synthesizedAudioUrl || activeJob.synthAudioBuffer
-    ? 3
-    : 2;
-
-  const [stepOverride, setStepOverride] = useState<number | null>(null);
-  const activeStep = stepOverride !== null ? stepOverride : currentStep;
+  // The header shows and switches steps, so the step lives in App.
+  const setStepOverride = onStepChange;
   const hasSegments = Boolean(activeJob && activeJob.segments.length > 0);
 
   const getSourceText = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
@@ -668,66 +668,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
   return (
     <div className="w-full flex flex-col space-y-4 sm:space-y-5">
-      {/* Step bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <nav
-          aria-label="Dubbing steps"
-          className="flex items-center gap-1 p-1 rounded-full bg-slate-900/90 border border-slate-800 text-xs sm:text-[13px] max-w-full overflow-x-auto [scrollbar-width:none]"
-        >
-          {[
-            { n: 1, label: 'Source & voice', enabled: true },
-            { n: 2, label: 'Review translation', enabled: hasSegments },
-            { n: 3, label: 'Final dub', enabled: hasSegments },
-          ].map((s) => {
-            const isActive = activeStep === s.n;
-            return (
-              <button
-                key={s.n}
-                type="button"
-                onClick={() => s.enabled && setStepOverride(s.n)}
-                disabled={!s.enabled}
-                aria-current={isActive ? 'step' : undefined}
-                className={`flex items-center gap-2 pl-1.5 pr-3.5 py-1.5 rounded-full font-medium whitespace-nowrap transition-colors ${
-                  isActive
-                    ? 'bg-slate-800 text-slate-100 shadow-sm'
-                    : s.enabled
-                      ? 'text-slate-400 hover:text-slate-200 cursor-pointer'
-                      : 'text-slate-600 cursor-not-allowed'
-                }`}
-              >
-                <span
-                  className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-mono border ${
-                    isActive
-                      ? s.n === 3
-                        ? 'bg-emerald-500 border-emerald-500 text-white'
-                        : 'bg-indigo-500 border-indigo-500 text-white'
-                      : 'border-slate-700'
-                  }`}
-                >
-                  {s.n === 3 && activeJob?.synthesizedAudioUrl && !isActive ? <Check className="w-3 h-3" /> : s.n}
-                </span>
-                <span>{s.label}</span>
-                {s.n === 2 && hasSegments && (
-                  <span className="text-[10px] font-mono text-cyan-300 tabular-nums">{activeJob!.segments.length} cues</span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {activeJob && onResetSession && (
-          <button
-            type="button"
-            onClick={onResetSession}
-            className="flex items-center gap-2 text-xs sm:text-[13px] text-slate-300 hover:text-slate-100 bg-slate-900/90 hover:bg-slate-800 px-3.5 py-1.5 rounded-full border border-slate-800 transition-colors cursor-pointer"
-            title="Start fresh with a new audio file"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
-            <span>New audio</span>
-          </button>
-        )}
-      </div>
-
       {/* ========================================================================= */}
       {/* STEP 1: MEDIA, LANGUAGES & VOICE */}
       {/* ========================================================================= */}

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
-import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, ThemeMode } from './components/ProHeader';
-import { ExpressDubWizard } from './components/ExpressDubWizard';
+import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, ThemeMode, HeaderQuota } from './components/ProHeader';
+import { ExpressDubWizard, stepForJob } from './components/ExpressDubWizard';
 import { VoiceSettingsModal } from './components/VoiceSettingsModal';
 import { BatchQueueModal } from './components/BatchQueueModal';
 import { PhoneticKeyboardModal } from './components/PhoneticKeyboardModal';
@@ -41,6 +41,7 @@ import {
   cancelDub,
   DubProgress,
   getVoices,
+  validateApiKey,
   Voice,
   ElevenLabsVoiceSettings,
   ALL_ELEVENLABS_MODELS,
@@ -274,14 +275,6 @@ export default function App() {
     }
   }, [themeMode, effectiveTheme]);
 
-  const toggleTheme = useCallback(() => {
-    setThemeMode((prev) => {
-      if (prev === 'auto') return 'light';
-      if (prev === 'light') return 'dark';
-      return 'auto';
-    });
-  }, []);
-
   // Target Dubbing Language State (Persistent across sessions & new jobs)
   const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
     try {
@@ -336,6 +329,34 @@ export default function App() {
 
   // Active Job helper
   const activeJob = useMemo(() => queue.find((j) => j.id === activeJobId) || null, [queue, activeJobId]);
+
+  // The step on screen. Null follows the job (source, review, final dub); a
+  // click in the header or wizard pins it until another job is opened.
+  const [stepOverride, setStepOverride] = useState<number | null>(null);
+  const activeStep = stepOverride ?? stepForJob(activeJob);
+  useEffect(() => {
+    setStepOverride(null);
+  }, [activeJob?.id]);
+
+  // ElevenLabs character allowance for the header, refreshed after each dub.
+  const [elevenLabsQuota, setElevenLabsQuota] = useState<HeaderQuota | null>(null);
+  const refreshQuota = useCallback(() => {
+    validateApiKey(elApiKey)
+      .then((res) => {
+        const sub = res.isValid ? res.user?.subscription : undefined;
+        setElevenLabsQuota(
+          sub && sub.character_limit > 0
+            ? {
+                used: sub.character_count,
+                limit: sub.character_limit,
+                tier: sub.tier,
+                resetUnix: sub.next_character_count_reset_unix,
+              }
+            : null
+        );
+      })
+      .catch(() => setElevenLabsQuota(null));
+  }, [elApiKey]);
 
   /** One line describing where translation runs, for the API Settings button. */
   const translationSummary = useMemo(() => {
@@ -450,6 +471,26 @@ export default function App() {
     Boolean(backendHealth) &&
     Boolean(backendSettings?.canSaveKeys) &&
     (!backendHealth?.elevenLabsConfigured || !backendHealth?.geminiConfigured);
+
+  useEffect(() => {
+    if (backendHealth?.elevenLabsConfigured) refreshQuota();
+  }, [backendHealth?.elevenLabsConfigured, refreshQuota]);
+
+  /** What is running on the active job, for the header's status pill and progress line. */
+  const headerActivity = useMemo(() => {
+    if (isBatchProcessing) {
+      const p = dubProgress;
+      const sourceLength = activeJob?.audioBuffer?.duration || 0;
+      if (!p || p.phase === 'preparing') return { label: 'Dubbing', fraction: null };
+      if (p.phase === 'joining') return { label: 'Finishing dub', fraction: null };
+      const byChars = p.totalChars > 0 ? p.charsDone / p.totalChars : 0;
+      const bySeconds = p.streaming && sourceLength > 0 ? p.secondsGenerated / sourceLength : 0;
+      return { label: 'Dubbing', fraction: Math.min(0.98, Math.max(byChars, bySeconds)) };
+    }
+    if (isTranscribing) return { label: pipelineStatus.replace(/\.+$/, '') || 'Transcribing', fraction: null };
+    if (isTranslatingLanguage) return { label: 'Translating', fraction: null };
+    return null;
+  }, [isBatchProcessing, dubProgress, activeJob?.audioBuffer, isTranscribing, pipelineStatus, isTranslatingLanguage]);
 
   const handleDismissSetup = useCallback(() => {
     setSetupDismissed(true);
@@ -1225,6 +1266,7 @@ export default function App() {
 
       // Switch monitor to Dubbed Master
       setTrackMode('synth');
+      refreshQuota();
     } catch (err: any) {
       if (controller.signal.aborted || err?.code === 'cancelled') {
         // A cancelled re-dub keeps the dub that was there before.
@@ -1584,11 +1626,18 @@ export default function App() {
       {/* Streamlined Clean Header */}
       <ProHeader
         activeJob={activeJob}
-        language={activeJob?.language || selectedLanguage}
+        activeStep={activeStep}
+        onStepChange={setStepOverride}
+        sourceLanguage={activeJob?.detectedLanguage || activeJob?.sourceLanguage || sourceLanguage}
         targetLanguage={activeJob?.language || selectedLanguage}
-        onLanguageChange={handleLanguageChange}
-        onTargetLanguageChange={handleLanguageChange}
-        languages={DEFAULT_LANGUAGES}
+        mediaDuration={activeJob?.audioBuffer?.duration}
+        activity={headerActivity}
+        quota={elevenLabsQuota}
+        elevenLabsReady={Boolean(backendHealth?.elevenLabsConfigured)}
+        translationReady={Boolean(backendHealth?.geminiConfigured)}
+        translationSummary={translationSummary}
+        voiceSummary={ALL_ELEVENLABS_MODELS.find((m) => m.model_id === elModelId)?.name || elModelId}
+        translationStyleName={getPresetById(activeJob?.promptPresetId || promptPresetId).name}
         onOpenSettings={() => setIsVoiceSettingsOpen(true)}
         /*
          * Only offered when the backend will actually accept a change. Behind a
@@ -1598,7 +1647,6 @@ export default function App() {
         onOpenApiSettings={
           backendSettings?.canSaveKeys ? () => setIsApiSettingsOpen(true) : undefined
         }
-        translationSummary={translationSummary}
         onOpenCustomPrompt={() => setIsPromptModalOpen(true)}
         onOpenPhoneticKeyboard={() => {
           setKeyboardActiveSegment(activeJob?.segments?.[0] || null);
@@ -1610,10 +1658,8 @@ export default function App() {
         pauseSensitivity={activeJob?.analysisSensitivity ?? 50}
         queueCount={queue.length}
         onResetSession={handleResetSession}
-        theme={effectiveTheme}
         themeMode={themeMode}
         onThemeModeChange={setThemeMode}
-        onToggleTheme={toggleTheme}
       />
 
       {/* First-run setup: keys straight into the machine's config, no terminal. */}
@@ -1650,14 +1696,23 @@ export default function App() {
       */}
       {backendChecked && !needsSetup && backendIssue && (
         <div
-          className="mx-4 sm:mx-6 lg:mx-8 mt-4 px-4 py-3 rounded-2xl bg-amber-950/60 border border-amber-700/70 text-amber-100 text-xs sm:text-sm flex items-start gap-3"
+          className="px-4 sm:px-6 lg:px-8 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-xs sm:text-[13px] flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2"
           role="alert"
         >
-          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          <div className="min-w-0">
-            <p className="font-semibold">{backendIssue.title}</p>
-            <p className="text-amber-200/80 mt-0.5 leading-relaxed">{backendIssue.detail}</p>
-          </div>
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <p className="min-w-0 flex-1 text-slate-200 leading-snug">
+            <span className="font-semibold">{backendIssue.title}</span>{' '}
+            <span className="text-slate-400">{backendIssue.detail}</span>
+          </p>
+          {backendSettings?.canSaveKeys && backendHealth && (!backendHealth.elevenLabsConfigured || !backendHealth.geminiConfigured) && (
+            <button
+              type="button"
+              onClick={() => setIsApiSettingsOpen(true)}
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-amber-950 text-xs font-semibold cursor-pointer"
+            >
+              Open API settings
+            </button>
+          )}
         </div>
       )}
 
@@ -1675,6 +1730,8 @@ export default function App() {
       {/* Main Express Dubbing Studio */}
       <main className="flex-1 flex flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8 w-full max-w-7xl mx-auto min-w-0">
         <ExpressDubWizard
+          activeStep={activeStep}
+          onStepChange={setStepOverride}
           activeJob={activeJob}
           onFileSelect={handleFilesUpload}
           onLoadSampleSession={handleLoadSampleSession}
