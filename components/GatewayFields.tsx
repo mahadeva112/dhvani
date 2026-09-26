@@ -136,7 +136,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
         : 'border-slate-700 focus:border-indigo-500';
 
   const inputClasses = (active = true) =>
-    `w-full bg-slate-950 border rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none font-mono transition-all ${borderFor(active)}`;
+    `w-full h-[42px] bg-slate-950/60 border rounded-[10px] px-3 text-[13px] text-slate-100 placeholder:font-sans placeholder-slate-500 focus:outline-none font-mono transition-all ${borderFor(active)}`;
 
   const discovered = status.state === 'ok' ? status.result.availableModels : status.state === 'error' ? status.result?.availableModels || [] : [];
 
@@ -150,9 +150,10 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
     <div className="@container space-y-2.5">
       <div className="grid @sm:grid-cols-2 gap-2.5">
       <div>
-        <label className="text-[11px] font-semibold text-slate-300 block mb-1">Base URL</label>
+        <label htmlFor="gateway-url" className="text-xs text-slate-400 block mb-1.5">Server address</label>
         <input
           type="text"
+          id="gateway-url"
           value={values.url}
           onChange={(e) => set({ url: e.target.value })}
           placeholder="http://172.18.1.17:14005"
@@ -160,21 +161,22 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
           spellCheck={false}
           className={inputClasses()}
         />
-        <p className="text-[10px] text-slate-500 mt-1 leading-relaxed">
-          With or without <span className="font-mono">/v1</span> — whichever your gateway uses is
-          detected automatically.
+        <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+          With or without <span className="font-mono">/v1</span>; either is found automatically.
         </p>
       </div>
 
       <div>
-        <label className="text-[11px] font-semibold text-slate-300 block mb-1">
-          API key <span className="font-normal text-slate-500">— optional for local gateways</span>
+        <label htmlFor="gateway-key" className="flex justify-between gap-2 text-xs text-slate-400 mb-1.5">
+          <span>API key</span>
+          <span className="text-slate-500">optional</span>
         </label>
         <input
           type="password"
+          id="gateway-key"
           value={values.apiKey}
           onChange={(e) => set({ apiKey: e.target.value })}
-          placeholder={hasSavedKey ? 'Saved — paste a new key to replace it' : 'sk-…  (leave blank if not required)'}
+          placeholder={hasSavedKey ? 'Saved. Paste a new key to replace it' : 'Leave blank if none'}
           autoComplete="off"
           spellCheck={false}
           className={inputClasses(false)}
@@ -184,28 +186,20 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
 
       <div className="grid @sm:grid-cols-2 gap-2.5">
         <div>
-          <label className="text-[11px] font-semibold text-slate-300 block mb-1">Wire format</label>
-          <select
-            value={values.protocol}
-            onChange={(e) => set({ protocol: e.target.value as 'openai' | 'gemini' })}
-            className="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none cursor-pointer"
-          >
-            <option value="openai">OpenAI-compatible</option>
-            <option value="gemini">Gemini REST</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="text-[11px] font-semibold text-slate-300 block mb-1">Model</label>
+          <label htmlFor="gateway-model" className="flex justify-between gap-2 text-xs text-slate-400 mb-1.5">
+            <span>Model</span>
+            {discovered.length > 0 && <span className="font-mono text-slate-500">{discovered.length} found</span>}
+          </label>
           <input
             type="text"
+            id="gateway-model"
             value={values.model}
             onChange={(e) => set({ model: e.target.value })}
-            placeholder="auto-detected"
+            placeholder="Found automatically"
             autoComplete="off"
             spellCheck={false}
             list="dhvani-gateway-models"
-            className={`w-full bg-slate-950 border rounded-xl px-3 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none font-mono transition-all ${borderFor(true)}`}
+            className={inputClasses(true)}
           />
           {/* Native autocomplete over whatever the gateway reported. */}
           <datalist id="dhvani-gateway-models">
@@ -213,6 +207,29 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
               <option key={model} value={model} />
             ))}
           </datalist>
+        </div>
+
+        <div>
+          <span className="text-xs text-slate-400 block mb-1.5">Speaks</span>
+          {/* Most gateways speak the OpenAI format; Gemini is for one that proxies Google's own API shape. */}
+          <div role="group" aria-label="Wire format" className="flex h-[42px] p-[3px] gap-0.5 bg-slate-950/60 border border-slate-700 rounded-[10px]">
+            {([
+              ['openai', 'OpenAI format'],
+              ['gemini', 'Gemini format'],
+            ] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={values.protocol === value}
+                onClick={() => set({ protocol: value })}
+                className={`flex-1 rounded-[7px] text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                  values.protocol === value ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -229,11 +246,8 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
           <p className="text-xs text-emerald-400 flex items-start gap-1.5 leading-relaxed">
             <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>
-              Connected — <span className="font-mono">{status.result.model}</span>
-              {status.result.latencyMs ? ` (${status.result.latencyMs}ms)` : ''}
-              {status.result.availableModels.length > 0
-                ? `, ${status.result.availableModels.length} models available`
-                : ''}
+              Connected. <span className="font-mono">{status.result.model}</span> answered
+              {status.result.latencyMs ? ` in ${status.result.latencyMs} ms` : ''}
             </span>
           </p>
           {status.result.url && status.result.url !== values.url.trim() && (

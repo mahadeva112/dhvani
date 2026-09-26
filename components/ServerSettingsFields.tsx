@@ -52,12 +52,12 @@ export const ServerSettingsFields: React.FC<ServerSettingsFieldsProps> = ({
       : null;
 
   return (
-    <div className="rounded-xl bg-slate-950/60 border border-slate-800/80 overflow-hidden">
+    <div className="border-t border-dashed border-slate-800 pt-1">
       <button
         type="button"
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
-        className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] font-semibold text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+        className="w-full flex items-center gap-1.5 py-2 text-[12.5px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
       >
         <ChevronRight
           className={`w-3.5 h-3.5 shrink-0 transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -75,7 +75,7 @@ export const ServerSettingsFields: React.FC<ServerSettingsFieldsProps> = ({
       </button>
 
       {isOpen && (
-        <div className="px-3 pb-3 space-y-2.5">
+        <div className="pb-2 space-y-2.5">
           {fields.map((field) => (
             <div key={field.key}>
               <div className="flex items-baseline justify-between gap-2 mb-1">
@@ -103,7 +103,7 @@ export const ServerSettingsFields: React.FC<ServerSettingsFieldsProps> = ({
                 placeholder={field.placeholder}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none font-mono transition-all"
+                className="w-full h-10 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[10px] px-3 text-[13px] text-slate-100 placeholder-slate-600 focus:outline-none font-mono transition-all"
               />
 
               {field.hint && (
