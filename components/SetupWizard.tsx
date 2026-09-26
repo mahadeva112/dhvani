@@ -12,6 +12,9 @@ import {
   Cloud,
   Info,
   X,
+  Check,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   saveBackendKeys,
@@ -45,6 +48,8 @@ interface SetupWizardProps {
   translation?: TranslationSetup | null;
   /** Endpoints and model names in force, used to pre-fill the server fields. */
   server?: ServerSettings | null;
+  /** Whether the backend found ffmpeg, shown with the other checks; omitted hides the row. */
+  ffmpegAvailable?: boolean;
 }
 
 /** The server-settings form, flattened to strings the inputs can hold. */
@@ -85,9 +90,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   variant = 'welcome',
   translation = null,
   server = null,
+  ffmpegAvailable,
 }) => {
   const isSettings = variant === 'settings';
   const [elevenLabsKey, setElevenLabsKey] = useState('');
+  // A saved key shows as saved until the user chooses to replace it.
+  const [replacingElevenLabs, setReplacingElevenLabs] = useState(false);
+  const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
   const [geminiKey, setGeminiKey] = useState('');
 
   // Endpoints and model names, pre-filled with the running configuration.
@@ -357,12 +366,12 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   };
 
   const fieldClasses = (state: FieldState) =>
-    `w-full bg-slate-950 border rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-600 focus:outline-none font-mono transition-all ${
+    `w-full h-[42px] bg-slate-950/60 border rounded-[10px] px-3 text-[13px] text-slate-100 placeholder:font-sans placeholder-slate-500 focus:outline-none focus:ring-4 font-mono transition-all ${
       state?.valid === true
-        ? 'border-emerald-500/80 focus:border-emerald-400'
+        ? 'border-emerald-500/60 focus:border-emerald-400 focus:ring-emerald-500/10'
         : state?.valid === false
-          ? 'border-rose-500/80 focus:border-rose-400'
-          : 'border-slate-700 focus:border-indigo-500'
+          ? 'border-rose-500/80 focus:border-rose-400 focus:ring-rose-500/15'
+          : 'border-slate-700 focus:border-indigo-500 focus:ring-indigo-500/15'
     }`;
 
   const renderState = (state: FieldState) =>
@@ -446,348 +455,389 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     },
   ];
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-slate-950/90 backdrop-blur-md overflow-y-auto">
-      {/*
-       * Sized to fit a laptop screen whole: the cards sit in one row with the
-       * verdict beneath, so nothing needs scrolling to be found. The header and
-       * footer stay put in any case, so Save is always within reach even when
-       * an expanded section does push the body past the fold.
-       */}
-      <div className="relative w-full max-w-lg lg:max-w-5xl xl:max-w-[88rem] my-auto max-h-[calc(100vh-2rem)] flex flex-col rounded-3xl bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden">
-        {/* Header */}
-        <div className="px-5 py-3.5 border-b border-slate-800 bg-slate-950/60 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-md shadow-indigo-500/20 ring-1 ring-white/20 shrink-0">
-              {isSettings ? <Key className="w-5 h-5 text-white" /> : <Radio className="w-5 h-5 text-white" />}
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-lg font-bold text-white font-display leading-tight">
-                {isSettings ? 'API & Translation Engine' : 'Welcome to DHVANI'}
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {isSettings
-                  ? 'Change your keys, or switch between Google and your own gateway.'
-                  : 'Connect transcription and translation. This is a one-time setup.'}
-              </p>
-            </div>
+  const elevenLabsDone =
+    elevenLabsState?.valid === true ||
+    (elevenLabsState === null && detection?.elevenlabs.status === 'ok');
+  const translationDone =
+    (mode === 'google' ? geminiState?.valid === true : translationState?.valid === true) ||
+    detection?.translation.status === 'ok';
+  const showElevenLabsInput = !(keySource.elevenLabs === 'saved' && !replacingElevenLabs && !elevenLabsKey);
 
-            {isSettings && (
-              <button
-                type="button"
-                onClick={onSkip}
-                aria-label="Close"
-                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+  /** A numbered section heading; the number becomes a tick once that half works. */
+  const sectionHeading = (n: number, done: boolean, title: string, blurb: string, link?: { href: string }) => (
+    <div className="flex items-start gap-3">
+      <span
+        className={`w-[22px] h-[22px] mt-0.5 rounded-full flex items-center justify-center shrink-0 font-mono text-[11px] border ${
+          done ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-700 text-slate-400'
+        }`}
+      >
+        {done ? <Check className="w-3 h-3" strokeWidth={3} /> : n}
+      </span>
+      <div className="min-w-0 flex-1">
+        <h3 className="text-[14.5px] font-semibold text-slate-100 leading-tight">{title}</h3>
+        <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{blurb}</p>
+      </div>
+      {link && (
+        <a
+          href={link.href}
+          target="_blank"
+          rel="noreferrer"
+          className="shrink-0 text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 whitespace-nowrap"
+        >
+          Get a key <ExternalLink className="w-3 h-3" />
+        </a>
+      )}
+    </div>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="setup-title"
+        className="relative w-full max-w-[56rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
+      >
+        {/* Header */}
+        <div className="flex items-start gap-3.5 px-5 sm:px-6 pt-5 pb-4 border-b border-slate-800 shrink-0">
+          <div className="w-10 h-10 rounded-[11px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
+            {isSettings ? (
+              <Key className="w-5 h-5" />
+            ) : (
+              <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                <rect x="1" y="6" width="2" height="4" rx="1" />
+                <rect x="4.5" y="3" width="2" height="10" rx="1" />
+                <rect x="8" y="1" width="2" height="14" rx="1" />
+                <rect x="11.5" y="4.5" width="2" height="7" rx="1" />
+              </svg>
             )}
           </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="setup-title" className="text-[19px] font-semibold text-slate-100 leading-tight">
+              {isSettings ? 'API settings' : 'Welcome to DHVANI'}
+            </h2>
+            <p className="text-[13px] text-slate-400 mt-1 max-w-[52ch]">
+              {isSettings
+                ? 'Change a key, or switch translation between Google and your own gateway. Blank fields keep what is saved.'
+                : "Connect two services and you're ready to dub. Each key is checked as you paste it."}
+            </p>
+          </div>
+          {isSettings && (
+            <button
+              type="button"
+              onClick={onSkip}
+              aria-label="Close"
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
-        {/*
-         * Body: one card per decision, side by side.
-         *
-         * Three columns at xl because that is what makes the whole form fit on
-         * screen without scrolling — the two translation engines are
-         * alternatives, so standing them next to each other is also how they
-         * read best. Below xl they stack, and the gateway keeps a full row to
-         * itself because its fields need the width.
-         */}
-        <div className="px-5 py-3.5 flex-1 overflow-y-auto">
-          <div className="grid gap-3 lg:grid-cols-3">
-            {/* ---------- Transcription: needed whichever engine translates ---------- */}
-            <div className="space-y-2 p-3.5 rounded-2xl bg-slate-950/50 border border-slate-800/80 min-w-0">
-              <div className="flex items-center justify-between gap-3">
-                <label className="text-sm font-bold text-slate-100 flex items-center gap-2">
-                  <Key className="w-4 h-4 text-indigo-400" />
-                  ElevenLabs API key
-                </label>
-                <a
-                  href="https://elevenlabs.io/app/settings/api-keys"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1"
-                >
-                  Get a key <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
+        {/* Body: the form, and the live checks beside it */}
+        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[minmax(0,1fr)_17rem]">
+          <div className="px-5 sm:px-6 pb-5 min-w-0">
+            {/* 1. Transcription and voice */}
+            <div className="py-5 flex flex-col gap-3">
+              {sectionHeading(
+                1,
+                elevenLabsDone,
+                'Transcription and voice',
+                'ElevenLabs transcribes the talk, times every word, and speaks the dub.',
+                { href: 'https://elevenlabs.io/app/settings/api-keys' }
+              )}
 
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Transcription, the word-level timings every subtitle is built from, and voice
-                synthesis.
-              </p>
-
-              <input
-                type="password"
-                value={elevenLabsKey}
-                onChange={(e) => setElevenLabsKey(e.target.value)}
-                placeholder={
-                  keySource.elevenLabs === 'saved'
-                    ? 'Saved — paste a new key to replace it'
-                    : elevenLabsFromEnv
-                      ? 'Paste your own key to replace the one from .env'
-                      : 'Paste your key here'
-                }
-                autoComplete="off"
-                spellCheck={false}
-                className={fieldClasses(elevenLabsState)}
-              />
-              {renderState(elevenLabsState)}
-              {elevenLabsFromEnv && envHint('ElevenLabs key')}
+              {showElevenLabsInput ? (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="setup-elevenlabs-key" className="text-xs text-slate-400">
+                    ElevenLabs API key
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="setup-elevenlabs-key"
+                      type={showElevenLabsKey ? 'text' : 'password'}
+                      value={elevenLabsKey}
+                      onChange={(e) => setElevenLabsKey(e.target.value)}
+                      placeholder={
+                        elevenLabsFromEnv ? 'Paste your own key to replace the one from .env' : 'Paste your key, it starts with sk_'
+                      }
+                      autoComplete="off"
+                      spellCheck={false}
+                      className={`${fieldClasses(elevenLabsState)} pr-11`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowElevenLabsKey((v) => !v)}
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+                      aria-label={showElevenLabsKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showElevenLabsKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  {renderState(elevenLabsState)}
+                  {elevenLabsFromEnv && envHint('ElevenLabs key')}
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] bg-slate-950/60 border border-slate-800">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-medium text-slate-100">Key saved on this computer</span>
+                    <span className="block text-[11.5px] text-slate-400 truncate">
+                      {detection?.elevenlabs.status === 'ok'
+                        ? 'Working. Replace it only to use a different key.'
+                        : 'Choose Replace to paste a new key'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setReplacingElevenLabs(true)}
+                    className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+                  >
+                    Replace
+                  </button>
+                </div>
+              )}
 
               <ServerSettingsFields
-                title="Endpoint & models"
+                title="Endpoint and models"
                 fields={elevenLabsServerFields}
                 values={serverValues}
                 onChange={setServerValue}
-                onReset={() =>
-                  resetServerGroup(elevenLabsServerFields.map((field) => field.key))
-                }
+                onReset={() => resetServerGroup(elevenLabsServerFields.map((field) => field.key))}
               />
             </div>
 
-            {/*
-             * Google as a translation engine, holding the key it runs on. The
-             * gateway card beside it is its alternative; both carry the same
-             * eyebrow so they read as a pair.
-             */}
-            <div
-              className={`space-y-2 p-3.5 rounded-2xl border transition-all min-w-0 ${
-                mode === 'google'
-                  ? 'bg-indigo-950/30 border-indigo-500/70 ring-1 ring-indigo-500/30'
-                  : 'bg-slate-950/50 border-slate-800/80'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">
-                  Translation engine
-                </p>
-                <a
-                  href="https://aistudio.google.com/apikey"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[11px] text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1"
-                >
-                  Get a key <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setMode('google')}
-                aria-pressed={mode === 'google'}
-                className="flex items-center gap-2 text-sm font-bold text-slate-100 cursor-pointer text-left"
-              >
-                <span
-                  className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                    mode === 'google' ? 'border-indigo-400' : 'border-slate-600'
-                  }`}
-                >
-                  {mode === 'google' && <span className="w-2 h-2 rounded-full bg-indigo-400" />}
-                </span>
-                <Cloud className="w-4 h-4 text-cyan-400" />
-                Google Gemini
-              </button>
-
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Calls Google directly. This key also powers Gemini speech, script alignment and
-                Indic spellcheck, whichever engine translates.
-              </p>
-
-              <input
-                type="password"
-                value={geminiKey}
-                onChange={(e) => setGeminiKey(e.target.value)}
-                placeholder={
-                  keySource.gemini === 'saved'
-                    ? 'Saved — paste a new key to replace it'
-                    : geminiFromEnv
-                      ? 'Paste your own key to replace the one from .env'
-                      : 'Paste your Gemini API key'
-                }
-                autoComplete="off"
-                spellCheck={false}
-                className={fieldClasses(geminiState)}
-              />
-              {renderState(geminiState)}
-              {geminiFromEnv && envHint('Gemini key')}
-
-              {mode === 'google' && keySource.gemini === 'none' && !geminiKey.trim() && (
-                <p className="text-[11px] text-amber-400 leading-relaxed">
-                  Add the key above to translate with Google.
-                </p>
+            {/* 2. Translation */}
+            <div className="py-5 border-t border-slate-800 flex flex-col gap-3">
+              {sectionHeading(
+                2,
+                translationDone,
+                'Translation',
+                'Turns each cue into the dub language. Pick one engine; it only ever sees cue text.'
               )}
 
-              <ServerSettingsFields
-                title="Endpoint & models"
-                fields={geminiServerFields}
-                values={serverValues}
-                onChange={setServerValue}
-                onReset={() => resetServerGroup(geminiServerFields.map((field) => field.key))}
-              />
-            </div>
-
-            {/*
-             * The self-hosted alternative, and the tallest card by some way.
-             *
-             * Once the cards sit side by side it takes the whole right-hand
-             * column, both rows — the verdict slots in beside it rather than
-             * under it, which is what stops the two key cards leaving a dead
-             * strip beneath them. Its own fields stack when the column is
-             * narrow, so three columns stay usable on a small laptop.
-             */}
-            <div
-              className={`space-y-2 p-3.5 rounded-2xl border transition-all min-w-0 lg:row-span-2 ${
-                mode === 'gateway'
-                  ? 'bg-cyan-950/30 border-cyan-500/70 ring-1 ring-cyan-500/30'
-                  : 'bg-slate-950/50 border-slate-800/80'
-              }`}
-            >
-              <p className="text-[9px] font-mono font-bold uppercase tracking-wider text-slate-500">
-                Translation engine
-              </p>
-
-              <button
-                type="button"
-                onClick={() => setMode('gateway')}
-                aria-pressed={mode === 'gateway'}
-                className="flex items-center gap-2 text-sm font-bold text-slate-100 cursor-pointer text-left"
-              >
-                <span
-                  className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                    mode === 'gateway' ? 'border-cyan-400' : 'border-slate-600'
-                  }`}
-                >
-                  {mode === 'gateway' && <span className="w-2 h-2 rounded-full bg-cyan-400" />}
-                </span>
-                <Server className="w-4 h-4 text-cyan-400" />
-                My own gateway
-              </button>
-
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Your LiteLLM, vLLM or OpenAI-compatible server — nothing leaves your network except
-                what it forwards itself.
-              </p>
-
-              <GatewayFields
-                values={gateway}
-                onChange={setGateway}
-                onStatusChange={setGatewayStatus}
-                hasSavedKey={Boolean(translation?.gatewayHasKey)}
-              />
-              {renderState(translationState)}
-              {gatewayFromEnv && envHint('gateway address')}
-              <p className="text-[10px] text-slate-500 leading-relaxed">
-                Most gateways speak the OpenAI format. Pick Gemini REST only if yours proxies
-                Google&apos;s own API shape.
-              </p>
-            </div>
-
-            {/*
-             * The live verdict sits under the two key cards, beside the gateway:
-             * it reports on transcription and translation together, and its two
-             * rows sit side by side rather than leaving half the row empty.
-             */}
-            <div className="lg:col-span-2 space-y-2 min-w-0">
-              <DetectionCard
-                result={detection}
-                isChecking={isDetecting}
-                onRecheck={runDetection}
-                keys={{
-                  elevenLabs: elevenLabsKey,
-                  translation: mode === 'gateway' ? gateway.apiKey : geminiKey,
-                  translationUrl: mode === 'gateway' ? gateway.url : undefined,
-                }}
-                stored={{
-                  elevenLabs: keySource.elevenLabs !== 'none',
-                  translation:
-                    mode === 'gateway'
-                      ? Boolean(translation?.gatewayHasKey)
-                      : keySource.gemini !== 'none',
-                }}
-                /*
-                 * Picking a model writes it back into the field, so a
-                 * "model missing" verdict is one click from fixed.
-                 */
-                onPickModel={
-                  mode === 'gateway'
-                    ? (model) => setGateway((current) => ({ ...current, model }))
-                    : undefined
-                }
-              />
-
-              {/* Where the keys end up. Wraps rather than truncating: a path cut
-                  off mid-folder is worse than a second line. */}
-              <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-slate-950/70 border border-slate-800 text-[11px] text-slate-400 leading-relaxed">
-                <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                <span className="min-w-0">
-                  Stored on this computer only — never in the browser, never sent anywhere but the
-                  services above
-                  {configFile ? (
-                    <>
-                      {' · '}
-                      <span className="font-mono text-slate-300 break-all">{configFile}</span>
-                    </>
-                  ) : null}
-                </span>
+              <div role="radiogroup" aria-label="Translation engine" className="grid sm:grid-cols-2 gap-2">
+                {[
+                  {
+                    id: 'google' as const,
+                    title: 'Google Gemini',
+                    blurb: 'Calls Google directly with your Gemini key.',
+                    Icon: Cloud,
+                  },
+                  {
+                    id: 'gateway' as const,
+                    title: 'Your own gateway',
+                    blurb: 'LiteLLM, vLLM or any OpenAI-compatible server on your network.',
+                    Icon: Server,
+                  },
+                ].map((opt) => {
+                  const on = mode === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setMode(opt.id)}
+                      className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+                        on
+                          ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
+                          : 'border-slate-800 hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <span
+                        className={`w-4 h-4 mt-0.5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 ${
+                          on ? 'border-indigo-400' : 'border-slate-600'
+                        }`}
+                      >
+                        {on && <span className="w-2 h-2 rounded-full bg-indigo-400" />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100">
+                          <opt.Icon className="w-3.5 h-3.5 text-slate-400" />
+                          {opt.title}
+                        </span>
+                        <span className="block text-[11.5px] text-slate-400 mt-0.5 leading-snug">{opt.blurb}</span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
 
-              {generalError && (
-                <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-rose-950/50 border border-rose-800/60 text-xs text-rose-300">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span className="leading-relaxed">{generalError}</span>
+              {mode === 'google' ? (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="setup-gemini-key" className="flex justify-between gap-2 text-xs text-slate-400">
+                    <span>Gemini API key</span>
+                    <a
+                      href="https://aistudio.google.com/apikey"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+                    >
+                      Get a key <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </label>
+                  <input
+                    id="setup-gemini-key"
+                    type="password"
+                    value={geminiKey}
+                    onChange={(e) => setGeminiKey(e.target.value)}
+                    placeholder={
+                      keySource.gemini === 'saved'
+                        ? 'Saved. Paste a new key to replace it'
+                        : geminiFromEnv
+                          ? 'Paste your own key to replace the one from .env'
+                          : 'Paste your Gemini API key'
+                    }
+                    autoComplete="off"
+                    spellCheck={false}
+                    className={fieldClasses(geminiState)}
+                  />
+                  {renderState(geminiState)}
+                  {geminiFromEnv && envHint('Gemini key')}
+                  <p className="text-[11.5px] text-slate-500 leading-relaxed">
+                    This key also powers Gemini speech, script alignment and Indic spellcheck.
+                  </p>
+                  <ServerSettingsFields
+                    title="Endpoint and models"
+                    fields={geminiServerFields}
+                    values={serverValues}
+                    onChange={setServerValue}
+                    onReset={() => resetServerGroup(geminiServerFields.map((field) => field.key))}
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  <GatewayFields
+                    values={gateway}
+                    onChange={setGateway}
+                    onStatusChange={setGatewayStatus}
+                    hasSavedKey={Boolean(translation?.gatewayHasKey)}
+                  />
+                  {renderState(translationState)}
+                  {gatewayFromEnv && envHint('gateway address')}
                 </div>
               )}
             </div>
+
+            {generalError && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-[10px] bg-rose-500/10 border border-rose-500/30 text-[12.5px] text-slate-200">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                <span className="leading-relaxed">Nothing was saved. {generalError}</span>
+              </div>
+            )}
           </div>
+
+          {/* Live checks and where things are kept */}
+          <aside
+            aria-label="Checks"
+            className="px-5 sm:px-5 py-5 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/40 flex flex-col gap-4 min-w-0"
+          >
+            <DetectionCard
+              result={detection}
+              isChecking={isDetecting}
+              onRecheck={runDetection}
+              keys={{
+                elevenLabs: elevenLabsKey,
+                translation: mode === 'gateway' ? gateway.apiKey : geminiKey,
+                translationUrl: mode === 'gateway' ? gateway.url : undefined,
+              }}
+              stored={{
+                elevenLabs: keySource.elevenLabs !== 'none',
+                translation: mode === 'gateway' ? Boolean(translation?.gatewayHasKey) : keySource.gemini !== 'none',
+              }}
+              /*
+               * Picking a model writes it back into the field, so a
+               * "model missing" verdict is one click from fixed.
+               */
+              onPickModel={mode === 'gateway' ? (model) => setGateway((current) => ({ ...current, model })) : undefined}
+            />
+
+            {ffmpegAvailable !== undefined && (
+              <div className="flex items-start gap-2.5">
+                <span
+                  className={`w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 ${
+                    ffmpegAvailable ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+                  }`}
+                >
+                  {ffmpegAvailable ? <Check className="w-3 h-3" strokeWidth={3} /> : <Info className="w-3 h-3" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-semibold text-slate-100">Video support</span>
+                  <span className="block text-[11.5px] text-slate-400 leading-snug">
+                    {ffmpegAvailable
+                      ? 'ffmpeg found, so only the audio of a video is uploaded'
+                      : 'ffmpeg not found; videos are uploaded whole'}
+                  </span>
+                </span>
+              </div>
+            )}
+
+            {/* Wraps rather than truncating: a path cut off mid-folder is worse than a second line. */}
+            {configFile && (
+              <div className="text-xs text-slate-400 leading-relaxed">
+                Saved to this computer only:
+                <span className="block mt-1.5 px-2.5 py-2 rounded-lg bg-slate-900 border border-slate-800 font-mono text-[11px] text-slate-200 break-all">
+                  {configFile}
+                </span>
+              </div>
+            )}
+
+            <p className="md:mt-auto flex items-start gap-2 text-[11.5px] text-slate-400 leading-relaxed">
+              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-px" />
+              <span>Keys never reach the browser. They go only to ElevenLabs and your translation engine.</span>
+            </p>
+          </aside>
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-slate-800 bg-slate-950/60 flex items-center justify-between gap-3 shrink-0">
+        <div className="px-5 sm:px-6 py-3.5 border-t border-slate-800 flex flex-wrap items-center gap-3 shrink-0">
           {isSettings ? (
-            <div className="min-w-0">
-              <p className="text-[11px] text-slate-500 font-mono truncate">
-                {translation?.mode === 'gateway'
-                  ? `Using your gateway — ${translation.models?.[0] || 'model not set'}`
-                  : translation?.mode === 'google'
-                    ? `Using Google Gemini — ${translation.models?.[0] || ''}`
-                    : 'No translation engine configured'}
-              </p>
-            </div>
+            <p className="min-w-0 flex-1 text-[11.5px] text-slate-500 truncate">
+              {translation?.mode === 'gateway'
+                ? `Translating with your gateway · ${translation.models?.[0] || 'model not set'}`
+                : translation?.mode === 'google'
+                  ? `Translating with Google Gemini · ${translation.models?.[0] || ''}`
+                  : 'No translation engine set up yet'}
+            </p>
           ) : (
             <button
               type="button"
               onClick={onSkip}
-              className="text-xs text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="flex-1 min-w-0 text-left text-[12.5px] text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5 cursor-pointer"
               title="Configure the keys yourself using a .env file or environment variables"
             >
-              <Terminal className="w-3.5 h-3.5" />
-              <span>I&apos;ll use a .env file</span>
+              <Terminal className="w-3.5 h-3.5 shrink-0" />
+              <span>I&apos;ll use a .env file instead</span>
             </button>
           )}
 
+          {isSettings && (
+            <button
+              type="button"
+              onClick={onSkip}
+              className="h-10 px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-pointer"
+            >
+              Cancel
+            </button>
+          )}
           <button
             type="button"
             onClick={handleSave}
             disabled={!canSubmit}
-            className="flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 text-white text-sm font-bold shadow-lg shadow-indigo-600/25 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95 cursor-pointer"
+            className="h-10 px-5 flex items-center justify-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
           >
             {isSaving ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Checking...</span>
+                <span>Checking…</span>
               </>
             ) : (
-              <>
-                <ShieldCheck className="w-4 h-4" />
-                {/* Inside an expression these are plain strings, so no HTML entity. */}
-                <span>{isSettings ? 'Verify & Update' : 'Verify & Save'}</span>
-              </>
+              <span>{isSettings ? 'Save changes' : 'Save and start'}</span>
             )}
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 };

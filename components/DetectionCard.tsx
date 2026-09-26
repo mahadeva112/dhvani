@@ -92,26 +92,28 @@ const Row: React.FC<{
       ? 'Saved on this computer'
       : guess?.hint || 'No credential set';
 
+  const iconTone = {
+    ok: 'bg-emerald-500/15 text-emerald-300',
+    warn: 'bg-amber-500/15 text-amber-300',
+    error: 'bg-rose-500/15 text-rose-300',
+    muted: 'bg-slate-900 border border-slate-800 text-slate-500',
+  }[badge.tone];
+
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-bold text-slate-100">{guess?.label || row.label}</div>
-          <p className="text-[10px] text-slate-500 mt-0.5 truncate">{credentialHint}</p>
-        </div>
-
-        <span
-          className={`shrink-0 flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${TONE_CLASSES[badge.tone]}`}
-        >
-          {status === 'checking' ? (
-            <RefreshCw className="w-3 h-3 animate-spin" />
-          ) : (
-            <StatusIcon tone={badge.tone} className="w-3 h-3" />
-          )}
-          {badge.word}
-        </span>
+    <div className="flex items-start gap-2.5 min-w-0">
+      <span className={`w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 ${iconTone}`}>
+        {status === 'checking' ? (
+          <RefreshCw className="w-3 h-3 animate-spin" />
+        ) : (
+          <StatusIcon tone={badge.tone} className="w-3 h-3" />
+        )}
+      </span>
+      <div className="min-w-0 flex-1 space-y-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[13px] font-semibold text-slate-100 truncate">{guess?.label || row.label}</span>
+        <span className={`shrink-0 text-[11px] font-medium ${MESSAGE_CLASSES[badge.tone]}`}>{badge.word}</span>
       </div>
-
+      <p className="text-[11.5px] text-slate-400 truncate">{credentialHint}</p>
       {family && <p className="text-[10px] text-slate-500">{family}</p>}
 
       {!isChecking && row.message && (
@@ -127,7 +129,8 @@ const Row: React.FC<{
         is nothing to write to, because "12 models available" with no way to see
         which twelve is a dead end.
       */}
-      {!isChecking && row.models.length > 0 && (
+      {/* Only where picking writes the model back; elsewhere the message already gives the count. */}
+      {!isChecking && row.models.length > 0 && onPickModel && (
         <div className="flex items-center gap-2 pt-0.5">
           <span className="text-[10px] text-slate-500 shrink-0">Available</span>
           <select
@@ -154,6 +157,7 @@ const Row: React.FC<{
           {!onPickModel && <span className="text-[10px] text-slate-600 shrink-0">reference</span>}
         </div>
       )}
+      </div>
     </div>
   );
 };
@@ -185,47 +189,29 @@ export const DetectionCard: React.FC<DetectionCardProps> = ({
   const translation = result?.translation || placeholder('translation', 'Translation');
 
   return (
-    <div className="rounded-2xl bg-slate-950/60 border border-slate-800 overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-3.5 py-2 border-b border-slate-800/80 bg-slate-950/80">
-        <span className="text-[10px] font-bold text-slate-400 uppercase font-mono tracking-wider">
-          Detected
-        </span>
+    <div className="flex flex-col gap-3.5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Checks</span>
         <button
           type="button"
           onClick={onRecheck}
           disabled={isChecking}
-          className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-semibold text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-50 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
         >
           <RefreshCw className={`w-3 h-3 ${isChecking ? 'animate-spin' : ''}`} />
           Re-check
         </button>
       </div>
 
-      {/* Two columns once there is room; stacked with a rule between below that. */}
-      <div className="px-3.5 py-2.5 grid sm:grid-cols-2 gap-x-5">
-        <Row
-          row={elevenlabs}
-          typedKey={keys.elevenLabs}
-          hasStoredKey={stored?.elevenLabs}
-          isChecking={isChecking}
-        />
-
-        <div className="mt-3 pt-3 border-t border-slate-800/80 sm:mt-0 sm:pt-0 sm:border-t-0 sm:border-l sm:pl-5">
-          <Row
-            row={translation}
-            typedKey={keys.translation}
-            typedUrl={keys.translationUrl}
-            hasStoredKey={stored?.translation}
-            isChecking={isChecking}
-            onPickModel={onPickModel}
-          />
-        </div>
-      </div>
-
-      <p className="px-3.5 pb-2 text-[10px] text-slate-600 leading-relaxed">
-        Transcription always uses ElevenLabs. The translation engine only ever sees cue text — never
-        the audio, never timestamps.
-      </p>
+      <Row row={elevenlabs} typedKey={keys.elevenLabs} hasStoredKey={stored?.elevenLabs} isChecking={isChecking} />
+      <Row
+        row={translation}
+        typedKey={keys.translation}
+        typedUrl={keys.translationUrl}
+        hasStoredKey={stored?.translation}
+        isChecking={isChecking}
+        onPickModel={onPickModel}
+      />
     </div>
   );
 };

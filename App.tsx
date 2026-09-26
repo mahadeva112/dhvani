@@ -1669,6 +1669,7 @@ export default function App() {
           configFile={backendSettings.configFile}
           translation={backendSettings.translation}
           server={backendSettings.server}
+          ffmpegAvailable={backendHealth?.ffmpegAvailable}
           onComplete={handleSetupComplete}
           onSkip={handleDismissSetup}
         />
@@ -1682,6 +1683,7 @@ export default function App() {
           configFile={backendSettings.configFile}
           translation={backendSettings.translation}
           server={backendSettings.server}
+          ffmpegAvailable={backendHealth?.ffmpegAvailable}
           onComplete={() => {
             setIsApiSettingsOpen(false);
             probeBackend().catch(() => {});
