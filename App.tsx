@@ -1846,6 +1846,11 @@ export default function App() {
         availableVoices={availableVoices}
         isLoadingVoices={isLoadingVoices}
         onRefreshVoices={fetchVoices}
+        targetLanguage={activeJob?.language || selectedLanguage}
+        previewText={(() => {
+          const seg = activeJob?.segments?.find((s) => (s.textTarget || s.targetText || '').trim());
+          return seg ? seg.textTarget || seg.targetText : undefined;
+        })()}
         /* The key itself is edited in API Settings; this only links across. */
         onOpenApiSettings={
           backendSettings?.canSaveKeys
