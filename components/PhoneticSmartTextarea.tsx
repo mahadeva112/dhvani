@@ -33,6 +33,8 @@ export interface PhoneticSmartTextareaProps {
   id?: string;
   /** Show the Quick Symbols & Matras toggle + drawer (hidden on the Review screen) */
   showQuickSymbols?: boolean;
+  /** Show the helper toolbar only while the cue is being edited, for dense lists. */
+  compactToolbar?: boolean;
   /**
    * Whether AI Polish starts enabled for this cue. Off by default: polish is an
    * opt-in per quote, so nothing is rewritten unless the reviewer asks for it.
@@ -58,6 +60,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   id,
   showQuickSymbols = true,
   defaultAiPolish = false,
+  compactToolbar = false,
 }) => {
   // Enabled state for phonetic auto-transliteration (persisted or on by default)
   const [isPhoneticOn, setIsPhoneticOn] = useState<boolean>(true);
@@ -385,7 +388,11 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   return (
     <div className="relative group/phonetic flex flex-col space-y-1">
       {/* Top Helper Toolbar */}
-      <div className="flex items-center justify-between text-[11px] text-slate-400 select-none">
+      <div
+        className={`items-center justify-between text-[11px] text-slate-400 select-none ${
+          compactToolbar ? 'hidden group-focus-within/phonetic:flex' : 'flex'
+        }`}
+      >
         <div className="flex items-center gap-1.5 flex-wrap">
           {/* Indic Language Script Pill */}
           <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 dark:text-indigo-300 border border-indigo-500/20 text-[10px] font-medium font-sans flex items-center gap-1">
