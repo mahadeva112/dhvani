@@ -1,17 +1,13 @@
 import React, { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
 import {
-  Mic,
   Search,
   Play,
   Square,
   Check,
   ChevronUp,
-  Volume2,
+  ChevronDown,
   Filter,
   X,
-  Radio,
-  Globe,
-  AudioWaveform,
   Star,
 } from 'lucide-react';
 import { Voice } from '../services/elevenLabsService';
@@ -177,6 +173,8 @@ interface VoiceSelectorCardProps {
   onOpenVoiceChanger?: () => void;
   /** The dub language; voices that speak it are suggested first. */
   targetLanguage?: string;
+  /** Extra classes for the outer panel, e.g. to size it to a sibling column. */
+  className?: string;
 }
 
 /** A voice plus the precomputed fields the search ranks against. */
@@ -328,8 +326,9 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   onElVoiceIdChange,
   availableVoices = [],
   targetLanguage = 'Hindi',
+  className = '',
 }) => {
-  const [isVoiceBrowserOpen, setIsVoiceBrowserOpen] = useState(false);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
   const [genderFilter, setGenderFilter] = useState<GenderFilter>('all');
@@ -373,8 +372,8 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         return;
       }
       e.preventDefault();
-      setIsVoiceBrowserOpen(true);
-      requestAnimationFrame(() => inputRef.current?.select());
+      inputRef.current?.focus();
+      inputRef.current?.select();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -500,12 +499,12 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     if (listRef.current) listRef.current.scrollTop = 0;
   }, [filteredVoices]);
 
-  // Keep the keyboard-highlighted row in view
+  // Keep the keyboard-highlighted card in view while typing in the search box
   useEffect(() => {
-    if (!isVoiceBrowserOpen) return;
+    if (document.activeElement !== inputRef.current) return;
     const row = listRef.current?.querySelector<HTMLElement>(`[data-idx="${highlightIndex}"]`);
     row?.scrollIntoView({ block: 'nearest' });
-  }, [highlightIndex, isVoiceBrowserOpen]);
+  }, [highlightIndex]);
 
   const activeFilterCount = [
     categoryFilter !== 'all',
@@ -524,32 +523,6 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     setFavoritesOnly(false);
     setIndianOnly(false);
   };
-
-  // Current active selected voice object
-  const activeVoice = useMemo<VoiceItem>(() => {
-    return allVoices.find((v) => v.id === elVoiceId) || allVoices[0] || POPULAR_ELEVENLABS_VOICES[0];
-  }, [allVoices, elVoiceId]);
-
-  /**
-   * Favourites resolved against the live library. A voice starred before the
-   * API list loaded (or since deleted upstream) falls back to the snapshot
-   * stored when it was starred, so the quick-pick row never goes blank.
-   */
-  const favoriteVoiceItems: VoiceItem[] = useMemo(() => {
-    return favorites.map((fav) => {
-      const live = allVoices.find((v) => v.id === fav.id);
-      if (live) return live;
-      return {
-        id: fav.id,
-        name: fav.name || fav.id,
-        category: fav.category || 'custom',
-        gender: fav.gender || 'neutral',
-        accent: fav.accent || 'Neutral',
-        desc: 'Saved favourite',
-        previewUrl: fav.previewUrl,
-      };
-    });
-  }, [favorites, allVoices]);
 
   const handleToggleFavorite = (v: VoiceItem) => {
     toggleFavorite({
@@ -593,15 +566,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     }
   };
 
-  const selectVoice = (id: string) => {
-    onElVoiceIdChange(id);
-    setIsVoiceBrowserOpen(false);
-  };
-
-  const openSearch = () => {
-    setIsVoiceBrowserOpen(true);
-    requestAnimationFrame(() => inputRef.current?.select());
-  };
+  const selectVoice = (id: string) => onElVoiceIdChange(id);
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const last = filteredVoices.length - 1;
@@ -622,7 +587,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     } else if (e.key === 'Escape') {
       e.preventDefault();
       if (searchQuery) setSearchQuery('');
-      else setIsVoiceBrowserOpen(false);
+      else inputRef.current?.blur();
     } else if (e.key === ' ' && e.ctrlKey) {
       // Ctrl+Space auditions the highlighted voice without leaving the keyboard
       e.preventDefault();
@@ -641,582 +606,413 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   const visibleVoices = filteredVoices.slice(0, visibleCount);
 
   return (
-    <div
+    <section
       id="voice-selector-card-container"
-      className="w-full bg-slate-900/95 border border-slate-800 rounded-2xl shadow-sm transition-all duration-200 overflow-hidden"
+      aria-labelledby="voice-library-heading"
+      className={`w-full flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden ${className}`}
     >
-      {/* Top Banner: Provider Mode & Current Voice Display */}
-      <div className="p-3.5 sm:p-4 border-b border-slate-800/80 bg-slate-950/60 space-y-3">
-        {/* Title Bar */}
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30 shrink-0">
-              <Mic className="w-4 h-4" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-slate-200 leading-tight">
-                Dubbing Voice Selection
-              </h4>
-              <p className="text-xs text-slate-400 leading-tight mt-0.5">
-                {`${allVoices.length.toLocaleString()} voice models available • Studio Quality Multilingual`}
-              </p>
-            </div>
-          </div>
+      {/* Heading */}
+      <div className="flex items-start justify-between gap-3 px-4 sm:px-5 pt-4">
+        <div className="min-w-0">
+          <h2 id="voice-library-heading" className="text-[15px] font-semibold text-slate-100 leading-tight">
+            Dubbing voice
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Voices that speak {targetLanguage} are shown first. Play a preview before you choose.
+          </p>
         </div>
-
-        {/* ACTIVE VOICE SHOWCASE CARD (The main visual hero) */}
-        <div className="bg-slate-950/90 border border-slate-800 rounded-xl shadow-xs overflow-hidden">
-          {/* Identity row: the name owns the full width; meta sits underneath */}
-          <div className="p-3 sm:p-3.5 flex items-start gap-3 min-w-0">
-            <div
-              className={`w-11 h-11 rounded-xl bg-gradient-to-br ${avatarGradient(activeVoice.id)} text-white flex items-center justify-center font-bold text-base shadow-md shrink-0`}
-            >
-              {activeVoice.name.charAt(0).toUpperCase()}
-            </div>
-
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <div className="flex items-baseline gap-2 min-w-0">
-                <span
-                  className="text-[15px] font-bold text-slate-100 truncate leading-tight"
-                  title={activeVoice.name}
-                >
-                  {activeVoice.name}
-                </span>
-                <span className="text-[10px] uppercase tracking-wider font-semibold text-emerald-400/90 shrink-0 flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  Active
-                </span>
-              </div>
-
-              {/* Meta badges on their own line so nothing squeezes the name */}
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 uppercase tracking-wide">
-                  {activeVoice.category}
-                </span>
-                {activeVoice.gender && activeVoice.gender !== 'neutral' && (
-                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-900 text-slate-300 border border-slate-800 capitalize">
-                    {activeVoice.gender}
-                  </span>
-                )}
-                {activeVoice.accent && activeVoice.accent !== 'Neutral' && (
-                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-900 text-slate-300 border border-slate-800">
-                    {activeVoice.accent}
-                  </span>
-                )}
-                {isFavorite(activeVoice.id) && (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/40 flex items-center gap-1">
-                    <Star className="w-2.5 h-2.5 fill-current" />
-                    Favourite
-                  </span>
-                )}
-              </div>
-
-              {/* Description, skipped when it only repeats the category badge */}
-              {activeVoice.desc &&
-                activeVoice.desc.toLowerCase() !== (activeVoice.category || '').toLowerCase() && (
-                  <p className="text-xs text-slate-400 truncate font-normal" title={activeVoice.desc}>
-                    {activeVoice.desc}
-                  </p>
-                )}
-
-              <p
-                className="text-[10px] font-mono text-slate-600 truncate"
-                title={`Voice ID: ${activeVoice.id}`}
-              >
-                ID · {activeVoice.id}
-              </p>
-            </div>
-          </div>
-
-          {/* Action bar: aligned on its own row, so buttons never crowd the name */}
-          <div className="flex items-center gap-2 flex-wrap px-3 sm:px-3.5 py-2.5 border-t border-slate-800/80 bg-slate-900/40">
-            <button
-              type="button"
-              onClick={() => handleToggleFavorite(activeVoice)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                isFavorite(activeVoice.id)
-                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/50 hover:bg-amber-500/25'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-amber-200 border-slate-800 hover:border-amber-500/40'
-              }`}
-              title={
-                isFavorite(activeVoice.id)
-                  ? `Remove ${activeVoice.name} from favourites`
-                  : `Save ${activeVoice.name} to favourites`
-              }
-            >
-              <Star
-                className={`w-3.5 h-3.5 shrink-0 ${isFavorite(activeVoice.id) ? 'fill-current' : ''}`}
-              />
-              <span>{isFavorite(activeVoice.id) ? 'Favourited' : 'Favourite'}</span>
-            </button>
-
-            {activeVoice.previewUrl && (
-              <button
-                type="button"
-                onClick={() => handleTogglePreview(activeVoice.id, activeVoice.previewUrl)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                  playingVoiceId === activeVoice.id
-                    ? 'bg-amber-500 text-white border-amber-400 animate-pulse shadow-sm'
-                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-indigo-200 border-slate-800 hover:border-indigo-500/40'
-                }`}
-                title="Audition voice sample"
-              >
-                {playingVoiceId === activeVoice.id ? (
-                  <>
-                    <Square className="w-3.5 h-3.5 fill-current shrink-0" />
-                    <span>Stop</span>
-                  </>
-                ) : (
-                  <>
-                    <Volume2 className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                    <span>Audition</span>
-                  </>
-                )}
-              </button>
-            )}
-
-            <div className="flex-1" />
-
-            <button
-              type="button"
-              onClick={() => (isVoiceBrowserOpen ? setIsVoiceBrowserOpen(false) : openSearch())}
-              aria-expanded={isVoiceBrowserOpen}
-              aria-controls="voice-search-panel"
-              title={isVoiceBrowserOpen ? 'Close voice search (Esc)' : 'Search the voice library (press /)'}
-              className={`group flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95 cursor-pointer border ${
-                isVoiceBrowserOpen
-                  ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
-                  : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white border-indigo-400/40 shadow-md shadow-indigo-900/40 hover:from-indigo-500 hover:to-purple-500'
-              }`}
-            >
-              {isVoiceBrowserOpen ? (
-                <>
-                  <X className="w-3.5 h-3.5 shrink-0" />
-                  <span>Close Search</span>
-                  <ChevronUp className="w-3.5 h-3.5 shrink-0 opacity-70" />
-                </>
-              ) : (
-                <>
-                  <Search className="w-3.5 h-3.5 shrink-0" />
-                  <span>Search Voices</span>
-                  <kbd className="hidden sm:inline-flex items-center justify-center w-5 h-5 rounded-md bg-white/15 border border-white/20 text-[10px] font-mono font-semibold">
-                    /
-                  </kbd>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* QUICK PICK: one click to switch between favourite voices */}
-        {favoriteVoiceItems.length > 0 && (
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] uppercase font-bold text-amber-400/90 tracking-wider flex items-center gap-1 shrink-0">
-              <Star className="w-3 h-3 fill-current" /> Favourites:
-            </span>
-            {favoriteVoiceItems.map((v) => {
-              const isActive = v.id === elVoiceId;
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => onElVoiceIdChange(v.id)}
-                  className={`group flex items-center gap-1.5 pl-2 pr-1.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                    isActive
-                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
-                      : 'bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-indigo-200 border-slate-800 hover:border-indigo-500/40'
-                  }`}
-                  title={`Use ${v.name}${v.accent && v.accent !== 'Neutral' ? ` • ${v.accent}` : ''}`}
-                >
-                  {isActive && <Check className="w-3 h-3 shrink-0" />}
-                  <span className="truncate max-w-[9rem]">{v.name}</span>
-                  <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleToggleFavorite(v);
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        handleToggleFavorite(v);
-                      }
-                    }}
-                    className="p-0.5 rounded text-slate-400 hover:text-rose-300 opacity-60 group-hover:opacity-100 transition-opacity"
-                    title={`Remove ${v.name} from favourites`}
-                  >
-                    <X className="w-3 h-3" />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <span className="shrink-0 text-[11px] font-mono uppercase tracking-wider text-slate-500 tabular-nums pt-0.5">
+          {allVoices.length.toLocaleString()} voices
+        </span>
       </div>
 
-      {/* VOICE SEARCH PANEL */}
-      {isVoiceBrowserOpen && (
-        <div
-          id="voice-search-panel"
-          className="bg-slate-950/70 animate-in fade-in slide-in-from-top-2 duration-200"
-        >
-          {/* Search field */}
-          <div className="p-3 sm:p-4 pb-0 sm:pb-0">
-            <div className="relative group">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 group-focus-within:text-indigo-400 transition-colors" />
-              <input
-                ref={inputRef}
-                type="text"
-                role="combobox"
-                aria-expanded="true"
-                aria-controls="voice-search-results"
-                aria-activedescendant={
-                  filteredVoices[highlightIndex] ? `voice-opt-${filteredVoices[highlightIndex].id}` : undefined
-                }
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={handleSearchKeyDown}
-                placeholder="Search by name, accent, style or voice ID — try “calm british female”"
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-24 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 transition-all shadow-xs"
-                autoFocus
-                spellCheck={false}
-                autoComplete="off"
-              />
-              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                {searchQuery ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery('');
-                      inputRef.current?.focus();
-                    }}
-                    className="text-slate-400 hover:text-indigo-300 p-1 rounded-md hover:bg-slate-800 cursor-pointer"
-                    title="Clear search"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                ) : null}
-                <span className="text-[10px] font-mono text-slate-500 tabular-nums">
-                  {filteredVoices.length.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Filters */}
-          <div className="px-3 sm:px-4 pt-3 space-y-2">
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
-              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1 shrink-0 w-14">
-                <Filter className="w-3 h-3" /> Type
-              </span>
+      {/* Search and main filters */}
+      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3.5 border-b border-slate-800">
+        <div className="relative flex-1 min-w-[15rem]">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+          <input
+            ref={inputRef}
+            id="voice-search-input"
+            type="text"
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="voice-search-results"
+            aria-activedescendant={
+              filteredVoices[highlightIndex] ? `voice-opt-${filteredVoices[highlightIndex].id}` : undefined
+            }
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            placeholder="Search voices"
+            title="Search by name, accent, style or voice ID"
+            className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-10 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 transition-all"
+            spellCheck={false}
+            autoComplete="off"
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2">
+            {searchQuery ? (
               <button
                 type="button"
-                onClick={() => setFavoritesOnly((f) => !f)}
-                className={chipClass(favoritesOnly, 'amber')}
-                title="Show only favourite voices"
+                onClick={() => {
+                  setSearchQuery('');
+                  inputRef.current?.focus();
+                }}
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-md hover:bg-slate-800 cursor-pointer"
+                title="Clear search"
               >
-                <Star className={`w-3 h-3 ${favoritesOnly ? 'fill-current' : ''}`} />
-                Favourites
-                {favorites.length > 0 && <span className="opacity-70 tabular-nums">{favorites.length}</span>}
+                <X className="w-3.5 h-3.5" />
               </button>
-              {indianCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setIndianOnly((on) => !on)}
-                  className={chipClass(indianOnly, 'purple')}
-                  title={`Show only Indian voices; those that speak ${targetLanguage} are listed first`}
-                >
-                  <Globe className="w-3 h-3" />
-                  Indian
-                  <span className="opacity-70 tabular-nums">{indianCount}</span>
-                </button>
-              )}
-              {(Object.keys(CATEGORY_LABELS) as CategoryFilter[]).map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setCategoryFilter(cat)}
-                  className={chipClass(categoryFilter === cat)}
-                >
-                  {CATEGORY_LABELS[cat]}
-                  <span className="opacity-60 tabular-nums">{categoryCounts[cat].toLocaleString()}</span>
-                </button>
-              ))}
-              <span className="w-px h-4 bg-slate-800 mx-1 shrink-0" />
-              {(['all', 'female', 'male'] as const).map((g) => (
-                <button
-                  key={g}
-                  type="button"
-                  onClick={() => setGenderFilter(g)}
-                  className={chipClass(genderFilter === g, 'purple')}
-                >
-                  {g === 'all' ? 'Any gender' : capitalize(g)}
-                </button>
-              ))}
-            </div>
-
-            {accentOptions.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
-                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1 shrink-0 w-14">
-                  <Globe className="w-3 h-3" /> Accent
-                </span>
-                <button type="button" onClick={() => setAccentFilter('all')} className={chipClass(accentFilter === 'all')}>
-                  Any
-                </button>
-                {accentOptions.map(({ value, count }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setAccentFilter(accentFilter === value ? 'all' : value)}
-                    className={chipClass(accentFilter === value)}
-                  >
-                    {value}
-                    <span className="opacity-60 tabular-nums">{count.toLocaleString()}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {styleOptions.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
-                <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wider flex items-center gap-1 shrink-0 w-14">
-                  <AudioWaveform className="w-3 h-3" /> Style
-                </span>
-                <button type="button" onClick={() => setStyleFilter('all')} className={chipClass(styleFilter === 'all')}>
-                  Any
-                </button>
-                {styleOptions.map(({ value, count }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setStyleFilter(styleFilter === value ? 'all' : value)}
-                    className={chipClass(styleFilter === value)}
-                  >
-                    {value}
-                    <span className="opacity-60 tabular-nums">{count.toLocaleString()}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Results header */}
-          <div className="flex items-center justify-between gap-2 px-4 sm:px-5 pt-3 pb-1.5 text-[11px] text-slate-500">
-            <span>
-              <span className="text-slate-300 font-semibold tabular-nums">{filteredVoices.length.toLocaleString()}</span>
-              {' '}
-              {filteredVoices.length === 1 ? 'voice' : 'voices'}
-              {tokens.length > 0 ? ' · best match first' : ` · favourites, then ${targetLanguage} voices, then A–Z`}
-            </span>
-            {(activeFilterCount > 0 || searchQuery) && (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer"
-              >
-                Reset{activeFilterCount > 0 ? ` ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}` : ''}
-              </button>
-            )}
-          </div>
-
-          {/* Results list */}
-          <div
-            ref={listRef}
-            id="voice-search-results"
-            role="listbox"
-            onScroll={handleListScroll}
-            className="max-h-80 overflow-y-auto px-2 sm:px-3 pb-2"
-          >
-            {filteredVoices.length === 0 ? (
-              <div className="m-1 p-6 text-center bg-slate-950 rounded-xl border border-dashed border-slate-800 space-y-2">
-                <Search className="w-5 h-5 text-slate-600 mx-auto" />
-                <p className="text-xs text-slate-400">
-                  {favoritesOnly && !searchQuery
-                    ? 'No favourite voices yet — star a voice to pin it here.'
-                    : searchQuery
-                      ? `No voices match “${searchQuery}”${activeFilterCount ? ' with these filters' : ''}.`
-                      : 'No voices match these filters.'}
-                </p>
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline cursor-pointer"
-                >
-                  Reset search and filters
-                </button>
-              </div>
             ) : (
-              <div className="space-y-0.5">
-                {visibleVoices.map((v, idx) => {
-                  const isSelected = v.id === elVoiceId;
-                  const isPlaying = playingVoiceId === v.id;
-                  const isHighlighted = idx === highlightIndex;
-                  const fav = isFavorite(v.id);
+              <Kbd>/</Kbd>
+            )}
+          </span>
+        </div>
 
-                  return (
-                    <div
-                      key={v.id}
-                      id={`voice-opt-${v.id}`}
-                      role="option"
-                      aria-selected={isSelected}
-                      data-idx={idx}
-                      onClick={() => selectVoice(v.id)}
-                      onMouseMove={() => idx !== highlightIndex && setHighlightIndex(idx)}
-                      className={`group relative flex items-center gap-3 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
-                        isHighlighted ? 'bg-slate-800/70' : 'hover:bg-slate-900/80'
-                      } ${isSelected ? 'ring-1 ring-inset ring-indigo-500/60 bg-indigo-950/50' : ''}`}
-                    >
-                      {isHighlighted && (
-                        <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-full bg-indigo-400" />
-                      )}
+        <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5" role="group" aria-label="Gender">
+          {(['all', 'female', 'male'] as const).map((g) => (
+            <button
+              key={g}
+              type="button"
+              aria-pressed={genderFilter === g}
+              onClick={() => setGenderFilter(g)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                genderFilter === g ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {g === 'all' ? 'All' : capitalize(g)}
+            </button>
+          ))}
+        </div>
 
-                      {/* Avatar doubles as the audition button */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleTogglePreview(v.id, v.previewUrl);
-                        }}
-                        disabled={!v.previewUrl}
-                        className={`relative w-9 h-9 rounded-lg bg-gradient-to-br ${avatarGradient(v.id)} text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm disabled:cursor-default ${
-                          v.previewUrl ? 'cursor-pointer' : ''
+        {indianCount > 0 && (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={indianOnly}
+            onClick={() => setIndianOnly((on) => !on)}
+            className="flex items-center gap-2 px-1 text-xs font-medium text-slate-300 cursor-pointer"
+            title={`Show only Indian voices; those that speak ${targetLanguage} are listed first`}
+          >
+            <span
+              className={`relative w-7 h-4 rounded-full transition-colors ${indianOnly ? 'bg-indigo-500' : 'bg-slate-700'}`}
+            >
+              <span
+                className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${indianOnly ? 'left-3.5' : 'left-0.5'}`}
+              />
+            </span>
+            Indian voices only
+          </button>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setFavoritesOnly((f) => !f)}
+          aria-pressed={favoritesOnly}
+          className={chipClass(favoritesOnly, 'amber')}
+          title="Show only favourite voices"
+        >
+          <Star className={`w-3 h-3 ${favoritesOnly ? 'fill-current' : ''}`} />
+          Favourites
+          {favorites.length > 0 && <span className="opacity-70 tabular-nums">{favorites.length}</span>}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowMoreFilters((v) => !v)}
+          aria-expanded={showMoreFilters}
+          aria-controls="voice-more-filters"
+          className={chipClass(showMoreFilters)}
+        >
+          <Filter className="w-3 h-3" />
+          More filters
+          {showMoreFilters ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+      </div>
+
+      {/* Type, accent and style */}
+      {showMoreFilters && (
+        <div id="voice-more-filters" className="px-4 sm:px-5 py-3 space-y-2 border-b border-slate-800 bg-slate-950/60">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+            <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider shrink-0 w-14">Type</span>
+            {(Object.keys(CATEGORY_LABELS) as CategoryFilter[]).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setCategoryFilter(cat)}
+                className={chipClass(categoryFilter === cat)}
+              >
+                {CATEGORY_LABELS[cat]}
+                <span className="opacity-60 tabular-nums">{categoryCounts[cat].toLocaleString()}</span>
+              </button>
+            ))}
+          </div>
+
+          {accentOptions.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider shrink-0 w-14">Accent</span>
+              <button type="button" onClick={() => setAccentFilter('all')} className={chipClass(accentFilter === 'all')}>
+                Any
+              </button>
+              {accentOptions.map(({ value, count }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setAccentFilter(accentFilter === value ? 'all' : value)}
+                  className={chipClass(accentFilter === value)}
+                >
+                  {value}
+                  <span className="opacity-60 tabular-nums">{count.toLocaleString()}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {styleOptions.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+              <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider shrink-0 w-14">Style</span>
+              <button type="button" onClick={() => setStyleFilter('all')} className={chipClass(styleFilter === 'all')}>
+                Any
+              </button>
+              {styleOptions.map(({ value, count }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setStyleFilter(styleFilter === value ? 'all' : value)}
+                  className={chipClass(styleFilter === value)}
+                >
+                  {value}
+                  <span className="opacity-60 tabular-nums">{count.toLocaleString()}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Voice grid */}
+      <div
+        ref={listRef}
+        id="voice-search-results"
+        role="listbox"
+        aria-label="Voices"
+        onScroll={handleListScroll}
+        className="flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar p-4"
+      >
+        {filteredVoices.length === 0 ? (
+          <div className="p-8 text-center rounded-xl border border-dashed border-slate-800 space-y-2">
+            <Search className="w-5 h-5 text-slate-600 mx-auto" />
+            <p className="text-xs text-slate-400">
+              {favoritesOnly && !searchQuery
+                ? 'No favourite voices yet. Star a voice to pin it here.'
+                : searchQuery
+                  ? `No voices match “${searchQuery}”${activeFilterCount ? ' with these filters' : ''}.`
+                  : 'No voices match these filters.'}
+            </p>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline cursor-pointer"
+            >
+              Reset search and filters
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
+            {visibleVoices.map((v, idx) => {
+              const isSelected = v.id === elVoiceId;
+              const isPlaying = playingVoiceId === v.id;
+              const isHighlighted = idx === highlightIndex && searchQuery.length > 0;
+              const fav = isFavorite(v.id);
+              // Library names often carry a tagline: "Aaditya - Rich, Deep and Suspenseful".
+              const [title, ...rest] = v.name.split(/\s+[-–—|]\s+/);
+              const tagline = rest.join(' – ');
+              const subtitle = tagline || v.desc || capitalize(v.category);
+              const showAccent = v.accent !== 'Neutral' && v.accent !== 'Standard';
+
+              return (
+                <div
+                  key={v.id}
+                  id={`voice-opt-${v.id}`}
+                  role="option"
+                  aria-selected={isSelected}
+                  tabIndex={0}
+                  data-idx={idx}
+                  onClick={() => selectVoice(v.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      selectVoice(v.id);
+                    }
+                  }}
+                  className={`group relative flex gap-3 p-3 rounded-xl border cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                    isSelected
+                      ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
+                      : isHighlighted
+                        ? 'border-slate-600 bg-slate-800'
+                        : 'border-slate-800 bg-slate-950/60 hover:border-slate-700 hover:bg-slate-800/50'
+                  }`}
+                >
+                  {/* Avatar doubles as the preview button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleTogglePreview(v.id, v.previewUrl);
+                    }}
+                    disabled={!v.previewUrl}
+                    className={`relative w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(v.id)} text-white flex items-center justify-center font-semibold text-sm shrink-0 disabled:cursor-default ${
+                      v.previewUrl ? 'cursor-pointer' : ''
+                    }`}
+                    title={v.previewUrl ? (isPlaying ? 'Stop preview' : `Play ${v.name} preview`) : 'No preview available'}
+                  >
+                    <span className={isPlaying ? 'opacity-0' : v.previewUrl ? 'group-hover:opacity-0 transition-opacity' : ''}>
+                      {v.name.charAt(0).toUpperCase()}
+                    </span>
+                    {v.previewUrl && (
+                      <span
+                        className={`absolute inset-0 flex items-center justify-center rounded-full bg-black/40 transition-opacity ${
+                          isPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                         }`}
-                        title={v.previewUrl ? (isPlaying ? 'Stop sample' : 'Play sample') : 'No sample available'}
                       >
-                        <span className={v.previewUrl ? 'group-hover:opacity-0 transition-opacity' : ''}>
-                          {isPlaying ? '' : v.name.charAt(0).toUpperCase()}
-                        </span>
-                        {v.previewUrl && (
-                          <span
-                            className={`absolute inset-0 flex items-center justify-center rounded-lg bg-black/35 transition-opacity ${
-                              isPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                            }`}
-                          >
-                            {isPlaying ? (
-                              <Square className="w-3.5 h-3.5 fill-current animate-pulse" />
-                            ) : (
-                              <Play className="w-3.5 h-3.5 fill-current" />
-                            )}
-                          </span>
+                        {isPlaying ? (
+                          <Square className="w-3.5 h-3.5 fill-current animate-pulse" />
+                        ) : (
+                          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
                         )}
-                      </button>
+                      </span>
+                    )}
+                  </button>
 
-                      {/* Details */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span
-                            className={`text-[13px] font-semibold truncate ${
-                              isSelected ? 'text-indigo-200' : 'text-slate-100'
-                            }`}
-                            title={v.name}
-                          >
-                            <Highlight text={v.name} tokens={tokens} />
-                          </span>
-                          {isSelected && (
-                            <span className="shrink-0 flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-400">
-                              <Check className="w-3 h-3" /> Active
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-0.5 min-w-0 text-[11px] text-slate-400">
-                          <span className="shrink-0 text-[9px] font-mono font-semibold px-1 rounded bg-slate-900 text-slate-400 uppercase border border-slate-800">
-                            {v.category}
-                          </span>
-                          {v.languageFit > 0 && (
-                            <span
-                              className="shrink-0 text-[9px] font-semibold px-1 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30"
-                              title={
-                                v.languageFit === 2
-                                  ? `A ${targetLanguage} voice`
-                                  : `Verified by ElevenLabs in ${targetLanguage}`
-                              }
-                            >
-                              {targetLanguage}
-                            </span>
-                          )}
-                          {v.gender !== 'neutral' && <span className="shrink-0 capitalize">{v.gender}</span>}
-                          {v.accent !== 'Neutral' && (
-                            <>
-                              <span className="text-slate-700">·</span>
-                              <span className="shrink-0">
-                                <Highlight text={v.accent} tokens={tokens} />
-                              </span>
-                            </>
-                          )}
-                          {v.desc && (
-                            <>
-                              <span className="text-slate-700">·</span>
-                              <span className="truncate" title={v.desc}>
-                                <Highlight text={v.desc} tokens={tokens} />
-                              </span>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Favourite */}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span
+                        className={`text-[13.5px] font-semibold truncate ${isSelected ? 'text-indigo-100' : 'text-slate-100'}`}
+                        title={v.name}
+                      >
+                        <Highlight text={title} tokens={tokens} />
+                      </span>
+                      <span className="flex-1" />
                       <button
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleToggleFavorite(v);
                         }}
-                        className={`p-1.5 rounded-md transition-all shrink-0 cursor-pointer ${
+                        className={`p-1 -m-1 rounded-md transition-opacity shrink-0 cursor-pointer ${
                           fav
-                            ? 'text-amber-300 hover:bg-amber-500/15'
-                            : 'text-slate-600 hover:text-amber-200 hover:bg-slate-800 opacity-0 group-hover:opacity-100 focus:opacity-100'
-                        } ${isHighlighted && !fav ? 'opacity-100' : ''}`}
+                            ? 'text-amber-300'
+                            : 'text-slate-500 hover:text-amber-200 opacity-0 group-hover:opacity-100 focus:opacity-100'
+                        }`}
                         title={fav ? 'Remove from favourites' : 'Add to favourites'}
+                        aria-label={fav ? `Remove ${v.name} from favourites` : `Add ${v.name} to favourites`}
                       >
                         <Star className={`w-3.5 h-3.5 ${fav ? 'fill-current' : ''}`} />
                       </button>
+                      {isSelected && <Check className="w-4 h-4 text-indigo-400 shrink-0" aria-label="Selected" />}
+                    </div>
 
-                      {isHighlighted && (
-                        <span className="hidden sm:flex shrink-0">
-                          <Kbd>↵</Kbd>
+                    <p className="text-xs text-slate-400 truncate mt-0.5" title={subtitle}>
+                      <Highlight text={subtitle} tokens={tokens} />
+                    </p>
+
+                    <div className="flex items-center gap-1 mt-2 overflow-hidden whitespace-nowrap">
+                      {v.languageFit > 0 && (
+                        <span
+                          className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-300"
+                          title={
+                            v.languageFit === 2 ? `A ${targetLanguage} voice` : `Verified by ElevenLabs in ${targetLanguage}`
+                          }
+                        >
+                          {targetLanguage}
+                        </span>
+                      )}
+                      {v.gender !== 'neutral' && (
+                        <span className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-300">
+                          {capitalize(v.gender)}
+                        </span>
+                      )}
+                      {showAccent && (
+                        <span className="truncate text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-400">
+                          <Highlight text={v.accent} tokens={tokens} />
                         </span>
                       )}
                     </div>
-                  );
-                })}
-
-                {visibleCount < filteredVoices.length && (
-                  <button
-                    type="button"
-                    onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                    className="w-full py-2 text-[11px] font-semibold text-slate-500 hover:text-indigo-300 cursor-pointer"
-                  >
-                    Showing {visibleCount.toLocaleString()} of {filteredVoices.length.toLocaleString()} — scroll or click for more
-                  </button>
-                )}
-              </div>
-            )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        )}
 
-          {/* Keyboard legend */}
-          <div className="hidden sm:flex items-center gap-4 px-4 sm:px-5 py-2 border-t border-slate-800/80 bg-slate-950/80 text-[10px] text-slate-500">
-            <span className="flex items-center gap-1">
-              <Kbd>↑</Kbd>
-              <Kbd>↓</Kbd> navigate
-            </span>
-            <span className="flex items-center gap-1">
-              <Kbd>↵</Kbd> use voice
-            </span>
-            <span className="flex items-center gap-1">
-              <Kbd>Ctrl</Kbd>
-              <Kbd>Space</Kbd> play sample
-            </span>
-            <span className="flex items-center gap-1">
-              <Kbd>Esc</Kbd> close
-            </span>
-            <span className="ml-auto flex items-center gap-1">
-              <Radio className="w-3 h-3" /> Hover an avatar to audition
-            </span>
-          </div>
-        </div>
-      )}
+        {visibleCount < filteredVoices.length && (
+          <button
+            type="button"
+            onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+            className="w-full mt-3 py-2 text-xs font-semibold text-slate-500 hover:text-indigo-300 cursor-pointer"
+          >
+            Show more voices
+          </button>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-2.5 border-t border-slate-800 text-[11px] text-slate-500">
+        <span className="tabular-nums">
+          Showing {Math.min(visibleCount, filteredVoices.length).toLocaleString()} of{' '}
+          {filteredVoices.length.toLocaleString()} {filteredVoices.length === 1 ? 'voice' : 'voices'}
+          {tokens.length > 0 ? ' · best match first' : ''}
+        </span>
+        {(activeFilterCount > 0 || searchQuery) && (
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer"
+          >
+            Reset{activeFilterCount > 0 ? ` ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}` : ''}
+          </button>
+        )}
+      </div>
+    </section>
+  );
+};
+
+/** The picked voice for the setup panel, from the live library or the built-in list. */
+export const SelectedVoiceSummary: React.FC<{ voiceId: string; availableVoices?: Voice[] }> = ({
+  voiceId,
+  availableVoices = [],
+}) => {
+  const live = availableVoices.find((v) => v.voice_id === voiceId);
+  const fallback = POPULAR_ELEVENLABS_VOICES.find((v) => v.id === voiceId);
+  const missing = !voiceId
+    ? 'No voice selected'
+    : availableVoices.length === 0
+      ? 'Loading voices…'
+      : 'Voice not in your library';
+  const fullName = (live?.name || fallback?.name || missing).trim();
+  const [name, ...rest] = fullName.split(/\s+[-–—|]\s+/);
+  const tagline = rest.join(' – ');
+  const labels = live?.labels || {};
+  const accent = titleCase(prettify((labels.accent || '').replace(/^[a-z]{2,3}-(?=[a-z])/i, ''))) || fallback?.accent;
+  const gender = capitalize((labels.gender || fallback?.gender || '').toLowerCase());
+  const meta = [gender, accent && accent !== 'Neutral' && accent !== 'Standard' ? accent : '', tagline || capitalize(prettify(labels.use_case))]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 min-w-0">
+      <span
+        className={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient(voiceId || name)} text-white flex items-center justify-center font-semibold text-sm shrink-0`}
+      >
+        {name.charAt(0).toUpperCase()}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[13px] font-semibold text-slate-100 truncate" title={fullName}>
+          {name}
+        </span>
+        <span className="block text-xs text-slate-400 truncate" title={meta}>
+          {meta || 'Pick a voice from the library'}
+        </span>
+      </span>
     </div>
   );
 };
