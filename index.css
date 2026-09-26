@@ -763,3 +763,9 @@ html.light #review-audio-waveform-player .bg-amber-950\/30 span {
   color: #b45309 !important;
 }
 
+
+/* Indeterminate progress for the dub: one request, so no per-cue count to show. */
+@keyframes dubsweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}
