@@ -1,25 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import {
-  Keyboard,
-  Languages,
-  Type,
-  Copy,
-  Check,
-  X,
-  HelpCircle,
-  ArrowRight,
-  BookOpen,
-  RefreshCw,
-  Zap,
-  Minimize2,
-  Maximize2,
-  CheckCheck,
-  Loader2,
-  Trash2,
-  Plus,
-  BookMarked,
-  Sliders
-} from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { X, Copy, Check, Trash2, RefreshCw, ArrowRight, AlertCircle } from 'lucide-react';
 import {
   INDIC_LANGUAGES,
   SCRIPT_PALETTES,
@@ -27,11 +7,10 @@ import {
   transliterateTextOffline,
   transliterateTextSmart,
   getPhoneticSuggestions,
-  transliterateWordOffline,
   getIndicLanguageConfig,
   saveUserCustomWord,
   deleteUserCustomWord,
-  listAllUserCustomWords
+  listAllUserCustomWords,
 } from '../services/indicTransliteration';
 import { polishIndicDialogueWithAI } from '../services/geminiService';
 import { AudioSegment } from '../types';
@@ -44,10 +23,19 @@ interface PhoneticKeyboardModalProps {
   segments?: AudioSegment[];
   onUpdateSegments?: (segments: AudioSegment[]) => void;
   activeSegmentId?: string | number | null;
+  /** Adds text to the end of the active cue. */
   onInsertTextToActiveSegment?: (text: string) => void;
   isGlobalPhoneticEnabled: boolean;
   onToggleGlobalPhonetic: (enabled: boolean) => void;
 }
+
+type PaletteTab = 'vowels' | 'matras' | 'consonants' | 'marks';
+type SideTab = 'guide' | 'words' | 'script';
+
+const targetOf = (seg: AudioSegment) => seg.textTarget || (seg as any).targetText || '';
+const hasLatin = (text: string) => /[a-zA-Z]/.test(text);
+/** Signs that sit on a letter show on a placeholder circle, as a keyboard would. */
+const COMBINING = /^[ऀ-ःऺ-ॏ॑-ॗॢॣঁ-ঃ়-ৗਁ-ਃ਼-ੑઁ-ઃ઼-્ଁ-ଃ଼-ୗஂா-்ఀ-ఄా-ౖಁ-ಃ಼-ೖഀ-ഃാ-ൗ]+$/;
 
 export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
   isOpen,
@@ -62,806 +50,553 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
   onToggleGlobalPhonetic,
 }) => {
   const [selectedLang, setSelectedLang] = useState<string>(targetLanguage || 'Hindi');
-  const [activeTab, setActiveTab] = useState<'sandbox' | 'ai-polish' | 'palette' | 'custom-dict' | 'cheatsheet' | 'batch'>('sandbox');
-  
-  // Sandbox states
+  const [paletteTab, setPaletteTab] = useState<PaletteTab>('matras');
+  const [sideTab, setSideTab] = useState<SideTab>('guide');
+
+  // Typing pad: the Roman text, words the user picked a spelling for, and characters tapped in after it.
   const [romanInput, setRomanInput] = useState('');
-  const [indicOutput, setIndicOutput] = useState('');
+  const [picked, setPicked] = useState<Record<string, string>>({});
+  const [tail, setTail] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [copied, setCopied] = useState(false);
-  const [inserted, setInserted] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const romanRef = useRef<HTMLInputElement>(null);
 
-  // AI Polish states
-  const [aiInputText, setAiInputText] = useState('');
-  const [aiOutputText, setAiOutputText] = useState('');
-  const [aiNotes, setAiNotes] = useState<string | null>(null);
-  const [isPolishing, setIsPolishing] = useState(false);
-  const [aiCopied, setAiCopied] = useState(false);
-  const [aiInserted, setAiInserted] = useState(false);
-
-  // Custom Dictionary states
+  // Custom words
   const [customRoman, setCustomRoman] = useState('');
   const [customNative, setCustomNative] = useState('');
   const [customWordList, setCustomWordList] = useState<{ roman: string; native: string }[]>([]);
 
-  // Batch convert states
-  const [batchConvertedCount, setBatchConvertedCount] = useState<number | null>(null);
+  // Whole script
   const [isBatchConverting, setIsBatchConverting] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false);
+  const [polishInput, setPolishInput] = useState('');
+  const [polishOutput, setPolishOutput] = useState('');
+  const [polishNote, setPolishNote] = useState<string | null>(null);
+  const [isPolishing, setIsPolishing] = useState(false);
 
-  const scratchInputRef = useRef<HTMLTextAreaElement>(null);
+  const lang = getIndicLanguageConfig(selectedLang);
+  const palette = SCRIPT_PALETTES[lang.script] || SCRIPT_PALETTES.Devanagari;
 
-  const currentLangConfig = getIndicLanguageConfig(selectedLang);
-  const currentPalette = SCRIPT_PALETTES[currentLangConfig.script] || SCRIPT_PALETTES.Devanagari;
-
-  // Sync with prop targetLanguage
   useEffect(() => {
-    if (targetLanguage) {
-      setSelectedLang(targetLanguage);
-    }
+    if (targetLanguage) setSelectedLang(targetLanguage);
   }, [targetLanguage]);
 
-  // Load custom words on language change
   useEffect(() => {
-    setCustomWordList(listAllUserCustomWords(currentLangConfig.code));
-  }, [selectedLang, currentLangConfig.code]);
+    setCustomWordList(listAllUserCustomWords(lang.code));
+  }, [lang.code]);
 
-  // If activeSegment changes and has text, pre-fill AI polish input for convenience
-  useEffect(() => {
-    if (activeSegmentId && segments.length > 0) {
-      const active = segments.find(
-        (s) => s.id === activeSegmentId || (s as any)._id === activeSegmentId
-      );
-      if (active) {
-        const txt = active.textTarget || (active as any).targetText || '';
-        if (txt && !aiInputText) {
-          setAiInputText(txt);
-        }
-      }
-    }
-  }, [activeSegmentId, segments]);
+  const activeIndex = segments.findIndex((s) => s.id === activeSegmentId || (s as any)._id === activeSegmentId);
+  const activeSegment = activeIndex >= 0 ? segments[activeIndex] : null;
+  const cueLabel = activeIndex >= 0 ? `cue ${String(activeIndex + 1).padStart(2, '0')}` : null;
 
-  // Transliterate on input change in sandbox
+  // The polish box starts from the active cue's line.
   useEffect(() => {
-    if (!romanInput) {
-      setIndicOutput('');
+    if (isOpen && activeSegment) setPolishInput(targetOf(activeSegment));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, activeSegmentId]);
+
+  const romanWords = romanInput.split(/\s+/).filter(Boolean);
+  const typingWord = romanInput && !/\s$/.test(romanInput) ? romanWords[romanWords.length - 1] : null;
+  const convertedWords = romanWords.map((w) => picked[w] ?? transliterateTextOffline(w, selectedLang));
+  // Tapped characters join straight on, so a vowel sign lands on the letter before it; a typed space still separates.
+  const tailGap = tail && romanWords.length > 0 && /\s$/.test(romanInput) ? ' ' : '';
+  const output = convertedWords.join(' ') + tailGap + tail;
+
+  // Suggestions for the word being typed.
+  useEffect(() => {
+    if (!typingWord || !hasLatin(typingWord)) {
       setSuggestions([]);
       return;
     }
+    let cancelled = false;
+    getPhoneticSuggestions(typingWord, selectedLang, 5).then((s) => !cancelled && setSuggestions(s));
+    return () => {
+      cancelled = true;
+    };
+  }, [typingWord, selectedLang]);
 
-    // Live offline transliteration
-    const offlineConverted = transliterateTextOffline(romanInput, selectedLang);
-    setIndicOutput(offlineConverted);
-
-    // Get suggestions for the current last word
-    const words = romanInput.trim().split(/\s+/);
-    const lastWord = words[words.length - 1];
-    if (lastWord && /[a-zA-Z]/.test(lastWord)) {
-      getPhoneticSuggestions(lastWord, selectedLang, 5).then((suggs) => {
-        setSuggestions(suggs);
-      });
-    } else {
-      setSuggestions([]);
-    }
-  }, [romanInput, selectedLang]);
-
-  if (!isOpen) return null;
-
-  const handleCopy = () => {
-    if (!indicOutput) return;
-    navigator.clipboard.writeText(indicOutput);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const flash = (message: string) => {
+    setNotice(message);
+    window.setTimeout(() => setNotice(null), 1800);
   };
 
-  const handleApplyToActiveSegment = () => {
-    if (!indicOutput) return;
-    if (onInsertTextToActiveSegment) {
-      onInsertTextToActiveSegment(indicOutput);
-      setInserted(true);
-      setTimeout(() => setInserted(false), 2000);
-    }
+  const pickSuggestion = (s: string) => {
+    if (!typingWord) return;
+    setPicked((p) => ({ ...p, [typingWord]: s }));
+    setRomanInput((v) => `${v} `);
+    romanRef.current?.focus();
   };
 
-  const handleInsertChar = (char: string) => {
-    setIndicOutput((prev) => prev + char);
-    if (onInsertTextToActiveSegment) {
-      onInsertTextToActiveSegment(char);
-    }
+  const clearPad = () => {
+    setRomanInput('');
+    setPicked({});
+    setTail('');
+    romanRef.current?.focus();
   };
 
-  const handleApplySuggestion = (sug: string) => {
-    const words = romanInput.split(/(\s+)/);
-    // Find last word token
-    for (let i = words.length - 1; i >= 0; i--) {
-      if (/[a-zA-Z]/.test(words[i])) {
-        words[i] = sug;
-        break;
-      }
-    }
-    const newText = words.join('');
-    setIndicOutput(newText);
-    setSuggestions([]);
-  };
-
-  // AI Polish Execution
-  const handleRunAiPolish = async () => {
-    if (!aiInputText.trim()) return;
-    setIsPolishing(true);
-    setAiNotes(null);
+  const copyOutput = async () => {
+    if (!output) return;
     try {
-      const res = await polishIndicDialogueWithAI(
-        aiInputText,
-        currentLangConfig.name,
-        `Dialogue cue for Indic dubbing in ${currentLangConfig.nativeName}`
+      await navigator.clipboard.writeText(output);
+      flash('Copied');
+    } catch {
+      flash('Could not copy; select the text instead');
+    }
+  };
+
+  const addToCue = () => {
+    if (!output || !onInsertTextToActiveSegment || !activeSegment) return;
+    const existing = targetOf(activeSegment);
+    onInsertTextToActiveSegment(existing && !/\s$/.test(existing) ? ` ${output}` : output);
+    flash(`Added to ${cueLabel}`);
+    clearPad();
+  };
+
+  // Cues that still carry Roman letters, for the whole-script tab.
+  const latinCues = useMemo(
+    () => segments.map((seg, i) => ({ seg, i })).filter(({ seg }) => hasLatin(targetOf(seg))),
+    [segments]
+  );
+
+  const convertLatinCues = async () => {
+    if (!onUpdateSegments || latinCues.length === 0) return;
+    setIsBatchConverting(true);
+    try {
+      const updated = await Promise.all(
+        segments.map(async (seg) => {
+          const text = targetOf(seg);
+          if (!hasLatin(text)) return seg;
+          const converted = await transliterateTextSmart(text, selectedLang);
+          return { ...seg, textTarget: converted, targetText: converted };
+        })
       );
-      setAiOutputText(res.correctedText);
-      setAiNotes(res.notes || 'Dialogue polished and validated for native naturalness.');
-    } catch (err: any) {
-      setAiNotes('Failed to connect to AI. Please check internet connection.');
+      onUpdateSegments(updated);
+      flash(`Converted ${latinCues.length} ${latinCues.length === 1 ? 'cue' : 'cues'}`);
+    } finally {
+      setIsBatchConverting(false);
+    }
+  };
+
+  const runPolish = async () => {
+    if (!polishInput.trim()) return;
+    setIsPolishing(true);
+    setPolishNote(null);
+    setPolishOutput('');
+    try {
+      const res = await polishIndicDialogueWithAI(polishInput, lang.name, `Dialogue cue for Indic dubbing in ${lang.nativeName}`);
+      setPolishOutput(res.correctedText);
+      setPolishNote(res.notes || null);
+    } catch {
+      setPolishNote('The translation engine could not be reached. Check API settings and try again.');
     } finally {
       setIsPolishing(false);
     }
   };
 
-  // Custom Dictionary management
-  const handleAddCustomWord = () => {
+  // The polished line replaces the cue's text rather than being added to it.
+  const usePolished = () => {
+    if (!polishOutput || !activeSegment || !onUpdateSegments) return;
+    onUpdateSegments(
+      segments.map((s) => (s.id === activeSegment.id ? { ...s, textTarget: polishOutput, targetText: polishOutput } : s))
+    );
+    flash(`Replaced the line in ${cueLabel}`);
+  };
+
+  const addCustomWord = () => {
     if (!customRoman.trim() || !customNative.trim()) return;
-    saveUserCustomWord(customRoman, customNative, currentLangConfig.code);
-    setCustomWordList(listAllUserCustomWords(currentLangConfig.code));
+    saveUserCustomWord(customRoman, customNative, lang.code);
+    setCustomWordList(listAllUserCustomWords(lang.code));
     setCustomRoman('');
     setCustomNative('');
   };
 
-  const handleDeleteCustomWord = (roman: string) => {
-    deleteUserCustomWord(roman, currentLangConfig.code);
-    setCustomWordList(listAllUserCustomWords(currentLangConfig.code));
-  };
+  if (!isOpen) return null;
 
-  const handleBatchTransliterateAllCues = async () => {
-    if (!segments || segments.length === 0 || !onUpdateSegments) return;
+  const paletteKeys: string[] =
+    paletteTab === 'marks' ? [...(palette.symbols || []), ...(palette.numbers || [])] : (palette as any)[paletteTab] || [];
 
-    setIsBatchConverting(true);
-    let count = 0;
-    const updated = await Promise.all(
-      segments.map(async (seg) => {
-        const targetTxt = seg.textTarget || (seg as any).targetText || '';
-        if (/[a-zA-Z]/.test(targetTxt)) {
-          const converted = await transliterateTextSmart(targetTxt, selectedLang);
-          count++;
-          return {
-            ...seg,
-            textTarget: converted,
-            targetText: converted,
-          };
-        }
-        return seg;
-      })
-    );
-
-    onUpdateSegments(updated);
-    setIsBatchConverting(false);
-    setBatchConvertedCount(count);
-    setTimeout(() => setBatchConvertedCount(null), 4000);
-  };
+  const tabClass = (on: boolean) =>
+    `px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+      on ? 'bg-slate-900 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+    }`;
+  const ghost =
+    'h-[38px] px-3 flex items-center justify-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div
-        className={`w-full ${
-          isMinimized ? 'max-w-md' : 'max-w-3xl'
-        } bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 max-h-[92vh] text-slate-900 dark:text-slate-100`}
+    <div
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="keyboard-title"
+        className="relative w-full max-w-[65rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
-        {/* Modal Header */}
-        <div className="px-4 py-3 bg-gradient-to-r from-slate-100 via-indigo-50/50 to-slate-100 dark:from-slate-900 dark:via-indigo-950/60 dark:to-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-600 text-white shadow-xs">
-              <Keyboard className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white">
-                  Indic Phonetic Keyboard & AI Suite
-                </h3>
-                <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-500/30 text-[10px] font-mono font-medium">
-                  {currentLangConfig.nativeName} ({currentLangConfig.name})
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Type English letters (Roman) → Converts to {currentLangConfig.nativeName} script with AI Spellcheck
-              </p>
-            </div>
+        {/* Header */}
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+          <div
+            className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0 text-lg font-semibold"
+            aria-hidden="true"
+          >
+            {palette.consonants?.[0] || 'क'}
           </div>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setIsMinimized(!isMinimized)}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
-              title={isMinimized ? 'Expand' : 'Minimize'}
+          <div className="min-w-0 flex-1">
+            <h2 id="keyboard-title" className="text-lg font-semibold text-slate-100 leading-tight">
+              {lang.name} keyboard
+            </h2>
+            <p className="text-[12.5px] text-slate-400 mt-0.5">
+              Type how it sounds in English letters. It becomes {lang.name} as you go.
+            </p>
+          </div>
+          <div className="w-full sm:w-auto flex flex-wrap items-center gap-3">
+            <select
+              value={selectedLang}
+              onChange={(e) => {
+                setSelectedLang(e.target.value);
+                onLanguageChange?.(e.target.value);
+              }}
+              aria-label="Script"
+              className="h-[34px] bg-slate-950/60 border border-slate-700 rounded-[9px] px-2.5 text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
             >
-              {isMinimized ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
+              {Object.keys(INDIC_LANGUAGES).map((l) => (
+                <option key={l} value={l} className="bg-slate-900">
+                  {INDIC_LANGUAGES[l].nativeName} {l}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isGlobalPhoneticEnabled}
+              onClick={() => onToggleGlobalPhonetic(!isGlobalPhoneticEnabled)}
+              className="flex items-center gap-2 text-[12.5px] text-slate-400 hover:text-slate-200 cursor-pointer"
+              title="Turns Roman typing into the script in every cue's text box"
+            >
+              <span className={`relative w-8 h-[18px] rounded-full transition-colors ${isGlobalPhoneticEnabled ? 'bg-indigo-500' : 'bg-slate-700'}`}>
+                <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white transition-all ${isGlobalPhoneticEnabled ? 'left-4' : 'left-0.5'}`} />
+              </span>
+              Type {lang.name} in every cue
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
-              title="Close"
+              aria-label="Close"
+              className="ml-auto sm:ml-0 w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Global Phonetic Switcher Banner */}
-        <div className="px-4 py-2 bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-slate-600 dark:text-slate-400 font-medium">Target Language Script:</span>
-            <select
-              value={selectedLang}
-              onChange={(e) => {
-                const newLang = e.target.value;
-                setSelectedLang(newLang);
-                if (onLanguageChange) onLanguageChange(newLang);
-              }}
-              className="bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-2.5 py-1 text-xs font-semibold focus:border-indigo-500 focus:outline-none"
-            >
-              {Object.keys(INDIC_LANGUAGES).map((lang) => (
-                <option key={lang} value={lang}>
-                  {lang} ({INDIC_LANGUAGES[lang].nativeName})
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[minmax(0,1fr)_20rem]">
+          {/* Typing pad and characters */}
+          <div className="px-5 sm:px-6 py-5 flex flex-col gap-3.5 min-w-0">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Typing pad</span>
+              <span className="text-[11.5px] text-slate-400">Pick a spelling with 1–5 · it carries on into the next word</span>
+            </div>
 
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <span className="text-slate-700 dark:text-slate-300 font-medium text-xs">Auto-Phonetic in All Inputs:</span>
-              <button
-                type="button"
-                onClick={() => onToggleGlobalPhonetic(!isGlobalPhoneticEnabled)}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
-                  isGlobalPhoneticEnabled ? 'bg-indigo-600' : 'bg-slate-300 dark:bg-slate-700'
-                }`}
-              >
-                <span
-                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
-                    isGlobalPhoneticEnabled ? 'translate-x-4.5' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </label>
-          </div>
-        </div>
-
-        {/* Navigation Tabs */}
-        {!isMinimized && (
-          <div className="flex border-b border-slate-200 dark:border-slate-800 px-4 bg-slate-50 dark:bg-slate-900/50 overflow-x-auto">
-            <button
-              onClick={() => setActiveTab('sandbox')}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-all shrink-0 ${
-                activeTab === 'sandbox'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <Type className="w-3.5 h-3.5" />
-              <span>Phonetic Typing Pad</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('ai-polish')}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-all shrink-0 ${
-                activeTab === 'ai-polish'
-                  ? 'border-emerald-500 text-emerald-600 dark:text-emerald-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <CheckCheck className="w-3.5 h-3.5 text-emerald-500" />
-              <span>AI Polish & Nuance</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('palette')}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-all shrink-0 ${
-                activeTab === 'palette'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <Keyboard className="w-3.5 h-3.5" />
-              <span>Visual Palette</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('custom-dict')}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-all shrink-0 ${
-                activeTab === 'custom-dict'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <BookMarked className="w-3.5 h-3.5" />
-              <span>Custom Dictionary</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('cheatsheet')}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-all shrink-0 ${
-                activeTab === 'cheatsheet'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <BookOpen className="w-3.5 h-3.5" />
-              <span>Phonetic Guide</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('batch')}
-              className={`flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition-all shrink-0 ${
-                activeTab === 'batch'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-              }`}
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-              <span>Batch Convert Cues</span>
-            </button>
-          </div>
-        )}
-
-        {/* Modal Body */}
-        <div className="p-4 overflow-y-auto flex-1 space-y-4">
-          {/* TAB 1: PHONETIC TYPING PAD / SANDBOX */}
-          {activeTab === 'sandbox' && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Roman Input Box */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs uppercase font-mono tracking-wider text-slate-600 dark:text-slate-400 font-bold">
-                      1. Type in English (Roman letters)
-                    </label>
-                    <span className="text-[10px] text-slate-400">e.g. "namaste aap kaise hain"</span>
-                  </div>
-                  <textarea
-                    ref={scratchInputRef}
-                    value={romanInput}
-                    onChange={(e) => setRomanInput(e.target.value)}
-                    placeholder={`Type in English phonetically (e.g., namaste, dhanyavaad, vanakkam, kaisa chal raha hai)...`}
-                    rows={4}
-                    className="w-full p-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 text-sm font-mono text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:outline-none resize-none leading-relaxed transition-all shadow-inner"
-                  />
-                </div>
-
-                {/* Indic Output Box */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs uppercase font-mono tracking-wider text-indigo-600 dark:text-indigo-400 font-bold">
-                      2. Converted {currentLangConfig.nativeName} Script
-                    </label>
-                    <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-mono font-medium">Live Transliterated</span>
-                  </div>
-                  <textarea
-                    value={indicOutput}
-                    onChange={(e) => setIndicOutput(e.target.value)}
-                    placeholder={`Converted ${currentLangConfig.name} text will appear here...`}
-                    rows={4}
-                    className="w-full p-3 rounded-xl bg-white dark:bg-slate-950 border border-indigo-300 dark:border-indigo-500/60 text-base font-serif text-slate-900 dark:text-white focus:outline-none resize-none leading-relaxed transition-all shadow-inner"
-                  />
-                </div>
+            <div className="rounded-[14px] border border-slate-700 bg-slate-950/60 overflow-hidden focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/15">
+              <div className="px-4 pt-3.5 pb-1.5 min-h-[3.75rem] text-[26px] leading-normal text-slate-100 break-words" aria-live="polite">
+                {convertedWords.map((w, i) => (
+                  <React.Fragment key={i}>
+                    {i > 0 && ' '}
+                    <span className={i === convertedWords.length - 1 && typingWord ? 'border-b-2 border-indigo-400' : ''}>{w}</span>
+                  </React.Fragment>
+                ))}
+                {tailGap}
+                {tail}
+                {!output && <span className="text-slate-600 text-lg">Your {lang.name} text appears here</span>}
               </div>
-
-              {/* Suggestions Bar */}
-              {suggestions.length > 0 && (
-                <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 flex items-center gap-2 overflow-x-auto">
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono shrink-0">Candidates:</span>
-                  <div className="flex items-center gap-1.5">
-                    {suggestions.map((sug, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleApplySuggestion(sug)}
-                        className="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-900 hover:text-white dark:bg-indigo-950/80 dark:hover:bg-indigo-600 dark:text-indigo-200 dark:hover:text-white border border-indigo-200 dark:border-indigo-800/80 text-xs font-serif transition-all"
-                      >
-                        <span className="font-mono text-[9px] opacity-75 mr-1">[{idx + 1}]</span>
-                        <span>{sug}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-                <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  <HelpCircle className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>Press Space to convert words automatically. Press Backspace right after to undo.</span>
-                </div>
-
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2.5 px-4 py-2 border-t border-dashed border-slate-800">
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 shrink-0">Roman</span>
+                <input
+                  ref={romanRef}
+                  id="keyboard-roman"
+                  value={romanInput}
+                  onChange={(e) => setRomanInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (/^[1-5]$/.test(e.key) && suggestions[+e.key - 1]) {
+                      e.preventDefault();
+                      pickSuggestion(suggestions[+e.key - 1]);
+                    }
+                  }}
+                  placeholder="e.g. namaste aap kaise hain"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-label="Type in Roman letters"
+                  className="flex-1 min-w-0 bg-transparent outline-none font-mono text-[13.5px] text-slate-300 placeholder:font-sans placeholder-slate-600"
+                  autoFocus
+                />
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 px-3 py-2.5 border-t border-slate-800 bg-slate-900" aria-label="Suggestions">
+                <span className="text-[11.5px] text-slate-500 mr-0.5">
+                  {typingWord ? `For “${typingWord}”` : 'Suggestions appear as you type'}
+                </span>
+                {suggestions.map((s, i) => (
                   <button
+                    key={`${s}-${i}`}
                     type="button"
-                    onClick={handleCopy}
-                    disabled={!indicOutput}
-                    className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-40 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 transition-all"
+                    onClick={() => pickSuggestion(s)}
+                    className={`flex items-center gap-1.5 h-8 pl-1.5 pr-2.5 rounded-[9px] border text-base transition-colors cursor-pointer ${
+                      i === 0 ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800'
+                    }`}
                   >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copied ? 'Copied!' : 'Copy Script'}</span>
+                    <kbd className="w-[17px] h-[17px] rounded border border-slate-700 bg-slate-900 font-mono text-[10px] text-slate-400 flex items-center justify-center">
+                      {i + 1}
+                    </kbd>
+                    {s}
+                    {s === typingWord && <span className="text-[10.5px] text-slate-500">as typed</span>}
                   </button>
-
-                  {onInsertTextToActiveSegment && (
-                    <button
-                      type="button"
-                      onClick={handleApplyToActiveSegment}
-                      disabled={!indicOutput}
-                      className="flex items-center gap-1 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/30"
-                    >
-                      {inserted ? <Check className="w-3.5 h-3.5 text-white" /> : <ArrowRight className="w-3.5 h-3.5" />}
-                      <span>{inserted ? 'Applied to Cue!' : 'Apply to Active Cue'}</span>
-                    </button>
-                  )}
-                </div>
+                ))}
               </div>
             </div>
-          )}
 
-          {/* TAB 2: AI INDIC POLISH & DIALOGUE NUANCE */}
-          {activeTab === 'ai-polish' && (
-            <div className="space-y-4">
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs space-y-1">
-                <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300 font-bold">
-                  <CheckCheck className="w-4 h-4" />
-                  <span>Gemini AI Indic Dialogue Polish & Spellchecker</span>
-                </div>
-                <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Corrects broken matras, incorrect conjuncts (yuktakshar), missing halants, and refines phonetic words into 100% natural, colloquial dialogue for {currentLangConfig.nativeName} dubbing.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Input Textarea */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider font-mono">
-                    Input Dialogue (Draft or Phonetic Script):
-                  </label>
-                  <textarea
-                    value={aiInputText}
-                    onChange={(e) => setAiInputText(e.target.value)}
-                    placeholder={`Paste or type dialogue in ${currentLangConfig.nativeName} or Roman letters...`}
-                    rows={5}
-                    className="w-full p-3 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-serif text-slate-900 dark:text-white focus:outline-none resize-none leading-relaxed transition-all shadow-inner"
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={handleRunAiPolish}
-                      disabled={isPolishing || !aiInputText.trim()}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-bold transition-all shadow-md shadow-emerald-600/30"
-                    >
-                      {isPolishing ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Polishing with AI...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCheck className="w-4 h-4" />
-                          <span>AI Polish & Fix Script</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Output Polished Textarea */}
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider font-mono">
-                    Polished Native Dialogue:
-                  </label>
-                  <textarea
-                    value={aiOutputText}
-                    onChange={(e) => setAiOutputText(e.target.value)}
-                    placeholder={`Polished, natural ${currentLangConfig.name} dialogue will appear here...`}
-                    rows={5}
-                    className="w-full p-3 rounded-xl bg-white dark:bg-slate-950 border border-emerald-500/50 text-base font-serif text-slate-900 dark:text-white focus:outline-none resize-none leading-relaxed transition-all shadow-inner"
-                  />
-                  {aiNotes && (
-                    <p className="text-xs text-emerald-600 dark:text-emerald-300 font-medium italic">
-                      Note: {aiNotes}
-                    </p>
-                  )}
-                  <div className="flex justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!aiOutputText) return;
-                        navigator.clipboard.writeText(aiOutputText);
-                        setAiCopied(true);
-                        setTimeout(() => setAiCopied(false), 2000);
-                      }}
-                      disabled={!aiOutputText}
-                      className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 disabled:opacity-40 text-slate-700 dark:text-slate-200 text-xs font-semibold border border-slate-300 dark:border-slate-700 flex items-center gap-1"
-                    >
-                      {aiCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{aiCopied ? 'Copied!' : 'Copy Script'}</span>
-                    </button>
-
-                    {onInsertTextToActiveSegment && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!aiOutputText) return;
-                          onInsertTextToActiveSegment(aiOutputText);
-                          setAiInserted(true);
-                          setTimeout(() => setAiInserted(false), 2000);
-                        }}
-                        disabled={!aiOutputText}
-                        className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1 shadow-md shadow-indigo-600/30"
-                      >
-                        {aiInserted ? <Check className="w-3.5 h-3.5 text-white" /> : <ArrowRight className="w-3.5 h-3.5" />}
-                        <span>{aiInserted ? 'Applied to Cue!' : 'Apply to Active Cue'}</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: VISUAL CHARACTER PALETTE */}
-          {activeTab === 'palette' && (
-            <div className="space-y-4">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Click any character to insert it directly into the active cue text.
-              </p>
-
-              {/* Vowels (स्वर) */}
-              <div className="space-y-1.5">
-                <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-300 uppercase tracking-wider font-mono">
-                  Vowels (स्वर):
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {currentPalette.vowels.map((char, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleInsertChar(char)}
-                      className="min-w-[36px] h-9 px-2 rounded-lg bg-slate-100 hover:bg-indigo-600 hover:text-white dark:bg-slate-800 dark:hover:bg-indigo-600 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-serif text-sm font-medium transition-all shadow-xs"
-                    >
-                      {char}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Matras (मात्राएं) */}
-              <div className="space-y-1.5">
-                <span className="text-[11px] font-bold text-cyan-600 dark:text-cyan-300 uppercase tracking-wider font-mono">
-                  Matras & Marks (मात्राएं):
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {currentPalette.matras.map((char, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleInsertChar(char)}
-                      className="min-w-[36px] h-9 px-2 rounded-lg bg-slate-100 hover:bg-cyan-600 hover:text-white dark:bg-slate-800/80 dark:hover:bg-cyan-600 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-serif text-sm font-medium transition-all shadow-xs"
-                    >
-                      ◌{char}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Consonants (व्यंजन) */}
-              <div className="space-y-1.5">
-                <span className="text-[11px] font-bold text-amber-600 dark:text-amber-300 uppercase tracking-wider font-mono">
-                  Consonants (व्यंजन):
-                </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {currentPalette.consonants.map((char, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => handleInsertChar(char)}
-                      className="min-w-[36px] h-9 px-2 rounded-lg bg-slate-100 hover:bg-amber-600 hover:text-white dark:bg-slate-800 dark:hover:bg-amber-600 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-serif text-sm font-medium transition-all shadow-xs"
-                    >
-                      {char}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Numbers & Symbols */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider font-mono">
-                    Indic Digits:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {currentPalette.numbers.map((char, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleInsertChar(char)}
-                        className="min-w-[34px] h-8 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-serif text-xs font-medium transition-all"
-                      >
-                        {char}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-wider font-mono">
-                    Punctuation & Spiritual Marks:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {currentPalette.symbols.map((char, idx) => (
-                      <button
-                        key={idx}
-                        type="button"
-                        onClick={() => handleInsertChar(char)}
-                        className="min-w-[34px] h-8 px-2.5 rounded-lg bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white dark:bg-indigo-950/60 dark:hover:bg-indigo-600 dark:text-indigo-300 dark:hover:text-white border border-indigo-200 dark:border-indigo-800/80 font-serif text-sm font-bold transition-all"
-                      >
-                        {char}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: CUSTOM VOCABULARY DICTIONARY */}
-          {activeTab === 'custom-dict' && (
-            <div className="space-y-4">
-              <div className="p-3 bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800/80 rounded-xl text-xs space-y-1">
-                <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300 font-bold">
-                  <BookMarked className="w-4 h-4" />
-                  <span>Personal Transliteration Dictionary ({currentLangConfig.name})</span>
-                </div>
-                <p className="text-slate-600 dark:text-slate-300">
-                  Save character names, brand names, slang, or custom terms. Words saved here always take the #1 priority when you type!
-                </p>
-              </div>
-
-              {/* Add New Word Form */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded-xl border border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-2">
-                <input
-                  type="text"
-                  value={customRoman}
-                  onChange={(e) => setCustomRoman(e.target.value)}
-                  placeholder="English Roman (e.g. sharma)"
-                  className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-44"
-                />
-                <span className="text-slate-400 font-bold">→</span>
-                <input
-                  type="text"
-                  value={customNative}
-                  onChange={(e) => setCustomNative(e.target.value)}
-                  placeholder={`Native Script (e.g. शर्मा)`}
-                  className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-serif text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 w-44"
-                />
+            <div className="flex flex-wrap items-center gap-2">
+              {onInsertTextToActiveSegment && (
                 <button
                   type="button"
-                  onClick={handleAddCustomWord}
-                  disabled={!customRoman.trim() || !customNative.trim()}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1 transition-all"
+                  onClick={addToCue}
+                  disabled={!output || !activeSegment}
+                  className="h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Add Word</span>
+                  <ArrowRight className="w-4 h-4" /> {cueLabel ? `Add to ${cueLabel}` : 'Add to a cue'}
                 </button>
-              </div>
-
-              {/* Saved Words List */}
-              <div className="space-y-2">
-                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Saved Words ({customWordList.length}):
-                </span>
-                {customWordList.length === 0 ? (
-                  <p className="text-xs text-slate-400 italic">No custom words added yet for {currentLangConfig.name}.</p>
+              )}
+              <button type="button" onClick={copyOutput} disabled={!output} className={ghost}>
+                <Copy className="w-3.5 h-3.5" /> Copy
+              </button>
+              <button type="button" onClick={clearPad} disabled={!output && !romanInput} className={ghost}>
+                Clear
+              </button>
+              <span className="min-w-0 flex-1 sm:text-right text-xs text-slate-400 truncate">
+                {activeSegment ? (
+                  <>
+                    Editing <span className="text-slate-200 font-medium">{cueLabel}</span>
+                    <span className="text-slate-500"> · {targetOf(activeSegment) || 'empty'}</span>
+                  </>
                 ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                    {customWordList.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="p-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center justify-between text-xs"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-slate-500 dark:text-slate-400">{item.roman}</span>
-                          <span className="text-slate-400">→</span>
-                          <span className="font-serif font-bold text-indigo-600 dark:text-indigo-300">{item.native}</span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteCustomWord(item.roman)}
-                          className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                          title="Delete word"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                  'Open the keyboard from a cue to add text to it'
+                )}
+              </span>
+            </div>
+
+            <div className="rounded-[14px] border border-slate-800 overflow-hidden">
+              <div role="tablist" aria-label="Characters" className="flex gap-0.5 p-1.5 bg-slate-950/60 border-b border-slate-800 overflow-x-auto [scrollbar-width:none]">
+                {([
+                  ['vowels', 'Vowels'],
+                  ['matras', 'Vowel signs'],
+                  ['consonants', 'Consonants'],
+                  ['marks', 'Marks & numbers'],
+                ] as const).map(([id, label]) => (
+                  <button key={id} type="button" role="tab" aria-selected={paletteTab === id} onClick={() => setPaletteTab(id)} className={tabClass(paletteTab === id)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(3.25rem,1fr))] gap-1.5 p-2.5">
+                {paletteKeys.map((ch, i) => (
+                  <button
+                    key={`${ch}-${i}`}
+                    type="button"
+                    onClick={() => setTail((t) => t + ch)}
+                    className="h-12 rounded-[9px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-700 active:translate-y-px text-[19px] text-slate-100 shadow-[0_1px_0_rgb(30_41_59)] cursor-pointer"
+                    title={`Add ${ch}`}
+                  >
+                    {COMBINING.test(ch) ? `◌${ch}` : ch}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Help and tools */}
+          <aside aria-label="Help and tools" className="border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/40 flex flex-col min-w-0">
+            <div role="tablist" className="flex gap-0.5 px-3 pt-2.5 border-b border-slate-800">
+              {([
+                ['guide', 'Guide'],
+                ['words', 'My words'],
+                ['script', 'Whole script'],
+              ] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={sideTab === id}
+                  onClick={() => setSideTab(id)}
+                  className={`flex-1 px-1.5 pt-2 pb-2.5 -mb-px border-b-2 text-[12.5px] font-medium transition-colors cursor-pointer ${
+                    sideTab === id ? 'text-slate-100 border-indigo-400' : 'text-slate-400 border-transparent hover:text-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="px-4 py-3.5 flex flex-col gap-3">
+              {sideTab === 'guide' && (
+                <>
+                  <div className="flex flex-col">
+                    {PHONETIC_CHEAT_SHEET.map((row, i) => (
+                      <div key={row.roman} className={`flex flex-col gap-0.5 px-2.5 py-2 rounded-lg ${i % 2 === 0 ? 'bg-slate-900' : ''}`}>
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className="font-mono text-xs text-slate-300">{row.roman}</span>
+                          <span className="text-[10.5px] text-slate-500 text-right">{row.desc}</span>
+                        </span>
+                        <span className="text-[15px] text-slate-100">{row.sample}</span>
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
+                  <p className="text-[11.5px] text-slate-400 leading-relaxed p-2.5 rounded-[10px] border border-dashed border-slate-700">
+                    <span className="font-semibold text-slate-200">Capitals matter.</span> <span className="font-mono">t</span> and{' '}
+                    <span className="font-mono">T</span> are different letters, as are <span className="font-mono">n</span> and{' '}
+                    <span className="font-mono">N</span>. Double a vowel to make it long.
+                  </p>
+                </>
+              )}
+
+              {sideTab === 'words' && (
+                <>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Names and terms that should always come out one way. Used here and in every cue.
+                  </p>
+                  <div className="grid grid-cols-[1fr_1fr_auto] gap-1.5">
+                    <input
+                      value={customRoman}
+                      onChange={(e) => setCustomRoman(e.target.value)}
+                      placeholder="sadhguru"
+                      aria-label="Roman spelling"
+                      className="min-w-0 h-9 bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-2.5 font-mono text-[13px] text-slate-100 placeholder-slate-600 focus:outline-none"
+                    />
+                    <input
+                      value={customNative}
+                      onChange={(e) => setCustomNative(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addCustomWord()}
+                      placeholder={transliterateTextOffline('sadhguru', selectedLang)}
+                      aria-label={`${lang.name} spelling`}
+                      className="min-w-0 h-9 bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-2.5 text-[14px] text-slate-100 placeholder-slate-600 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomWord}
+                      disabled={!customRoman.trim() || !customNative.trim()}
+                      className="h-9 px-3 rounded-[9px] border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 cursor-pointer"
+                    >
+                      Add
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {customWordList.length === 0 ? (
+                      <p className="text-xs text-slate-500 py-2">No words yet.</p>
+                    ) : (
+                      customWordList.map((w) => (
+                        <div key={w.roman} className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-[9px] bg-slate-900 border border-slate-800">
+                          <span className="font-mono text-[12.5px] text-slate-400">{w.roman}</span>
+                          <span className="text-[11px] text-slate-600">→</span>
+                          <span className="text-[15px] text-slate-100 min-w-0 truncate">{w.native}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              deleteUserCustomWord(w.roman, lang.code);
+                              setCustomWordList(listAllUserCustomWords(lang.code));
+                            }}
+                            className="ml-auto p-1 rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                            aria-label={`Delete ${w.roman}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
+
+              {sideTab === 'script' && (
+                <>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
+                      <span className="text-[22px] font-semibold text-slate-100 tabular-nums">{latinCues.length}</span>
+                      <span className="text-xs text-slate-400 leading-snug">
+                        {latinCues.length === 1 ? 'cue still has' : 'cues still have'} English letters in {latinCues.length === 1 ? 'it' : 'them'}
+                      </span>
+                    </div>
+                    {latinCues.length > 0 && (
+                      <div className="rounded-[10px] border border-slate-800 overflow-hidden">
+                        {latinCues.slice(0, 3).map(({ seg, i }) => (
+                          <div key={seg.id} className="flex flex-col gap-0.5 px-2.5 py-2 border-t border-slate-800 first:border-t-0">
+                            <span className="font-mono text-[11.5px] text-slate-500 truncate">
+                              #{String(i + 1).padStart(2, '0')} · {targetOf(seg)}
+                            </span>
+                            <span className="text-[14.5px] text-slate-100 truncate">{transliterateTextOffline(targetOf(seg), selectedLang)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={convertLatinCues}
+                      disabled={!onUpdateSegments || latinCues.length === 0 || isBatchConverting}
+                      className={`${ghost} w-full`}
+                    >
+                      {isBatchConverting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                      {isBatchConverting
+                        ? 'Converting…'
+                        : latinCues.length > 0
+                          ? `Convert ${latinCues.length === 1 ? 'that cue' : `those ${latinCues.length} cues`}`
+                          : 'Nothing to convert'}
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col gap-2 pt-3 border-t border-slate-800">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Polish a line with AI</span>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Fixes vowel signs, joined letters and word choice the way a native speaker would. Uses your translation engine.
+                    </p>
+                    <textarea
+                      value={polishInput}
+                      onChange={(e) => setPolishInput(e.target.value)}
+                      rows={3}
+                      placeholder={`A ${lang.name} line to polish`}
+                      aria-label="Line to polish"
+                      className="w-full resize-none bg-slate-900 border border-slate-700 focus:border-indigo-500 rounded-[10px] px-3 py-2 text-[14px] leading-relaxed text-slate-100 placeholder-slate-600 focus:outline-none"
+                    />
+                    <button type="button" onClick={runPolish} disabled={!polishInput.trim() || isPolishing} className={`${ghost} w-full`}>
+                      {isPolishing ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : null}
+                      {isPolishing ? 'Polishing…' : 'Polish'}
+                    </button>
+                    {polishOutput && (
+                      <div className="flex flex-col gap-2 p-2.5 rounded-[10px] bg-emerald-500/10 border border-emerald-500/30">
+                        <span className="text-[14.5px] text-slate-100 leading-relaxed">{polishOutput}</span>
+                        {polishNote && <span className="text-[11.5px] text-slate-400">{polishNote}</span>}
+                        {activeSegment && onUpdateSegments && (
+                          <button type="button" onClick={usePolished} className={`${ghost} w-full`}>
+                            <Check className="w-3.5 h-3.5" /> Use it in {cueLabel}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {!polishOutput && polishNote && (
+                      <p className="flex items-start gap-1.5 text-xs text-rose-300">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" /> {polishNote}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
-          )}
-
-          {/* TAB 5: PHONETIC CHEAT SHEET */}
-          {activeTab === 'cheatsheet' && (
-            <div className="space-y-3">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Reference guide for typing Indian sounds using standard English QWERTY keyboard:
-              </p>
-              <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 dark:bg-slate-950 text-slate-600 dark:text-slate-400 font-mono text-[11px]">
-                    <tr>
-                      <th className="p-2.5">Roman Keystrokes</th>
-                      <th className="p-2.5">Description</th>
-                      <th className="p-2.5">Script Sample</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800 font-sans">
-                    {PHONETIC_CHEAT_SHEET.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="p-2.5 font-mono text-indigo-600 dark:text-indigo-400 font-bold">{item.roman}</td>
-                        <td className="p-2.5 text-slate-700 dark:text-slate-300">{item.desc}</td>
-                        <td className="p-2.5 font-serif text-slate-900 dark:text-white font-medium">{item.sample}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 6: BATCH CONVERT ALL CUES */}
-          {activeTab === 'batch' && (
-            <div className="space-y-4 p-4 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200 dark:border-slate-800">
-              <div>
-                <h4 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                  <span>Bulk Roman-to-Native Transliteration for Project Cues</span>
-                </h4>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 leading-relaxed">
-                  If you have typed dialogue lines in Romanized English (e.g., Hinglish / Tanglish / Banglish), this tool will automatically convert all English words across your {segments.length} cues into native {currentLangConfig.nativeName} script in one click using Google Input Tools and the verified Indic dictionary.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleBatchTransliterateAllCues}
-                  disabled={segments.length === 0 || isBatchConverting}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-bold transition-all shadow-md"
-                >
-                  {isBatchConverting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Converting cues...</span>
-                    </>
-                  ) : (
-                    <>
-                      <RefreshCw className="w-4 h-4" />
-                      <span>Convert All {segments.length} Cues to {currentLangConfig.nativeName}</span>
-                    </>
-                  )}
-                </button>
-
-                {batchConvertedCount !== null && (
-                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                    <Check className="w-4 h-4" />
-                    Transliterated {batchConvertedCount} cue lines successfully!
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
+          </aside>
         </div>
-      </div>
+
+        {notice && (
+          <div
+            role="status"
+            className="absolute left-1/2 bottom-5 -translate-x-1/2 flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-100 text-slate-950 text-[12.5px] font-medium shadow-2xl"
+          >
+            <Check className="w-3.5 h-3.5" /> {notice}
+          </div>
+        )}
+      </section>
     </div>
   );
 };
