@@ -41,6 +41,7 @@ import {
   AudioWaveform,
   ShieldCheck,
   ArrowLeftRight,
+  X,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, ProcessingStatus } from '../types';
 import { Voice } from '../services/elevenLabsService';
@@ -69,6 +70,41 @@ import { getPresetById } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
 import { useSignoff } from '../services/signoffService';
+
+type ReviewMode = 'grid' | 'table' | 'spotlight' | 'script' | 'qa';
+
+const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: 'table', label: 'Cues', Icon: Table },
+  { id: 'grid', label: 'Cards', Icon: LayoutGrid },
+  { id: 'spotlight', label: 'Spotlight', Icon: Maximize2 },
+  { id: 'script', label: 'Script', Icon: FileText },
+  { id: 'qa', label: 'QA', Icon: ShieldCheck },
+];
+
+/**
+ * How comfortably a translated line fits its time slot, in characters per
+ * second: up to 14 reads naturally, up to 18 is tight, beyond that the voice rushes.
+ */
+const getPace = (text: string, duration: number) => {
+  const cps = duration > 0 ? text.length / duration : 0;
+  const level: 'natural' | 'tight' | 'fast' = cps > 18 ? 'fast' : cps > 14 ? 'tight' : 'natural';
+  return {
+    cps,
+    level,
+    meter: Math.min(100, (cps / 24) * 100),
+    label: level === 'fast' ? 'Too fast' : level === 'tight' ? 'Tight' : 'Natural',
+    pillClass:
+      level === 'fast'
+        ? 'bg-rose-500/15 text-rose-300'
+        : level === 'tight'
+          ? 'bg-amber-500/15 text-amber-300'
+          : 'bg-emerald-500/15 text-emerald-300',
+    barClass: level === 'fast' ? 'bg-rose-400' : level === 'tight' ? 'bg-amber-400' : 'bg-emerald-400',
+  };
+};
+
+const railButton =
+  'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
 
 interface ExpressDubWizardProps {
   activeJob: BatchJob | null;
@@ -171,16 +207,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [isLocalPromptModalOpen, setIsLocalPromptModalOpen] = useState(false);
 
   // Pro Review Suite Mode & Controls
-  const [reviewMode, setReviewMode] = useState<'grid' | 'table' | 'spotlight' | 'script' | 'qa'>(
-    'grid'
-  );
+  const [reviewMode, setReviewMode] = useState<ReviewMode>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'safe'>('all');
+  const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight'>('all');
+  const [scriptExportFormat, setScriptExportFormat] = useState<TargetScriptFormat>('dialogue');
   const [spotlightIndex, setSpotlightIndex] = useState<number>(0);
   const [copiedCueId, setCopiedCueId] = useState<string | number | null>(null);
-  const [isListExpanded, setIsListExpanded] = useState<boolean>(false);
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState<boolean>(false);
-  const [isSrtMenuOpen, setIsSrtMenuOpen] = useState<boolean>(false);
+  // The views scroll inside the editor panel, so their own height caps are off.
+  const isListExpanded = true;
   const [isSrtModalOpen, setIsSrtModalOpen] = useState<boolean>(false);
   const [isAlignModalOpen, setIsAlignModalOpen] = useState<boolean>(false);
   const [srtOptions, setSrtOptions] = useState<SrtOptions>(() => {
@@ -343,7 +377,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       const cps = seg.duration > 0 ? charCount / seg.duration : 0;
 
       if (pacingFilter === 'risk') return cps > 18;
-      if (pacingFilter === 'safe') return cps <= 18;
+      if (pacingFilter === 'tight') return cps > 14 && cps <= 18;
       return true;
     });
   }, [segments, searchQuery, pacingFilter]);
@@ -384,6 +418,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     () => runQa(segments, { language: targetLanguage, glossary: glossaryTerms, config: qaConfig }),
     [segments, targetLanguage, glossaryTerms, qaConfig]
   );
+  const pacingCounts = useMemo(() => {
+    const counts = { natural: 0, tight: 0, fast: 0 };
+    segments.forEach((seg) => {
+      counts[getPace(getTargetText(seg), seg.duration).level]++;
+    });
+    return counts;
+  }, [segments]);
+
+  /** Unwaived QA findings, blocking ones first, for the review panel. */
+  const openFindings = useMemo(() => {
+    const waived = qaSignoff?.overrides || {};
+    return qaReport.findings
+      .filter((f) => !waived[f.id])
+      .sort((x, y) => Number(y.severity === 'block') - Number(x.severity === 'block') || x.cueNumber - y.cueNumber);
+  }, [qaReport.findings, qaSignoff]);
+
   const qaBlockingCount = useMemo(() => {
     const waived = qaSignoff?.overrides || {};
     return qaReport.findings.filter((f) => f.severity === 'block' && !waived[f.id]).length;
@@ -393,7 +443,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const idx = segments.findIndex((s) => s.id === seg.id);
     if (idx !== -1) setSpotlightIndex(idx);
     onSeek(seg.startTime);
-    setReviewMode('grid');
+    setReviewMode('table');
 
     /*
       A search or pacing filter can be hiding the very cue the reviewer asked
@@ -440,7 +490,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     if (onDownloadScript) {
       onDownloadScript(format);
       setExportSuccessMessage(`Exported ${targetLanguage} script (${format.toUpperCase()})`);
-      setIsExportMenuOpen(false);
       setTimeout(() => setExportSuccessMessage(null), 3000);
       return;
     }
@@ -463,7 +512,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const fileName = `dhvani_${cleanLang}_script_${format}.${extension}`;
 
     downloadFile(scriptContent, fileName, mimeType);
-    setIsExportMenuOpen(false);
     setExportSuccessMessage(`Exported ${targetLanguage} script (${format.toUpperCase()})`);
     setTimeout(() => setExportSuccessMessage(null), 3000);
   };
@@ -474,7 +522,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     try {
       navigator.clipboard.writeText(scriptContent);
       setExportSuccessMessage(`Copied full ${targetLanguage} script to clipboard!`);
-      setIsExportMenuOpen(false);
       setTimeout(() => setExportSuccessMessage(null), 3000);
     } catch (e) {
       console.warn('Clipboard write failed:', e);
@@ -487,7 +534,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const srt = generateSrtContent(segments, opts);
     const cleanLang = (targetLanguage || 'captions').toLowerCase().replace(/\s+/g, '_');
     downloadFile(srt, `dhvani_${cleanLang}_subtitles.srt`, 'text/srt;charset=utf-8');
-    setIsSrtMenuOpen(false);
     setExportSuccessMessage(
       `Exported .SRT (${opts.maxLinesPerCue} line, max ${opts.maxWordsPerLine} words/line)`
     );
@@ -500,7 +546,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const vtt = generateVttContent(segments, opts);
     const cleanLang = (targetLanguage || 'captions').toLowerCase().replace(/\s+/g, '_');
     downloadFile(vtt, `dhvani_${cleanLang}_subtitles.vtt`, 'text/vtt;charset=utf-8');
-    setIsSrtMenuOpen(false);
     setExportSuccessMessage(`Exported WebVTT .VTT captions`);
     setTimeout(() => setExportSuccessMessage(null), 3000);
   };
@@ -799,289 +844,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {/* STEP 2: PRO REVIEW & TRANSLATION POLISH */}
       {/* ========================================================================= */}
       {activeStep === 2 && activeJob && (
-        <div className="space-y-3.5 animate-in fade-in zoom-in-95 duration-200">
-          {/* Top Review Header Card */}
-          <div className="bg-slate-900/90 border border-slate-800 p-3.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-sm">
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-white font-display">
-                  Step 2: Pro Review & Translation Polish ({targetLanguage})
-                </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950 border border-indigo-700/60 text-indigo-400 font-semibold">
-                  Pro Studio Mode
-                </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950 border border-emerald-700 text-emerald-400">
-                  {segments.length} Cues Ready
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Verify translation accuracy and speech pacing before synthesis. Choose your preferred review layout below.
-              </p>
-            </div>
-
-            {/* Action to proceed to Dub, Export Target Script, Subtitles & Language Selector */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Translation Custom Prompt Trigger */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (onOpenPromptModal) onOpenPromptModal();
-                  else setIsLocalPromptModalOpen(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/80 text-indigo-300 hover:text-white text-xs font-semibold shadow-xs transition-all active:scale-95 cursor-pointer"
-                title="Change translation prompt, persona tone, or domain terminology"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Custom Prompt: {getPresetById(promptPresetId || 'conversational').name}</span>
-              </button>
-
-              {/* Quick Re-Translate with current prompt */}
-              {onRetranslateSegments && (
-                <button
-                  type="button"
-                  onClick={() => onRetranslateSegments(customPrompt || '')}
-                  disabled={isTranslatingLanguage || segments.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-700/80 hover:border-indigo-500/60 text-slate-200 hover:text-indigo-200 text-xs font-semibold shadow-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-                  title="Re-translate all dialogue cues using the current custom prompt"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isTranslatingLanguage ? 'animate-spin' : ''}`} />
-                  <span>{isTranslatingLanguage ? 'Translating...' : 'Re-Translate'}</span>
-                </button>
-              )}
-
-              {/* Custom Script Paste & Alignment Trigger */}
-              <button
-                type="button"
-                onClick={() => setIsAlignModalOpen(true)}
-                disabled={segments.length === 0}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 border border-indigo-400/40 text-indigo-50 text-xs font-bold shadow-md shadow-indigo-600/20 transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
-                title="Paste a custom translated script and align it to English timing cues"
-              >
-                <ClipboardPaste className="w-3.5 h-3.5 text-indigo-200" />
-                <span>Paste Custom Script & Align</span>
-              </button>
-
-              {/* Export Subtitles (.SRT / .VTT) Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSrtMenuOpen(!isSrtMenuOpen);
-                    setIsExportMenuOpen(false);
-                  }}
-                  disabled={segments.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-700/80 hover:border-indigo-500/60 text-slate-200 hover:text-indigo-200 text-xs font-semibold shadow-xs transition-all active:scale-95 disabled:opacity-50"
-                  title="Export synchronized subtitles (.SRT, .VTT) with custom constraints"
-                >
-                  <FileText className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>Export .SRT ({srtOptions.maxLinesPerCue}L, {srtOptions.maxWordsPerLine}W)</span>
-                  <ChevronDown
-                    className={`w-3 h-3 text-slate-400 transition-transform ${
-                      isSrtMenuOpen ? 'rotate-180' : ''
-                    }`}
-                  />
-                </button>
-
-                {/* Subtitles Dropdown */}
-                {isSrtMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-72 rounded-2xl bg-slate-900 border border-slate-700/90 shadow-2xl z-50 p-2 space-y-1 animate-in fade-in zoom-in-95 backdrop-blur-xl">
-                    <div className="px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-slate-400 border-b border-slate-800 flex items-center justify-between">
-                      <span>Subtitle Export Options</span>
-                      <span className="text-indigo-400 font-bold">
-                        {srtOptions.maxLinesPerCue} Line • {srtOptions.maxWordsPerLine} Words
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExportSrtWithSettings()}
-                      className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-2.5 transition-colors"
-                    >
-                      <Download className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <div>
-                        <p className="font-semibold">Download .SRT Subtitles</p>
-                        <p className="text-[10px] text-slate-400">
-                          {srtOptions.maxLinesPerCue} line per cue, max {srtOptions.maxWordsPerLine} words/line
-                        </p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExportVttWithSettings()}
-                      className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-2.5 transition-colors"
-                    >
-                      <FileText className="w-4 h-4 text-cyan-400 shrink-0" />
-                      <div>
-                        <p className="font-semibold">Download WebVTT (.VTT)</p>
-                        <p className="text-[10px] text-slate-400">Web video player subtitle format</p>
-                      </div>
-                    </button>
-
-                    <div className="pt-1 border-t border-slate-800">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsSrtMenuOpen(false);
-                          setIsSrtModalOpen(true);
-                        }}
-                        className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-indigo-300 hover:bg-indigo-950/80 hover:text-white flex items-center gap-2.5 transition-colors font-semibold"
-                      >
-                        <Sliders className="w-4 h-4 text-indigo-400 shrink-0" />
-                        <div>
-                          <p>Customize SRT Settings...</p>
-                          <p className="text-[10px] text-indigo-300/70 font-normal">
-                            Max words, lines, chars, sec & live preview
-                          </p>
-                        </div>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Export Targeted Language Script Dropdown */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsExportMenuOpen(!isExportMenuOpen);
-                    setIsSrtMenuOpen(false);
-                  }}
-                  disabled={segments.length === 0}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-950 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500/60 text-slate-200 hover:text-white text-xs font-semibold shadow-xs transition-all active:scale-95 disabled:opacity-50"
-                  title="Export translated script in multiple formats (.txt, .json, .csv)"
-                >
-                  <FileText className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Export {targetLanguage} Script</span>
-                  <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {/* Dropdown Menu */}
-                {isExportMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-64 rounded-2xl bg-slate-900 border border-slate-700/90 shadow-2xl z-50 p-2 space-y-1 animate-in fade-in zoom-in-95 backdrop-blur-xl">
-                    <div className="px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-slate-400 border-b border-slate-800 flex items-center justify-between">
-                      <span>Export {targetLanguage} Script</span>
-                      <span className="text-cyan-400 font-bold">{segments.length} Cues</span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript('dialogue')}
-                      className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-2.5 transition-colors"
-                    >
-                      <FileText className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <div>
-                        <p className="font-semibold">Plain Dialogue (.TXT)</p>
-                        <p className="text-[10px] text-slate-400">Pure clean reading dialogue text</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript('timecoded')}
-                      className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-2.5 transition-colors"
-                    >
-                      <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
-                      <div>
-                        <p className="font-semibold">Broadcast Cues (.TXT)</p>
-                        <p className="text-[10px] text-slate-400">Timestamps [MM:SS] and speakers</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript('bilingual')}
-                      className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-2.5 transition-colors"
-                    >
-                      <Languages className="w-4 h-4 text-indigo-400 shrink-0" />
-                      <div>
-                        <p className="font-semibold">Bilingual Script (.TXT)</p>
-                        <p className="text-[10px] text-slate-400">Original & target side-by-side</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript('csv')}
-                      className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-2.5 transition-colors"
-                    >
-                      <Table className="w-4 h-4 text-amber-400 shrink-0" />
-                      <div>
-                        <p className="font-semibold">Spreadsheet Cue Sheet (.CSV)</p>
-                        <p className="text-[10px] text-slate-400">Excel / Google Sheets compatible</p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript('json')}
-                      className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-2.5 transition-colors"
-                    >
-                      <Download className="w-4 h-4 text-purple-400 shrink-0" />
-                      <div>
-                        <p className="font-semibold">Structured Data (.JSON)</p>
-                        <p className="text-[10px] text-slate-400">Raw cue metadata & timings</p>
-                      </div>
-                    </button>
-
-                    <div className="pt-1 border-t border-slate-800">
-                      <button
-                        type="button"
-                        onClick={handleCopyFullTargetScript}
-                        className="w-full text-left px-2.5 py-2 rounded-xl text-xs text-indigo-300 hover:bg-indigo-950/80 hover:text-white flex items-center gap-2.5 transition-colors font-semibold"
-                      >
-                        <Copy className="w-4 h-4 text-indigo-400 shrink-0" />
-                        <span>Copy Script to Clipboard</span>
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs">
-                <Globe className="w-3.5 h-3.5 text-indigo-400 mr-1.5" />
-                <select
-                  id="express-step2-lang-select"
-                  value={targetLanguage}
-                  onChange={(e) => onTargetLanguageChange(e.target.value)}
-                  className="bg-transparent text-xs font-semibold text-white focus:outline-none cursor-pointer"
-                >
-                  {languages.map((lang) => {
-                    const code = typeof lang === 'string' ? lang : lang.code;
-                    const label = typeof lang === 'string' ? lang : lang.label;
-                    return (
-                      <option key={code} value={code} className="bg-slate-900 text-white">
-                        {label}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  setStepOverride(3);
-                  await onSynthesizeMaster();
-                }}
-                disabled={isSynthesizing || activeJob.segments.length === 0}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-500 to-cyan-500 hover:from-indigo-500 hover:to-cyan-400 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 disabled:opacity-50 transition-all active:scale-95"
-              >
-                {isSynthesizing ? (
-                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                ) : (
-                  <Volume2 className="w-4 h-4 text-white" />
-                )}
-                <span>
-                  {isSynthesizing
-                    ? 'Dubbing with ElevenLabs...'
-                    : `Dub with ElevenLabs ➔`}
-                </span>
-              </button>
-            </div>
-          </div>
-
+        <div className="flex flex-col gap-4 animate-in fade-in duration-200">
           {/* Interactive Audio Waveform & Pro Audition Player */}
           <ReviewWaveformPlayer
             audioBuffer={activeJob.audioBuffer}
@@ -1112,234 +875,114 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             onSensitivityChange={onSensitivityChange}
           />
 
-          {/* Pro Review Options Ribbon (Review Mode Selector, Search, and Pacing Filter) */}
-          <div className="bg-slate-900/60 border border-slate-800/80 p-2.5 rounded-2xl flex flex-wrap items-center justify-between gap-2.5 shadow-sm">
-            {/* Review Mode Selector (Studio Cards, Cue Table, Spotlight Line, Continuous Script) */}
-            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
-              <button
-                type="button"
-                onClick={() => setReviewMode('grid')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  reviewMode === 'grid'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-                title="Studio Cards: Side-by-side dialogue cards with timing & pacing controls"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Studio Cards</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setReviewMode('table')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  reviewMode === 'table'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-                title="Cue Sheet: Dense broadcast table for fast scanning and timing comparison"
-              >
-                <Table className="w-3.5 h-3.5" />
-                <span>Cue Sheet Table</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setReviewMode('spotlight')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  reviewMode === 'spotlight'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-                title="Spotlight: Focus on one sentence at a time with large teleprompter typography"
-              >
-                <Maximize2 className="w-3.5 h-3.5" />
-                <span>Spotlight Line</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setReviewMode('script')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  reviewMode === 'script'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-                title="Continuous Script: Full side-by-side script flow for checking narrative tone"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Continuous Script</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setReviewMode('qa')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                  reviewMode === 'qa'
-                    ? 'bg-indigo-600 text-white shadow-sm'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-                title="QA & Sign-off: automated checks, locked terminology, and the approval chain"
-              >
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span>QA &amp; Sign-off</span>
-                {qaBlockingCount > 0 ? (
-                  <span className="ml-0.5 px-1.5 py-0.5 rounded-md bg-rose-600 text-white text-[10px] font-bold leading-none">
-                    {qaBlockingCount}
-                  </span>
-                ) : qaReport.warningCount > 0 ? (
-                  <span className="ml-0.5 px-1.5 py-0.5 rounded-md bg-amber-500 text-slate-950 text-[10px] font-bold leading-none">
-                    {qaReport.warningCount}
-                  </span>
-                ) : (
-                  <Check className="w-3 h-3 text-emerald-400" />
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setIsAlignModalOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-indigo-300 hover:text-white bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-700/60 transition-all ml-1 cursor-pointer"
-                title="Paste a custom translated script and align it to English timing cues"
-              >
-                <ClipboardPaste className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Paste Custom Script...</span>
-              </button>
-
-              {onOpenVoiceChanger && (
-                <button
-                  type="button"
-                  onClick={onOpenVoiceChanger}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-purple-300 hover:text-white bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/60 transition-all cursor-pointer shadow-xs active:scale-95"
-                  title="Change voice from audio using Speech-to-Speech (STS), Voice Cloning, or Audio Filters"
-                >
-                  <AudioWaveform className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Voice Changer</span>
-                </button>
-              )}
-            </div>
-
-            {/* Right Tools: Search Filter & Pacing Health Filters */}
-            {/* The cockpit does its own filtering, so these would only confuse. */}
-            <div
-              className={`flex items-center gap-2 flex-wrap ${reviewMode === 'qa' ? 'hidden' : ''}`}
+          {/* Workspace: cue editor and review panel share one height, so neither leaves a gap */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] gap-4 lg:h-[calc(100vh-7rem)] lg:min-h-[600px]">
+            <section
+              aria-label="Translation cues"
+              className="flex flex-col min-h-0 h-[78vh] lg:h-auto bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
             >
-              {/* Search Box */}
-              <div className="relative flex items-center">
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 pointer-events-none" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search dialogue or speaker..."
-                  className="bg-slate-950 border border-slate-800 text-xs rounded-xl pl-8 pr-3 py-1.5 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 w-44 sm:w-52"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery('')}
-                    className="absolute right-2 text-slate-500 hover:text-slate-300 text-xs font-bold"
-                  >
-                    ✕
-                  </button>
+              {/* Toolbar */}
+              <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-3 border-b border-slate-800">
+                <div
+                  role="group"
+                  aria-label="View"
+                  className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5 max-w-full overflow-x-auto [scrollbar-width:none]"
+                >
+                  {REVIEW_VIEWS.map(({ id, label, Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      aria-pressed={reviewMode === id}
+                      onClick={() => setReviewMode(id)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                        reviewMode === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span>{label}</span>
+                      {id === 'qa' &&
+                        (qaBlockingCount > 0 ? (
+                          <span className="px-1.5 rounded-md bg-rose-600 text-white text-[10px] font-mono font-semibold leading-4">
+                            {qaBlockingCount}
+                          </span>
+                        ) : qaReport.warningCount > 0 ? (
+                          <span className="px-1.5 rounded-md bg-amber-500 text-slate-950 text-[10px] font-mono font-semibold leading-4">
+                            {qaReport.warningCount}
+                          </span>
+                        ) : (
+                          <Check className="w-3 h-3 text-emerald-400" />
+                        ))}
+                    </button>
+                  ))}
+                </div>
+
+                {/* The cockpit does its own filtering, so these would only confuse. */}
+                {reviewMode !== 'qa' && (
+                  <>
+                    <div className="relative flex-1 min-w-[10rem]">
+                      <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        id="express-step2-search"
+                        type="text"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Find in cues"
+                        className="w-full h-8 bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-7 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                      />
+                      {searchQuery && (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-200 cursor-pointer"
+                          aria-label="Clear search"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+
+                    <div role="group" aria-label="Pacing filter" className="flex items-center gap-1.5">
+                      {[
+                        { id: 'all' as const, label: 'All', count: segments.length, dot: '' },
+                        { id: 'risk' as const, label: 'Too fast', count: pacingCounts.fast, dot: 'bg-rose-400' },
+                        { id: 'tight' as const, label: 'Tight', count: pacingCounts.tight, dot: 'bg-amber-400' },
+                      ].map((f) => (
+                        <button
+                          key={f.id}
+                          type="button"
+                          aria-pressed={pacingFilter === f.id}
+                          onClick={() => setPacingFilter(f.id)}
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                            pacingFilter === f.id
+                              ? 'bg-slate-100 text-slate-900 border-slate-100'
+                              : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                          }`}
+                        >
+                          {f.dot && <span className={`w-1.5 h-1.5 rounded-full ${f.dot}`} />}
+                          {f.label}
+                          <span className="font-mono text-[10px] opacity-70 tabular-nums">{f.count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
-              </div>
 
-              {/* Pacing Filter Pills */}
-              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-                <button
-                  onClick={() => setPacingFilter('all')}
-                  className={`px-2 py-1 rounded-lg font-medium transition-all ${
-                    pacingFilter === 'all'
-                      ? 'bg-slate-800 text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  All ({segments.length})
-                </button>
-                <button
-                  onClick={() => setPacingFilter('risk')}
-                  className={`px-2 py-1 rounded-lg font-medium flex items-center gap-1 transition-all ${
-                    pacingFilter === 'risk'
-                      ? 'bg-amber-900/60 text-amber-200 border border-amber-700/60'
-                      : 'text-slate-400 hover:text-amber-300'
-                  }`}
-                  title="Cues where translation exceeds 18 chars/second"
-                >
-                  {riskCuesCount > 0 && <AlertTriangle className="w-3 h-3 text-amber-400" />}
-                  <span>Fast Pacing ({riskCuesCount})</span>
-                </button>
-                <button
-                  onClick={() => setPacingFilter('safe')}
-                  className={`px-2 py-1 rounded-lg font-medium transition-all ${
-                    pacingFilter === 'safe'
-                      ? 'bg-emerald-950 text-emerald-300 border border-emerald-800'
-                      : 'text-slate-400 hover:text-emerald-300'
-                  }`}
-                >
-                  Optimal
-                </button>
-              </div>
-
-              {/* Pause Sensitivity Slider (Compact Toolbar) */}
-              {onSensitivityChange && (
-                <PauseSensitivityControl
-                  variant="compact"
-                  sensitivity={analysisSensitivity}
-                  onChange={onSensitivityChange}
-                  segmentCount={segments.length}
-                />
-              )}
-
-              {/* Scroll & View Depth Helpers */}
-              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
-                <button
-                  type="button"
-                  onClick={scrollToTop}
-                  className="px-2 py-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 flex items-center gap-1 font-medium transition-all"
-                  title="Jump to first cue line"
-                >
-                  <ChevronsUp className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Top</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={scrollToBottom}
-                  className="px-2 py-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-900 flex items-center gap-1 font-medium transition-all"
-                  title="Jump to bottom cue line"
-                >
-                  <ChevronsDown className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Bottom</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsListExpanded(!isListExpanded)}
-                  className={`px-2 py-1 rounded-lg font-medium transition-all ${
-                    isListExpanded
-                      ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-500/50'
-                      : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                  }`}
-                  title="Toggle between scrollable viewport and full-page expanded view"
-                >
-                  {isListExpanded ? 'Compact View' : 'Expand All'}
-                </button>
-
-                {/* On-Screen Phonetic Keyboard Launcher */}
                 {onOpenPhoneticKeyboard && (
                   <button
                     type="button"
                     onClick={() => onOpenPhoneticKeyboard()}
-                    className="px-2.5 py-1 rounded-lg bg-indigo-950/70 hover:bg-indigo-900 border border-indigo-800/80 text-indigo-300 hover:text-white flex items-center gap-1.5 font-medium transition-all shadow-xs"
-                    title="Open Virtual Indic Phonetic Keyboard"
+                    className="ml-auto w-8 h-8 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Open the Indic phonetic keyboard"
+                    aria-label="Open the Indic phonetic keyboard"
                   >
-                    <Keyboard className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Indic Keyboard</span>
+                    <Keyboard className="w-4 h-4" />
                   </button>
                 )}
               </div>
-            </div>
-          </div>
 
+              {/* Active view */}
+              <div ref={scriptScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
+                <div className={reviewMode === 'table' ? '' : 'p-3 sm:p-4 space-y-4'}>
           {/* ========================================================================= */}
           {/* OPTION 5: QA & SIGN-OFF COCKPIT */}
           {/* ========================================================================= */}
@@ -1356,7 +999,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
           {/* Empty Filter State */}
           {reviewMode !== 'qa' && filteredSegments.length === 0 && (
-            <div className="p-8 rounded-2xl bg-slate-900/40 border border-slate-800 text-center space-y-2">
+            <div className="m-3 p-8 rounded-2xl bg-slate-950/60 border border-dashed border-slate-800 text-center space-y-2">
               <p className="text-sm font-semibold text-slate-300">No dialogue cues matched your filter</p>
               <p className="text-xs text-slate-500">Try changing your search query or pacing filter.</p>
               <button
@@ -1379,7 +1022,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               {renderPaginationControls()}
               
               <div
-                ref={scriptScrollRef}
                 className={`space-y-3 pr-2 scroll-smooth ${
                   isListExpanded
                     ? 'overflow-visible pb-12'
@@ -1520,139 +1162,121 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           )}
 
           {/* ========================================================================= */}
-          {/* OPTION 2: CUE SHEET TABLE (Broadcast Pro Table) */}
+          {/* OPTION 2: CUES (default): one row per cue, English beside the editable translation */}
           {/* ========================================================================= */}
           {reviewMode === 'table' && filteredSegments.length > 0 && (
-            <div className="space-y-4">
-              {renderPaginationControls()}
-              
-              <div className="border border-slate-800 rounded-2xl bg-slate-900/60 overflow-hidden shadow-sm">
-                <div
-                  ref={scriptScrollRef}
-                  className={`scroll-smooth custom-scrollbar ${
-                    isListExpanded
-                      ? 'overflow-visible pb-12'
-                      : 'max-h-[65vh] min-h-[360px] overflow-y-auto overscroll-contain pb-8'
-                  }`}
-                >
-                  <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-slate-950/90 text-slate-400 border-b border-slate-800 uppercase font-mono text-[10px] sticky top-0 z-10 backdrop-blur-sm">
-                    <tr>
-                      <th className="py-2.5 px-3 w-12 text-center">#</th>
-                      <th className="py-2.5 px-3 w-28">Time In - Out</th>
-                      <th className="py-2.5 px-2 w-16">Speaker</th>
-                      <th className="py-2.5 px-3 w-5/12">Original Dialogue</th>
-                      <th className="py-2.5 px-3 w-5/12 text-indigo-300">{targetLanguage} Translation (Editable)</th>
-                      <th className="py-2.5 px-2 w-24 text-center">Pacing</th>
-                      <th className="py-2.5 px-3 w-20 text-right">Audition</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60">
-                    {paginatedSegments.map((seg, index) => {
-                      const srcText = getSourceText(seg);
-                      const tgtText = getTargetText(seg);
-                      const isCuePlaying = playingSegmentId === seg.id;
-                      const isCueActive =
-                        (currentTime >= seg.startTime && currentTime <= seg.endTime) || isCuePlaying;
-                      const charCount = tgtText.length;
-                      const cpsInfo = getCpsInfo(charCount, seg.duration);
-
-                      return (
-                        <tr
-                          key={seg.id}
-                          id={`cue-row-${seg.id}`}
-                          className={`transition-colors group ${
-                            isCueActive
-                              ? 'bg-indigo-950/40 text-white font-medium border-l-2 border-indigo-500'
-                              : 'hover:bg-slate-800/40'
-                          }`}
-                        >
-                          {/* Index */}
-                          <td className="py-2.5 px-3 font-mono text-center text-slate-400 font-bold">
-                            {(currentPage - 1) * itemsPerPage + index + 1}
-                          </td>
-
-                        {/* Timecode */}
-                        <td className="py-2.5 px-3 font-mono whitespace-nowrap">
-                          <span className="text-cyan-400 font-semibold text-[11px]">
-                            {formatSeconds(seg.startTime)} - {formatSeconds(seg.endTime)}
-                          </span>
-                          <span className="block text-[10px] text-slate-500">
-                            {seg.duration.toFixed(1)}s
-                          </span>
-                        </td>
-
-                        {/* Speaker */}
-                        <td className="py-2.5 px-2">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-transparent text-[10px] font-semibold whitespace-nowrap">
-                            {seg.speaker || 'Speaker'}
-                          </span>
-                        </td>
-
-                        {/* Original Dialogue */}
-                        <td className="py-2.5 px-3 text-slate-300 leading-relaxed font-sans">
-                          {srcText || <span className="text-slate-600 italic">No audio text</span>}
-                        </td>
-
-                        {/* Editable Target Translation with Phonetic Transliteration */}
-                        <td className="py-2.5 px-3">
-                          <PhoneticSmartTextarea
-                          showQuickSymbols={false}
-                            value={tgtText}
-                            language={targetLanguage}
-                            onChange={(newVal) =>
-                              onUpdateSegment(seg.id, {
-                                textTarget: newVal,
-                                targetText: newVal,
-                              })
-                            }
-                            onOpenKeyboardModal={
-                              onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard(seg) : undefined
-                            }
-                            rows={2}
-                            placeholder={`Translation in ${targetLanguage}...`}
-                          />
-                          <div className="flex justify-between items-center text-[10px] text-slate-500 mt-0.5">
-                            <span>{charCount} chars</span>
-                            <span className="font-mono">{cpsInfo.cps} CPS</span>
-                          </div>
-                        </td>
-
-                        {/* Pacing Badge */}
-                        <td className="py-2.5 px-2 text-center">
-                          <span className={`inline-block text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap ${cpsInfo.badgeClass}`}>
-                            {cpsInfo.cps} CPS
-                          </span>
-                        </td>
-
-                        {/* Audition Button */}
-                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPlayingSegmentId(seg.id);
-                              onPlaySegmentSolo(seg);
-                              setTimeout(() => setPlayingSegmentId(null), seg.duration * 1000 + 500);
-                            }}
-                            className={`p-1.5 rounded-lg border transition-all ${
-                              isCuePlaying
-                                ? 'bg-amber-600 text-white border-amber-500 animate-pulse'
-                                : 'bg-slate-800 text-slate-300 hover:text-white border-slate-700'
-                            }`}
-                            title="Audition original speech line"
-                          >
-                            {isCuePlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+            <div>
+              <div className="hidden md:grid grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-4 px-4 py-2 sticky top-0 z-10 bg-slate-900 border-b border-slate-800 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                <span>#</span>
+                <span>Time</span>
+                <span>Original</span>
+                <span>{targetLanguage}</span>
+                <span className="text-right">Pacing</span>
               </div>
-              </div>
-              
-              {renderPaginationControls()}
+
+              {paginatedSegments.map((seg, index) => {
+                const srcText = getSourceText(seg);
+                const tgtText = getTargetText(seg);
+                const isCuePlaying = playingSegmentId === seg.id;
+                const isCueActive = (currentTime >= seg.startTime && currentTime <= seg.endTime) || isCuePlaying;
+                const pace = getPace(tgtText, seg.duration);
+                const cueNumber = (currentPage - 1) * itemsPerPage + index + 1;
+
+                return (
+                  <div
+                    key={seg.id}
+                    id={`cue-card-${seg.id}`}
+                    className={`relative grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-x-4 gap-y-2 px-4 py-3 border-b border-slate-800 transition-colors ${
+                      isCueActive ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'
+                    }`}
+                  >
+                    {isCueActive && <span className="absolute left-0 top-0 bottom-0 w-0.5 bg-indigo-400" />}
+
+                    {/* Number and audition */}
+                    <div className="flex items-start gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPlayingSegmentId(seg.id);
+                          onPlaySegmentSolo(seg);
+                          setTimeout(() => setPlayingSegmentId(null), seg.duration * 1000 + 500);
+                        }}
+                        className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                          isCuePlaying
+                            ? 'bg-indigo-500 border-indigo-500 text-white'
+                            : 'border-slate-700 text-slate-300 hover:border-indigo-400 hover:text-indigo-300'
+                        }`}
+                        title="Listen to the original line"
+                        aria-label={`Listen to cue ${cueNumber}`}
+                      >
+                        {isCuePlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3 ml-px" />}
+                      </button>
+                      <span className="font-mono text-[11px] text-slate-500 pt-1.5 tabular-nums">
+                        {String(cueNumber).padStart(2, '0')}
+                      </span>
+                    </div>
+
+                    {/* Time: click to jump the player here */}
+                    <button
+                      type="button"
+                      onClick={() => onSeek(seg.startTime)}
+                      className="self-start text-left font-mono text-[11.5px] text-slate-300 hover:text-indigo-300 leading-snug tabular-nums cursor-pointer md:pt-1"
+                      title="Jump the player to this cue"
+                    >
+                      {formatSeconds(seg.startTime)}
+                      <span className="md:block text-[10.5px] text-slate-500 ml-1.5 md:ml-0">{seg.duration.toFixed(1)}s</span>
+                    </button>
+
+                    {/* Pacing (right column on desktop, top-right on phones) */}
+                    <div className="md:order-last flex flex-col items-end gap-1.5 md:pt-1">
+                      <span className={`font-mono text-[10.5px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${pace.pillClass}`}>
+                        {pace.cps.toFixed(1)} cps
+                      </span>
+                      <span className="w-16 h-1 rounded-full bg-slate-800 overflow-hidden">
+                        <span className={`block h-full rounded-full ${pace.barClass}`} style={{ width: `${pace.meter}%` }} />
+                      </span>
+                      <span className="text-[10.5px] text-slate-500">{pace.label}</span>
+                    </div>
+
+                    {/* Original */}
+                    <div className="col-span-3 md:col-span-1 text-[13px] text-slate-400 leading-relaxed">
+                      {seg.speaker && (
+                        <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-0.5">
+                          {seg.speaker}
+                        </span>
+                      )}
+                      {srcText || <span className="text-slate-600 italic">No original text</span>}
+                    </div>
+
+                    {/* Translation */}
+                    <div className="col-span-3 md:col-span-1 min-w-0">
+                      <PhoneticSmartTextarea
+                        showQuickSymbols={false}
+                        value={tgtText}
+                        language={targetLanguage}
+                        onChange={(newVal) =>
+                          onUpdateSegment(seg.id, {
+                            textTarget: newVal,
+                            targetText: newVal,
+                          })
+                        }
+                        onOpenKeyboardModal={onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard(seg) : undefined}
+                        rows={2}
+                        placeholder={`${targetLanguage} line`}
+                        compactToolbar
+                      />
+                      {pace.level === 'fast' && (
+                        <p className="mt-1.5 flex items-start gap-1.5 text-[11.5px] text-rose-300 leading-snug">
+                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                          <span>Too long for {seg.duration.toFixed(1)}s. Shorten it so the voice doesn't rush.</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="p-3">{renderPaginationControls()}</div>
             </div>
           )}
 
@@ -1826,7 +1450,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-4">
                 <div
-                  ref={scriptScrollRef}
                   className={`scroll-smooth pr-2 custom-scrollbar ${
                     isListExpanded
                       ? 'overflow-visible pb-12'
@@ -1936,126 +1559,333 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             </div>
           )}
 
-          {/*
-            Step footer rather than a card of its own: the negative margin closes
-            the gap so it reads as the end of the panel above, while staying
-            pinned to the bottom of the viewport as the cue list scrolls.
-          */}
-          <div className="sticky bottom-0 z-30 -mt-3.5 p-3 sm:p-3.5 rounded-b-2xl bg-slate-900/95 border border-t-0 border-slate-800 shadow-lg backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
-            <button
-              onClick={() => setStepOverride(1)}
-              className="text-xs text-slate-400 hover:text-white flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-all font-medium"
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 px-4 py-2 border-t border-slate-800 text-[11px] text-slate-500">
+                <span className="tabular-nums">
+                  {reviewMode === 'qa'
+                    ? `${segments.length} cues`
+                    : `Showing ${filteredSegments.length} of ${segments.length} cues`}
+                </span>
+                <span className="hidden sm:flex items-center gap-3">
+                  <button type="button" onClick={scrollToTop} className="flex items-center gap-1 hover:text-slate-200 cursor-pointer">
+                    <ChevronsUp className="w-3.5 h-3.5" /> Top
+                  </button>
+                  <button type="button" onClick={scrollToBottom} className="flex items-center gap-1 hover:text-slate-200 cursor-pointer">
+                    <ChevronsDown className="w-3.5 h-3.5" /> Bottom
+                  </button>
+                </span>
+              </div>
+            </section>
+
+            {/* Review panel */}
+            <aside
+              aria-label="Review"
+              className="flex flex-col min-h-0 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
             >
-              ← Back to Audio & Language
-            </button>
-
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="text-xs text-slate-400 font-mono">
-                {filteredSegments.length} of {segments.length} cues reviewed
-              </span>
-
-              {/*
-                A dub can still be run with issues outstanding — that is the
-                reviewer's call — but not without being told they are there.
-              */}
-              <button
-                type="button"
-                onClick={() => setReviewMode('qa')}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold transition-all active:scale-95 cursor-pointer ${
-                  qaBlockingCount > 0
-                    ? 'bg-rose-950/60 hover:bg-rose-900/60 border-rose-800/70 text-rose-200'
-                    : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-                }`}
-                title="Open the QA & sign-off cockpit"
-              >
-                <ShieldCheck
-                  className={`w-3.5 h-3.5 ${
-                    qaBlockingCount > 0 ? 'text-rose-400' : 'text-emerald-400'
-                  }`}
-                />
-                <span>
-                  {qaBlockingCount > 0
-                    ? `${qaBlockingCount} blocking ${
-                        qaBlockingCount === 1 ? 'issue' : 'issues'
-                      }`
-                    : 'QA clear'}
-                </span>
-              </button>
-
-              {/* Export Script Quick Action Button */}
-              <button
-                type="button"
-                onClick={() => handleExportTargetScript('dialogue')}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold transition-all active:scale-95 shadow-xs"
-                title={`Export ${targetLanguage} script as .TXT`}
-              >
-                <FileText className="w-3.5 h-3.5 text-cyan-400" />
-                <span>Export {targetLanguage} Script (.TXT)</span>
-              </button>
-
-              {/* Scroll to Top shortcut */}
-              <button
-                type="button"
-                onClick={() => {
-                  scrollToTop();
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 text-xs transition-all flex items-center gap-1"
-                title="Scroll back to top of script cues"
-              >
-                <ChevronsUp className="w-4 h-4" />
-                <span className="text-[11px] hidden sm:inline">Top</span>
-              </button>
-
-              {/*
-                Primary Next Action: only moves on to Step 3. Dubbing spends
-                ElevenLabs credits, so it starts from Step 3 once a voice is picked.
-              */}
-              <button
-                type="button"
-                onClick={() => {
-                  setStepOverride(3);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                disabled={activeJob.segments.length === 0}
-                className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-indigo-600 to-cyan-500 hover:from-emerald-500 hover:to-cyan-400 text-white text-xs sm:text-sm font-bold shadow-xl shadow-emerald-600/30 disabled:opacity-50 transition-all active:scale-95 cursor-pointer"
-              >
-                {isSynthesizing ? (
-                  <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                ) : (
-                  <AudioWaveform className="w-4 h-4 text-emerald-300" />
-                )}
-                <span>
-                  {isSynthesizing
-                    ? 'Dubbing in progress — view Step 3 ➔'
-                    : 'Finalize Script & Choose Voice (Step 3) ➔'}
-                </span>
-              </button>
-
-              {/*
-                Forcing a fresh dub only differs from the button above once a dub
-                exists, which is the only time it is worth a button of its own.
-              */}
-              {activeJob.synthesizedAudioUrl && (
+              <div className="flex items-center justify-between gap-2 px-4 sm:px-5 pt-4">
+                <h2 className="text-[15px] font-semibold text-slate-100">Review</h2>
                 <button
                   type="button"
-                  onClick={async () => {
+                  onClick={() => setStepOverride(1)}
+                  className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                >
+                  ← Source &amp; voice
+                </button>
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                {/* Pacing health */}
+                <div className="px-4 sm:px-5 py-4 flex flex-col gap-2.5">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Pacing health</span>
+                  <div className="flex h-2 rounded-full overflow-hidden gap-0.5 bg-slate-800">
+                    {segments.length > 0 && (
+                      <>
+                        <span className="bg-emerald-400" style={{ width: `${(pacingCounts.natural / segments.length) * 100}%` }} />
+                        <span className="bg-amber-400" style={{ width: `${(pacingCounts.tight / segments.length) * 100}%` }} />
+                        <span className="bg-rose-400" style={{ width: `${(pacingCounts.fast / segments.length) * 100}%` }} />
+                      </>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Natural', value: pacingCounts.natural, dot: 'bg-emerald-400', filter: 'all' as const },
+                      { label: 'Tight', value: pacingCounts.tight, dot: 'bg-amber-400', filter: 'tight' as const },
+                      { label: 'Too fast', value: pacingCounts.fast, dot: 'bg-rose-400', filter: 'risk' as const },
+                    ].map((s) => (
+                      <button
+                        key={s.label}
+                        type="button"
+                        onClick={() => {
+                          setReviewMode(reviewMode === 'qa' ? 'table' : reviewMode);
+                          setPacingFilter(s.filter);
+                        }}
+                        className="text-left rounded-lg -m-1 p-1 hover:bg-slate-800/60 cursor-pointer"
+                        title={s.filter === 'all' ? 'Show all cues' : `Show ${s.label.toLowerCase()} cues`}
+                      >
+                        <span className="block text-lg font-semibold text-slate-100 tabular-nums leading-tight">{s.value}</span>
+                        <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                          <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+                          {s.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Needs attention */}
+                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Needs attention</span>
+                    {openFindings.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setReviewMode('qa')}
+                        className="text-[11px] text-indigo-400 hover:text-indigo-300 cursor-pointer"
+                      >
+                        All {openFindings.length} →
+                      </button>
+                    )}
+                  </div>
+                  {openFindings.length === 0 ? (
+                    <p className="flex items-center gap-2 text-xs text-emerald-300">
+                      <CheckCircle2 className="w-4 h-4" /> No QA issues found
+                    </p>
+                  ) : (
+                    openFindings.slice(0, 3).map((f) => (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => {
+                          const seg = segments.find((s) => s.id === f.segmentId);
+                          if (seg) handleJumpToCue(seg);
+                        }}
+                        className="w-full flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left transition-colors cursor-pointer"
+                      >
+                        <span
+                          className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
+                            f.severity === 'block' ? 'bg-rose-500/15 text-rose-300' : 'bg-amber-500/15 text-amber-300'
+                          }`}
+                        >
+                          <AlertTriangle className="w-3 h-3" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[12.5px] font-semibold text-slate-100 truncate">{f.title}</span>
+                          <span className="block text-[11.5px] text-slate-400 line-clamp-2">{f.detail}</span>
+                        </span>
+                        <span className="font-mono text-[10.5px] text-slate-500 shrink-0">#{f.cueNumber}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+
+                {/* Translation */}
+                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Translation</span>
+                  <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
+                    <span className="w-8 h-8 rounded-lg bg-indigo-500/15 text-indigo-300 flex items-center justify-center shrink-0">
+                      <SlidersHorizontal className="w-4 h-4" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold text-slate-100 truncate">
+                        {getPresetById(promptPresetId || 'conversational').name}
+                      </span>
+                      <span className="block text-[11.5px] text-slate-400">Translation style</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onOpenPromptModal) onOpenPromptModal();
+                        else setIsLocalPromptModalOpen(true);
+                      }}
+                      className="px-2 py-1 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 cursor-pointer"
+                    >
+                      Change
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="express-step2-lang-select" className="text-xs text-slate-400 shrink-0">
+                      Dub into
+                    </label>
+                    <select
+                      id="express-step2-lang-select"
+                      value={targetLanguage}
+                      onChange={(e) => onTargetLanguageChange(e.target.value)}
+                      className="flex-1 min-w-0 h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                    >
+                      {languages.map((lang) => {
+                        const code = typeof lang === 'string' ? lang : lang.code;
+                        const label = typeof lang === 'string' ? lang : lang.label;
+                        return (
+                          <option key={code} value={code} className="bg-slate-900">
+                            {label}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {onRetranslateSegments && (
+                      <button
+                        type="button"
+                        onClick={() => onRetranslateSegments(customPrompt || '')}
+                        disabled={isTranslatingLanguage || segments.length === 0}
+                        className={railButton}
+                        title="Translate every cue again with the current style"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isTranslatingLanguage ? 'animate-spin' : ''}`} />
+                        {isTranslatingLanguage ? 'Translating…' : 'Re-translate'}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsAlignModalOpen(true)}
+                      disabled={segments.length === 0}
+                      className={railButton}
+                      title="Paste your own translated script and fit it to these cues"
+                    >
+                      <ClipboardPaste className="w-3.5 h-3.5" />
+                      Paste script
+                    </button>
+                  </div>
+                </div>
+
+                {/* Export */}
+                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Export</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsSrtModalOpen(true)}
+                      className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
+                      title="Max words, lines and characters per subtitle, with a live preview"
+                    >
+                      <Sliders className="w-3 h-3" /> Subtitle settings
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => handleExportSrtWithSettings()} disabled={segments.length === 0} className={railButton}>
+                      <Download className="w-3.5 h-3.5" /> Subtitles .srt
+                    </button>
+                    <button type="button" onClick={() => handleExportVttWithSettings()} disabled={segments.length === 0} className={railButton}>
+                      <Download className="w-3.5 h-3.5" /> Subtitles .vtt
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      id="express-step2-script-format"
+                      value={scriptExportFormat}
+                      onChange={(e) => setScriptExportFormat(e.target.value as TargetScriptFormat)}
+                      className="flex-1 min-w-0 h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      aria-label="Script format"
+                    >
+                      <option value="dialogue" className="bg-slate-900">Dialogue .txt</option>
+                      <option value="timecoded" className="bg-slate-900">With timecodes .txt</option>
+                      <option value="bilingual" className="bg-slate-900">Bilingual .txt</option>
+                      <option value="csv" className="bg-slate-900">Cue sheet .csv</option>
+                      <option value="json" className="bg-slate-900">Data .json</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleExportTargetScript(scriptExportFormat)}
+                      disabled={segments.length === 0}
+                      className={`${railButton} shrink-0`}
+                    >
+                      <Download className="w-3.5 h-3.5" /> Script
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyFullTargetScript}
+                      disabled={segments.length === 0}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 shrink-0 cursor-pointer"
+                      title={`Copy the ${targetLanguage} script`}
+                      aria-label={`Copy the ${targetLanguage} script`}
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Tools */}
+                {(onSensitivityChange || onOpenVoiceChanger) && (
+                  <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-3">
+                    {onSensitivityChange && (
+                      <PauseSensitivityControl
+                        variant="compact"
+                        sensitivity={analysisSensitivity}
+                        onChange={onSensitivityChange}
+                        segmentCount={segments.length}
+                      />
+                    )}
+                    {onOpenVoiceChanger && (
+                      <button
+                        type="button"
+                        onClick={onOpenVoiceChanger}
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-pointer"
+                      >
+                        <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                          <AudioWaveform className="w-4 h-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold text-slate-100">Voice changer</span>
+                          <span className="block text-xs text-slate-500 truncate">Keep the delivery, swap the speaker's voice</span>
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/*
+                Continuing only moves on to Step 3. Dubbing spends ElevenLabs
+                credits, so it starts from Step 3 once a voice is picked. A dub can
+                still be run with QA issues outstanding, but not without being told.
+              */}
+              <div className="px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
                     setStepOverride(3);
-                    await onSynthesizeMaster();
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  disabled={isSynthesizing || activeJob.segments.length === 0}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-semibold shadow-xs disabled:opacity-50 transition-all active:scale-95 cursor-pointer"
-                  title="Discard the existing dub and synthesize it again from the current script"
+                  disabled={activeJob.segments.length === 0}
+                  className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
                 >
                   {isSynthesizing ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" /> Dubbing in progress, view it
+                    </>
                   ) : (
-                    <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <>
+                      Continue to dub <ArrowRight className="w-4 h-4" />
+                    </>
                   )}
-                  <span>{isSynthesizing ? 'Dubbing...' : 'Re-dub'}</span>
                 </button>
-              )}
-            </div>
+                {activeJob.synthesizedAudioUrl && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setStepOverride(3);
+                      await onSynthesizeMaster();
+                    }}
+                    disabled={isSynthesizing || activeJob.segments.length === 0}
+                    className={`${railButton} h-9`}
+                    title="Discard the existing dub and make it again from the current script"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" /> Dub again from this script
+                  </button>
+                )}
+                <p className={`text-center text-[11.5px] ${qaBlockingCount > 0 ? 'text-rose-300' : 'text-slate-500'}`}>
+                  {qaBlockingCount > 0
+                    ? `${qaBlockingCount} blocking ${qaBlockingCount === 1 ? 'issue' : 'issues'} open. You can still dub.`
+                    : 'QA clear. Ready to dub.'}
+                </p>
+              </div>
+            </aside>
           </div>
         </div>
       )}
