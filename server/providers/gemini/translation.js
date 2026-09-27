@@ -9,6 +9,7 @@ import {
   extraInstructions,
   translateCueTextsThreeStep,
 } from './threeStepTranslation.js';
+import { alignScript } from '../../lib/scriptAlign.js';
 
 /**
  * Gemini translation.
@@ -182,54 +183,63 @@ export const translateCueTexts = async (
 };
 
 /**
- * Distributes a user-pasted target-language script across existing cues.
- * Cue timings are inputs here, never outputs.
+ * Places a target-language script onto existing cues by meaning. The model
+ * only chooses where each cue ends, so the script comes back word for word
+ * (see `server/lib/scriptAlign.js`). Cue timings are never sent or changed.
+ *
+ * @returns {Promise<{cues: {id: string, text: string, fit?: 'full'|'partial'|'none', estimated: boolean}[],
+ *   wordCount: number, windows: number, failedWindows: number, modelUsed: string|null}>}
  */
-export const alignScriptToCues = async (
+export const alignScriptToCuesDetailed = async (
   cues,
-  { pastedScript, targetLanguage, apiKey, models, extraRules = '' } = {}
+  { pastedScript, targetLanguage, apiKey, models, extraRules = '', onProgress, isCancelled } = {}
 ) => {
-  if (!cues?.length || !pastedScript?.trim()) return new Map();
+  let modelUsed = null;
+  const callModel = async (prompt) => {
+    const outcome = await generateText({
+      contents: { role: 'user', parts: [{ text: prompt }] },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
+      models,
+      apiKey,
+    });
+    modelUsed = outcome.modelUsed ?? modelUsed;
+    return parseJsonResponse(outcome.response.text, 'Script alignment');
+  };
 
-  const prompt = `You are a subtitle alignment specialist.
-
-A timed transcript has been split into exactly ${cues.length} cues. Below is the full ${targetLanguage} script for the same material, written as continuous prose.
-
-Distribute the entire ${targetLanguage} script across the ${cues.length} cues so each cue's text corresponds in meaning to that cue's source text.
-
-RULES
-1. Output exactly ${cues.length} entries, one per input id, in the same order.
-2. Copy each "id" back verbatim.
-3. Use the whole pasted script. Do not add new content or omit sentences.
-4. Never output timestamps or timing of any kind.${extraRules ? `\n${extraRules.trim()}` : ''}
-
-SOURCE CUES (JSON):
-${JSON.stringify(cues.map((cue, i) => ({ id: String(cue.id), order: i + 1, sourceText: cue.text })), null, 2)}
-
-PASTED ${targetLanguage.toUpperCase()} SCRIPT:
-"""
-${pastedScript.trim()}
-"""
-
-Respond with ONLY this JSON:
-{"alignedCues":[{"id":"<the same id>","targetText":"<${targetLanguage} text for this cue>"}]}`;
-
-  const { response } = await generateText({
-    contents: { role: 'user', parts: [{ text: prompt }] },
-    generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
-    models,
-    apiKey,
-  });
-
-  const parsed = parseJsonResponse(response.text, 'Gemini alignment');
-  const list = parsed.alignedCues || parsed.translations || [];
-
-  const result = new Map();
-  for (const item of list) {
-    if (item?.id === undefined) continue;
-    result.set(String(item.id), String(item.targetText ?? item.translatedText ?? '').trim());
+  let lastFailure = null;
+  try {
+    const result = await alignScript(
+      cues.map((cue) => ({ id: String(cue.id), text: String(cue.text ?? '') })),
+      pastedScript,
+      {
+        callModel,
+        targetLanguage,
+        extraRules,
+        onProgress,
+        isCancelled,
+        onWindowError: (err, { from, to }) => {
+          lastFailure = err;
+          logger.warn(`Script alignment for cues ${from + 1}-${to} fell back to length: ${err?.message || err}`);
+        },
+      }
+    );
+    // Every window failing means the model is unreachable, not that the
+    // script is hard to place, so report that rather than a guess.
+    if (lastFailure && result.failedWindows === result.windows) throw lastFailure;
+    return { ...result, modelUsed };
+  } catch (err) {
+    if (err?.code === 'cancelled') {
+      throw new ApiError('The alignment was cancelled.', { status: 499, code: 'cancelled' });
+    }
+    throw err;
   }
-  return result;
+};
+
+/** Same placement as a Map of cue id to text, for callers that only need the text. */
+export const alignScriptToCues = async (cues, options = {}) => {
+  if (!cues?.length || !options.pastedScript?.trim()) return new Map();
+  const { cues: placed } = await alignScriptToCuesDetailed(cues, options);
+  return new Map(placed.map((cue) => [cue.id, cue.text]));
 };
 
 /**

@@ -190,7 +190,7 @@ export interface StreamEvent {
  */
 export const apiStream = async <T = any>(
   path: string,
-  formData: FormData,
+  body: FormData | Record<string, unknown>,
   {
     keys,
     signal,
@@ -198,10 +198,11 @@ export const apiStream = async <T = any>(
   }: RequestOptions & { onEvent?: (event: StreamEvent) => void } = {}
 ): Promise<T> =>
   withNetworkGuard(async () => {
+    const isForm = body instanceof FormData;
     const response = await fetch(`${API_BASE}${path}`, {
       method: 'POST',
-      headers: keyHeaders(keys),
-      body: formData,
+      headers: { ...(isForm ? {} : { 'Content-Type': 'application/json' }), ...keyHeaders(keys) },
+      body: isForm ? body : JSON.stringify(body),
       signal,
     });
 

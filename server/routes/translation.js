@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../errors.js';
-import { translateCueTexts, alignScriptToCues, polishIndicText } from '../providers/gemini/translation.js';
+import { translateCueTexts, alignScriptToCuesDetailed, polishIndicText } from '../providers/gemini/translation.js';
+import { logger } from '../logger.js';
 import { parseSrt, serializeSrt, retextCues, assertTimingsPreserved } from '../lib/srt.js';
 
 export const translationRouter = Router();
@@ -96,7 +97,14 @@ translationRouter.post(
   })
 );
 
-/** POST /api/translation/align — spreads a pasted target script across cues. */
+/**
+ * POST /api/translation/align
+ *
+ * Places a pasted target-language script onto the cues by meaning, word for
+ * word. Streams newline-delimited JSON: `progress` events while windows of
+ * cues are matched, then one `result` (or `error`) line. Closing the request
+ * stops the run before its next model call.
+ */
 translationRouter.post(
   '/translation/align',
   asyncHandler(async (req, res) => {
@@ -117,15 +125,48 @@ translationRouter.post(
       text: String(segment.sourceText ?? segment.textSource ?? segment.text ?? '').trim(),
     }));
 
-    const aligned = await alignScriptToCues(cues, {
-      pastedScript,
-      targetLanguage,
-      apiKey: geminiKey(req),
-    });
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
 
-    res.json({
-      alignedCues: cues.map((cue) => ({ id: cue.id, targetText: aligned.get(cue.id) || '' })),
+    let closed = false;
+    res.on('close', () => {
+      if (!res.writableEnded) closed = true;
     });
+    const send = (event) => {
+      if (!res.writableEnded && !closed) res.write(`${JSON.stringify(event)}\n`);
+    };
+
+    try {
+      const outcome = await alignScriptToCuesDetailed(cues, {
+        pastedScript,
+        targetLanguage,
+        apiKey: geminiKey(req),
+        onProgress: (progress) => send({ type: 'progress', ...progress }),
+        isCancelled: () => closed,
+      });
+      send({
+        type: 'result',
+        alignedCues: outcome.cues.map((cue) => ({
+          id: cue.id,
+          targetText: cue.text,
+          fit: cue.fit,
+          estimated: cue.estimated,
+        })),
+        wordCount: outcome.wordCount,
+        failedWindows: outcome.failedWindows,
+        windows: outcome.windows,
+        modelUsed: outcome.modelUsed,
+      });
+    } catch (err) {
+      const error =
+        err instanceof ApiError ? err : new ApiError(err?.message || 'The script could not be aligned.', { status: 500 });
+      if (error.code !== 'cancelled') logger.error(`Script alignment failed: ${error.message}`);
+      send({ type: 'error', ...error.toJSON().error });
+    } finally {
+      res.end();
+    }
   })
 );
 
