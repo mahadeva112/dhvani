@@ -81,7 +81,16 @@ const translateBatch = async ({ batch, sourceLanguage, targetLanguage, customPro
   });
 
   const parsed = parseJsonResponse(response.text, 'Gemini translation');
-  const list = Array.isArray(parsed.translations) ? parsed.translations : [];
+  // Some models answer with the bare array instead of the wrapping object;
+  // reading only `translations` silently dropped the whole batch.
+  const list = Array.isArray(parsed?.translations) ? parsed.translations : Array.isArray(parsed) ? parsed : [];
+  if (list.length === 0) {
+    throw new ApiError('The translation came back without any cues.', {
+      status: 502,
+      code: 'bad_model_output',
+      retryable: true,
+    });
+  }
 
   const result = new Map();
   for (const item of list) {
@@ -226,6 +235,7 @@ export const alignScriptToCuesDetailed = async (
     // Every window failing means the model is unreachable, not that the
     // script is hard to place, so report that rather than a guess.
     if (lastFailure && result.failedWindows === result.windows) throw lastFailure;
+    onProgress?.({ done: cues.length, total: cues.length, message: 'Every cue has its part of the script' });
     return { ...result, modelUsed };
   } catch (err) {
     if (err?.code === 'cancelled') {

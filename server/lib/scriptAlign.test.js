@@ -85,6 +85,7 @@ test('a perfect model places every cue exactly, across many windows', async () =
   const cues = cuesOf(n);
   let calls = 0;
   const callModel = async (prompt) => {
+    if (isLocate(prompt)) return { firstCue: 1, lastCue: n };
     calls += 1;
     const [, first] = prompt.match(/numbered \{(\d+)\}/);
     const start = Number(first);
@@ -118,7 +119,7 @@ test('a failing window falls back to a flagged estimate instead of failing the r
   const cues = cuesOf(60);
   const errors = [];
   const callModel = async () => {
-    throw new Error('model unavailable');
+    throw Object.assign(new Error('malformed JSON'), { code: 'bad_model_output', retryable: true });
   };
   const result = await alignScript(cues, script, { callModel, onWindowError: (err) => errors.push(err) });
   assertWholeScript(result, script);
@@ -143,6 +144,7 @@ test('when the script runs out the remaining cues are marked as unmatched', asyn
   const cues = cuesOf(100);
   // The first window swallows the whole (short) script.
   const callModel = async (prompt) => {
+    if (isLocate(prompt)) return {};
     const [, last] = prompt.match(/to \{(\d+)\}/);
     return { cues: Array.from({ length: 40 }, (_, i) => ({ n: i + 1, last: Number(last), fit: 'partial' })) };
   };
@@ -188,6 +190,7 @@ test('a reply that gives up is asked again with a smaller window', async () => {
   const script = words(n * perCue).join(' ');
   const sizes = [];
   const callModel = async (prompt) => {
+    if (isLocate(prompt)) return {};
     const [, first] = prompt.match(/numbered \{(\d+)\}/);
     const count = prompt.split('ENGLISH CUES\n')[1].split('\n\n')[0].split('\n').length;
     sizes.push(count);
@@ -211,4 +214,84 @@ test('a bad key stops the run instead of being retried', async () => {
   };
   await assert.rejects(alignScript(cuesOf(50), words(200).join(' '), { callModel }), /API key/);
   assert.equal(calls, 1);
+});
+
+const isLocate = (prompt) => prompt.includes('Find where it sits');
+
+/** A model that places `perCue` words per cue, starting at cue `offset`, and locates as told. */
+const placingModel = ({ perCue, offset = 0, located }) => async (prompt) => {
+  if (isLocate(prompt)) return located;
+  const [, first] = prompt.match(/numbered \{(\d+)\}/);
+  const lines = prompt.split('ENGLISH CUES\n')[1].split('\n\n')[0].split('\n');
+  const firstWordCue = Number(first) / perCue;
+  return {
+    cues: lines.map((_, i) => ({ n: i + 1, last: (firstWordCue + i + 1) * perCue - 1, fit: 'full' })),
+  };
+};
+
+test('a script for only the first part of the video stays on those cues', async () => {
+  const perCue = 6;
+  const cues = cuesOf(100).map((c) => ({ ...c, text: 'one two three four five six' }));
+  const script = words(40 * perCue).join(' ');
+  const result = await alignScript(cues, script, {
+    callModel: placingModel({ perCue, located: { firstCue: 1, lastCue: 40 } }),
+  });
+  assert.deepEqual(result.coverage, { firstCue: 1, lastCue: 40 });
+  assertWholeScript(result, script);
+  result.cues.slice(0, 40).forEach((c, i) => assert.equal(c.text, words(perCue).map((_, k) => `w${i * perCue + k}`).join(' ')));
+  result.cues.slice(42).forEach((c) => {
+    assert.equal(c.text, '');
+    assert.equal(c.fit, 'none');
+  });
+});
+
+test('a located range the script is far too short or long for is ignored', async () => {
+  const cues = cuesOf(100).map((c) => ({ ...c, text: 'one two three four five six' }));
+  const script = words(600).join(' ');
+  // 600 words cannot translate cues 1-10 (60 English words).
+  const result = await alignScript(cues, script, {
+    callModel: placingModel({ perCue: 6, located: { firstCue: 1, lastCue: 10 } }),
+  });
+  assert.equal(result.coverage, null);
+  assertWholeScript(result, script);
+  assert.ok(result.cues.at(-1).text);
+});
+
+test('a script that covers everything is not trimmed', async () => {
+  const cues = cuesOf(80).map((c) => ({ ...c, text: 'one two three four' }));
+  const script = words(320).join(' ');
+  const result = await alignScript(cues, script, {
+    callModel: placingModel({ perCue: 4, located: { firstCue: 1, lastCue: 80 } }),
+  });
+  assert.equal(result.coverage, null);
+  assert.ok(result.cues.every((c) => c.fit === 'full'));
+});
+
+test('an unreachable model is reported at once, not guessed around', async () => {
+  let calls = 0;
+  const callModel = async () => {
+    calls += 1;
+    throw Object.assign(new Error('Could not reach LLM gateway'), { code: 'network_error', retryable: true });
+  };
+  await assert.rejects(alignScript(cuesOf(10), words(50).join(' '), { callModel }), /Could not reach/);
+  assert.equal(calls, 1);
+  calls = 0;
+  await assert.rejects(alignScript(cuesOf(100), words(500).join(' '), { callModel }), /Could not reach/);
+  assert.equal(calls, 1);
+});
+
+test('a network fault after the model was reached only estimates that window', async () => {
+  let calls = 0;
+  const good = placingModel({ perCue: 5, located: { firstCue: 1, lastCue: 80 } });
+  const callModel = async (prompt) => {
+    calls += 1;
+    if (calls === 3) throw Object.assign(new Error('socket hang up'), { code: 'network_error', retryable: true });
+    return good(prompt);
+  };
+  const script = words(400).join(' ');
+  const result = await alignScript(cuesOf(80), script, { callModel });
+  assertWholeScript(result, script);
+  assert.equal(result.failedWindows, 1);
+  assert.ok(result.cues.some((c) => c.estimated));
+  assert.ok(result.cues.some((c) => c.fit === 'full'));
 });

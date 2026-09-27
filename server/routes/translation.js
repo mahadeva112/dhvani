@@ -158,6 +158,7 @@ translationRouter.post(
         failedWindows: outcome.failedWindows,
         windows: outcome.windows,
         modelUsed: outcome.modelUsed,
+        coverage: outcome.coverage,
       });
     } catch (err) {
       const error =
