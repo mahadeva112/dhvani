@@ -720,58 +720,51 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
     setForbidden('');
   };
 
+  const field =
+    'h-9 min-w-0 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-2.5 text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none';
+
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/60">
+    <div className="border-t border-slate-800 pt-3">
       <button
         type="button"
         onClick={onToggle}
-        className="w-full flex items-center gap-2.5 px-4 py-3 text-left cursor-pointer"
+        aria-expanded={isOpen}
+        className="w-full flex items-center gap-2 text-left cursor-pointer"
       >
-        <Lock className="w-4 h-4 text-indigo-400 shrink-0" />
-        <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
-          Locked terms
-        </span>
-        <span className="text-[11px] text-slate-500">{terms.length} defined</span>
-        <ChevronDown
-          className={`w-4 h-4 text-slate-500 ml-auto transition-transform ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-        />
+        <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+        <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Locked terms</span>
+        <span className="text-[11.5px] text-slate-400">{terms.length === 0 ? 'none yet' : `${terms.length} set`}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-slate-500 ml-auto transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {isOpen && (
-        <div className="px-4 pb-4 space-y-3 animate-in fade-in duration-150">
+        <div className="mt-3 flex flex-col gap-3 animate-in fade-in duration-150">
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Names and terms the checks hold every cue to: either kept exactly as written, or always rendered one approved way.
+          </p>
+
           {terms.length > 0 && (
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-1.5">
               {terms.map((term) => (
-                <div
-                  key={term.id}
-                  className="flex flex-wrap items-center gap-2 px-3 py-2 rounded-xl bg-slate-950/60 border border-slate-800/80"
-                >
-                  <span className="text-xs font-semibold text-slate-100">{term.source}</span>
+                <div key={term.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-slate-800">
+                  <span className="text-[13px] font-semibold text-slate-100">{term.source}</span>
                   <span
-                    className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                      term.policy === 'keep'
-                        ? 'bg-emerald-500/15 text-emerald-300'
-                        : 'bg-indigo-500/15 text-indigo-300'
+                    className={`text-[10.5px] font-semibold px-1.5 py-px rounded-full ${
+                      term.policy === 'keep' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-indigo-500/15 text-indigo-300'
                     }`}
                   >
-                    {term.policy === 'keep' ? 'do not translate' : 'house term'}
+                    {term.policy === 'keep' ? 'Keep as written' : 'Approved rendering'}
                   </span>
-                  {term.target && <span className="text-xs text-slate-300">→ {term.target}</span>}
+                  {term.target && <span className="text-[13px] text-slate-300">→ {term.target}</span>}
                   {term.forbidden && term.forbidden.length > 0 && (
-                    <span className="text-[11px] text-rose-300/80">
-                      not: {term.forbidden.join(', ')}
-                    </span>
+                    <span className="text-[11.5px] text-rose-300">not {term.forbidden.join(', ')}</span>
                   )}
-                  <span className="text-[10px] text-slate-500">
-                    {term.language ? term.language : 'all languages'}
-                  </span>
+                  <span className="text-[11px] text-slate-500">{term.language ? `${term.language} only` : 'every language'}</span>
                   <button
                     type="button"
                     onClick={() => onRemove(term.id)}
                     aria-label={`Remove ${term.source}`}
-                    className="ml-auto p-1.5 rounded-lg text-slate-500 hover:text-rose-300 hover:bg-slate-800 transition-all cursor-pointer"
+                    className="ml-auto p-1 rounded-md text-slate-500 hover:text-rose-300 hover:bg-slate-800 transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -780,30 +773,24 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
             </div>
           )}
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2.5">
-            <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 w-fit">
-              <button
-                type="button"
-                onClick={() => setPolicy('keep')}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                  policy === 'keep'
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-              >
-                Do not translate
-              </button>
-              <button
-                type="button"
-                onClick={() => setPolicy('prefer')}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                  policy === 'prefer'
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
-                }`}
-              >
-                House rendering
-              </button>
+          <div className="flex flex-col gap-2.5 p-3 rounded-xl border border-dashed border-slate-700">
+            <div role="group" aria-label="Kind of term" className="self-start flex p-0.5 gap-0.5 rounded-[9px] bg-slate-950/60 border border-slate-800">
+              {([
+                ['keep', 'Keep as written'],
+                ['prefer', 'Approved rendering'],
+              ] as const).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={policy === id}
+                  onClick={() => setPolicy(id)}
+                  className={`px-2.5 py-1 rounded-[7px] text-xs font-medium transition-colors cursor-pointer ${
+                    policy === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -811,37 +798,36 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
                 type="text"
                 value={source}
                 onChange={(e) => setSource(e.target.value)}
-                placeholder={policy === 'keep' ? 'Term in the source, e.g. Sadhguru' : 'Concept, e.g. technique'}
-                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                placeholder={policy === 'keep' ? 'Term, e.g. Inner Engineering' : 'Idea, e.g. technique'}
+                aria-label="Term"
+                className={field}
               />
               <input
                 type="text"
                 value={target}
                 onChange={(e) => setTarget(e.target.value)}
-                placeholder={
-                  policy === 'keep'
-                    ? 'Must appear as (blank = unchanged)'
-                    : `Approved ${targetLanguage} rendering`
-                }
-                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                placeholder={policy === 'keep' ? 'Written as (blank = unchanged)' : `Approved ${targetLanguage} word`}
+                aria-label="Written as"
+                className={field}
               />
               {policy === 'prefer' ? (
                 <input
                   type="text"
                   value={forbidden}
                   onChange={(e) => setForbidden(e.target.value)}
-                  placeholder="Rejected renderings, comma separated"
-                  className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+                  placeholder="Words to reject, comma separated"
+                  aria-label="Words to reject"
+                  className={field}
                 />
               ) : (
-                <label className="flex items-center gap-2 text-[11px] text-slate-400 px-1">
+                <label className="flex items-center gap-2 text-[12.5px] text-slate-400 px-1 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={scopeToLanguage}
                     onChange={(e) => setScopeToLanguage(e.target.checked)}
                     className="w-3.5 h-3.5 accent-indigo-500"
                   />
-                  <span>{targetLanguage} only</span>
+                  Only in {targetLanguage}
                 </label>
               )}
             </div>
@@ -850,10 +836,9 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
               type="button"
               onClick={submit}
               disabled={!canAdd}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-bold transition-all active:scale-95 disabled:cursor-not-allowed cursor-pointer"
+              className="self-start h-[30px] px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add term</span>
+              <Plus className="w-3.5 h-3.5" /> Add term
             </button>
           </div>
         </div>

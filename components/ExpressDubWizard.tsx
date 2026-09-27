@@ -62,7 +62,6 @@ import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { PhoneticSmartTextarea } from './PhoneticSmartTextarea';
 import { SrtExportModal } from './SrtExportModal';
 import { CustomScriptAlignModal } from './CustomScriptAlignModal';
-import { TranslationPromptCard } from './TranslationPromptCard';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
@@ -279,7 +278,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         targetText: item.textTarget,
       });
     });
-    setExportSuccessMessage(`Applied custom script alignment across ${alignedItems.length} dialogue cues!`);
+    setExportSuccessMessage(`Your script is now in ${alignedItems.length} ${alignedItems.length === 1 ? 'cue' : 'cues'}`);
     setTimeout(() => setExportSuccessMessage(null), 3500);
   };
 
@@ -576,7 +575,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const handleExportTargetScript = (format: TargetScriptFormat = 'dialogue') => {
     if (onDownloadScript) {
       onDownloadScript(format);
-      setExportSuccessMessage(`Exported ${targetLanguage} script (${format.toUpperCase()})`);
+      setExportSuccessMessage(`Saved the ${targetLanguage} script`);
       setTimeout(() => setExportSuccessMessage(null), 3000);
       return;
     }
@@ -599,7 +598,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const fileName = `dhvani_${cleanLang}_script_${format}.${extension}`;
 
     downloadFile(scriptContent, fileName, mimeType);
-    setExportSuccessMessage(`Exported ${targetLanguage} script (${format.toUpperCase()})`);
+    setExportSuccessMessage(`Saved the ${targetLanguage} script`);
     setTimeout(() => setExportSuccessMessage(null), 3000);
   };
 
@@ -608,7 +607,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const scriptContent = generateTargetLanguageScript(segments, targetLanguage, format);
     try {
       navigator.clipboard.writeText(scriptContent);
-      setExportSuccessMessage(`Copied full ${targetLanguage} script to clipboard!`);
+      setExportSuccessMessage(`Copied the ${targetLanguage} script`);
       setTimeout(() => setExportSuccessMessage(null), 3000);
     } catch (e) {
       console.warn('Clipboard write failed:', e);
@@ -622,7 +621,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const cleanLang = (targetLanguage || 'captions').toLowerCase().replace(/\s+/g, '_');
     downloadFile(srt, `dhvani_${cleanLang}_subtitles.srt`, 'text/srt;charset=utf-8');
     setExportSuccessMessage(
-      `Exported .SRT (${opts.maxLinesPerCue} line, max ${opts.maxWordsPerLine} words/line)`
+      `Saved the .srt subtitles (${opts.maxLinesPerCue} ${opts.maxLinesPerCue === 1 ? 'line' : 'lines'}, up to ${opts.maxWordsPerLine} words a line)`
     );
     setTimeout(() => setExportSuccessMessage(null), 3500);
   };
@@ -633,7 +632,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const vtt = generateVttContent(segments, opts);
     const cleanLang = (targetLanguage || 'captions').toLowerCase().replace(/\s+/g, '_');
     downloadFile(vtt, `dhvani_${cleanLang}_subtitles.vtt`, 'text/vtt;charset=utf-8');
-    setExportSuccessMessage(`Exported WebVTT .VTT captions`);
+    setExportSuccessMessage('Saved the .vtt subtitles');
     setTimeout(() => setExportSuccessMessage(null), 3000);
   };
 
@@ -2482,9 +2481,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
       {/* Floating Export Toast Notification */}
       {exportSuccessMessage && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 bg-emerald-950/95 border border-emerald-500/80 text-emerald-100 px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-5">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-          <span className="text-xs font-semibold">{exportSuccessMessage}</span>
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-100 text-slate-950 text-[12.5px] font-medium shadow-2xl animate-in fade-in slide-in-from-bottom-2"
+        >
+          <Check className="w-3.5 h-3.5 shrink-0" />
+          {exportSuccessMessage}
         </div>
       )}
 
