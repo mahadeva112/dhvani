@@ -817,7 +817,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5">
             {visibleVoices.map((v, idx) => {
               const isSelected = v.id === elVoiceId;
               const isPlaying = playingVoiceId === v.id;

@@ -1730,7 +1730,7 @@ export default function App() {
       )}
 
       {/* Main Express Dubbing Studio */}
-      <main className="flex-1 flex flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8 w-full max-w-7xl mx-auto min-w-0">
+      <main className="flex-1 flex flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8 2xl:px-10 w-full mx-auto min-w-0">
         <ExpressDubWizard
           activeStep={activeStep}
           onStepChange={setStepOverride}
