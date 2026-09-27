@@ -715,25 +715,31 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <label htmlFor="express-wizard-source-lang-select" className="text-xs text-slate-400">
                       Spoken in
                     </label>
-                    <select
-                      id="express-wizard-source-lang-select"
-                      value={sourceLanguage}
-                      onChange={(e) => onSourceLanguageChange?.(e.target.value)}
-                      disabled={!onSourceLanguageChange}
-                      className="w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl px-3 text-[13px] font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-default"
-                    >
-                      <option value="" className="bg-slate-900">Auto detect</option>
-                      <option value="English" className="bg-slate-900">English</option>
-                      {languages.map((lang) => {
-                        const code = typeof lang === 'string' ? lang : lang.code;
-                        const label = typeof lang === 'string' ? lang : lang.label;
-                        return (
-                          <option key={`src-${code}`} value={code} className="bg-slate-900">
-                            {label}
-                          </option>
-                        );
-                      })}
-                    </select>
+                    <div className="relative group">
+                      <select
+                        id="express-wizard-source-lang-select"
+                        value={sourceLanguage}
+                        onChange={(e) => onSourceLanguageChange?.(e.target.value)}
+                        disabled={!onSourceLanguageChange}
+                        className="appearance-none w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer disabled:cursor-default"
+                      >
+                        <option value="" className="bg-slate-900">Auto detect</option>
+                        <option value="English" className="bg-slate-900">English</option>
+                        {languages.map((lang) => {
+                          const code = typeof lang === 'string' ? lang : lang.code;
+                          const label = typeof lang === 'string' ? lang : lang.label;
+                          return (
+                            <option key={`src-${code}`} value={code} className="bg-slate-900">
+                              {label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <ChevronDown
+                        aria-hidden="true"
+                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-hover:text-slate-300 group-focus-within:text-indigo-400 transition-colors"
+                      />
+                    </div>
                   </div>
 
                   <button
@@ -755,22 +761,28 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <label htmlFor="express-wizard-lang-select" className="text-xs text-slate-400">
                       Dub into
                     </label>
-                    <select
-                      id="express-wizard-lang-select"
-                      value={targetLanguage}
-                      onChange={(e) => onTargetLanguageChange(e.target.value)}
-                      className="w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl px-3 text-[13px] font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                    >
-                      {languages.map((lang) => {
-                        const code = typeof lang === 'string' ? lang : lang.code;
-                        const label = typeof lang === 'string' ? lang : lang.label;
-                        return (
-                          <option key={code} value={code} className="bg-slate-900">
-                            {label}
-                          </option>
-                        );
-                      })}
-                    </select>
+                    <div className="relative group">
+                      <select
+                        id="express-wizard-lang-select"
+                        value={targetLanguage}
+                        onChange={(e) => onTargetLanguageChange(e.target.value)}
+                        className="appearance-none w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                      >
+                        {languages.map((lang) => {
+                          const code = typeof lang === 'string' ? lang : lang.code;
+                          const label = typeof lang === 'string' ? lang : lang.label;
+                          return (
+                            <option key={code} value={code} className="bg-slate-900">
+                              {label}
+                            </option>
+                          );
+                        })}
+                      </select>
+                      <ChevronDown
+                        aria-hidden="true"
+                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-hover:text-slate-300 group-focus-within:text-indigo-400 transition-colors"
+                      />
+                    </div>
                   </div>
                 </div>
                 <p className="text-[11.5px] text-slate-500 leading-relaxed">
