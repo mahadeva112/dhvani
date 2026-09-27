@@ -1821,7 +1821,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       onClick={() => setIsAlignModalOpen(true)}
                       disabled={segments.length === 0}
                       className={railButton}
-                      title="Paste your own translated script and fit it to these cues"
+                      title="Paste your own translated script; each part is matched to the English cue it translates"
                     >
                       <ClipboardPaste className="w-3.5 h-3.5" />
                       Paste script

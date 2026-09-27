@@ -109,6 +109,12 @@ export const transcribeMedia = async (
 /** How closely a cue's placed script says what its English says. */
 export type ScriptFit = 'full' | 'partial' | 'none';
 
+/** The cues, 1-based, that a pasted script was found to cover when it covers only part. */
+export interface ScriptCoverage {
+  firstCue: number;
+  lastCue: number;
+}
+
 export interface AlignedCue {
   id: string | number;
   targetText: string;
@@ -128,11 +134,12 @@ export const alignCustomScriptWithGemini = async (
   pastedScript: string,
   targetLanguage: string,
   { signal, onProgress }: { signal?: AbortSignal; onProgress?: (done: number, total: number, message: string) => void } = {}
-): Promise<AlignedCue[]> => {
-  if (!segments?.length || !pastedScript.trim()) return [];
+): Promise<{ cues: AlignedCue[]; coverage: ScriptCoverage | null }> => {
+  if (!segments?.length || !pastedScript.trim()) return { cues: [], coverage: null };
 
   const response = await apiStream<{
     alignedCues: { id: string; targetText: string; fit?: ScriptFit; estimated?: boolean }[];
+    coverage?: ScriptCoverage | null;
   }>(
     '/translation/align',
     {
@@ -149,7 +156,7 @@ export const alignCustomScriptWithGemini = async (
   );
 
   const byId = new Map(response.alignedCues.map((cue) => [String(cue.id), cue]));
-  return segments.map((segment) => {
+  const cues = segments.map((segment) => {
     const cue = byId.get(String(segment.id));
     return {
       id: segment.id,
@@ -158,6 +165,7 @@ export const alignCustomScriptWithGemini = async (
       estimated: Boolean(cue?.estimated),
     };
   });
+  return { cues, coverage: response.coverage ?? null };
 };
 
 /** Detects the speaker's expression/tone from the audio. */

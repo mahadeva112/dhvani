@@ -141,7 +141,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     abortRef.current = controller;
     setProgress({ done: 0, total: segments.length, message: 'Reading your script' });
     try {
-      const aligned = await alignCustomScriptWithGemini(segments, script, targetLanguage, {
+      const { cues: aligned, coverage } = await alignCustomScriptWithGemini(segments, script, targetLanguage, {
         signal: controller.signal,
         onProgress: (done, total, message) => setProgress({ done, total: total || segments.length, message }),
       });
@@ -152,8 +152,16 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
       }));
       setDraft(rows);
       setFittedScript(script);
-      const flagged = rows.filter(needsCheck).length;
+      // Cues outside what the script covers are explained by the note below.
+      const flagged = rows.filter(
+        (row, i) => needsCheck(row) && (!coverage || (i + 1 >= coverage.firstCue && i + 1 <= coverage.lastCue))
+      ).length;
       setOnlyToCheck(false);
+      if (coverage) {
+        notes.push(
+          `Your script covers cues ${coverage.firstCue}–${coverage.lastCue}, so the cues outside that were left empty.`
+        );
+      }
       notes.push(
         flagged
           ? `${flagged} ${flagged === 1 ? 'cue needs' : 'cues need'} a look. Use "Only cues to check" to go through them.`

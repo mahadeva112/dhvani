@@ -203,7 +203,7 @@ export const buildAlignPrompt = ({ cues, tokens, start, stop, final, targetLangu
     ? `\nALREADY PLACED (context only, do not assign again)\nThe cue just before these said: "${previous.source}"\nIt was given: "${previous.target}"\n`
     : '';
   const scope = final
-    ? `These are the last cues of the transcript, so every numbered word must be used: cue ${cues.length} ends at word {${stop - 1}}.`
+    ? `These are the last cues the script covers, so every numbered word must be used: cue ${cues.length} ends at word {${stop - 1}}.`
     : `The numbered words run on past these cues and the later words belong to later cues. Stop where the meaning of cue ${cues.length} ends; you do not have to use every word.`;
 
   return `You are aligning a ${language} dubbing script to the English cues it translates.
@@ -214,7 +214,7 @@ HOW TO DECIDE
 1. Match by meaning, not by length. Read a whole sentence in both languages before cutting it.
 2. Languages order words differently (in Indian languages the verb usually comes last). When one English sentence runs over several cues, cut the ${language} sentence at the phrase boundary closest to where the English cue breaks. Never cut inside a phrase that has to be said together.
 3. A pause "…" or "..." between two cues belongs to the earlier cue. Punctuation is part of the numbered word it touches.
-4. Almost every cue gets words. Give "last": null only for a cue marked (no speech), or when the script has nothing at all for that cue.
+4. Give "last": null for a cue marked (no speech), or when nothing in the script says that cue. Never give null just because a cue is hard to cut.
 5. Words the script adds, or a meaning it moves, stay with the cue they are closest to; mark that cue's fit.
 6. ${scope}${extraRules ? `\n${extraRules.trim()}` : ''}
 
@@ -285,7 +285,61 @@ const looksGivenUp = (answers, fits, weights) => {
   return empty / speech.length > 0.5 || unmatched / speech.length > 0.5;
 };
 
-export const ALIGN_DEFAULTS = { windowSize: 30, overlap: 6, slack: 1.6, margin: 40, minWindow: 8, attempts: 3 };
+const EDGE_WORDS = 40;
+const wordCount = (text) => spokenText(text).split(/\s+/).filter(Boolean).length;
+
+export const buildLocatePrompt = ({ cues, tokens, targetLanguage }) => {
+  const language = targetLanguage || 'target-language';
+  const cueList = cues
+    .map((cue, i) => `${i + 1}. ${spokenText(cue.text) ? String(cue.text).trim() : '(no speech)'}`)
+    .join('\n');
+  const opening = joinTokens(tokens.slice(0, EDGE_WORDS));
+  const closing = joinTokens(tokens.slice(-EDGE_WORDS));
+  return `A ${language} script translates part or all of the English transcript below. Find where it sits.
+
+ENGLISH CUES
+${cueList}
+
+THE ${language.toUpperCase()} SCRIPT BEGINS
+"${opening}"
+
+AND ENDS
+"${closing}"
+
+Give the number of the English cue that the script's first words translate, and of the cue that its last words translate. When the script covers the whole transcript, that is cue 1 and cue ${cues.length}.
+
+Respond with ONLY this JSON:
+{"firstCue":<number>,"lastCue":<number>}`;
+};
+
+/**
+ * Finds which cues a script covers, so a script for part of a video is not
+ * spread over all of it. Returns 0-based inclusive cue indexes, or null when
+ * the answer is unusable or implausible for the script's length.
+ */
+const locateCoverage = async ({ cues, tokens, targetLanguage, callModel }) => {
+  const parsed = await callModel(buildLocatePrompt({ cues, tokens, targetLanguage }));
+  const first = Number(parsed?.firstCue) - 1;
+  const last = Number(parsed?.lastCue) - 1;
+  if (!Number.isInteger(first) || !Number.isInteger(last) || first < 0 || last >= cues.length || first > last) return null;
+  if (first === 0 && last === cues.length - 1) return null;
+  // Translations run from about half to about twice the English word count.
+  const english = sum(cues.slice(first, last + 1).map((cue) => wordCount(cue.text)));
+  const ratio = tokens.length / Math.max(1, english);
+  if (ratio < 0.35 || ratio > 3) return null;
+  return { first, last };
+};
+
+export const ALIGN_DEFAULTS = {
+  windowSize: 30,
+  overlap: 6,
+  slack: 1.6,
+  margin: 40,
+  minWindow: 8,
+  attempts: 3,
+  // Cues kept either side of the located range, in case it is a little off.
+  coverageMargin: 2,
+};
 
 /**
  * Aligns a whole script onto cues.
@@ -296,33 +350,61 @@ export const ALIGN_DEFAULTS = { windowSize: 30, overlap: 6, slack: 1.6, margin: 
  * @param {(prompt: string) => Promise<unknown>} options.callModel Returns the
  *   parsed JSON reply for one window.
  * @returns {Promise<{cues: {id: string, text: string, fit?: string, estimated: boolean}[],
- *   wordCount: number, windows: number, failedWindows: number}>}
+ *   wordCount: number, windows: number, failedWindows: number,
+ *   coverage: {firstCue: number, lastCue: number} | null}>} `coverage` is set,
+ *   1-based, when the script was found to cover only part of the cues.
  */
 export const alignScript = async (
   cues,
   script,
   { callModel, targetLanguage, extraRules = '', onProgress, isCancelled, onWindowError, ...tuning } = {}
 ) => {
-  const { windowSize, overlap, slack, margin, minWindow, attempts } = { ...ALIGN_DEFAULTS, ...tuning };
+  const { windowSize, overlap, slack, margin, minWindow, attempts, coverageMargin } = { ...ALIGN_DEFAULTS, ...tuning };
   const tokens = tokenizeScript(script);
   const total = tokens.length;
   const weights = cues.map(cueWeight);
   const results = cues.map((cue) => ({ id: String(cue.id), text: '', fit: undefined, estimated: false }));
-  const report = { wordCount: total, windows: 0, failedWindows: 0 };
+  const report = { wordCount: total, windows: 0, failedWindows: 0, coverage: null };
 
   if (cues.length === 0 || total === 0) return { cues: results, ...report };
 
+  // Whether any call has come back yet; until one has, a failure to reach
+  // the model is reported rather than papered over.
+  let reached = false;
+
+  // The cues the script is placed over: all of them unless it covers only part.
   let cueIndex = 0;
+  let end = cues.length;
+  if (cues.length > windowSize + overlap) {
+    onProgress?.({ done: 0, total: cues.length, message: 'Finding where your script starts and ends' });
+    try {
+      const span = await locateCoverage({ cues, tokens, targetLanguage, callModel });
+      reached = true;
+      if (span) {
+        report.coverage = { firstCue: span.first + 1, lastCue: span.last + 1 };
+        cueIndex = Math.max(0, span.first - coverageMargin);
+        end = Math.min(cues.length, span.last + 1 + coverageMargin);
+      }
+    } catch (err) {
+      if (err?.code === 'cancelled' || isCancelled?.()) throw err;
+      if (err?.retryable === false && err?.status && err.status < 500) throw err;
+      if (err?.code !== 'bad_model_output') throw err;
+      // Without a location the whole transcript is used.
+    }
+    for (let i = 0; i < cues.length; i += 1) {
+      if ((i < cueIndex || i >= end) && weights[i]) results[i].fit = 'none';
+    }
+  }
   let cursor = 0;
 
   /** Which cues and words one call covers, for a window of `size` cues. */
   const planWindow = (size) => {
     const keep = Math.min(overlap, Math.floor(size / 4));
-    const remainingCues = cues.length - cueIndex;
+    const remainingCues = end - cueIndex;
     const final = remainingCues <= size + keep;
     const count = final ? remainingCues : size;
     const windowWeights = weights.slice(cueIndex, cueIndex + count);
-    const rate = (total - cursor) / (sum(weights.slice(cueIndex)) || 1);
+    const rate = (total - cursor) / (sum(weights.slice(cueIndex, end)) || 1);
     return {
       final,
       count,
@@ -334,7 +416,7 @@ export const alignScript = async (
     };
   };
 
-  while (cueIndex < cues.length) {
+  while (cueIndex < end) {
     if (isCancelled?.()) throw Object.assign(new Error('Alignment was cancelled.'), { code: 'cancelled' });
 
     let plan = planWindow(windowSize);
@@ -363,6 +445,7 @@ export const alignScript = async (
     let fits;
     let failure = null;
     let widened = false;
+    let givenUpReplies = 0;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       let answers = new Array(plan.count).fill(undefined);
       fits = new Array(plan.count).fill(undefined);
@@ -372,17 +455,28 @@ export const alignScript = async (
         const parsed = await callModel(
           buildAlignPrompt({ cues: plan.windowCues, tokens, start: cursor, stop: plan.slice, final: plan.final, targetLanguage, previous, extraRules })
         );
+        reached = true;
         ({ answers, fits } = readAnswers(parsed, plan.count, tokens));
         givenUp = looksGivenUp(answers, fits, plan.windowWeights);
       } catch (err) {
         if (err?.code === 'cancelled' || isCancelled?.()) throw err;
         // A bad key or a bad request will not get better by asking again.
         if (err?.retryable === false && err?.status && err.status < 500) throw err;
+        // Network faults were already retried by the client, so the model
+        // cannot be reached; say so instead of guessing every cue.
+        const badReply = err?.code === 'bad_model_output';
+        if (!badReply && !reached) throw err;
         failure = err;
       }
       resolved = resolveBoundaries({ answers, weights: plan.windowWeights, start: cursor, stop: plan.slice, final: plan.final, rate: plan.rate });
       if (attempt === attempts) break;
+      // Only a malformed reply is worth asking again; a network fault was
+      // already retried.
+      if (failure && failure.code !== 'bad_model_output') break;
 
+      // Two replies in a row that place nothing are a verdict: the script
+      // does not cover these cues.
+      if (givenUp && ++givenUpReplies >= 2) break;
       if (failure || givenUp) {
         // Fewer cues are easier to place; ask again with half as many. A
         // last reply that still places nothing is taken as the verdict.
@@ -416,6 +510,5 @@ export const alignScript = async (
     cueIndex += plan.commit;
   }
 
-  onProgress?.({ done: cues.length, total: cues.length, message: 'Every cue has its part of the script' });
   return { cues: results, ...report };
 };
