@@ -1817,6 +1817,8 @@ export default function App() {
         onRetranslateSegments={handleRetranslateWithPrompt}
         onRetranscribeAudio={handleRetranscribeAudio}
         isTranslating={isTranslatingLanguage}
+        segmentCount={activeJob?.segments?.length || 0}
+        audioDuration={activeJob?.audioBuffer?.duration || 0}
       />
 
       {/* Indic Phonetic Keyboard Modal */}
@@ -1887,6 +1889,8 @@ export default function App() {
         onSensitivityChange={handleSensitivityChange}
         segmentCount={activeJob?.segments?.length || 0}
         hasAudioBuffer={Boolean(activeJob?.audioBuffer)}
+        audioBuffer={activeJob?.audioBuffer || null}
+        segments={activeJob?.segments || []}
       />
 
       {/* Floating Dynamic Translation Progress Pill */}
