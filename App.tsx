@@ -1895,10 +1895,13 @@ export default function App() {
 
       {/* Floating Dynamic Translation Progress Pill */}
       {isTranslatingLanguage && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 bg-indigo-950/95 border border-indigo-500/80 text-white px-4 py-2.5 rounded-2xl shadow-2xl backdrop-blur-md animate-in slide-in-from-bottom-5">
-          <RefreshCw className="w-4 h-4 text-indigo-400 animate-spin" />
-          <span className="text-xs font-semibold">
-            Translating dialogue cues to {selectedLanguage}...
+        <div
+          role="status"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 shadow-2xl animate-in fade-in slide-in-from-bottom-2"
+        >
+          <span className="w-3.5 h-3.5 rounded-full border-2 border-indigo-400 border-r-transparent animate-spin" />
+          <span className="text-[12.5px] font-medium">
+            Translating the cues into {activeJob?.language || selectedLanguage}…
           </span>
         </div>
       )}

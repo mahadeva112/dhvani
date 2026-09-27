@@ -387,115 +387,99 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
 
   return (
     <div className="relative group/phonetic flex flex-col space-y-1">
-      {/* Top Helper Toolbar */}
+      {/* Helper toolbar: quiet chips, so the line itself stays the focus */}
       <div
-        className={`items-center justify-between text-[11px] text-slate-400 select-none ${
+        className={`items-center justify-between gap-2 text-[11px] text-slate-400 select-none ${
           compactToolbar ? 'hidden group-focus-within/phonetic:flex' : 'flex'
         }`}
       >
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {/* Indic Language Script Pill */}
-          <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 dark:text-indigo-300 border border-indigo-500/20 text-[10px] font-medium font-sans flex items-center gap-1">
-            <span className="font-serif font-bold text-xs">{langConfig.nativeName}</span>
-            <span className="opacity-70 text-[9px]">({langConfig.name})</span>
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className="px-1.5 py-0.5 text-[11px] text-slate-400" title={`Typing in ${langConfig.name}`}>
+            {langConfig.nativeName}
           </span>
 
-          {/* Toggle Phonetic Button */}
           <button
             type="button"
             onClick={handleTogglePhonetic}
-            className={`px-2 py-0.5 rounded-md font-mono flex items-center gap-1 transition-all ${
-              isPhoneticOn
-                ? 'bg-indigo-600 text-white shadow-xs font-semibold'
-                : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border border-slate-300 dark:border-slate-700 hover:text-indigo-600'
+            aria-pressed={isPhoneticOn}
+            className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-pointer ${
+              isPhoneticOn ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
             }`}
-            title="Toggle Indic Phonetic Transliteration (Shortcut: Ctrl+G / Cmd+G)"
+            title="Type Roman letters and get the script as you go (Ctrl+G)"
           >
             <Keyboard className="w-3 h-3" />
-            <span>Phonetic: {isPhoneticOn ? 'ON' : 'OFF'}</span>
+            Phonetic {isPhoneticOn ? 'on' : 'off'}
           </button>
 
-          {/* AI Polish opt-in toggle — OFF by default, decided per cue */}
+          {/* AI Polish is opt-in per cue */}
           <button
             type="button"
             onClick={() => setIsAiPolishOn((on) => !on)}
-            className={`px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 transition-all border ${
-              isAiPolishOn
-                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-300 font-semibold'
-                : 'bg-slate-200 dark:bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:text-emerald-600'
+            aria-pressed={isAiPolishOn}
+            className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-pointer ${
+              isAiPolishOn ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
             }`}
-            title="AI Polish is off by default. Turn it on for this cue only when you want Gemini to repair matras, conjuncts and dialogue nuance."
+            title="Let the translation engine fix vowel signs, joined letters and wording in this cue"
           >
-            <CheckCheck className={`w-3 h-3 ${isAiPolishOn ? 'text-emerald-400' : 'text-slate-400'}`} />
-            <span>AI Polish: {isAiPolishOn ? 'ON' : 'OFF'}</span>
+            <CheckCheck className="w-3 h-3" />
+            AI polish {isAiPolishOn ? 'on' : 'off'}
           </button>
 
-          {/* Run the polish for this cue — only once it has been switched on */}
           {isAiPolishOn && (
             <button
               type="button"
               onClick={handlePolishWithAI}
               disabled={isPolishingAI || !value}
-              className={`px-2 py-0.5 rounded-md text-[10px] font-medium flex items-center gap-1 transition-all border disabled:opacity-50 ${
-                isPolishingAI
-                  ? 'bg-amber-500/20 border-amber-500/40 text-amber-300'
-                  : 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-500'
-              }`}
-              title="Run AI Indic Spellcheck & Grammar Polish on this cue."
+              className="h-6 px-2 rounded-md flex items-center gap-1 font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 transition-colors cursor-pointer"
             >
               {isPolishingAI ? (
                 <>
-                  <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
-                  <span>Polishing...</span>
+                  <Loader2 className="w-3 h-3 animate-spin" /> Polishing…
                 </>
               ) : (
-                <span>Run Polish</span>
+                'Polish this line'
               )}
             </button>
           )}
 
-          {/* Batch Transliterate Cue if Roman text remains */}
           {isPhoneticOn && value && /[a-zA-Z]{2,}/.test(value) && (
             <button
               type="button"
               onClick={handleConvertEntireText}
               disabled={isLoadingSuggestions}
-              className="px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[10px] flex items-center gap-1 transition-colors border border-slate-300 dark:border-slate-700"
-              title="Convert all Roman English words in this cue to Indian script"
+              className="h-6 px-2 rounded-md border border-slate-800 flex items-center gap-1 font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Turn every English-letter word in this cue into the script"
             >
-              <Languages className="w-2.5 h-2.5 text-indigo-400" />
-              <span>Convert All</span>
+              <Languages className="w-3 h-3" />
+              Convert all
             </button>
           )}
 
-          {/* Quick Symbols Popover Toggle */}
           {showQuickSymbols && (
-          <button
-            type="button"
-            onClick={() => setShowSymbols(!showSymbols)}
-            className={`px-1.5 py-0.5 rounded text-[10px] flex items-center gap-0.5 transition-colors border ${
-              showSymbols
-                ? 'bg-indigo-900 text-indigo-200 border-indigo-500'
-                : 'bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
-            }`}
-            title="Quick Symbols & Matras"
-          >
-            <span className="font-serif">् । ॐ</span>
-            <ChevronDown className={`w-2.5 h-2.5 transition-transform ${showSymbols ? 'rotate-180' : ''}`} />
-          </button>
+            <button
+              type="button"
+              onClick={() => setShowSymbols(!showSymbols)}
+              aria-expanded={showSymbols}
+              className={`h-6 px-2 rounded-md border flex items-center gap-0.5 transition-colors cursor-pointer ${
+                showSymbols ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
+              }`}
+              title="Vowel signs and marks"
+            >
+              <span>् । ॐ</span>
+              <ChevronDown className={`w-2.5 h-2.5 transition-transform ${showSymbols ? 'rotate-180' : ''}`} />
+            </button>
           )}
         </div>
 
-        {/* Virtual Keyboard Modal Trigger */}
         {onOpenKeyboardModal && (
           <button
             type="button"
             onClick={onOpenKeyboardModal}
-            className="p-1 rounded text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-indigo-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-1 text-[10px]"
-            title="Open On-Screen Virtual Indic Keyboard & Palette"
+            className="h-6 px-2 rounded-md flex items-center gap-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+            title="Open the on-screen keyboard"
           >
             <Keyboard className="w-3 h-3" />
-            <span className="hidden sm:inline">Virtual Keyboard</span>
+            <span className="hidden sm:inline">Keyboard</span>
           </button>
         )}
       </div>
