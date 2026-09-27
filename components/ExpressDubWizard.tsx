@@ -2525,6 +2525,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         onRetranslateSegments={onRetranslateSegments}
         onRetranscribeAudio={onRetranscribeAudio}
         isTranslating={isTranslatingLanguage}
+        segmentCount={segments.length}
+        audioDuration={activeJob?.audioBuffer?.duration || 0}
       />
     </div>
   );

@@ -1,19 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import {
-  X,
-  FileText,
-  Sliders,
-  Download,
-  Copy,
-  Check,
-  RotateCcw,
-  Layers,
-  Clock,
-  Type,
-  AlignLeft,
-  Settings,
-  HelpCircle,
-} from 'lucide-react';
+import { X, Download, Copy, Check, Captions } from 'lucide-react';
 import { AudioSegment } from '../types';
 import {
   SrtOptions,
@@ -25,6 +11,45 @@ import {
   SubtitleCasing,
   adjustSegmentsForDubbedTimeline,
 } from '../services/srtService';
+
+/** Short names for the presets, which carry long ones for elsewhere. */
+const PRESET_LABELS: Record<string, string> = {
+  shorts_viral: 'Short-form',
+  shorts_uppercase: 'Short-form, CAPS',
+  dynamic_5words: 'One line',
+  youtube_standard: 'YouTube',
+  broadcast_netflix: 'Broadcast',
+};
+
+const footerGhost =
+  'h-[38px] px-3 flex items-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 cursor-pointer';
+
+/** "00:00:56,400" -> 56.4 */
+const parseStamp = (stamp: string) => {
+  const m = /(\d+):(\d+):(\d+)[,.](\d+)/.exec(stamp);
+  return m ? +m[1] * 3600 + +m[2] * 60 + +m[3] + +m[4] / 1000 : 0;
+};
+
+/** 56.4 -> "00:00:56,400" */
+const srtStamp = (seconds: number) => {
+  const t = Math.max(0, seconds);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  const ms = Math.round((t % 1) * 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`;
+};
+
+/** Splits generated .srt text back into cues for the preview list. */
+const parseSrt = (srt: string) =>
+  srt
+    .split(/\r?\n\s*\r?\n/)
+    .map((block) => block.trim().split(/\r?\n/))
+    .filter((lines) => lines.length >= 3 && lines[1].includes('-->'))
+    .map((lines) => {
+      const [a, b] = lines[1].split('-->');
+      return { index: Number(lines[0]) || 0, start: parseStamp(a), end: parseStamp(b), lines: lines.slice(2) };
+    });
 
 interface SrtExportModalProps {
   isOpen: boolean;
@@ -60,6 +85,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
 
   const [activePresetId, setActivePresetId] = useState<string>('shorts_viral');
   const [copied, setCopied] = useState<boolean>(false);
+  const [previewIndex, setPreviewIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'srt' | 'vtt'>('srt');
   const [syncMode, setSyncMode] = useState<'dubbed' | 'original'>('original');
 
@@ -197,507 +223,326 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div
-        className="relative w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden text-slate-100"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-950/60 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-2xl bg-indigo-950 border border-indigo-700/60 text-indigo-400">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
-                  Custom Subtitle (.SRT) Export Settings
-                </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-950 border border-indigo-700 text-indigo-300 font-semibold">
-                  {targetLanguage}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Configure line limits, words per cue, and duration pacing with real-time preview.
-              </p>
-            </div>
-          </div>
+  const setOpt = (patch: Partial<SrtOptions>) => handleUpdateOptions({ ...options, ...patch });
+  const cues = parseSrt(previewSrt);
+  const shown = cues[Math.min(previewIndex, Math.max(0, cues.length - 1))];
+  const longest = cues.reduce((m, c) => Math.max(m, c.end - c.start), 0);
+  const widest = cues.reduce((m, c) => Math.max(m, ...c.lines.map((l) => l.length)), 0);
+  const trackName = scriptTrack === 'source' ? sourceLanguage || 'Original' : targetLanguage;
 
+  const seg = (on: boolean) =>
+    `flex-1 px-2.5 py-1.5 rounded-[7px] text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+      on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+    }`;
+  const segWrap = 'flex p-[3px] gap-0.5 rounded-[10px] bg-slate-950/60 border border-slate-700';
+  const sw = (on: boolean) => (
+    <span className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors ${on ? 'bg-indigo-500' : 'bg-slate-700'}`}>
+      <span className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${on ? 'left-[17px]' : 'left-[3px]'}`} />
+    </span>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="srt-title"
+        className="w-full max-w-[62.5rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
+      >
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+          <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
+            <Captions className="w-[18px] h-[18px]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="srt-title" className="text-lg font-semibold text-slate-100 leading-tight">
+              Subtitle settings
+            </h2>
+            <p className="text-[12.5px] text-slate-400 mt-0.5">
+              How the {trackName} breaks into subtitles. Cuts land between measured words.
+            </p>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            aria-label="Close"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Modal Body: Split into Settings (Left) and Live Preview (Right) */}
-        <div className="flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-slate-800">
-          {/* Left Column: Config Controls (7 cols) */}
-          <div className="lg:col-span-7 p-5 sm:p-6 space-y-6">
-            {/* Presets Quick Selector */}
-            <div>
-              <label className="text-xs font-bold text-slate-300 uppercase font-mono tracking-wider flex items-center justify-between mb-2.5">
-                <span className="flex items-center gap-1.5">
-                  <Sliders className="w-3.5 h-3.5 text-indigo-400" /> Format Presets
-                </span>
-                <span className="text-[11px] text-slate-500 font-normal lowercase">Click to auto-configure</span>
-              </label>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {SRT_PRESETS.map((preset) => {
-                  const isSelected = activePresetId === preset.id;
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => handleApplyPreset(preset.id)}
-                      className={`text-left p-2.5 rounded-xl border text-xs transition-all ${
-                        isSelected
-                          ? 'bg-indigo-950/70 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-500/50'
-                          : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-white'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold flex items-center gap-1.5">
-                          {preset.name}
-                          {preset.id === 'shorts_viral' && (
-                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-mono">
-                              Default
-                            </span>
-                          )}
-                        </span>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-indigo-400 shrink-0" />}
-                      </div>
-                      <p className="text-[10px] text-slate-400 mt-1 line-clamp-1">{preset.description}</p>
-                    </button>
-                  );
-                })}
+        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[21.25rem_minmax(0,1fr)]">
+          {/* Controls */}
+          <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col gap-4 min-w-0">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-slate-400">Start from</span>
+              <div className="flex flex-wrap gap-1.5">
+                {SRT_PRESETS.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleApplyPreset(p.id)}
+                    title={p.description}
+                    className={`px-2.5 py-1 rounded-full border text-xs font-medium transition-colors cursor-pointer ${
+                      activePresetId === p.id
+                        ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-300'
+                        : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                    }`}
+                  >
+                    {PRESET_LABELS[p.id] || p.name}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Language Track: translated vs original transcription */}
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3 shadow-md">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-200 uppercase font-mono tracking-wider flex items-center gap-1.5">
-                  <Type className="w-3.5 h-3.5 text-indigo-400" /> Subtitle Language Track
-                </span>
-                {hasExactTimings && (
-                  <span
-                    className="text-[10px] font-semibold text-emerald-400 font-mono"
-                    title="Every cue starts and ends on a word timestamp measured by ElevenLabs."
-                  >
-                    Exact ElevenLabs timings
-                  </span>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setScriptTrack('target')}
-                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                    scriptTrack === 'target'
-                      ? 'bg-indigo-950/70 border-indigo-500 text-white shadow-sm ring-1 ring-indigo-500/50'
-                      : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'
-                  }`}
-                >
-                  <div className="font-bold text-xs">Translated ({targetLanguage})</div>
-                  <p className="text-[9px] text-slate-400 mt-0.5 leading-relaxed">
-                    Gemini translation placed on the original ElevenLabs timestamps.
-                  </p>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-slate-400">Language</span>
+              <div className={segWrap} role="group" aria-label="Language">
+                <button type="button" aria-pressed={scriptTrack === 'target'} onClick={() => setScriptTrack('target')} className={seg(scriptTrack === 'target')}>
+                  {targetLanguage}
                 </button>
-
-                <button
-                  type="button"
-                  onClick={() => setScriptTrack('source')}
-                  className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                    scriptTrack === 'source'
-                      ? 'bg-cyan-950/70 border-cyan-500 text-white shadow-sm ring-1 ring-cyan-500/50'
-                      : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'
-                  }`}
-                >
-                  <div className="font-bold text-xs">
-                    Original{sourceLanguage ? ` (${sourceLanguage})` : ' transcription'}
-                  </div>
-                  <p className="text-[9px] text-slate-400 mt-0.5 leading-relaxed">
-                    The ElevenLabs transcript, cut on exact word timestamps.
-                  </p>
+                <button type="button" aria-pressed={scriptTrack === 'source'} onClick={() => setScriptTrack('source')} className={seg(scriptTrack === 'source')}>
+                  {sourceLanguage || 'Original'}
                 </button>
               </div>
             </div>
 
-            {/* Audio Track Timeline Synchronization Settings */}
-            {hasSynthAudio && (
-              <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-slate-950 to-slate-950 border border-emerald-500/30 space-y-3 shadow-md">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-200 uppercase font-mono tracking-wider flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> Subtitle Timeline Sync
-                  </span>
-                  <span className="text-[10px] font-semibold text-emerald-400 font-mono">
-                    Dubbed Master Audio Active
-                  </span>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSyncMode('dubbed')}
-                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                      syncMode === 'dubbed'
-                        ? 'bg-emerald-950/70 border-emerald-500 text-white shadow-sm ring-1 ring-emerald-500/50'
-                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'
-                    }`}
-                  >
-                    <div className="font-bold text-xs">Sync with Dubbed Audio</div>
-                    <p className="text-[9px] text-slate-400 mt-0.5 leading-relaxed">
-                      Aligns subtitle cues perfectly with continuous, dubbed ElevenLabs audio speech ({synthAudioDuration ? synthAudioDuration.toFixed(1) : '0.0'}s).
-                    </p>
-                  </button>
-                  
-                  <button
-                    type="button"
-                    onClick={() => setSyncMode('original')}
-                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                      syncMode === 'original'
-                        ? 'bg-indigo-950/50 border-indigo-500/50 text-white shadow-sm ring-1 ring-indigo-500/30'
-                        : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-white'
-                    }`}
-                  >
-                    <div className="font-bold text-xs">Sync with Original Timeline</div>
-                    <p className="text-[9px] text-slate-400 mt-0.5 leading-relaxed">
-                      Preserves the original video timestamps and silent gaps for burning subtitles onto the original source video.
-                    </p>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Custom Tuning Parameters */}
-            <div className="space-y-4 pt-2 border-t border-slate-800/80">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-slate-300 uppercase font-mono tracking-wider flex items-center gap-1.5">
-                  <Settings className="w-3.5 h-3.5 text-indigo-400" /> Fine-Tune Constraints
-                </label>
-                <button
-                  type="button"
-                  onClick={handleResetDefaults}
-                  className="text-[11px] text-slate-400 hover:text-indigo-300 flex items-center gap-1 transition-colors font-medium"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  <span>Reset Defaults (1 line, 3 words)</span>
-                </button>
-              </div>
-
-              {/* 1. Max Words Per Line (CRITICAL REQUEST) */}
-              <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <AlignLeft className="w-4 h-4 text-cyan-400" />
-                    <span className="text-xs font-bold text-slate-200">Max Words Per Line</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span className="text-sm font-mono font-bold text-cyan-400 px-2 py-0.5 rounded-lg bg-cyan-950/70 border border-cyan-800/60">
-                      {options.maxWordsPerLine} {options.maxWordsPerLine === 1 ? 'word' : 'words'}
-                    </span>
-                  </div>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="12"
-                  step="1"
-                  value={options.maxWordsPerLine}
-                  onChange={(e) =>
-                    handleUpdateOptions({ ...options, maxWordsPerLine: parseInt(e.target.value, 10) })
-                  }
-                  className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
-                />
-                <p className="text-[10px] text-slate-400">
-                  Controls how many words appear on one line. Default is <strong>3 words</strong> for high-retention vertical reels.
-                </p>
-              </div>
-
-              {/* 2. Max Lines Per Cue */}
-              <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-bold text-slate-200">Max Lines Per Subtitle Cue</span>
-                  </div>
-                  <span className="text-xs font-mono font-bold text-emerald-400">
-                    {options.maxLinesPerCue} {options.maxLinesPerCue === 1 ? 'Line (Default)' : 'Lines'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[1, 2, 3, 4].map((num) => (
-                    <button
-                      key={num}
-                      type="button"
-                      onClick={() => handleUpdateOptions({ ...options, maxLinesPerCue: num })}
-                      className={`py-1.5 px-2 rounded-xl text-xs font-bold font-mono transition-all ${
-                        options.maxLinesPerCue === num
-                          ? 'bg-emerald-600 text-white shadow-xs'
-                          : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                    >
-                      {num} {num === 1 ? 'Line' : 'Lines'}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-slate-400">Lines per subtitle</span>
+                <div className={segWrap} role="group" aria-label="Lines per subtitle">
+                  {[1, 2, 3].map((n) => (
+                    <button key={n} type="button" aria-pressed={options.maxLinesPerCue === n} onClick={() => setOpt({ maxLinesPerCue: n })} className={seg(options.maxLinesPerCue === n)}>
+                      {n}
                     </button>
                   ))}
                 </div>
-                <p className="text-[10px] text-slate-400">
-                  Default is <strong>1 line</strong> for dynamic captions. Select 2 lines for standard movie/TV subtitles.
-                </p>
               </div>
-
-              {/* 3. Max Characters Per Line & Max Duration */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Max Characters */}
-                <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Type className="w-3.5 h-3.5 text-purple-400" />
-                      <span className="text-xs font-bold text-slate-200">Max Characters</span>
-                    </div>
-                    <span className="text-xs font-mono font-bold text-purple-400">
-                      {options.maxCharsPerLine} ch
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="10"
-                    max="60"
-                    step="1"
-                    value={options.maxCharsPerLine}
-                    onChange={(e) =>
-                      handleUpdateOptions({ ...options, maxCharsPerLine: parseInt(e.target.value, 10) })
-                    }
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-400"
-                  />
-                  <p className="text-[10px] text-slate-400">Hard limit on character width per line.</p>
-                </div>
-
-                {/* Max Duration */}
-                <div className="p-3 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-amber-400" />
-                      <span className="text-xs font-bold text-slate-200">Max Duration</span>
-                    </div>
-                    <span className="text-xs font-mono font-bold text-amber-400">
-                      {options.maxDurationSeconds}s
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0.8"
-                    max="8.0"
-                    step="0.2"
-                    value={options.maxDurationSeconds}
-                    onChange={(e) =>
-                      handleUpdateOptions({ ...options, maxDurationSeconds: parseFloat(e.target.value) })
-                    }
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
-                  />
-                  <p className="text-[10px] text-slate-400">Maximum display time per cue in seconds.</p>
-                </div>
-              </div>
-
-              {/* 4. Text Styling & Cleaning Options */}
-              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 space-y-3">
-                <span className="text-xs font-bold text-slate-200 block">Text Formatting & Cleanup</span>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="flex flex-col gap-1.5">
+                <span className="text-xs text-slate-400">Words per line</span>
+                <div className="flex items-center h-[38px] rounded-[10px] border border-slate-700 bg-slate-950/60 overflow-hidden">
                   <button
                     type="button"
-                    onClick={() =>
-                      handleUpdateOptions({
-                        ...options,
-                        includePunctuation: !options.includePunctuation,
-                      })
-                    }
-                    className={`p-2 rounded-xl border text-xs font-medium flex items-center justify-between transition-all ${
-                      options.includePunctuation
-                        ? 'bg-slate-900 border-indigo-500/80 text-white'
-                        : 'bg-slate-950 border-slate-800 text-slate-400'
-                    }`}
+                    onClick={() => setOpt({ maxWordsPerLine: Math.max(1, options.maxWordsPerLine - 1) })}
+                    className="w-9 h-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                    aria-label="Fewer words per line"
                   >
-                    <span>Keep Punctuation</span>
-                    <span className={`text-[10px] font-mono px-1.5 rounded ${options.includePunctuation ? 'bg-indigo-950 text-indigo-300' : 'bg-slate-800 text-slate-500'}`}>
-                      {options.includePunctuation ? 'ON' : 'OFF'}
-                    </span>
+                    −
                   </button>
-
+                  <span className="flex-1 text-center font-mono text-[13px] tabular-nums">{options.maxWordsPerLine}</span>
                   <button
                     type="button"
-                    onClick={() =>
-                      handleUpdateOptions({
-                        ...options,
-                        removeSpeakerLabel: !options.removeSpeakerLabel,
-                      })
-                    }
-                    className={`p-2 rounded-xl border text-xs font-medium flex items-center justify-between transition-all ${
-                      options.removeSpeakerLabel
-                        ? 'bg-slate-900 border-emerald-500/80 text-white'
-                        : 'bg-slate-950 border-slate-800 text-slate-400'
-                    }`}
+                    onClick={() => setOpt({ maxWordsPerLine: Math.min(15, options.maxWordsPerLine + 1) })}
+                    className="w-9 h-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                    aria-label="More words per line"
                   >
-                    <span>Strip Speaker Tags</span>
-                    <span className={`text-[10px] font-mono px-1.5 rounded ${options.removeSpeakerLabel ? 'bg-emerald-950 text-emerald-300' : 'bg-slate-800 text-slate-500'}`}>
-                      {options.removeSpeakerLabel ? 'ON' : 'OFF'}
-                    </span>
+                    +
                   </button>
-
-                  <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-2">
-                    <select
-                      value={options.casing || 'original'}
-                      onChange={(e) =>
-                        handleUpdateOptions({
-                          ...options,
-                          casing: e.target.value as SubtitleCasing,
-                        })
-                      }
-                      className="w-full bg-transparent text-xs text-slate-200 font-semibold focus:outline-hidden py-2 cursor-pointer"
-                    >
-                      <option value="original" className="bg-slate-900 text-slate-100">
-                        Case: Original
-                      </option>
-                      <option value="uppercase" className="bg-slate-900 text-slate-100">
-                        Case: UPPERCASE
-                      </option>
-                      <option value="capitalize" className="bg-slate-900 text-slate-100">
-                        Case: Capitalize
-                      </option>
-                    </select>
-                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Right Column: Live Interactive SRT Preview (5 cols) */}
-          <div className="lg:col-span-5 p-5 sm:p-6 bg-slate-950/70 flex flex-col justify-between space-y-4">
-            <div>
-              {/* Preview Header */}
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-cyan-400" />
-                  <span className="text-xs font-bold text-white uppercase font-mono tracking-wider">
-                    Live Subtitle Preview
-                  </span>
+            {[
+              {
+                id: 'srt-chars',
+                label: 'Characters per line',
+                hint: 'A hard limit. Longer lines move to the next subtitle.',
+                value: options.maxCharsPerLine,
+                min: 15,
+                max: 50,
+                step: 1,
+                show: String(options.maxCharsPerLine),
+                ends: ['15', '50'],
+                set: (v: number) => setOpt({ maxCharsPerLine: v }),
+              },
+              {
+                id: 'srt-duration',
+                label: 'Longest time on screen',
+                hint: 'A subtitle that would stay longer is split.',
+                value: options.maxDurationSeconds,
+                min: 1,
+                max: 7,
+                step: 0.1,
+                show: `${options.maxDurationSeconds.toFixed(1)} s`,
+                ends: ['1 s', '7 s'],
+                set: (v: number) => setOpt({ maxDurationSeconds: v }),
+              },
+            ].map((s) => (
+              <div key={s.id}>
+                <div className="flex items-baseline justify-between">
+                  <label htmlFor={s.id} className="text-[13px] font-semibold text-slate-100">
+                    {s.label}
+                  </label>
+                  <span className="font-mono text-xs tabular-nums">{s.show}</span>
                 </div>
-
-                {/* Tab Switcher */}
-                <div className="flex items-center p-0.5 rounded-xl bg-slate-900 border border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('srt')}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono transition-all ${
-                      activeTab === 'srt'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    .SRT
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('vtt')}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono transition-all ${
-                      activeTab === 'vtt'
-                        ? 'bg-indigo-600 text-white shadow-xs'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    .VTT
-                  </button>
+                <p className="text-[11.5px] text-slate-400 mt-0.5 mb-2">{s.hint}</p>
+                <input
+                  id={s.id}
+                  type="range"
+                  min={s.min}
+                  max={s.max}
+                  step={s.step}
+                  value={s.value}
+                  onChange={(e) => s.set(Number(e.target.value))}
+                  className="w-full accent-indigo-500 cursor-pointer"
+                />
+                <div className="flex justify-between text-[10.5px] text-slate-500 mt-0.5">
+                  <span>{s.ends[0]}</span>
+                  <span>{s.ends[1]}</span>
                 </div>
               </div>
+            ))}
 
-              {/* Real-time Stats Chips */}
-              <div className="flex items-center gap-2 py-2 text-[10px] font-mono text-slate-400 flex-wrap">
-                <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-cyan-300">
-                  {previewStats.cueCount} Cues
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-emerald-300">
-                  {previewStats.avgWordsPerCue} avg words/cue
-                </span>
-                <span className="px-2 py-0.5 rounded-md bg-slate-900 border border-slate-800 text-purple-300">
-                  {options.maxLinesPerCue} Line{options.maxLinesPerCue > 1 ? 's' : ''} Limit
-                </span>
-              </div>
-
-              {/* Code / Text Preview Container */}
-              <div className="relative mt-1">
-                <pre className="p-4 rounded-2xl bg-slate-950 border border-slate-800 font-mono text-xs text-slate-300 h-72 sm:h-80 overflow-y-auto whitespace-pre-wrap select-all leading-relaxed custom-scrollbar">
-                  {activePreviewText || (
-                    <span className="text-slate-600 italic">No dialogue segments available for preview.</span>
-                  )}
-                </pre>
-
-                {/* Floating Copy Button */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-slate-400">Timed to</span>
+              <div className={segWrap} role="group" aria-label="Timed to">
+                <button type="button" aria-pressed={syncMode === 'original'} onClick={() => setSyncMode('original')} className={seg(syncMode === 'original')}>
+                  Original speech
+                </button>
                 <button
                   type="button"
-                  onClick={handleCopy}
-                  className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700 text-slate-200 hover:text-white text-xs font-semibold shadow-md transition-all active:scale-95"
+                  aria-pressed={syncMode === 'dubbed'}
+                  onClick={() => setSyncMode('dubbed')}
+                  disabled={!hasSynthAudio}
+                  title={hasSynthAudio ? undefined : 'Available once there is a dub'}
+                  className={seg(syncMode === 'dubbed')}
                 >
-                  {copied ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                      <span className="text-emerald-400 font-bold">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Copy</span>
-                    </>
-                  )}
+                  The dub
                 </button>
               </div>
             </div>
 
-            {/* Download Buttons in Right Column */}
-            <div className="space-y-2 pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={handleDownloadSrt}
-                disabled={!previewSrt}
-                className="w-full py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-lg shadow-indigo-600/20 active:scale-98 disabled:opacity-50"
-              >
-                <Download className="w-4 h-4" />
-                <span>Download .SRT (Customized)</span>
-              </button>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs text-slate-400">Letters</span>
+              <div className={segWrap} role="group" aria-label="Letters">
+                {([
+                  ['original', 'As written'],
+                  ['capitalize', 'Capitalised'],
+                  ['uppercase', 'UPPERCASE'],
+                ] as [SubtitleCasing, string][]).map(([value, label]) => (
+                  <button key={value} type="button" aria-pressed={(options.casing || 'original') === value} onClick={() => setOpt({ casing: value })} className={seg((options.casing || 'original') === value)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-              <button
-                type="button"
-                onClick={handleDownloadVtt}
-                disabled={!previewVtt}
-                className="w-full py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white font-semibold text-xs flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
-              >
-                <Download className="w-3.5 h-3.5 text-slate-400" />
-                <span>Download WebVTT (.VTT)</span>
+            {[
+              {
+                label: 'Keep punctuation',
+                hint: '। , ? and ! stay in the subtitle',
+                on: options.includePunctuation,
+                toggle: () => setOpt({ includePunctuation: !options.includePunctuation }),
+              },
+              {
+                label: 'Hide speaker names',
+                hint: 'Drops “HOST:” and similar labels',
+                on: Boolean(options.removeSpeakerLabel),
+                toggle: () => setOpt({ removeSpeakerLabel: !options.removeSpeakerLabel }),
+              },
+            ].map((t) => (
+              <button key={t.label} type="button" role="switch" aria-checked={t.on} onClick={t.toggle} className="flex items-center gap-3 text-left cursor-pointer">
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-semibold text-slate-100">{t.label}</span>
+                  <span className="block text-[11.5px] text-slate-400">{t.hint}</span>
+                </span>
+                {sw(t.on)}
               </button>
+            ))}
+          </div>
+
+          {/* Preview */}
+          <div className="px-5 py-4 flex flex-col gap-3 min-w-0 bg-slate-950/40">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Preview</span>
+              <span className="text-[11.5px] text-slate-400">Click a subtitle to see it on the frame</span>
+            </div>
+
+            <div className="relative aspect-video max-w-full rounded-xl overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]" aria-hidden="true">
+              <span className="absolute top-2.5 left-3 font-mono text-[11px] text-white/75">{shown ? srtStamp(shown.start) : '00:00:00,000'}</span>
+              <span className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]" />
+              <span className="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]" />
+              {shown && (
+                <span className="absolute left-1/2 bottom-[9%] -translate-x-1/2 max-w-[86%] text-center text-[clamp(15px,2.2vw,22px)] leading-snug text-white bg-black/55 px-3 py-1 rounded-md">
+                  {shown.lines.map((l, i) => (
+                    <span key={i} className="block">
+                      {l}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+              <span>
+                <span className="font-semibold text-slate-100 tabular-nums">{cues.length}</span> subtitles from{' '}
+                <span className="font-semibold text-slate-100 tabular-nums">{segments.length}</span> cues
+              </span>
+              <span>
+                longest <span className="font-semibold text-slate-100 tabular-nums">{longest.toFixed(1)} s</span>
+              </span>
+              <span>
+                widest line <span className="font-semibold text-slate-100 tabular-nums">{widest}</span> characters
+              </span>
+              {hasExactTimings && <span className="text-emerald-300">Every cut on a measured word</span>}
+            </div>
+
+            <div className="flex-1 min-h-[12rem] max-h-[18rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-slate-800 bg-slate-900">
+              {cues.length === 0 ? (
+                <p className="p-6 text-center text-xs text-slate-500">No cues to show yet.</p>
+              ) : (
+                cues.map((c, i) => (
+                  <button
+                    key={c.index}
+                    type="button"
+                    onClick={() => setPreviewIndex(i)}
+                    className={`w-full text-left grid grid-cols-[2.25rem_minmax(0,1fr)] sm:grid-cols-[2.25rem_11.5rem_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 px-3 py-2 border-t border-slate-800 first:border-t-0 items-baseline cursor-pointer ${
+                      i === previewIndex ? 'bg-indigo-500/15' : 'hover:bg-slate-800/40'
+                    }`}
+                  >
+                    <span className="font-mono text-[11px] text-slate-500 tabular-nums">{c.index}</span>
+                    <span className="font-mono text-[11px] text-slate-400 tabular-nums">
+                      {srtStamp(c.start)} → {srtStamp(c.end)}
+                    </span>
+                    <span className="col-span-2 sm:col-span-1 text-[14px] text-slate-100 leading-snug">
+                      {c.lines.map((l, j) => (
+                        <span key={j} className="block">
+                          {l}
+                        </span>
+                      ))}
+                    </span>
+                  </button>
+                ))
+              )}
             </div>
           </div>
         </div>
 
-        {/* Modal Footer */}
-        <div className="flex items-center justify-between px-6 py-3 border-t border-slate-800 bg-slate-950/60 text-xs text-slate-400">
-          <div className="flex items-center gap-1.5">
-            <HelpCircle className="w-3.5 h-3.5 text-slate-500" />
-            <span>Settings automatically save to your workspace preference.</span>
-          </div>
+        <div className="flex flex-wrap items-center gap-2.5 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
+          <button type="button" onClick={handleResetDefaults} className="text-[12.5px] text-slate-400 hover:text-slate-200 px-1 cursor-pointer">
+            Reset to defaults
+          </button>
+          <span className="flex-1" />
+          <span className="text-[11.5px] text-slate-500">Saved for every project</span>
+          <button type="button" onClick={handleCopy} disabled={!previewSrt} className={footerGhost}>
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />} {copied ? 'Copied' : 'Copy'}
+          </button>
+          <button type="button" onClick={handleDownloadVtt} disabled={!previewVtt} className={footerGhost}>
+            <Download className="w-3.5 h-3.5" /> .vtt
+          </button>
           <button
             type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-colors"
+            onClick={handleDownloadSrt}
+            disabled={!previewSrt}
+            className="h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-pointer"
           >
-            Done
+            <Download className="w-4 h-4" /> Download .srt
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 };
