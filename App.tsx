@@ -1883,6 +1883,7 @@ export default function App() {
           isCancellingDub={isCancellingDub}
           onCancelSynthesis={handleCancelSynthesis}
           onUpdateSegment={handleUpdateSegment}
+          onReplaceSegments={handleReplaceSegments}
           onPlaySegmentSolo={handlePlaySoloSegment}
           isPlaying={isPlaying}
           onTogglePlay={togglePlay}

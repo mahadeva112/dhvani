@@ -1,5 +1,5 @@
 import { AudioSegment, ValidationResult, SubtitleConfiguration } from '../types';
-import { apiAudio, apiJson, apiUpload } from './apiClient';
+import { apiAudio, apiJson, apiStream, apiUpload } from './apiClient';
 import { transcribeAndTranslate, cuesToSegments, segmentsToCues } from './subtitleService';
 import { resegmentByWordTimestamps } from './srtService';
 
@@ -106,33 +106,58 @@ export const transcribeMedia = async (
   };
 };
 
+/** How closely a cue's placed script says what its English says. */
+export type ScriptFit = 'full' | 'partial' | 'none';
+
+export interface AlignedCue {
+  id: string | number;
+  targetText: string;
+  /** The model's judgement; absent when the cue was placed by length. */
+  fit?: ScriptFit;
+  /** Placed by length because the model's answer was unusable or missing. */
+  estimated: boolean;
+}
+
 /**
- * Distributes a pasted target-language script across the existing cues.
- * Cue timings are inputs to the alignment, never outputs.
+ * Places a pasted target-language script onto the existing cues by meaning.
+ * The backend returns the script word for word — only where each cue starts
+ * is decided — and cue timings are never sent or changed.
  */
 export const alignCustomScriptWithGemini = async (
   segments: AudioSegment[],
   pastedScript: string,
-  targetLanguage: string
-): Promise<{ id: string | number; targetText: string }[]> => {
+  targetLanguage: string,
+  { signal, onProgress }: { signal?: AbortSignal; onProgress?: (done: number, total: number, message: string) => void } = {}
+): Promise<AlignedCue[]> => {
   if (!segments?.length || !pastedScript.trim()) return [];
 
-  const response = await apiJson<{ alignedCues: { id: string; targetText: string }[] }>(
+  const response = await apiStream<{
+    alignedCues: { id: string; targetText: string; fit?: ScriptFit; estimated?: boolean }[];
+  }>(
     '/translation/align',
     {
-      body: {
-        segments: segmentsToCues(segments).map((cue) => ({ id: cue.id, sourceText: cue.text })),
-        pastedScript,
-        targetLanguage,
+      segments: segmentsToCues(segments).map((cue) => ({ id: cue.id, sourceText: cue.text })),
+      pastedScript,
+      targetLanguage,
+    },
+    {
+      signal,
+      onEvent: (event) => {
+        if (event.type === 'progress') onProgress?.(Number(event.done) || 0, Number(event.total) || 0, event.message || '');
       },
     }
   );
 
-  const byId = new Map(response.alignedCues.map((cue) => [String(cue.id), cue.targetText]));
-  return segments.map((segment) => ({
-    id: segment.id,
-    targetText: byId.get(String(segment.id)) || '',
-  }));
+  const byId = new Map(response.alignedCues.map((cue) => [String(cue.id), cue]));
+  return segments.map((segment) => {
+    const cue = byId.get(String(segment.id));
+    return {
+      id: segment.id,
+      targetText: cue?.targetText || '',
+      fit: cue?.fit,
+      estimated: Boolean(cue?.estimated),
+    };
+  });
 };
 
 /** Detects the speaker's expression/tone from the audio. */
