@@ -9,10 +9,30 @@ export interface TranslationPromptPreset {
 
 export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
   {
+    id: 'three_step',
+    name: 'Sadhguru 3-Step Dubbing',
+    shortDesc: 'Translation, review and punctuation passes using the per-language prompts',
+    badge: 'Recommended',
+    category: 'persona',
+    // The first line is what switches the backend to the 3-step pipeline
+    // (server/providers/gemini/threeStepTranslation.js). Lines starting with
+    // "#" are notes; anything else is sent with Step 1 as extra instructions.
+    prompt: `#pipeline: 3-step
+# Runs three passes with the prompts for the target language:
+#   Step 1 — Translation: thought-unit mapping onto the English timing
+#   Step 2 — Review: transcreation and length check
+#   Step 3 — Punctuation: pauses (...), hyphens (-) and paragraphing
+# The finished script is then placed back on the cues.
+# Available for Assamese, Bengali, Gujarati, Hindi, Kannada, Malayalam,
+# Marathi, Nepali, Odia, Tamil and Telugu; other languages get the
+# standard translation.
+# Keep the first line. Write any extra instructions below it without a "#".`
+  },
+  {
     id: 'conversational',
     name: 'Natural Conversational',
     shortDesc: 'Fluid spoken dialogue, modern idioms, everyday cadence & natural pauses',
-    badge: 'Recommended',
+    badge: 'Natural',
     category: 'style',
     prompt: `You are an expert dialogue adapter and dubbing director.
 Translate the speech naturally and fluently into the target language.
@@ -41,25 +61,6 @@ CORE TRANSLATION PROTOCOL:
 3. VOCABULARY RULES:
    - Do NOT translate modern terms: Internet, Dating, Website, Hospital, Bed, Short-term, Highway.
    - Use culturally authentic spiritual equivalents: Liberation → Mukti / Moksha, Divine → Divya / Daivam.`
-  },
-  {
-    id: 'three_step',
-    name: 'Sadhguru 3-Step Dubbing',
-    shortDesc: 'Translation, review and punctuation passes using the per-language prompts',
-    badge: '3 passes',
-    category: 'persona',
-    // The first line is what switches the backend to the 3-step pipeline
-    // (server/providers/gemini/threeStepTranslation.js). Lines starting with
-    // "#" are notes; anything else is sent with Step 1 as extra instructions.
-    prompt: `#pipeline: 3-step
-# Runs three passes with the prompts for the target language:
-#   Step 1 — Translation: thought-unit mapping onto the English timing
-#   Step 2 — Review: transcreation and length check
-#   Step 3 — Punctuation: pauses (...), hyphens (-) and paragraphing
-# The finished script is then placed back on the cues.
-# Available for Assamese, Bengali, Gujarati, Hindi, Kannada, Malayalam,
-# Marathi, Nepali, Odia, Tamil and Telugu.
-# Keep the first line. Write any extra instructions below it without a "#".`
   },
   {
     id: 'formal',
@@ -124,8 +125,28 @@ export const QUICK_PROMPT_TAGS = [
   { label: 'Sanskrit/Spiritual vocabulary', tag: '\n- Use classical spiritual equivalents for philosophical concepts (Mukti, Divya, Chitta, Chetana).' },
 ];
 
-export const DEFAULT_PROMPT_PRESET_ID = 'conversational';
+export const DEFAULT_PROMPT_PRESET_ID = 'three_step';
 
 export const getPresetById = (id: string): TranslationPromptPreset => {
   return TRANSLATION_PRESETS.find((p) => p.id === id) || TRANSLATION_PRESETS[0];
+};
+
+/**
+ * One-time move of existing installs onto the 3-step default. Only a saved
+ * choice that is still the old default with its text unedited is cleared, so a
+ * style someone picked or edited on purpose is left alone.
+ */
+export const adoptThreeStepDefault = (): void => {
+  const FLAG = 'dhvani_prompt_default_three_step';
+  try {
+    if (localStorage.getItem(FLAG)) return;
+    localStorage.setItem(FLAG, '1');
+    const savedId = localStorage.getItem('dhvani_prompt_preset_id');
+    const savedPrompt = localStorage.getItem('dhvani_custom_prompt');
+    const unedited = !savedPrompt || savedPrompt.trim() === getPresetById('conversational').prompt.trim();
+    if ((!savedId || savedId === 'conversational') && unedited) {
+      localStorage.removeItem('dhvani_prompt_preset_id');
+      localStorage.removeItem('dhvani_custom_prompt');
+    }
+  } catch {}
 };

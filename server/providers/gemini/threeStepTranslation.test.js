@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isThreeStepPrompt,
+  supportsThreeStep,
   threeStepLanguages,
   countSyllables,
   formatEnglishSegments,
@@ -19,6 +20,9 @@ test('every language with prompts has all three steps', () => {
   assert.ok(languages.includes('Hindi'));
   assert.ok(languages.includes('Tamil'));
   assert.equal(languages.length, 11);
+  assert.equal(supportsThreeStep('Hindi (हिन्दी)'), true);
+  assert.equal(supportsThreeStep('telugu'), true);
+  assert.equal(supportsThreeStep('Punjabi'), false);
 });
 
 test('syllable counts are close enough for density checks', () => {
