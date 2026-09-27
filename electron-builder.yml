@@ -19,6 +19,7 @@ files:
   - desktop/main.cjs
   - desktop/icons/**
   - server/**
+  - prompts/*.txt
   - '!server/**/*.test.js'
   - dist/**
   - package.json

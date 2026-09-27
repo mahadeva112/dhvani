@@ -3,6 +3,7 @@ import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { parseJsonResponse } from './client.js';
 import { generateText } from '../textModel.js';
+import { isThreeStepPrompt, translateCueTextsThreeStep } from './threeStepTranslation.js';
 
 /**
  * Gemini translation.
@@ -104,6 +105,12 @@ export const translateCueTexts = async (
     });
   }
 
+  // The 3-step preset runs the per-language prompt files instead of the
+  // one-shot prompt below; it needs the cue timings, so it gets the raw cues.
+  if (isThreeStepPrompt(customPrompt)) {
+    return translateCueTextsThreeStep(cues, { targetLanguage, customPrompt, apiKey, models, onProgress });
+  }
+
   const translatable = cues
     .map((cue) => ({ id: String(cue.id), text: String(cue.text ?? '').trim() }))
     .filter((cue) => cue.text.length > 0);
@@ -169,7 +176,7 @@ export const translateCueTexts = async (
  */
 export const alignScriptToCues = async (
   cues,
-  { pastedScript, targetLanguage, apiKey, models } = {}
+  { pastedScript, targetLanguage, apiKey, models, extraRules = '' } = {}
 ) => {
   if (!cues?.length || !pastedScript?.trim()) return new Map();
 
@@ -183,7 +190,7 @@ RULES
 1. Output exactly ${cues.length} entries, one per input id, in the same order.
 2. Copy each "id" back verbatim.
 3. Use the whole pasted script. Do not add new content or omit sentences.
-4. Never output timestamps or timing of any kind.
+4. Never output timestamps or timing of any kind.${extraRules ? `\n${extraRules.trim()}` : ''}
 
 SOURCE CUES (JSON):
 ${JSON.stringify(cues.map((cue, i) => ({ id: String(cue.id), order: i + 1, sourceText: cue.text })), null, 2)}

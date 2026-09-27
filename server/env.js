@@ -160,6 +160,8 @@ export const config = {
   maxUploadBytes: num('MAX_UPLOAD_MB', 1024) * 1024 * 1024,
   extractAudioFromVideo: bool('EXTRACT_AUDIO_FROM_VIDEO', true),
   translationBatchSize: num('TRANSLATION_BATCH_SIZE', 40),
+  /** Cues per chunk for the 3-step translation; each chunk costs four model calls. */
+  threeStepBatchSize: num('THREE_STEP_BATCH_SIZE', 60),
 
   /**
    * Lets the UI save settings to the local config file. Only ever honoured for

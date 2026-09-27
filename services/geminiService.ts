@@ -36,7 +36,12 @@ export const translateSegmentsToLanguage = async (
       '/translation/segments',
       {
         body: {
-          segments: segmentsToCues(segments).map((cue) => ({ id: cue.id, sourceText: cue.text })),
+          segments: segmentsToCues(segments).map((cue) => ({
+            id: cue.id,
+            sourceText: cue.text,
+            startTime: cue.startTime,
+            endTime: cue.endTime,
+          })),
           sourceLanguage: sourceLanguage || '',
           targetLanguage,
           customPrompt,

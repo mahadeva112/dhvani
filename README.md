@@ -431,6 +431,7 @@ Everything below is optional; `.env.example` documents each one.
 | `CARTESIA_API_VERSION` | `2026-08-14` | Sent as the `Cartesia-Version` header. |
 | `MAX_UPLOAD_MB` | `1024` | Upload size limit. |
 | `TRANSLATION_BATCH_SIZE` | `40` | Cues per Gemini request. |
+| `THREE_STEP_BATCH_SIZE` | `60` | Cues per chunk for the 3-Step Dubbing style (four requests per chunk). |
 | `EXTRACT_AUDIO_FROM_VIDEO` | `true` | Set `false` to upload video as-is. |
 
 ### Adding another provider

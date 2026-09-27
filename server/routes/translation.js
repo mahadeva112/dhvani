@@ -27,6 +27,9 @@ translationRouter.post(
     const cues = segments.map((segment, index) => ({
       id: String(segment.id ?? `cue-${index + 1}`),
       text: String(segment.sourceText ?? segment.text ?? segment.textSource ?? '').trim(),
+      // Read only by the 3-step translation to describe each segment's length.
+      startTime: Number(segment.startTime) || 0,
+      endTime: Number(segment.endTime) || 0,
     }));
 
     const outcome = await translateCueTexts(cues, {
