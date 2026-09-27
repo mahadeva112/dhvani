@@ -15,6 +15,7 @@ import {
   Check,
   Eye,
   EyeOff,
+  AudioLines,
 } from 'lucide-react';
 import {
   saveBackendKeys,
@@ -50,6 +51,11 @@ interface SetupWizardProps {
   server?: ServerSettings | null;
   /** Whether the backend found ffmpeg, shown with the other checks; omitted hides the row. */
   ffmpegAvailable?: boolean;
+  /** The engine speaking the dub, and how to switch it once the settings are saved. */
+  voiceEngine?: 'elevenlabs' | 'cartesia';
+  onVoiceEngineChange?: (engine: 'elevenlabs' | 'cartesia') => void;
+  /** The engine to show selected on open, e.g. Cartesia when opened from the voice picker's switch. */
+  initialEngine?: 'elevenlabs' | 'cartesia';
 }
 
 /** The server-settings form, flattened to strings the inputs can hold. */
@@ -69,6 +75,11 @@ const seedServerValues = (server?: ServerSettings | null): ServerValues => ({
   geminiBaseUrl: server?.values.geminiBaseUrl || '',
   geminiTranslationModels: (server?.values.geminiTranslationModels || []).join(', '),
   geminiTtsModel: server?.values.geminiTtsModel || '',
+  cartesiaBaseUrl: server?.values.cartesiaBaseUrl || '',
+  cartesiaApiVersion: server?.values.cartesiaApiVersion || '',
+  cartesiaTtsModel: server?.values.cartesiaTtsModel || '',
+  cartesiaSttModel: server?.values.cartesiaSttModel || '',
+  transcriptionProvider: server?.values.transcriptionProvider || 'elevenlabs',
 });
 
 type FieldState = { valid: boolean; message: string } | null;
@@ -91,13 +102,22 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   translation = null,
   server = null,
   ffmpegAvailable,
+  voiceEngine = 'elevenlabs',
+  onVoiceEngineChange,
+  initialEngine,
 }) => {
   const isSettings = variant === 'settings';
+  // ElevenLabs is the default; Cartesia takes over the dub only when chosen here or in the voice picker.
+  const [engine, setEngine] = useState<'elevenlabs' | 'cartesia'>(initialEngine ?? voiceEngine);
+  const engineChanged = engine !== voiceEngine;
   const [elevenLabsKey, setElevenLabsKey] = useState('');
   // A saved key shows as saved until the user chooses to replace it.
   const [replacingElevenLabs, setReplacingElevenLabs] = useState(false);
   const [showElevenLabsKey, setShowElevenLabsKey] = useState(false);
   const [geminiKey, setGeminiKey] = useState('');
+  const [cartesiaKey, setCartesiaKey] = useState('');
+  const [replacingCartesia, setReplacingCartesia] = useState(false);
+  const [showCartesiaKey, setShowCartesiaKey] = useState(false);
 
   // Endpoints and model names, pre-filled with the running configuration.
   const [serverValues, setServerValues] = useState<ServerValues>(() => seedServerValues(server));
@@ -148,6 +168,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [elevenLabsState, setElevenLabsState] = useState<FieldState>(null);
   const [geminiState, setGeminiState] = useState<FieldState>(null);
   const [translationState, setTranslationState] = useState<FieldState>(null);
+  const [cartesiaState, setCartesiaState] = useState<FieldState>(null);
   const [generalError, setGeneralError] = useState<string | null>(null);
 
   /*
@@ -161,6 +182,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const elevenLabsFromEnv = keySource.elevenLabs === 'env';
   const geminiFromEnv = keySource.gemini === 'env';
   const gatewayFromEnv = keySource.gateway === 'env';
+  const cartesiaFromEnv = keySource.cartesia === 'env';
+  const hasCartesia = (keySource.cartesia ?? 'none') !== 'none';
 
   const needsElevenLabs = keySource.elevenLabs === 'none';
 
@@ -181,6 +204,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const canSubmit =
     !isSaving &&
     ((needsElevenLabs && elevenLabsKey.trim().length > 0) ||
+      cartesiaKey.trim().length > 0 ||
+      engineChanged ||
       translationReady ||
       serverValuesChanged);
 
@@ -206,6 +231,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           geminiBaseUrl: serverValues.geminiBaseUrl.trim() || undefined,
           geminiModel:
             serverValues.geminiTranslationModels.split(',')[0]?.trim() || undefined,
+          cartesiaApiKey: cartesiaKey.trim() || undefined,
+          cartesiaBaseUrl: serverValues.cartesiaBaseUrl.trim() || undefined,
           gateway:
             mode === 'gateway' && gateway.url.trim()
               ? {
@@ -225,7 +252,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     } finally {
       if (!controller.signal.aborted) setIsDetecting(false);
     }
-  }, [mode, elevenLabsKey, geminiKey, gateway, serverValues]);
+  }, [mode, elevenLabsKey, geminiKey, cartesiaKey, gateway, serverValues]);
 
   // Check once on open, then whenever a field settles.
   useEffect(() => {
@@ -239,6 +266,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     mode,
     elevenLabsKey,
     geminiKey,
+    cartesiaKey,
     gateway.url,
     gateway.apiKey,
     gateway.protocol,
@@ -260,12 +288,14 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     setElevenLabsState(null);
     setGeminiState(null);
     setTranslationState(null);
+    setCartesiaState(null);
 
     try {
       const payload: SaveKeysPayload = {};
       if (elevenLabsKey.trim()) payload.elevenLabsApiKey = elevenLabsKey.trim();
 
       if (geminiKey.trim()) payload.geminiApiKey = geminiKey.trim();
+      if (cartesiaKey.trim()) payload.cartesiaApiKey = cartesiaKey.trim();
 
       /*
        * Endpoints and models go up only when edited. An empty field is a
@@ -298,6 +328,17 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         // starts blank because a stored secret is never sent back, so sending
         // the blank would wipe a working key.
         if (gateway.apiKey.trim()) payload.llmGatewayKey = gateway.apiKey.trim();
+      }
+
+      // Switching engine alone has nothing for the server to store.
+      if (Object.keys(payload).length === 0) {
+        if (engine === 'cartesia' && !hasCartesia) {
+          setCartesiaState({ valid: false, message: 'Paste a Cartesia key to switch the dub to Cartesia.' });
+          return;
+        }
+        onVoiceEngineChange?.(engine);
+        onComplete();
+        return;
       }
 
       const result: SaveKeysResult = await saveBackendKeys(payload);
@@ -334,6 +375,18 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         });
       }
 
+      if (result.validation.cartesia) {
+        const check = result.validation.cartesia;
+        setCartesiaState({
+          valid: check.valid,
+          message: check.valid
+            ? `Connected${typeof check.voiceCount === 'number' ? ` — ${check.voiceCount.toLocaleString()} voices` : ''}`
+            : check.error || 'This key was rejected by Cartesia.',
+        });
+      } else if (result.validation.transcription?.valid === false) {
+        setCartesiaState({ valid: false, message: result.validation.transcription.error || 'Transcription stays on ElevenLabs.' });
+      }
+
       const gatewayCheck = result.validation.gateway;
       if (mode === 'gateway' && gatewayCheck) {
         setTranslationState({
@@ -345,6 +398,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             : gatewayCheck.error || 'This connection was rejected.',
         });
       }
+
+      // The engine only switches to Cartesia once a working Cartesia key is in place.
+      const cartesiaWorks = (result.keys.cartesia ?? 'none') !== 'none' && result.validation.cartesia?.valid !== false;
+      if (engine === 'cartesia' && !cartesiaWorks) {
+        if (!result.validation.cartesia) {
+          setCartesiaState({ valid: false, message: 'Paste a Cartesia key to switch the dub to Cartesia.' });
+        }
+        return;
+      }
+      if (engineChanged) onVoiceEngineChange?.(engine);
 
       const elevenLabsReady = result.keys.elevenLabs !== 'none';
       const translatorReady =
@@ -455,6 +518,42 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     },
   ];
 
+  const cartesiaServerFields: ServerField[] = [
+    {
+      key: 'cartesiaBaseUrl',
+      label: 'API base URL',
+      placeholder: 'https://api.cartesia.ai',
+      hint: 'Change it only for a proxy or a mirror.',
+      origin: server?.origins.cartesiaBaseUrl,
+    },
+    {
+      key: 'cartesiaApiVersion',
+      label: 'API version',
+      placeholder: '2026-08-14',
+      hint: 'Sent as the Cartesia-Version header.',
+      origin: server?.origins.cartesiaApiVersion,
+    },
+    {
+      key: 'cartesiaTtsModel',
+      label: 'Voice model',
+      placeholder: 'sonic-3.6',
+      hint: 'sonic-3.6 speaks 44 languages, including Hindi, Tamil, Telugu, Bengali and Odia.',
+      origin: server?.origins.cartesiaTtsModel,
+    },
+    {
+      key: 'cartesiaSttModel',
+      label: 'Transcription model',
+      placeholder: 'ink-whisper',
+      origin: server?.origins.cartesiaSttModel,
+    },
+  ];
+
+  const cartesiaDone =
+    cartesiaState?.valid === true || (cartesiaState === null && detection?.cartesia?.status === 'ok');
+  const showCartesiaInput = !(keySource.cartesia === 'saved' && !replacingCartesia && !cartesiaKey);
+  const transcribeWith = serverValues.transcriptionProvider === 'cartesia' ? 'cartesia' : 'elevenlabs';
+  const canUseCartesia = hasCartesia || cartesiaKey.trim().length > 0;
+
   const elevenLabsDone =
     elevenLabsState?.valid === true ||
     (elevenLabsState === null && detection?.elevenlabs.status === 'ok');
@@ -541,70 +640,242 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             <div className="py-5 flex flex-col gap-3">
               {sectionHeading(
                 1,
-                elevenLabsDone,
+                engine === 'elevenlabs' ? elevenLabsDone : cartesiaDone,
                 'Transcription and voice',
-                'ElevenLabs transcribes the talk, times every word, and speaks the dub.',
-                { href: 'https://elevenlabs.io/app/settings/api-keys' }
+                engine === 'elevenlabs'
+                  ? 'ElevenLabs transcribes the talk, times every word, and speaks the dub.'
+                  : 'Cartesia speaks the dub. Transcription stays on ElevenLabs unless you pick Cartesia Ink below.',
+                {
+                  href:
+                    engine === 'elevenlabs'
+                      ? 'https://elevenlabs.io/app/settings/api-keys'
+                      : 'https://play.cartesia.ai/keys',
+                }
               )}
 
-              {showElevenLabsInput ? (
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="setup-elevenlabs-key" className="text-xs text-slate-400">
-                    ElevenLabs API key
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="setup-elevenlabs-key"
-                      type={showElevenLabsKey ? 'text' : 'password'}
-                      value={elevenLabsKey}
-                      onChange={(e) => setElevenLabsKey(e.target.value)}
-                      placeholder={
-                        elevenLabsFromEnv ? 'Paste your own key to replace the one from .env' : 'Paste your key, it starts with sk_'
-                      }
-                      autoComplete="off"
-                      spellCheck={false}
-                      className={`${fieldClasses(elevenLabsState)} pr-11`}
-                    />
+              <div role="radiogroup" aria-label="Voice engine" className="grid sm:grid-cols-2 gap-2">
+                {[
+                  {
+                    id: 'elevenlabs' as const,
+                    title: 'ElevenLabs',
+                    blurb: 'The default. Transcribes, times every word and speaks the dub.',
+                  },
+                  {
+                    id: 'cartesia' as const,
+                    title: 'Cartesia',
+                    blurb: 'Speaks the dub with Cartesia Sonic voices. Switch back any time.',
+                  },
+                ].map((opt) => {
+                  const on = engine === opt.id;
+                  return (
                     <button
+                      key={opt.id}
                       type="button"
-                      onClick={() => setShowElevenLabsKey((v) => !v)}
-                      className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
-                      aria-label={showElevenLabsKey ? 'Hide key' : 'Show key'}
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setEngine(opt.id)}
+                      className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+                        on
+                          ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
+                          : 'border-slate-800 hover:bg-slate-800/40'
+                      }`}
                     >
-                      {showElevenLabsKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      <span
+                        className={`w-4 h-4 mt-0.5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 ${
+                          on ? 'border-indigo-400' : 'border-slate-600'
+                        }`}
+                      >
+                        {on && <span className="w-2 h-2 rounded-full bg-indigo-400" />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100">
+                          <AudioLines className="w-3.5 h-3.5 text-slate-400" />
+                          {opt.title}
+                          {opt.id === 'elevenlabs' && (
+                            <span className="text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-400">Default</span>
+                          )}
+                        </span>
+                        <span className="block text-[11.5px] text-slate-400 mt-0.5 leading-snug">{opt.blurb}</span>
+                      </span>
                     </button>
-                  </div>
-                  {renderState(elevenLabsState)}
-                  {elevenLabsFromEnv && envHint('ElevenLabs key')}
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] bg-slate-950/60 border border-slate-800">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-medium text-slate-100">Key saved on this computer</span>
-                    <span className="block text-[11.5px] text-slate-400 truncate">
-                      {detection?.elevenlabs.status === 'ok'
-                        ? 'Working. Replace it only to use a different key.'
-                        : 'Choose Replace to paste a new key'}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setReplacingElevenLabs(true)}
-                    className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
-                  >
-                    Replace
-                  </button>
-                </div>
-              )}
+                  );
+                })}
+              </div>
 
-              <ServerSettingsFields
-                title="Endpoint and models"
-                fields={elevenLabsServerFields}
-                values={serverValues}
-                onChange={setServerValue}
-                onReset={() => resetServerGroup(elevenLabsServerFields.map((field) => field.key))}
-              />
+              {engine === 'elevenlabs' ? (
+                <>
+                  {showElevenLabsInput ? (
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="setup-elevenlabs-key" className="text-xs text-slate-400">
+                        ElevenLabs API key
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="setup-elevenlabs-key"
+                          type={showElevenLabsKey ? 'text' : 'password'}
+                          value={elevenLabsKey}
+                          onChange={(e) => setElevenLabsKey(e.target.value)}
+                          placeholder={
+                            elevenLabsFromEnv ? 'Paste your own key to replace the one from .env' : 'Paste your key, it starts with sk_'
+                          }
+                          autoComplete="off"
+                          spellCheck={false}
+                          className={`${fieldClasses(elevenLabsState)} pr-11`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowElevenLabsKey((v) => !v)}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+                          aria-label={showElevenLabsKey ? 'Hide key' : 'Show key'}
+                        >
+                          {showElevenLabsKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {renderState(elevenLabsState)}
+                      {elevenLabsFromEnv && envHint('ElevenLabs key')}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] bg-slate-950/60 border border-slate-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-medium text-slate-100">Key saved on this computer</span>
+                        <span className="block text-[11.5px] text-slate-400 truncate">
+                          {detection?.elevenlabs.status === 'ok'
+                            ? 'Working. Replace it only to use a different key.'
+                            : 'Choose Replace to paste a new key'}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReplacingElevenLabs(true)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+                      >
+                        Replace
+                      </button>
+                    </div>
+                  )}
+
+                  <ServerSettingsFields
+                    title="Endpoint and models"
+                    fields={elevenLabsServerFields}
+                    values={serverValues}
+                    onChange={setServerValue}
+                    onReset={() => resetServerGroup(elevenLabsServerFields.map((field) => field.key))}
+                  />
+                </>
+              ) : (
+                <>
+                  {showCartesiaInput ? (
+                    <div className="flex flex-col gap-1.5">
+                      <label htmlFor="setup-cartesia-key" className="text-xs text-slate-400">
+                        Cartesia API key
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="setup-cartesia-key"
+                          type={showCartesiaKey ? 'text' : 'password'}
+                          value={cartesiaKey}
+                          onChange={(e) => setCartesiaKey(e.target.value)}
+                          placeholder={
+                            cartesiaFromEnv ? 'Paste your own key to replace the one from .env' : 'Paste your key, it starts with sk_car_'
+                          }
+                          autoComplete="off"
+                          spellCheck={false}
+                          className={`${fieldClasses(cartesiaState)} pr-11`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowCartesiaKey((v) => !v)}
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+                          aria-label={showCartesiaKey ? 'Hide key' : 'Show key'}
+                        >
+                          {showCartesiaKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {renderState(cartesiaState)}
+                      {cartesiaFromEnv && envHint('Cartesia key')}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-[10px] bg-slate-950/60 border border-slate-800">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-medium text-slate-100">Key saved on this computer</span>
+                        <span className="block text-[11.5px] text-slate-400 truncate">
+                          {detection?.cartesia?.status === 'ok'
+                            ? 'Working. Replace it only to use a different key.'
+                            : 'Choose Replace to paste a new key'}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setReplacingCartesia(true)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+                      >
+                        Replace
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-xs text-slate-400">Transcribe uploads with</span>
+                    <div role="radiogroup" aria-label="Transcription engine" className="grid sm:grid-cols-2 gap-2">
+                      {[
+                        {
+                          id: 'elevenlabs' as const,
+                          title: 'ElevenLabs Scribe',
+                          blurb: 'The default. Its word timings set every subtitle edge.',
+                        },
+                        {
+                          id: 'cartesia' as const,
+                          title: 'Cartesia Ink',
+                          blurb: canUseCartesia ? 'Cartesia speech-to-text, also with word timings.' : 'Add a Cartesia key first.',
+                        },
+                      ].map((opt) => {
+                        const on = transcribeWith === opt.id;
+                        const disabled = opt.id === 'cartesia' && !canUseCartesia && !on;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={on}
+                            disabled={disabled}
+                            onClick={() => setServerValue('transcriptionProvider', opt.id)}
+                            className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                              on
+                                ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
+                                : 'border-slate-800 hover:bg-slate-800/40'
+                            }`}
+                          >
+                            <span
+                              className={`w-4 h-4 mt-0.5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 ${
+                                on ? 'border-indigo-400' : 'border-slate-600'
+                              }`}
+                            >
+                              {on && <span className="w-2 h-2 rounded-full bg-indigo-400" />}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100">
+                                <AudioLines className="w-3.5 h-3.5 text-slate-400" />
+                                {opt.title}
+                              </span>
+                              <span className="block text-[11.5px] text-slate-400 mt-0.5 leading-snug">{opt.blurb}</span>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <ServerSettingsFields
+                    title="Endpoint and models"
+                    fields={cartesiaServerFields}
+                    values={serverValues}
+                    onChange={setServerValue}
+                    onReset={() => resetServerGroup(cartesiaServerFields.map((field) => field.key))}
+                  />
+                </>
+              )}
             </div>
 
             {/* 2. Translation */}
@@ -741,10 +1012,12 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 elevenLabs: elevenLabsKey,
                 translation: mode === 'gateway' ? gateway.apiKey : geminiKey,
                 translationUrl: mode === 'gateway' ? gateway.url : undefined,
+                cartesia: cartesiaKey,
               }}
               stored={{
                 elevenLabs: keySource.elevenLabs !== 'none',
                 translation: mode === 'gateway' ? Boolean(translation?.gatewayHasKey) : keySource.gemini !== 'none',
+                cartesia: hasCartesia,
               }}
               /*
                * Picking a model writes it back into the field, so a
@@ -785,7 +1058,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
             <p className="md:mt-auto flex items-start gap-2 text-[11.5px] text-slate-400 leading-relaxed">
               <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-px" />
-              <span>Keys never reach the browser. They go only to ElevenLabs and your translation engine.</span>
+              <span>Keys never reach the browser. They go only to ElevenLabs, Cartesia and your translation engine.</span>
             </p>
           </aside>
         </div>

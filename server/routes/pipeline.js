@@ -45,6 +45,7 @@ pipelineRouter.post(
       customPrompt = '',
       translate = 'true',
       diarize = 'false',
+      transcriptionProvider,
     } = req.body || {};
 
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
@@ -65,6 +66,10 @@ pipelineRouter.post(
         customPrompt,
         translate: translate !== 'false',
         diarize: diarize === 'true',
+        // Blank means the engine chosen in API settings.
+        ...(transcriptionProvider === 'elevenlabs' || transcriptionProvider === 'cartesia'
+          ? { transcriptionProvider }
+          : {}),
         cueOptions: parseJsonField(req.body?.cueOptions, {}),
         ...keys(req),
         onProgress: (event) => send({ type: 'progress', ...event }),

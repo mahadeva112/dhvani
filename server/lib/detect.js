@@ -91,6 +91,32 @@ export const checkElevenLabs = async ({ apiKey, baseUrl } = {}) => {
   };
 };
 
+/**
+ * Checks the Cartesia key with one cheap authenticated call. Cartesia is
+ * optional, so no key at all reports as 'missing' without being an error.
+ */
+export const checkCartesia = async ({ apiKey, baseUrl } = {}) => {
+  const key = (apiKey || '').trim() || config.cartesia.apiKey || '';
+  const base = (baseUrl || '').trim().replace(/\/+$/, '') || config.cartesia.baseUrl;
+
+  if (!key) {
+    return { id: 'cartesia', label: 'Cartesia', status: 'missing', message: 'Optional. No key set.', models: [] };
+  }
+
+  const { code, error } = await probe(`${base}/voices?limit=1`, {
+    Authorization: `Bearer ${key}`,
+    'Cartesia-Version': config.cartesia.apiVersion,
+  });
+  const [status, message] = readStatus(code, 'Cartesia');
+  return {
+    id: 'cartesia',
+    label: 'Cartesia',
+    status,
+    message: status === 'ok' ? `Key accepted. Voice model ${config.cartesia.ttsModel}.` : message || error || '',
+    models: [],
+  };
+};
+
 /** Checks Google AI Studio directly, and whether it serves the chosen model. */
 export const checkGoogle = async ({ apiKey, model, baseUrl } = {}) => {
   const key = (apiKey || '').trim() || config.gemini.apiKey || '';
@@ -216,7 +242,7 @@ export const detectAll = async (overrides = {}) => {
     (overrides.mode === undefined && gatewayEnabled()) ||
     Boolean(overrides.gateway?.url);
 
-  const [elevenlabs, translation] = await Promise.all([
+  const [elevenlabs, translation, cartesia] = await Promise.all([
     checkElevenLabs({
       apiKey: overrides.elevenLabsApiKey,
       baseUrl: overrides.elevenLabsBaseUrl,
@@ -228,11 +254,13 @@ export const detectAll = async (overrides = {}) => {
           model: overrides.geminiModel,
           baseUrl: overrides.geminiBaseUrl,
         }),
+    checkCartesia({ apiKey: overrides.cartesiaApiKey, baseUrl: overrides.cartesiaBaseUrl }),
   ]);
 
   return {
     elevenlabs,
     translation,
+    cartesia,
     mode: useGateway ? 'gateway' : 'google',
     checkedAt: new Date().toISOString(),
   };

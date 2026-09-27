@@ -72,6 +72,11 @@ export interface ProHeaderProps {
   mediaDuration?: number;
   activity?: HeaderActivity | null;
   quota?: HeaderQuota | null;
+  /** The engine speaking the dub, and the one transcribing; each is on only where named. */
+  voiceEngine?: 'elevenlabs' | 'cartesia';
+  transcriptionEngine?: 'elevenlabs' | 'cartesia';
+  /** True when a Cartesia key is set up; shows Cartesia in the services panel. */
+  cartesiaReady?: boolean;
   elevenLabsReady?: boolean;
   translationReady?: boolean;
   /** One line describing where translation runs. */
@@ -164,6 +169,9 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   mediaDuration,
   activity = null,
   quota = null,
+  voiceEngine = 'elevenlabs',
+  transcriptionEngine = 'elevenlabs',
+  cartesiaReady = false,
   elevenLabsReady = true,
   translationReady = true,
   translationSummary,
@@ -199,6 +207,14 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const hasCues = Boolean(activeJob && activeJob.segments.length > 0);
   const hasDub = Boolean(activeJob?.synthesizedAudioUrl);
   const servicesOk = elevenLabsReady && translationReady;
+  const voiceEngineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
+  /** What an engine is doing right now, e.g. "Transcription and voice", or "Off". */
+  const roleOf = (engine: 'elevenlabs' | 'cartesia') => {
+    const roles = [transcriptionEngine === engine && 'Transcription', voiceEngine === engine && 'voice'].filter(Boolean) as string[];
+    if (roles.length === 0) return 'Off';
+    const text = roles.join(' and ');
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  };
   const quotaLeft = quota ? Math.max(0, quota.limit - quota.used) : null;
   const quotaShare = quota && quota.limit > 0 ? quotaLeft! / quota.limit : null;
   const isVideo = activeJob?.file
@@ -353,7 +369,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                   servicesOk ? 'bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.2)]' : 'bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.2)]'
                 }`}
               />
-              <span className="hidden md:inline">ElevenLabs</span>
+              <span className="hidden md:inline">{voiceEngineName}</span>
               {quotaShare !== null && (
                 <span className="hidden xl:flex items-center gap-1.5">
                   <span className="w-11 h-1 rounded-full bg-slate-800 overflow-hidden">
@@ -377,12 +393,22 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                   <span className={`w-2 h-2 rounded-full shrink-0 ${elevenLabsReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] font-semibold text-slate-100">ElevenLabs</span>
-                    <span className="block text-[11.5px] text-slate-400">Transcription and voice</span>
+                    <span className="block text-[11.5px] text-slate-400">{roleOf('elevenlabs')}</span>
                   </span>
                   <span className="text-[11.5px] text-slate-400 capitalize">
                     {elevenLabsReady ? quota?.tier || 'Connected' : 'Not set'}
                   </span>
                 </div>
+                {cartesiaReady && (
+                  <div className="flex items-center gap-2.5">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${roleOf('cartesia') === 'Off' ? 'bg-slate-600' : 'bg-emerald-400'}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-semibold text-slate-100">Cartesia</span>
+                      <span className="block text-[11.5px] text-slate-400">{roleOf('cartesia')}</span>
+                    </span>
+                    <span className="text-[11.5px] text-slate-400">Connected</span>
+                  </div>
+                )}
                 {quota && quotaShare !== null && (
                   <div>
                     <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">

@@ -42,7 +42,7 @@ transcriptionRouter.post(
       cues: result.cues,
       srt: serializeSrt(result.cues, { field: 'text' }),
       vtt: serializeVtt(result.cues, { field: 'text' }),
-      timingSource: 'elevenlabs_word_timestamps',
+      timingSource: `${provider.name}_word_timestamps`,
     });
   })
 );

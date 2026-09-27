@@ -37,6 +37,8 @@ Whichever you choose, you supply your own credentials:
 - **ElevenLabs** — <https://elevenlabs.io/app/settings/api-keys> — transcription, timestamps, voice
 - **Translation** — either a **Gemini API key** (<https://aistudio.google.com/apikey>) *or*
   **your own LLM gateway** (see [Using your own gateway](#using-your-own-llm-gateway))
+- **Cartesia** (optional) — <https://play.cartesia.ai/keys> — a second voice engine. Its Sonic
+  voices join the voice picker, it can clone voices, and it can transcribe instead of ElevenLabs
 
 The first time you open DHVANI it asks for these and saves them on your computer. Nothing else to
 set up.
@@ -286,6 +288,7 @@ Browser (React + Vite, port 3000)
    ▼
 Local backend (Express, port 8787)
    ├── ElevenLabs  — transcription, word timestamps, TTS, speech-to-speech, voice cloning
+   ├── Cartesia    — optional: Sonic TTS, voice cloning, Ink transcription with word timestamps
    └── Translation — Google Gemini, or your own LLM gateway
                      (translation, script alignment, Indic polish, SSML)
 ```
@@ -423,6 +426,11 @@ Everything below is optional; `.env.example` documents each one.
 | `ELEVENLABS_TTS_MODEL` | `eleven_v3` | Default voice model. |
 | `GEMINI_TRANSLATION_MODELS` | `gemini-2.5-flash,gemini-2.0-flash` | Tried in order. |
 | `GEMINI_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Only for the Gemini TTS provider. |
+| `CARTESIA_API_KEY` | — | Optional. Adds Cartesia voices, cloning and transcription. |
+| `CARTESIA_TTS_MODEL` | `sonic-3.6` | Cartesia voice model. |
+| `CARTESIA_STT_MODEL` | `ink-whisper` | Cartesia transcription model. |
+| `CARTESIA_API_VERSION` | `2026-08-14` | Sent as the `Cartesia-Version` header. |
+| `TRANSCRIPTION_PROVIDER` | `elevenlabs` | `elevenlabs` or `cartesia`. |
 | `MAX_UPLOAD_MB` | `1024` | Upload size limit. |
 | `TRANSLATION_BATCH_SIZE` | `40` | Cues per Gemini request. |
 | `EXTRACT_AUDIO_FROM_VIDEO` | `true` | Set `false` to upload video as-is. |
@@ -469,6 +477,9 @@ preserve the timing guarantee.
 | `POST` | `/api/elevenlabs/tts` | Text to speech |
 | `POST` | `/api/elevenlabs/speech-to-speech` | Voice conversion |
 | `POST` | `/api/elevenlabs/voices/add` | Instant voice clone |
+| `GET` | `/api/cartesia/voices` · `/voices/:id/preview` | Cartesia voice library and preview clips |
+| `POST` | `/api/cartesia/tts` | Text to speech with a Cartesia voice |
+| `POST` | `/api/cartesia/voices/clone` | Clone a voice on Cartesia from one clip |
 | `POST` | `/api/gemini/expression` · `/split` · `/ssml` · `/validate-ssml` · `/tts` | Studio features |
 
 Errors come back as `{ "error": { message, code, provider, retryable, details } }`.

@@ -15,6 +15,7 @@ import { transcriptionRouter } from './routes/transcription.js';
 import { translationRouter } from './routes/translation.js';
 import { elevenLabsRouter } from './routes/elevenlabs.js';
 import { geminiRouter } from './routes/gemini.js';
+import { cartesiaRouter } from './routes/cartesia.js';
 import { ffmpegAvailable } from './lib/media.js';
 
 const app = express();
@@ -112,7 +113,7 @@ app.use(
       // browser reports a clean CORS failure instead of a 500.
       return callback(null, false);
     },
-    allowedHeaders: ['Content-Type', 'x-elevenlabs-key', 'x-gemini-key'],
+    allowedHeaders: ['Content-Type', 'x-elevenlabs-key', 'x-gemini-key', 'x-cartesia-key'],
   })
 );
 
@@ -161,6 +162,7 @@ app.use('/api', transcriptionRouter);
 app.use('/api', translationRouter);
 app.use('/api', elevenLabsRouter);
 app.use('/api', geminiRouter);
+app.use('/api', cartesiaRouter);
 
 /*
  * In production the same process serves the built frontend, so the whole app is

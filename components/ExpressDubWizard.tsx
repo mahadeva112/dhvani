@@ -56,7 +56,7 @@ import {
   DEFAULT_SRT_OPTIONS,
 } from '../services/srtService';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
-import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES } from './VoiceSelectorCard';
+import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip, MiniWaveform } from './MediaStrip';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { PhoneticSmartTextarea } from './PhoneticSmartTextarea';
@@ -142,7 +142,11 @@ interface ExpressDubWizardProps {
   pipelineStatus?: string;
   elVoiceId: string;
   onElVoiceIdChange: (v: string) => void;
+  /** Voices of the engine that is on; the other engine's voices are not offered. */
   availableVoices: Voice[];
+  /** Which engine speaks the dub. Omitting the change handler hides the switch (no Cartesia key). */
+  voiceEngine?: VoiceEngine;
+  onVoiceEngineChange?: (engine: VoiceEngine) => void;
   onOpenPhoneticKeyboard?: (segment?: AudioSegment) => void;
   onAutoTranscribe: () => Promise<void>;
   isTranscribing: boolean;
@@ -197,6 +201,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   elVoiceId,
   onElVoiceIdChange,
   availableVoices,
+  voiceEngine = 'elevenlabs',
+  onVoiceEngineChange,
   onOpenPhoneticKeyboard,
   onAutoTranscribe,
   isTranscribing,
@@ -689,6 +695,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onElVoiceIdChange={onElVoiceIdChange}
               availableVoices={availableVoices}
               targetLanguage={targetLanguage}
+              voiceEngine={voiceEngine}
+              onVoiceEngineChange={onVoiceEngineChange}
               // Zero height + full min-height: the setup panel alone sets the row height,
               // and the voice list scrolls inside it instead of leaving a gap below the panel.
               className="lg:h-0 lg:min-h-full"
@@ -2470,6 +2478,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onElVoiceIdChange={onElVoiceIdChange}
                   availableVoices={availableVoices}
                   targetLanguage={targetLanguage}
+                  voiceEngine={voiceEngine}
+                  onVoiceEngineChange={onVoiceEngineChange}
                   className="h-[78vh]"
                 />
               </div>

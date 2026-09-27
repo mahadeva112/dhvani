@@ -8,6 +8,8 @@ import { PhoneticKeyboardModal } from './components/PhoneticKeyboardModal';
 import { TranslationPromptModal } from './components/TranslationPromptModal';
 import { VoiceChangerModal } from './components/VoiceChangerModal';
 import { PauseSensitivityModal } from './components/PauseSensitivityModal';
+import type { VoiceEngine } from './components/VoiceSelectorCard';
+import { languageFit } from './services/indianVoices';
 import {
   TRANSLATION_PRESETS,
   DEFAULT_PROMPT_PRESET_ID,
@@ -47,9 +49,25 @@ import {
   ALL_ELEVENLABS_MODELS,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
+import { getCartesiaVoices, isCartesiaVoice } from './services/cartesiaService';
 
 /** Renamed from 'elVoiceSettings' so the old forced defaults every install saved are dropped. */
 const VOICE_SETTINGS_STORAGE_KEY = 'elVoiceSettingsV2';
+/** Which engine speaks the dub, and the last voice picked on each one. */
+const VOICE_ENGINE_STORAGE_KEY = 'dhvani_voice_engine';
+const LAST_VOICE_STORAGE_KEY = 'dhvani_voice_by_engine';
+const DEFAULT_ELEVENLABS_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
+
+const engineOfVoice = (voiceId?: string | null): VoiceEngine =>
+  isCartesiaVoice(voiceId) ? 'cartesia' : 'elevenlabs';
+
+const readLastVoices = (): Partial<Record<VoiceEngine, string>> => {
+  try {
+    return JSON.parse(localStorage.getItem(LAST_VOICE_STORAGE_KEY) || '{}') || {};
+  } catch {
+    return {};
+  }
+};
 import {
   generateSrtContent,
   generateTargetLanguageScript,
@@ -170,6 +188,16 @@ export default function App() {
       return localStorage.getItem('elVoiceId') || '21m00Tcm4TlvDq8ikWAM'; // Rachel default
     } catch {
       return '21m00Tcm4TlvDq8ikWAM';
+    }
+  });
+  // Only one engine is on at a time: its voices are offered and it speaks the dub.
+  const [voiceEngine, setVoiceEngine] = useState<VoiceEngine>(() => {
+    try {
+      const saved = localStorage.getItem(VOICE_ENGINE_STORAGE_KEY);
+      if (saved === 'cartesia' || saved === 'elevenlabs') return saved;
+      return engineOfVoice(localStorage.getItem('elVoiceId'));
+    } catch {
+      return 'elevenlabs';
     }
   });
   const [elModelId, setElModelId] = useState<string>(() => {
@@ -847,15 +875,22 @@ export default function App() {
    * Changer after cloning a voice, for instance — can await it before they
    * select the new voice ID.
    */
+  const cartesiaConfigured = Boolean(backendHealth?.cartesiaConfigured);
   const fetchVoices = useCallback(async () => {
-    if (!elApiKey || elApiKey.length <= 10) return;
+    const useElevenLabs = Boolean(elApiKey) && elApiKey.length > 10;
+    if (!useElevenLabs && !cartesiaConfigured) return;
     setIsLoadingVoices(true);
     try {
-      setAvailableVoices(await getVoices(elApiKey));
+      // One library for both engines; Cartesia voice IDs carry a cartesia: prefix.
+      const [elevenLabsVoices, cartesiaVoices] = await Promise.all([
+        useElevenLabs ? getVoices(elApiKey) : Promise.resolve([]),
+        cartesiaConfigured ? getCartesiaVoices() : Promise.resolve([]),
+      ]);
+      setAvailableVoices([...elevenLabsVoices, ...cartesiaVoices]);
     } finally {
       setIsLoadingVoices(false);
     }
-  }, [elApiKey]);
+  }, [elApiKey, cartesiaConfigured]);
 
   useEffect(() => {
     void fetchVoices();
@@ -869,8 +904,73 @@ export default function App() {
     setElVoiceId(id);
     try {
       localStorage.setItem('elVoiceId', id);
+      // Remembered per engine, so switching back returns to this voice.
+      localStorage.setItem(LAST_VOICE_STORAGE_KEY, JSON.stringify({ ...readLastVoices(), [engineOfVoice(id)]: id }));
     } catch {}
   };
+
+  /*
+   * Cartesia can only be on once its key is set up. Until the backend has
+   * answered, the saved choice stands, so a reload does not flip it.
+   */
+  const activeVoiceEngine: VoiceEngine =
+    voiceEngine === 'cartesia' && backendChecked && !cartesiaConfigured ? 'elevenlabs' : voiceEngine;
+
+  /** The voices of the engine that is on; the other engine's are switched off. */
+  const engineVoices = useMemo(
+    () => availableVoices.filter((voice) => engineOfVoice(voice.voice_id) === activeVoiceEngine),
+    [availableVoices, activeVoiceEngine]
+  );
+
+  /** The voice to use on `engine`: the one last picked there, else the best fit for the dub language. */
+  const pickVoiceFor = (engine: VoiceEngine, voices: Voice[]): string | null => {
+    const remembered = readLastVoices()[engine];
+    if (remembered && (voices.length === 0 || voices.some((voice) => voice.voice_id === remembered))) {
+      return remembered;
+    }
+    if (voices.length === 0) return engine === 'elevenlabs' ? DEFAULT_ELEVENLABS_VOICE_ID : null;
+    const language = activeJob?.language || selectedLanguage;
+    const best = voices.reduce((top, voice) => (languageFit(voice, language) > languageFit(top, language) ? voice : top));
+    return best.voice_id;
+  };
+
+  const handleVoiceEngineChange = (engine: VoiceEngine) => {
+    setVoiceEngine(engine);
+    try {
+      localStorage.setItem(VOICE_ENGINE_STORAGE_KEY, engine);
+    } catch {}
+    if (engineOfVoice(elVoiceId) === engine) return;
+    const next = pickVoiceFor(
+      engine,
+      availableVoices.filter((voice) => engineOfVoice(voice.voice_id) === engine)
+    );
+    if (next) handleElVoiceIdChange(next);
+  };
+
+  /*
+   * The voice picker's switch. Cartesia needs a key first, so choosing it
+   * without one opens API settings with Cartesia already selected.
+   */
+  const [pendingVoiceEngine, setPendingVoiceEngine] = useState<VoiceEngine | null>(null);
+  const requestVoiceEngine = (engine: VoiceEngine) => {
+    if (engine === 'cartesia' && !cartesiaConfigured) {
+      if (backendSettings?.canSaveKeys) {
+        setPendingVoiceEngine('cartesia');
+        setIsApiSettingsOpen(true);
+      }
+      return;
+    }
+    handleVoiceEngineChange(engine);
+  };
+
+  // Keep the chosen voice on the engine that is on, e.g. once Cartesia's voices load or its key is removed.
+  useEffect(() => {
+    if (engineOfVoice(elVoiceId) === activeVoiceEngine) return;
+    if (activeVoiceEngine === 'cartesia' && engineVoices.length === 0) return; // still loading
+    const next = pickVoiceFor(activeVoiceEngine, engineVoices);
+    if (next && next !== elVoiceId) handleElVoiceIdChange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVoiceEngine, engineVoices, elVoiceId]);
 
   const handleElModelIdChange = (model: string) => {
     setElModelId(model);
@@ -1632,11 +1732,19 @@ export default function App() {
         targetLanguage={activeJob?.language || selectedLanguage}
         mediaDuration={activeJob?.audioBuffer?.duration}
         activity={headerActivity}
-        quota={elevenLabsQuota}
+        // The ElevenLabs allowance only matters while ElevenLabs is the voice engine.
+        quota={activeVoiceEngine === 'elevenlabs' ? elevenLabsQuota : null}
+        voiceEngine={activeVoiceEngine}
+        transcriptionEngine={backendHealth?.transcriptionProvider === 'cartesia' ? 'cartesia' : 'elevenlabs'}
+        cartesiaReady={cartesiaConfigured}
         elevenLabsReady={Boolean(backendHealth?.elevenLabsConfigured)}
         translationReady={Boolean(backendHealth?.geminiConfigured)}
         translationSummary={translationSummary}
-        voiceSummary={ALL_ELEVENLABS_MODELS.find((m) => m.model_id === elModelId)?.name || elModelId}
+        voiceSummary={
+          activeVoiceEngine === 'cartesia'
+            ? `Cartesia ${backendSettings?.server?.values.cartesiaTtsModel || 'Sonic'}`
+            : ALL_ELEVENLABS_MODELS.find((m) => m.model_id === elModelId)?.name || elModelId
+        }
         translationStyleName={getPresetById(activeJob?.promptPresetId || promptPresetId).name}
         onOpenSettings={() => setIsVoiceSettingsOpen(true)}
         /*
@@ -1670,6 +1778,8 @@ export default function App() {
           translation={backendSettings.translation}
           server={backendSettings.server}
           ffmpegAvailable={backendHealth?.ffmpegAvailable}
+          voiceEngine={activeVoiceEngine}
+          onVoiceEngineChange={handleVoiceEngineChange}
           onComplete={handleSetupComplete}
           onSkip={handleDismissSetup}
         />
@@ -1684,11 +1794,18 @@ export default function App() {
           translation={backendSettings.translation}
           server={backendSettings.server}
           ffmpegAvailable={backendHealth?.ffmpegAvailable}
+          voiceEngine={activeVoiceEngine}
+          initialEngine={pendingVoiceEngine ?? undefined}
+          onVoiceEngineChange={handleVoiceEngineChange}
           onComplete={() => {
             setIsApiSettingsOpen(false);
+            setPendingVoiceEngine(null);
             probeBackend().catch(() => {});
           }}
-          onSkip={() => setIsApiSettingsOpen(false)}
+          onSkip={() => {
+            setIsApiSettingsOpen(false);
+            setPendingVoiceEngine(null);
+          }}
         />
       )}
 
@@ -1745,7 +1862,9 @@ export default function App() {
           pipelineStatus={pipelineStatus}
           elVoiceId={elVoiceId}
           onElVoiceIdChange={handleElVoiceIdChange}
-          availableVoices={availableVoices}
+          availableVoices={engineVoices}
+          voiceEngine={activeVoiceEngine}
+          onVoiceEngineChange={cartesiaConfigured || backendSettings?.canSaveKeys ? requestVoiceEngine : undefined}
           onOpenPhoneticKeyboard={(segment) => {
             setKeyboardActiveSegment(segment || activeJob?.segments?.[0] || null);
             setIsPhoneticKeyboardOpen(true);
@@ -1754,7 +1873,9 @@ export default function App() {
           isTranscribing={isTranscribing}
           onSynthesizeMaster={handleSynthesizeMaster}
           ttsModelName={
-            ALL_ELEVENLABS_MODELS.find((model) => model.model_id === elModelId)?.name || elModelId
+            isCartesiaVoice(elVoiceId)
+              ? `Cartesia ${backendSettings?.server?.values.cartesiaTtsModel || 'Sonic'}`
+              : ALL_ELEVENLABS_MODELS.find((model) => model.model_id === elModelId)?.name || elModelId
           }
           isSynthesizing={isBatchProcessing}
           dubProgress={dubProgress}
@@ -1802,6 +1923,7 @@ export default function App() {
         onSetDubbedMaster={handleSetDubbedMaster}
         onRefreshVoices={fetchVoices}
         targetLanguage={activeJob?.language || selectedLanguage}
+        cartesiaAvailable={cartesiaConfigured}
       />
 
       {/* Custom Translation Prompt Modal */}
@@ -1846,7 +1968,7 @@ export default function App() {
         onElModelIdChange={handleElModelIdChange}
         elVoiceSettings={elVoiceSettings}
         onElVoiceSettingsChange={handleElVoiceSettingsChange}
-        availableVoices={availableVoices}
+        availableVoices={engineVoices}
         isLoadingVoices={isLoadingVoices}
         onRefreshVoices={fetchVoices}
         targetLanguage={activeJob?.language || selectedLanguage}

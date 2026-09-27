@@ -12,6 +12,7 @@ import {
   translationSetup,
 } from '../env.js';
 import { getUser } from '../providers/elevenlabs/speech.js';
+import { checkKey as checkCartesiaKey } from '../providers/cartesia/speech.js';
 import { generateContent } from '../providers/gemini/client.js';
 import { discoverGateway, listGatewayModels } from '../providers/llmGateway/client.js';
 import { detectAll } from '../lib/detect.js';
@@ -105,6 +106,12 @@ settingsRouter.post(
       llmGatewayKey,
       llmGatewayProtocol,
       llmGatewayModels,
+      cartesiaApiKey,
+      cartesiaBaseUrl,
+      cartesiaApiVersion,
+      cartesiaTtsModel,
+      cartesiaSttModel,
+      transcriptionProvider,
       validate = true,
     } = req.body || {};
 
@@ -135,11 +142,21 @@ settingsRouter.post(
       llmGatewayProtocol !== undefined ||
       llmGatewayModels !== undefined;
 
-    if (!elevenLabsTouched && !geminiTouched && !gatewayTouched) {
+    const cartesiaTouched = [
+      cartesiaApiKey,
+      cartesiaBaseUrl,
+      cartesiaApiVersion,
+      cartesiaTtsModel,
+      cartesiaSttModel,
+    ].some((value) => value !== undefined);
+
+    const transcriptionTouched = transcriptionProvider !== undefined;
+
+    if (!elevenLabsTouched && !geminiTouched && !gatewayTouched && !cartesiaTouched && !transcriptionTouched) {
       throw new ApiError('No settings were supplied.', { status: 400, code: 'no_keys' });
     }
 
-    const results = { elevenLabs: null, gemini: null, gateway: null };
+    const results = { elevenLabs: null, gemini: null, gateway: null, cartesia: null };
 
     /*
      * A blank key field means "keep the stored one", so checks run against the
@@ -148,6 +165,7 @@ settingsRouter.post(
      */
     const effectiveElevenLabsKey = (elevenLabsApiKey || '').trim() || config.elevenlabs.apiKey || '';
     const effectiveGeminiKey = (geminiApiKey || '').trim() || config.gemini.apiKey || '';
+    const effectiveCartesiaKey = (cartesiaApiKey || '').trim() || config.cartesia.apiKey || '';
 
     const candidateGeminiModels = (
       Array.isArray(geminiTranslationModels)
@@ -173,6 +191,15 @@ settingsRouter.post(
         };
       } catch (err) {
         results.elevenLabs = { valid: false, error: err?.message || 'Validation failed.' };
+      }
+    }
+
+    if (validate && cartesiaTouched && effectiveCartesiaKey) {
+      try {
+        await checkCartesiaKey({ apiKey: effectiveCartesiaKey, baseUrl: cartesiaBaseUrl });
+        results.cartesia = { valid: true, voiceCount: null };
+      } catch (err) {
+        results.cartesia = { valid: false, error: err?.message || 'Validation failed.' };
       }
     }
 
@@ -234,6 +261,29 @@ settingsRouter.post(
       if (elevenLabsBaseUrl !== undefined) toSave.elevenLabsBaseUrl = elevenLabsBaseUrl;
       if (elevenLabsSttModel !== undefined) toSave.elevenLabsSttModel = elevenLabsSttModel;
       if (elevenLabsTtsModel !== undefined) toSave.elevenLabsTtsModel = elevenLabsTtsModel;
+    }
+
+    if (results.cartesia?.valid !== false) {
+      if (cartesiaApiKey !== undefined) toSave.cartesiaApiKey = cartesiaApiKey;
+      if (cartesiaBaseUrl !== undefined) toSave.cartesiaBaseUrl = cartesiaBaseUrl;
+      if (cartesiaApiVersion !== undefined) toSave.cartesiaApiVersion = cartesiaApiVersion;
+      if (cartesiaTtsModel !== undefined) toSave.cartesiaTtsModel = cartesiaTtsModel;
+      if (cartesiaSttModel !== undefined) toSave.cartesiaSttModel = cartesiaSttModel;
+    }
+
+    if (transcriptionTouched) {
+      const choice = String(transcriptionProvider || '').trim().toLowerCase();
+      // Choosing Cartesia needs a working Cartesia key, saved or in this same request.
+      const cartesiaUsable = Boolean(effectiveCartesiaKey) && results.cartesia?.valid !== false;
+      if (choice === 'cartesia' && !cartesiaUsable) {
+        results.transcription = {
+          valid: false,
+          error: 'Cartesia transcription needs a working Cartesia key. Transcription stays on ElevenLabs.',
+        };
+      } else {
+        // 'elevenlabs' is the default, so it is stored as a clear.
+        toSave.transcriptionProvider = choice === 'cartesia' ? 'cartesia' : null;
+      }
     }
 
     if (results.gemini?.valid !== false) {
