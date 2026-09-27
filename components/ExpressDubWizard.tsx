@@ -666,12 +666,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   };
 
   return (
-    <div className="w-full flex flex-col space-y-4 sm:space-y-5">
+    <div className="w-full flex-1 flex flex-col space-y-4 sm:space-y-5">
       {/* ========================================================================= */}
       {/* STEP 1: MEDIA, LANGUAGES & VOICE */}
       {/* ========================================================================= */}
       {activeStep === 1 && (
-        <div className="flex flex-col gap-4 animate-in fade-in duration-200">
+        <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           <MediaStrip
             file={activeJob?.file ?? null}
             audioBuffer={activeJob?.audioBuffer ?? null}
@@ -682,7 +682,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             }}
           />
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] gap-4 items-stretch">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_26rem] gap-4 items-stretch lg:flex-1">
             {/* Voice library: the main decision on this step */}
             <VoiceSelectorCard
               elVoiceId={elVoiceId}
@@ -821,7 +821,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </div>
               )}
 
-              <div className="px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2.5">
+              <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2.5">
                 <button
                   type="button"
                   onClick={async () => {
@@ -870,7 +870,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {/* STEP 2: PRO REVIEW & TRANSLATION POLISH */}
       {/* ========================================================================= */}
       {activeStep === 2 && activeJob && (
-        <div className="flex flex-col gap-4 animate-in fade-in duration-200">
+        <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           {/* Interactive Audio Waveform & Pro Audition Player */}
           <ReviewWaveformPlayer
             audioBuffer={activeJob.audioBuffer}
@@ -902,7 +902,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           />
 
           {/* Workspace: cue editor and review panel share one height, so neither leaves a gap */}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] gap-4 lg:h-[calc(100vh-7rem)] lg:min-h-[600px]">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 lg:h-[calc(100vh-7rem)] lg:min-h-[600px]">
             <section
               aria-label="Translation cues"
               className="flex flex-col min-h-0 h-[78vh] lg:h-auto bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
@@ -1929,7 +1929,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const openIssues = openFindings.length;
 
         return (
-        <div className="flex flex-col gap-4 animate-in fade-in duration-200">
+        <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           {/* Dub panel: ready, dubbing, or finished */}
           <section aria-label="Dub" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
             {isSynthesizing && dubRun ? (
@@ -2211,7 +2211,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           </section>
 
           {/* Script and delivery share one height */}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] gap-4 items-stretch">
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-stretch lg:flex-1">
             <section
               aria-label="Final script"
               className="flex flex-col min-h-0 lg:h-0 lg:min-h-full bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
