@@ -215,8 +215,8 @@ const runStage = async ({ prompt, apiKey, models, label }) => {
   return { script, modelUsed };
 };
 
-// The aligner returns the script word for word, so only tag handling is added.
-const ALIGN_RULES = `7. Keep an opening square-bracket tag such as [fast] in the same cue as its closing [/fast] where the English allows it.`;
+const ALIGN_RULES = `5. Copy the script text exactly as written. Keep every "...", "-", ";", ",", "।", "?" and "!" where it is, and keep square-bracket tags such as [fast] and [/fast] exactly as they appear.
+6. Where the script repeats a pause "..." that falls between two cues, it belongs at the end of the earlier cue.`;
 
 /**
  * Runs Steps 1–3 over one chunk of cues and aligns the result onto them.
