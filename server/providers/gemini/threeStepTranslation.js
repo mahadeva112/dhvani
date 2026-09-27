@@ -36,7 +36,7 @@ const MARKER_PATTERN = /^\s*#\s*pipeline\s*:\s*3-step\b/im;
 export const isThreeStepPrompt = (customPrompt) => MARKER_PATTERN.test(String(customPrompt || ''));
 
 /** Lines not starting with `#` are the user's own additions, sent with Step 1. */
-const extraInstructions = (customPrompt) =>
+export const extraInstructions = (customPrompt) =>
   String(customPrompt || '')
     .split(/\r?\n/)
     .filter((line) => !line.trim().startsWith('#'))
@@ -61,11 +61,18 @@ export const threeStepLanguages = () => {
 
 const promptCache = new Map();
 
-/** Reads the three prompts for a language; `Hindi (हिन्दी)` resolves to `Hindi`. */
-const loadStagePrompts = (targetLanguage) => {
+/** `Hindi (हिन्दी)` -> `Hindi`, or undefined when that language has no prompts. */
+const resolveLanguage = (targetLanguage, available = threeStepLanguages()) => {
   const wanted = String(targetLanguage || '').split('(')[0].trim().toLowerCase();
+  return available.find((name) => name.toLowerCase() === wanted);
+};
+
+export const supportsThreeStep = (targetLanguage) => Boolean(resolveLanguage(targetLanguage));
+
+/** Reads the three prompts for a language. */
+const loadStagePrompts = (targetLanguage) => {
   const available = threeStepLanguages();
-  const language = available.find((name) => name.toLowerCase() === wanted);
+  const language = resolveLanguage(targetLanguage, available);
 
   if (!language) {
     throw new ApiError(
@@ -208,8 +215,8 @@ const runStage = async ({ prompt, apiKey, models, label }) => {
   return { script, modelUsed };
 };
 
-const ALIGN_RULES = `5. Copy the script text exactly as written. Keep every "...", "-", ";", ",", "।", "?" and "!" where it is, and keep square-bracket tags such as [fast] and [/fast] exactly as they appear.
-6. Where the script repeats a pause "..." that falls between two cues, it belongs at the end of the earlier cue.`;
+// The aligner returns the script word for word, so only tag handling is added.
+const ALIGN_RULES = `7. Keep an opening square-bracket tag such as [fast] in the same cue as its closing [/fast] where the English allows it.`;
 
 /**
  * Runs Steps 1–3 over one chunk of cues and aligns the result onto them.

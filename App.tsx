@@ -13,6 +13,7 @@ import { languageFit } from './services/indianVoices';
 import {
   TRANSLATION_PRESETS,
   DEFAULT_PROMPT_PRESET_ID,
+  adoptThreeStepDefault,
   getPresetById,
   TranslationPromptPreset,
 } from './services/translationPromptPresets';
@@ -158,6 +159,7 @@ export default function App() {
 
   // Translation Prompt & Persona Settings
   const [promptPresetId, setPromptPresetId] = useState<string>(() => {
+    adoptThreeStepDefault();
     try {
       return localStorage.getItem('dhvani_prompt_preset_id') || DEFAULT_PROMPT_PRESET_ID;
     } catch {
@@ -1881,6 +1883,7 @@ export default function App() {
           isCancellingDub={isCancellingDub}
           onCancelSynthesis={handleCancelSynthesis}
           onUpdateSegment={handleUpdateSegment}
+          onReplaceSegments={handleReplaceSegments}
           onPlaySegmentSolo={handlePlaySoloSegment}
           isPlaying={isPlaying}
           onTogglePlay={togglePlay}

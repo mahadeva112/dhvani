@@ -65,7 +65,7 @@ import { CustomScriptAlignModal } from './CustomScriptAlignModal';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
-import { getPresetById } from '../services/translationPromptPresets';
+import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
 import { useSignoff } from '../services/signoffService';
@@ -159,6 +159,8 @@ interface ExpressDubWizardProps {
   isCancellingDub?: boolean;
   onCancelSynthesis?: () => void;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
+  /** Replaces every segment in one write, for changes that touch many cues. */
+  onReplaceSegments: (segments: AudioSegment[]) => void;
   onPlaySegmentSolo: (segment: AudioSegment) => void;
   isPlaying: boolean;
   onTogglePlay: () => void;
@@ -213,6 +215,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   isCancellingDub = false,
   onCancelSynthesis,
   onUpdateSegment,
+  onReplaceSegments,
   onPlaySegmentSolo,
   isPlaying,
   onTogglePlay,
@@ -265,6 +268,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return DEFAULT_SRT_OPTIONS;
   });
   const [exportSuccessMessage, setExportSuccessMessage] = useState<string | null>(null);
+  // Offered in the toast right after a pasted script replaces every cue.
+  const [toastUndo, setToastUndo] = useState<(() => void) | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scriptScrollRef = useRef<HTMLDivElement>(null);
 
   // Pagination State for Long Scripts (30m to 1h) compatibility
@@ -276,16 +282,38 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     setCurrentPage(1);
   }, [searchQuery, pacingFilter, reviewMode]);
 
+  // All cues change in one write: onUpdateSegment in a loop would keep only
+  // the last cue, since every call starts from the same render's segments.
   const handleApplyAlignedSegments = (alignedItems: { id: string | number; textTarget: string }[]) => {
     if (!segments || segments.length === 0) return;
-    alignedItems.forEach((item) => {
-      onUpdateSegment(item.id, {
-        textTarget: item.textTarget,
-        targetText: item.textTarget,
-      });
-    });
+    const before = new Map(segments.map((seg) => [String(seg.id), { textTarget: seg.textTarget, targetText: seg.targetText }]));
+    const byId = new Map(alignedItems.map((item) => [String(item.id), item.textTarget]));
+    onReplaceSegments(
+      segments.map((seg) => {
+        const text = byId.get(String(seg.id));
+        return text === undefined ? seg : { ...seg, textTarget: text, targetText: text };
+      })
+    );
+
+    if (toastTimer.current) clearTimeout(toastTimer.current);
     setExportSuccessMessage(`Your script is now in ${alignedItems.length} ${alignedItems.length === 1 ? 'cue' : 'cues'}`);
-    setTimeout(() => setExportSuccessMessage(null), 3500);
+    setToastUndo(() => () => {
+      // Only the text goes back; anything else changed since then stays.
+      onReplaceSegments(
+        latestSegments.current.map((seg) => {
+          const previous = before.get(String(seg.id));
+          return previous ? { ...seg, ...previous } : seg;
+        })
+      );
+      setToastUndo(null);
+      setExportSuccessMessage('The cues have their previous lines back');
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+      toastTimer.current = setTimeout(() => setExportSuccessMessage(null), 3000);
+    });
+    toastTimer.current = setTimeout(() => {
+      setExportSuccessMessage(null);
+      setToastUndo(null);
+    }, 10000);
   };
 
   const scrollToTop = () => {
@@ -389,6 +417,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   };
 
   const segments = activeJob?.segments || [];
+  const latestSegments = useRef(segments);
+  latestSegments.current = segments;
 
   const filteredSegments = useMemo(() => {
     return segments.filter((seg) => {
@@ -1735,7 +1765,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px] font-semibold text-slate-100 truncate">
-                        {getPresetById(promptPresetId || 'conversational').name}
+                        {getPresetById(promptPresetId || DEFAULT_PROMPT_PRESET_ID).name}
                       </span>
                       <span className="block text-[11.5px] text-slate-400">Translation style</span>
                     </span>
@@ -2509,6 +2539,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         >
           <Check className="w-3.5 h-3.5 shrink-0" />
           {exportSuccessMessage}
+          {toastUndo && (
+            <button
+              type="button"
+              onClick={toastUndo}
+              className="ml-1.5 -mr-1.5 px-2.5 py-0.5 rounded-full bg-slate-950 text-slate-100 text-[12px] font-semibold hover:bg-slate-800 cursor-pointer"
+            >
+              Undo
+            </button>
+          )}
         </div>
       )}
 
@@ -2539,7 +2578,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         isOpen={isLocalPromptModalOpen}
         onClose={() => setIsLocalPromptModalOpen(false)}
         currentPrompt={customPrompt || ''}
-        currentPresetId={promptPresetId || 'conversational'}
+        currentPresetId={promptPresetId || DEFAULT_PROMPT_PRESET_ID}
         targetLanguage={targetLanguage}
         hasActiveSegments={segments.length > 0}
         hasAudioFile={!!activeJob?.file}
