@@ -110,8 +110,6 @@ settingsRouter.post(
       cartesiaBaseUrl,
       cartesiaApiVersion,
       cartesiaTtsModel,
-      cartesiaSttModel,
-      transcriptionProvider,
       validate = true,
     } = req.body || {};
 
@@ -147,12 +145,9 @@ settingsRouter.post(
       cartesiaBaseUrl,
       cartesiaApiVersion,
       cartesiaTtsModel,
-      cartesiaSttModel,
     ].some((value) => value !== undefined);
 
-    const transcriptionTouched = transcriptionProvider !== undefined;
-
-    if (!elevenLabsTouched && !geminiTouched && !gatewayTouched && !cartesiaTouched && !transcriptionTouched) {
+    if (!elevenLabsTouched && !geminiTouched && !gatewayTouched && !cartesiaTouched) {
       throw new ApiError('No settings were supplied.', { status: 400, code: 'no_keys' });
     }
 
@@ -268,22 +263,6 @@ settingsRouter.post(
       if (cartesiaBaseUrl !== undefined) toSave.cartesiaBaseUrl = cartesiaBaseUrl;
       if (cartesiaApiVersion !== undefined) toSave.cartesiaApiVersion = cartesiaApiVersion;
       if (cartesiaTtsModel !== undefined) toSave.cartesiaTtsModel = cartesiaTtsModel;
-      if (cartesiaSttModel !== undefined) toSave.cartesiaSttModel = cartesiaSttModel;
-    }
-
-    if (transcriptionTouched) {
-      const choice = String(transcriptionProvider || '').trim().toLowerCase();
-      // Choosing Cartesia needs a working Cartesia key, saved or in this same request.
-      const cartesiaUsable = Boolean(effectiveCartesiaKey) && results.cartesia?.valid !== false;
-      if (choice === 'cartesia' && !cartesiaUsable) {
-        results.transcription = {
-          valid: false,
-          error: 'Cartesia transcription needs a working Cartesia key. Transcription stays on ElevenLabs.',
-        };
-      } else {
-        // 'elevenlabs' is the default, so it is stored as a clear.
-        toSave.transcriptionProvider = choice === 'cartesia' ? 'cartesia' : null;
-      }
     }
 
     if (results.gemini?.valid !== false) {

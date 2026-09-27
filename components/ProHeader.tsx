@@ -72,9 +72,8 @@ export interface ProHeaderProps {
   mediaDuration?: number;
   activity?: HeaderActivity | null;
   quota?: HeaderQuota | null;
-  /** The engine speaking the dub, and the one transcribing; each is on only where named. */
+  /** The engine speaking the dub. ElevenLabs always transcribes. */
   voiceEngine?: 'elevenlabs' | 'cartesia';
-  transcriptionEngine?: 'elevenlabs' | 'cartesia';
   /** True when a Cartesia key is set up; shows Cartesia in the services panel. */
   cartesiaReady?: boolean;
   elevenLabsReady?: boolean;
@@ -170,7 +169,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   activity = null,
   quota = null,
   voiceEngine = 'elevenlabs',
-  transcriptionEngine = 'elevenlabs',
   cartesiaReady = false,
   elevenLabsReady = true,
   translationReady = true,
@@ -210,7 +208,8 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const voiceEngineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   /** What an engine is doing right now, e.g. "Transcription and voice", or "Off". */
   const roleOf = (engine: 'elevenlabs' | 'cartesia') => {
-    const roles = [transcriptionEngine === engine && 'Transcription', voiceEngine === engine && 'voice'].filter(Boolean) as string[];
+    // ElevenLabs always transcribes; the voice engine is the user's choice.
+    const roles = [engine === 'elevenlabs' && 'Transcription', voiceEngine === engine && 'voice'].filter(Boolean) as string[];
     if (roles.length === 0) return 'Off';
     const text = roles.join(' and ');
     return text.charAt(0).toUpperCase() + text.slice(1);

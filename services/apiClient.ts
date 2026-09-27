@@ -275,8 +275,6 @@ export interface BackendHealth {
   geminiConfigured: boolean;
   /** Absent on an older backend. */
   cartesiaConfigured?: boolean;
-  /** Which engine transcribes uploads. */
-  transcriptionProvider?: 'elevenlabs' | 'cartesia';
   keySource: KeyOrigins;
   translation: TranslationSetup;
   ffmpegAvailable: boolean;
@@ -319,8 +317,6 @@ export interface ServerSettings {
     cartesiaBaseUrl?: string;
     cartesiaApiVersion?: string;
     cartesiaTtsModel?: string;
-    cartesiaSttModel?: string;
-    transcriptionProvider?: 'elevenlabs' | 'cartesia';
   };
   origins: Record<keyof ServerSettings['values'], SettingOrigin>;
 }
@@ -343,8 +339,6 @@ export interface SaveKeysResult {
     gemini: { valid: boolean; model?: string; error?: string } | null;
     gateway: { valid: boolean; model?: string; latencyMs?: number; error?: string } | null;
     cartesia?: { valid: boolean; voiceCount?: number | null; error?: string } | null;
-    /** Set when the chosen transcription engine could not be switched to. */
-    transcription?: { valid: boolean; error?: string } | null;
   };
   saved: boolean;
   translation: TranslationSetup;
@@ -431,8 +425,6 @@ export interface SaveKeysPayload {
   cartesiaBaseUrl?: string;
   cartesiaApiVersion?: string;
   cartesiaTtsModel?: string;
-  cartesiaSttModel?: string;
-  transcriptionProvider?: string;
 }
 
 export const saveBackendKeys = (keys: SaveKeysPayload): Promise<SaveKeysResult> =>

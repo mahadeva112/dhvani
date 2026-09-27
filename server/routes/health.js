@@ -38,7 +38,7 @@ healthRouter.get(
       translation: translationSetup(),
       ffmpegAvailable: await ffmpegAvailable(),
       maxUploadMb: Math.round(config.maxUploadBytes / 1024 / 1024),
-      sttModel: activeProviders.transcription === 'cartesia' ? config.cartesia.sttModel : config.elevenlabs.sttModel,
+      sttModel: config.elevenlabs.sttModel,
       ttsModel: config.elevenlabs.ttsModel,
       // The models translation will actually use — gateway models when the
       // gateway is active, Google's list otherwise.

@@ -30,13 +30,6 @@ export const toCartesiaLanguage = (displayName) => {
   return entry?.bcp47 ? entry.bcp47.split('-')[0].toLowerCase() : '';
 };
 
-/** The DHVANI display name for a two-letter code Cartesia reports back. */
-export const fromCartesiaLanguage = (code, fallback = 'Unknown') => {
-  const base = String(code || '').toLowerCase().split(/[-_]/)[0];
-  if (!base) return fallback;
-  return LANGUAGES.find((language) => language.bcp47 && language.bcp47.split('-')[0].toLowerCase() === base)?.name || fallback;
-};
-
 const headers = (apiKey, extra = {}) => ({
   Authorization: `Bearer ${cartesiaKey(apiKey)}`,
   'Cartesia-Version': config.cartesia.apiVersion,

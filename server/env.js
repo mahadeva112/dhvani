@@ -143,7 +143,6 @@ const normalizeBaseUrl = (value, defaultPath = '') => {
 /** Cartesia defaults, used until something else is saved or set in the environment. */
 export const CARTESIA_DEFAULT_VERSION = '2026-08-14';
 export const CARTESIA_DEFAULT_TTS_MODEL = 'sonic-3.6';
-export const CARTESIA_DEFAULT_STT_MODEL = 'ink-whisper';
 
 export const config = {
   version: readVersion(),
@@ -233,15 +232,6 @@ export const config = {
     get ttsModel() {
       return setting('cartesiaTtsModel', 'CARTESIA_TTS_MODEL', CARTESIA_DEFAULT_TTS_MODEL);
     },
-    get sttModel() {
-      return setting('cartesiaSttModel', 'CARTESIA_STT_MODEL', CARTESIA_DEFAULT_STT_MODEL);
-    },
-  },
-
-  /** Which engine transcribes uploads: 'elevenlabs' (default) or 'cartesia'. */
-  get transcriptionProvider() {
-    const value = setting('transcriptionProvider', 'TRANSCRIPTION_PROVIDER', 'elevenlabs').toLowerCase();
-    return value === 'cartesia' ? 'cartesia' : 'elevenlabs';
   },
 
   /**
@@ -347,8 +337,6 @@ export const serverSettings = () => ({
     cartesiaBaseUrl: config.cartesia.baseUrl,
     cartesiaApiVersion: config.cartesia.apiVersion,
     cartesiaTtsModel: config.cartesia.ttsModel,
-    cartesiaSttModel: config.cartesia.sttModel,
-    transcriptionProvider: config.transcriptionProvider,
   },
   origins: {
     elevenLabsBaseUrl: originOf('elevenLabsBaseUrl', 'ELEVENLABS_BASE_URL'),
@@ -365,8 +353,6 @@ export const serverSettings = () => ({
     cartesiaBaseUrl: originOf('cartesiaBaseUrl', 'CARTESIA_BASE_URL'),
     cartesiaApiVersion: originOf('cartesiaApiVersion', 'CARTESIA_API_VERSION'),
     cartesiaTtsModel: originOf('cartesiaTtsModel', 'CARTESIA_TTS_MODEL'),
-    cartesiaSttModel: originOf('cartesiaSttModel', 'CARTESIA_STT_MODEL'),
-    transcriptionProvider: originOf('transcriptionProvider', 'TRANSCRIPTION_PROVIDER'),
   },
 });
 
@@ -409,8 +395,6 @@ const TEXT_FIELDS = [
   'cartesiaBaseUrl',
   'cartesiaApiVersion',
   'cartesiaTtsModel',
-  'cartesiaSttModel',
-  'transcriptionProvider',
 ];
 
 const LIST_FIELDS = ['geminiTranslationModels', 'llmGatewayModels'];
