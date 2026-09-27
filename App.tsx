@@ -1735,7 +1735,6 @@ export default function App() {
         // The ElevenLabs allowance only matters while ElevenLabs is the voice engine.
         quota={activeVoiceEngine === 'elevenlabs' ? elevenLabsQuota : null}
         voiceEngine={activeVoiceEngine}
-        transcriptionEngine={backendHealth?.transcriptionProvider === 'cartesia' ? 'cartesia' : 'elevenlabs'}
         cartesiaReady={cartesiaConfigured}
         elevenLabsReady={Boolean(backendHealth?.elevenLabsConfigured)}
         translationReady={Boolean(backendHealth?.geminiConfigured)}

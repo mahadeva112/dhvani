@@ -1,11 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { synthesizeScript, getVoices, toCartesiaOutputFormat } from './speech.js';
-import { transcribeFile } from './transcription.js';
-import { toCartesiaLanguage, fromCartesiaLanguage, toCartesiaVoiceId, toDhvaniVoiceId } from './client.js';
+import { toCartesiaLanguage, toCartesiaVoiceId, toDhvaniVoiceId } from './client.js';
 
 const LONG_TEXT = 'The mind is restless, but you can watch it without judgement. '.repeat(60);
 
@@ -32,12 +28,10 @@ test('app output formats map onto Cartesia output_format objects', () => {
   assert.equal(toCartesiaOutputFormat('mp3_22000_100').format, 'mp3_22050_96');
 });
 
-test('language names map to the two-letter codes Cartesia uses, and back', () => {
+test('language names map to the two-letter codes Cartesia uses', () => {
   assert.equal(toCartesiaLanguage('Hindi'), 'hi');
   assert.equal(toCartesiaLanguage('Tamil'), 'ta');
   assert.equal(toCartesiaLanguage('Auto Detect'), '');
-  assert.equal(fromCartesiaLanguage('bn'), 'Bengali');
-  assert.equal(fromCartesiaLanguage('', 'Hindi'), 'Hindi');
 });
 
 test('voice IDs carry a cartesia: prefix everywhere but the Cartesia API itself', () => {
@@ -102,54 +96,4 @@ test('the voice library is paged through and reshaped like the ElevenLabs list',
   assert.equal(bela.labels.language, 'hi');
   assert.equal(bela.preview_url, '/api/cartesia/voices/b/preview');
   assert.equal(voices[0].category, 'cloned', "the account's own voices count as cloned");
-});
-
-const withSampleFile = async (run) => {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'dhvani-cartesia-'));
-  const filePath = path.join(dir, 'talk.wav');
-  await fs.promises.writeFile(filePath, Buffer.alloc(2048, 1));
-  try {
-    return await run({ path: filePath, originalname: 'talk.wav', mimetype: 'audio/wav' });
-  } finally {
-    await fs.promises.rm(dir, { recursive: true, force: true });
-  }
-};
-
-test('Cartesia transcription turns word timestamps into cues on those exact edges', async () => {
-  const calls = mockFetch(() =>
-    json({
-      type: 'transcript',
-      text: 'Time is not money. It is life.',
-      language: 'en',
-      duration: 3,
-      words: [
-        { word: 'Time', start: 0.2, end: 0.55 },
-        { word: 'is', start: 0.58, end: 0.71 },
-        { word: 'not', start: 0.74, end: 0.9 },
-        { word: 'money.', start: 0.93, end: 1.3 },
-        { word: 'It', start: 2.2, end: 2.3 },
-        { word: 'is', start: 2.32, end: 2.4 },
-        { word: 'life.', start: 2.42, end: 2.8 },
-      ],
-    })
-  );
-
-  const result = await withSampleFile((file) => transcribeFile(file, { sourceLanguage: 'English', apiKey: 'sk_car_test' }));
-
-  assert.match(calls[0].url, /\/stt$/);
-  const form = calls[0].init.body;
-  assert.equal(form.get('language'), 'en');
-  assert.equal(form.get('timestamp_granularities[]'), 'word');
-  assert.equal(result.languageName, 'English');
-  assert.ok(result.cues.length >= 2, 'the long pause starts a new cue');
-  assert.equal(result.cues[0].startTime, 0.2);
-  assert.equal(result.cues.at(-1).endTime, 2.8);
-});
-
-test('Cartesia transcription refuses Auto Detect instead of guessing English', async () => {
-  mockFetch(() => json({}));
-  await assert.rejects(
-    withSampleFile((file) => transcribeFile(file, { sourceLanguage: 'Auto Detect' })),
-    (err) => err.code === 'language_required'
-  );
 });

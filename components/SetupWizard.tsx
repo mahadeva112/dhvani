@@ -78,8 +78,6 @@ const seedServerValues = (server?: ServerSettings | null): ServerValues => ({
   cartesiaBaseUrl: server?.values.cartesiaBaseUrl || '',
   cartesiaApiVersion: server?.values.cartesiaApiVersion || '',
   cartesiaTtsModel: server?.values.cartesiaTtsModel || '',
-  cartesiaSttModel: server?.values.cartesiaSttModel || '',
-  transcriptionProvider: server?.values.transcriptionProvider || 'elevenlabs',
 });
 
 type FieldState = { valid: boolean; message: string } | null;
@@ -383,8 +381,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             ? `Connected${typeof check.voiceCount === 'number' ? ` — ${check.voiceCount.toLocaleString()} voices` : ''}`
             : check.error || 'This key was rejected by Cartesia.',
         });
-      } else if (result.validation.transcription?.valid === false) {
-        setCartesiaState({ valid: false, message: result.validation.transcription.error || 'Transcription stays on ElevenLabs.' });
       }
 
       const gatewayCheck = result.validation.gateway;
@@ -540,19 +536,11 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       hint: 'sonic-3.6 speaks 44 languages, including Hindi, Tamil, Telugu, Bengali and Odia.',
       origin: server?.origins.cartesiaTtsModel,
     },
-    {
-      key: 'cartesiaSttModel',
-      label: 'Transcription model',
-      placeholder: 'ink-whisper',
-      origin: server?.origins.cartesiaSttModel,
-    },
   ];
 
   const cartesiaDone =
     cartesiaState?.valid === true || (cartesiaState === null && detection?.cartesia?.status === 'ok');
   const showCartesiaInput = !(keySource.cartesia === 'saved' && !replacingCartesia && !cartesiaKey);
-  const transcribeWith = serverValues.transcriptionProvider === 'cartesia' ? 'cartesia' : 'elevenlabs';
-  const canUseCartesia = hasCartesia || cartesiaKey.trim().length > 0;
 
   const elevenLabsDone =
     elevenLabsState?.valid === true ||
@@ -644,7 +632,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 'Transcription and voice',
                 engine === 'elevenlabs'
                   ? 'ElevenLabs transcribes the talk, times every word, and speaks the dub.'
-                  : 'Cartesia speaks the dub. Transcription stays on ElevenLabs unless you pick Cartesia Ink below.',
+                  : 'Cartesia speaks the dub. ElevenLabs still transcribes the talk and times every word.',
                 {
                   href:
                     engine === 'elevenlabs'
@@ -815,57 +803,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       </button>
                     </div>
                   )}
-
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-xs text-slate-400">Transcribe uploads with</span>
-                    <div role="radiogroup" aria-label="Transcription engine" className="grid sm:grid-cols-2 gap-2">
-                      {[
-                        {
-                          id: 'elevenlabs' as const,
-                          title: 'ElevenLabs Scribe',
-                          blurb: 'The default. Its word timings set every subtitle edge.',
-                        },
-                        {
-                          id: 'cartesia' as const,
-                          title: 'Cartesia Ink',
-                          blurb: canUseCartesia ? 'Cartesia speech-to-text, also with word timings.' : 'Add a Cartesia key first.',
-                        },
-                      ].map((opt) => {
-                        const on = transcribeWith === opt.id;
-                        const disabled = opt.id === 'cartesia' && !canUseCartesia && !on;
-                        return (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            role="radio"
-                            aria-checked={on}
-                            disabled={disabled}
-                            onClick={() => setServerValue('transcriptionProvider', opt.id)}
-                            className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
-                              on
-                                ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
-                                : 'border-slate-800 hover:bg-slate-800/40'
-                            }`}
-                          >
-                            <span
-                              className={`w-4 h-4 mt-0.5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 ${
-                                on ? 'border-indigo-400' : 'border-slate-600'
-                              }`}
-                            >
-                              {on && <span className="w-2 h-2 rounded-full bg-indigo-400" />}
-                            </span>
-                            <span className="min-w-0">
-                              <span className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100">
-                                <AudioLines className="w-3.5 h-3.5 text-slate-400" />
-                                {opt.title}
-                              </span>
-                              <span className="block text-[11.5px] text-slate-400 mt-0.5 leading-snug">{opt.blurb}</span>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
 
                   <ServerSettingsFields
                     title="Endpoint and models"

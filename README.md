@@ -288,7 +288,7 @@ Browser (React + Vite, port 3000)
    ▼
 Local backend (Express, port 8787)
    ├── ElevenLabs  — transcription, word timestamps, TTS, speech-to-speech, voice cloning
-   ├── Cartesia    — optional: Sonic TTS, voice cloning, Ink transcription with word timestamps
+   ├── Cartesia    — optional: Sonic TTS and voice cloning
    └── Translation — Google Gemini, or your own LLM gateway
                      (translation, script alignment, Indic polish, SSML)
 ```
@@ -426,11 +426,9 @@ Everything below is optional; `.env.example` documents each one.
 | `ELEVENLABS_TTS_MODEL` | `eleven_v3` | Default voice model. |
 | `GEMINI_TRANSLATION_MODELS` | `gemini-2.5-flash,gemini-2.0-flash` | Tried in order. |
 | `GEMINI_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Only for the Gemini TTS provider. |
-| `CARTESIA_API_KEY` | — | Optional. Adds Cartesia voices, cloning and transcription. |
+| `CARTESIA_API_KEY` | — | Optional. Adds Cartesia voices and cloning. |
 | `CARTESIA_TTS_MODEL` | `sonic-3.6` | Cartesia voice model. |
-| `CARTESIA_STT_MODEL` | `ink-whisper` | Cartesia transcription model. |
 | `CARTESIA_API_VERSION` | `2026-08-14` | Sent as the `Cartesia-Version` header. |
-| `TRANSCRIPTION_PROVIDER` | `elevenlabs` | `elevenlabs` or `cartesia`. |
 | `MAX_UPLOAD_MB` | `1024` | Upload size limit. |
 | `TRANSLATION_BATCH_SIZE` | `40` | Cues per Gemini request. |
 | `EXTRACT_AUDIO_FROM_VIDEO` | `true` | Set `false` to upload video as-is. |
