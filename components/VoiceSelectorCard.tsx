@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect, useDeferredValue } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useLayoutEffect, useDeferredValue } from 'react';
 import {
   Search,
   Play,
@@ -209,6 +209,8 @@ export const VOICE_ENGINE_LABELS: Record<VoiceEngine, string> = {
 
 /** Rows rendered per page; the list grows as you scroll so thousands of voices stay fast. */
 const PAGE_SIZE = 60;
+// Grid gap and vertical list padding, in px (Tailwind gap-2.5 / py-2.5 / scroll-pt-2.5).
+const GRID_GAP = 10;
 
 /** Whether the list shows only Indian voices; on unless the user turned it off. */
 const INDIAN_ONLY_KEY = 'dhvani_voice_indian_only';
@@ -625,6 +627,34 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   };
 
   const visibleVoices = filteredVoices.slice(0, visibleCount);
+  const hasVoices = visibleVoices.length > 0;
+
+  // Size rows so a whole number of them fills the list viewport exactly. Together with
+  // row snapping, no card is ever left half visible at the bottom edge.
+  const [rowHeight, setRowHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el || !hasVoices) return;
+    const fit = () => {
+      const bodies = el.querySelectorAll<HTMLElement>('[data-card-body]');
+      if (!bodies.length) return;
+      const cs = getComputedStyle(bodies[0].parentElement!);
+      const chrome =
+        parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) +
+        parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+      let natural = 0;
+      bodies.forEach((b) => { natural = Math.max(natural, b.offsetHeight); });
+      natural += chrome;
+      const h = el.clientHeight;
+      const rows = Math.max(1, Math.floor((h - GRID_GAP) / (natural + GRID_GAP)));
+      const next = Math.max(natural, (h - (rows + 1) * GRID_GAP) / rows);
+      setRowHeight((prev) => (prev === next ? prev : next));
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasVoices]);
 
   return (
     <section
@@ -846,7 +876,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         role="listbox"
         aria-label="Voices"
         onScroll={handleListScroll}
-        className="flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar p-4"
+        className="flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar px-4 py-2.5 snap-y snap-mandatory scroll-pt-2.5"
       >
         {filteredVoices.length === 0 ? (
           <div className="p-8 text-center rounded-xl border border-dashed border-slate-800 space-y-2">
@@ -867,7 +897,10 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             </button>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5">
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5"
+            style={rowHeight ? { gridAutoRows: `${rowHeight}px` } : undefined}
+          >
             {visibleVoices.map((v, idx) => {
               const isSelected = v.id === elVoiceId;
               const isPlaying = playingVoiceId === v.id;
@@ -894,7 +927,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                       selectVoice(v.id);
                     }
                   }}
-                  className={`group relative flex gap-3 p-3 rounded-xl border cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                  className={`group relative flex items-center gap-3 p-3 rounded-xl border snap-start cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                     isSelected
                       ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
                       : isHighlighted
@@ -933,7 +966,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                     )}
                   </button>
 
-                  <div className="min-w-0 flex-1">
+                  <div data-card-body className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span
                         className={`text-[13.5px] font-semibold truncate ${isSelected ? 'text-indigo-100' : 'text-slate-100'}`}
