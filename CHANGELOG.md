@@ -7,6 +7,20 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Cartesia as a second voice engine.** ElevenLabs stays the default. Switch to Cartesia under
+  **API settings → Transcription and voice**, or with the **ElevenLabs | Cartesia** switch in the
+  voice picker (without a Cartesia key yet, it opens API settings on Cartesia so you can paste one). Only one engine is on at a time: switching to
+  Cartesia shows only Cartesia voices and dubs with Cartesia, and switching back turns Cartesia off.
+  Each engine remembers the last voice picked on it, and the header shows the engine that is on
+  (the ElevenLabs allowance is hidden while Cartesia speaks). Cartesia dubs (`sonic-3.6` by default, which speaks Hindi, Tamil, Telugu,
+  Bengali, Odia and the other Indian languages). Long scripts are voiced in passages and joined like
+  an ElevenLabs dub, with the same progress bar and Cancel button. The Voice changer can clone a
+  voice on Cartesia from one clip, and **API settings** can switch transcription to Cartesia Ink,
+  whose word timestamps set cue edges exactly as ElevenLabs' do. Cartesia retired its voice changer
+  in August 2026, so changing a recording's voice still needs an ElevenLabs voice.
+
 ### Changed
 
 - **Hindi is the default dub language, and the voice picker suggests Indian voices.** A new install

@@ -140,6 +140,11 @@ const normalizeBaseUrl = (value, defaultPath = '') => {
   }
 };
 
+/** Cartesia defaults, used until something else is saved or set in the environment. */
+export const CARTESIA_DEFAULT_VERSION = '2026-08-14';
+export const CARTESIA_DEFAULT_TTS_MODEL = 'sonic-3.6';
+export const CARTESIA_DEFAULT_STT_MODEL = 'ink-whisper';
+
 export const config = {
   version: readVersion(),
   isProduction: str('NODE_ENV', 'development') === 'production',
@@ -206,6 +211,37 @@ export const config = {
     get ttsModel() {
       return setting('geminiTtsModel', 'GEMINI_TTS_MODEL', 'gemini-2.5-flash-preview-tts');
     },
+  },
+
+  /**
+   * Cartesia: a second voice engine (Sonic text-to-speech and voice
+   * cloning) and, when chosen, a second transcription engine (Ink).
+   * ElevenLabs stays the default for everything; Cartesia is used for a dub
+   * only when a Cartesia voice is picked.
+   */
+  cartesia: {
+    get apiKey() {
+      return setting('cartesiaApiKey', 'CARTESIA_API_KEY');
+    },
+    get baseUrl() {
+      return normalizeBaseUrl(setting('cartesiaBaseUrl', 'CARTESIA_BASE_URL', 'https://api.cartesia.ai'));
+    },
+    /** Sent as the Cartesia-Version header; the API's shape is pinned to it. */
+    get apiVersion() {
+      return setting('cartesiaApiVersion', 'CARTESIA_API_VERSION', CARTESIA_DEFAULT_VERSION);
+    },
+    get ttsModel() {
+      return setting('cartesiaTtsModel', 'CARTESIA_TTS_MODEL', CARTESIA_DEFAULT_TTS_MODEL);
+    },
+    get sttModel() {
+      return setting('cartesiaSttModel', 'CARTESIA_STT_MODEL', CARTESIA_DEFAULT_STT_MODEL);
+    },
+  },
+
+  /** Which engine transcribes uploads: 'elevenlabs' (default) or 'cartesia'. */
+  get transcriptionProvider() {
+    const value = setting('transcriptionProvider', 'TRANSCRIPTION_PROVIDER', 'elevenlabs').toLowerCase();
+    return value === 'cartesia' ? 'cartesia' : 'elevenlabs';
   },
 
   /**
@@ -291,6 +327,7 @@ export const keySource = () => ({
   elevenLabs: savedStr('elevenLabsApiKey') ? 'saved' : str('ELEVENLABS_API_KEY') ? 'env' : 'none',
   gemini: savedStr('geminiApiKey') ? 'saved' : str('GEMINI_API_KEY') ? 'env' : 'none',
   gateway: !gatewayEnabled() ? 'none' : savedStr('llmGatewayUrl') ? 'saved' : 'env',
+  cartesia: savedStr('cartesiaApiKey') ? 'saved' : str('CARTESIA_API_KEY') ? 'env' : 'none',
 });
 
 /**
@@ -307,6 +344,11 @@ export const serverSettings = () => ({
     geminiBaseUrl: config.gemini.baseUrl,
     geminiTranslationModels: config.gemini.translationModels,
     geminiTtsModel: config.gemini.ttsModel,
+    cartesiaBaseUrl: config.cartesia.baseUrl,
+    cartesiaApiVersion: config.cartesia.apiVersion,
+    cartesiaTtsModel: config.cartesia.ttsModel,
+    cartesiaSttModel: config.cartesia.sttModel,
+    transcriptionProvider: config.transcriptionProvider,
   },
   origins: {
     elevenLabsBaseUrl: originOf('elevenLabsBaseUrl', 'ELEVENLABS_BASE_URL'),
@@ -320,6 +362,11 @@ export const serverSettings = () => ({
           ? 'env'
           : 'default',
     geminiTtsModel: originOf('geminiTtsModel', 'GEMINI_TTS_MODEL'),
+    cartesiaBaseUrl: originOf('cartesiaBaseUrl', 'CARTESIA_BASE_URL'),
+    cartesiaApiVersion: originOf('cartesiaApiVersion', 'CARTESIA_API_VERSION'),
+    cartesiaTtsModel: originOf('cartesiaTtsModel', 'CARTESIA_TTS_MODEL'),
+    cartesiaSttModel: originOf('cartesiaSttModel', 'CARTESIA_STT_MODEL'),
+    transcriptionProvider: originOf('transcriptionProvider', 'TRANSCRIPTION_PROVIDER'),
   },
 });
 
@@ -345,7 +392,7 @@ export const translationSetup = () => ({
  * wiped the token. Every other field is shown pre-filled with its live value,
  * so emptying one is a deliberate reset and does clear it.
  */
-const SECRET_FIELDS = new Set(['elevenLabsApiKey', 'geminiApiKey', 'llmGatewayKey']);
+const SECRET_FIELDS = new Set(['elevenLabsApiKey', 'geminiApiKey', 'llmGatewayKey', 'cartesiaApiKey']);
 
 const TEXT_FIELDS = [
   'elevenLabsApiKey',
@@ -358,6 +405,12 @@ const TEXT_FIELDS = [
   'llmGatewayKey',
   'llmGatewayUrl',
   'llmGatewayProtocol',
+  'cartesiaApiKey',
+  'cartesiaBaseUrl',
+  'cartesiaApiVersion',
+  'cartesiaTtsModel',
+  'cartesiaSttModel',
+  'transcriptionProvider',
 ];
 
 const LIST_FIELDS = ['geminiTranslationModels', 'llmGatewayModels'];

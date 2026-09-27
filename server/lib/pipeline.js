@@ -81,7 +81,7 @@ export const runSubtitlePipeline = async (
     translationModel: null,
     translationWarning: null,
     untranslatedCueIds: [],
-    timingSource: transcriber.providesWordTimestamps ? 'elevenlabs_word_timestamps' : 'provider',
+    timingSource: transcriber.providesWordTimestamps ? `${transcriber.name}_word_timestamps` : 'provider',
     elapsedMs: 0,
   };
 

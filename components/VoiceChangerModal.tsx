@@ -37,6 +37,7 @@ import {
 import { POPULAR_ELEVENLABS_VOICES, VoiceSelectorCard } from './VoiceSelectorCard';
 import { MiniWaveform } from './MediaStrip';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
+import { cloneCartesiaVoice, isCartesiaVoice } from '../services/cartesiaService';
 
 /** The effects the audio engine offers, in the order shown. */
 const EFFECTS: { id: VoiceEffectPreset; label: string; desc: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -77,6 +78,8 @@ interface VoiceChangerModalProps {
   onRefreshVoices?: () => Promise<void>;
   /** The dub language, so the voice library suggests voices that speak it. */
   targetLanguage?: string;
+  /** True when a Cartesia key is set up, which offers Cartesia for cloning. */
+  cartesiaAvailable?: boolean;
 }
 
 type ModeTab = 'sts' | 'clone' | 'effects';
@@ -94,8 +97,14 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   onSetDubbedMaster,
   onRefreshVoices,
   targetLanguage = 'Hindi',
+  cartesiaAvailable = false,
 }) => {
   const [activeTab, setActiveTab] = useState<ModeTab>('sts');
+  // Cartesia retired its voice changer, so only ElevenLabs voices can be changed into.
+  const stsVoices = useMemo(
+    () => availableVoices.filter((v) => !isCartesiaVoice(v.voice_id)),
+    [availableVoices]
+  );
 
   // Source audio state
   const [sourceAudioFile, setSourceAudioFile] = useState<File | null>(activeAudioFile || null);
@@ -154,6 +163,8 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const [cloneGender, setCloneGender] = useState<string>('unspecified');
   const [cloneAccent, setCloneAccent] = useState<string>('Indian');
   const [cloneFiles, setCloneFiles] = useState<File[]>([]);
+  const [cloneEngine, setCloneEngine] = useState<'elevenlabs' | 'cartesia'>('elevenlabs');
+  const cloneOnCartesia = cartesiaAvailable && cloneEngine === 'cartesia';
   // Total length of the added clone samples, read from each file's metadata.
   const [cloneSampleSeconds, setCloneSampleSeconds] = useState(0);
   useEffect(() => {
@@ -402,19 +413,26 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       setIsProcessing(true);
       setErrorMessage(null);
       setSuccessMessage(null);
-      setProcessingStatus('Extracting vocal timbre and creating clone in ElevenLabs...');
+      setProcessingStatus(
+        `Extracting vocal timbre and creating clone in ${cloneOnCartesia ? 'Cartesia' : 'ElevenLabs'}...`
+      );
 
       const labels: Record<string, string> = {};
       if (cloneGender !== 'unspecified') labels.gender = cloneGender;
       if (cloneAccent) labels.accent = cloneAccent;
 
-      const result = await cloneVoiceFromAudio(
-        elApiKey,
-        cloneName,
-        samples,
-        cloneDescription || 'Cloned in DHVANI Voice Studio',
-        labels
-      );
+      const result = cloneOnCartesia
+        ? await cloneCartesiaVoice(cloneName, samples, {
+            description: cloneDescription || 'Cloned in DHVANI Voice Studio',
+            language: targetLanguage,
+          })
+        : await cloneVoiceFromAudio(
+            elApiKey,
+            cloneName,
+            samples,
+            cloneDescription || 'Cloned in DHVANI Voice Studio',
+            labels
+          );
 
       if (onRefreshVoices) {
         await onRefreshVoices();
@@ -499,7 +517,8 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   // A built-in voice missing from the live library still has a known name.
   const builtIn = POPULAR_ELEVENLABS_VOICES.find((v) => v.id === targetVoiceId);
   const targetFull = (targetVoice?.name || builtIn?.name || 'Choose a voice').trim();
-  const hasTarget = Boolean(targetVoice || builtIn);
+  const targetIsCartesia = isCartesiaVoice(targetVoiceId);
+  const hasTarget = Boolean(targetVoice || builtIn) && !targetIsCartesia;
   const [targetName, ...targetTagParts] = targetFull.split(/\s+[-–—|]\s+/);
   const targetMeta = [
     targetTagParts.join(' – ') || targetVoice?.labels?.description || targetVoice?.labels?.use_case,
@@ -784,7 +803,9 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     <ArrowLeftRight className="w-4 h-4" /> {hasTarget ? `Change to ${targetName}` : 'Change voice'}
                   </button>
                   <span className="text-[11.5px] text-slate-500">
-                    Uses ElevenLabs credits{sourceLength ? ` for ${sourceLength} of audio` : ''}.
+                    {targetIsCartesia
+                      ? 'Cartesia no longer offers voice changing. Choose an ElevenLabs voice.'
+                      : `Uses ElevenLabs credits${sourceLength ? ` for ${sourceLength} of audio` : ''}.`}
                   </span>
                 </div>
               </>
@@ -793,8 +814,31 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             {activeTab === 'clone' && (
               <>
                 <p className="text-[13px] text-slate-400 max-w-[60ch]">
-                  Make a new ElevenLabs voice from clean recordings of one speaker. It joins your library and can dub or change voices.
+                  {cloneOnCartesia
+                    ? `Make a new Cartesia voice from one clean recording of one speaker. It joins your library and can dub in ${targetLanguage}.`
+                    : 'Make a new ElevenLabs voice from clean recordings of one speaker. It joins your library and can dub or change voices.'}
                 </p>
+                {cartesiaAvailable && (
+                  <div role="radiogroup" aria-label="Clone with" className="flex w-fit p-[3px] gap-0.5 bg-slate-950/60 border border-slate-700 rounded-[10px]">
+                    {([
+                      ['elevenlabs', 'ElevenLabs'],
+                      ['cartesia', 'Cartesia'],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        role="radio"
+                        aria-checked={cloneEngine === value}
+                        onClick={() => setCloneEngine(value)}
+                        className={`px-3 py-1.5 rounded-[7px] text-xs font-medium transition-colors cursor-pointer ${
+                          cloneEngine === value ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="grid sm:grid-cols-2 gap-3.5">
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="clone-name" className="text-xs text-slate-400">Name</label>
@@ -843,7 +887,11 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px] font-semibold text-slate-100">Add recordings</span>
-                      <span className="block text-[11.5px] text-slate-400">Up to 25 files. One speaker, no music.</span>
+                      <span className="block text-[11.5px] text-slate-400">
+                        {cloneOnCartesia
+                          ? 'Cartesia uses the first file, up to 16 MB. One speaker, no music.'
+                          : 'Up to 25 files. One speaker, no music.'}
+                      </span>
                     </span>
                     <button
                       type="button"
@@ -1103,7 +1151,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             <VoiceSelectorCard
               elVoiceId={targetVoiceId}
               onElVoiceIdChange={setTargetVoiceId}
-              availableVoices={availableVoices}
+              availableVoices={stsVoices}
               targetLanguage={targetLanguage}
               className="h-[78vh]"
             />

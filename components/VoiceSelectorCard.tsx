@@ -23,6 +23,8 @@ export interface VoiceItem {
   desc: string;
   previewUrl?: string;
   labels?: Record<string, string | undefined>;
+  /** Which engine speaks the voice. Absent means ElevenLabs. */
+  provider?: 'elevenlabs' | 'cartesia';
 }
 
 export const POPULAR_ELEVENLABS_VOICES: VoiceItem[] = [
@@ -175,6 +177,12 @@ interface VoiceSelectorCardProps {
   targetLanguage?: string;
   /** Extra classes for the outer panel, e.g. to size it to a sibling column. */
   className?: string;
+  /**
+   * The voice engine that is on. With `onVoiceEngineChange`, the card shows an
+   * ElevenLabs / Cartesia switch; the parent passes only that engine's voices.
+   */
+  voiceEngine?: VoiceEngine;
+  onVoiceEngineChange?: (engine: VoiceEngine) => void;
 }
 
 /** A voice plus the precomputed fields the search ranks against. */
@@ -191,6 +199,13 @@ interface IndexedVoice extends VoiceItem {
 
 type CategoryFilter = 'all' | 'premade' | 'cloned' | 'custom';
 type GenderFilter = 'all' | 'female' | 'male';
+/** The engine that speaks the dub. Only one is on at a time. */
+export type VoiceEngine = 'elevenlabs' | 'cartesia';
+
+export const VOICE_ENGINE_LABELS: Record<VoiceEngine, string> = {
+  elevenlabs: 'ElevenLabs',
+  cartesia: 'Cartesia',
+};
 
 /** Rows rendered per page; the list grows as you scroll so thousands of voices stay fast. */
 const PAGE_SIZE = 60;
@@ -327,6 +342,8 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   availableVoices = [],
   targetLanguage = 'Hindi',
   className = '',
+  voiceEngine = 'elevenlabs',
+  onVoiceEngineChange,
 }) => {
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -405,11 +422,15 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
               desc,
               previewUrl: v.preview_url,
               labels,
+              provider: v.provider,
               indian: isIndianVoice(v),
               fit: languageFit(v, targetLanguage),
             };
           })
-        : POPULAR_ELEVENLABS_VOICES;
+        : // The built-in list is ElevenLabs voices; it must not stand in for Cartesia's.
+          voiceEngine === 'cartesia'
+          ? []
+          : POPULAR_ELEVENLABS_VOICES;
 
     return (base as (VoiceItem & { indian?: boolean; fit?: number })[]).map((raw) => {
       // Library names sometimes carry stray whitespace (" Knightley Javier"), which blanks the avatar initial
@@ -429,7 +450,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         languageFit: raw.fit || 0,
       };
     });
-  }, [availableVoices, targetLanguage]);
+  }, [availableVoices, targetLanguage, voiceEngine]);
 
   const indianCount = useMemo(() => allVoices.filter((v) => v.indian).length, [allVoices]);
   // With no Indian voices in the library (or only the built-in list), the filter would empty the list.
@@ -621,9 +642,38 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             Voices that speak {targetLanguage} are shown first. Play a preview before you choose.
           </p>
         </div>
-        <span className="shrink-0 text-[11px] font-mono uppercase tracking-wider text-slate-500 tabular-nums pt-0.5">
-          {allVoices.length.toLocaleString()} voices
-        </span>
+        <div className="shrink-0 flex items-center gap-3">
+          {onVoiceEngineChange && (
+            <div
+              role="radiogroup"
+              aria-label="Voice engine"
+              className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5"
+            >
+              {(['elevenlabs', 'cartesia'] as const).map((engine) => (
+                <button
+                  key={engine}
+                  type="button"
+                  role="radio"
+                  aria-checked={voiceEngine === engine}
+                  onClick={() => onVoiceEngineChange(engine)}
+                  title={
+                    voiceEngine === engine
+                      ? `Dubbing with ${VOICE_ENGINE_LABELS[engine]}`
+                      : `Switch the dub to ${VOICE_ENGINE_LABELS[engine]} voices; ${VOICE_ENGINE_LABELS[voiceEngine]} turns off`
+                  }
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                    voiceEngine === engine ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {VOICE_ENGINE_LABELS[engine]}
+                </button>
+              ))}
+            </div>
+          )}
+          <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 tabular-nums pt-0.5">
+            {allVoices.length.toLocaleString()} voices
+          </span>
+        </div>
       </div>
 
       {/* Search and main filters */}
@@ -920,7 +970,9 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                         <span
                           className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-300"
                           title={
-                            v.languageFit === 2 ? `A ${targetLanguage} voice` : `Verified by ElevenLabs in ${targetLanguage}`
+                            v.languageFit === 2
+                              ? `A ${targetLanguage} voice`
+                              : `Verified by ${VOICE_ENGINE_LABELS[voiceEngine]} in ${targetLanguage}`
                           }
                         >
                           {targetLanguage}
@@ -994,7 +1046,12 @@ export const SelectedVoiceSummary: React.FC<{ voiceId: string; availableVoices?:
   const labels = live?.labels || {};
   const accent = titleCase(prettify((labels.accent || '').replace(/^[a-z]{2,3}-(?=[a-z])/i, ''))) || fallback?.accent;
   const gender = capitalize((labels.gender || fallback?.gender || '').toLowerCase());
-  const meta = [gender, accent && accent !== 'Neutral' && accent !== 'Standard' ? accent : '', tagline || capitalize(prettify(labels.use_case))]
+  const meta = [
+    live?.provider === 'cartesia' ? 'Cartesia' : '',
+    gender,
+    accent && accent !== 'Neutral' && accent !== 'Standard' ? accent : '',
+    tagline || capitalize(prettify(labels.use_case || labels.description)),
+  ]
     .filter(Boolean)
     .join(' · ');
 

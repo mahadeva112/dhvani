@@ -9,7 +9,7 @@ import {
 } from '../services/providerDetect';
 
 export interface DetectionRow {
-  id: 'elevenlabs' | 'translation';
+  id: 'elevenlabs' | 'translation' | 'cartesia';
   label: string;
   status: ProbeStatus;
   message: string;
@@ -22,6 +22,8 @@ export interface DetectionRow {
 export interface DetectionResult {
   elevenlabs: DetectionRow;
   translation: DetectionRow;
+  /** Cartesia is optional; absent on an older backend. */
+  cartesia?: DetectionRow;
   mode: 'gateway' | 'google';
   checkedAt: string;
 }
@@ -31,13 +33,13 @@ interface DetectionCardProps {
   isChecking: boolean;
   onRecheck: () => void;
   /** The keys as currently typed, for instant offline identification. */
-  keys: { elevenLabs?: string; translation?: string; translationUrl?: string };
+  keys: { elevenLabs?: string; translation?: string; translationUrl?: string; cartesia?: string };
   /**
    * Which credentials the backend already holds. A stored secret is never sent
    * to the browser, so without this the rows would claim "no credential set"
    * while happily reporting the stored one as working.
    */
-  stored?: { elevenLabs?: boolean; translation?: boolean };
+  stored?: { elevenLabs?: boolean; translation?: boolean; cartesia?: boolean };
   /** Picking a model writes it back, so "model missing" is one click from fixed. */
   onPickModel?: (model: string) => void;
 }
@@ -212,6 +214,9 @@ export const DetectionCard: React.FC<DetectionCardProps> = ({
         isChecking={isChecking}
         onPickModel={onPickModel}
       />
+      {result?.cartesia && (
+        <Row row={result.cartesia} typedKey={keys.cartesia} hasStoredKey={stored?.cartesia} isChecking={isChecking} />
+      )}
     </div>
   );
 };

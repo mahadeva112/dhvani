@@ -11,6 +11,7 @@ export type ProviderId =
   | 'studio'
   | 'gateway'
   | 'elevenlabs'
+  | 'cartesia'
   | 'openai'
   | 'anthropic'
   | 'huggingface'
@@ -42,6 +43,8 @@ export const detectProvider = (key?: string, baseUrl?: string): ProviderGuess | 
   }
 
   if (value.startsWith('AIza')) return { id: 'studio', label: 'Google AI Studio', hint: 'AIza… key' };
+  // Cartesia keys share ElevenLabs' sk_ prefix, so they are told apart first.
+  if (value.startsWith('sk_car_')) return { id: 'cartesia', label: 'Cartesia', hint: 'sk_car_… key' };
   if (value.startsWith('sk_')) return { id: 'elevenlabs', label: 'ElevenLabs', hint: 'sk_… key' };
   if (value.startsWith('sk-ant-')) return { id: 'anthropic', label: 'Anthropic', hint: 'sk-ant-… key' };
   if (value.startsWith('sk-proj-')) return { id: 'openai', label: 'OpenAI', hint: 'sk-proj-… key' };

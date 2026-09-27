@@ -29,13 +29,13 @@ export class ApiError extends Error {
 export const badRequest = (message, options = {}) =>
   new ApiError(message, { status: 400, code: 'bad_request', ...options });
 
-const PROVIDER_LABELS = { elevenlabs: 'ElevenLabs', gemini: 'Gemini' };
-const PROVIDER_ENV_VARS = { elevenlabs: 'ELEVENLABS_API_KEY', gemini: 'GEMINI_API_KEY' };
+const PROVIDER_LABELS = { elevenlabs: 'ElevenLabs', gemini: 'Gemini', cartesia: 'Cartesia' };
+const PROVIDER_ENV_VARS = { elevenlabs: 'ELEVENLABS_API_KEY', gemini: 'GEMINI_API_KEY', cartesia: 'CARTESIA_API_KEY' };
 
 export const missingKey = (provider) =>
   new ApiError(
-    `${PROVIDER_LABELS[provider] || provider} API key is not configured. Add ` +
-      `${PROVIDER_ENV_VARS[provider] || 'the API key'} to your .env file and restart the server.`,
+    `${PROVIDER_LABELS[provider] || provider} API key is not configured. Add it in API settings, or set ` +
+      `${PROVIDER_ENV_VARS[provider] || 'the API key'} in your .env file and restart the server.`,
     { status: 401, code: 'missing_api_key', provider }
   );
 

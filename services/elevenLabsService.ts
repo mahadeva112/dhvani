@@ -1,4 +1,5 @@
 import { apiAudio, apiAudioUpload, apiGet, apiJson, apiUpload, DhvaniApiError } from './apiClient';
+import { isCartesiaVoice, synthesizeWithCartesia } from './cartesiaService';
 
 /**
  * ElevenLabs client.
@@ -93,6 +94,18 @@ export const synthesizeSpeech = async (
   const cleanText = cleanTextForNaturalSpeech(text);
   if (!cleanText) throw new Error('No dialogue text provided for synthesis.');
 
+  // A Cartesia voice is spoken by Cartesia. Only the speed carries over from
+  // the ElevenLabs sliders; delivery cues are an Eleven v3 feature.
+  if (isCartesiaVoice(voiceId)) {
+    return synthesizeWithCartesia(voiceId, cleanText, {
+      outputFormat,
+      language,
+      speed: voiceSettings?.speed,
+      jobId,
+      signal,
+    });
+  }
+
   return apiAudio(
     '/elevenlabs/tts',
     { voiceId, text: cleanText, modelId, outputFormat, voiceSettings: voiceSettings || undefined, expressive, language, jobId },
@@ -126,6 +139,8 @@ export const getVoiceSettings = async (
   apiKey: string,
   voiceId: string
 ): Promise<ElevenLabsVoiceSettings> => {
+  // Cartesia voices have no saved ElevenLabs settings.
+  if (isCartesiaVoice(voiceId)) return { ...DEFAULT_VOICE_SETTINGS };
   const data = await apiGet<{ settings: ElevenLabsVoiceSettings }>(
     `/elevenlabs/voices/${encodeURIComponent(voiceId)}/settings`,
     keys(apiKey)
@@ -147,6 +162,8 @@ export interface Voice {
   };
   preview_url?: string;
   high_quality_base_model_ids?: string[];
+  /** Which engine speaks the voice. Absent means ElevenLabs. */
+  provider?: 'elevenlabs' | 'cartesia';
   /** Languages ElevenLabs has verified the voice in, e.g. `{ language: 'hi', locale: 'hi-IN' }`. */
   verified_languages?: { language?: string; accent?: string; locale?: string | null }[];
 }
@@ -313,6 +330,11 @@ export const speechToSpeech = async (
   voiceSettings?: ElevenLabsVoiceSettings,
   removeBackgroundNoise?: boolean
 ): Promise<Blob> => {
+  if (isCartesiaVoice(voiceId)) {
+    throw new Error(
+      'Cartesia retired its voice changer in August 2026. Pick an ElevenLabs voice to change the voice of a recording.'
+    );
+  }
   const formData = new FormData();
   formData.append('audio', audioBlob, 'audio.wav');
   formData.append('voiceId', voiceId);

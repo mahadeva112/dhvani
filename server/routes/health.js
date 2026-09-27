@@ -30,13 +30,15 @@ healthRouter.get(
       service: 'dhvani-backend',
       version: config.version,
       elevenLabsConfigured: Boolean(config.elevenlabs.apiKey),
+      cartesiaConfigured: Boolean(config.cartesia.apiKey),
+      transcriptionProvider: activeProviders.transcription,
       // True when translation can run at all, whether via Google or a gateway.
       geminiConfigured: Boolean(config.gemini.apiKey) || gatewayEnabled(),
       keySource: keySource(),
       translation: translationSetup(),
       ffmpegAvailable: await ffmpegAvailable(),
       maxUploadMb: Math.round(config.maxUploadBytes / 1024 / 1024),
-      sttModel: config.elevenlabs.sttModel,
+      sttModel: activeProviders.transcription === 'cartesia' ? config.cartesia.sttModel : config.elevenlabs.sttModel,
       ttsModel: config.elevenlabs.ttsModel,
       // The models translation will actually use — gateway models when the
       // gateway is active, Google's list otherwise.

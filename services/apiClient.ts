@@ -273,6 +273,10 @@ export interface BackendHealth {
   version: string;
   elevenLabsConfigured: boolean;
   geminiConfigured: boolean;
+  /** Absent on an older backend. */
+  cartesiaConfigured?: boolean;
+  /** Which engine transcribes uploads. */
+  transcriptionProvider?: 'elevenlabs' | 'cartesia';
   keySource: KeyOrigins;
   translation: TranslationSetup;
   ffmpegAvailable: boolean;
@@ -286,6 +290,8 @@ export interface KeyOrigins {
   elevenLabs: KeyOrigin;
   gemini: KeyOrigin;
   gateway: KeyOrigin;
+  /** Absent on an older backend. */
+  cartesia?: KeyOrigin;
 }
 
 /** Where translation runs, and through which models. */
@@ -310,6 +316,11 @@ export interface ServerSettings {
     geminiBaseUrl: string;
     geminiTranslationModels: string[];
     geminiTtsModel: string;
+    cartesiaBaseUrl?: string;
+    cartesiaApiVersion?: string;
+    cartesiaTtsModel?: string;
+    cartesiaSttModel?: string;
+    transcriptionProvider?: 'elevenlabs' | 'cartesia';
   };
   origins: Record<keyof ServerSettings['values'], SettingOrigin>;
 }
@@ -331,6 +342,9 @@ export interface SaveKeysResult {
     elevenLabs: { valid: boolean; tier?: string; charactersRemaining?: number | null; error?: string } | null;
     gemini: { valid: boolean; model?: string; error?: string } | null;
     gateway: { valid: boolean; model?: string; latencyMs?: number; error?: string } | null;
+    cartesia?: { valid: boolean; voiceCount?: number | null; error?: string } | null;
+    /** Set when the chosen transcription engine could not be switched to. */
+    transcription?: { valid: boolean; error?: string } | null;
   };
   saved: boolean;
   translation: TranslationSetup;
@@ -358,6 +372,8 @@ export interface DetectionRequest {
   geminiBaseUrl?: string;
   geminiModel?: string;
   gateway?: { url?: string; apiKey?: string; protocol?: string; model?: string };
+  cartesiaApiKey?: string;
+  cartesiaBaseUrl?: string;
 }
 
 /**
@@ -411,6 +427,12 @@ export interface SaveKeysPayload {
   llmGatewayKey?: string;
   llmGatewayProtocol?: string;
   llmGatewayModels?: string;
+  cartesiaApiKey?: string;
+  cartesiaBaseUrl?: string;
+  cartesiaApiVersion?: string;
+  cartesiaTtsModel?: string;
+  cartesiaSttModel?: string;
+  transcriptionProvider?: string;
 }
 
 export const saveBackendKeys = (keys: SaveKeysPayload): Promise<SaveKeysResult> =>

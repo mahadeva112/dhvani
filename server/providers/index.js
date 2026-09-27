@@ -1,9 +1,11 @@
 import { hasElevenLabsKey } from './elevenlabs/client.js';
 import { hasGeminiKey } from './gemini/client.js';
 import { hasGatewayConfigured } from './llmGateway/client.js';
+import { hasCartesiaKey } from './cartesia/client.js';
 import { transcribeFile } from './elevenlabs/transcription.js';
+import { transcribeFile as transcribeWithCartesia } from './cartesia/transcription.js';
 import { translateCueTexts } from './gemini/translation.js';
-import { gatewayEnabled } from '../env.js';
+import { config, gatewayEnabled } from '../env.js';
 
 /**
  * Provider registry.
@@ -47,6 +49,14 @@ registerProvider('transcription', 'elevenlabs', {
   transcribe: transcribeFile,
 });
 
+registerProvider('transcription', 'cartesia', {
+  label: 'Cartesia Ink',
+  providesWordTimestamps: true,
+  isConfigured: hasCartesiaKey,
+  // The per-request key override is an ElevenLabs key; it must never be sent to Cartesia.
+  transcribe: (file, options = {}) => transcribeWithCartesia(file, { ...options, apiKey: undefined }),
+});
+
 registerProvider('translation', 'gemini', {
   label: 'Google Gemini',
   isConfigured: hasGeminiKey,
@@ -73,7 +83,10 @@ registerProvider('translation', 'gateway', {
  * through the setup screen, not only at boot.
  */
 export const activeProviders = {
-  transcription: 'elevenlabs',
+  // A getter, like translation: the engine is chosen in API settings at runtime.
+  get transcription() {
+    return config.transcriptionProvider;
+  },
   get translation() {
     return gatewayEnabled() ? 'gateway' : 'gemini';
   },
