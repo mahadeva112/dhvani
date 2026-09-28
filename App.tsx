@@ -28,7 +28,8 @@ import {
   transcribeMedia,
   translateSegmentsToLanguage,
 } from './services/geminiService';
-import { retranslateCues } from './services/subtitleService';
+import { retranslateCues, RetranslateProgress } from './services/subtitleService';
+import { TranslationProgressCard } from './components/TranslationProgressCard';
 import {
   getBackendHealth,
   getBackendSettings,
@@ -323,6 +324,7 @@ export default function App() {
     }
   });
   const [isTranslatingLanguage, setIsTranslatingLanguage] = useState<boolean>(false);
+  const [translationProgress, setTranslationProgress] = useState<RetranslateProgress | null>(null);
 
   /**
    * Source language for transcription. Empty string means "let ElevenLabs
@@ -518,9 +520,12 @@ export default function App() {
       return { label: 'Dubbing', fraction: Math.min(0.98, Math.max(byChars, bySeconds)) };
     }
     if (isTranscribing) return { label: pipelineStatus.replace(/\.+$/, '') || 'Transcribing', fraction: null };
-    if (isTranslatingLanguage) return { label: 'Translating', fraction: null };
+    if (isTranslatingLanguage) {
+      const p = translationProgress;
+      return { label: 'Translating', fraction: p && p.total > 0 ? Math.min(0.98, (p.done + 0.5) / p.total) : null };
+    }
     return null;
-  }, [isBatchProcessing, dubProgress, activeJob?.audioBuffer, isTranscribing, pipelineStatus, isTranslatingLanguage]);
+  }, [isBatchProcessing, dubProgress, activeJob?.audioBuffer, isTranscribing, pipelineStatus, isTranslatingLanguage, translationProgress]);
 
   const handleDismissSetup = useCallback(() => {
     setSetupDismissed(true);
@@ -588,6 +593,7 @@ export default function App() {
         // 2. If the active job already has dialogue segments, re-translate them to the new language
         if (activeJob.segments && activeJob.segments.length > 0) {
           setIsTranslatingLanguage(true);
+          setTranslationProgress(null);
           try {
             const promptToUse = activeJob.customPrompt || customPrompt;
 
@@ -598,6 +604,7 @@ export default function App() {
                 sourceLanguage: activeJob.detectedLanguage || sourceLanguage,
                 targetLanguage: newLang,
                 customPrompt: promptToUse,
+                onProgress: setTranslationProgress,
               });
 
             const newScript = translatedSegments
@@ -660,6 +667,7 @@ export default function App() {
       if (!activeJob || !activeJob.segments || activeJob.segments.length === 0) return;
       const promptToUse = overridePrompt !== undefined ? overridePrompt : (activeJob.customPrompt || customPrompt);
       setIsTranslatingLanguage(true);
+      setTranslationProgress(null);
       try {
         const targetLang = activeJob.language || selectedLanguage;
 
@@ -669,6 +677,7 @@ export default function App() {
             sourceLanguage: activeJob.detectedLanguage || sourceLanguage,
             targetLanguage: targetLang,
             customPrompt: promptToUse,
+            onProgress: setTranslationProgress,
           });
 
         const newScript = translatedSegments
@@ -1224,6 +1233,7 @@ export default function App() {
     // If target language is not Bengali, automatically translate sample cues to chosen language
     if (selectedLanguage && selectedLanguage !== 'Bengali') {
       setIsTranslatingLanguage(true);
+      setTranslationProgress(null);
       translateSegmentsToLanguage(segments, selectedLanguage)
         .then((translated) => {
           const translatedScript = translated
@@ -2017,17 +2027,12 @@ export default function App() {
         segments={activeJob?.segments || []}
       />
 
-      {/* Floating Dynamic Translation Progress Pill */}
+      {/* Floating translation progress, fed by the streamed batch count */}
       {isTranslatingLanguage && (
-        <div
-          role="status"
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 shadow-2xl animate-in fade-in slide-in-from-bottom-2"
-        >
-          <span className="w-3.5 h-3.5 rounded-full border-2 border-indigo-400 border-r-transparent animate-spin" />
-          <span className="text-[12.5px] font-medium">
-            Translating the cues into {activeJob?.language || selectedLanguage}…
-          </span>
-        </div>
+        <TranslationProgressCard
+          language={activeJob?.language || selectedLanguage}
+          progress={translationProgress}
+        />
       )}
     </div>
   );
