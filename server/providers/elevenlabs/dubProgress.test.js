@@ -138,3 +138,45 @@ test('with audioTags, v3 keeps the tags the author typed and still drops unknown
   );
   assert.doesNotMatch(bodies[0].text, /\[whispers\]/, 'a dub script keeps stripping tags by default');
 });
+
+test('v4 keeps audio tags and is told the text either side of each passage', async () => {
+  const bodies = [];
+  mockFetch({ onRequest: (url, init) => bodies.push(JSON.parse(init.body)) });
+  await synthesizeScript(
+    { voiceId: 'v1', text: `[whispers] ${LONG_TEXT}`, modelId: 'eleven_v4', outputFormat: FORMAT, voiceSettings: SETTINGS, audioTags: true },
+    { apiKey: 'test-key' }
+  );
+  assert.ok(bodies.length > 1);
+  assert.match(bodies[0].text, /\[whispers\]/);
+  assert.ok(bodies[0].next_text, 'the first passage is told what follows');
+  assert.ok(bodies[1].previous_text, 'the second passage is told what came before');
+  assert.deepEqual(bodies[1].previous_request_ids, ['r1'], 'passages are stitched to the audio before them');
+});
+
+test('when ElevenLabs refuses the neighbouring text the dub completes without it', async () => {
+  const bodies = [];
+  mockFetch();
+  const accept = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    bodies.push(body);
+    if (body.previous_text || body.next_text || body.previous_request_ids) {
+      return new Response(JSON.stringify({ detail: { message: 'previous_text is not supported for this model' } }), {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return accept(url, init);
+  };
+  const updates = [];
+  const { buffer } = await synthesizeScript(
+    { voiceId: 'v1', text: LONG_TEXT, modelId: 'eleven_v4', outputFormat: FORMAT, voiceSettings: SETTINGS },
+    { apiKey: 'test-key', onProgress: (p) => updates.push({ ...p }) }
+  );
+  assert.ok(buffer.length > 0);
+  const last = updates.filter((u) => u.phase === 'voicing').at(-1);
+  assert.equal(last.passagesDone, last.passageCount);
+  assert.equal(last.streaming, true, 'the refusal does not turn off live progress');
+  const refused = bodies.filter((b) => b.previous_text || b.next_text || b.previous_request_ids);
+  assert.ok(refused.length <= 2, 'context is only tried on the first passage');
+});

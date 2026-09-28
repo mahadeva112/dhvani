@@ -45,7 +45,10 @@ import {
   validateApiKey,
   Voice,
   ElevenLabsVoiceSettings,
+  ElevenLabsModel,
   ALL_ELEVENLABS_MODELS,
+  DEFAULT_ELEVENLABS_MODEL,
+  getModels,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
 import { getCartesiaVoices, isCartesiaVoice } from './services/cartesiaService';
@@ -203,11 +206,12 @@ export default function App() {
   });
   const [elModelId, setElModelId] = useState<string>(() => {
     try {
-      return localStorage.getItem('elModelId') || 'eleven_v3';
+      return localStorage.getItem('elModelId') || DEFAULT_ELEVENLABS_MODEL;
     } catch {
-      return 'eleven_v3';
+      return DEFAULT_ELEVENLABS_MODEL;
     }
   });
+  const [elModels, setElModels] = useState<ElevenLabsModel[]>(ALL_ELEVENLABS_MODELS);
   const [elOutputFormat, setElOutputFormat] = useState<string>('mp3_44100_128');
   // Null means "use the voice's own ElevenLabs settings", as the website does;
   // only a deliberate change in Voice Settings stores an override.
@@ -904,6 +908,18 @@ export default function App() {
   useEffect(() => {
     void fetchVoices();
   }, [fetchVoices]);
+
+  // The live model list, so the dub can be voiced with any model the account offers.
+  useEffect(() => {
+    if (!elApiKey || elApiKey.length <= 10) return;
+    let cancelled = false;
+    getModels(elApiKey).then((list) => {
+      if (!cancelled && list.length) setElModels(list.filter((m) => m.can_do_text_to_speech !== false));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [elApiKey]);
 
   // Save ElevenLabs settings to local storage
   const handleElVoiceIdChange = (id: string) => {
@@ -1763,7 +1779,7 @@ export default function App() {
         voiceSummary={
           activeVoiceEngine === 'cartesia'
             ? `Cartesia ${backendSettings?.server?.values.cartesiaTtsModel || 'Sonic'}`
-            : ALL_ELEVENLABS_MODELS.find((m) => m.model_id === elModelId)?.name || elModelId
+            : elModels.find((m) => m.model_id === elModelId)?.name || elModelId
         }
         translationStyleName={getPresetById(activeJob?.promptPresetId || promptPresetId).name}
         onOpenSettings={() => setIsVoiceSettingsOpen(true)}
@@ -1896,8 +1912,11 @@ export default function App() {
           ttsModelName={
             isCartesiaVoice(elVoiceId)
               ? `Cartesia ${backendSettings?.server?.values.cartesiaTtsModel || 'Sonic'}`
-              : ALL_ELEVENLABS_MODELS.find((model) => model.model_id === elModelId)?.name || elModelId
+              : elModels.find((model) => model.model_id === elModelId)?.name || elModelId
           }
+          elModelId={elModelId}
+          onElModelIdChange={handleElModelIdChange}
+          elModels={elModels}
           isSynthesizing={isBatchProcessing}
           dubProgress={dubProgress}
           isCancellingDub={isCancellingDub}

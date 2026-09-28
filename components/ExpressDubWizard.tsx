@@ -45,7 +45,7 @@ import {
   X,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, ProcessingStatus } from '../types';
-import { Voice, DubProgress } from '../services/elevenLabsService';
+import { Voice, DubProgress, ElevenLabsModel } from '../services/elevenLabsService';
 import { audioBufferToWav } from '../services/audioService';
 import {
   generateTargetLanguageScript,
@@ -154,6 +154,10 @@ interface ExpressDubWizardProps {
   onSynthesizeMaster: () => Promise<void>;
   /** Display name of the ElevenLabs model the dub is generated with. */
   ttsModelName?: string;
+  /** The ElevenLabs model the dub is voiced with, and the models to choose from. */
+  elModelId?: string;
+  onElModelIdChange?: (modelId: string) => void;
+  elModels?: ElevenLabsModel[];
   isSynthesizing: boolean;
   /** Progress of the dub in flight, polled from the server; null before the first report. */
   dubProgress?: DubProgress | null;
@@ -213,6 +217,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   isTranscribing,
   onSynthesizeMaster,
   ttsModelName = 'ElevenLabs',
+  elModelId,
+  onElModelIdChange,
+  elModels = [],
   isSynthesizing,
   dubProgress = null,
   isCancellingDub = false,
@@ -2367,10 +2374,34 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     })}
                   </div>
                 )}
-                <div className="flex justify-between text-xs text-slate-400">
-                  <span>Model</span>
-                  <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
-                </div>
+                {voiceEngine === 'elevenlabs' && elModelId && onElModelIdChange && elModels.length > 0 ? (
+                  <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
+                    <label htmlFor="dub-el-model">Model</label>
+                    <select
+                      id="dub-el-model"
+                      value={elModelId}
+                      onChange={(e) => onElModelIdChange(e.target.value)}
+                      disabled={isSynthesizing}
+                      title={hasDub ? 'A new model applies the next time you dub.' : undefined}
+                      className="min-w-0 max-w-[65%] h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
+                    >
+                      {!elModels.some((m) => m.model_id === elModelId) && (
+                        <option value={elModelId} className="bg-slate-900">{ttsModelName}</option>
+                      )}
+                      {elModels.map((m) => (
+                        <option key={m.model_id} value={m.model_id} className="bg-slate-900">
+                          {m.name}
+                          {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="flex justify-between text-xs text-slate-400">
+                    <span>Model</span>
+                    <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
+                  </div>
+                )}
               </div>
 
               <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2">
