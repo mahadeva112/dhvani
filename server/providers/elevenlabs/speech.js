@@ -29,8 +29,8 @@ export const DEFAULT_VOICE_SETTINGS = {
 
 /**
  * Strips SSML tags, speaker labels and bracketed stage directions so the voice
- * model receives plain spoken text. With `keepAudioTags`, the Eleven v3 audio
- * tags in AUDIO_TAGS ([curious], [sighs], ...) stay: v3 performs them.
+ * model receives plain spoken text. With `keepAudioTags`, the audio tags in
+ * AUDIO_TAGS ([curious], [sighs], ...) stay: Eleven v3 and v4 perform them.
  */
 export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false } = {}) => {
   if (!rawText) return '';
@@ -92,8 +92,17 @@ const supportsSpeed = (modelId) => !/_v1$/.test(modelId);
 
 const isV3 = (modelId) => /^eleven_v3/.test(modelId);
 
+/** Eleven v4 and v4 Turbo: they perform audio tags like v3 and stitch like v2. */
+const isV4 = (modelId) => /^eleven_v4/.test(modelId);
+
+/** Models that perform audio tags ([sighs], [whispers]) and so take delivery cues. */
+const performsTags = (modelId) => isV3(modelId) || isV4(modelId);
+
 /** eleven_v3 does not take previous_text / next_text. */
 const supportsContext = (modelId) => !isV3(modelId);
+
+/** Statuses that mean "this model won't take the neighbouring text or request ids". */
+const CONTEXT_REFUSED = new Set([400, 422]);
 
 /**
  * Eleven v3 reads stability as a mode: Creative below 0.5, Natural at 0.5 and
@@ -169,7 +178,7 @@ export const synthesizeSpeech = async (
   const cleanVoiceId = requireVoiceId(voiceId);
 
   const resolvedModel = modelId || config.elevenlabs.ttsModel;
-  const cleanText = cleanTextForNaturalSpeech(text, { keepAudioTags: isV3(resolvedModel) });
+  const cleanText = cleanTextForNaturalSpeech(text, { keepAudioTags: performsTags(resolvedModel) });
   if (!cleanText) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
@@ -267,8 +276,8 @@ const joinAudio = async (parts, passages, outputFormat) => {
  * throughout; on models that support it, each is also stitched to the audio
  * before it and told the text either side.
  *
- * With `expressive`, a v3 dub gets delivery cues first (see deliveryCues.js)
- * so it is performed rather than read. With `audioTags`, v3 audio tags the
+ * With `expressive`, a v3 or v4 dub gets delivery cues first (see deliveryCues.js)
+ * so it is performed rather than read. With `audioTags`, audio tags the
  * author wrote themselves are kept rather than stripped. A `seed` makes a take
  * reproducible; without one each dub is sampled afresh.
  * Returns `{ contentType, buffer }`.
@@ -289,7 +298,7 @@ export const synthesizeScript = async (
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
   const resolvedModel = modelId || config.elevenlabs.ttsModel;
-  const cleanText = cleanTextForNaturalSpeech(text, { keepAudioTags: audioTags && isV3(resolvedModel) });
+  const cleanText = cleanTextForNaturalSpeech(text, { keepAudioTags: audioTags && performsTags(resolvedModel) });
   if (!cleanText) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
@@ -303,7 +312,7 @@ export const synthesizeScript = async (
   const totalChars = passageChars.reduce((sum, n) => sum + n, 0);
   onProgress({ phase: 'preparing', passageCount: chunks.length, passagesDone: 0, totalChars, charsDone: 0, secondsGenerated: 0 });
 
-  if (expressive && isV3(resolvedModel)) {
+  if (expressive && performsTags(resolvedModel)) {
     chunks = await Promise.all(chunks.map((chunk) => addDeliveryCues(chunk, { language, apiKey: textModelKey })));
   }
   if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
@@ -321,6 +330,8 @@ export const synthesizeScript = async (
   const bytesPerPassage = new Array(chunks.length).fill(0);
   const finished = new Array(chunks.length).fill(false);
   const streamState = { enabled: true };
+  // Turned off if ElevenLabs refuses the neighbouring text, so the dub still completes.
+  const contextState = { enabled: supportsContext(resolvedModel) };
 
   const report = () =>
     onProgress({
@@ -335,27 +346,42 @@ export const synthesizeScript = async (
   report();
 
   const generate = async (index) => {
-    const { response, buffer } = await synthesizePassage(
-      {
-        voiceId: cleanVoiceId,
-        text: chunks[index],
-        modelId: resolvedModel,
-        outputFormat,
-        voiceSettings: settings,
-        seed: takeSeed,
-        previousRequestIds: requestIds.slice(0, index).filter(Boolean),
-        ...contextAround(chunks, index),
+    const request = {
+      voiceId: cleanVoiceId,
+      text: chunks[index],
+      modelId: resolvedModel,
+      outputFormat,
+      voiceSettings: settings,
+      seed: takeSeed,
+    };
+    const withContext = () =>
+      contextState.enabled
+        ? { ...request, previousRequestIds: requestIds.slice(0, index).filter(Boolean), ...contextAround(chunks, index) }
+        : request;
+    const options = {
+      apiKey,
+      signal,
+      streamState,
+      onBytes: (bytes) => {
+        bytesPerPassage[index] = bytes;
+        report();
       },
-      {
-        apiKey,
-        signal,
-        streamState,
-        onBytes: (bytes) => {
-          bytesPerPassage[index] = bytes;
-          report();
-        },
+    };
+    const couldStream = streamState.enabled;
+    let result;
+    try {
+      result = await synthesizePassage(withContext(), options);
+    } catch (err) {
+      if (signal?.aborted || !contextState.enabled || !(err instanceof ApiError) || !CONTEXT_REFUSED.has(err.status)) {
+        throw err;
       }
-    );
+      logger.warn(`ElevenLabs refused the neighbouring text for ${resolvedModel} (${err.status} ${err.code}); voicing the rest without it.`);
+      contextState.enabled = false;
+      // The refusal may have been blamed on streaming; give it another try without the context.
+      streamState.enabled = couldStream;
+      result = await synthesizePassage(request, options);
+    }
+    const { response, buffer } = result;
     if (index === 0) contentType = response.headers.get('content-type') || contentType;
     // A stitched request may only reference a generation that has fully arrived.
     parts[index] = buffer;

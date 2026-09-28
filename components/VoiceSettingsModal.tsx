@@ -14,6 +14,7 @@ import {
   getVoices,
   synthesizeSamplePreview,
   getVoiceSettings,
+  modelTakesSpeed,
 } from '../services/elevenLabsService';
 import { VoiceSelectorCard } from './VoiceSelectorCard';
 
@@ -41,11 +42,13 @@ interface VoiceSettingsModalProps {
 }
 
 /** The models most dubs want, in the order they are offered; the rest fold away. */
-const PRIMARY_MODELS = ['eleven_v3', 'eleven_multilingual_v2', 'eleven_flash_v2_5'];
+const PRIMARY_MODELS = ['eleven_v4', 'eleven_v3', 'eleven_multilingual_v2', 'eleven_flash_v2_5'];
 
 /** One plain line per well-known model: what it is good at, and its catch. Cost comes from ElevenLabs, not from here. */
 const MODEL_BLURBS: Record<string, string> = {
-  eleven_v3: 'Most expressive, 70+ languages. Ignores the speed slider.',
+  eleven_v4: 'Most emotive, 90+ languages, steady across long dubs. Pace comes from audio tags.',
+  eleven_v4_turbo: 'Fast v4 with audio tags, 90+ languages.',
+  eleven_v3: 'Expressive, 70+ languages. Ignores the speed slider.',
   eleven_multilingual_v2: 'Steady and natural, 29 languages. Smoothest joins on long dubs.',
   eleven_flash_v2_5: 'Fastest, 32 languages. Less expressive.',
   eleven_turbo_v2_5: 'Quick and clear, 32 languages.',
@@ -54,9 +57,6 @@ const MODEL_BLURBS: Record<string, string> = {
   eleven_monolingual_v1: 'The original English model.',
   eleven_multilingual_v1: 'The first multilingual model.',
 };
-
-/** Speed is ignored by v3 and not accepted by the v1 models. */
-const modelTakesSpeed = (modelId: string) => !/^eleven_v3/.test(modelId) && !/_v1$/.test(modelId);
 
 /** Starting points for a custom mix; speaker boost is left as it is. */
 const PRESETS: { id: string; label: string; values: Pick<ElevenLabsVoiceSettings, 'stability' | 'similarity_boost' | 'style' | 'speed'> }[] = [
@@ -604,7 +604,9 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                       ? undefined
                       : /^eleven_v3/.test(elModelId)
                         ? 'Eleven v3 ignores speed. Shorten the lines in Review instead.'
-                        : 'This model does not take a speed setting.',
+                        : /^eleven_v4/.test(elModelId)
+                          ? 'Eleven v4 sets its pace from the script. Shorten the lines in Review instead.'
+                          : 'This model does not take a speed setting.',
                   }
                 )}
 

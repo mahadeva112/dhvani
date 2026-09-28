@@ -62,7 +62,16 @@ export const cleanTextForNaturalSpeech = (rawText: string): string => {
     .trim();
 };
 
-/** Eleven v3 audio tags the backend keeps (mirrors server/lib/deliveryCues.js). */
+/** The model a dub uses until the user picks another. */
+export const DEFAULT_ELEVENLABS_MODEL = 'eleven_v4';
+
+/** Eleven v3 and v4 perform audio tags ([sighs], [whispers]) and take delivery cues. */
+export const performsAudioTags = (modelId: string) => /^eleven_v[34]/.test(modelId);
+
+/** v3 ignores speed and v4 sets its pace from audio tags; the v1 models reject it. */
+export const modelTakesSpeed = (modelId: string) => !performsAudioTags(modelId) && !/_v1$/.test(modelId);
+
+/** Eleven v3/v4 audio tags the backend keeps (mirrors server/lib/deliveryCues.js). */
 export const ELEVEN_V3_AUDIO_TAGS = [
   'thoughtful',
   'curious',
@@ -88,12 +97,12 @@ export const synthesizeSpeech = async (
   apiKey: string,
   voiceId: string,
   text: string,
-  modelId: string = 'eleven_v3',
+  modelId: string = DEFAULT_ELEVENLABS_MODEL,
   outputFormat: string = 'mp3_44100_128',
   /** Null uses the voice's own ElevenLabs settings. */
   voiceSettings: ElevenLabsVoiceSettings | null = null,
   /**
-   * `expressive` asks the backend to add Eleven v3 delivery cues so a dub is
+   * `expressive` asks the backend to add Eleven v3/v4 delivery cues so a dub is
    * performed rather than read; `language` is the script's language.
    */
   {
@@ -106,7 +115,7 @@ export const synthesizeSpeech = async (
   }: {
     expressive?: boolean;
     /**
-     * Keeps Eleven v3 audio tags the author typed (`[whispers]`, `[sighs]`).
+     * Keeps Eleven v3/v4 audio tags the author typed (`[whispers]`, `[sighs]`).
      * The backend removes anything that is not a known tag.
      */
     audioTags?: boolean;
@@ -123,7 +132,7 @@ export const synthesizeSpeech = async (
   if (!cleanText) throw new Error('No dialogue text provided for synthesis.');
 
   // A Cartesia voice is spoken by Cartesia. Only the speed carries over from
-  // the ElevenLabs sliders; delivery cues are an Eleven v3 feature.
+  // the ElevenLabs sliders; delivery cues are an Eleven v3/v4 feature.
   if (isCartesiaVoice(voiceId)) {
     return synthesizeWithCartesia(voiceId, cleanText, {
       outputFormat,
@@ -249,6 +258,21 @@ export interface ValidationResponse {
 /** Offline catalog used when the live model list cannot be fetched. */
 export const ALL_ELEVENLABS_MODELS: ElevenLabsModel[] = [
   {
+    model_id: 'eleven_v4',
+    name: 'Eleven v4',
+    description:
+      'The flagship model: the most emotive voices, 90+ languages, and passages stitched into one steady read. Pace comes from audio tags, not the speed slider.',
+    can_do_text_to_speech: true,
+    token_cost_factor: 1.0,
+  },
+  {
+    model_id: 'eleven_v4_turbo',
+    name: 'Eleven v4 Turbo',
+    description: 'Low-latency v4 (~100ms) with audio tags, 90+ languages.',
+    can_do_text_to_speech: true,
+    token_cost_factor: 1.0,
+  },
+  {
     model_id: 'eleven_v3',
     name: 'Eleven v3',
     description:
@@ -355,7 +379,7 @@ export const synthesizeSamplePreview = async (
   apiKey: string,
   voiceId: string,
   sampleText: string = 'Hello! This is a real-time preview of my dubbed voice in ElevenLabs.',
-  modelId: string = 'eleven_v3',
+  modelId: string = DEFAULT_ELEVENLABS_MODEL,
   /** Null or omitted uses the voice's own settings, as a dub would. */
   voiceSettings: ElevenLabsVoiceSettings | null = null
 ): Promise<Blob> => synthesizeSpeech(apiKey, voiceId, sampleText, modelId, 'mp3_44100_128', voiceSettings);

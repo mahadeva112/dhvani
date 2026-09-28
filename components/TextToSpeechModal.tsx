@@ -32,6 +32,9 @@ import {
   MIN_VOICE_SPEED,
   MAX_VOICE_SPEED,
   ELEVEN_V3_AUDIO_TAGS,
+  DEFAULT_ELEVENLABS_MODEL,
+  performsAudioTags,
+  modelTakesSpeed,
 } from '../services/elevenLabsService';
 import {
   synthesizeWithCartesia,
@@ -131,7 +134,7 @@ const readPrefs = (fallbackModel: string): StudioPrefs => {
     outputFormat: 'mp3_44100_128',
     voices: {},
     el: {
-      modelId: fallbackModel || 'eleven_v3',
+      modelId: fallbackModel || DEFAULT_ELEVENLABS_MODEL,
       useOwnSettings: true,
       settings: { ...DEFAULT_VOICE_SETTINGS },
       expressive: false,
@@ -335,8 +338,9 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
 
   const elModel = models.find((m) => m.model_id === prefs.el.modelId) ||
     ALL_ELEVENLABS_MODELS.find((m) => m.model_id === prefs.el.modelId);
+  const takesTags = performsAudioTags(prefs.el.modelId);
   const isV3 = /^eleven_v3/.test(prefs.el.modelId);
-  const speedApplies = !isV3 && !/_v1$/.test(prefs.el.modelId);
+  const speedApplies = modelTakesSpeed(prefs.el.modelId);
   const cartesiaModel = CARTESIA_MODELS.find((m) => m.id === prefs.cartesia.modelId);
   const cartesiaControls = /^sonic-3/.test(prefs.cartesia.modelId);
 
@@ -420,8 +424,8 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
           ? null
           : { ...prefs.el.settings, ...(speedApplies ? {} : { speed: undefined }) };
         blob = await synthesizeSpeech(elApiKey, takeVoiceId, script, prefs.el.modelId, format, settings, {
-          expressive: prefs.el.expressive && isV3,
-          audioTags: isV3,
+          expressive: prefs.el.expressive && takesTags,
+          audioTags: takesTags,
           language: prefs.language,
           seed,
           jobId,
@@ -780,7 +784,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                 {chars > 0 && <span>≈ {creditsFor(engine).toLocaleString()} {VOICE_ENGINE_LABELS[engine]} credits</span>}
                 {chars > 10000 && <span className="text-amber-400">Long text is voiced in passages and joined.</span>}
               </div>
-              {engine === 'elevenlabs' && isV3 && (
+              {engine === 'elevenlabs' && takesTags && (
                 <div className="flex flex-wrap items-center gap-1.5">
                   <span className="text-[11px] text-slate-500 mr-1">Audio tags</span>
                   {ELEVEN_V3_AUDIO_TAGS.map((tag) => (
@@ -829,10 +833,10 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                     <div className="flex flex-col gap-3 sm:pt-6">
                       {toggle(
                         'Auto delivery cues',
-                        isV3 ? 'Adds [calm], [sighs]… so it is performed, not read' : 'Eleven v3 only',
-                        prefs.el.expressive && isV3,
+                        takesTags ? 'Adds [calm], [sighs]… so it is performed, not read' : 'Eleven v3 and v4 only',
+                        prefs.el.expressive && takesTags,
                         (v) => setEl({ expressive: v }),
-                        !isV3
+                        !takesTags
                       )}
                     </div>
                   </div>
