@@ -211,6 +211,8 @@ export const VOICE_ENGINE_LABELS: Record<VoiceEngine, string> = {
 const PAGE_SIZE = 60;
 // Grid gap and vertical list padding, in px (Tailwind gap-2.5 / py-2.5 / scroll-pt-2.5).
 const GRID_GAP = 10;
+// A short list stretches its rows to fill the viewport, up to this multiple of the natural card height.
+const MAX_ROW_STRETCH = 1.6;
 
 /** Whether the list shows only Indian voices; on unless the user turned it off. */
 const INDIAN_ONLY_KEY = 'dhvani_voice_indian_only';
@@ -647,14 +649,22 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       natural += chrome;
       const h = el.clientHeight;
       const rows = Math.max(1, Math.floor((h - GRID_GAP) / (natural + GRID_GAP)));
-      const next = Math.max(natural, (h - (rows + 1) * GRID_GAP) / rows);
+      // A short list (e.g. the 16 built-in voices while the library loads) has fewer
+      // rows than the viewport holds. Stretch those rows to fill it rather than leave
+      // an empty band below the last row, but only when the stretch stays modest.
+      const grid = bodies[0].parentElement!.parentElement!;
+      const cols = Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length);
+      const contentRows = Math.ceil(bodies.length / cols);
+      const fillRows = contentRows < rows ? contentRows : rows;
+      const filled = (h - (fillRows + 1) * GRID_GAP) / fillRows;
+      const next = Math.max(natural, filled <= natural * MAX_ROW_STRETCH ? filled : natural);
       setRowHeight((prev) => (prev === next ? prev : next));
     };
     fit();
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [hasVoices]);
+  }, [hasVoices, visibleVoices.length]);
 
   return (
     <section
