@@ -66,6 +66,10 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   const [isPhoneticOn, setIsPhoneticOn] = useState<boolean>(true);
   const [currentWord, setCurrentWord] = useState<string>('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  // The Roman word the current suggestions were fetched for. Typing outruns the
+  // lookup, so without this a space could commit the spelling of a prefix.
+  const [suggestionsWord, setSuggestionsWord] = useState<string>('');
+  const latestLookupRef = useRef<string>('');
   const [selectedCandidateIdx, setSelectedCandidateIdx] = useState<number>(0);
   const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
 
@@ -106,15 +110,20 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
         clearTimeout(debounceTimeoutRef.current);
       }
 
+      latestLookupRef.current = word;
       debounceTimeoutRef.current = setTimeout(async () => {
         setIsLoadingSuggestions(true);
+        let list: string[];
         try {
-          const list = await getPhoneticSuggestions(word, language, 5);
-          setSuggestions(list);
-          setSelectedCandidateIdx(0);
+          list = await getPhoneticSuggestions(word, language, 5);
         } catch {
-          const fallback = transliterateWordOffline(word, language);
-          setSuggestions([fallback, word].filter(Boolean));
+          list = [transliterateWordOffline(word, language), word].filter(Boolean);
+        }
+        try {
+          // A slower lookup for an earlier prefix must not replace the current word's list.
+          if (latestLookupRef.current !== word) return;
+          setSuggestions(list);
+          setSuggestionsWord(word);
           setSelectedCandidateIdx(0);
         } finally {
           setIsLoadingSuggestions(false);
@@ -149,6 +158,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
       };
 
       onChange(newFullText);
+      latestLookupRef.current = ''; // an in-flight lookup must not reopen the popup
       setSuggestions([]);
       setCurrentWord('');
 
@@ -212,8 +222,14 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
       undoHistoryRef.current = null;
     }
 
-    // 3. When Suggestion Popup is Active
-    if (suggestions.length > 0) {
+    // 3. When Suggestion Popup is Active (and still describes the word at the cursor)
+    const wordAtCursor = (() => {
+      const ta = textareaRef.current;
+      const m = ta ? value.substring(0, ta.selectionStart).match(/([a-zA-Z0-9]+)$/) : null;
+      return m ? m[1] : '';
+    })();
+    const suggestionsAreCurrent = suggestions.length > 0 && suggestionsWord === wordAtCursor;
+    if (suggestionsAreCurrent) {
       // Number keys 1-5 select that candidate immediately
       if (['1', '2', '3', '4', '5'].includes(e.key)) {
         const idx = parseInt(e.key, 10) - 1;
@@ -275,7 +291,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
         e.preventDefault();
         const sep = e.key === 'Enter' ? '\n' : e.key;
 
-        if (suggestions.length > 0) {
+        if (suggestionsAreCurrent) {
           const chosen = suggestions[selectedCandidateIdx] || suggestions[0];
           commitSuggestion(chosen, sep);
         } else {

@@ -308,7 +308,10 @@ export const SCRIPT_PALETTES: Record<string, ScriptPalette> = {
 };
 
 // OFFLINE INDIC TRANSLITERATION TABLE (Deterministic phonetic parser)
-// Mapping prefixes to Devanagari Unicode
+//
+// Keys are matched case-sensitively first, so a capital marks the retroflex or
+// long form (T ट, D ड, N ण, Sh ष, L ळ, E ए long, O ओ long, Ri ृ). A lowercase
+// key also matches any casing of the input, so "Ram" still reads as र.
 interface ScriptRule {
   vowels: Record<string, string>;
   matras: Record<string, string>;
@@ -318,238 +321,297 @@ interface ScriptRule {
   visarga: string;
   nukta: string;
   chandrabindu: string;
+  /** Word-final "a" after a consonant is the long ā ("mera" मेरा), as in Hindi typing. */
+  finalAIsLong: boolean;
+  /** A word-final bare consonant keeps its virama ("bas" ಬಸ್), as Dravidian scripts write it. */
+  finalHalant: boolean;
+  /** n/m before a stop is written as this nasal sign ("sundar" सुंदर) instead of a conjunct. */
+  nasalBeforeStop?: string;
+  /** Word-final n after a long vowel is nasalisation ("hain" हैं, "nahin" नहीं). */
+  finalNasalAfterLong?: boolean;
+  /** Word-final m is the anusvara ("namaskaram" నమస్కారం). */
+  finalMIsAnusvara?: boolean;
+  /** "ng" before a consonant or at the end is the anusvara ("bangla" বাংলা). */
+  ngIsAnusvara?: boolean;
+  /** Malayalam chillu letters for a word-final consonant ("avan" അവൻ). */
+  chillu?: Record<string, string>;
+  /** Tamil: medial and final n is ன, except before t/d where it stays ந ("vandhu" வந்து). */
+  tamilN?: string;
 }
 
+const INDO_ARYAN_VOWEL_KEYS = (v: {
+  a: string; aa: string; i: string; ee: string; u: string; oo: string; Ri?: string;
+  e: string; ai: string; o: string; au: string;
+}): Record<string, string> => {
+  const map: Record<string, string> = {
+    aa: v.aa, A: v.aa, a: v.a, ee: v.ee, ii: v.ee, I: v.ee, i: v.i,
+    oo: v.oo, uu: v.oo, U: v.oo, u: v.u, e: v.e, ai: v.ai, ei: v.ai, o: v.o, au: v.au, ou: v.au,
+  };
+  if (v.Ri) map.Ri = v.Ri;
+  return map;
+};
+
 const DEVANAGARI_RULE: ScriptRule = {
-  vowels: {
-    'aa': 'आ', 'a': 'अ', 'ee': 'ई', 'ii': 'ई', 'i': 'इ', 'oo': 'ऊ', 'uu': 'ऊ', 'u': 'उ',
-    'ri': 'ऋ', 'e': 'ए', 'ai': 'ऐ', 'o': 'ओ', 'au': 'औ', 'ou': 'औ', 'am': 'अं', 'ah': 'अः'
-  },
-  matras: {
-    'aa': 'ा', 'a': '', 'ee': 'ी', 'ii': 'ी', 'i': 'ि', 'oo': 'ू', 'uu': 'ू', 'u': 'ु',
-    'ri': 'ृ', 'e': 'े', 'ai': 'ै', 'o': 'ो', 'au': 'ौ', 'ou': 'ौ', 'am': 'ं', 'ah': 'ः'
-  },
+  vowels: INDO_ARYAN_VOWEL_KEYS({
+    a: 'अ', aa: 'आ', i: 'इ', ee: 'ई', u: 'उ', oo: 'ऊ', Ri: 'ऋ', e: 'ए', ai: 'ऐ', o: 'ओ', au: 'औ',
+  }),
+  matras: INDO_ARYAN_VOWEL_KEYS({
+    a: '', aa: 'ा', i: 'ि', ee: 'ी', u: 'ु', oo: 'ू', Ri: 'ृ', e: 'े', ai: 'ै', o: 'ो', au: 'ौ',
+  }),
   consonants: {
-    'ksha': 'क्ष', 'kya': 'क्य', 'shra': 'श्र', 'tra': 'त्र', 'gya': 'ज्ञ', 'dnya': 'ज्ञ',
-    'kh': 'ख', 'gh': 'घ', 'chh': 'छ', 'ch': 'च', 'jh': 'झ', 'th': 'थ', 'dh': 'ध',
-    'ph': 'फ', 'bh': 'भ', 'sh': 'श', 'shh': 'ष', 'rh': 'ढ़',
-    'k': 'क', 'g': 'ग', 'ng': 'ङ', 'c': 'च', 'j': 'ज', 'ny': 'ञ',
-    'T': 'ट', 'Th': 'ठ', 'D': 'ड', 'Dh': 'ढ', 'N': 'ण',
+    'ksh': 'क्ष', 'gy': 'ज्ञ', 'dny': 'ज्ञ', 'jny': 'ज्ञ',
+    'kh': 'ख', 'gh': 'घ', 'chh': 'छ', 'Ch': 'छ', 'ch': 'च', 'jh': 'झ', 'th': 'थ', 'dh': 'ध',
+    'ph': 'फ', 'bh': 'भ', 'shh': 'ष', 'Sh': 'ष', 'sh': 'श', 'Rh': 'ढ़', 'Dh': 'ढ', 'Th': 'ठ',
+    'k': 'क', 'g': 'ग', 'c': 'च', 'j': 'ज', 'ny': 'ञ',
+    'T': 'ट', 'D': 'ड', 'N': 'ण', 'R': 'ड़',
     't': 'त', 'd': 'द', 'n': 'न', 'p': 'प', 'f': 'फ़', 'b': 'ब', 'm': 'म',
-    'y': 'य', 'r': 'र', 'l': 'ल', 'v': 'व', 'w': 'व', 's': 'स', 'h': 'ह',
+    'y': 'य', 'r': 'र', 'l': 'ल', 'L': 'ळ', 'v': 'व', 'w': 'व', 's': 'स', 'h': 'ह',
     'z': 'ज़', 'q': 'क़', 'x': 'क्स'
   },
   halant: '्',
   anusvara: 'ं',
   visarga: 'ः',
   nukta: '़',
-  chandrabindu: 'ँ'
+  chandrabindu: 'ँ',
+  finalAIsLong: true,
+  finalHalant: false,
+  nasalBeforeStop: 'ं',
+  finalNasalAfterLong: true,
 };
 
 const BENGALI_RULE: ScriptRule = {
-  vowels: {
-    'aa': 'আ', 'a': 'অ', 'ee': 'ঈ', 'ii': 'ঈ', 'i': 'ই', 'oo': 'ঊ', 'uu': 'ঊ', 'u': 'উ',
-    'ri': 'ঋ', 'e': 'এ', 'ai': 'ঐ', 'o': 'ও', 'au': 'ঔ', 'ou': 'ঔ', 'am': 'অং', 'ah': 'অঃ'
-  },
-  matras: {
-    'aa': 'া', 'a': '', 'ee': 'ী', 'ii': 'ী', 'i': 'ি', 'oo': 'ূ', 'uu': 'ূ', 'u': 'ু',
-    'ri': 'ৃ', 'e': 'ে', 'ai': 'ৈ', 'o': 'ো', 'au': 'ৌ', 'ou': 'ৌ', 'am': 'ং', 'ah': 'ঃ'
-  },
+  vowels: INDO_ARYAN_VOWEL_KEYS({
+    a: 'অ', aa: 'আ', i: 'ই', ee: 'ঈ', u: 'উ', oo: 'ঊ', Ri: 'ঋ', e: 'এ', ai: 'ঐ', o: 'ও', au: 'ঔ',
+  }),
+  matras: INDO_ARYAN_VOWEL_KEYS({
+    a: '', aa: 'া', i: 'ি', ee: 'ী', u: 'ু', oo: 'ূ', Ri: 'ৃ', e: 'ে', ai: 'ৈ', o: 'ো', au: 'ৌ',
+  }),
   consonants: {
-    'ksha': 'ক্ষ', 'shra': 'শ্র', 'tra': 'ত্র', 'gya': 'জ্ঞ',
-    'kh': 'খ', 'gh': 'ঘ', 'chh': 'ছ', 'ch': 'চ', 'jh': 'ঝ', 'th': 'থ', 'dh': 'ধ',
-    'ph': 'ফ', 'bh': 'ভ', 'sh': 'শ', 'shh': 'ষ', 'rh': 'ঢ়',
+    'ksh': 'ক্ষ', 'gy': 'জ্ঞ',
+    'kh': 'খ', 'gh': 'ঘ', 'chh': 'ছ', 'Ch': 'ছ', 'ch': 'চ', 'jh': 'ঝ', 'th': 'থ', 'dh': 'ধ',
+    'ph': 'ফ', 'bh': 'ভ', 'shh': 'ষ', 'Sh': 'ষ', 'sh': 'শ', 'Rh': 'ঢ়', 'Dh': 'ঢ', 'Th': 'ঠ',
     'k': 'ক', 'g': 'গ', 'ng': 'ঙ', 'c': 'চ', 'j': 'জ', 'ny': 'ঞ',
-    'T': 'ট', 'Th': 'ঠ', 'D': 'ড', 'Dh': 'ঢ', 'N': 'ণ',
+    'T': 'ট', 'D': 'ড', 'N': 'ণ', 'R': 'ড়',
     't': 'ত', 'd': 'দ', 'n': 'ন', 'p': 'প', 'f': 'ফ', 'b': 'ব', 'm': 'ম',
-    'y': 'য', 'r': 'র', 'l': 'ল', 'v': 'ভ', 'w': 'ওয়', 's': 'স', 'h': 'হ'
+    'y': 'য', 'r': 'র', 'l': 'ল', 'v': 'ভ', 'w': 'ওয়', 's': 'স', 'h': 'হ', 'z': 'য'
   },
   halant: '্',
   anusvara: 'ং',
   visarga: 'ঃ',
   nukta: '়',
-  chandrabindu: 'ঁ'
+  chandrabindu: 'ঁ',
+  finalAIsLong: true,
+  finalHalant: false,
+  ngIsAnusvara: true,
+};
+
+// Assamese shares the Bengali script but has its own r (ৰ) and w (ৱ).
+const ASSAMESE_RULE: ScriptRule = {
+  ...BENGALI_RULE,
+  consonants: { ...BENGALI_RULE.consonants, 'r': 'ৰ', 'w': 'ৱ', 'v': 'ভ' },
 };
 
 const TAMIL_RULE: ScriptRule = {
   vowels: {
-    'aa': 'ஆ', 'a': 'அ', 'ee': 'ஈ', 'ii': 'ஈ', 'i': 'இ', 'oo': 'ஊ', 'uu': 'ஊ', 'u': 'உ',
-    'e': 'எ', 'ee_long': 'ஏ', 'ai': 'ஐ', 'o': 'ஒ', 'oo_long': 'ஓ', 'au': 'ஔ'
+    'aa': 'ஆ', 'A': 'ஆ', 'a': 'அ', 'ee': 'ஈ', 'ii': 'ஈ', 'I': 'ஈ', 'i': 'இ', 'oo': 'ஊ', 'uu': 'ஊ', 'U': 'ஊ', 'u': 'உ',
+    'E': 'ஏ', 'e': 'எ', 'ai': 'ஐ', 'O': 'ஓ', 'o': 'ஒ', 'au': 'ஔ'
   },
   matras: {
-    'aa': 'ா', 'a': '', 'ee': 'ீ', 'ii': 'ீ', 'i': 'ி', 'oo': 'ூ', 'uu': 'ூ', 'u': 'ு',
-    'e': 'ெ', 'ee_long': 'ே', 'ai': 'ை', 'o': 'ொ', 'oo_long': 'ோ', 'au': 'ௌ'
+    'aa': 'ா', 'A': 'ா', 'a': '', 'ee': 'ீ', 'ii': 'ீ', 'I': 'ீ', 'i': 'ி', 'oo': 'ூ', 'uu': 'ூ', 'U': 'ூ', 'u': 'ு',
+    'E': 'ே', 'e': 'ெ', 'ai': 'ை', 'O': 'ோ', 'o': 'ொ', 'au': 'ௌ'
   },
   consonants: {
-    'ksha': 'க்ஷ', 'shra': 'ஸ்ர', 'tra': 'த்ர',
+    'ksh': 'க்ஷ',
     'kh': 'க', 'gh': 'க', 'chh': 'ச', 'ch': 'ச', 'jh': 'ஜ', 'th': 'த', 'dh': 'த',
-    'ph': 'ப', 'bh': 'ப', 'sh': 'ஷ', 'shh': 'ஷ',
+    'ph': 'ப', 'bh': 'ப', 'shh': 'ஷ', 'Sh': 'ஷ', 'sh': 'ஷ',
     'k': 'க', 'g': 'க', 'ng': 'ங', 'c': 'ச', 'j': 'ஜ', 'ny': 'ஞ',
     'T': 'ட', 'Th': 'ட', 'D': 'ட', 'Dh': 'ட', 'N': 'ண',
-    't': 'த', 'd': 'த', 'n': 'ந', 'p': 'ப', 'f': 'ப', 'b': 'ப', 'm': 'ம',
-    'y': 'ய', 'r': 'ர', 'l': 'ல', 'v': 'வ', 'w': 'வ', 's': 'ஸ', 'h': 'ஹ',
-    'zh': 'ழ', 'L': 'ள', 'R': 'ற', 'nn': 'ன'
+    't': 'த', 'd': 'த', 'nn': 'ன', 'n': 'ந', 'p': 'ப', 'f': 'ஃப', 'b': 'ப', 'm': 'ம',
+    'y': 'ய', 'r': 'ர', 'R': 'ற', 'l': 'ல', 'L': 'ள', 'zh': 'ழ', 'v': 'வ', 'w': 'வ', 's': 'ஸ', 'h': 'ஹ'
   },
   halant: '்',
   anusvara: 'ம்',
   visarga: 'ஃ',
   nukta: '',
-  chandrabindu: ''
+  chandrabindu: '',
+  finalAIsLong: false,
+  finalHalant: true,
+  tamilN: 'ன',
 };
 
+const dravidianVowels = (v: {
+  a: string; aa: string; i: string; ee: string; u: string; oo: string; Ri: string;
+  e: string; E: string; ai: string; o: string; O: string; au: string;
+}): Record<string, string> => ({
+  aa: v.aa, A: v.aa, a: v.a, ee: v.ee, ii: v.ee, I: v.ee, i: v.i, oo: v.oo, uu: v.oo, U: v.oo, u: v.u,
+  Ri: v.Ri, E: v.E, e: v.e, ai: v.ai, O: v.O, o: v.o, au: v.au, ou: v.au,
+});
+
 const TELUGU_RULE: ScriptRule = {
-  vowels: {
-    'aa': 'ఆ', 'a': 'అ', 'ee': 'ఈ', 'ii': 'ఈ', 'i': 'ఇ', 'oo': 'ఊ', 'uu': 'ఊ', 'u': 'ఉ',
-    'ri': 'ఋ', 'e': 'ఎ', 'ai': 'ఐ', 'o': 'ఒ', 'au': 'ఔ', 'am': 'అం', 'ah': 'అః'
-  },
-  matras: {
-    'aa': 'ా', 'a': '', 'ee': 'ీ', 'ii': 'ీ', 'i': 'ి', 'oo': 'ూ', 'uu': 'ూ', 'u': 'ు',
-    'ri': 'ృ', 'e': 'ె', 'ai': 'ై', 'o': 'ొ', 'au': 'ౌ', 'am': 'ం', 'ah': 'ః'
-  },
+  vowels: dravidianVowels({
+    a: 'అ', aa: 'ఆ', i: 'ఇ', ee: 'ఈ', u: 'ఉ', oo: 'ఊ', Ri: 'ఋ', e: 'ఎ', E: 'ఏ', ai: 'ఐ', o: 'ఒ', O: 'ఓ', au: 'ఔ',
+  }),
+  matras: dravidianVowels({
+    a: '', aa: 'ా', i: 'ి', ee: 'ీ', u: 'ు', oo: 'ూ', Ri: 'ృ', e: 'ె', E: 'ే', ai: 'ై', o: 'ొ', O: 'ో', au: 'ౌ',
+  }),
   consonants: {
-    'ksha': 'క్ష', 'shra': 'శ్ర', 'tra': 'త్ర', 'gya': 'జ్ఞ',
+    'ksh': 'క్ష', 'gy': 'జ్ఞ',
     'kh': 'ఖ', 'gh': 'ఘ', 'chh': 'ఛ', 'ch': 'చ', 'jh': 'ఝ', 'th': 'థ', 'dh': 'ధ',
-    'ph': 'ఫ', 'bh': 'భ', 'sh': 'శ', 'shh': 'ష',
-    'k': 'క', 'g': 'గ', 'ng': 'ఙ', 'c': 'చ', 'j': 'జ', 'ny': 'ఞ',
-    'T': 'ట', 'Th': 'ఠ', 'D': 'డ', 'Dh': 'ఢ', 'N': 'ణ',
+    'ph': 'ఫ', 'bh': 'భ', 'shh': 'ష', 'Sh': 'ష', 'sh': 'శ', 'Th': 'ఠ', 'Dh': 'ఢ',
+    'k': 'క', 'g': 'గ', 'c': 'చ', 'j': 'జ', 'ny': 'ఞ',
+    'T': 'ట', 'D': 'డ', 'N': 'ణ',
     't': 'త', 'd': 'ద', 'n': 'న', 'p': 'ప', 'f': 'ఫ', 'b': 'బ', 'm': 'మ',
-    'y': 'య', 'r': 'ర', 'l': 'ల', 'v': 'వ', 'w': 'వ', 's': 'స', 'h': 'హ', 'L': 'ళ'
+    'y': 'య', 'r': 'ర', 'R': 'ఱ', 'l': 'ల', 'L': 'ళ', 'v': 'వ', 'w': 'వ', 's': 'స', 'h': 'హ', 'z': 'జ'
   },
   halant: '్',
   anusvara: 'ం',
   visarga: 'ః',
   nukta: '',
-  chandrabindu: ''
+  chandrabindu: '',
+  finalAIsLong: false,
+  finalHalant: true,
+  nasalBeforeStop: 'ం',
+  finalMIsAnusvara: true,
 };
 
 const GUJARATI_RULE: ScriptRule = {
-  vowels: {
-    'aa': 'આ', 'a': 'અ', 'ee': 'ઈ', 'ii': 'ઈ', 'i': 'ઇ', 'oo': 'ઊ', 'uu': 'ઊ', 'u': 'ઉ',
-    'ri': 'ઋ', 'e': 'એ', 'ai': 'ઐ', 'o': 'ઓ', 'au': 'ઔ', 'am': 'અં', 'ah': 'અઃ'
-  },
-  matras: {
-    'aa': 'ા', 'a': '', 'ee': 'ી', 'ii': 'ી', 'i': 'િ', 'oo': 'ૂ', 'uu': 'ૂ', 'u': 'ુ',
-    'ri': 'ૃ', 'e': 'ે', 'ai': 'ૈ', 'o': 'ો', 'au': 'ૌ', 'am': 'ં', 'ah': 'ઃ'
-  },
+  vowels: INDO_ARYAN_VOWEL_KEYS({
+    a: 'અ', aa: 'આ', i: 'ઇ', ee: 'ઈ', u: 'ઉ', oo: 'ઊ', Ri: 'ઋ', e: 'એ', ai: 'ઐ', o: 'ઓ', au: 'ઔ',
+  }),
+  matras: INDO_ARYAN_VOWEL_KEYS({
+    a: '', aa: 'ા', i: 'િ', ee: 'ી', u: 'ુ', oo: 'ૂ', Ri: 'ૃ', e: 'ે', ai: 'ૈ', o: 'ો', au: 'ૌ',
+  }),
   consonants: {
-    'ksha': 'ક્ષ', 'shra': 'શ્ર', 'tra': 'ત્ર', 'gya': 'જ્ઞ',
-    'kh': 'ખ', 'gh': 'ઘ', 'chh': 'છ', 'ch': 'ચ', 'jh': 'ઝ', 'th': 'થ', 'dh': 'ધ',
-    'ph': 'ફ', 'bh': 'ભ', 'sh': 'શ', 'shh': 'ષ',
-    'k': 'ક', 'g': 'ગ', 'ng': 'ઙ', 'c': 'ચ', 'j': 'જ', 'ny': 'ઞ',
-    'T': 'ટ', 'Th': 'ઠ', 'D': 'ડ', 'Dh': 'ઢ', 'N': 'ણ',
+    'ksh': 'ક્ષ', 'gy': 'જ્ઞ',
+    'kh': 'ખ', 'gh': 'ઘ', 'chh': 'છ', 'Ch': 'છ', 'ch': 'ચ', 'jh': 'ઝ', 'th': 'થ', 'dh': 'ધ',
+    'ph': 'ફ', 'bh': 'ભ', 'shh': 'ષ', 'Sh': 'ષ', 'sh': 'શ', 'Th': 'ઠ', 'Dh': 'ઢ',
+    'k': 'ક', 'g': 'ગ', 'c': 'ચ', 'j': 'જ', 'ny': 'ઞ',
+    'T': 'ટ', 'D': 'ડ', 'N': 'ણ',
     't': 'ત', 'd': 'દ', 'n': 'ન', 'p': 'પ', 'f': 'ફ', 'b': 'બ', 'm': 'મ',
-    'y': 'ય', 'r': 'ર', 'l': 'લ', 'v': 'વ', 'w': 'વ', 's': 'સ', 'h': 'હ', 'L': 'ળ'
+    'y': 'ય', 'r': 'ર', 'l': 'લ', 'L': 'ળ', 'v': 'વ', 'w': 'વ', 's': 'સ', 'h': 'હ', 'z': 'ઝ'
   },
   halant: '્',
   anusvara: 'ં',
   visarga: 'ઃ',
   nukta: '',
-  chandrabindu: 'ઁ'
+  chandrabindu: 'ઁ',
+  finalAIsLong: true,
+  finalHalant: false,
+  nasalBeforeStop: 'ં',
+  finalNasalAfterLong: true,
 };
 
 const KANNADA_RULE: ScriptRule = {
-  vowels: {
-    'aa': 'ಆ', 'a': 'ಅ', 'ee': 'ಈ', 'ii': 'ಈ', 'i': 'ಇ', 'oo': 'ಊ', 'uu': 'ಊ', 'u': 'ಉ',
-    'ri': 'ಋ', 'e': 'ಎ', 'ai': 'ಐ', 'o': 'ಒ', 'au': 'ಔ', 'am': 'ಅಂ', 'ah': 'ಅಃ'
-  },
-  matras: {
-    'aa': 'ಾ', 'a': '', 'ee': 'ೀ', 'ii': 'ೀ', 'i': 'ಿ', 'oo': 'ೂ', 'uu': 'ೂ', 'u': 'ು',
-    'ri': 'ೃ', 'e': 'ೆ', 'ai': 'ೈ', 'o': 'ೊ', 'au': 'ೌ', 'am': 'ಂ', 'ah': 'ಃ'
-  },
+  vowels: dravidianVowels({
+    a: 'ಅ', aa: 'ಆ', i: 'ಇ', ee: 'ಈ', u: 'ಉ', oo: 'ಊ', Ri: 'ಋ', e: 'ಎ', E: 'ಏ', ai: 'ಐ', o: 'ಒ', O: 'ಓ', au: 'ಔ',
+  }),
+  matras: dravidianVowels({
+    a: '', aa: 'ಾ', i: 'ಿ', ee: 'ೀ', u: 'ು', oo: 'ೂ', Ri: 'ೃ', e: 'ೆ', E: 'ೇ', ai: 'ೈ', o: 'ೊ', O: 'ೋ', au: 'ೌ',
+  }),
   consonants: {
-    'ksha': 'ಕ್ಷ', 'shra': 'ಶ್ರ', 'tra': 'ತ್ರ', 'gya': 'ಜ್ಞ',
+    'ksh': 'ಕ್ಷ', 'gy': 'ಜ್ಞ',
     'kh': 'ಖ', 'gh': 'ಘ', 'chh': 'ಛ', 'ch': 'ಚ', 'jh': 'ಝ', 'th': 'ಥ', 'dh': 'ಧ',
-    'ph': 'ಫ', 'bh': 'ಭ', 'sh': 'ಶ', 'shh': 'ಷ',
-    'k': 'ಕ', 'g': 'ಗ', 'ng': 'ಙ', 'c': 'ಚ', 'j': 'ಜ', 'ny': 'ಞ',
-    'T': 'ಟ', 'Th': 'ಠ', 'D': 'ಡ', 'Dh': 'ಢ', 'N': 'ಣ',
+    'ph': 'ಫ', 'bh': 'ಭ', 'shh': 'ಷ', 'Sh': 'ಷ', 'sh': 'ಶ', 'Th': 'ಠ', 'Dh': 'ಢ',
+    'k': 'ಕ', 'g': 'ಗ', 'c': 'ಚ', 'j': 'ಜ', 'ny': 'ಞ',
+    'T': 'ಟ', 'D': 'ಡ', 'N': 'ಣ',
     't': 'ತ', 'd': 'ದ', 'n': 'ನ', 'p': 'ಪ', 'f': 'ಫ', 'b': 'ಬ', 'm': 'ಮ',
-    'y': 'ಯ', 'r': 'ರ', 'l': 'ಲ', 'v': 'ವ', 'w': 'ವ', 's': 'ಸ', 'h': 'ಹ', 'L': 'ಳ'
+    'y': 'ಯ', 'r': 'ರ', 'l': 'ಲ', 'L': 'ಳ', 'v': 'ವ', 'w': 'ವ', 's': 'ಸ', 'h': 'ಹ', 'z': 'ಜ'
   },
   halant: '್',
   anusvara: 'ಂ',
   visarga: 'ಃ',
   nukta: '',
-  chandrabindu: ''
+  chandrabindu: '',
+  finalAIsLong: false,
+  finalHalant: true,
+  nasalBeforeStop: 'ಂ',
+  finalMIsAnusvara: true,
 };
 
 const MALAYALAM_RULE: ScriptRule = {
-  vowels: {
-    'aa': 'ആ', 'a': 'അ', 'ee': 'ഈ', 'ii': 'ഈ', 'i': 'ഇ', 'oo': 'ഊ', 'uu': 'ഊ', 'u': 'ഉ',
-    'ri': 'ഋ', 'e': 'എ', 'ai': 'ഐ', 'o': 'ഒ', 'au': 'ഔ', 'am': 'അം', 'ah': 'അഃ'
-  },
-  matras: {
-    'aa': 'ാ', 'a': '', 'ee': 'ീ', 'ii': 'ീ', 'i': 'ി', 'oo': 'ൂ', 'uu': 'ൂ', 'u': 'ു',
-    'ri': 'ൃ', 'e': 'െ', 'ai': 'ൈ', 'o': 'ൊ', 'au': 'ൌ', 'am': 'ം', 'ah': 'ഃ'
-  },
+  vowels: dravidianVowels({
+    a: 'അ', aa: 'ആ', i: 'ഇ', ee: 'ഈ', u: 'ഉ', oo: 'ഊ', Ri: 'ഋ', e: 'എ', E: 'ഏ', ai: 'ഐ', o: 'ഒ', O: 'ഓ', au: 'ഔ',
+  }),
+  matras: dravidianVowels({
+    a: '', aa: 'ാ', i: 'ി', ee: 'ീ', u: 'ു', oo: 'ൂ', Ri: 'ൃ', e: 'െ', E: 'േ', ai: 'ൈ', o: 'ൊ', O: 'ോ', au: 'ൗ',
+  }),
   consonants: {
-    'ksha': 'ക്ഷ', 'shra': 'ശ്ര', 'tra': 'ത്ര', 'gya': 'ജ്ഞ',
-    'kh': 'ഖ', 'gh': 'ഘ', 'chh': 'ഛ', 'ch': 'ച', 'jh': 'ഝ', 'th': 'ഥ', 'dh': 'ധ',
-    'ph': 'ഫ', 'bh': 'ഭ', 'sh': 'ശ', 'shh': 'ഷ',
+    'ksh': 'ക്ഷ', 'gy': 'ജ്ഞ',
+    'kh': 'ഖ', 'gh': 'ഘ', 'chh': 'ഛ', 'ch': 'ച', 'jh': 'ഝ', 'th': 'ത', 'dh': 'ധ',
+    'ph': 'ഫ', 'bh': 'ഭ', 'shh': 'ഷ', 'Sh': 'ഷ', 'sh': 'ശ', 'Th': 'ഠ', 'Dh': 'ഢ', 'zh': 'ഴ',
     'k': 'ക', 'g': 'ഗ', 'ng': 'ങ', 'c': 'ച', 'j': 'ജ', 'ny': 'ഞ',
-    'T': 'ട', 'Th': 'ഠ', 'D': 'ഡ', 'Dh': 'ഢ', 'N': 'ണ',
+    'T': 'ട', 'D': 'ഡ', 'N': 'ണ',
     't': 'ത', 'd': 'ദ', 'n': 'ന', 'p': 'പ', 'f': 'ഫ', 'b': 'ബ', 'm': 'മ',
-    'y': 'യ', 'r': 'ര', 'l': 'ല', 'v': 'വ', 'w': 'വ', 's': 'സ', 'h': 'ഹ',
-    'zh': 'ഴ', 'L': 'ള', 'R': 'റ'
+    'y': 'യ', 'r': 'ര', 'R': 'റ', 'l': 'ല', 'L': 'ള', 'v': 'വ', 'w': 'വ', 's': 'സ', 'h': 'ഹ', 'z': 'സ'
   },
   halant: '്',
   anusvara: 'ം',
   visarga: 'ഃ',
   nukta: '',
-  chandrabindu: ''
+  chandrabindu: '',
+  finalAIsLong: false,
+  finalHalant: true,
+  finalMIsAnusvara: true,
+  chillu: { 'n': 'ൻ', 'N': 'ൺ', 'r': 'ർ', 'l': 'ൽ', 'L': 'ൾ' },
 };
 
 const GURMUKHI_RULE: ScriptRule = {
-  vowels: {
-    'aa': 'ਆ', 'a': 'ਅ', 'ee': 'ਈ', 'ii': 'ਈ', 'i': 'ਇ', 'oo': 'ਊ', 'uu': 'ਊ', 'u': 'ਉ',
-    'e': 'ਏ', 'ai': 'ਐ', 'o': 'ਓ', 'au': 'ਔ', 'am': 'ਅੰ'
-  },
-  matras: {
-    'aa': 'ਾ', 'a': '', 'ee': 'ੀ', 'ii': 'ੀ', 'i': 'ਿ', 'oo': 'ੂ', 'uu': 'ੂ', 'u': 'ੁ',
-    'e': 'ੇ', 'ai': 'ੈ', 'o': 'ੋ', 'au': 'ੌ', 'am': 'ਂ'
-  },
+  vowels: INDO_ARYAN_VOWEL_KEYS({
+    a: 'ਅ', aa: 'ਆ', i: 'ਇ', ee: 'ਈ', u: 'ਉ', oo: 'ਊ', e: 'ਏ', ai: 'ਐ', o: 'ਓ', au: 'ਔ',
+  }),
+  matras: INDO_ARYAN_VOWEL_KEYS({
+    a: '', aa: 'ਾ', i: 'ਿ', ee: 'ੀ', u: 'ੁ', oo: 'ੂ', e: 'ੇ', ai: 'ੈ', o: 'ੋ', au: 'ੌ',
+  }),
   consonants: {
-    'kh': 'ਖ', 'gh': 'ਘ', 'chh': 'ਛ', 'ch': 'ਚ', 'jh': 'ਝ', 'th': 'ਥ', 'dh': 'ਧ',
-    'ph': 'ਫ', 'bh': 'ਭ', 'sh': 'ਸ਼',
-    'k': 'ਕ', 'g': 'ਗ', 'ng': 'ਙ', 'c': 'ਚ', 'j': 'ਜ', 'ny': 'ਞ',
-    'T': 'ਟ', 'Th': 'ਠ', 'D': 'ਡ', 'Dh': 'ਢ', 'N': 'ਣ',
+    'kh': 'ਖ', 'gh': 'ਘ', 'chh': 'ਛ', 'Ch': 'ਛ', 'ch': 'ਚ', 'jh': 'ਝ', 'th': 'ਥ', 'dh': 'ਧ',
+    'ph': 'ਫ', 'bh': 'ਭ', 'sh': 'ਸ਼', 'Th': 'ਠ', 'Dh': 'ਢ', 'Rh': 'ੜ',
+    'k': 'ਕ', 'g': 'ਗ', 'c': 'ਚ', 'j': 'ਜ', 'ny': 'ਞ',
+    'T': 'ਟ', 'D': 'ਡ', 'N': 'ਣ', 'R': 'ੜ',
     't': 'ਤ', 'd': 'ਦ', 'n': 'ਨ', 'p': 'ਪ', 'f': 'ਫ਼', 'b': 'ਬ', 'm': 'ਮ',
-    'y': 'ਯ', 'r': 'ਰ', 'l': 'ਲ', 'v': 'ਵ', 'w': 'ਵ', 's': 'ਸ', 'h': 'ਹ',
+    'y': 'ਯ', 'r': 'ਰ', 'l': 'ਲ', 'L': 'ਲ਼', 'v': 'ਵ', 'w': 'ਵ', 's': 'ਸ', 'h': 'ਹ',
     'z': 'ਜ਼', 'q': 'ਕ'
   },
   halant: '੍',
   anusvara: 'ਂ',
   visarga: '',
   nukta: '਼',
-  chandrabindu: 'ਁ'
+  chandrabindu: 'ਁ',
+  finalAIsLong: true,
+  finalHalant: false,
+  // Gurmukhi writes a nasal before a stop with tippi ("punjab" ਪੰਜਾਬ).
+  nasalBeforeStop: 'ੰ',
+  finalNasalAfterLong: true,
 };
 
 const ODIA_RULE: ScriptRule = {
-  vowels: {
-    'aa': 'ଆ', 'a': 'ଅ', 'ee': 'ଈ', 'ii': 'ଈ', 'i': 'ଇ', 'oo': 'ଊ', 'uu': 'ଊ', 'u': 'ଉ',
-    'ri': 'ଋ', 'e': 'ଏ', 'ai': 'ଐ', 'o': 'ଓ', 'au': 'ଔ', 'am': 'ଅଂ', 'ah': 'ଅଃ'
-  },
-  matras: {
-    'aa': 'ା', 'a': '', 'ee': 'ୀ', 'ii': 'ୀ', 'i': 'ି', 'oo': 'ୂ', 'uu': 'ୂ', 'u': 'ୁ',
-    'ri': 'ୃ', 'e': 'େ', 'ai': 'ୈ', 'o': 'ୋ', 'au': 'ୌ', 'am': 'ଂ', 'ah': 'ଃ'
-  },
+  vowels: INDO_ARYAN_VOWEL_KEYS({
+    a: 'ଅ', aa: 'ଆ', i: 'ଇ', ee: 'ଈ', u: 'ଉ', oo: 'ଊ', Ri: 'ଋ', e: 'ଏ', ai: 'ଐ', o: 'ଓ', au: 'ଔ',
+  }),
+  matras: INDO_ARYAN_VOWEL_KEYS({
+    a: '', aa: 'ା', i: 'ି', ee: 'ୀ', u: 'ୁ', oo: 'ୂ', Ri: 'ୃ', e: 'େ', ai: 'ୈ', o: 'ୋ', au: 'ୌ',
+  }),
   consonants: {
-    'ksha': 'କ୍ଷ', 'shra': 'ଶ୍ର', 'tra': 'ତ୍ର', 'gya': 'ଜ୍ଞ',
-    'kh': 'ଖ', 'gh': 'ଘ', 'chh': 'ଛ', 'ch': 'ଚ', 'jh': 'ଝ', 'th': 'ଥ', 'dh': 'ଧ',
-    'ph': 'ଫ', 'bh': 'ଭ', 'sh': 'ଶ', 'shh': 'ଷ',
+    'ksh': 'କ୍ଷ', 'gy': 'ଜ୍ଞ',
+    'kh': 'ଖ', 'gh': 'ଘ', 'chh': 'ଛ', 'Ch': 'ଛ', 'ch': 'ଚ', 'jh': 'ଝ', 'th': 'ଥ', 'dh': 'ଧ',
+    'ph': 'ଫ', 'bh': 'ଭ', 'shh': 'ଷ', 'Sh': 'ଷ', 'sh': 'ଶ', 'Th': 'ଠ', 'Dh': 'ଢ', 'Rh': 'ଢ଼',
     'k': 'କ', 'g': 'ଗ', 'ng': 'ଙ', 'c': 'ଚ', 'j': 'ଜ', 'ny': 'ଞ',
-    'T': 'ଟ', 'Th': 'ଠ', 'D': 'ଡ', 'Dh': 'ଢ', 'N': 'ଣ',
+    'T': 'ଟ', 'D': 'ଡ', 'N': 'ଣ', 'R': 'ଡ଼',
     't': 'ତ', 'd': 'ଦ', 'n': 'ନ', 'p': 'ପ', 'f': 'ଫ', 'b': 'ବ', 'm': 'ମ',
-    'y': 'ଯ', 'r': 'ର', 'l': 'ଲ', 'v': 'ୱ', 'w': 'ୱ', 's': 'ସ', 'h': 'ହ', 'L': 'ଳ'
+    'y': 'ଯ', 'r': 'ର', 'l': 'ଲ', 'L': 'ଳ', 'v': 'ୱ', 'w': 'ୱ', 's': 'ସ', 'h': 'ହ', 'z': 'ଜ'
   },
   halant: '୍',
   anusvara: 'ଂ',
   visarga: 'ଃ',
   nukta: '',
-  chandrabindu: 'ଁ'
+  chandrabindu: 'ଁ',
+  finalAIsLong: true,
+  finalHalant: false,
+  ngIsAnusvara: true,
 };
 
 function getRuleForLanguage(langName: string): ScriptRule {
   const norm = langName.toLowerCase();
+  if (norm.includes('assamese')) return ASSAMESE_RULE;
   if (norm.includes('bengali') || norm.includes('bangla')) return BENGALI_RULE;
   if (norm.includes('tamil')) return TAMIL_RULE;
   if (norm.includes('telugu')) return TELUGU_RULE;
@@ -970,6 +1032,41 @@ export function listAllUserCustomWords(langCode: string): { roman: string; nativ
   return Object.entries(dict).map(([roman, native]) => ({ roman, native }));
 }
 
+const sortedKeyCache = new WeakMap<Record<string, string>, string[]>();
+
+function keysLongestFirst(table: Record<string, string>): string[] {
+  let keys = sortedKeyCache.get(table);
+  if (!keys) {
+    keys = Object.keys(table).sort((a, b) => b.length - a.length);
+    sortedKeyCache.set(table, keys);
+  }
+  return keys;
+}
+
+/**
+ * The longest table key at `pos`. An exact-case key wins, so "T" is ट and
+ * "Sh" is ष; failing that, a lowercase key matches any casing of the input.
+ * An uppercase key never matches lowercase input, which is what used to turn
+ * every "t" into ट, "d" into ड and "n" into ण.
+ */
+function matchKey(table: Record<string, string>, word: string, lower: string, pos: number): string | null {
+  const keys = keysLongestFirst(table);
+  for (const key of keys) {
+    if (word.startsWith(key, pos)) return key;
+  }
+  for (const key of keys) {
+    if (key === key.toLowerCase() && lower.startsWith(key, pos)) return key;
+  }
+  return null;
+}
+
+const isLetter = (ch: string | undefined) => !!ch && /[A-Za-z]/.test(ch);
+// Consonants a preceding n / m merges into as a nasal sign.
+const STOPS_AFTER_N = /^[kgcjtdKGCJTD]/;
+const STOPS_AFTER_M = /^[pbPB]/;
+// Vowels after which a word-final n is nasalisation: main, hain, men, kyon, logon.
+const NASALISING_VOWEL = /(ai|[^e]e|^e|[^o]o|^o)$/;
+
 /**
  * OFFLINE ALGORITHMIC TRANSLITERATOR
  * Converts Roman English syllables to Indic Script with high accuracy
@@ -977,7 +1074,7 @@ export function listAllUserCustomWords(langCode: string): { roman: string; nativ
 export function transliterateWordOffline(word: string, language: string): string {
   if (!word) return '';
 
-  const cleanWord = word.trim();
+  let cleanWord = word.trim();
   const lowerWord = cleanWord.toLowerCase();
   const langConfig = getIndicLanguageConfig(language);
   const langKey = langConfig.name;
@@ -998,94 +1095,102 @@ export function transliterateWordOffline(word: string, language: string): string
     return CURATED_INDIC_DICTIONARY.Hindi[lowerWord];
   }
 
+  // A word typed in all capitals is emphasis or caps lock, not a run of retroflex letters.
+  if (cleanWord.length > 1 && cleanWord === cleanWord.toUpperCase()) cleanWord = lowerWord;
+
   const rule = getRuleForLanguage(language);
+  const lower = cleanWord.toLowerCase();
+  const len = cleanWord.length;
   let result = '';
   let i = 0;
-  const len = cleanWord.length;
-
-  const sortedConsonants = Object.keys(rule.consonants).sort((a, b) => b.length - a.length);
-  const sortedMatras = Object.keys(rule.matras).sort((a, b) => b.length - a.length);
-  const sortedVowels = Object.keys(rule.vowels).sort((a, b) => b.length - a.length);
 
   while (i < len) {
-    const remaining = cleanWord.slice(i);
-    const lowerRemaining = remaining.toLowerCase();
+    const ch = cleanWord[i];
 
-    // 1. Check for standalone punctuation or numbers
-    if (/^[0-9\s.,!?:;'"()\-]/.test(remaining[0])) {
-      result += remaining[0];
+    if (!isLetter(ch)) {
+      result += ch;
       i += 1;
       continue;
     }
 
-    // 2. Check if starts with a consonant
-    let matchedConsonant: string | null = null;
-    let consLen = 0;
-
-    for (const c of sortedConsonants) {
-      if (lowerRemaining.startsWith(c.toLowerCase())) {
-        matchedConsonant = rule.consonants[c];
-        consLen = c.length;
-        break;
-      }
+    // Mid-word capital M / H are the anusvara and visarga.
+    if (i > 0 && ch === 'M' && rule.anusvara) {
+      result += rule.anusvara;
+      i += 1;
+      continue;
+    }
+    if (i > 0 && ch === 'H' && rule.visarga) {
+      result += rule.visarga;
+      i += 1;
+      continue;
     }
 
-    if (matchedConsonant) {
-      result += matchedConsonant;
-      i += consLen;
+    const consKey = matchKey(rule.consonants, cleanWord, lower, i);
+    if (consKey) {
+      const start = i;
+      i += consKey.length;
+      const atEnd = !isLetter(cleanWord[i]);
+      const matraKey = atEnd ? null : matchKey(rule.matras, cleanWord, lower, i);
+      const nextConsKey = atEnd || matraKey !== null ? null : matchKey(rule.consonants, cleanWord, lower, i);
+      const before = lower.slice(0, start);
+      const afterVowel = start > 0 && /[aeiou]$/.test(before);
+      let letter = rule.consonants[consKey];
 
-      // Check if followed by vowel/matra
-      const afterCons = cleanWord.slice(i).toLowerCase();
-      let matchedMatra: string | null = null;
-      let matraLen = 0;
-
-      for (const m of sortedMatras) {
-        if (afterCons.startsWith(m)) {
-          matchedMatra = rule.matras[m];
-          matraLen = m.length;
-          break;
+      if (matraKey === null) {
+        // n / m before a stop: सुंदर, हिंदी, ಬೆಂಗಳೂರು, ਪੰਜਾਬ
+        if (rule.nasalBeforeStop && afterVowel && nextConsKey &&
+            ((consKey === 'n' && STOPS_AFTER_N.test(nextConsKey)) || (consKey === 'm' && STOPS_AFTER_M.test(nextConsKey)))) {
+          result += rule.nasalBeforeStop;
+          continue;
+        }
+        // Bengali / Odia "ng" before a consonant or at the end: বাংলা, রং
+        if (rule.ngIsAnusvara && consKey === 'ng' && start > 0) {
+          result += rule.anusvara;
+          continue;
+        }
+        if (atEnd && start > 0) {
+          if (rule.finalMIsAnusvara && consKey === 'm') {
+            result += rule.anusvara;
+            continue;
+          }
+          if (rule.finalNasalAfterLong && consKey === 'n' && NASALISING_VOWEL.test(before)) {
+            result += rule.anusvara;
+            continue;
+          }
+          if (rule.chillu?.[consKey]) {
+            result += rule.chillu[consKey];
+            continue;
+          }
         }
       }
 
-      if (matchedMatra !== null) {
-        // Special case: In Indic phonetic typing, if a word ends in 'a' after a consonant (like "mera", "tera", "kaha", "bhaiya")
-        // and matchedMatra was empty string (inherent 'a'), but it is at the terminal end of the word,
-        // it signifies the explicit 'aa' / 'ा' matra!
-        if (matraLen === 1 && afterCons[0] === 'a' && i + 1 === len && rule.matras['aa']) {
-          result += rule.matras['aa'];
-        } else {
-          result += matchedMatra;
-        }
-        i += matraLen;
-      } else {
-        // If followed immediately by another consonant without vowel, insert halant to form conjunct!
-        if (i < len && /[a-zA-Z]/.test(cleanWord[i])) {
-          result += rule.halant;
-        }
+      // Tamil: ந starts a word or precedes t/d (வந்து); elsewhere it is ன (அவன்).
+      if (rule.tamilN && consKey === 'n' && start > 0 && !(nextConsKey && /^[tdTD]/.test(nextConsKey))) {
+        letter = rule.tamilN;
+      }
+
+      result += letter;
+
+      if (matraKey !== null) {
+        const wordFinalA = matraKey === 'a' && !isLetter(cleanWord[i + 1]);
+        result += wordFinalA && rule.finalAIsLong ? rule.matras['aa'] : rule.matras[matraKey];
+        i += matraKey.length;
+      } else if (!atEnd || rule.finalHalant) {
+        // Consonant cluster (क्य, त्र) or a Dravidian word-final consonant (ಬಸ್).
+        result += rule.halant;
       }
       continue;
     }
 
-    // 3. Check for standalone vowel
-    let matchedVowel: string | null = null;
-    let vowLen = 0;
-
-    for (const v of sortedVowels) {
-      if (lowerRemaining.startsWith(v.toLowerCase())) {
-        matchedVowel = rule.vowels[v];
-        vowLen = v.length;
-        break;
-      }
-    }
-
-    if (matchedVowel) {
-      result += matchedVowel;
-      i += vowLen;
+    const vowelKey = matchKey(rule.vowels, cleanWord, lower, i);
+    if (vowelKey) {
+      result += rule.vowels[vowelKey];
+      i += vowelKey.length;
       continue;
     }
 
     // Fallback char
-    result += remaining[0];
+    result += ch;
     i += 1;
   }
 
@@ -1144,26 +1249,19 @@ export async function getPhoneticSuggestions(
     }
   }
 
-  // 3. Online Google Input Tools (High-Accuracy Industry Standard)
+  // 3. Online Google Input Tools, relayed by our server because the page's CSP
+  // (connect-src 'self') blocks calling Google from the browser.
+  let reachedOnline = false;
   try {
-    const url = `https://inputtools.google.com/request?text=${encodeURIComponent(
-      trimmed
-    )}&itc=${itc}&num=${numSuggestions}&cp=0&cs=1&ie=utf-8&oe=utf-8`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
+    const url = `/api/transliterate?text=${encodeURIComponent(trimmed)}&itc=${itc}&num=${numSuggestions}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
-      const data = await res.json();
-      if (data && data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1]) {
-        const googleCandidates: string[] = data[1][0][1];
-        for (const gc of googleCandidates) {
-          if (!candidatePool.includes(gc)) {
-            candidatePool.push(gc);
-          }
+      const data: { candidates?: string[] } = await res.json();
+      const googleCandidates = data.candidates || [];
+      reachedOnline = googleCandidates.length > 0;
+      for (const gc of googleCandidates) {
+        if (!candidatePool.includes(gc)) {
+          candidatePool.push(gc);
         }
       }
     }
@@ -1183,7 +1281,8 @@ export async function getPhoneticSuggestions(
   }
 
   const finalCandidates = candidatePool.slice(0, Math.max(numSuggestions, 5));
-  suggestionCache.set(cacheKey, finalCandidates);
+  // An offline-only answer is not cached, so the word is looked up again once the network is back.
+  if (reachedOnline) suggestionCache.set(cacheKey, finalCandidates);
   return finalCandidates;
 }
 
@@ -1220,5 +1319,6 @@ export const PHONETIC_CHEAT_SHEET: { roman: string; desc: string; sample: string
   { roman: 'sh / shh,Sh / s / h', desc: 'Sibilants & Aspirate', sample: 'श / ष / स / ह' },
   { roman: 'kya / tra / gya / shra', desc: 'Conjuncts (Yuktakshar)', sample: 'क्या / त्र / ज्ञ / श्र' },
   { roman: 'a / aa / i / ee / u / oo', desc: 'Vowels & Matras', sample: 'अ, आ, इ, ई, उ, ऊ' },
-  { roman: 'e / ai / o / au / am', desc: 'Diphthongs & Nasals', sample: 'ए, ऐ, ओ, औ, अं' },
+  { roman: 'e / ai / o / au', desc: 'Diphthongs', sample: 'ए, ऐ, ओ, औ' },
+  { roman: 'M / H / Ri', desc: 'Anusvara, Visarga, Ri sign', sample: 'ं / ः / ृ' },
 ];

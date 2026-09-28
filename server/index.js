@@ -16,6 +16,7 @@ import { translationRouter } from './routes/translation.js';
 import { elevenLabsRouter } from './routes/elevenlabs.js';
 import { geminiRouter } from './routes/gemini.js';
 import { cartesiaRouter } from './routes/cartesia.js';
+import { transliterateRouter } from './routes/transliterate.js';
 import { ffmpegAvailable } from './lib/media.js';
 
 const app = express();
@@ -136,7 +137,8 @@ if (config.rateLimitPerMinute > 0) {
       limit: config.rateLimitPerMinute,
       standardHeaders: 'draft-7',
       legacyHeaders: false,
-      skip: (req) => req.path === '/health' || req.path.startsWith('/settings'),
+      // Spelling lookups fire on every keystroke and would exhaust the budget meant for AI calls.
+      skip: (req) => req.path === '/health' || req.path === '/transliterate' || req.path.startsWith('/settings'),
       message: {
         error: {
           message:
@@ -163,6 +165,7 @@ app.use('/api', translationRouter);
 app.use('/api', elevenLabsRouter);
 app.use('/api', geminiRouter);
 app.use('/api', cartesiaRouter);
+app.use('/api', transliterateRouter);
 
 /*
  * In production the same process serves the built frontend, so the whole app is
