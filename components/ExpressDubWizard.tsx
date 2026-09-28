@@ -254,7 +254,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [reviewMode, setReviewMode] = useState<ReviewMode>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight'>('all');
-  const [scriptExportFormat, setScriptExportFormat] = useState<TargetScriptFormat>('dialogue');
   const [finalScriptLayout, setFinalScriptLayout] = useState<'dialogue' | 'timecoded' | 'bilingual'>('bilingual');
   const [isVoicePickerOpen, setIsVoicePickerOpen] = useState(false);
   const { favorites: favoriteVoices } = useFavoriteVoices();
@@ -1851,62 +1850,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </div>
                 </div>
 
-                {/* Export */}
-                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Export</span>
-                    <button
-                      type="button"
-                      onClick={() => setIsSrtModalOpen(true)}
-                      className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-200 cursor-pointer"
-                      title="Max words, lines and characters per subtitle, with a live preview"
-                    >
-                      <Sliders className="w-3 h-3" /> Subtitle settings
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => handleExportSrtWithSettings()} disabled={segments.length === 0} className={railButton}>
-                      <Download className="w-3.5 h-3.5" /> Subtitles .srt
-                    </button>
-                    <button type="button" onClick={() => handleExportVttWithSettings()} disabled={segments.length === 0} className={railButton}>
-                      <Download className="w-3.5 h-3.5" /> Subtitles .vtt
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <select
-                      id="express-step2-script-format"
-                      value={scriptExportFormat}
-                      onChange={(e) => setScriptExportFormat(e.target.value as TargetScriptFormat)}
-                      className="flex-1 min-w-0 h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                      aria-label="Script format"
-                    >
-                      <option value="dialogue" className="bg-slate-900">Dialogue .txt</option>
-                      <option value="timecoded" className="bg-slate-900">With timecodes .txt</option>
-                      <option value="bilingual" className="bg-slate-900">Bilingual .txt</option>
-                      <option value="csv" className="bg-slate-900">Cue sheet .csv</option>
-                      <option value="json" className="bg-slate-900">Data .json</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => handleExportTargetScript(scriptExportFormat)}
-                      disabled={segments.length === 0}
-                      className={`${railButton} shrink-0`}
-                    >
-                      <Download className="w-3.5 h-3.5" /> Script
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCopyFullTargetScript()}
-                      disabled={segments.length === 0}
-                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 shrink-0 cursor-pointer"
-                      title={`Copy the ${targetLanguage} script`}
-                      aria-label={`Copy the ${targetLanguage} script`}
-                    >
-                      <Copy className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
                 {/* Tools */}
                 {(onSensitivityChange || onOpenVoiceChanger || onOpenTextToSpeech) && (
                   <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-3">
@@ -2482,10 +2425,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 ))}
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => handleExportVttWithSettings()} disabled={segments.length === 0} className={railButton}>
-                    .vtt subtitles
+                    <Download className="w-3.5 h-3.5" /> .vtt subtitles
                   </button>
                   <button type="button" onClick={() => setIsSrtModalOpen(true)} className={railButton}>
                     <Sliders className="w-3.5 h-3.5" /> Subtitle settings
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => handleExportTargetScript('csv')} disabled={segments.length === 0} className={railButton}>
+                    <Download className="w-3.5 h-3.5" /> Cue sheet .csv
+                  </button>
+                  <button type="button" onClick={() => handleExportTargetScript('json')} disabled={segments.length === 0} className={railButton}>
+                    <Download className="w-3.5 h-3.5" /> Data .json
                   </button>
                 </div>
               </div>
