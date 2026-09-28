@@ -27,7 +27,6 @@ import {
 } from './services/audioService';
 import { transcribeMedia } from './services/geminiService';
 import { retranslateCues, RetranslateProgress } from './services/subtitleService';
-import { TranslationProgressCard } from './components/TranslationProgressCard';
 import {
   getBackendHealth,
   getBackendSettings,
@@ -2053,14 +2052,6 @@ export default function App() {
         audioBuffer={activeJob?.audioBuffer || null}
         segments={activeJob?.segments || []}
       />
-
-      {/* Floating translation progress, fed by the streamed batch count */}
-      {isTranslatingLanguage && (
-        <TranslationProgressCard
-          language={activeJob?.language || selectedLanguage}
-          progress={translationProgress}
-        />
-      )}
     </div>
   );
 }
