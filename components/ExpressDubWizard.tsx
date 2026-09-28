@@ -2387,7 +2387,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     disabled: !hasDub || !onDownloadWav,
                     hero: hasDub,
                   },
-                  {
+                  hasDub && {
                     tag: 'SRT',
                     tone: 'bg-indigo-500/15 text-indigo-300',
                     title: `${targetLanguage} subtitles`,
@@ -2403,7 +2403,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onClick: () => handleExportTargetScript(finalScriptLayout),
                     disabled: segments.length === 0,
                   },
-                ].map((d) => (
+                ].filter((d) => !!d).map((d) => (
                   <button
                     key={d.tag}
                     type="button"
@@ -2423,14 +2423,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <Download className="w-4 h-4 text-slate-500 shrink-0" />
                   </button>
                 ))}
-                <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => handleExportVttWithSettings()} disabled={segments.length === 0} className={railButton}>
-                    <Download className="w-3.5 h-3.5" /> .vtt subtitles
-                  </button>
-                  <button type="button" onClick={() => setIsSrtModalOpen(true)} className={railButton}>
-                    <Sliders className="w-3.5 h-3.5" /> Subtitle settings
-                  </button>
-                </div>
+                {hasDub ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => handleExportVttWithSettings()} disabled={segments.length === 0} className={railButton}>
+                      <Download className="w-3.5 h-3.5" /> .vtt subtitles
+                    </button>
+                    <button type="button" onClick={() => setIsSrtModalOpen(true)} className={railButton}>
+                      <Sliders className="w-3.5 h-3.5" /> Subtitle settings
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-[11.5px] text-slate-500">Subtitles (.srt, .vtt) unlock once the dub audio is made.</p>
+                )}
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => handleExportTargetScript('csv')} disabled={segments.length === 0} className={railButton}>
                     <Download className="w-3.5 h-3.5" /> Cue sheet .csv
