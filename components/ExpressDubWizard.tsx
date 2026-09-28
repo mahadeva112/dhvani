@@ -39,6 +39,7 @@ import {
   ChevronDown,
   ClipboardPaste,
   AudioWaveform,
+  Speech,
   ShieldCheck,
   ArrowLeftRight,
   X,
@@ -184,6 +185,8 @@ interface ExpressDubWizardProps {
   isTranslatingLanguage?: boolean;
   onOpenPromptModal?: () => void;
   onOpenVoiceChanger?: () => void;
+  /** Opens the standalone text-to-speech studio. */
+  onOpenTextToSpeech?: () => void;
   analysisSensitivity?: number;
   onSensitivityChange?: (sensitivity: number) => void;
 }
@@ -239,6 +242,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   isTranslatingLanguage,
   onOpenPromptModal,
   onOpenVoiceChanger,
+  onOpenTextToSpeech,
   analysisSensitivity = 50,
   onSensitivityChange,
 }) => {
@@ -868,6 +872,24 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </span>
                     <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                   </button>
+                  {onOpenTextToSpeech && (
+                    <button
+                      type="button"
+                      onClick={onOpenTextToSpeech}
+                      className="mt-2 w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-pointer"
+                    >
+                      <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                        <Speech className="w-4 h-4" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold text-slate-100">Text to speech</span>
+                        <span className="block text-xs text-slate-500 truncate">
+                          Voice any text with ElevenLabs or Cartesia
+                        </span>
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -1886,7 +1908,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </div>
 
                 {/* Tools */}
-                {(onSensitivityChange || onOpenVoiceChanger) && (
+                {(onSensitivityChange || onOpenVoiceChanger || onOpenTextToSpeech) && (
                   <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-3">
                     {onSensitivityChange && (
                       <PauseSensitivityControl
@@ -1908,6 +1930,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <span className="min-w-0 flex-1">
                           <span className="block text-[13px] font-semibold text-slate-100">Voice changer</span>
                           <span className="block text-xs text-slate-500 truncate">Keep the delivery, swap the speaker's voice</span>
+                        </span>
+                        <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                      </button>
+                    )}
+                    {onOpenTextToSpeech && (
+                      <button
+                        type="button"
+                        onClick={onOpenTextToSpeech}
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-pointer"
+                      >
+                        <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                          <Speech className="w-4 h-4" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold text-slate-100">Text to speech</span>
+                          <span className="block text-xs text-slate-500 truncate">Voice any text with ElevenLabs or Cartesia</span>
                         </span>
                         <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                       </button>
@@ -2457,6 +2495,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <button type="button" onClick={onOpenVoiceChanger} className={`${railButton} w-full`}>
                     <AudioWaveform className="w-3.5 h-3.5" /> Voice changer
                   </button>
+                  {onOpenTextToSpeech && (
+                    <button type="button" onClick={onOpenTextToSpeech} className={`${railButton} w-full mt-2`}>
+                      <Speech className="w-3.5 h-3.5" /> Text to speech
+                    </button>
+                  )}
                 </div>
               )}
 

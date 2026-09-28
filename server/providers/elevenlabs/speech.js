@@ -268,19 +268,32 @@ const joinAudio = async (parts, passages, outputFormat) => {
  * before it and told the text either side.
  *
  * With `expressive`, a v3 dub gets delivery cues first (see deliveryCues.js)
- * so it is performed rather than read. Returns `{ contentType, buffer }`.
+ * so it is performed rather than read. With `audioTags`, v3 audio tags the
+ * author wrote themselves are kept rather than stripped. A `seed` makes a take
+ * reproducible; without one each dub is sampled afresh.
+ * Returns `{ contentType, buffer }`.
  */
 export const synthesizeScript = async (
-  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings, expressive = false, language },
+  {
+    voiceId,
+    text,
+    modelId,
+    outputFormat = 'mp3_44100_128',
+    voiceSettings,
+    expressive = false,
+    audioTags = false,
+    language,
+    seed,
+  },
   { apiKey, textModelKey, signal, onProgress = () => {} } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
-  const cleanText = cleanTextForNaturalSpeech(text);
+  const resolvedModel = modelId || config.elevenlabs.ttsModel;
+  const cleanText = cleanTextForNaturalSpeech(text, { keepAudioTags: audioTags && isV3(resolvedModel) });
   if (!cleanText) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
 
-  const resolvedModel = modelId || config.elevenlabs.ttsModel;
   const passages = isJoinable(outputFormat)
     ? splitPassages(cleanText, passageLimit(resolvedModel))
     : [{ text: cleanText, breakAfter: null }];
@@ -300,7 +313,7 @@ export const synthesizeScript = async (
   if (isV3(resolvedModel) && !voiceSettings && (settings.stability ?? V3_NATURAL_STABILITY) > V3_NATURAL_STABILITY) {
     settings = { ...settings, stability: V3_NATURAL_STABILITY };
   }
-  const seed = randomInt(0, 2 ** 32 - 1);
+  const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
 
   const parts = new Array(chunks.length);
   let contentType = 'audio/mpeg';
@@ -329,7 +342,7 @@ export const synthesizeScript = async (
         modelId: resolvedModel,
         outputFormat,
         voiceSettings: settings,
-        seed,
+        seed: takeSeed,
         previousRequestIds: requestIds.slice(0, index).filter(Boolean),
         ...contextAround(chunks, index),
       },

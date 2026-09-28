@@ -13,6 +13,7 @@ import {
   AlertCircle,
   Film,
   Music,
+  Speech,
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
 
@@ -88,6 +89,8 @@ export interface ProHeaderProps {
   onOpenCustomPrompt?: () => void;
   onOpenPhoneticKeyboard?: () => void;
   onOpenVoiceChanger?: () => void;
+  /** Opens the standalone text-to-speech studio. */
+  onOpenTextToSpeech?: () => void;
   onOpenPauseSensitivity?: () => void;
   pauseSensitivity?: number;
   onResetSession?: () => void;
@@ -180,6 +183,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   onOpenCustomPrompt,
   onOpenPhoneticKeyboard,
   onOpenVoiceChanger,
+  onOpenTextToSpeech,
   onOpenPauseSensitivity,
   pauseSensitivity = 50,
   onResetSession,
@@ -497,7 +501,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                 role="menu"
                 className="fixed sm:absolute left-4 right-4 sm:left-auto sm:right-0 top-28 sm:top-auto sm:mt-2 sm:w-80 p-1.5 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl z-50 animate-in fade-in zoom-in-95"
               >
-                {(onOpenPhoneticKeyboard || onOpenVoiceChanger || onOpenPauseSensitivity) && (
+                {(onOpenPhoneticKeyboard || onOpenTextToSpeech || onOpenVoiceChanger || onOpenPauseSensitivity) && (
                   <>
                     <MenuHeading>Studio</MenuHeading>
                     {onOpenPhoneticKeyboard && (
@@ -507,6 +511,14 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                         hint="Type Roman, get Indian script"
                         end={<span className="font-mono text-[10.5px] text-slate-500 shrink-0">Ctrl G</span>}
                         onClick={runAndClose(onOpenPhoneticKeyboard)}
+                      />
+                    )}
+                    {onOpenTextToSpeech && (
+                      <MenuItem
+                        icon={<Speech className="w-4 h-4" />}
+                        label="Text to speech"
+                        hint="Voice any text, compare both engines"
+                        onClick={runAndClose(onOpenTextToSpeech)}
                       />
                     )}
                     {onOpenVoiceChanger && (
