@@ -6,7 +6,7 @@ import {
   KeyRound,
   Mic,
   AlignLeft,
-  ListOrdered,
+  Layers,
   SlidersHorizontal,
   Plus,
   Check,
@@ -463,7 +463,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               title="Batch queue"
               aria-label={queueCount > 0 ? `Batch queue, ${queueCount} files` : 'Batch queue'}
             >
-              <ListOrdered className="w-4 h-4" />
+              <Layers className="w-4 h-4" />
               {queueCount > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 min-w-[17px] h-[17px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-mono font-semibold flex items-center justify-center border-2 border-slate-950">
                   {queueCount}

@@ -10,7 +10,7 @@ import {
   Download,
   Loader2,
   Upload,
-  ListOrdered,
+  Layers,
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
 import JSZip from 'jszip';
@@ -255,7 +255,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         {/* Header */}
         <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
-            <ListOrdered className="w-[18px] h-[18px]" />
+            <Layers className="w-[18px] h-[18px]" />
           </div>
           <div className="min-w-0 flex-1">
             <h2 id="queue-title" className="text-lg font-semibold text-slate-100 leading-tight">
@@ -280,7 +280,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         {queue.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2.5 px-6 py-12 text-center">
             <span className="w-[52px] h-[52px] rounded-[14px] bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center">
-              <ListOrdered className="w-6 h-6" />
+              <Layers className="w-6 h-6" />
             </span>
             <h3 className="mt-1 text-base font-semibold text-slate-100">No files in the queue</h3>
             <p className="text-[13px] text-slate-400 max-w-[44ch]">
