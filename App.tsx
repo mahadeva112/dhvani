@@ -7,6 +7,7 @@ import { BatchQueueModal } from './components/BatchQueueModal';
 import { PhoneticKeyboardModal } from './components/PhoneticKeyboardModal';
 import { TranslationPromptModal } from './components/TranslationPromptModal';
 import { VoiceChangerModal } from './components/VoiceChangerModal';
+import { TextToSpeechModal } from './components/TextToSpeechModal';
 import { PauseSensitivityModal } from './components/PauseSensitivityModal';
 import type { VoiceEngine } from './components/VoiceSelectorCard';
 import { languageFit } from './services/indianVoices';
@@ -151,6 +152,7 @@ export default function App() {
   }, []);
   const [isPromptModalOpen, setIsPromptModalOpen] = useState<boolean>(false);
   const [isVoiceChangerOpen, setIsVoiceChangerOpen] = useState<boolean>(false);
+  const [isTextToSpeechOpen, setIsTextToSpeechOpen] = useState<boolean>(false);
   const [isPauseSensitivityOpen, setIsPauseSensitivityOpen] = useState<boolean>(false);
   /** API & translation engine dialog, opened from the header's API Settings button. */
   const [isApiSettingsOpen, setIsApiSettingsOpen] = useState<boolean>(false);
@@ -1698,6 +1700,12 @@ export default function App() {
     [activeJob, updateJob]
   );
 
+  /** The dub script, offered as a starting text in the text-to-speech studio. */
+  const ttsProjectScript = useMemo(() => {
+    if (!isTextToSpeechOpen || !activeJob) return undefined;
+    return activeJob.segments?.length ? buildSpeechScript(activeJob.segments) : activeJob.script?.trim();
+  }, [isTextToSpeechOpen, activeJob]);
+
   // Once ElevenLabs cues exist, local VAD re-segmentation would discard their
   // text, so the pause-sensitivity control is only offered before transcription.
   const activeJobHasTranscript = Boolean(
@@ -1775,6 +1783,7 @@ export default function App() {
         }}
         onOpenQueue={() => setIsQueueModalOpen(true)}
         onOpenVoiceChanger={() => setIsVoiceChangerOpen(true)}
+        onOpenTextToSpeech={() => setIsTextToSpeechOpen(true)}
         onOpenPauseSensitivity={() => setIsPauseSensitivityOpen(true)}
         pauseSensitivity={activeJob?.analysisSensitivity ?? 50}
         queueCount={queue.length}
@@ -1918,6 +1927,7 @@ export default function App() {
           isTranslatingLanguage={isTranslatingLanguage}
           onOpenPromptModal={() => setIsPromptModalOpen(true)}
           onOpenVoiceChanger={() => setIsVoiceChangerOpen(true)}
+          onOpenTextToSpeech={() => setIsTextToSpeechOpen(true)}
           analysisSensitivity={activeJob?.analysisSensitivity ?? 50}
           onSensitivityChange={activeJobHasTranscript ? undefined : handleSensitivityChange}
         />
@@ -1938,6 +1948,21 @@ export default function App() {
         onRefreshVoices={fetchVoices}
         targetLanguage={activeJob?.language || selectedLanguage}
         cartesiaAvailable={cartesiaConfigured}
+      />
+
+      {/* Standalone text-to-speech studio, both engines */}
+      <TextToSpeechModal
+        isOpen={isTextToSpeechOpen}
+        onClose={() => setIsTextToSpeechOpen(false)}
+        elApiKey={elApiKey}
+        availableVoices={availableVoices}
+        selectedVoiceId={elVoiceId}
+        elModelId={elModelId}
+        cartesiaAvailable={cartesiaConfigured}
+        targetLanguage={activeJob?.language || selectedLanguage}
+        projectScript={ttsProjectScript}
+        onSetDubbedMaster={activeJob ? handleSetDubbedMaster : undefined}
+        onGenerated={refreshQuota}
       />
 
       {/* Custom Translation Prompt Modal */}

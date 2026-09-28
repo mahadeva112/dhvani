@@ -62,6 +62,24 @@ export const cleanTextForNaturalSpeech = (rawText: string): string => {
     .trim();
 };
 
+/** Eleven v3 audio tags the backend keeps (mirrors server/lib/deliveryCues.js). */
+export const ELEVEN_V3_AUDIO_TAGS = [
+  'thoughtful',
+  'curious',
+  'excited',
+  'calm',
+  'serious',
+  'warmly',
+  'amused',
+  'sarcastic',
+  'mischievously',
+  'sighs',
+  'exhales',
+  'chuckles',
+  'laughs',
+  'whispers',
+];
+
 /**
  * Synthesizes speech. The signature is unchanged from the original AI Studio
  * build so every existing call site keeps working.
@@ -80,18 +98,28 @@ export const synthesizeSpeech = async (
    */
   {
     expressive = false,
+    audioTags = false,
     language,
+    seed,
     jobId,
     signal,
   }: {
     expressive?: boolean;
+    /**
+     * Keeps Eleven v3 audio tags the author typed (`[whispers]`, `[sighs]`).
+     * The backend removes anything that is not a known tag.
+     */
+    audioTags?: boolean;
     language?: string;
+    /** Same seed, text and settings gives the same take. */
+    seed?: number;
     /** Names the dub so its progress can be polled and it can be cancelled. */
     jobId?: string;
     signal?: AbortSignal;
   } = {}
 ): Promise<Blob> => {
-  const cleanText = cleanTextForNaturalSpeech(text);
+  // Audio tags look like stage directions, so leave the cleanup to the backend.
+  const cleanText = audioTags ? String(text || '').trim() : cleanTextForNaturalSpeech(text);
   if (!cleanText) throw new Error('No dialogue text provided for synthesis.');
 
   // A Cartesia voice is spoken by Cartesia. Only the speed carries over from
@@ -108,7 +136,18 @@ export const synthesizeSpeech = async (
 
   return apiAudio(
     '/elevenlabs/tts',
-    { voiceId, text: cleanText, modelId, outputFormat, voiceSettings: voiceSettings || undefined, expressive, language, jobId },
+    {
+      voiceId,
+      text: cleanText,
+      modelId,
+      outputFormat,
+      voiceSettings: voiceSettings || undefined,
+      expressive,
+      audioTags,
+      language,
+      seed,
+      jobId,
+    },
     { ...keys(apiKey), signal }
   );
 };

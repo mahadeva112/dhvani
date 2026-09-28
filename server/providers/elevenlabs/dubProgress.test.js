@@ -108,3 +108,33 @@ test('dub jobs track progress, cancel once, and reject malformed ids', () => {
   assert.equal(getDubProgress('job-12345678').phase, 'cancelled');
   assert.equal(getDubProgress('nope-12345678'), null);
 });
+
+test('a given seed is sent with every passage, so a take can be repeated', async () => {
+  const bodies = [];
+  mockFetch({ onRequest: (url, init) => bodies.push(JSON.parse(init.body)) });
+  await synthesizeScript(
+    { voiceId: 'v1', text: LONG_TEXT, modelId: 'eleven_multilingual_v2', outputFormat: FORMAT, voiceSettings: SETTINGS, seed: 1234 },
+    { apiKey: 'test-key' }
+  );
+  assert.ok(bodies.length > 1);
+  assert.ok(bodies.every((body) => body.seed === 1234));
+});
+
+test('with audioTags, v3 keeps the tags the author typed and still drops unknown ones', async () => {
+  const bodies = [];
+  mockFetch({ onRequest: (url, init) => bodies.push(JSON.parse(init.body)) });
+  const text = '[whispers] Come closer. [music] Listen.';
+  await synthesizeScript(
+    { voiceId: 'v1', text, modelId: 'eleven_v3', outputFormat: FORMAT, voiceSettings: SETTINGS, audioTags: true },
+    { apiKey: 'test-key' }
+  );
+  assert.match(bodies[0].text, /\[whispers\]/);
+  assert.doesNotMatch(bodies[0].text, /\[music\]/);
+
+  bodies.length = 0;
+  await synthesizeScript(
+    { voiceId: 'v1', text, modelId: 'eleven_v3', outputFormat: FORMAT, voiceSettings: SETTINGS },
+    { apiKey: 'test-key' }
+  );
+  assert.doesNotMatch(bodies[0].text, /\[whispers\]/, 'a dub script keeps stripping tags by default');
+});

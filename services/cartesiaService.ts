@@ -41,30 +41,57 @@ export const synthesizeWithCartesia = (
   {
     outputFormat = 'mp3_44100_128',
     language,
+    modelId,
     speed,
+    volume,
+    emotion,
     jobId,
     signal,
   }: {
     outputFormat?: string;
     language?: string;
+    /** A Cartesia model id; omitted uses the backend's configured model. */
+    modelId?: string;
     /** Only sent when set; otherwise the voice's natural pace is kept. */
     speed?: number;
+    /** 0.5–2, sonic-3 models only. */
+    volume?: number;
+    /** A sonic-3 emotion such as `calm` or `excited`. */
+    emotion?: string;
     jobId?: string;
     signal?: AbortSignal;
   } = {}
-): Promise<Blob> =>
-  apiAudio(
+): Promise<Blob> => {
+  const voiceSettings = {
+    ...(typeof speed === 'number' ? { speed } : {}),
+    ...(typeof volume === 'number' ? { volume } : {}),
+    ...(emotion ? { emotion } : {}),
+  };
+  return apiAudio(
     '/cartesia/tts',
     {
       voiceId,
       text,
+      modelId,
       outputFormat,
       language,
       jobId,
-      voiceSettings: typeof speed === 'number' ? { speed } : undefined,
+      voiceSettings: Object.keys(voiceSettings).length ? voiceSettings : undefined,
     },
     { signal }
   );
+};
+
+/** Cartesia TTS models offered in the text-to-speech studio. */
+export const CARTESIA_MODELS: { id: string; name: string; description: string }[] = [
+  { id: 'sonic-3.6', name: 'Sonic 3.6', description: 'Latest Sonic. 44 languages, speed, volume and emotion controls.' },
+  { id: 'sonic-3', name: 'Sonic 3', description: 'Expressive Sonic 3 with speed, volume and emotion controls.' },
+  { id: 'sonic-2', name: 'Sonic 2', description: 'Previous generation. Speed, volume and emotion are ignored.' },
+  { id: 'sonic-turbo', name: 'Sonic Turbo', description: 'Lowest latency. Speed, volume and emotion are ignored.' },
+];
+
+/** Emotions the sonic-3 family can be steered towards. */
+export const CARTESIA_EMOTIONS = ['neutral', 'calm', 'content', 'happy', 'excited', 'sad', 'angry', 'scared'];
 
 /**
  * Clones a voice on Cartesia. Cartesia learns from one clip, so only the first
