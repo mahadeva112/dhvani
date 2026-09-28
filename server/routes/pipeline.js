@@ -119,27 +119,55 @@ pipelineRouter.post(
       words: Array.isArray(cue.words) ? cue.words : [],
     }));
 
-    const outcome = await translateCueTexts(sourceCues, {
-      sourceLanguage,
-      targetLanguage,
-      customPrompt,
-      apiKey: req.get('x-gemini-key') || undefined,
-    });
+    // Streams like /pipeline/subtitles so the UI can show real batch progress.
+    // Validation above still fails fast with a normal JSON error status.
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
 
-    const translatedCues = retextCues(sourceCues, outcome.translations, 'translatedText').map((cue) => ({
-      ...cue,
-      translatedText: cue.translatedText || cue.text,
-    }));
+    const send = (event) => {
+      if (!res.writableEnded) res.write(`${JSON.stringify(event)}
+`);
+    };
 
-    assertTimingsPreserved(sourceCues, translatedCues);
+    const cueCount = sourceCues.filter((cue) => cue.text).length;
+    send({ type: 'progress', stage: 'translating', batch: 0, batchCount: 0, cueCount, message: 'Preparing the cues...' });
 
-    res.json({
-      cues: translatedCues,
-      translatedSrt: serializeSrt(translatedCues, { field: 'translatedText' }),
-      originalSrt: serializeSrt(sourceCues, { field: 'text' }),
-      translationModel: outcome.modelUsed,
-      untranslatedCueIds: outcome.missingIds,
-      targetLanguage,
-    });
+    try {
+      const outcome = await translateCueTexts(sourceCues, {
+        sourceLanguage,
+        targetLanguage,
+        customPrompt,
+        apiKey: req.get('x-gemini-key') || undefined,
+        onProgress: (event) => send({ type: 'progress', cueCount, ...event }),
+      });
+
+      const translatedCues = retextCues(sourceCues, outcome.translations, 'translatedText').map((cue) => ({
+        ...cue,
+        translatedText: cue.translatedText || cue.text,
+      }));
+
+      assertTimingsPreserved(sourceCues, translatedCues);
+
+      send({
+        type: 'result',
+        cues: translatedCues,
+        translatedSrt: serializeSrt(translatedCues, { field: 'translatedText' }),
+        originalSrt: serializeSrt(sourceCues, { field: 'text' }),
+        translationModel: outcome.modelUsed,
+        untranslatedCueIds: outcome.missingIds,
+        targetLanguage,
+      });
+    } catch (err) {
+      const error =
+        err instanceof ApiError
+          ? err
+          : new ApiError(err?.message || 'The translation failed.', { status: 500 });
+      logger.error(`Retranslation failed: ${error.message}`);
+      send({ type: 'error', ...error.toJSON().error });
+    } finally {
+      res.end();
+    }
   })
 );

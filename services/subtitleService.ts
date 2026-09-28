@@ -123,6 +123,16 @@ export const transcribeAndTranslate = async (
   });
 };
 
+/** Live progress of a cue retranslation, streamed batch by batch. */
+export interface RetranslateProgress {
+  /** Batches finished so far (the backend reports each batch as it starts). */
+  done: number;
+  /** Total batches, or 0 before the backend has planned them. */
+  total: number;
+  cueCount: number;
+  message: string;
+}
+
 /**
  * Re-translates cues that are already transcribed.
  *
@@ -137,17 +147,35 @@ export const retranslateCues = async (
     customPrompt = '',
     keys,
     signal,
-  }: RequestOptions & { sourceLanguage?: string; targetLanguage: string; customPrompt?: string }
+    onProgress,
+  }: RequestOptions & {
+    sourceLanguage?: string;
+    targetLanguage: string;
+    customPrompt?: string;
+    onProgress?: (progress: RetranslateProgress) => void;
+  }
 ): Promise<{ segments: AudioSegment[]; translatedSrt: string; untranslatedCueIds: string[] }> => {
-  const response = await apiJson<{
+  const response = await apiStream<{
     cues: PipelineCue[];
     translatedSrt: string;
     untranslatedCueIds: string[];
-  }>('/pipeline/retranslate', {
-    body: { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt },
-    keys,
-    signal,
-  });
+  }>(
+    '/pipeline/retranslate',
+    { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt },
+    {
+      keys,
+      signal,
+      onEvent: (event: StreamEvent) => {
+        const total = Number(event.batchCount) || 0;
+        onProgress?.({
+          done: Math.max(0, (Number(event.batch) || 0) - 1),
+          total,
+          cueCount: Number(event.cueCount) || segments.length,
+          message: String(event.message || '').replace(/\.+$/, ''),
+        });
+      },
+    }
+  );
 
   // Merge by id so any UI-only field on the original segment survives.
   const byId = new Map(response.cues.map((cue) => [String(cue.id), cue]));
