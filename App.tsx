@@ -24,10 +24,7 @@ import {
   audioBufferToWav,
   resegmentAudioBuffer,
 } from './services/audioService';
-import {
-  transcribeMedia,
-  translateSegmentsToLanguage,
-} from './services/geminiService';
+import { transcribeMedia } from './services/geminiService';
 import { retranslateCues, RetranslateProgress } from './services/subtitleService';
 import { TranslationProgressCard } from './components/TranslationProgressCard';
 import {
@@ -1234,8 +1231,12 @@ export default function App() {
     if (selectedLanguage && selectedLanguage !== 'Bengali') {
       setIsTranslatingLanguage(true);
       setTranslationProgress(null);
-      translateSegmentsToLanguage(segments, selectedLanguage)
-        .then((translated) => {
+      // Same streamed path as a language switch, so the card shows real progress.
+      retranslateCues(segments, {
+        targetLanguage: selectedLanguage,
+        onProgress: setTranslationProgress,
+      })
+        .then(({ segments: translated, translatedSrt }) => {
           const translatedScript = translated
             .map((s) => s.textTarget || (s as any).targetText || '')
             .filter(Boolean)
@@ -1243,6 +1244,7 @@ export default function App() {
           updateJob(newJob.id, {
             segments: translated,
             script: translatedScript,
+            translatedSrt,
           });
         })
         .catch((e) => console.warn('Sample translation failed:', e))
