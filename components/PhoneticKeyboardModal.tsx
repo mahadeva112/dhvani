@@ -56,6 +56,8 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
   // Typing pad: the Roman text, words the user picked a spelling for, and characters tapped in after it.
   const [romanInput, setRomanInput] = useState('');
   const [picked, setPicked] = useState<Record<string, string>>({});
+  // Best online spelling per Roman word, keyed by language so switching script re-resolves.
+  const [resolved, setResolved] = useState<Record<string, string>>({});
   const [tail, setTail] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
@@ -96,10 +98,30 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
 
   const romanWords = romanInput.split(/\s+/).filter(Boolean);
   const typingWord = romanInput && !/\s$/.test(romanInput) ? romanWords[romanWords.length - 1] : null;
-  const convertedWords = romanWords.map((w) => picked[w] ?? transliterateTextOffline(w, selectedLang));
+  const convertedWords = romanWords.map(
+    (w) => picked[w] ?? resolved[`${selectedLang}:${w}`] ?? transliterateTextOffline(w, selectedLang)
+  );
   // Tapped characters join straight on, so a vowel sign lands on the letter before it; a typed space still separates.
   const tailGap = tail && romanWords.length > 0 && /\s$/.test(romanInput) ? ' ' : '';
   const output = convertedWords.join(' ') + tailGap + tail;
+
+  // Each finished word takes the top online spelling; the rule parser is only the fallback.
+  const finishedWords = typingWord ? romanWords.slice(0, -1) : romanWords;
+  const finishedKey = finishedWords.join(' ');
+  useEffect(() => {
+    let cancelled = false;
+    for (const w of new Set(finishedWords)) {
+      const key = `${selectedLang}:${w}`;
+      if (!hasLatin(w) || picked[w] || resolved[key]) continue;
+      getPhoneticSuggestions(w, selectedLang, 5).then(([best]) => {
+        if (!cancelled && best) setResolved((r) => ({ ...r, [key]: best }));
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finishedKey, selectedLang]);
 
   // Suggestions for the word being typed.
   useEffect(() => {
