@@ -221,3 +221,20 @@ test('the voice changer sends the output format, seed and every voice setting', 
     fs.rmSync(file.path, { force: true });
   }
 });
+
+test('a long read on the voice’s saved settings is held steady; explicit settings are kept', async () => {
+  const bodies = [];
+  mockFetch({ onRequest: (url, init) => url.includes('/text-to-speech/') && bodies.push(JSON.parse(init.body)) });
+  // The fake ElevenLabs has no voice settings, so the defaults (stability 0.5) stand in for the saved ones.
+  await synthesizeScript({ voiceId: 'v1', text: LONG_TEXT, modelId: 'eleven_v4', outputFormat: FORMAT }, { apiKey: 'test-key' });
+  assert.ok(bodies.length > 1);
+  assert.ok(bodies.every((body) => body.voice_settings.stability === 0.6));
+  assert.ok(bodies.every((body) => body.text.length <= 2500), 'stitched passages are at most 2500 characters');
+
+  bodies.length = 0;
+  await synthesizeScript(
+    { voiceId: 'v1', text: LONG_TEXT, modelId: 'eleven_v4', outputFormat: FORMAT, voiceSettings: { ...SETTINGS, stability: 0.3 } },
+    { apiKey: 'test-key' }
+  );
+  assert.ok(bodies.every((body) => body.voice_settings.stability === 0.3));
+});

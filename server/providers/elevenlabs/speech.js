@@ -5,7 +5,7 @@ import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { splitPassages, contextAround, MAX_TTS_CHUNK_CHARS, PASSAGE_PAUSE_SECONDS } from '../../lib/ttsText.js';
 import { joinPassages } from '../../lib/audioJoin.js';
-import { AUDIO_TAGS, addDeliveryCues } from '../../lib/deliveryCues.js';
+import { AUDIO_TAGS, addDeliveryCuesToPassages } from '../../lib/deliveryCues.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
 import { pcmToWav } from '../../lib/wav.js';
 import { cancelledError } from '../../lib/http.js';
@@ -116,6 +116,14 @@ const CONTEXT_REFUSED = new Set([400, 422]);
 const V3_NATURAL_STABILITY = 0.5;
 
 /**
+ * Lowest stability a multi-passage read on a stitched model (v2, v2.5, v4) is
+ * voiced at when it uses the voice's saved settings. Every passage is its own
+ * generation, and a low stability lets each one land on a noticeably
+ * different tone of the same voice. A stability the user set explicitly is kept.
+ */
+const STEADY_SCRIPT_STABILITY = 0.6;
+
+/**
  * Request stitching: each passage is conditioned on the audio of the ones
  * before it (by request id), so voice and intonation continue across the join.
  * It is ElevenLabs' own answer to splitting a long read into requests, and is
@@ -127,14 +135,35 @@ const supportsStitching = (modelId) => supportsContext(modelId) && supportsSpeed
 const MAX_STITCHED_REQUESTS = 3;
 
 /**
- * Longest passage per request. eleven_v3 can neither stitch nor take the
- * neighbouring text, so every passage is an independent take and every join a
- * chance for the voice to shift; its passages are made as long as is safe
- * (its hard limit is 5000) so a dub has as few joins as possible. Stitched
- * models join cleanly, so they keep short passages, which avoids the drift of
- * one long generation.
+ * Longest passage per request. Every join is a chance for the voice's tone to
+ * shift, so passages are as long as is safe. eleven_v3 can neither stitch nor
+ * take the neighbouring text, so its passages are the longest (its hard limit
+ * is 5000). Stitched models join more cleanly but still drift a little at
+ * each join, so they get passages long enough to keep joins few while staying
+ * well short of the drift of one very long generation.
  */
-const passageLimit = (modelId) => (isV3(modelId) ? 3000 : MAX_TTS_CHUNK_CHARS);
+const passageLimit = (modelId) => {
+  if (isV3(modelId)) return 3000;
+  return supportsStitching(modelId) ? 2500 : MAX_TTS_CHUNK_CHARS;
+};
+
+/**
+ * The settings a read of `count` passages or lines is voiced with. With the
+ * voice's saved settings (no `voiceSettings` from the caller), v3 is held at
+ * Natural, and a multi-passage read on a stitched model is kept at least at
+ * STEADY_SCRIPT_STABILITY so the passages share one tone.
+ */
+const readSettings = (settings, modelId, { explicit, count }) => {
+  if (explicit) return settings;
+  const stability = settings.stability ?? DEFAULT_VOICE_SETTINGS.stability;
+  if (isV3(modelId)) {
+    return stability > V3_NATURAL_STABILITY ? { ...settings, stability: V3_NATURAL_STABILITY } : settings;
+  }
+  if (count > 1 && supportsStitching(modelId) && stability < STEADY_SCRIPT_STABILITY) {
+    return { ...settings, stability: STEADY_SCRIPT_STABILITY };
+  }
+  return settings;
+};
 
 /** Formats a multi-passage script can be generated in: DHVANI can decode and re-encode them. */
 const isJoinable = (outputFormat) => Boolean(parseOutputFormat(outputFormat));
@@ -322,15 +351,16 @@ export const synthesizeScript = async (
   onProgress({ phase: 'preparing', passageCount: chunks.length, passagesDone: 0, totalChars, charsDone: 0, secondsGenerated: 0 });
 
   if (expressive && performsTags(resolvedModel)) {
-    chunks = await Promise.all(chunks.map((chunk) => addDeliveryCues(chunk, { language, apiKey: textModelKey })));
+    // Cued as one script, not passage by passage, so every passage gets the same direction.
+    chunks = await addDeliveryCuesToPassages(chunks, { language, apiKey: textModelKey });
   }
   if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
 
   // Load the voice's settings once instead of once per passage.
-  let settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
-  if (isV3(resolvedModel) && !voiceSettings && (settings.stability ?? V3_NATURAL_STABILITY) > V3_NATURAL_STABILITY) {
-    settings = { ...settings, stability: V3_NATURAL_STABILITY };
-  }
+  const settings = readSettings(await resolveSettings(cleanVoiceId, voiceSettings, apiKey), resolvedModel, {
+    explicit: Boolean(voiceSettings),
+    count: chunks.length,
+  });
   const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
 
   const parts = new Array(chunks.length);
@@ -437,10 +467,10 @@ export const synthesizeLines = async (
   const cleanVoiceId = requireVoiceId(voiceId);
   const resolvedModel = modelId || config.elevenlabs.ttsModel;
 
-  let settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
-  if (isV3(resolvedModel) && !voiceSettings && (settings.stability ?? V3_NATURAL_STABILITY) > V3_NATURAL_STABILITY) {
-    settings = { ...settings, stability: V3_NATURAL_STABILITY };
-  }
+  const settings = readSettings(await resolveSettings(cleanVoiceId, voiceSettings, apiKey), resolvedModel, {
+    explicit: Boolean(voiceSettings),
+    count: lines.length,
+  });
   const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
 
   const results = new Array(lines.length);
