@@ -93,7 +93,7 @@ const peak = (samples) => {
 };
 
 /** Gain per passage that brings each to the median speech loudness of all of them. */
-const matchingGains = (passages, sampleRate) => {
+export const matchingGains = (passages, sampleRate) => {
   const levels = passages.map((samples) => speechLoudness(samples, sampleRate));
   const measured = levels.filter((level) => level !== null);
   if (measured.length < 2) return passages.map(() => 1);
@@ -121,7 +121,7 @@ const trimBounds = (samples, sampleRate, { isLast }) => {
 };
 
 /** Raised-cosine fade weight for position `i` of a fade `length` samples long. */
-const fadeWeight = (i, length) => 0.5 - 0.5 * Math.cos((Math.PI * (i + 0.5)) / length);
+export const fadeWeight = (i, length) => 0.5 - 0.5 * Math.cos((Math.PI * (i + 0.5)) / length);
 
 /**
  * Joins mono float passages into one dub. `pauses[i]` is the silence, in

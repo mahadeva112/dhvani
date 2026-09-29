@@ -76,6 +76,8 @@ import { CustomScriptAlignModal } from './CustomScriptAlignModal';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
+import { SyncPanel } from './SyncPanel';
+import type { SyncPrecision, SyncProgress } from '../services/syncService';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
@@ -178,6 +180,14 @@ interface ExpressDubWizardProps {
   dubProgress?: DubProgress | null;
   isCancellingDub?: boolean;
   onCancelSynthesis?: () => void;
+  /** Sync: a dub voiced line by line and placed on the original's phrases. Omitted hides the panel. */
+  onSyncDub?: (options: { precision: SyncPrecision; rewrite: boolean }) => void;
+  isSyncing?: boolean;
+  syncProgress?: SyncProgress | null;
+  isCancellingSync?: boolean;
+  onCancelSync?: () => void;
+  /** Why the last sync failed, shown in the panel. */
+  syncError?: string | null;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
   /** Replaces every segment in one write, for changes that touch many cues. */
   onReplaceSegments: (segments: AudioSegment[]) => void;
@@ -242,6 +252,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   dubProgress = null,
   isCancellingDub = false,
   onCancelSynthesis,
+  onSyncDub,
+  isSyncing = false,
+  syncProgress = null,
+  isCancellingSync = false,
+  onCancelSync,
+  syncError = null,
   onUpdateSegment,
   onReplaceSegments,
   onPlaySegmentSolo,
@@ -2286,6 +2302,34 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </>
             )}
           </section>
+
+          {onSyncDub && (
+            <SyncPanel
+              report={hasDub ? activeJob.syncReport || null : null}
+              progress={syncProgress}
+              isSyncing={isSyncing}
+              isCancelling={isCancellingSync}
+              error={syncError}
+              blockedReason={
+                isSynthesizing
+                  ? 'Wait for the dub to finish first.'
+                  : voiceEngine === 'cartesia'
+                    ? 'Sync works with ElevenLabs voices for now.'
+                    : segments.length === 0
+                      ? 'There are no cues to sync yet.'
+                      : null
+              }
+              onSync={onSyncDub}
+              onCancel={() => onCancelSync?.()}
+              currentTime={currentTime}
+              onSeek={onSeek}
+              onListen={(time) => {
+                onTrackModeChange('both');
+                onSeek(time);
+                if (!isPlaying) onTogglePlay();
+              }}
+            />
+          )}
 
           {/* Script and delivery share one height */}
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-stretch lg:flex-1">

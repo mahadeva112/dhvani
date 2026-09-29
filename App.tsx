@@ -79,6 +79,7 @@ import {
   SrtOptions,
   adjustSegmentsForDubbedTimeline,
 } from './services/srtService';
+import { syncDub, getSyncProgress, cancelSync, syncedSegments, SyncProgress, SyncPrecision } from './services/syncService';
 import {
   getAllJobsFromStorage,
   saveJobToStorage,
@@ -231,6 +232,14 @@ export default function App() {
   const [dubProgress, setDubProgress] = useState<DubProgress | null>(null);
   const [isCancellingDub, setIsCancellingDub] = useState(false);
   const dubRunRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
+  // The sync in flight, the same way.
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
+  const [isCancellingSync, setIsCancellingSync] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const syncRunRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
+  /** One seed per dub session, so a second Sync reuses the lines the first one voiced. */
+  const syncSeedRef = useRef<Record<string, number>>({});
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
 
   /** Live stage message from the transcription/translation pipeline. */
@@ -1316,7 +1325,7 @@ export default function App() {
 
   // Master Speech Synthesis (ElevenLabs or Gemini 3.5 Flash)
   const handleSynthesizeMaster = async () => {
-    if (!activeJob) return;
+    if (!activeJob || isSyncing) return;
 
     // Subtitle cues are rejoined into flowing sentences; see buildSpeechScript.
     const textToSynthesize =
@@ -1392,6 +1401,7 @@ export default function App() {
         synthesizedBlob: blob,
         srtUrl,
         srtBlob,
+        syncReport: null,
         status: ProcessingStatus.COMPLETED,
       });
 
@@ -1427,6 +1437,108 @@ export default function App() {
     if (!run) return;
     setIsCancellingDub(true);
     cancelDub(run.jobId)
+      .catch(() => {})
+      .finally(() => run.controller.abort());
+  };
+
+  /**
+   * Sync: voices the cues line by line and places each line on its source
+   * phrase, so the dub plays in step with the original. The result replaces
+   * the dub, and is exactly as long as the source.
+   */
+  const handleSyncDub = async ({ precision, rewrite }: { precision: SyncPrecision; rewrite: boolean }) => {
+    if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
+    if (isCartesiaVoice(elVoiceId)) {
+      setSyncError('Sync works with ElevenLabs voices for now. Pick an ElevenLabs voice and try again.');
+      return;
+    }
+
+    const hadDub = Boolean(activeJob.synthesizedAudioUrl);
+    setIsSyncing(true);
+    setSyncError(null);
+    updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null });
+
+    const jobId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `sync-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const controller = new AbortController();
+    syncRunRef.current = { jobId, controller };
+    setSyncProgress(null);
+    setIsCancellingSync(false);
+    const poll = window.setInterval(() => {
+      getSyncProgress(jobId)
+        .then((progress) => {
+          if (syncRunRef.current?.jobId === jobId) setSyncProgress(progress);
+        })
+        .catch(() => {});
+    }, 700);
+
+    const seed = (syncSeedRef.current[activeJob.id] ??= Math.floor(Math.random() * 2 ** 31));
+    const sourceDuration =
+      activeJob.audioBuffer?.duration || activeJob.audioMetadata?.duration || activeJob.segments[activeJob.segments.length - 1].endTime;
+
+    try {
+      const { blob, report } = await syncDub(
+        {
+          segments: activeJob.segments,
+          sourceDuration,
+          voiceId: elVoiceId,
+          modelId: elModelId,
+          outputFormat: elOutputFormat,
+          voiceSettings: elVoiceSettings,
+          language: activeJob.language || selectedLanguage,
+          seed,
+          precision,
+          rewrite,
+        },
+        { apiKey: elApiKey, jobId, signal: controller.signal }
+      );
+
+      let srtOpts = DEFAULT_SRT_OPTIONS;
+      try {
+        const saved = localStorage.getItem('dhvani_srt_options');
+        if (saved) srtOpts = JSON.parse(saved);
+      } catch {}
+      const srtBlob = new Blob([generateSrtContent(syncedSegments(activeJob.segments, report), srtOpts)], { type: 'text/srt' });
+      const url = URL.createObjectURL(blob);
+
+      updateJob(activeJob.id, {
+        synthesizedAudioUrl: url,
+        synthesizedBlob: blob,
+        srtUrl: URL.createObjectURL(srtBlob),
+        srtBlob,
+        syncReport: report,
+        status: ProcessingStatus.COMPLETED,
+      });
+      decodeAudioBlobUrl(url)
+        .then((synthBuffer) => updateJob(activeJob.id, { synthAudioBuffer: synthBuffer }))
+        .catch(console.warn);
+
+      // Synced, the dub is best judged against the original.
+      setTrackMode('both');
+      refreshQuota();
+    } catch (err: any) {
+      // A failed or cancelled sync leaves whatever dub there was before.
+      updateJob(activeJob.id, { status: hadDub ? ProcessingStatus.COMPLETED : ProcessingStatus.IDLE });
+      if (!controller.signal.aborted && err?.code !== 'cancelled') {
+        console.error('Sync Error:', err);
+        setSyncError(err?.message || 'Sync failed.');
+      }
+    } finally {
+      window.clearInterval(poll);
+      if (syncRunRef.current?.jobId === jobId) syncRunRef.current = null;
+      setSyncProgress(null);
+      setIsCancellingSync(false);
+      setIsSyncing(false);
+    }
+  };
+
+  const handleCancelSync = () => {
+    const run = syncRunRef.current;
+    if (!run) return;
+    setIsCancellingSync(true);
+    cancelSync(run.jobId)
       .catch(() => {})
       .finally(() => run.controller.abort());
   };
@@ -1924,6 +2036,12 @@ export default function App() {
           dubProgress={dubProgress}
           isCancellingDub={isCancellingDub}
           onCancelSynthesis={handleCancelSynthesis}
+          onSyncDub={handleSyncDub}
+          isSyncing={isSyncing}
+          syncProgress={syncProgress}
+          isCancellingSync={isCancellingSync}
+          onCancelSync={handleCancelSync}
+          syncError={syncError}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}
           onPlaySegmentSolo={handlePlaySoloSegment}

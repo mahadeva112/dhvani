@@ -17,6 +17,7 @@ import { elevenLabsRouter } from './routes/elevenlabs.js';
 import { geminiRouter } from './routes/gemini.js';
 import { cartesiaRouter } from './routes/cartesia.js';
 import { transliterateRouter } from './routes/transliterate.js';
+import { syncRouter } from './routes/sync.js';
 import { ffmpegAvailable } from './lib/media.js';
 
 const app = express();
@@ -166,6 +167,7 @@ app.use('/api', elevenLabsRouter);
 app.use('/api', geminiRouter);
 app.use('/api', cartesiaRouter);
 app.use('/api', transliterateRouter);
+app.use('/api', syncRouter);
 
 /*
  * In production the same process serves the built frontend, so the whole app is

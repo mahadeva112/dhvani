@@ -408,6 +408,90 @@ export const synthesizeScript = async (
   return { contentType, buffer };
 };
 
+/**
+ * Text-to-speech for a list of separate lines, one clip each, for a synced
+ * dub (see server/lib/syncDub.js). Each line is its own request so its clip
+ * can be placed on its own source phrase, but the lines are still voiced as
+ * one read: every request shares a seed and the voice's settings, is told the
+ * lines either side, and on models that support it is stitched to the audio
+ * of the lines before it.
+ *
+ * `lines[i]` is `{ text, previousText?, nextText? }`. `onLine(done)` reports
+ * each finished line. Returns `[{ buffer, requestId }]` in the same order.
+ */
+export const synthesizeLines = async (
+  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', voiceSettings, seed },
+  { apiKey, signal, onLine = () => {} } = {}
+) => {
+  const cleanVoiceId = requireVoiceId(voiceId);
+  const resolvedModel = modelId || config.elevenlabs.ttsModel;
+
+  let settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
+  if (isV3(resolvedModel) && !voiceSettings && (settings.stability ?? V3_NATURAL_STABILITY) > V3_NATURAL_STABILITY) {
+    settings = { ...settings, stability: V3_NATURAL_STABILITY };
+  }
+  const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
+
+  const results = new Array(lines.length);
+  const contextState = { enabled: supportsContext(resolvedModel) };
+  let done = 0;
+
+  const generate = async (index) => {
+    if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+    const line = lines[index];
+    const request = {
+      voiceId: cleanVoiceId,
+      text: line.text,
+      modelId: resolvedModel,
+      outputFormat,
+      voiceSettings: settings,
+      seed: takeSeed,
+    };
+    const withContext = () =>
+      contextState.enabled
+        ? {
+            ...request,
+            previousText: line.previousText,
+            nextText: line.nextText,
+            previousRequestIds: results
+              .slice(0, index)
+              .map((result) => result?.requestId)
+              .filter(Boolean),
+          }
+        : request;
+
+    let response;
+    try {
+      response = await synthesizeSpeech(withContext(), { apiKey, signal });
+    } catch (err) {
+      if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+      if (!contextState.enabled || !(err instanceof ApiError) || !CONTEXT_REFUSED.has(err.status)) throw err;
+      logger.warn(`ElevenLabs refused the neighbouring text for ${resolvedModel} (${err.status} ${err.code}); voicing the rest without it.`);
+      contextState.enabled = false;
+      response = await synthesizeSpeech(request, { apiKey, signal });
+    }
+    results[index] = {
+      buffer: Buffer.from(await response.arrayBuffer()),
+      requestId: response.headers.get('request-id') || null,
+    };
+    onLine(++done);
+  };
+
+  if (supportsStitching(resolvedModel)) {
+    // Stitching needs each line finished before the next one starts.
+    for (let index = 0; index < lines.length; index++) await generate(index);
+  } else {
+    let next = 0;
+    const worker = async () => {
+      while (next < lines.length) await generate(next++);
+    };
+    await Promise.all(Array.from({ length: Math.min(SCRIPT_CONCURRENCY, lines.length) }, worker));
+  }
+
+  if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+  return results;
+};
+
 /** Output formats the voice changer offers; ElevenLabs gates some of them by plan. */
 export const STS_OUTPUT_FORMATS = [
   'mp3_22050_32',
