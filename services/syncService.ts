@@ -4,9 +4,10 @@ import { ElevenLabsVoiceSettings } from './elevenLabsService';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
- * plays in step with the original. The voice's speed is never changed; lines
- * are only moved, their pauses shortened, and long lines reworded (see
- * server/lib/syncDub.js).
+ * plays in step with the original. The voice is never changed — no speed
+ * change and no fades; lines are only moved and the silent pauses inside them
+ * shortened. A line too long for its slot is flagged with a suggested shorter
+ * wording, never rewritten (see server/lib/syncDub.js).
  */
 
 /** How tight the sync must be: lip-sync ±80 ms, phrase ±150 ms, loose ±300 ms. */
@@ -22,10 +23,8 @@ export const SYNC_PRECISION_OPTIONS: { id: SyncPrecision; label: string }[] = [
 export interface SyncUnitReport {
   index: number;
   cueIds: (string | number)[];
-  /** What the dub says, after any rewrite. */
+  /** What the dub says: the script as written. */
   text: string;
-  /** The translation as it was before the sync. */
-  originalText: string;
   sourceText: string;
   srcStart: number;
   srcEnd: number;
@@ -38,7 +37,12 @@ export interface SyncUnitReport {
   overrun: number | null;
   inSync: boolean;
   silent: boolean;
-  rewritten: boolean;
+  /** The line is too long for the time the original line had. */
+  exceeded: boolean;
+  /** Seconds the line runs past its slot, after its pauses were shortened. */
+  exceededBy: number;
+  /** A shorter wording to use instead, or null. Never applied automatically. */
+  suggestion: string | null;
   /** Seconds taken out of the pauses inside the line. */
   pauseTrimmed: number;
 }
@@ -55,7 +59,11 @@ export interface SyncReport {
     p90Error: number;
     maxError: number;
     overlaps: number;
-    rewritten: number;
+    /** Lines too long for their slot, and how many of them got a suggestion. */
+    exceeded: number;
+    suggested: number;
+    /** Why some or all suggestions are missing: the text model's error, or null. */
+    suggestionError: string | null;
     pauseTrimmed: number;
     silent: number;
   };
@@ -67,10 +75,10 @@ export const SYNC_STEPS = [
   { phase: 'units', label: 'Reading source timings' },
   { phase: 'voicing', label: 'Voicing each line' },
   { phase: 'fitting', label: 'Checking which lines fit' },
-  { phase: 'rewriting', label: 'Rewriting lines that run long' },
   { phase: 'placing', label: 'Placing every line' },
   { phase: 'rendering', label: 'Rendering one file' },
   { phase: 'checking', label: 'Checking the result' },
+  { phase: 'suggesting', label: 'Suggesting shorter lines' },
 ] as const;
 
 export interface SyncProgress {
@@ -80,8 +88,8 @@ export interface SyncProgress {
   unitCount: number;
   unitsVoiced: number;
   unitsToVoice: number;
-  rewritesTotal: number;
-  rewritesDone: number;
+  suggestionsTotal: number;
+  suggestionsDone: number;
 }
 
 export interface SyncRequest {
@@ -94,7 +102,8 @@ export interface SyncRequest {
   language?: string;
   seed?: number;
   precision: SyncPrecision;
-  rewrite: boolean;
+  /** Ask the text model for shorter wordings of lines that run long. */
+  suggest: boolean;
 }
 
 /** Only what the server reads from each cue; word timings and legacy fields stay behind. */
@@ -136,9 +145,8 @@ export const cancelSync = (jobId: string): Promise<{ cancelled: boolean }> =>
 
 /**
  * Cues timed to the synced dub, for its subtitles. Each line's cues share the
- * line's placed span in proportion to their length; a rewritten line becomes
- * one cue with its new wording, since its old cues no longer match what is
- * said. Word timings are dropped: they belong to the source audio.
+ * line's placed span in proportion to their length. Word timings are dropped:
+ * they belong to the source audio.
  */
 export const syncedSegments = (segments: AudioSegment[], report: SyncReport): AudioSegment[] => {
   const byId = new Map(segments.map((segment) => [segment.id, segment]));
@@ -147,7 +155,7 @@ export const syncedSegments = (segments: AudioSegment[], report: SyncReport): Au
     if (unit.placedStart === null || unit.placedEnd === null) continue;
     const span = Math.max(0.01, unit.placedEnd - unit.placedStart);
     const cues = unit.cueIds.map((id) => byId.get(id)).filter((cue): cue is AudioSegment => Boolean(cue));
-    if (unit.rewritten || cues.length === 0) {
+    if (cues.length === 0) {
       out.push({
         id: cues[0]?.id ?? `sync-${unit.index}`,
         startTime: unit.placedStart,

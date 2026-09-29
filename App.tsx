@@ -1446,7 +1446,7 @@ export default function App() {
    * phrase, so the dub plays in step with the original. The result replaces
    * the dub, and is exactly as long as the source.
    */
-  const handleSyncDub = async ({ precision, rewrite }: { precision: SyncPrecision; rewrite: boolean }) => {
+  const handleSyncDub = async ({ precision, suggest }: { precision: SyncPrecision; suggest: boolean }) => {
     if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
     if (isCartesiaVoice(elVoiceId)) {
       setSyncError('Sync works with ElevenLabs voices for now. Pick an ElevenLabs voice and try again.');
@@ -1490,7 +1490,7 @@ export default function App() {
           language: activeJob.language || selectedLanguage,
           seed,
           precision,
-          rewrite,
+          suggest,
         },
         { apiKey: elApiKey, jobId, signal: controller.signal }
       );

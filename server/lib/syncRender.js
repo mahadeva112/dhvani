@@ -2,49 +2,69 @@
  * Audio side of a synced dub: trimming clips, shortening their pauses, and
  * rendering every placed clip into one track.
  *
- * Nothing here changes the speed or pitch of the voice. A clip's words are
- * copied sample for sample; only silence is removed or added, every cut falls
- * inside silence, and every clip edge is faded so no join clicks.
+ * Nothing here changes the voice. A clip's audio is copied sample for sample:
+ * no speed change, no pitch change and no fades. The only edits are cuts, and
+ * every cut is made inside true silence (QUIET for at least QUIET_RUN_SECONDS),
+ * so a word's natural decay and every breath are kept whole and no cut can be
+ * heard as a click. A word is never cut off to make room.
  */
-import { matchingGains, fadeWeight } from './audioJoin.js';
+import { matchingGains } from './audioJoin.js';
 
-/** About -50 dBFS: quieter than this is silence when finding where speech starts and ends. */
-const SILENCE_THRESHOLD = 0.0032;
+/** About -50 dBFS: louder than this is speech, for finding where a line's first and last words are. */
+const SPEECH_THRESHOLD = 0.0032;
 
-/** Kept before the first word (soft onsets, plosives) and after the last (the word's decay). */
-export const CLIP_LEAD_SECONDS = 0.03;
-export const CLIP_TAIL_SECONDS = 0.08;
-
-/** Fade at each clip edge: inaudible, but enough to stop a click. */
-const FADE_SECONDS = 0.008;
-
-/** A pause is found over windows this long whose level stays under PAUSE_GATE (about -48 dBFS). */
-const PAUSE_WINDOW_SECONDS = 0.01;
-const PAUSE_GATE = 0.004;
+/** About -60 dBFS. Audio this quiet for QUIET_RUN_SECONDS is silence, and only silence is ever cut. */
+const QUIET = 0.001;
+const QUIET_RUN_SECONDS = 0.02;
 
 /** A pause inside a line is never shortened below this, so the line still breathes. */
 export const MIN_INNER_PAUSE_SECONDS = 0.18;
 
 /**
- * The part of a generated clip that holds speech, with a margin either side.
- * Returns `{ samples, lead, speech }` — `lead` is the seconds before the first
- * word and `speech` the seconds from first to last word — or null when the
- * clip is silent.
+ * The first index at or after `from` where the audio has been quiet for
+ * `run` samples, i.e. where a cut is inaudible; `samples.length` when the
+ * audio never goes quiet.
+ */
+const quietAfter = (samples, from, run) => {
+  let count = 0;
+  for (let i = from; i < samples.length; i++) {
+    count = Math.abs(samples[i]) < QUIET ? count + 1 : 0;
+    if (count >= run) return i + 1;
+  }
+  return samples.length;
+};
+
+/** The last index at or before `from` such that the `run` samples after it are quiet; 0 when none are. */
+const quietBefore = (samples, from, run) => {
+  let count = 0;
+  for (let i = from; i >= 0; i--) {
+    count = Math.abs(samples[i]) < QUIET ? count + 1 : 0;
+    if (count >= run) return i;
+  }
+  return 0;
+};
+
+/**
+ * The part of a generated clip from the silence before its first sound to the
+ * silence after its last one, decay and breaths included. Returns
+ * `{ samples, lead, speech }` — `lead` is the seconds before the first word and
+ * `speech` the seconds from first to last word — or null when the clip is silent.
  */
 export const prepareClip = (samples, sampleRate) => {
   let first = -1;
   for (let i = 0; i < samples.length; i++) {
-    if (Math.abs(samples[i]) > SILENCE_THRESHOLD) {
+    if (Math.abs(samples[i]) > SPEECH_THRESHOLD) {
       first = i;
       break;
     }
   }
   if (first === -1) return null;
   let last = samples.length - 1;
-  while (last > first && Math.abs(samples[last]) <= SILENCE_THRESHOLD) last--;
+  while (last > first && Math.abs(samples[last]) <= SPEECH_THRESHOLD) last--;
 
-  const start = Math.max(0, first - Math.round(CLIP_LEAD_SECONDS * sampleRate));
-  const end = Math.min(samples.length, last + 1 + Math.round(CLIP_TAIL_SECONDS * sampleRate));
+  const run = Math.max(1, Math.round(QUIET_RUN_SECONDS * sampleRate));
+  const start = quietBefore(samples, first - 1, run);
+  const end = quietAfter(samples, last + 1, run);
   return {
     samples: samples.slice(start, end),
     lead: (first - start) / sampleRate,
@@ -52,32 +72,33 @@ export const prepareClip = (samples, sampleRate) => {
   };
 };
 
-/** Silent stretches inside a clip, as `{ start, end }` sample ranges, longest first. */
+/**
+ * Stretches of true silence between the words of a clip, as `{ start, end }`
+ * sample ranges, longest first. A breath inside a pause is not silence, so it
+ * splits the pause in two and is never cut.
+ */
 const innerPauses = (samples, sampleRate) => {
-  const size = Math.max(1, Math.round(PAUSE_WINDOW_SECONDS * sampleRate));
+  const run = Math.max(1, Math.round(QUIET_RUN_SECONDS * sampleRate));
   const pauses = [];
   let runStart = -1;
-  for (let start = 0; start < samples.length; start += size) {
-    const end = Math.min(samples.length, start + size);
-    let sum = 0;
-    for (let i = start; i < end; i++) sum += samples[i] * samples[i];
-    const silent = Math.sqrt(sum / (end - start)) < PAUSE_GATE;
-    if (silent && runStart === -1) runStart = start;
-    if (!silent && runStart !== -1) {
-      // A run touching the clip's start is its lead-in, not a pause between words.
-      if (runStart > 0) pauses.push({ start: runStart, end: start });
+  for (let i = 0; i <= samples.length; i++) {
+    const quiet = i < samples.length && Math.abs(samples[i]) < QUIET;
+    if (quiet && runStart === -1) runStart = i;
+    if (!quiet && runStart !== -1) {
+      // Silence touching the clip's start or end is its lead-in or tail, not a pause between words.
+      if (runStart > 0 && i < samples.length && i - runStart >= run) pauses.push({ start: runStart, end: i });
       runStart = -1;
     }
   }
-  // A run still open at the end is the tail, not a pause.
   return pauses.sort((a, b) => b.end - b.start - (a.end - a.start));
 };
 
 /**
- * Shortens the pauses inside a clip by up to `seconds` in total, taking from
- * the longest pauses first and never leaving one shorter than
- * MIN_INNER_PAUSE_SECONDS. Each pause loses its middle, so the silence either
- * side of the words is untouched. Returns `{ samples, removed }`.
+ * Shortens the pauses between words in a clip by up to `seconds` in total,
+ * taking from the longest pauses first and never leaving one shorter than
+ * MIN_INNER_PAUSE_SECONDS. Only silence is removed: each pause loses its
+ * middle, and the audio either side of every cut is silent, so the cut can't
+ * be heard. Returns `{ samples, removed }`.
  */
 export const shortenPauses = (samples, sampleRate, seconds) => {
   const floor = Math.round(MIN_INNER_PAUSE_SECONDS * sampleRate);
@@ -88,8 +109,8 @@ export const shortenPauses = (samples, sampleRate, seconds) => {
     const spare = pause.end - pause.start - floor;
     if (spare <= 0) continue;
     const take = Math.min(spare, budget);
-    const middle = Math.round((pause.start + pause.end) / 2);
-    cuts.push({ start: middle - Math.floor(take / 2), end: middle - Math.floor(take / 2) + take });
+    const start = Math.round((pause.start + pause.end - take) / 2);
+    cuts.push({ start, end: start + take });
     budget -= take;
   }
   if (cuts.length === 0) return { samples, removed: 0 };
@@ -111,13 +132,13 @@ export const shortenPauses = (samples, sampleRate, seconds) => {
 /**
  * Renders placed clips into one mono track at least `length` seconds long.
  * `clips[i]` is `{ samples, position }` with `position` in seconds. Every clip
- * is brought to the same speech loudness and faded at its edges. Clips are
- * mixed rather than overwritten, so even a mistaken overlap would be heard
- * rather than silently cut.
+ * is brought to the same speech loudness (one gain for the whole clip) and
+ * copied in as it is, with no fades: each clip already starts and ends in
+ * silence. Clips are mixed rather than overwritten, so even a mistaken
+ * overlap would be heard rather than silently cut.
  */
 export const renderTimeline = (clips, { sampleRate, length = 0, runOut = 0.3 }) => {
   const gains = matchingGains(clips.map((clip) => clip.samples), sampleRate);
-  const fadeLength = Math.max(1, Math.round(FADE_SECONDS * sampleRate));
 
   const starts = clips.map((clip) => Math.max(0, Math.round(clip.position * sampleRate)));
   const lastEnd = clips.reduce((max, clip, i) => Math.max(max, starts[i] + clip.samples.length), 0);
@@ -126,14 +147,9 @@ export const renderTimeline = (clips, { sampleRate, length = 0, runOut = 0.3 }) 
   const output = new Float32Array(total);
   clips.forEach((clip, n) => {
     const { samples } = clip;
-    const fade = Math.min(fadeLength, Math.floor(samples.length / 2));
     const offset = starts[n];
-    for (let i = 0; i < samples.length; i++) {
-      let weight = gains[n];
-      if (i < fade) weight *= fadeWeight(i, fade);
-      if (i >= samples.length - fade) weight *= fadeWeight(samples.length - 1 - i, fade);
-      output[offset + i] += samples[i] * weight;
-    }
+    const gain = gains[n];
+    for (let i = 0; i < samples.length; i++) output[offset + i] += samples[i] * gain;
   });
 
   // Mixing can only exceed full scale where clips overlap; keep the peak legal.
