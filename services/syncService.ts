@@ -1,13 +1,14 @@
-import { apiGet, apiJson } from './apiClient';
+import { apiGet, apiGetAudio, apiJson } from './apiClient';
 import { AudioSegment } from '../types';
 import { ElevenLabsVoiceSettings } from './elevenLabsService';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
  * plays in step with the original. The voice is never changed — no speed
- * change and no fades; lines are only moved and the silent pauses inside them
- * shortened. A line too long for its slot is flagged with a suggested shorter
- * wording, never rewritten (see server/lib/syncDub.js).
+ * change, no gain and no fades; lines are only moved and the silent pauses
+ * inside them shortened. A line too long for its slot is flagged with a
+ * suggested shorter wording, never rewritten (see server/lib/syncDub.js).
+ * The dub comes back as lossless WAV.
  */
 
 /** How tight the sync must be: lip-sync ±80 ms, phrase ±150 ms, loose ±300 ms. */
@@ -19,9 +20,64 @@ export const SYNC_PRECISION_OPTIONS: { id: SyncPrecision; label: string }[] = [
   { id: 'loose', label: 'Loose (±300 ms)' },
 ];
 
+/** What the user picks before a sync. */
+export interface SyncOptions {
+  precision: SyncPrecision;
+  /** Ask the text model for shorter wordings of lines that run long. */
+  suggest: boolean;
+  /** Bring every line to the same loudness. Off: each line keeps the level it was voiced at. */
+  matchLoudness: boolean;
+}
+
+/**
+ * What the render did to one line, sample by sample, from the server's audio
+ * debug mode. Source samples count in the clip as voiced; timeline samples in
+ * the synced dub.
+ */
+export interface SyncAudioDebugLine {
+  key: string;
+  voicedSamples: number;
+  sourceStartSample: number;
+  sourceEndSample: number;
+  pauseCuts: { sourceStartSample: number; sourceEndSample: number; timelineJoinSample: number; joinStep: number }[];
+  droppedBeforeZeroSamples: number;
+  /** How much later a line at 0:00 starts, so it can start on a quiet sample. */
+  startDelaySamples: number;
+  timelineStartSample: number;
+  timelineEndSample: number;
+  gain: number;
+  edgeTrimStartSamples: number;
+  edgeTrimEndSamples: number;
+  fadeInSamples: number;
+  fadeOutSamples: number;
+  microFade: boolean;
+}
+
+export interface SyncAudioDebug {
+  sampleRate: number;
+  channels: number;
+  resampled: boolean;
+  matchLoudness: boolean;
+  output: { contentType: string; samples: number; encodes: number };
+  lines: SyncAudioDebugLine[];
+}
+
+/** Set `localStorage.dhvani_audio_debug = '1'` to get SyncAudioDebug with every sync, logged to the console. */
+export const AUDIO_DEBUG_KEY = 'dhvani_audio_debug';
+
+export const audioDebugEnabled = (): boolean => {
+  try {
+    return localStorage.getItem(AUDIO_DEBUG_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+
 /** One synced line: a group of cues spoken as one phrase. Times are in seconds. */
 export interface SyncUnitReport {
   index: number;
+  /** Names the line for a retake: the id of its first cue. */
+  key: string;
   cueIds: (string | number)[];
   /** What the dub says: the script as written. */
   text: string;
@@ -68,6 +124,8 @@ export interface SyncReport {
     silent: number;
   };
   units: SyncUnitReport[];
+  /** Only when the sync ran in audio debug mode. */
+  audioDebug?: SyncAudioDebug;
 }
 
 /** The steps of a sync, as the server reports them. */
@@ -104,6 +162,11 @@ export interface SyncRequest {
   precision: SyncPrecision;
   /** Ask the text model for shorter wordings of lines that run long. */
   suggest: boolean;
+  matchLoudness?: boolean;
+  /** Retaken lines, by key: each is voiced again with its own seed. */
+  lineSeeds?: Record<string, number>;
+  /** Report what the render did to every line (SyncReport.audioDebug). */
+  debug?: boolean;
 }
 
 /** Only what the server reads from each cue; word timings and legacy fields stay behind. */
@@ -120,7 +183,7 @@ export const syncDub = async (
   request: SyncRequest,
   { apiKey, jobId, signal }: { apiKey?: string; jobId?: string; signal?: AbortSignal } = {}
 ): Promise<{ blob: Blob; report: SyncReport }> => {
-  const data = await apiJson<{ audio: string; contentType: string; report: SyncReport }>('/sync', {
+  const data = await apiJson<{ audioId: string; contentType: string; report: SyncReport }>('/sync', {
     body: {
       ...request,
       segments: request.segments.map(slimSegment),
@@ -130,11 +193,9 @@ export const syncDub = async (
     keys: { elevenLabsKey: apiKey },
     signal,
   });
-  // Decoded by hand: the app's content security policy doesn't let fetch() read data: URLs.
-  const binary = atob(data.audio);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return { blob: new Blob([bytes], { type: data.contentType }), report: data.report };
+  // The dub is fetched on its own, as it is: lossless WAV is too big to ride inside JSON.
+  const blob = await apiGetAudio(`/sync/audio/${encodeURIComponent(data.audioId)}`, { signal });
+  return { blob, report: data.report };
 };
 
 export const getSyncProgress = (jobId: string): Promise<SyncProgress> =>
@@ -142,6 +203,33 @@ export const getSyncProgress = (jobId: string): Promise<SyncProgress> =>
 
 export const cancelSync = (jobId: string): Promise<{ cancelled: boolean }> =>
   apiJson(`/sync/jobs/${encodeURIComponent(jobId)}/cancel`, { body: {} });
+
+/**
+ * Spreads a new wording of a line over the line's cues, in proportion to how
+ * long each cue's text was, so the cues (and their subtitle timing) stay as
+ * they are. Whole words only; every cue keeps at least one word when there
+ * are enough.
+ */
+export const distributeLineText = (text: string, cueTexts: string[]): string[] => {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  if (cueTexts.length <= 1) return [words.join(' ')];
+  const lengths = cueTexts.map((t) => Math.max(1, t.trim().length));
+  const total = lengths.reduce((a, b) => a + b, 0);
+  const out: string[] = [];
+  let used = 0;
+  let share = 0;
+  lengths.forEach((length, n) => {
+    share += length / total;
+    const left = cueTexts.length - n - 1;
+    const end =
+      n === cueTexts.length - 1
+        ? words.length
+        : Math.min(words.length - Math.min(left, words.length - used - 1), Math.max(used + 1, Math.round(share * words.length)));
+    out.push(words.slice(used, Math.max(used, end)).join(' '));
+    used = Math.max(used, end);
+  });
+  return out;
+};
 
 /**
  * Cues timed to the synced dub, for its subtitles. Each line's cues share the

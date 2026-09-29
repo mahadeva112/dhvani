@@ -114,11 +114,14 @@ const pcm16ToFloat = (buffer) => {
   return samples;
 };
 
+/**
+ * The inverse of pcm16ToFloat, so 16-bit audio decoded and written back is
+ * the same audio bit for bit: one scale for both signs, clamped to the range.
+ */
 const floatToPcm16 = (samples) => {
   const buffer = Buffer.alloc(samples.length * 2);
   for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    buffer.writeInt16LE(Math.round(s < 0 ? s * 32768 : s * 32767), i * 2);
+    buffer.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32768))), i * 2);
   }
   return buffer;
 };

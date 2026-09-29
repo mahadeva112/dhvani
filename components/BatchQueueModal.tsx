@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
 import JSZip from 'jszip';
-import { audioBufferToWav } from '../services/audioService';
+import { audioBufferToWav, audioFileExtension } from '../services/audioService';
 import { generateSrtContent, DEFAULT_SRT_OPTIONS } from '../services/srtService';
 
 type StageKind = 'dubbed' | 'review' | 'working' | 'waiting' | 'error';
@@ -128,7 +128,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         
         jobFolder.file(`${safeBaseName}_script.txt`, scriptText);
         
-        // 3. Extract & Add Dubbed Audio (.wav)
+        // 3. Extract & Add Dubbed Audio, named for what it is
         let audioBlob: Blob | null = job.synthesizedBlob;
         
         if (!audioBlob && job.synthAudioBuffer) {
@@ -140,7 +140,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         }
         
         if (audioBlob) {
-          jobFolder.file(`${safeBaseName}_dubbed.wav`, audioBlob);
+          jobFolder.file(`${safeBaseName}_dubbed.${audioFileExtension(audioBlob)}`, audioBlob);
         }
 
         manifest.jobs.push({

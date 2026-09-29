@@ -23,6 +23,7 @@ import {
   analyzeAudio,
   decodeAudioBlobUrl,
   audioBufferToWav,
+  audioFileExtension,
   resegmentAudioBuffer,
 } from './services/audioService';
 import { transcribeMedia } from './services/geminiService';
@@ -79,7 +80,17 @@ import {
   SrtOptions,
   adjustSegmentsForDubbedTimeline,
 } from './services/srtService';
-import { syncDub, getSyncProgress, cancelSync, syncedSegments, SyncProgress, SyncPrecision } from './services/syncService';
+import {
+  syncDub,
+  getSyncProgress,
+  cancelSync,
+  syncedSegments,
+  distributeLineText,
+  audioDebugEnabled,
+  SyncOptions,
+  SyncProgress,
+  SyncUnitReport,
+} from './services/syncService';
 import {
   getAllJobsFromStorage,
   saveJobToStorage,
@@ -240,6 +251,10 @@ export default function App() {
   const syncRunRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
   /** One seed per dub session, so a second Sync reuses the lines the first one voiced. */
   const syncSeedRef = useRef<Record<string, number>>({});
+  /** Retaken lines per job, by line key: each gets its own seed, so the next Sync voices it again. */
+  const syncLineSeedsRef = useRef<Record<string, Record<string, number>>>({});
+  /** Lines changed since the last Sync (reworded or retaken), per job: the next Sync re-voices them. */
+  const [syncPending, setSyncPending] = useState<Record<string, string[]>>({});
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
 
   /** Live stage message from the transcription/translation pipeline. */
@@ -1446,7 +1461,7 @@ export default function App() {
    * phrase, so the dub plays in step with the original. The result replaces
    * the dub, and is exactly as long as the source.
    */
-  const handleSyncDub = async ({ precision, suggest }: { precision: SyncPrecision; suggest: boolean }) => {
+  const handleSyncDub = async ({ precision, suggest, matchLoudness }: SyncOptions) => {
     if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
     if (isCartesiaVoice(elVoiceId)) {
       setSyncError('Sync works with ElevenLabs voices for now. Pick an ElevenLabs voice and try again.');
@@ -1491,9 +1506,18 @@ export default function App() {
           seed,
           precision,
           suggest,
+          matchLoudness,
+          lineSeeds: syncLineSeedsRef.current[activeJob.id],
+          debug: audioDebugEnabled(),
         },
         { apiKey: elApiKey, jobId, signal: controller.signal }
       );
+      if (report.audioDebug) {
+        const { lines, ...format } = report.audioDebug;
+        console.info('[sync audio]', format);
+        console.table(lines.map(({ pauseCuts, ...line }) => ({ ...line, pauseCuts: pauseCuts.length })));
+      }
+      setSyncPending((pending) => ({ ...pending, [activeJob.id]: [] }));
 
       let srtOpts = DEFAULT_SRT_OPTIONS;
       try {
@@ -1532,6 +1556,35 @@ export default function App() {
       setIsCancellingSync(false);
       setIsSyncing(false);
     }
+  };
+
+  const markSyncPending = (jobId: string, key: string) =>
+    setSyncPending((pending) => {
+      const keys = pending[jobId] || [];
+      return keys.includes(key) ? pending : { ...pending, [jobId]: [...keys, key] };
+    });
+
+  /** Puts a new wording of a synced line into the script. The next Sync voices it. */
+  const handleApplySyncLine = (unit: SyncUnitReport, text: string) => {
+    if (!activeJob || !text.trim()) return;
+    const ids = unit.cueIds.map(String);
+    const cues = activeJob.segments.filter((s) => ids.includes(String(s.id)));
+    const texts = distributeLineText(text, cues.map((c) => c.textTarget || c.targetText || ''));
+    const byId = new Map(cues.map((c, n) => [String(c.id), texts[n] ?? '']));
+    updateJob(activeJob.id, {
+      segments: activeJob.segments.map((s) =>
+        byId.has(String(s.id)) ? { ...s, textTarget: byId.get(String(s.id)), targetText: byId.get(String(s.id)) } : s
+      ),
+    });
+    markSyncPending(activeJob.id, unit.key);
+  };
+
+  /** Asks for a new take of a synced line: the next Sync voices it again with its own seed. */
+  const handleRetakeSyncLine = (unit: SyncUnitReport) => {
+    if (!activeJob) return;
+    const seeds = (syncLineSeedsRef.current[activeJob.id] ??= {});
+    seeds[unit.key] = Math.floor(Math.random() * 2 ** 31);
+    markSyncPending(activeJob.id, unit.key);
   };
 
   const handleCancelSync = () => {
@@ -1615,7 +1668,7 @@ export default function App() {
     const url = URL.createObjectURL(activeJob.synthesizedBlob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dhvani_${activeJob.language || 'dubbed'}_master.mp3`;
+    a.download = `dhvani_${activeJob.language || 'dubbed'}_master.${audioFileExtension(activeJob.synthesizedBlob)}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -2042,6 +2095,9 @@ export default function App() {
           isCancellingSync={isCancellingSync}
           onCancelSync={handleCancelSync}
           syncError={syncError}
+          syncPendingLines={activeJob ? syncPending[activeJob.id] || [] : []}
+          onApplySyncLine={handleApplySyncLine}
+          onRetakeSyncLine={handleRetakeSyncLine}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}
           onPlaySegmentSolo={handlePlaySoloSegment}

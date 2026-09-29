@@ -416,7 +416,8 @@ export const synthesizeScript = async (
  * lines either side, and on models that support it is stitched to the audio
  * of the lines before it.
  *
- * `lines[i]` is `{ text, previousText?, nextText? }`. `onLine(done)` reports
+ * `lines[i]` is `{ text, previousText?, nextText?, seed? }`; a line's own
+ * `seed` asks for a different take of that line alone. `onLine(done)` reports
  * each finished line. Returns `[{ buffer, requestId }]` in the same order.
  */
 export const synthesizeLines = async (
@@ -445,7 +446,7 @@ export const synthesizeLines = async (
       modelId: resolvedModel,
       outputFormat,
       voiceSettings: settings,
-      seed: takeSeed,
+      seed: Number.isInteger(line.seed) && line.seed >= 0 && line.seed < 2 ** 32 ? line.seed : takeSeed,
     };
     const withContext = () =>
       contextState.enabled

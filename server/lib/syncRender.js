@@ -3,12 +3,20 @@
  * rendering every placed clip into one track.
  *
  * Nothing here changes the voice. A clip's audio is copied sample for sample:
- * no speed change, no pitch change and no fades. The only edits are cuts, and
- * every cut is made inside true silence (QUIET for at least QUIET_RUN_SECONDS),
- * so a word's natural decay and every breath are kept whole and no cut can be
- * heard as a click. A word is never cut off to make room.
+ * no speed change, no pitch change, no gain and no fades. The only edits are
+ * cuts, and every cut is made inside true silence (QUIET for at least
+ * QUIET_RUN_SECONDS), so a word's natural decay and every breath are kept
+ * whole and no cut can be heard as a click. A word is never cut off to make
+ * room.
+ *
+ * The one place a clip can meet the track somewhere that isn't silent is its
+ * own edge: a voice that stops (or starts) with no silence around it, or a
+ * line cut at 0:00. Placed against silence, a sample that isn't near zero is
+ * a step, and a step clicks. There the edge moves to the nearest quiet sample
+ * within EDGE_SEARCH_SECONDS, and only when there is none does the edge get a
+ * MICRO_FADE_SECONDS fade, in the render, never in the clip.
  */
-import { matchingGains } from './audioJoin.js';
+import { matchingGains, fadeWeight } from './audioJoin.js';
 
 /** About -50 dBFS: louder than this is speech, for finding where a line's first and last words are. */
 const SPEECH_THRESHOLD = 0.0032;
@@ -19,6 +27,12 @@ const QUIET_RUN_SECONDS = 0.02;
 
 /** A pause inside a line is never shortened below this, so the line still breathes. */
 export const MIN_INNER_PAUSE_SECONDS = 0.18;
+
+/** How far into a clip an edge may move to reach a quiet sample, so no syllable is lost. */
+export const EDGE_SEARCH_SECONDS = 0.005;
+
+/** The fade an edge gets when no quiet sample is that close: too short to hear as a fade. */
+export const MICRO_FADE_SECONDS = 0.003;
 
 /**
  * The first index at or after `from` where the audio has been quiet for
@@ -47,8 +61,9 @@ const quietBefore = (samples, from, run) => {
 /**
  * The part of a generated clip from the silence before its first sound to the
  * silence after its last one, decay and breaths included. Returns
- * `{ samples, lead, speech }` — `lead` is the seconds before the first word and
- * `speech` the seconds from first to last word — or null when the clip is silent.
+ * `{ samples, lead, speech, start, end }` — `lead` is the seconds before the
+ * first word, `speech` the seconds from first to last word, and `start`/`end`
+ * the range of the clip kept — or null when the clip is silent.
  */
 export const prepareClip = (samples, sampleRate) => {
   let first = -1;
@@ -69,6 +84,8 @@ export const prepareClip = (samples, sampleRate) => {
     samples: samples.slice(start, end),
     lead: (first - start) / sampleRate,
     speech: (last + 1 - first) / sampleRate,
+    start,
+    end,
   };
 };
 
@@ -98,7 +115,8 @@ const innerPauses = (samples, sampleRate) => {
  * taking from the longest pauses first and never leaving one shorter than
  * MIN_INNER_PAUSE_SECONDS. Only silence is removed: each pause loses its
  * middle, and the audio either side of every cut is silent, so the cut can't
- * be heard. Returns `{ samples, removed }`.
+ * be heard. Returns `{ samples, removed, cuts }`, `cuts` being the sample
+ * ranges taken out, in order.
  */
 export const shortenPauses = (samples, sampleRate, seconds) => {
   const floor = Math.round(MIN_INNER_PAUSE_SECONDS * sampleRate);
@@ -113,7 +131,7 @@ export const shortenPauses = (samples, sampleRate, seconds) => {
     cuts.push({ start, end: start + take });
     budget -= take;
   }
-  if (cuts.length === 0) return { samples, removed: 0 };
+  if (cuts.length === 0) return { samples, removed: 0, cuts };
 
   cuts.sort((a, b) => a.start - b.start);
   const removedSamples = cuts.reduce((sum, cut) => sum + cut.end - cut.start, 0);
@@ -126,36 +144,140 @@ export const shortenPauses = (samples, sampleRate, seconds) => {
     from = cut.end;
   }
   output.set(samples.subarray(from), to);
-  return { samples: output, removed: removedSamples / sampleRate };
+  return { samples: output, removed: removedSamples / sampleRate, cuts };
+};
+
+/**
+ * Where to start a clip that must lose its first `from` samples (the part
+ * before 0:00). The kept part must begin on a quiet sample: the first one at
+ * or after `from` but before the first word at `firstWord`, or else the last
+ * one before `from`, keeping up to EDGE_SEARCH_SECONDS more and starting the
+ * clip `delay` samples later. A first word's attack is never faded to hide a
+ * cut. Returns `{ from, delay }`; with no quiet sample that close, `from` as
+ * given and no delay.
+ */
+export const startAfterCut = (samples, from, firstWord, sampleRate) => {
+  const limit = Math.round(EDGE_SEARCH_SECONDS * sampleRate);
+  const quiet = (i) => Math.abs(samples[i]) < QUIET;
+  for (let i = from; i < Math.min(firstWord, from + limit + 1); i++) if (quiet(i)) return { from: i, delay: 0 };
+  for (let i = from - 1; i >= Math.max(0, from - limit); i--) if (quiet(i)) return { from: i, delay: from - i };
+  return { from, delay: 0 };
+};
+
+/**
+ * Where a clip may start and end so neither edge steps against silence.
+ * An edge that is already quiet stays put. Otherwise it moves inward to the
+ * first quiet sample within `startLimit` (start) or `endLimit` (end) samples,
+ * dropping only what lies beyond it; an edge with no quiet sample that close
+ * stays put and is marked for a micro-fade. An edge that is `joined` to the
+ * rest of its own source (see renderTimeline) meets no silence, and is left
+ * exactly as it is. Returns `{ from, to, fadeIn, fadeOut }`: the range to copy
+ * and the fade lengths in samples (0 for none).
+ */
+export const clipEdges = (samples, { startLimit, endLimit, fadeLength, joinedStart = false, joinedEnd = false }) => {
+  const quiet = (i) => Math.abs(samples[i]) < QUIET;
+  const length = samples.length;
+
+  let from = 0;
+  let fadeIn = 0;
+  if (length > 0 && !joinedStart && !quiet(0)) {
+    let i = 1;
+    while (i <= Math.min(startLimit, length - 1) && !quiet(i)) i++;
+    if (i <= Math.min(startLimit, length - 1)) from = i;
+    else fadeIn = fadeLength;
+  }
+
+  let to = length;
+  let fadeOut = 0;
+  if (length > from && !joinedEnd && !quiet(length - 1)) {
+    let i = length - 2;
+    while (i >= Math.max(from, length - 1 - endLimit) && !quiet(i)) i--;
+    if (i >= Math.max(from, length - 1 - endLimit)) to = i + 1;
+    else fadeOut = fadeLength;
+  }
+
+  const half = Math.floor((to - from) / 2);
+  return { from, to, fadeIn: Math.min(fadeIn, half), fadeOut: Math.min(fadeOut, half) };
 };
 
 /**
  * Renders placed clips into one mono track at least `length` seconds long.
- * `clips[i]` is `{ samples, position }` with `position` in seconds. Every clip
- * is brought to the same speech loudness (one gain for the whole clip) and
- * copied in as it is, with no fades: each clip already starts and ends in
- * silence. Clips are mixed rather than overwritten, so even a mistaken
- * overlap would be heard rather than silently cut.
+ * `clips[i]` is `{ samples, position | startSample, maxStartShift? }`: where
+ * the clip's first sample goes, in seconds or as a whole sample, and how many
+ * samples its start edge may move (EDGE_SEARCH_SECONDS unless less is
+ * allowed).
+ *
+ * Each clip is copied in sample for sample at a gain of 1, at a whole-sample
+ * offset (rounded once from `position`). Moving an edge (see clipEdges) only
+ * drops samples at that edge; every other sample stays exactly where it was.
+ * Two clips that are neighbouring views of one source (the second's samples
+ * start where the first's end, in memory and on the timeline) are joined: the
+ * join is left alone and plays straight through, sample N then N + 1.
+ * Clips are mixed rather than overwritten, so even a mistaken overlap would
+ * be heard rather than silently cut.
+ *
+ * `matchLoudness` first brings every clip to the same speech loudness (one
+ * gain per clip). It is off unless asked for, since it changes how each line
+ * was voiced. `log`, when given, is called once per clip with exactly what
+ * the render did to it.
  */
-export const renderTimeline = (clips, { sampleRate, length = 0, runOut = 0.3 }) => {
-  const gains = matchingGains(clips.map((clip) => clip.samples), sampleRate);
+export const renderTimeline = (clips, { sampleRate, length = 0, runOut = 0.3, matchLoudness = false, log } = {}) => {
+  const gains = matchLoudness ? matchingGains(clips.map((clip) => clip.samples), sampleRate) : clips.map(() => 1);
+  const searchLimit = Math.round(EDGE_SEARCH_SECONDS * sampleRate);
+  const fadeLength = Math.max(1, Math.round(MICRO_FADE_SECONDS * sampleRate));
 
-  const starts = clips.map((clip) => Math.max(0, Math.round(clip.position * sampleRate)));
-  const lastEnd = clips.reduce((max, clip, i) => Math.max(max, starts[i] + clip.samples.length), 0);
+  const starts = clips.map((clip) => Math.max(0, Number.isInteger(clip.startSample) ? clip.startSample : Math.round(clip.position * sampleRate)));
+  const continues = (a, b) =>
+    clips[a].samples.buffer === clips[b].samples.buffer &&
+    clips[a].samples.byteOffset + clips[a].samples.byteLength === clips[b].samples.byteOffset &&
+    starts[a] + clips[a].samples.length === starts[b];
+
+  const placements = clips.map((clip, n) => {
+    const edges = clipEdges(clip.samples, {
+      startLimit: Math.min(searchLimit, clip.maxStartShift ?? searchLimit),
+      endLimit: searchLimit,
+      fadeLength,
+      joinedStart: clips.some((_, m) => m !== n && continues(m, n)),
+      joinedEnd: clips.some((_, m) => m !== n && continues(n, m)),
+    });
+    return { ...edges, start: starts[n] + edges.from };
+  });
+  const lastEnd = placements.reduce((max, p) => Math.max(max, p.start + p.to - p.from), 0);
   const total = Math.max(Math.round(length * sampleRate), lastEnd + Math.round(runOut * sampleRate));
 
   const output = new Float32Array(total);
   clips.forEach((clip, n) => {
     const { samples } = clip;
-    const offset = starts[n];
+    const { from, to, fadeIn, fadeOut, start } = placements[n];
     const gain = gains[n];
-    for (let i = 0; i < samples.length; i++) output[offset + i] += samples[i] * gain;
+    const span = to - from;
+    for (let i = 0; i < span; i++) {
+      let weight = gain;
+      if (i < fadeIn) weight *= fadeWeight(i, fadeIn);
+      if (i >= span - fadeOut) weight *= fadeWeight(span - 1 - i, fadeOut);
+      output[start + i] += samples[from + i] * weight;
+    }
   });
 
-  // Mixing can only exceed full scale where clips overlap; keep the peak legal.
+  // Only a mix that would clip is turned down, and then the whole track by one gain.
   let top = 0;
   for (let i = 0; i < output.length; i++) top = Math.max(top, Math.abs(output[i]));
-  if (top > 0.98) for (let i = 0; i < output.length; i++) output[i] *= 0.98 / top;
+  const peakGain = top > 1 ? 1 / top : 1;
+  if (peakGain < 1) for (let i = 0; i < output.length; i++) output[i] *= peakGain;
 
+  if (log) {
+    placements.forEach(({ from, to, fadeIn, fadeOut, start }, n) =>
+      log({
+        timelineStartSample: start,
+        timelineEndSample: start + to - from,
+        gain: gains[n] * peakGain,
+        edgeTrimStartSamples: from,
+        edgeTrimEndSamples: clips[n].samples.length - to,
+        fadeInSamples: fadeIn,
+        fadeOutSamples: fadeOut,
+        microFade: fadeIn > 0 || fadeOut > 0,
+      })
+    );
+  }
   return output;
 };

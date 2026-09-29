@@ -158,6 +158,15 @@ export const apiAudio = async (
     return response.blob();
   });
 
+/** GET returning binary audio as a Blob. */
+export const apiGetAudio = async (path: string, { keys, signal }: RequestOptions = {}): Promise<Blob> =>
+  withNetworkGuard(async () => {
+    const response = await fetch(`${API_BASE}${path}`, { headers: keyHeaders(keys), signal });
+
+    if (!response.ok) throw await toApiError(response);
+    return response.blob();
+  });
+
 /** Multipart POST returning binary audio as a Blob. */
 export const apiAudioUpload = async (
   path: string,

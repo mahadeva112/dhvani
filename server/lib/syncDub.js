@@ -8,7 +8,7 @@
  * 4. A clip too long for its slot has the silent pauses between its words
  *    shortened, then every clip is placed by an isotonic solve (syncPlace.js).
  * 5. The clips are rendered into one track the length of the source, exactly
- *    as voiced: no speed change and no fades.
+ *    as voiced: no speed change, no gain and no fades.
  * 6. The placement is measured against the source phrase by phrase.
  * 7. A line still too long for its slot gets a shorter wording suggested by
  *    the text model. It is only a suggestion: the dub says what the script
@@ -22,7 +22,7 @@ import { ApiError } from '../errors.js';
 import { cancelledError } from './http.js';
 import { buildSyncUnits, minimumGap } from './syncUnits.js';
 import { placeClips, measureSync } from './syncPlace.js';
-import { prepareClip, shortenPauses, renderTimeline } from './syncRender.js';
+import { prepareClip, shortenPauses, renderTimeline, startAfterCut } from './syncRender.js';
 import { TTS_CONTEXT_CHARS } from './ttsText.js';
 
 /**
@@ -79,6 +79,9 @@ export const clearClipCache = () => clipCache.clear();
 
 const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
 
+/** A line's key: the id of its first cue, which a retake and the report both name it by. */
+export const lineKey = (unit) => String(unit.cueIds[0]);
+
 const mapLimit = async (items, limit, fn) => {
   let next = 0;
   const worker = async () => {
@@ -90,19 +93,15 @@ const mapLimit = async (items, limit, fn) => {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 };
 
-/** The index at or after `from` (within `limit` samples) where the waveform crosses zero, or `from`. */
-const zeroCrossingAfter = (samples, from, limit) => {
-  for (let i = Math.max(1, from); i < Math.min(samples.length, from + limit); i++) {
-    if (samples[i - 1] <= 0 !== samples[i] <= 0 || samples[i] === 0) return i;
-  }
-  return from;
-};
-
 /**
  * Runs a sync.
  *
- * `params`: `{ segments, sourceDuration, sampleRate, precision, suggest, language, voice }`,
- * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`.
+ * `params`: `{ segments, sourceDuration, sampleRate, precision, suggest, language, voice, lineSeeds, matchLoudness, debug }`,
+ * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`,
+ * `lineSeeds` maps a line's key (see lineKey) to the seed of a retake of it,
+ * `matchLoudness` evens out the lines' loudness (off by default: each line is
+ * kept at the level it was voiced at) and `debug` adds `report.audioDebug`,
+ * a sample-exact account of every cut, placement, gain and fade.
  *
  * `deps`:
  * - `voiceLines(lines)` → `[Buffer]`, voicing `[{ text, previousText, nextText }]` in order;
@@ -114,7 +113,7 @@ const zeroCrossingAfter = (samples, from, limit) => {
  * Returns `{ buffer, contentType, report }`.
  */
 export const runSync = async (params, deps, { signal, onProgress = () => {} } = {}) => {
-  const { segments, sourceDuration = 0, sampleRate, suggest = true, language, voice } = params;
+  const { segments, sourceDuration = 0, sampleRate, suggest = true, language, voice, lineSeeds = {}, matchLoudness = false, debug = false } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
   const checkCancelled = () => {
@@ -135,12 +134,14 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   }
   report({ unitCount: units.length });
 
-  // 2. Voicing
+  // 2. Voicing. A retaken line is voiced with its own seed, which is a new take of it.
   report({ phase: 'voicing', step: 2 });
+  const seedOf = (unit) => (Number.isInteger(lineSeeds[lineKey(unit)]) ? lineSeeds[lineKey(unit)] : voice.seed);
+  const voiceOf = (unit) => ({ ...voice, seed: seedOf(unit) });
   const buffers = new Array(units.length);
   const missing = [];
   units.forEach((unit, i) => {
-    const cached = clipCache.get(cacheKey(voice, unit.text));
+    const cached = clipCache.get(cacheKey(voiceOf(unit), unit.text));
     if (cached) buffers[i] = cached;
     else missing.push(i);
   });
@@ -150,11 +151,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       text: units[i].text,
       previousText: i > 0 ? units[i - 1].text.slice(-TTS_CONTEXT_CHARS) : undefined,
       nextText: i < units.length - 1 ? units[i + 1].text.slice(0, TTS_CONTEXT_CHARS) : undefined,
+      seed: seedOf(units[i]),
     }));
     const voiced = await deps.voiceLines(lines, { onLine: (done) => report({ unitsVoiced: done }) });
     missing.forEach((i, n) => {
       buffers[i] = voiced[n];
-      remember(cacheKey(voice, units[i].text), voiced[n]);
+      remember(cacheKey(voiceOf(units[i]), units[i].text), voiced[n]);
     });
   }
   checkCancelled();
@@ -162,7 +164,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // 3. Fitting
   report({ phase: 'fitting', step: 3 });
   const clips = [];
-  for (const buffer of buffers) clips.push(prepareClip(await deps.decode(buffer), sampleRate));
+  const voicedLength = [];
+  for (const buffer of buffers) {
+    const samples = await deps.decode(buffer);
+    voicedLength.push(samples.length);
+    clips.push(prepareClip(samples, sampleRate));
+  }
   checkCancelled();
 
   /**
@@ -192,13 +199,15 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // 4. Placing: a clip that runs long first gives up silence between its words.
   report({ phase: 'placing', step: 4 });
   const pauseTrimmed = new Map();
+  const pauseCuts = new Map();
   units.forEach((_, i) => {
     const excess = overflow(i);
     if (!clips[i] || excess <= 0) return;
-    const { samples, removed } = shortenPauses(clips[i].samples, sampleRate, excess);
+    const { samples, removed, cuts } = shortenPauses(clips[i].samples, sampleRate, excess);
     if (removed > 0) {
       clips[i] = { ...clips[i], samples, speech: clips[i].speech - removed };
       pauseTrimmed.set(i, removed);
+      pauseCuts.set(i, cuts);
     }
   });
 
@@ -223,22 +232,65 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
 
   // 5. Rendering. Each clip goes in with its pre-roll before its core. Only a
   // line at the very start can't fit what comes before its first word; the
-  // part before 0:00 (silence, breath or noise, never a word) is dropped at a
-  // zero crossing.
+  // part before 0:00 (silence, breath or noise, never a word) is dropped, on
+  // a quiet sample so the line doesn't start on a step (see startAfterCut).
   report({ phase: 'rendering', step: 5 });
+  const dropped = placedIndex.map(() => 0);
+  const delayed = placedIndex.map(() => 0);
+  const rendered = [];
   const track = renderTimeline(
     placedIndex.map((i, n) => {
       const start = positions[n] - cores[n].head;
       if (start >= 0) return { samples: clips[i].samples, position: start };
-      const from = Math.round(-start * sampleRate);
-      const beforeWord = Math.round(clips[i].lead * sampleRate) - from;
-      const cut = zeroCrossingAfter(clips[i].samples, from, Math.min(Math.round(0.005 * sampleRate), beforeWord));
-      return { samples: clips[i].samples.subarray(cut), position: start + cut / sampleRate };
+      const cut = startAfterCut(clips[i].samples, Math.round(-start * sampleRate), Math.round(clips[i].lead * sampleRate), sampleRate);
+      dropped[n] = cut.from;
+      delayed[n] = cut.delay;
+      // Keeping a little more of the pre-roll starts the line that much later; the check below measures it there.
+      positions[n] += cut.delay / sampleRate;
+      return { samples: clips[i].samples.subarray(cut.from), startSample: 0, maxStartShift: 0 };
     }),
-    { sampleRate, length: sourceDuration }
+    { sampleRate, length: sourceDuration, matchLoudness, log: debug ? (entry) => rendered.push(entry) : undefined }
   );
   const { buffer, contentType } = await deps.encode(track);
   checkCancelled();
+
+  // Where every sample of every line came from and where it went, for tracing an artifact to the step that made it.
+  const audioDebug = debug
+    ? {
+        sampleRate,
+        channels: 1,
+        resampled: false,
+        matchLoudness,
+        output: { contentType, samples: track.length, encodes: 1 },
+        lines: placedIndex.map((i, n) => {
+          const { start: sourceStartSample, end: sourceEndSample, samples } = clips[i];
+          // Where the clip's first sample would sit on the timeline had nothing been dropped from its start.
+          const origin = rendered[n].timelineStartSample - rendered[n].edgeTrimStartSamples - dropped[n];
+          // Pause cuts are counted in the clip before shortening; each join moves up by what the cuts before it took.
+          let removedBefore = 0;
+          const cuts = (pauseCuts.get(i) || []).map((cut) => {
+            const join = cut.start - removedBefore;
+            removedBefore += cut.end - cut.start;
+            return {
+              sourceStartSample: sourceStartSample + cut.start,
+              sourceEndSample: sourceStartSample + cut.end,
+              timelineJoinSample: origin + join,
+              joinStep: Math.abs(samples[join] - samples[join - 1]),
+            };
+          });
+          return {
+            key: lineKey(units[i]),
+            voicedSamples: voicedLength[i],
+            sourceStartSample,
+            sourceEndSample,
+            pauseCuts: cuts,
+            droppedBeforeZeroSamples: dropped[n],
+            startDelaySamples: delayed[n],
+            ...rendered[n],
+          };
+        }),
+      }
+    : undefined;
 
   // 6. Checking
   report({ phase: 'checking', step: 6 });
@@ -279,6 +331,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     const line = lineFor.get(i);
     return {
       index: i,
+      key: lineKey(unit),
       cueIds: unit.cueIds,
       text: unit.text,
       sourceText: unit.sourceText,
@@ -314,6 +367,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         silent: units.length - placedIndex.length,
       },
       units: unitReports,
+      ...(audioDebug && { audioDebug }),
     },
   };
 };
