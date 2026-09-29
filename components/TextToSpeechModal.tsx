@@ -35,7 +35,9 @@ import {
   DEFAULT_ELEVENLABS_MODEL,
   performsAudioTags,
   modelTakesSpeed,
+  isElevenLabsDefault,
 } from '../services/elevenLabsService';
+import { ResetDefaultsButton } from './ResetDefaultsButton';
 import {
   synthesizeWithCartesia,
   isCartesiaVoice,
@@ -803,9 +805,17 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
 
             {/* Model and delivery, per engine */}
             <div className="flex flex-col gap-4 p-4 rounded-xl border border-slate-800 bg-slate-950/30">
-              <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
-                {VOICE_ENGINE_LABELS[engine]} model &amp; delivery
-              </span>
+              <div className="flex items-center justify-between gap-2 -my-1">
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                  {VOICE_ENGINE_LABELS[engine]} model &amp; delivery
+                </span>
+                {engine === 'elevenlabs' && (
+                  <ResetDefaultsButton
+                    onClick={() => setEl({ useOwnSettings: false, settings: { ...DEFAULT_VOICE_SETTINGS } })}
+                    disabled={!prefs.el.useOwnSettings && isElevenLabsDefault(prefs.el.settings)}
+                  />
+                )}
+              </div>
 
               {engine === 'elevenlabs' ? (
                 <>

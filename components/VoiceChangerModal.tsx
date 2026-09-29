@@ -36,6 +36,7 @@ import {
   VoiceEffectPreset,
 } from '../services/audioService';
 import { POPULAR_ELEVENLABS_VOICES, VoiceSelectorCard } from './VoiceSelectorCard';
+import { ResetDefaultsButton } from './ResetDefaultsButton';
 
 /** The voice changer's output formats (mirrors STS_OUTPUT_FORMATS on the server); higher plans unlock the top ones. */
 const STS_OUTPUT_FORMATS = [
@@ -800,6 +801,23 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                   )}
                 </div>
 
+                <div className="flex items-center justify-between -mb-2">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice settings</span>
+                  <ResetDefaultsButton
+                    onClick={() => {
+                      setStability(DEFAULT_VOICE_SETTINGS.stability);
+                      setSimilarity(DEFAULT_VOICE_SETTINGS.similarity_boost);
+                      setStyleExaggeration(DEFAULT_VOICE_SETTINGS.style ?? 0);
+                      setSpeakerBoost(true);
+                    }}
+                    disabled={
+                      stability === DEFAULT_VOICE_SETTINGS.stability &&
+                      similarity === DEFAULT_VOICE_SETTINGS.similarity_boost &&
+                      styleExaggeration === (DEFAULT_VOICE_SETTINGS.style ?? 0) &&
+                      speakerBoost
+                    }
+                  />
+                </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   {slider('Stability', 'Higher keeps rhythm and pitch closer to the speaker.', stability, setStability, ['More variable', 'More stable'])}
                   {slider(

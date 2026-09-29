@@ -37,6 +37,14 @@ export const DEFAULT_VOICE_SETTINGS: ElevenLabsVoiceSettings = {
   speed: 1.0,
 };
 
+/** True when the settings are ElevenLabs' defaults, so there is nothing to reset. */
+export const isElevenLabsDefault = (settings?: Partial<ElevenLabsVoiceSettings> | null) =>
+  Boolean(settings) &&
+  (['stability', 'similarity_boost', 'style', 'speed'] as const).every(
+    (k) => Math.abs((settings![k] ?? DEFAULT_VOICE_SETTINGS[k]!) - DEFAULT_VOICE_SETTINGS[k]!) < 0.001
+  ) &&
+  settings!.use_speaker_boost !== false;
+
 const keys = (apiKey?: string) => ({ keys: { elevenLabsKey: apiKey } });
 
 /**

@@ -15,7 +15,9 @@ import {
   synthesizeSamplePreview,
   getVoiceSettings,
   modelTakesSpeed,
+  isElevenLabsDefault,
 } from '../services/elevenLabsService';
+import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { VoiceSelectorCard } from './VoiceSelectorCard';
 
 interface VoiceSettingsModalProps {
@@ -689,6 +691,12 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
         {/* Footer */}
         <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
           <span className="flex-1 min-w-[12rem] text-xs text-slate-400">Saved on this computer. Applies to the next dub.</span>
+          {onElVoiceSettingsChange && (
+            <ResetDefaultsButton
+              onClick={() => onElVoiceSettingsChange({ ...DEFAULT_VOICE_SETTINGS })}
+              disabled={!usingVoiceOwnSettings && isElevenLabsDefault(elVoiceSettings)}
+            />
+          )}
           {onElVoiceSettingsChange && (
             <button
               type="button"
