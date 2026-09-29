@@ -16,7 +16,10 @@
  * within EDGE_SEARCH_SECONDS, and only when there is none does the edge get a
  * MICRO_FADE_SECONDS fade, in the render, never in the clip.
  */
-import { matchingGains, fadeWeight } from './audioJoin.js';
+import { matchingGains } from './loudness.js';
+
+/** Raised-cosine weight for sample `i` of a fade `length` samples long, rising from 0 to 1. */
+const fadeWeight = (i, length) => 0.5 - 0.5 * Math.cos((Math.PI * (i + 0.5)) / length);
 
 /** About -50 dBFS: louder than this is speech, for finding where a line's first and last words are. */
 const SPEECH_THRESHOLD = 0.0032;

@@ -118,6 +118,7 @@ export const synthesizeSpeech = async (
     audioTags = false,
     language,
     seed,
+    matchLoudness = false,
     jobId,
     signal,
   }: {
@@ -130,6 +131,8 @@ export const synthesizeSpeech = async (
     language?: string;
     /** Same seed, text and settings gives the same take. */
     seed?: number;
+    /** Bring every passage of a long script to the same loudness. Off: each keeps the level it was voiced at. */
+    matchLoudness?: boolean;
     /** Names the dub so its progress can be polled and it can be cancelled. */
     jobId?: string;
     signal?: AbortSignal;
@@ -146,6 +149,7 @@ export const synthesizeSpeech = async (
       outputFormat,
       language,
       speed: voiceSettings?.speed,
+      matchLoudness,
       jobId,
       signal,
     });
@@ -163,6 +167,7 @@ export const synthesizeSpeech = async (
       audioTags,
       language,
       seed,
+      matchLoudness,
       jobId,
     },
     { ...keys(apiKey), signal }

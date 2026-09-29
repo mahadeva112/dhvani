@@ -46,7 +46,7 @@ import {
   MIN_CARTESIA_SPEED,
   MAX_CARTESIA_SPEED,
 } from '../services/cartesiaService';
-import { createWavBlobFromPcm, decodeAudioBlobUrl } from '../services/audioService';
+import { audioFileExtension, createWavBlobFromPcm, decodeAudioBlobUrl } from '../services/audioService';
 import { POPULAR_ELEVENLABS_VOICES, VoiceSelectorCard, VoiceEngine, VOICE_ENGINE_LABELS } from './VoiceSelectorCard';
 import { MiniWaveform } from './MediaStrip';
 import { DEFAULT_LANGUAGES } from './ProHeader';
@@ -450,9 +450,14 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
         });
       }
 
-      // Raw PCM gets a WAV header so it plays, decodes and downloads like any file.
+      // Raw PCM gets a WAV header so it plays, decodes and downloads like any file. A joined script
+      // already comes back as WAV; a second header would play as a click at the start.
       const pcmRate = /^pcm_(\d+)$/.exec(format)?.[1];
-      if (pcmRate) blob = createWavBlobFromPcm(new Uint8Array(await blob.arrayBuffer()), Number(pcmRate), 1);
+      if (pcmRate) {
+        const bytes = new Uint8Array(await blob.arrayBuffer());
+        const isWav = String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF';
+        blob = isWav ? new Blob([bytes], { type: 'audio/wav' }) : createWavBlobFromPcm(bytes, Number(pcmRate), 1);
+      }
 
       const url = URL.createObjectURL(blob);
       urlsRef.current.add(url);
@@ -531,7 +536,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
 
   const downloadTake = (take: Take) => {
     if (!take.blob) return;
-    const ext = take.format.startsWith('pcm') ? 'wav' : 'mp3';
+    const ext = audioFileExtension(take.blob);
     const slug = take.voiceName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'voice';
     const a = document.createElement('a');
     a.href = take.url || URL.createObjectURL(take.blob);
@@ -1174,7 +1179,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       {take.status === 'done' && (
                         <div className="flex flex-wrap gap-1.5">
                           <button type="button" onClick={() => downloadTake(take)} className={smallButton}>
-                            <Download className="w-3.5 h-3.5" /> {take.format.startsWith('pcm') ? '.wav' : '.mp3'}
+                            <Download className="w-3.5 h-3.5" /> .{take.blob ? audioFileExtension(take.blob) : 'mp3'}
                           </button>
                           {onSetDubbedMaster && (
                             <button
