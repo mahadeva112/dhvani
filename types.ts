@@ -1,3 +1,5 @@
+import type { SyncReport } from './services/syncService';
+
 /**
  * One word as measured by ElevenLabs. These are the authoritative timings for
  * the whole app: subtitle cues are cut on these boundaries and never on an
@@ -143,6 +145,9 @@ export interface BatchJob {
   originalSrt?: string;
   /** Translated SRT carrying the exact same timestamps. */
   translatedSrt?: string;
+
+  /** Set when the dub was made by Sync: how each line lined up with the source. */
+  syncReport?: SyncReport | null;
   
   // Errors
   errorMsg: string | null;

@@ -13,12 +13,16 @@ const jobs = new Map();
 
 const isValidId = (id) => typeof id === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(id);
 
-/** Starts tracking a dub. Returns null for a missing or malformed id. */
-export const startDubJob = (id) => {
+/**
+ * Starts tracking a dub. Returns null for a missing or malformed id.
+ * `progress` replaces the text-to-speech starting report for other kinds of
+ * job (a sync reports its own steps).
+ */
+export const startDubJob = (id, progress) => {
   if (!isValidId(id)) return null;
   const job = {
     controller: new AbortController(),
-    progress: {
+    progress: progress || {
       phase: 'preparing',
       passageCount: 0,
       passagesDone: 0,
