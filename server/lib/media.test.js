@@ -21,6 +21,13 @@ test('16-bit PCM round-trips without ffmpeg', async () => {
   for (let i = 0; i < samples.length; i++) assert.ok(Math.abs(decoded[i] - samples[i]) < 1e-4);
 });
 
+test('16-bit PCM decoded and written back is the same audio, bit for bit', async () => {
+  const pcm = Buffer.alloc(8 * 2);
+  [-32768, -20000, -1, 0, 1, 16385, 20000, 32767].forEach((v, i) => pcm.writeInt16LE(v, i * 2));
+  const again = await encodeAudio(await decodeAudio(pcm, 'pcm_44100'), 'pcm_44100');
+  assert.deepEqual([...again], [...pcm]);
+});
+
 test('MP3 round-trips through ffmpeg at the same length', { skip: !(await ffmpegAvailable()) }, async () => {
   const samples = tone(44100, 1);
   const mp3 = await encodeAudio(samples, 'mp3_44100_128');

@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, Copy, Loader2, Lock, Play, RefreshCw, Scissors, X } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Copy, Loader2, Lock, Mic, Play, RefreshCw, Scissors, X } from 'lucide-react';
 import {
   SYNC_PRECISION_OPTIONS,
   SYNC_STEPS,
+  SyncOptions,
   SyncPrecision,
   SyncProgress,
   SyncReport,
@@ -28,15 +29,16 @@ const formatClock = (seconds: number) => {
 
 const formatOffset = (seconds: number) => `${seconds > 0 ? '+' : seconds < 0 ? '−' : '±'}${Math.abs(seconds).toFixed(2)} s`;
 
-const readOptions = (): { precision: SyncPrecision; suggest: boolean } => {
+const readOptions = (): SyncOptions => {
   try {
     const saved = JSON.parse(localStorage.getItem(OPTIONS_KEY) || '{}');
     return {
       precision: SYNC_PRECISION_OPTIONS.some((o) => o.id === saved.precision) ? saved.precision : 'phrase',
       suggest: saved.suggest !== false,
+      matchLoudness: saved.matchLoudness === true,
     };
   } catch {
-    return { precision: 'phrase', suggest: true };
+    return { precision: 'phrase', suggest: true, matchLoudness: false };
   }
 };
 
@@ -58,12 +60,18 @@ export interface SyncPanelProps {
   error?: string | null;
   /** Set when Sync can't run right now, with the reason shown instead of the button. */
   blockedReason?: string | null;
-  onSync: (options: { precision: SyncPrecision; suggest: boolean }) => void;
+  onSync: (options: SyncOptions) => void;
   onCancel: () => void;
   currentTime: number;
   onSeek: (time: number) => void;
   /** Plays source and dub together from `time`. */
   onListen: (time: number) => void;
+  /** Keys of lines reworded or retaken since this report: the next Sync voices them again. */
+  pendingLines?: string[];
+  /** Puts a new wording of a line into the script. */
+  onApplyLine?: (unit: SyncUnitReport, text: string) => void;
+  /** Asks for a new take of a line. */
+  onRetakeLine?: (unit: SyncUnitReport) => void;
 }
 
 export const SyncPanel: React.FC<SyncPanelProps> = ({
@@ -78,19 +86,11 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
   currentTime,
   onSeek,
   onListen,
+  pendingLines = [],
+  onApplyLine,
+  onRetakeLine,
 }) => {
   const [options, setOptions] = useState(readOptions);
-  const [copied, setCopied] = useState<number | null>(null);
-  const copySuggestion = (unit: SyncUnitReport) => {
-    if (!unit.suggestion) return;
-    navigator.clipboard
-      ?.writeText(unit.suggestion)
-      .then(() => {
-        setCopied(unit.index);
-        window.setTimeout(() => setCopied((c) => (c === unit.index ? null : c)), 1500);
-      })
-      .catch(() => {});
-  };
   useEffect(() => {
     try {
       localStorage.setItem(OPTIONS_KEY, JSON.stringify(options));
@@ -148,7 +148,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
           </div>
           <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
             <Lock className="w-3 h-3 shrink-0" />
-            Each line starts where the original line starts. The voice is never changed: no speed change and no fades. Lines are only moved, and the silence inside them shortened.
+            Each line starts where the original line starts. The voice is never changed: no speed change, no volume change and no fades. Lines are only moved, and the silence inside them shortened.
           </p>
         </div>
 
@@ -178,6 +178,19 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
               className="accent-indigo-500"
             />
             Suggest shorter lines
+          </label>
+          <label
+            className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer"
+            title="Bring every line to the same loudness. Off, each line keeps exactly the level it was voiced at."
+          >
+            <input
+              type="checkbox"
+              checked={options.matchLoudness}
+              disabled={isSyncing}
+              onChange={(e) => setOptions((o) => ({ ...o, matchLoudness: e.target.checked }))}
+              className="accent-indigo-500"
+            />
+            Even out loudness
           </label>
           {isSyncing ? (
             <button
@@ -291,47 +304,34 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
                   : `${review.filter((r) => !r.unit.inSync).length} outside tolerance · ${report.summary.exceeded} too long for their slot`}
               </span>
             </div>
+            {pendingLines.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 px-3.5 py-2.5">
+                <span className="flex-1 min-w-0 text-[12.5px] text-slate-200">
+                  {pendingLines.length === 1 ? '1 line changed.' : `${pendingLines.length} lines changed.`} Sync again voices only{' '}
+                  {pendingLines.length === 1 ? 'that line' : 'those lines'} and places everything again; every other line is reused.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onSync(options)}
+                  disabled={Boolean(blockedReason)}
+                  className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Sync again
+                </button>
+              </div>
+            )}
             {review.length > 0 && (
-              <ul className="mt-2 max-h-72 overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
+              <ul className="mt-2 max-h-[28rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
                 {review.map(({ unit, reason }) => (
-                  <li key={unit.index} className="flex items-start gap-3 py-2.5">
-                    <span
-                      className={`shrink-0 mt-0.5 font-mono text-[11px] px-2 py-0.5 rounded-md tabular-nums ${
-                        unit.inSync ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/15 text-amber-300'
-                      }`}
-                    >
-                      {unit.offset === null ? 'silent' : formatOffset(unit.offset)}
-                    </span>
-                    <span className="shrink-0 mt-0.5 font-mono text-[11.5px] text-slate-500 tabular-nums w-14">{formatClock(unit.srcStart)}</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13.5px] text-slate-100 leading-snug">{unit.text}</span>
-                      <span className={`block text-[11.5px] ${unit.exceeded ? 'text-amber-300' : 'text-slate-400'}`}>{reason}</span>
-                      {unit.suggestion && (
-                        <span className="mt-1.5 flex items-start gap-2 rounded-lg border border-slate-800 bg-slate-950/60 px-2.5 py-1.5">
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500">Suggested shorter line</span>
-                            <span className="block text-[13px] text-slate-200 leading-snug">{unit.suggestion}</span>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => copySuggestion(unit)}
-                            className="shrink-0 flex items-center gap-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11px] text-slate-300 cursor-pointer"
-                            aria-label="Copy the suggested line"
-                          >
-                            {copied === unit.index ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                            {copied === unit.index ? 'Copied' : 'Copy'}
-                          </button>
-                        </span>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => onListen(Math.max(0, unit.srcStart - 0.6))}
-                      className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer"
-                    >
-                      <Play className="w-3 h-3 fill-current" /> Listen
-                    </button>
-                  </li>
+                  <ReviewRow
+                    key={unit.index}
+                    unit={unit}
+                    reason={reason}
+                    pending={pendingLines.includes(unit.key)}
+                    onListen={onListen}
+                    onApply={onApplyLine}
+                    onRetake={onRetakeLine}
+                  />
                 ))}
               </ul>
             )}
@@ -339,6 +339,117 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
         </>
       )}
     </section>
+  );
+};
+
+/**
+ * One line worth a listen: the dub line over the original line, why it was
+ * flagged, and what the user can do about it. A line too long for its slot
+ * gets an editable shorter wording (the suggestion, when there is one) to put
+ * into the script; any line can be retaken. Neither is heard until the next
+ * Sync, so the row shows it is waiting for one.
+ */
+const ReviewRow: React.FC<{
+  unit: SyncUnitReport;
+  reason: string;
+  pending: boolean;
+  onListen: (time: number) => void;
+  onApply?: (unit: SyncUnitReport, text: string) => void;
+  onRetake?: (unit: SyncUnitReport) => void;
+}> = ({ unit, reason, pending, onListen, onApply, onRetake }) => {
+  const [draft, setDraft] = useState(unit.suggestion || unit.text);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setDraft(unit.suggestion || unit.text), [unit.suggestion, unit.text]);
+  const changed = draft.trim() !== '' && draft.trim() !== unit.text.trim();
+  const copy = () =>
+    navigator.clipboard
+      ?.writeText(draft)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+
+  return (
+    <li className="flex items-start gap-3 py-3">
+      <span
+        className={`shrink-0 mt-0.5 font-mono text-[11px] px-2 py-0.5 rounded-md tabular-nums ${
+          unit.inSync ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/15 text-amber-300'
+        }`}
+      >
+        {unit.offset === null ? 'silent' : formatOffset(unit.offset)}
+      </span>
+      <span className="shrink-0 mt-0.5 font-mono text-[11.5px] text-slate-500 tabular-nums w-14">{formatClock(unit.srcStart)}</span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
+        {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
+        <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : 'text-slate-400'}`}>{reason}</p>
+
+        {pending ? (
+          <p className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300">
+            <RefreshCw className="w-3 h-3" /> Changed. Sync again to hear it.
+          </p>
+        ) : (
+          unit.exceeded &&
+          onApply && (
+            <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
+              <label className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1" htmlFor={`sync-line-${unit.key}`}>
+                {unit.suggestion ? 'Suggested shorter line' : 'Shorten this line'}
+              </label>
+              <textarea
+                id={`sync-line-${unit.key}`}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                rows={2}
+                className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
+              />
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onApply(unit, draft)}
+                  disabled={!changed}
+                  className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+                  title="Put this wording into the script. Sync again to voice it."
+                >
+                  <Check className="w-3.5 h-3.5" /> Use this line
+                </button>
+                <button
+                  type="button"
+                  onClick={copy}
+                  className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+                >
+                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+                <span className="text-[11px] text-slate-500 tabular-nums">
+                  {draft.trim().length} / {unit.text.trim().length} characters
+                </span>
+              </div>
+            </div>
+          )
+        )}
+      </div>
+      <div className="shrink-0 flex flex-col gap-1.5">
+        <button
+          type="button"
+          onClick={() => onListen(Math.max(0, unit.srcStart - 0.6))}
+          className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer"
+        >
+          <Play className="w-3 h-3 fill-current" /> Listen
+        </button>
+        {onRetake && !unit.silent && (
+          <button
+            type="button"
+            onClick={() => onRetake(unit)}
+            disabled={pending}
+            className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            title="Voice this line again for a new take. Sync again to hear it."
+          >
+            <Mic className="w-3 h-3" /> Retake
+          </button>
+        )}
+      </div>
+    </li>
   );
 };
 

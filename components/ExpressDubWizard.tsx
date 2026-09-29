@@ -77,7 +77,7 @@ import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
 import { SyncPanel } from './SyncPanel';
-import type { SyncPrecision, SyncProgress } from '../services/syncService';
+import type { SyncOptions, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
@@ -181,13 +181,17 @@ interface ExpressDubWizardProps {
   isCancellingDub?: boolean;
   onCancelSynthesis?: () => void;
   /** Sync: a dub voiced line by line and placed on the original's phrases. Omitted hides the panel. */
-  onSyncDub?: (options: { precision: SyncPrecision; suggest: boolean }) => void;
+  onSyncDub?: (options: SyncOptions) => void;
   isSyncing?: boolean;
   syncProgress?: SyncProgress | null;
   isCancellingSync?: boolean;
   onCancelSync?: () => void;
   /** Why the last sync failed, shown in the panel. */
   syncError?: string | null;
+  /** Keys of synced lines reworded or retaken since the last sync. */
+  syncPendingLines?: string[];
+  onApplySyncLine?: (unit: SyncUnitReport, text: string) => void;
+  onRetakeSyncLine?: (unit: SyncUnitReport) => void;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
   /** Replaces every segment in one write, for changes that touch many cues. */
   onReplaceSegments: (segments: AudioSegment[]) => void;
@@ -258,6 +262,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   isCancellingSync = false,
   onCancelSync,
   syncError = null,
+  syncPendingLines = [],
+  onApplySyncLine,
+  onRetakeSyncLine,
   onUpdateSegment,
   onReplaceSegments,
   onPlaySegmentSolo,
@@ -2310,6 +2317,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               isSyncing={isSyncing}
               isCancelling={isCancellingSync}
               error={syncError}
+              pendingLines={syncPendingLines}
+              onApplyLine={onApplySyncLine}
+              onRetakeLine={onRetakeSyncLine}
               blockedReason={
                 isSynthesizing
                   ? 'Wait for the dub to finish first.'

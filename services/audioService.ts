@@ -141,6 +141,10 @@ export const decodeAudioBlobUrl = async (blobUrl: string): Promise<AudioBuffer> 
     }
 };
 
+/** The file extension for an audio blob, from its type: a WAV is saved as .wav and an MP3 as .mp3. */
+export const audioFileExtension = (blob: Blob): string =>
+  /wav|wave/i.test(blob.type) ? 'wav' : /flac/i.test(blob.type) ? 'flac' : /ogg|opus/i.test(blob.type) ? 'ogg' : 'mp3';
+
 /**
  * Converts an AudioBuffer to a WAV Blob.
  */

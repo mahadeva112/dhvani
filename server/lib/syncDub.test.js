@@ -205,12 +205,205 @@ test('renderTimeline puts each clip at its position, copied without fades', () =
   assert.equal(track.length, 10 * RATE);
   const firstSound = track.findIndex((s) => Math.abs(s) > 0.0032) / RATE;
   assert.ok(Math.abs(firstSound - (1 + a.lead)) < 0.002, `first sound at ${firstSound}`);
-  // Equal clips get a gain of 1, so the placed audio is the clip, sample for sample.
+  // Every clip goes in at a gain of 1, so the placed audio is the clip, sample for sample.
   const at = Math.round(1 * RATE);
   for (let i = 0; i < a.samples.length; i++) assert.equal(track[at + i], a.samples[i]);
   let silentBetween = true;
   for (let i = Math.round(2 * RATE); i < Math.round(2.9 * RATE); i++) if (Math.abs(track[i]) > 0.0032) silentBetween = false;
   assert.ok(silentBetween);
+});
+
+/**
+ * Speech-like audio with no silence anywhere: a few partials under a slow
+ * envelope, plus noise, at peak `level`. Cutting it anywhere lands mid-waveform.
+ */
+const voiceLike = (seconds, level = 0.5, seed = 1) => {
+  let state = seed;
+  const noise = () => ((state = (state * 1103515245 + 12345) % 2 ** 31) / 2 ** 31 - 0.5) * 0.1;
+  const samples = new Float32Array(Math.round(seconds * RATE));
+  for (let i = 0; i < samples.length; i++) {
+    const t = i / RATE;
+    const env = 0.6 + 0.4 * Math.sin(2 * Math.PI * 3 * t);
+    samples[i] = level * env * (0.5 * Math.sin(2 * Math.PI * 180 * t) + 0.3 * Math.sin(2 * Math.PI * 410 * t + 1) + 0.15 * Math.sin(2 * Math.PI * 1300 * t + 2) + noise());
+  }
+  return samples;
+};
+
+/** `samples` with 50 ms of silence either side, as a recording starts and ends. */
+const inSilence = (samples) => {
+  const pad = Math.round(0.05 * RATE);
+  const out = new Float32Array(samples.length + 2 * pad);
+  out.set(samples, pad);
+  return out;
+};
+
+const peakOf = (samples) => samples.reduce((max, s) => Math.max(max, Math.abs(s)), 0);
+
+/** Splits `source` at `cuts` (sample indices) into regions that reference it, never copy it. */
+const split = (source, cuts) => {
+  const edges = [0, ...cuts, source.length];
+  return edges.slice(0, -1).map((start, i) => ({ start, samples: source.subarray(start, edges[i + 1]) }));
+};
+
+test('Test A: a split played straight through is the original, sample for sample', () => {
+  const source = inSilence(voiceLike(2));
+  const regions = split(source, [7001]); // mid-waveform, far from any zero crossing
+  const track = renderTimeline(
+    regions.map((r) => ({ samples: r.samples, startSample: r.start })),
+    { sampleRate: RATE, runOut: 0 }
+  );
+  assert.equal(track.length, source.length);
+  for (let i = 0; i < source.length; i++) assert.equal(track[i], source[i], `sample ${i}`);
+});
+
+test('Test B: a moved region sounds exactly as it did; only its place changes', () => {
+  const source = voiceLike(2);
+  const [a, b] = split(source, [8000]);
+  const moved = Math.round(3.25 * RATE);
+  const log = [];
+  const track = renderTimeline(
+    [
+      { samples: a.samples, startSample: a.start },
+      { samples: b.samples, startSample: moved },
+    ],
+    { sampleRate: RATE, length: 5, log: (entry) => log.push(entry) }
+  );
+  // Away from its edges, the moved region is its source samples at a gain of exactly 1.
+  const edge = Math.round(0.005 * RATE);
+  for (let i = edge; i < b.samples.length - edge; i++) assert.equal(track[moved + i], b.samples[i]);
+  assert.equal(log[1].gain, 1);
+  // Between the regions there is nothing but silence: no samples were added.
+  for (let i = a.samples.length + edge; i < moved - edge; i++) assert.equal(track[i], 0);
+});
+
+test('Test C: split then joined back is identical to the original', () => {
+  const source = inSilence(voiceLike(1.5));
+  const regions = split(source, [3333, 3334, 9000]); // one region a single sample long
+  const log = [];
+  const track = renderTimeline(
+    regions.map((r) => ({ samples: r.samples, startSample: r.start })),
+    { sampleRate: RATE, runOut: 0, log: (entry) => log.push(entry) }
+  );
+  assert.deepEqual([...track], [...source]);
+  for (const entry of log) {
+    assert.equal(entry.microFade, false);
+    assert.equal(entry.edgeTrimStartSamples + entry.edgeTrimEndSamples, 0, 'a join is never trimmed');
+  }
+});
+
+test('Test D and E: many splits, moves and joins leave no trace, and the source is never touched', () => {
+  const source = inSilence(voiceLike(3, 0.5, 7));
+  const original = Float32Array.from(source);
+  // Split, split, split, move, move, join: every region ends up back where it came from.
+  const regions = split(source, [4000, 9999, 15000]);
+  let placed = regions.map((r) => ({ samples: r.samples, startSample: r.start }));
+  for (let round = 0; round < 20; round++) {
+    placed = placed.map((clip, i) => ({ ...clip, startSample: clip.startSample + (i % 2 ? 777 : -333) }));
+    renderTimeline(placed, { sampleRate: RATE, length: 4 });
+    placed = placed.map((clip, i) => ({ ...clip, startSample: clip.startSample - (i % 2 ? 777 : -333) }));
+  }
+  const track = renderTimeline(placed, { sampleRate: RATE, runOut: 0 });
+  assert.deepEqual([...track], [...original]);
+  assert.deepEqual([...source], [...original], 'the source samples are exactly as they were');
+});
+
+test('Test F: a quiet voice stays as quiet as it was, even next to a loud one', () => {
+  const quiet = voiceLike(1, 0.01); // about -40 dBFS
+  const loud = voiceLike(1, 0.5, 3);
+  const track = renderTimeline(
+    [
+      { samples: quiet, startSample: 0 },
+      { samples: loud, startSample: 2 * RATE },
+    ],
+    { sampleRate: RATE, length: 4 }
+  );
+  const edge = Math.round(0.005 * RATE);
+  for (let i = edge; i < quiet.length - edge; i++) assert.equal(track[i], quiet[i]);
+  for (let i = edge; i < loud.length - edge; i++) assert.equal(track[2 * RATE + i], loud[i]);
+});
+
+test('Test G: a loud voice near full scale is neither turned down nor clipped', () => {
+  const loud = voiceLike(1, 1, 5);
+  const top = peakOf(loud);
+  const scale = 0.99 / top;
+  for (let i = 0; i < loud.length; i++) loud[i] *= scale; // peaks at 0.99, above the old 0.98 ceiling
+  const track = renderTimeline([{ samples: loud, startSample: RATE }], { sampleRate: RATE, length: 3 });
+  assert.ok(Math.abs(peakOf(track) - peakOf(loud)) < 1e-7, `peak ${peakOf(track)}`);
+  assert.ok(peakOf(track) <= 1);
+});
+
+test('Test H: an edge cut through a consonant does not click, and a hard attack after silence is kept whole', () => {
+  // A plosive burst: silence, then a sudden loud transient.
+  const burst = new Float32Array(Math.round(0.3 * RATE));
+  const onset = Math.round(0.1 * RATE);
+  for (let i = onset; i < burst.length; i++) burst[i] = 0.8 * Math.exp(-(i - onset) / 200) * Math.sin(i * 1.3) + 0.2 * Math.sin(i * 0.37);
+  // Cut exactly on the burst's loudest samples, so both new edges start at full level.
+  const cut = onset + 3;
+  const [head, tail] = split(burst, [cut]);
+  const log = [];
+  const track = renderTimeline(
+    [
+      { samples: head.samples, startSample: 0 },
+      { samples: tail.samples, startSample: RATE }, // moved away: both cut edges now face silence
+    ],
+    { sampleRate: RATE, length: 2, log: (entry) => log.push(entry) }
+  );
+  const limit = Math.round(0.005 * RATE);
+  for (const [n, entry] of log.entries()) {
+    const s = entry.timelineStartSample;
+    const e = entry.timelineEndSample;
+    // Each edge either lands on a quiet sample or ramps in over a few milliseconds: never a step.
+    const startStep = entry.fadeInSamples > 0 ? Math.abs(track[s]) : Math.abs(track[s] - (track[s - 1] ?? 0));
+    const endStep = entry.fadeOutSamples > 0 ? Math.abs(track[e - 1]) : Math.abs(track[e - 1] - track[e]);
+    assert.ok(startStep < 0.01 && endStep < 0.01, `clip ${n}: steps ${startStep} / ${endStep}`);
+    assert.ok(entry.edgeTrimStartSamples <= limit && entry.edgeTrimEndSamples <= limit, 'at most 5 ms moved');
+    assert.ok(entry.fadeInSamples <= Math.round(0.003 * RATE) && entry.fadeOutSamples <= Math.round(0.003 * RATE), 'a micro-fade only');
+  }
+  // The head starts in silence, so the attack of its burst is untouched, sample for sample.
+  assert.equal(log[0].fadeInSamples, 0);
+  assert.equal(log[0].edgeTrimStartSamples, 0);
+  for (let i = 0; i < cut - limit; i++) assert.equal(track[i], burst[i]);
+});
+
+test('an edge already in silence is never faded or moved', () => {
+  const samples = prepareClip(clip({ tone: 0.5 }), RATE).samples;
+  const log = [];
+  renderTimeline([{ samples, position: 1 }], { sampleRate: RATE, length: 3, log: (entry) => log.push(entry) });
+  assert.deepEqual(
+    [log[0].fadeInSamples, log[0].fadeOutSamples, log[0].edgeTrimStartSamples, log[0].edgeTrimEndSamples, log[0].microFade],
+    [0, 0, 0, 0, false]
+  );
+});
+
+test('lines keep the level they were voiced at unless loudness matching is asked for', () => {
+  const soft = clip({ tone: 0.5, level: 0.1 });
+  const hard = clip({ tone: 0.5, level: 0.4 });
+  const log = [];
+  renderTimeline(
+    [
+      { samples: soft, position: 0 },
+      { samples: hard, position: 2 },
+    ],
+    { sampleRate: RATE, length: 4, log: (entry) => log.push(entry) }
+  );
+  assert.deepEqual(log.map((entry) => entry.gain), [1, 1]);
+  const matched = [];
+  renderTimeline(
+    [
+      { samples: soft, position: 0 },
+      { samples: hard, position: 2 },
+    ],
+    { sampleRate: RATE, length: 4, matchLoudness: true, log: (entry) => matched.push(entry) }
+  );
+  assert.ok(matched[0].gain > 1 && matched[1].gain < 1, `gains ${matched.map((entry) => entry.gain)}`);
+});
+
+test('shortenPauses joins two silences, so the join has no step', () => {
+  const samples = prepareClip(clip({ lead: 0, tone: 1, gap: 0.8, tail: 0 }), RATE).samples;
+  const { samples: shorter, cuts } = shortenPauses(samples, RATE, 0.4);
+  assert.equal(cuts.length, 1);
+  const join = cuts[0].start;
+  assert.ok(Math.abs(shorter[join] - shorter[join - 1]) < 2 * QUIET);
 });
 
 test('acceptRewrite rejects lines that are not shorter or that lost most of the line', () => {
@@ -368,6 +561,77 @@ test('a second sync reuses the clips it already voiced', async () => {
   await runSync({ segments, sourceDuration: 6, sampleRate: RATE, voice, precision: 'lipsync' }, second.deps);
   assert.equal(first.voiced.length, 2);
   assert.equal(second.voiced.length, 0);
+});
+
+test('a resync after a retake or a changed line voices only that line', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 4, 5, 'bbbbbbbbbb'), cue(3, 7, 8, 'cccccccccc')];
+  await runSync({ segments, sourceDuration: 9, sampleRate: RATE, voice }, fakeDeps().deps);
+
+  // A retake of line 1: a new seed for it alone.
+  const lines = [];
+  const retake = fakeDeps();
+  const voiceLines = retake.deps.voiceLines;
+  retake.deps.voiceLines = async (batch, options) => {
+    lines.push(...batch);
+    return voiceLines(batch, options);
+  };
+  const { report } = await runSync({ segments, sourceDuration: 9, sampleRate: RATE, voice, lineSeeds: { 1: 99 } }, retake.deps);
+  assert.deepEqual(retake.voiced, ['aaaaaaaaaa']);
+  assert.equal(lines[0].seed, 99);
+  assert.equal(report.units[0].key, '1');
+
+  // The same retake again is already voiced; a changed line 3 is the only new take.
+  const changed = fakeDeps();
+  const edited = [segments[0], segments[1], cue(3, 7, 8, 'cccc')];
+  await runSync({ segments: edited, sourceDuration: 9, sampleRate: RATE, voice, lineSeeds: { 1: 99 } }, changed.deps);
+  assert.deepEqual(changed.voiced, ['cccc']);
+});
+
+test('audio debug accounts for every sample of every line, and the dub is each clip as voiced', async () => {
+  clearClipCache();
+  // Different levels per line: a sync must not even them out on its own.
+  const levels = { aaaaaaaaaa: 0.05, ['x'.repeat(30)]: 0.3, cccccccccc: 0.6 };
+  const { deps } = fakeDeps();
+  const voiced = [];
+  deps.voiceLines = async (lines, { onLine }) =>
+    lines.map((line, n) => {
+      onLine(n + 1);
+      const samples = clip({ lead: 0.15, tone: line.text.length * SECONDS_PER_CHAR, gap: 0.6, tail: 0.15, level: levels[line.text] });
+      voiced.push(samples);
+      return samples;
+    });
+  let track;
+  deps.encode = async (samples) => {
+    track = samples;
+    return { buffer: Buffer.alloc(0), contentType: 'audio/wav' };
+  };
+  // Line 2 is too long for its slot, so its inner pause is shortened.
+  const segments = [cue(1, 0, 1, 'aaaaaaaaaa'), cue(2, 3, 4, 'x'.repeat(30)), cue(3, 5.5, 6.5, 'cccccccccc')];
+  const { report } = await runSync({ segments, sourceDuration: 10, sampleRate: RATE, voice, suggest: false, debug: true }, deps);
+  const { audioDebug } = report;
+
+  assert.equal(audioDebug.sampleRate, RATE);
+  assert.equal(audioDebug.resampled, false);
+  assert.equal(audioDebug.output.encodes, 1);
+  assert.equal(audioDebug.lines.length, 3);
+  assert.ok(audioDebug.lines[1].pauseCuts.length > 0, 'the long line lost some pause');
+  audioDebug.lines.forEach((line, n) => {
+    assert.equal(line.gain, 1);
+    assert.equal(line.microFade, false, 'clips that start and end in silence need no fade');
+    // Rebuild the line from the voiced clip and the record alone; it must be what the track holds.
+    const source = voiced[n];
+    const kept = [];
+    let at = line.sourceStartSample + line.droppedBeforeZeroSamples;
+    for (const cut of line.pauseCuts) {
+      for (let i = at; i < cut.sourceStartSample; i++) kept.push(source[i]);
+      assert.ok(cut.joinStep < 2 * QUIET);
+      at = cut.sourceEndSample;
+    }
+    for (let i = at; i < line.sourceEndSample; i++) kept.push(source[i]);
+    assert.equal(line.timelineEndSample - line.timelineStartSample, kept.length);
+    for (let i = 0; i < kept.length; i++) assert.equal(track[line.timelineStartSample + i], kept[i], `line ${n + 1}, sample ${i}`);
+  });
 });
 
 test('a sync with nothing translated is refused', async () => {
