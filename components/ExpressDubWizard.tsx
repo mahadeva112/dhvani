@@ -45,7 +45,15 @@ import {
   X,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, ProcessingStatus } from '../types';
-import { Voice, DubProgress, ElevenLabsModel } from '../services/elevenLabsService';
+import {
+  Voice,
+  DubProgress,
+  ElevenLabsModel,
+  ElevenLabsVoiceSettings,
+  DEFAULT_VOICE_SETTINGS,
+  getVoiceSettings,
+  performsAudioTags,
+} from '../services/elevenLabsService';
 import { audioBufferToWav } from '../services/audioService';
 import {
   generateTargetLanguageScript,
@@ -158,6 +166,11 @@ interface ExpressDubWizardProps {
   elModelId?: string;
   onElModelIdChange?: (modelId: string) => void;
   elModels?: ElevenLabsModel[];
+  /** Used to load the voice's own ElevenLabs settings, which the sliders start from. */
+  elApiKey?: string;
+  /** Null means the voice's own ElevenLabs settings are used. */
+  elVoiceSettings?: ElevenLabsVoiceSettings | null;
+  onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
   isSynthesizing: boolean;
   /** Progress of the dub in flight, polled from the server; null before the first report. */
   dubProgress?: DubProgress | null;
@@ -220,6 +233,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   elModelId,
   onElModelIdChange,
   elModels = [],
+  elApiKey = '',
+  elVoiceSettings = null,
+  onElVoiceSettingsChange,
   isSynthesizing,
   dubProgress = null,
   isCancellingDub = false,
@@ -288,6 +304,27 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const itemsPerPage = 35; // Ideal density for buttery smooth React rendering and DOM performance
 
   // Reset page to 1 when search or filter options change
+  // The voice's own ElevenLabs settings: what a dub uses until a slider is moved.
+  const [voiceOwnSettings, setVoiceOwnSettings] = useState<ElevenLabsVoiceSettings | null>(null);
+  const showVoiceSliders = voiceEngine === 'elevenlabs' && Boolean(onElVoiceSettingsChange);
+  useEffect(() => {
+    setVoiceOwnSettings(null);
+    if (!showVoiceSliders || !elVoiceId) return;
+    let cancelled = false;
+    getVoiceSettings(elApiKey, elVoiceId)
+      .then((settings) => {
+        if (!cancelled) setVoiceOwnSettings(settings);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [showVoiceSliders, elApiKey, elVoiceId]);
+  const shownVoiceSettings: ElevenLabsVoiceSettings = {
+    ...DEFAULT_VOICE_SETTINGS,
+    ...(elVoiceSettings || voiceOwnSettings || {}),
+  };
+
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, pacingFilter, reviewMode]);
@@ -2400,6 +2437,55 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <div className="flex justify-between text-xs text-slate-400">
                     <span>Model</span>
                     <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
+                  </div>
+                )}
+                {showVoiceSliders && (
+                  <div className="flex flex-col gap-3 pt-1">
+                    {[
+                      {
+                        key: 'stability' as const,
+                        label: 'Stability',
+                        ends: elModelId && performsAudioTags(elModelId) ? ['Creative', 'Robust'] : ['More variable', 'More stable'],
+                      },
+                      { key: 'similarity_boost' as const, label: 'Similarity', ends: ['Low', 'High'] },
+                    ].map((s) => (
+                      <div key={s.key}>
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-[13px] font-semibold text-slate-100">{s.label}</span>
+                          <span className="font-mono text-xs text-slate-300 tabular-nums">{shownVoiceSettings[s.key].toFixed(2)}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min={0}
+                          max={1}
+                          step={0.05}
+                          value={shownVoiceSettings[s.key]}
+                          disabled={isSynthesizing}
+                          onChange={(e) =>
+                            onElVoiceSettingsChange?.({ ...shownVoiceSettings, [s.key]: parseFloat(e.target.value) })
+                          }
+                          aria-label={s.label}
+                          className="w-full mt-1.5 accent-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
+                        />
+                        <div className="flex justify-between text-[10.5px] text-slate-500">
+                          <span>{s.ends[0]}</span>
+                          <span>{s.ends[1]}</span>
+                        </div>
+                      </div>
+                    ))}
+                    <p className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                      <span>{elVoiceSettings ? 'Your settings. They apply the next time you dub.' : "The voice's own ElevenLabs settings."}</span>
+                      {elVoiceSettings && (
+                        <button
+                          type="button"
+                          onClick={() => onElVoiceSettingsChange?.(null)}
+                          disabled={isSynthesizing}
+                          className="shrink-0 text-indigo-400 hover:text-indigo-300 cursor-pointer disabled:cursor-default"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </p>
                   </div>
                 )}
               </div>

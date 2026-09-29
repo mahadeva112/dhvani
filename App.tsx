@@ -1917,6 +1917,9 @@ export default function App() {
           elModelId={elModelId}
           onElModelIdChange={handleElModelIdChange}
           elModels={elModels}
+          elApiKey={elApiKey}
+          elVoiceSettings={elVoiceSettings}
+          onElVoiceSettingsChange={handleElVoiceSettingsChange}
           isSynthesizing={isBatchProcessing}
           dubProgress={dubProgress}
           isCancellingDub={isCancellingDub}
