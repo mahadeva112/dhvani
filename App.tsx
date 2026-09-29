@@ -1140,9 +1140,9 @@ export default function App() {
               duration: 3.8,
               speaker: 'Host',
               originalText: 'Welcome back to the podcast. Today we are exploring the frontiers of artificial intelligence.',
-              targetText: 'পডকাস্টে আপনাকে স্বাগতম। আজ আমরা কৃত্রিম বুদ্ধিমত্তার নতুন দিগন্ত নিয়ে আলোচনা করছি।',
+              targetText: 'पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।',
               textSource: 'Welcome back to the podcast. Today we are exploring the frontiers of artificial intelligence.',
-              textTarget: 'পডকাস্টে আপনাকে স্বাগতম। আজ আমরা কৃত্রিম বুদ্ধিমত্তার নতুন দিগন্ত নিয়ে আলোচনা করছি।',
+              textTarget: 'पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।',
               emotion: 'conversational',
               speedRate: 1.0,
             },
@@ -1153,9 +1153,9 @@ export default function App() {
               duration: 4.4,
               speaker: 'Guest',
               originalText: 'Thank you for having me. The rate of progress over the last six months has been truly unprecedented.',
-              targetText: 'আমাকে আমন্ত্রণ জানানোর জন্য ধন্যবাদ। গত ছয় মাসে প্রযুক্তির অগ্রগতি সত্যিই অভূতপূর্ব।',
+              targetText: 'शुक्रिया। पिछले छह महीनों में जो तरक्की हुई, वो बेमिसाल है।',
               textSource: 'Thank you for having me. The rate of progress over the last six months has been truly unprecedented.',
-              textTarget: 'আমাকে আমন্ত্রণ জানানোর জন্য ধন্যবাদ। গত ছয় মাসে প্রযুক্তির অগ্রগতি সত্যিই অভূতপূর্ব।',
+              textTarget: 'शुक्रिया। पिछले छह महीनों में जो तरक्की हुई, वो बेमिसाल है।',
               emotion: 'thoughtful',
               speedRate: 1.0,
             },
@@ -1166,9 +1166,9 @@ export default function App() {
               duration: 3.7,
               speaker: 'Host',
               originalText: 'Let us dive straight into multimodal models and live speech translation.',
-              targetText: 'চলুন সরাসরি মাল্টিমোডাল মডেল এবং রিয়েল-টাইম ভয়েস অনুবাদ নিয়ে আলোচনা শুরু করি।',
+              targetText: 'चलिए, सीधे मल्टीमोडल मॉडल और लाइव अनुवाद पर आएँ।',
               textSource: 'Let us dive straight into multimodal models and live speech translation.',
-              textTarget: 'চলুন সরাসরি মাল্টিমোডাল মডেল এবং রিয়েল-টাইম ভয়েস অনুবাদ নিয়ে আলোচনা শুরু করি।',
+              textTarget: 'चलिए, सीधे मल्टीमोडल मॉडल और लाइव अनुवाद पर आएँ।',
               emotion: 'enthusiastic',
               speedRate: 1.0,
             },
@@ -1181,9 +1181,9 @@ export default function App() {
               duration: 4.5,
               speaker: 'Presenter',
               originalText: 'Good morning everyone, and welcome to our annual product announcement keynote.',
-              targetText: 'সুপ্রভাত সবাইকে, এবং আমাদের বার্ষিক পণ্য উন্মোচন কীনোটে আপনাদের সবাইকে স্বাগতম।',
+              targetText: 'सभी को सुप्रभात, सालाना प्रोडक्ट लॉन्च कीनोट में स्वागत है।',
               textSource: 'Good morning everyone, and welcome to our annual product announcement keynote.',
-              textTarget: 'সুপ্রভাত সবাইকে, এবং আমাদের বার্ষিক পণ্য উন্মোচন কীনোটে আপনাদের সবাইকে স্বাগতম।',
+              textTarget: 'सभी को सुप्रभात, सालाना प्रोडक्ट लॉन्च कीनोट में स्वागत है।',
               emotion: 'confident',
               speedRate: 1.0,
             },
@@ -1194,9 +1194,9 @@ export default function App() {
               duration: 5.7,
               speaker: 'Presenter',
               originalText: 'Today we are introducing a new era of voice technology that preserves natural pauses and emotion.',
-              targetText: 'আজ আমরা ভয়েস প্রযুক্তির এক নতুন যুগ শুরু করছি যা প্রতিটি কণ্ঠের স্বাভাবিক অভিব্যক্তি ধরে রাখে।',
+              targetText: 'आज हम वॉइस टेक्नोलॉजी का नया दौर ला रहे हैं, जो ठहराव और भाव सहेजकर रखता है।',
               textSource: 'Today we are introducing a new era of voice technology that preserves natural pauses and emotion.',
-              textTarget: 'আজ আমরা ভয়েস প্রযুক্তির এক নতুন যুগ শুরু করছি যা প্রতিটি কণ্ঠের স্বাভাবিক অভিব্যক্তি ধরে রাখে।',
+              textTarget: 'आज हम वॉइस टेक्नोलॉजी का नया दौर ला रहे हैं, जो ठहराव और भाव सहेजकर रखता है।',
               emotion: 'visionary',
               speedRate: 1.0,
             },
@@ -1207,9 +1207,9 @@ export default function App() {
               duration: 5.5,
               speaker: 'Presenter',
               originalText: 'Every speaker can now be heard in over twenty languages with zero loss of authenticity.',
-              targetText: 'এখন প্রতিটি ভাষাভাষী মানুষের কণ্ঠ কুড়িরও বেশি ভাষায় অবিকল অনুভূতির সাথে প্রকাশিত হতে পারে।',
+              targetText: 'अब हर वक्ता बीस से ज़्यादा भाषाओं में सुना जा सकता है, अपनी असलियत खोए बिना।',
               textSource: 'Every speaker can now be heard in over twenty languages with zero loss of authenticity.',
-              textTarget: 'এখন প্রতিটি ভাষাভাষী মানুষের কণ্ঠ কুড়িরও বেশি ভাষায় অবিকল অনুভূতির সাথে প্রকাশিত হতে পারে।',
+              textTarget: 'अब हर वक्ता बीस से ज़्यादा भाषाओं में सुना जा सकता है, अपनी असलियत खोए बिना।',
               emotion: 'inspiring',
               speedRate: 1.0,
             },
@@ -1244,8 +1244,8 @@ export default function App() {
     setQueue([newJob]);
     setActiveJobId(newJob.id);
 
-    // If target language is not Bengali, automatically translate sample cues to chosen language
-    if (selectedLanguage && selectedLanguage !== 'Bengali') {
+    // The sample is written in Hindi; any other dub language gets its cues translated.
+    if (selectedLanguage && selectedLanguage !== 'Hindi') {
       setIsTranslatingLanguage(true);
       setTranslationProgress(null);
       // Same streamed path as a language switch, so the card shows real progress.
