@@ -45,6 +45,7 @@ export const synthesizeWithCartesia = (
     speed,
     volume,
     emotion,
+    matchLoudness = false,
     jobId,
     signal,
   }: {
@@ -58,6 +59,8 @@ export const synthesizeWithCartesia = (
     volume?: number;
     /** A sonic-3 emotion such as `calm` or `excited`. */
     emotion?: string;
+    /** Bring every passage to the same loudness. Off: each keeps the level it was voiced at. */
+    matchLoudness?: boolean;
     jobId?: string;
     signal?: AbortSignal;
   } = {}
@@ -75,6 +78,7 @@ export const synthesizeWithCartesia = (
       modelId,
       outputFormat,
       language,
+      matchLoudness,
       jobId,
       voiceSettings: Object.keys(voiceSettings).length ? voiceSettings : undefined,
     },

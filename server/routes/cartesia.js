@@ -46,7 +46,7 @@ cartesiaRouter.get(
 cartesiaRouter.post(
   '/cartesia/tts',
   asyncHandler(async (req, res) => {
-    const { voiceId, text, modelId, outputFormat, voiceSettings, language, jobId } = req.body || {};
+    const { voiceId, text, modelId, outputFormat, voiceSettings, language, matchLoudness, jobId } = req.body || {};
     const job = startDubJob(jobId);
     const controller = job?.controller || new AbortController();
     res.on('close', () => {
@@ -63,6 +63,7 @@ cartesiaRouter.post(
           outputFormat,
           language,
           voiceSettings: voiceSettings || undefined,
+          matchLoudness: matchLoudness === true,
         },
         {
           apiKey: apiKey(req),

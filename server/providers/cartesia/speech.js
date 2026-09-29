@@ -6,6 +6,7 @@ import { requestWithRetry, cancelledError } from '../../lib/http.js';
 import { splitPassages, MAX_TTS_CHUNK_CHARS, PASSAGE_PAUSE_SECONDS } from '../../lib/ttsText.js';
 import { joinPassages } from '../../lib/audioJoin.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
+import { pcmToWav } from '../../lib/wav.js';
 import { cleanTextForNaturalSpeech, secondsOfAudio } from '../elevenlabs/speech.js';
 import {
   cartesiaJson,
@@ -114,18 +115,24 @@ export const synthesizeSpeech = async (
 /** Passages voiced at once; Cartesia's lower plans allow a few concurrent requests. */
 const SCRIPT_CONCURRENCY = 2;
 
-/** Joins passages with the same lead-in, pauses and run-out as an ElevenLabs dub. */
-const joinAudio = async (parts, passages, format) => {
+/**
+ * Joins passages with the same lead-in, pauses and run-out as an ElevenLabs
+ * dub, written once as lossless WAV. Returns `{ buffer, contentType }`;
+ * `contentType` is null when the files were appended as generated.
+ */
+const joinAudio = async (parts, passages, format, { matchLoudness = false } = {}) => {
   try {
     const decoded = await Promise.all(parts.map((part) => decodeAudio(part, format)));
+    const { sampleRate } = parseOutputFormat(format);
     const joined = joinPassages(decoded, {
-      sampleRate: parseOutputFormat(format).sampleRate,
+      sampleRate,
       pauses: passages.slice(0, -1).map((passage) => PASSAGE_PAUSE_SECONDS[passage.breakAfter] ?? 0),
+      matchLoudness,
     });
-    return await encodeAudio(joined, format);
+    return { buffer: pcmToWav(await encodeAudio(joined, `pcm_${sampleRate}`), { sampleRate }), contentType: 'audio/wav' };
   } catch (err) {
     logger.warn(`Could not join Cartesia passages smoothly (${err.message}); appending them as generated.`);
-    return Buffer.concat(parts);
+    return { buffer: Buffer.concat(parts), contentType: null };
   }
 };
 
@@ -135,7 +142,7 @@ const joinAudio = async (parts, passages, format) => {
  * progress bar and cancel button work unchanged. Returns `{ contentType, buffer }`.
  */
 export const synthesizeScript = async (
-  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings },
+  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings, matchLoudness = false },
   { apiKey, signal, onProgress = () => {} } = {}
 ) => {
   requireVoiceId(voiceId);
@@ -189,8 +196,8 @@ export const synthesizeScript = async (
 
   if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
   report('joining');
-  const buffer = await joinAudio(parts, passages, format);
-  return { contentType, buffer };
+  const joined = await joinAudio(parts, passages, format, { matchLoudness });
+  return { contentType: joined.contentType || contentType, buffer: joined.buffer };
 };
 
 /* --------------------------------------------------------------------- */

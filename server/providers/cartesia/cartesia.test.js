@@ -49,7 +49,9 @@ test('a long dub is voiced passage by passage with the right request and joined'
   );
 
   assert.ok(buffer.length > 0);
-  assert.equal(contentType, 'audio/pcm');
+  // Joined once into lossless WAV, which a browser can play, not bare PCM.
+  assert.equal(contentType, 'audio/wav');
+  assert.equal(buffer.subarray(0, 4).toString('latin1'), 'RIFF');
   assert.ok(calls.length > 1, 'the long script is split into passages');
 
   const { url, init } = calls[0];
