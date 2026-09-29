@@ -34,8 +34,10 @@ app.set('trust proxy', 'loopback');
  * The CSP is deliberately strict: the app has no third-party scripts and no
  * remote analytics. `connect-src 'self'` means that even if a dependency were
  * compromised, it could not exfiltrate a transcript to another host.
- * `mediaSrc` allows blob: for locally generated audio, and the ElevenLabs
- * preview CDN for voice auditions.
+ * `mediaSrc` allows blob: for locally generated audio, and ElevenLabs'
+ * voice-audition hosts: premade voices link to the storage.googleapis.com
+ * CDN, but library and designed voices link to signed
+ * api(.us|.eu.residency).elevenlabs.io/v1/voices/…/previews/audio URLs.
  */
 app.use(
   helmet({
@@ -47,7 +49,7 @@ app.use(
         'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         'font-src': ["'self'", 'data:', 'https://fonts.gstatic.com'],
         'img-src': ["'self'", 'data:', 'blob:'],
-        'media-src': ["'self'", 'blob:', 'data:', 'https://storage.googleapis.com'],
+        'media-src': ["'self'", 'blob:', 'data:', 'https://storage.googleapis.com', 'https://*.elevenlabs.io'],
         /*
          * `blob:` is required, not a loosening: the app reads its own
          * generated audio back with fetch() before decoding it into an

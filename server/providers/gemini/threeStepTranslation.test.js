@@ -6,6 +6,7 @@ import {
   threeStepLanguages,
   countSyllables,
   formatEnglishSegments,
+  stripPaceTags,
 } from './threeStepTranslation.js';
 
 test('the preset marker switches translation to the 3-step pipeline', () => {
@@ -40,4 +41,10 @@ test('segments carry duration, gap, availability and density metadata', () => {
     text,
     '[2.000s][0.500s][25%][2.500s] [3] [1.50] [1.00] [3] Time is life.\n\nNo timing here.'
   );
+});
+
+test('pace tags from the Step prompts are stripped, keeping the words and line breaks', () => {
+  assert.equal(stripPaceTags('[fast]जैसा उसे होना चाहिए![/fast]'), 'जैसा उसे होना चाहिए!');
+  assert.equal(stripPaceTags('पहला [fast] दूसरा [/fast]\nतीसरा'), 'पहला दूसरा\nतीसरा');
+  assert.equal(stripPaceTags('No tags here.'), 'No tags here.');
 });

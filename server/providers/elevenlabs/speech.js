@@ -7,6 +7,7 @@ import { splitPassages, contextAround, MAX_TTS_CHUNK_CHARS, PASSAGE_PAUSE_SECOND
 import { joinPassages } from '../../lib/audioJoin.js';
 import { AUDIO_TAGS, addDeliveryCues } from '../../lib/deliveryCues.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
+import { pcmToWav } from '../../lib/wav.js';
 import { cancelledError } from '../../lib/http.js';
 import { elevenLabsJson, elevenLabsBinary, elevenLabsMultipart, PROVIDER_LABEL } from './client.js';
 
@@ -38,8 +39,9 @@ export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false } = {
     .replace(/<[^>]+>/g, ' ')
     .replace(/^\[[^\]]+\]:\s*/gm, '')
     .replace(/^\([^)]+\):\s*/gm, '')
-    .replace(/\[([a-zA-Z0-9_\-\s]+)\]/g, (tag, name) =>
-      keepAudioTags && AUDIO_TAGS.includes(name.trim().toLowerCase()) ? tag : ''
+    // Closing tags such as [/fast] go too; otherwise the slash and word are read aloud.
+    .replace(/\[(\/?)([a-zA-Z0-9_\-\s]+)\]/g, (tag, slash, name) =>
+      keepAudioTags && !slash && AUDIO_TAGS.includes(name.trim().toLowerCase()) ? tag : ''
     )
     // Collapse runs of spaces/tabs but keep line breaks: ElevenLabs uses them
     // as breathing points, and flattening a multi-cue script onto one line is
@@ -251,28 +253,34 @@ const SCRIPT_CONCURRENCY = 2;
 
 /**
  * Joins the passages' audio into one file with a lead-in and run-out (see
- * audioJoin.js). Without ffmpeg the files are appended as they are, which
- * plays but leaves the joins and the ending abrupt.
+ * audioJoin.js), written once as lossless WAV at the voice's own rate:
+ * encoding it to MP3 again would be a second lossy generation of every word.
+ * Without ffmpeg the files are appended as they are, which plays but leaves
+ * the joins and the ending abrupt. Returns `{ buffer, contentType }`;
+ * `contentType` is null when the files were appended as generated.
  */
-const joinAudio = async (parts, passages, outputFormat) => {
+const joinAudio = async (parts, passages, outputFormat, { matchLoudness = false } = {}) => {
   try {
     const decoded = await Promise.all(parts.map((part) => decodeAudio(part, outputFormat)));
+    const { sampleRate } = parseOutputFormat(outputFormat);
     const joined = joinPassages(decoded, {
-      sampleRate: parseOutputFormat(outputFormat).sampleRate,
+      sampleRate,
       pauses: passages.slice(0, -1).map((passage) => PASSAGE_PAUSE_SECONDS[passage.breakAfter] ?? 0),
+      matchLoudness,
     });
-    return await encodeAudio(joined, outputFormat);
+    return { buffer: pcmToWav(await encodeAudio(joined, `pcm_${sampleRate}`), { sampleRate }), contentType: 'audio/wav' };
   } catch (err) {
     logger.warn(`Could not join dub passages smoothly (${err.message}); appending them as generated.`);
-    return Buffer.concat(parts);
+    return { buffer: Buffer.concat(parts), contentType: null };
   }
 };
 
 /**
  * Text-to-speech for a whole dub script.
  *
- * A long script is generated passage by passage and joined into one file.
- * Every passage shares one seed so the voice is sampled the same way
+ * A long script is generated passage by passage and joined into one lossless
+ * WAV, each passage at the level it was voiced at unless `matchLoudness`
+ * evens them out. Every passage shares one seed so the voice is sampled the same way
  * throughout; on models that support it, each is also stitched to the audio
  * before it and told the text either side.
  *
@@ -293,6 +301,7 @@ export const synthesizeScript = async (
     audioTags = false,
     language,
     seed,
+    matchLoudness = false,
   },
   { apiKey, textModelKey, signal, onProgress = () => {} } = {}
 ) => {
@@ -404,8 +413,9 @@ export const synthesizeScript = async (
   if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
   onProgress({ phase: 'joining', passageCount: chunks.length, passagesDone: chunks.length, totalChars, charsDone: totalChars });
   // Even a one-passage dub goes through the join for its lead-in and run-out.
-  const buffer = isJoinable(outputFormat) ? await joinAudio(parts, passages, outputFormat) : parts[0];
-  return { contentType, buffer };
+  if (!isJoinable(outputFormat)) return { contentType, buffer: parts[0] };
+  const joined = await joinAudio(parts, passages, outputFormat, { matchLoudness });
+  return { contentType: joined.contentType || contentType, buffer: joined.buffer };
 };
 
 /**

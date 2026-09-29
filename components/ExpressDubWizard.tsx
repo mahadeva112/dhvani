@@ -170,6 +170,12 @@ interface ExpressDubWizardProps {
   elModelId?: string;
   onElModelIdChange?: (modelId: string) => void;
   elModels?: ElevenLabsModel[];
+  /** Adds emotion cues to an Eleven v3/v4 dub before it is voiced; off means the script is spoken as written. */
+  emotionEnhance?: boolean;
+  onEmotionEnhanceChange?: (enabled: boolean) => void;
+  /** Brings a dub's passages to one loudness; off keeps each at the level it was voiced at. */
+  dubMatchLoudness?: boolean;
+  onDubMatchLoudnessChange?: (enabled: boolean) => void;
   /** Used to load the voice's own ElevenLabs settings, which the sliders start from. */
   elApiKey?: string;
   /** Null means the voice's own ElevenLabs settings are used. */
@@ -247,6 +253,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onSynthesizeMaster,
   ttsModelName = 'ElevenLabs',
   elModelId,
+  emotionEnhance = false,
+  onEmotionEnhanceChange,
+  dubMatchLoudness = false,
+  onDubMatchLoudnessChange,
   onElModelIdChange,
   elModels = [],
   elApiKey = '',
@@ -2494,6 +2504,48 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <span>Model</span>
                     <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
                   </div>
+                )}
+                {voiceEngine === 'elevenlabs' && onEmotionEnhanceChange && (() => {
+                  const takesCues = Boolean(elModelId && performsAudioTags(elModelId));
+                  return (
+                    <label
+                      className={`flex items-start gap-2.5 text-xs ${takesCues ? 'cursor-pointer' : 'opacity-60 cursor-default'}`}
+                      title={hasDub ? 'Applies the next time you dub.' : undefined}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={emotionEnhance && takesCues}
+                        onChange={(e) => onEmotionEnhanceChange(e.target.checked)}
+                        disabled={isSynthesizing || !takesCues}
+                        className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                      />
+                      <span className="flex flex-col gap-0.5">
+                        <span className="text-slate-200 font-medium">Enhance emotion</span>
+                        <span className="text-[11px] text-slate-500 leading-snug">
+                          {takesCues
+                            ? 'Adds cues like [calm] and [sighs] before voicing. Off: the script is spoken exactly as written.'
+                            : 'Eleven v3 and v4 only.'}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })()}
+                {onDubMatchLoudnessChange && (
+                  <label className="flex items-start gap-2.5 text-xs cursor-pointer" title={hasDub ? 'Applies the next time you dub.' : undefined}>
+                    <input
+                      type="checkbox"
+                      checked={dubMatchLoudness}
+                      onChange={(e) => onDubMatchLoudnessChange(e.target.checked)}
+                      disabled={isSynthesizing}
+                      className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                    />
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-slate-200 font-medium">Even out loudness</span>
+                      <span className="text-[11px] text-slate-500 leading-snug">
+                        Brings every passage of a long script to one level. Off: each keeps exactly the level it was voiced at.
+                      </span>
+                    </span>
+                  </label>
                 )}
                 {showVoiceSliders && (
                   <div className="flex flex-col gap-3 pt-1">

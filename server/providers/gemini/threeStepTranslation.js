@@ -215,8 +215,18 @@ const runStage = async ({ prompt, apiKey, models, label }) => {
   return { script, modelUsed };
 };
 
-// The aligner returns the script word for word, so only tag handling is added.
-const ALIGN_RULES = `7. Keep an opening square-bracket tag such as [fast] in the same cue as its closing [/fast] where the English allows it.`;
+/*
+ * The Step prompts mark lines that had to be compressed with [fast]…[/fast].
+ * The compression is kept but the tags are not: they would show in the cue
+ * editor and ElevenLabs does not treat them as pacing. Emotion is added only
+ * at dub time, when "Enhance emotion" is on.
+ */
+export const stripPaceTags = (text) =>
+  String(text || '')
+    .replace(/\[\/?[a-z][a-z\s-]{0,30}\]/gi, '')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .trim();
 
 /**
  * Runs Steps 1–3 over one chunk of cues and aligns the result onto them.
@@ -254,16 +264,17 @@ const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, mo
     prompt: `${punctuation.text}\n\n${step2.script}`,
   });
 
+  const script = stripPaceTags(step3.script);
+
   report(3, 'Placing the script on the cues');
   const aligned = await alignScriptToCues(chunk, {
-    pastedScript: step3.script,
+    pastedScript: script,
     targetLanguage,
     apiKey,
     models,
-    extraRules: ALIGN_RULES,
   });
 
-  return { aligned, script: step3.script, modelUsed: step3.modelUsed };
+  return { aligned, script, modelUsed: step3.modelUsed };
 };
 
 /**
@@ -317,7 +328,10 @@ export const translateCueTextsThreeStep = async (
       const outcome = await translateChunk({ chunk, stages, notes, targetLanguage, apiKey, models, report });
       modelUsed = outcome.modelUsed;
       scripts.push(outcome.script);
-      for (const [id, text] of outcome.aligned) if (text) translations.set(id, text);
+      for (const [id, text] of outcome.aligned) {
+        const clean = stripPaceTags(text);
+        if (clean) translations.set(id, clean);
+      }
     } catch (err) {
       failedBatches += 1;
       logger.error(`3-step translation part ${chunkIndex + 1}/${chunks.length} failed: ${err?.message || err}`);
