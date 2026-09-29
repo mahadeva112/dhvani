@@ -53,7 +53,9 @@ import {
   DEFAULT_VOICE_SETTINGS,
   getVoiceSettings,
   performsAudioTags,
+  isElevenLabsDefault,
 } from '../services/elevenLabsService';
+import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { audioBufferToWav } from '../services/audioService';
 import {
   generateTargetLanguageScript,
@@ -2441,6 +2443,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 )}
                 {showVoiceSliders && (
                   <div className="flex flex-col gap-3 pt-1">
+                    <div className="flex items-center justify-between -mb-1">
+                      <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice settings</span>
+                      <ResetDefaultsButton
+                        onClick={() => onElVoiceSettingsChange?.({ ...DEFAULT_VOICE_SETTINGS })}
+                        disabled={isSynthesizing || isElevenLabsDefault(shownVoiceSettings)}
+                      />
+                    </div>
                     {[
                       {
                         key: 'stability' as const,
@@ -2448,18 +2457,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         ends: elModelId && performsAudioTags(elModelId) ? ['Creative', 'Robust'] : ['More variable', 'More stable'],
                       },
                       { key: 'similarity_boost' as const, label: 'Similarity', ends: ['Low', 'High'] },
+                      { key: 'style' as const, label: 'Style Exaggeration', ends: ['None', 'Exaggerated'] },
                     ].map((s) => (
                       <div key={s.key}>
                         <div className="flex items-baseline justify-between gap-3">
                           <span className="text-[13px] font-semibold text-slate-100">{s.label}</span>
-                          <span className="font-mono text-xs text-slate-300 tabular-nums">{shownVoiceSettings[s.key].toFixed(2)}</span>
+                          <span className="font-mono text-xs text-slate-300 tabular-nums">{(shownVoiceSettings[s.key] ?? 0).toFixed(2)}</span>
                         </div>
                         <input
                           type="range"
                           min={0}
                           max={1}
                           step={0.05}
-                          value={shownVoiceSettings[s.key]}
+                          value={shownVoiceSettings[s.key] ?? 0}
                           disabled={isSynthesizing}
                           onChange={(e) =>
                             onElVoiceSettingsChange?.({ ...shownVoiceSettings, [s.key]: parseFloat(e.target.value) })
@@ -2473,6 +2483,31 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         </div>
                       </div>
                     ))}
+                    <div className="flex items-center gap-3">
+                      <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-100">Speaker boost</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={shownVoiceSettings.use_speaker_boost !== false}
+                        aria-label="Speaker boost"
+                        disabled={isSynthesizing}
+                        onClick={() =>
+                          onElVoiceSettingsChange?.({
+                            ...shownVoiceSettings,
+                            use_speaker_boost: shownVoiceSettings.use_speaker_boost === false,
+                          })
+                        }
+                        className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer disabled:cursor-default disabled:opacity-60 ${
+                          shownVoiceSettings.use_speaker_boost !== false ? 'bg-indigo-500' : 'bg-slate-700'
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${
+                            shownVoiceSettings.use_speaker_boost !== false ? 'left-[17px]' : 'left-[3px]'
+                          }`}
+                        />
+                      </button>
+                    </div>
                     <p className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
                       <span>{elVoiceSettings ? 'Your settings. They apply the next time you dub.' : "The voice's own ElevenLabs settings."}</span>
                       {elVoiceSettings && (
