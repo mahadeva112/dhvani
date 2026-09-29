@@ -181,7 +181,7 @@ interface ExpressDubWizardProps {
   isCancellingDub?: boolean;
   onCancelSynthesis?: () => void;
   /** Sync: a dub voiced line by line and placed on the original's phrases. Omitted hides the panel. */
-  onSyncDub?: (options: { precision: SyncPrecision; rewrite: boolean }) => void;
+  onSyncDub?: (options: { precision: SyncPrecision; suggest: boolean }) => void;
   isSyncing?: boolean;
   syncProgress?: SyncProgress | null;
   isCancellingSync?: boolean;

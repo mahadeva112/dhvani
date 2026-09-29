@@ -42,11 +42,13 @@ export const pava = (values, weights = values.map(() => 1)) => {
 /**
  * Chooses a start position for each clip.
  *
- * `clips[i]` is `{ want, length, gapAfter, weight?, earliest? }`: `want` is the
- * position that puts its first word on the source phrase, `length` the clip's
- * length, `gapAfter` the minimum pause before the next clip, and `earliest`
- * the soonest it may start (a dub line may not start noticeably before the
- * source line it translates). Returns positions in the same order.
+ * `clips[i]` is `{ want, length, gapAfter, weight?, earliest?, floor? }`:
+ * `want` is the position that puts its first word on the source phrase,
+ * `length` the clip's length, `gapAfter` the minimum pause before the next
+ * clip, `earliest` the soonest it may start (a dub line may not start
+ * noticeably before the source line it translates) and `floor` the lowest
+ * position the track allows (0 by default; negative when what comes before
+ * the first word may be dropped). Returns positions in the same order.
  */
 export const placeClips = (clips) => {
   if (clips.length === 0) return [];
@@ -69,7 +71,7 @@ export const placeClips = (clips) => {
   // non-decreasing, so every gap still holds.
   let floor = -Infinity;
   return solved.map((u, i) => {
-    floor = Math.max(floor, Math.max(0, clips[i].earliest ?? 0) - offsets[i]);
+    floor = Math.max(floor, Math.max(clips[i].floor ?? 0, clips[i].earliest ?? -Infinity) - offsets[i]);
     return Math.max(u, floor) + offsets[i];
   });
 };
@@ -80,9 +82,10 @@ const percentile = (sorted, p) =>
 /**
  * How well a placement lines up with the source.
  *
- * `units[i]` is the sync unit, `clips[i]` is `{ lead, speech }` (seconds from
- * the clip's start to its first word, and from its first to last word) and
- * `positions[i]` where the clip was placed. A line is in sync when its first
+ * `units[i]` is the sync unit, `clips[i]` is `{ lead, speech, length }`
+ * (seconds from the clip's start to its first word, from its first to last
+ * word, and the clip's whole length) and `positions[i]` where the clip was
+ * placed. A line is in sync when its first
  * word is within `tolerance` of the source line's, and it ends before the next
  * source line starts (give or take `tolerance`).
  */

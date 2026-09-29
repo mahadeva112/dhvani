@@ -1,17 +1,18 @@
 /**
- * A dub that is in sync with its source, built without changing the voice's
- * speed.
+ * A dub that is in sync with its source, built without changing the voice.
  *
  * 1. The translated cues are grouped into sync units, one per spoken phrase.
  * 2. Each unit is voiced as its own clip (stitched to its neighbours).
- * 3. Every clip is trimmed to its speech and measured against its slot: the
- *    time from its source phrase's start to the next phrase's start.
- * 4. A clip too long for its slot has its line rewritten shorter and voiced
- *    again, at most MAX_REWRITE_ROUNDS times.
- * 5. Whatever still runs long has the pauses between its words shortened.
- * 6. Every clip is placed by an isotonic solve (syncPlace.js) and the clips
- *    are rendered into one track the length of the source.
- * 7. The placement is measured against the source phrase by phrase.
+ * 3. Every clip is trimmed to the silence around it and measured against its
+ *    slot: the time from its source phrase's start to the next phrase's start.
+ * 4. A clip too long for its slot has the silent pauses between its words
+ *    shortened, then every clip is placed by an isotonic solve (syncPlace.js).
+ * 5. The clips are rendered into one track the length of the source, exactly
+ *    as voiced: no speed change and no fades.
+ * 6. The placement is measured against the source phrase by phrase.
+ * 7. A line still too long for its slot gets a shorter wording suggested by
+ *    the text model. It is only a suggestion: the dub says what the script
+ *    says, and nothing is rewritten without the user.
  *
  * The voice, the text model and the codecs are passed in, so the whole run
  * can be tested with fakes.
@@ -21,14 +22,14 @@ import { ApiError } from '../errors.js';
 import { cancelledError } from './http.js';
 import { buildSyncUnits, minimumGap } from './syncUnits.js';
 import { placeClips, measureSync } from './syncPlace.js';
-import { prepareClip, shortenPauses, renderTimeline, CLIP_LEAD_SECONDS } from './syncRender.js';
+import { prepareClip, shortenPauses, renderTimeline } from './syncRender.js';
 import { TTS_CONTEXT_CHARS } from './ttsText.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
- * sit from the source's; `allowedOverflow` is how far past its slot a clip may
- * run before its line is rewritten (the placer absorbs the rest by nudging
- * neighbours).
+ * sit from the source's; a clip running more than `allowedOverflow` past its
+ * slot is reported as too long even when the placer absorbed it by nudging
+ * its neighbours.
  */
 export const SYNC_PRECISION = {
   lipsync: { tolerance: 0.08, allowedOverflow: 0.15 },
@@ -36,19 +37,25 @@ export const SYNC_PRECISION = {
   loose: { tolerance: 0.3, allowedOverflow: 0.6 },
 };
 
-export const MAX_REWRITE_ROUNDS = 2;
-
-/** Rewrites aim this far under the slot, since a rewrite rarely lands exactly on its target. */
-const REWRITE_MARGIN = 0.92;
+/** Suggestions aim this far under the slot, since a new wording rarely lands exactly on its target. */
+const SUGGESTION_MARGIN = 0.92;
 
 /** Hard anchors (after long pauses and speaker changes) pull this much harder in the solve. */
 const HARD_ANCHOR_WEIGHT = 3;
 
-/** Lines rewritten at once. */
-const REWRITE_CONCURRENCY = 4;
+/** Suggestions asked for at once. */
+const SUGGESTION_CONCURRENCY = 4;
+
+/**
+ * A clip often opens with a soft breath or room noise before its first word
+ * (below speech level, above silence). All of it is kept, but only this much
+ * before the first word counts when clips are spaced out: the rest may overlap
+ * the silent tail of the line before, where it is mixed in, never cut.
+ */
+const LEAD_GUARD_SECONDS = 0.03;
 
 /** The steps of a run, in order; `step` in progress reports counts from 1. */
-export const SYNC_STEPS = ['units', 'voicing', 'fitting', 'rewriting', 'placing', 'rendering', 'checking'];
+export const SYNC_STEPS = ['units', 'voicing', 'fitting', 'placing', 'rendering', 'checking', 'suggesting'];
 
 /**
  * Clips already voiced, by everything that decides how they sound, so a second
@@ -83,29 +90,38 @@ const mapLimit = async (items, limit, fn) => {
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
 };
 
+/** The index at or after `from` (within `limit` samples) where the waveform crosses zero, or `from`. */
+const zeroCrossingAfter = (samples, from, limit) => {
+  for (let i = Math.max(1, from); i < Math.min(samples.length, from + limit); i++) {
+    if (samples[i - 1] <= 0 !== samples[i] <= 0 || samples[i] === 0) return i;
+  }
+  return from;
+};
+
 /**
  * Runs a sync.
  *
- * `params`: `{ segments, sourceDuration, sampleRate, precision, rewrite, language, voice }`,
+ * `params`: `{ segments, sourceDuration, sampleRate, precision, suggest, language, voice }`,
  * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`.
  *
  * `deps`:
  * - `voiceLines(lines)` → `[Buffer]`, voicing `[{ text, previousText, nextText }]` in order;
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
  * - `encode(samples)` → `{ buffer, contentType }`;
- * - `shorten({ text, sourceText, language, targetChars })` → shorter text or null (optional).
+ * - `shorten({ text, sourceText, language, targetChars })` → a shorter wording or null, throwing
+ *   when the text model fails (optional).
  *
  * Returns `{ buffer, contentType, report }`.
  */
 export const runSync = async (params, deps, { signal, onProgress = () => {} } = {}) => {
-  const { segments, sourceDuration = 0, sampleRate, rewrite = true, language, voice } = params;
+  const { segments, sourceDuration = 0, sampleRate, suggest = true, language, voice } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
   const checkCancelled = () => {
     if (signal?.aborted) throw cancelledError('Sync');
   };
 
-  const progress = { phase: 'units', step: 1, unitCount: 0, unitsVoiced: 0, unitsToVoice: 0, rewritesTotal: 0, rewritesDone: 0 };
+  const progress = { phase: 'units', step: 1, unitCount: 0, unitsVoiced: 0, unitsToVoice: 0, suggestionsTotal: 0, suggestionsDone: 0 };
   const report = (patch) => {
     Object.assign(progress, patch);
     onProgress({ ...progress });
@@ -117,107 +133,64 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   if (units.length === 0) {
     throw new ApiError('There are no translated lines to sync.', { status: 400, code: 'no_lines' });
   }
-  const texts = units.map((unit) => unit.text);
   report({ unitCount: units.length });
 
   // 2. Voicing
+  report({ phase: 'voicing', step: 2 });
   const buffers = new Array(units.length);
-  const voiceUnits = async (indices) => {
-    const missing = [];
-    for (const i of indices) {
-      const cached = clipCache.get(cacheKey(voice, texts[i]));
-      if (cached) buffers[i] = cached;
-      else missing.push(i);
-    }
-    report({ unitsToVoice: missing.length, unitsVoiced: 0 });
-    if (missing.length === 0) return;
+  const missing = [];
+  units.forEach((unit, i) => {
+    const cached = clipCache.get(cacheKey(voice, unit.text));
+    if (cached) buffers[i] = cached;
+    else missing.push(i);
+  });
+  report({ unitsToVoice: missing.length });
+  if (missing.length > 0) {
     const lines = missing.map((i) => ({
-      text: texts[i],
-      previousText: i > 0 ? texts[i - 1].slice(-TTS_CONTEXT_CHARS) : undefined,
-      nextText: i < texts.length - 1 ? texts[i + 1].slice(0, TTS_CONTEXT_CHARS) : undefined,
+      text: units[i].text,
+      previousText: i > 0 ? units[i - 1].text.slice(-TTS_CONTEXT_CHARS) : undefined,
+      nextText: i < units.length - 1 ? units[i + 1].text.slice(0, TTS_CONTEXT_CHARS) : undefined,
     }));
     const voiced = await deps.voiceLines(lines, { onLine: (done) => report({ unitsVoiced: done }) });
     missing.forEach((i, n) => {
       buffers[i] = voiced[n];
-      remember(cacheKey(voice, texts[i]), voiced[n]);
+      remember(cacheKey(voice, units[i].text), voiced[n]);
     });
-    checkCancelled();
+  }
+  checkCancelled();
+
+  // 3. Fitting
+  report({ phase: 'fitting', step: 3 });
+  const clips = [];
+  for (const buffer of buffers) clips.push(prepareClip(await deps.decode(buffer), sampleRate));
+  checkCancelled();
+
+  /**
+   * The part of clip `i` that is spaced out against its neighbours: from just
+   * before its first word to the end of its tail. `head` is the pre-roll before
+   * that, which may overlap the line before.
+   */
+  const core = (i) => {
+    const head = Math.max(0, clips[i].lead - LEAD_GUARD_SECONDS);
+    return { head, lead: clips[i].lead - head, speech: clips[i].speech, length: clips[i].samples.length / sampleRate - head };
   };
 
-  const clips = new Array(units.length);
-  const measure = async (indices) => {
-    for (const i of indices) clips[i] = prepareClip(await deps.decode(buffers[i]), sampleRate);
-  };
-
-  /** How long unit `i`'s clip may be, from its wanted start to the latest it may end. */
+  /** How long unit `i`'s core may be: from its wanted start to where the next clip's core wants to start, less a breath. */
   const budget = (i) => {
     const unit = units[i];
-    const start = unit.srcStart - clips[i].lead;
+    const start = unit.srcStart - core(i).lead;
     const limit =
       unit.nextStart !== null
-        ? unit.nextStart - CLIP_LEAD_SECONDS - minimumGap(unit.gapAfter)
+        ? unit.nextStart - (clips[i + 1] ? core(i + 1).lead : 0) - minimumGap(unit.gapAfter)
         : sourceDuration > 0
           ? Math.max(sourceDuration, unit.srcEnd) + 0.5
           : Infinity;
     return limit - start;
   };
-  const overflow = (i) => (clips[i] ? clips[i].samples.length / sampleRate - budget(i) : 0);
+  const overflow = (i) => (clips[i] ? core(i).length - budget(i) : 0);
 
-  report({ phase: 'voicing', step: 2 });
-  await voiceUnits(units.map((_, i) => i));
-
-  // 3. Fitting
-  report({ phase: 'fitting', step: 3 });
-  await measure(units.map((_, i) => i));
-  checkCancelled();
-
-  // 4. Rewriting
-  const rewritten = new Set();
-  report({ phase: 'rewriting', step: 4 });
-  if (rewrite && deps.shorten) {
-    for (let round = 0; round < MAX_REWRITE_ROUNDS; round++) {
-      const long = units.map((_, i) => i).filter((i) => clips[i] && overflow(i) > allowedOverflow);
-      if (long.length === 0) break;
-      report({ rewritesTotal: progress.rewritesTotal + long.length });
-
-      const changed = [];
-      const previous = new Map();
-      await mapLimit(long, REWRITE_CONCURRENCY, async (i) => {
-        checkCancelled();
-        const clip = clips[i];
-        const tail = clip.samples.length / sampleRate - clip.lead - clip.speech;
-        const speechBudget = Math.max(0.2, budget(i) - clip.lead - tail);
-        const targetChars = Math.max(1, Math.floor(texts[i].length * (speechBudget / clip.speech) * REWRITE_MARGIN));
-        const line = await deps.shorten({ text: texts[i], sourceText: units[i].sourceText, language, targetChars });
-        if (line && line !== texts[i]) {
-          previous.set(i, { text: texts[i], buffer: buffers[i], clip });
-          texts[i] = line;
-          changed.push(i);
-        }
-        report({ rewritesDone: progress.rewritesDone + 1 });
-      });
-      if (changed.length === 0) break;
-
-      changed.sort((a, b) => a - b);
-      await voiceUnits(changed);
-      await measure(changed);
-      for (const i of changed) {
-        const before = previous.get(i);
-        // A rewrite that came out no shorter is undone.
-        if (!clips[i] || clips[i].samples.length >= before.clip.samples.length) {
-          texts[i] = before.text;
-          buffers[i] = before.buffer;
-          clips[i] = before.clip;
-        } else {
-          rewritten.add(i);
-        }
-      }
-      checkCancelled();
-    }
-  }
-
-  // 5. Placing: shorten pauses where a clip still runs long, then solve.
-  report({ phase: 'placing', step: 5 });
+  // 4. Placing: a clip that runs long first gives up silence between its words.
+  report({ phase: 'placing', step: 4 });
   const pauseTrimmed = new Map();
   units.forEach((_, i) => {
     const excess = overflow(i);
@@ -229,51 +202,85 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
   });
 
-  // A line that starts within its lead-in of 0:00 can't begin before the track does; its lead-in is cut short instead.
-  units.forEach((unit, i) => {
-    if (!clips[i] || unit.srcStart >= clips[i].lead) return;
-    const cut = Math.round((clips[i].lead - Math.max(0, unit.srcStart)) * sampleRate);
-    clips[i] = { ...clips[i], samples: clips[i].samples.subarray(cut), lead: clips[i].lead - cut / sampleRate };
-  });
-
   const placedIndex = units.map((_, i) => i).filter((i) => clips[i]);
+  const cores = placedIndex.map((i) => core(i));
   const positions = placeClips(
     placedIndex.map((i, n) => {
       const unit = units[i];
-      const want = unit.srcStart - clips[i].lead;
+      const want = unit.srcStart - cores[n].lead;
       return {
         want,
-        length: clips[i].samples.length / sampleRate,
+        length: cores[n].length,
         gapAfter: n < placedIndex.length - 1 ? minimumGap(unit.gapAfter) : 0,
         weight: unit.hardAnchor ? HARD_ANCHOR_WEIGHT : 1,
         earliest: want - tolerance,
+        // Only the first word has to be inside the track; what comes before it may be dropped.
+        floor: -cores[n].lead,
       };
     })
   );
   checkCancelled();
 
-  // 6. Rendering
-  report({ phase: 'rendering', step: 6 });
+  // 5. Rendering. Each clip goes in with its pre-roll before its core. Only a
+  // line at the very start can't fit what comes before its first word; the
+  // part before 0:00 (silence, breath or noise, never a word) is dropped at a
+  // zero crossing.
+  report({ phase: 'rendering', step: 5 });
   const track = renderTimeline(
-    placedIndex.map((i, n) => ({ samples: clips[i].samples, position: positions[n] })),
+    placedIndex.map((i, n) => {
+      const start = positions[n] - cores[n].head;
+      if (start >= 0) return { samples: clips[i].samples, position: start };
+      const from = Math.round(-start * sampleRate);
+      const beforeWord = Math.round(clips[i].lead * sampleRate) - from;
+      const cut = zeroCrossingAfter(clips[i].samples, from, Math.min(Math.round(0.005 * sampleRate), beforeWord));
+      return { samples: clips[i].samples.subarray(cut), position: start + cut / sampleRate };
+    }),
     { sampleRate, length: sourceDuration }
   );
   const { buffer, contentType } = await deps.encode(track);
   checkCancelled();
 
-  // 7. Checking
-  report({ phase: 'checking', step: 7 });
-  const placedUnits = placedIndex.map((i) => units[i]);
-  const { lines, summary } = measureSync(placedUnits, placedIndex.map((i) => clips[i]), positions, { tolerance });
+  // 6. Checking
+  report({ phase: 'checking', step: 6 });
+  const { lines, summary } = measureSync(placedIndex.map((i) => units[i]), cores, positions, { tolerance });
   const lineFor = new Map(placedIndex.map((i, n) => [i, lines[n]]));
+  const exceededBy = units.map((_, i) => Math.max(0, overflow(i)));
+  const exceeded = units.map((_, i) => {
+    const line = lineFor.get(i);
+    return Boolean(line) && (exceededBy[i] > allowedOverflow || (!line.inSync && exceededBy[i] > 0));
+  });
+
+  // 7. Suggesting: a shorter wording for each line that is too long, for the user to take or leave.
+  report({ phase: 'suggesting', step: 7 });
+  const suggestions = new Map();
+  let suggestionError = null;
+  const tooLong = units.map((_, i) => i).filter((i) => exceeded[i]);
+  if (suggest && deps.shorten && tooLong.length > 0) {
+    report({ suggestionsTotal: tooLong.length });
+    let done = 0;
+    await mapLimit(tooLong, SUGGESTION_CONCURRENCY, async (i) => {
+      checkCancelled();
+      const clip = core(i);
+      const tail = clip.length - clip.lead - clip.speech;
+      const speechBudget = Math.max(0.2, budget(i) - clip.lead - tail);
+      const targetChars = Math.max(1, Math.floor(units[i].text.length * Math.min(1, speechBudget / clip.speech) * SUGGESTION_MARGIN));
+      try {
+        const line = await deps.shorten({ text: units[i].text, sourceText: units[i].sourceText, language, targetChars });
+        if (line && line !== units[i].text) suggestions.set(i, line);
+      } catch (err) {
+        // The dub is finished either way; a missing suggestion must not fail the sync.
+        suggestionError ??= err?.message || 'The text model did not answer.';
+      }
+      report({ suggestionsDone: ++done });
+    });
+  }
 
   const unitReports = units.map((unit, i) => {
     const line = lineFor.get(i);
     return {
       index: i,
       cueIds: unit.cueIds,
-      text: texts[i],
-      originalText: unit.text,
+      text: unit.text,
       sourceText: unit.sourceText,
       srcStart: unit.srcStart,
       srcEnd: unit.srcEnd,
@@ -283,7 +290,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       overrun: line ? line.overrun : null,
       inSync: line ? line.inSync : false,
       silent: !line,
-      rewritten: rewritten.has(i),
+      exceeded: exceeded[i],
+      exceededBy: exceededBy[i],
+      suggestion: suggestions.get(i) || null,
       pauseTrimmed: pauseTrimmed.get(i) || 0,
     };
   });
@@ -298,7 +307,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       summary: {
         ...summary,
         lines: units.length,
-        rewritten: rewritten.size,
+        exceeded: tooLong.length,
+        suggested: suggestions.size,
+        suggestionError,
         pauseTrimmed: pauseTrimmed.size,
         silent: units.length - placedIndex.length,
       },

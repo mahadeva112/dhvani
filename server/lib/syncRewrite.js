@@ -2,16 +2,22 @@
  * Shorter wording for a dub line that runs longer than its source line.
  *
  * A line that is too long can't be made to fit by moving it, and speeding the
- * voice up is not allowed, so the only clean fix is fewer words. Dubbing
- * adaptation writers do exactly this: same meaning, said in less time. The
- * text model proposes the shorter line; `acceptRewrite` rejects anything that
- * is not actually shorter or that looks like the line was cut off.
+ * voice up is not allowed, so the clean fix is fewer words. Dubbing adaptation
+ * writers do exactly this: same meaning, said in less time. The text model
+ * proposes the shorter line, which Sync only shows as a suggestion — the dub
+ * is never rewritten by itself. `acceptRewrite` rejects anything that is not
+ * actually shorter or that looks like the line was cut off.
  */
 import { logger } from '../logger.js';
 import { generateText } from '../providers/textModel.js';
 
-/** A rewrite shorter than this share of the original has probably dropped meaning. */
-const MIN_KEPT_SHARE = 0.4;
+/**
+ * A rewrite shorter than this share of the length asked for has probably been
+ * cut off rather than reworded. Measured against the target, not the original:
+ * a line that must lose three quarters of its length to fit is still a fair
+ * suggestion, since the user reads it before using it.
+ */
+const MIN_TARGET_SHARE = 0.5;
 
 export const buildRewritePrompt = ({ text, sourceText, language, targetChars }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
@@ -28,34 +34,30 @@ ${text}
 
 Reply with only the rewritten line, nothing else.`;
 
-/** The rewritten line if it is usable, otherwise null. */
-export const acceptRewrite = (original, rewritten) => {
+/** The rewritten line if it is usable, otherwise null. `targetChars` is the length asked for. */
+export const acceptRewrite = (original, rewritten, targetChars = original.length) => {
   const line = String(rewritten || '')
     .replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, '')
     .replace(/\s+/g, ' ')
     .trim();
   if (!line || line.length >= original.length) return null;
-  if (line.length < original.length * MIN_KEPT_SHARE) return null;
+  if (line.length < Math.min(original.length, targetChars) * MIN_TARGET_SHARE) return null;
   return line;
 };
 
 /**
  * Asks the configured text model for a version of `text` no longer than
- * `targetChars`. Returns the new line, or null when the model is unavailable
- * or its answer is unusable.
+ * `targetChars`. Returns the new line, or null when the model's answer is
+ * unusable. Throws when the model can't be reached or refuses, so the caller
+ * can tell the user why there is no suggestion.
  */
 export const shortenLine = async ({ text, sourceText, language, targetChars }, { apiKey } = {}) => {
-  try {
-    const { response } = await generateText({
-      contents: { role: 'user', parts: [{ text: buildRewritePrompt({ text, sourceText, language, targetChars }) }] },
-      generationConfig: { temperature: 0.3 },
-      apiKey,
-    });
-    const line = acceptRewrite(text, String(response?.text || ''));
-    if (!line) logger.info('A shortened dub line was not usable; the line is kept as written.');
-    return line;
-  } catch (err) {
-    logger.warn(`Could not shorten a dub line (${err.message}); it is kept as written.`);
-    return null;
-  }
+  const { response } = await generateText({
+    contents: { role: 'user', parts: [{ text: buildRewritePrompt({ text, sourceText, language, targetChars }) }] },
+    generationConfig: { temperature: 0.3 },
+    apiKey,
+  });
+  const line = acceptRewrite(text, String(response?.text || ''), targetChars);
+  if (!line) logger.info('A suggested shorter dub line was not usable; none is shown for that line.');
+  return line;
 };

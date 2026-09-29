@@ -15,10 +15,10 @@ const FALLBACK_FORMAT = 'mp3_44100_128';
 
 /**
  * POST /api/sync — voices the translated cues line by line and places every
- * line on its source phrase, without changing the voice's speed.
+ * line on its source phrase, without changing the voice's speed or fading it.
  *
  * Body: `{ segments, sourceDuration, voiceId, modelId, outputFormat,
- * voiceSettings, language, seed, precision, rewrite, jobId }`. Replies with
+ * voiceSettings, language, seed, precision, suggest, jobId }`. Replies with
  * `{ audio (base64), contentType, report }`. A `jobId` makes the run pollable
  * at /api/sync/jobs/:jobId and cancellable; closing the request cancels it.
  */
@@ -35,7 +35,7 @@ syncRouter.post(
       language,
       seed,
       precision,
-      rewrite,
+      suggest,
       jobId,
     } = req.body || {};
 
@@ -53,7 +53,7 @@ syncRouter.post(
       });
     }
 
-    const job = startDubJob(jobId, { phase: 'units', step: 1, unitCount: 0, unitsVoiced: 0, unitsToVoice: 0, rewritesTotal: 0, rewritesDone: 0 });
+    const job = startDubJob(jobId, { phase: 'units', step: 1, unitCount: 0, unitsVoiced: 0, unitsToVoice: 0, suggestionsTotal: 0, suggestionsDone: 0 });
     const controller = job?.controller || new AbortController();
     res.on('close', () => {
       if (!res.writableFinished) controller.abort();
@@ -70,7 +70,7 @@ syncRouter.post(
           sourceDuration: Number(sourceDuration) || 0,
           sampleRate,
           precision,
-          rewrite: rewrite !== false,
+          suggest: suggest !== false,
           language,
           voice,
         },
