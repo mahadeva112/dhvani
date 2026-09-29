@@ -147,6 +147,40 @@ export default function App() {
   const [isPhoneticKeyboardOpen, setIsPhoneticKeyboardOpen] = useState<boolean>(false);
   const [keyboardActiveSegment, setKeyboardActiveSegment] = useState<AudioSegment | null>(null);
 
+  // Whether an Eleven v3/v4 dub gets added emotion cues. Off by default: v4 already performs a plain script.
+  const [emotionEnhance, setEmotionEnhance] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dhvani_emotion_enhance') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Whether a dub's passages are brought to one loudness. Off by default: each keeps the level it was voiced at.
+  const [dubMatchLoudness, setDubMatchLoudness] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dhvani_dub_match_loudness') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleDubMatchLoudnessChange = useCallback((enabled: boolean) => {
+    setDubMatchLoudness(enabled);
+    try {
+      localStorage.setItem('dhvani_dub_match_loudness', String(enabled));
+    } catch {}
+  }, []);
+
+  const handleEmotionEnhanceChange = useCallback((enabled: boolean) => {
+    setEmotionEnhance(enabled);
+    try {
+      localStorage.setItem('dhvani_emotion_enhance', String(enabled));
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
   // Whether Roman-to-Indic conversion is on as you type across the app.
   const [isGlobalPhoneticEnabled, setIsGlobalPhoneticEnabled] = useState<boolean>(() => {
     try {
@@ -378,12 +412,6 @@ export default function App() {
   const sourceAudioRef = useRef<HTMLAudioElement | null>(null);
   const synthAudioRef = useRef<HTMLAudioElement | null>(null);
   const [playbackRate, setPlaybackRate] = useState<number>(1.0);
-
-  // Sync playback rate to audio elements
-  useEffect(() => {
-    if (sourceAudioRef.current) sourceAudioRef.current.playbackRate = playbackRate;
-    if (synthAudioRef.current) synthAudioRef.current.playbackRate = playbackRate;
-  }, [playbackRate]);
 
   // Active Job helper
   const activeJob = useMemo(() => queue.find((j) => j.id === activeJobId) || null, [queue, activeJobId]);
@@ -791,6 +819,14 @@ export default function App() {
   }, [activeJob?.file]);
 
   const synthAudioUrl = activeJob?.synthesizedAudioUrl || null;
+  // Until there is a dub the original is the only thing to hear, whatever mode was last picked.
+  const playMode: AudioTrackMode = synthAudioUrl ? trackMode : 'source';
+
+  // Sync playback rate to audio elements, including ones mounted after the rate was set
+  useEffect(() => {
+    if (sourceAudioRef.current) sourceAudioRef.current.playbackRate = playbackRate;
+    if (synthAudioRef.current) synthAudioRef.current.playbackRate = playbackRate;
+  }, [playbackRate, sourceAudioUrl, synthAudioUrl]);
 
   // Re-decode audio buffers if needed
   useEffect(() => {
@@ -830,13 +866,13 @@ export default function App() {
 
       if (action === 'play') {
         setIsPlaying(true);
-        if (trackMode === 'source' || trackMode === 'both') {
+        if (playMode === 'source' || playMode === 'both') {
           if (source) {
             source.currentTime = targetTime;
             source.play().catch(console.warn);
           }
         }
-        if (trackMode === 'synth' || trackMode === 'both') {
+        if (playMode === 'synth' || playMode === 'both') {
           if (synth && synth.src) {
             synth.currentTime = targetTime;
             synth.play().catch(console.warn);
@@ -848,7 +884,7 @@ export default function App() {
         if (synth) synth.pause();
       }
     },
-    [currentTime, trackMode]
+    [currentTime, playMode]
   );
 
   const togglePlay = useCallback(() => {
@@ -870,7 +906,7 @@ export default function App() {
   useEffect(() => {
     const source = sourceAudioRef.current;
     const synth = synthAudioRef.current;
-    const activeEl = trackMode === 'source' || !synthAudioUrl ? source : synth;
+    const activeEl = playMode === 'source' ? source : synth;
     if (!activeEl) return;
 
     const onTimeUpdate = () => {
@@ -887,7 +923,8 @@ export default function App() {
       activeEl.removeEventListener('timeupdate', onTimeUpdate);
       activeEl.removeEventListener('ended', onEnded);
     };
-  }, [trackMode, synthAudioUrl]);
+    // sourceAudioUrl too: its <audio> mounts only once a file is loaded.
+  }, [playMode, sourceAudioUrl, synthAudioUrl]);
 
   // Spacebar shortcuts for play/pause
   useEffect(() => {
@@ -1382,7 +1419,13 @@ export default function App() {
         elModelId,
         elOutputFormat,
         elVoiceSettings,
-        { expressive: true, language: activeJob.language || selectedLanguage, jobId, signal: controller.signal }
+        {
+          expressive: emotionEnhance,
+          matchLoudness: dubMatchLoudness,
+          language: activeJob.language || selectedLanguage,
+          jobId,
+          signal: controller.signal,
+        }
       );
 
       const url = URL.createObjectURL(blob);
@@ -2106,8 +2149,12 @@ export default function App() {
           currentTime={currentTime}
           duration={totalDuration}
           onSeek={handleSeek}
-          trackMode={trackMode}
+          trackMode={playMode}
           onTrackModeChange={setTrackMode}
+          emotionEnhance={emotionEnhance}
+          onEmotionEnhanceChange={handleEmotionEnhanceChange}
+          dubMatchLoudness={dubMatchLoudness}
+          onDubMatchLoudnessChange={handleDubMatchLoudnessChange}
           playbackRate={playbackRate}
           onPlaybackRateChange={setPlaybackRate}
           onResetSession={handleResetSession}
