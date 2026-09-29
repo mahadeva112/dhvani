@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { synthesizeScript, secondsOfAudio } from './speech.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { synthesizeScript, secondsOfAudio, speechToSpeech } from './speech.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../../lib/dubJobs.js';
 
 const SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1 };
@@ -179,4 +182,42 @@ test('when ElevenLabs refuses the neighbouring text the dub completes without it
   assert.equal(last.streaming, true, 'the refusal does not turn off live progress');
   const refused = bodies.filter((b) => b.previous_text || b.next_text || b.previous_request_ids);
   assert.ok(refused.length <= 2, 'context is only tried on the first passage');
+});
+
+test('the voice changer sends the output format, seed and every voice setting', async () => {
+  const file = { path: path.join(os.tmpdir(), `sts-${process.pid}.wav`), mimetype: 'audio/wav', originalname: 'a.wav' };
+  fs.writeFileSync(file.path, Buffer.alloc(64));
+  let request;
+  globalThis.fetch = async (url, init) => {
+    request = { url, form: init.body };
+    return new Response(new Uint8Array(8), { status: 200, headers: { 'content-type': 'audio/wav' } });
+  };
+  try {
+    await speechToSpeech(
+      {
+        voiceId: 'v1',
+        file,
+        voiceSettings: { stability: 0.4, similarity_boost: 0.9, style: 0.3, use_speaker_boost: false },
+        removeBackgroundNoise: true,
+        outputFormat: 'wav_24000',
+        seed: 42,
+      },
+      { apiKey: 'test-key' }
+    );
+    assert.match(request.url, /output_format=wav_24000/);
+    assert.equal(request.form.get('seed'), '42');
+    assert.equal(request.form.get('remove_background_noise'), 'true');
+    assert.deepEqual(JSON.parse(request.form.get('voice_settings')), {
+      stability: 0.4,
+      similarity_boost: 0.9,
+      style: 0.3,
+      use_speaker_boost: false,
+    });
+
+    await speechToSpeech({ voiceId: 'v1', file, outputFormat: 'not_a_format' }, { apiKey: 'test-key' });
+    assert.match(request.url, /output_format=mp3_44100_128/, 'an unknown format falls back to the default');
+    assert.equal(request.form.get('seed'), null);
+  } finally {
+    fs.rmSync(file.path, { force: true });
+  }
 });

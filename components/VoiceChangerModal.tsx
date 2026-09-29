@@ -20,6 +20,7 @@ import {
   ChevronsUp,
   Wind,
   Bot,
+  ChevronDown,
 } from 'lucide-react';
 import {
   speechToSpeech,
@@ -35,6 +36,25 @@ import {
   VoiceEffectPreset,
 } from '../services/audioService';
 import { POPULAR_ELEVENLABS_VOICES, VoiceSelectorCard } from './VoiceSelectorCard';
+
+/** The voice changer's output formats (mirrors STS_OUTPUT_FORMATS on the server); higher plans unlock the top ones. */
+const STS_OUTPUT_FORMATS = [
+  { id: 'mp3_22050_32', label: 'MP3 22.05 kHz (32kbps)' },
+  { id: 'mp3_44100_64', label: 'MP3 44.1 kHz (64kbps)' },
+  { id: 'mp3_44100_96', label: 'MP3 44.1 kHz (96kbps)' },
+  { id: 'mp3_44100_128', label: 'MP3 44.1 kHz (128kbps)' },
+  { id: 'mp3_44100_192', label: 'MP3 44.1 kHz (192kbps) · Creator+' },
+  { id: 'opus_48000_128', label: 'Opus 48 kHz (128kbps)' },
+  { id: 'wav_16000', label: 'WAV 16 kHz' },
+  { id: 'wav_22050', label: 'WAV 22.05 kHz' },
+  { id: 'wav_24000', label: 'WAV 24 kHz' },
+  { id: 'wav_44100', label: 'WAV 44.1 kHz · Pro+' },
+  { id: 'wav_48000', label: 'WAV 48 kHz · Pro+' },
+];
+
+/** File extension for an audio blob, from its MIME type. */
+const extensionOf = (blob: Blob) =>
+  /mpeg|mp3/.test(blob.type) ? 'mp3' : /opus|ogg/.test(blob.type) ? 'opus' : 'wav';
 import { MiniWaveform } from './MediaStrip';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { cloneCartesiaVoice, isCartesiaVoice } from '../services/cartesiaService';
@@ -119,6 +139,12 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const [stability, setStability] = useState<number>(0.5);
   const [similarity, setSimilarity] = useState<number>(0.75);
   const [removeBackgroundNoise, setRemoveBackgroundNoise] = useState<boolean>(false);
+  const [styleExaggeration, setStyleExaggeration] = useState<number>(0);
+  const [speakerBoost, setSpeakerBoost] = useState<boolean>(true);
+  const [stsOutputFormat, setStsOutputFormat] = useState<string>('mp3_44100_128');
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  /** Empty means a fresh take each time. */
+  const [stsSeed, setStsSeed] = useState<string>('');
 
   // Favourites, shared with the text-to-speech voice picker
   const { favorites } = useFavoriteVoices();
@@ -369,17 +395,19 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       const settings: ElevenLabsVoiceSettings = {
         stability,
         similarity_boost: similarity,
-        style: 0.0,
-        use_speaker_boost: true,
+        style: styleExaggeration,
+        use_speaker_boost: speakerBoost,
       };
 
+      const seed = stsSeed.trim() === '' ? undefined : Number(stsSeed);
       const resultBlob = await speechToSpeech(
         elApiKey,
         targetVoiceId,
         audioBlob,
         stsModelId,
         settings,
-        removeBackgroundNoise
+        removeBackgroundNoise,
+        { outputFormat: stsOutputFormat, seed: Number.isInteger(seed) ? seed : undefined }
       );
 
       const url = URL.createObjectURL(resultBlob);
@@ -491,8 +519,8 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   // Apply to project
   const handleApplyToProject = () => {
     if (!outputBlob || !outputBuffer) return;
-    const fileName = `voice_changed_${Date.now()}.wav`;
-    const newFile = new File([outputBlob], fileName, { type: 'audio/wav' });
+    const fileName = `voice_changed_${Date.now()}.${extensionOf(outputBlob)}`;
+    const newFile = new File([outputBlob], fileName, { type: outputBlob.type || 'audio/wav' });
     onApplyTransformedAudio(newFile, outputBuffer);
     onClose();
   };
@@ -509,7 +537,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     if (!outputBlob) return;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(outputBlob);
-    a.download = `voice_transformed_${Date.now()}.wav`;
+    a.download = `voice_transformed_${Date.now()}.${extensionOf(outputBlob)}`;
     a.click();
   };
 
@@ -581,6 +609,25 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
         <span>{ends[0]}</span>
         <span>{ends[1]}</span>
       </div>
+    </div>
+  );
+
+  const toggle = (label: string, hint: string, on: boolean, onChange: (v: boolean) => void) => (
+    <div className="flex items-center gap-3 min-h-10">
+      <span className="min-w-0 flex-1">
+        <span className="block text-[13px] font-semibold text-slate-100">{label}</span>
+        <span className="block text-[11.5px] text-slate-400">{hint}</span>
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={label}
+        onClick={() => onChange(!on)}
+        className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer ${on ? 'bg-indigo-500' : 'bg-slate-700'}`}
+      >
+        <span className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${on ? 'left-[17px]' : 'left-[3px]'}`} />
+      </button>
     </div>
   );
 
@@ -754,13 +801,20 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-4">
-                  {slider('Match the original', 'Higher keeps rhythm and pitch closer to the speaker.', stability, setStability, ['Freer', 'Closer'])}
+                  {slider('Stability', 'Higher keeps rhythm and pitch closer to the speaker.', stability, setStability, ['More variable', 'More stable'])}
                   {slider(
-                    'Likeness',
+                    'Similarity',
                     `How strongly it sounds like ${hasTarget ? targetName : 'the chosen voice'}.`,
                     similarity,
                     setSimilarity,
-                    ['Looser', 'Stronger']
+                    ['Low', 'High']
+                  )}
+                  {slider(
+                    'Style Exaggeration',
+                    "Pushes the voice's own style further. Above zero it can take longer and drift.",
+                    styleExaggeration,
+                    setStyleExaggeration,
+                    ['None', 'Exaggerated']
                   )}
                 </div>
 
@@ -772,22 +826,51 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       <option value="eleven_english_sts_v2" className="bg-slate-900">English only</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-3 h-10">
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-semibold text-slate-100">Clean up background</span>
-                      <span className="block text-[11.5px] text-slate-400">Removes hum and room noise first</span>
-                    </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={removeBackgroundNoise}
-                      aria-label="Clean up background"
-                      onClick={() => setRemoveBackgroundNoise((v) => !v)}
-                      className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer ${removeBackgroundNoise ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="sts-output-format" className="text-xs text-slate-400">Output Format</label>
+                    <select
+                      id="sts-output-format"
+                      value={stsOutputFormat}
+                      onChange={(e) => setStsOutputFormat(e.target.value)}
+                      className={`${field} cursor-pointer`}
                     >
-                      <span className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${removeBackgroundNoise ? 'left-[17px]' : 'left-[3px]'}`} />
-                    </button>
+                      {STS_OUTPUT_FORMATS.map((f) => (
+                        <option key={f.id} value={f.id} className="bg-slate-900">{f.label}</option>
+                      ))}
+                    </select>
                   </div>
+                </div>
+
+                <div className="grid sm:grid-cols-2 gap-x-4 gap-y-3">
+                  {toggle('Remove Background Noise', 'Isolates the voice from hum and room noise first', removeBackgroundNoise, setRemoveBackgroundNoise)}
+                  {toggle('Speaker boost', 'Sharpens the likeness a little; takes slightly longer', speakerBoost, setSpeakerBoost)}
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    aria-expanded={isAdvancedOpen}
+                    onClick={() => setIsAdvancedOpen((v) => !v)}
+                    className="self-start flex items-center gap-1.5 text-[13px] font-medium text-slate-400 hover:text-slate-200 cursor-pointer"
+                  >
+                    Advanced settings
+                    <ChevronDown className={`w-4 h-4 transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {isAdvancedOpen && (
+                    <div className="flex flex-col gap-1.5 max-w-xs">
+                      <label htmlFor="sts-seed" className="text-xs text-slate-400">Seed</label>
+                      <input
+                        id="sts-seed"
+                        type="text"
+                        inputMode="numeric"
+                        value={stsSeed}
+                        onChange={(e) => setStsSeed(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                        placeholder="Random"
+                        className={field}
+                      />
+                      <span className="text-[11.5px] text-slate-500">The same seed and settings give the same take. Leave empty for a fresh one.</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="mt-auto flex flex-wrap items-center gap-3 pt-1">

@@ -159,7 +159,7 @@ elevenLabsRouter.post(
   cleanupUploads,
   upload.single('audio'),
   asyncHandler(async (req, res) => {
-    const { voiceId, modelId, voiceSettings, removeBackgroundNoise } = req.body || {};
+    const { voiceId, modelId, voiceSettings, removeBackgroundNoise, outputFormat, seed } = req.body || {};
 
     let parsedSettings;
     try {
@@ -175,6 +175,8 @@ elevenLabsRouter.post(
         modelId: modelId || 'eleven_multilingual_sts_v2',
         voiceSettings: parsedSettings,
         removeBackgroundNoise: removeBackgroundNoise === undefined ? undefined : removeBackgroundNoise === 'true',
+        outputFormat,
+        seed: seed === undefined || seed === '' ? undefined : Number(seed),
       },
       { apiKey: apiKey(req) }
     );

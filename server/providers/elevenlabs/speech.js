@@ -408,9 +408,24 @@ export const synthesizeScript = async (
   return { contentType, buffer };
 };
 
+/** Output formats the voice changer offers; ElevenLabs gates some of them by plan. */
+export const STS_OUTPUT_FORMATS = [
+  'mp3_22050_32',
+  'mp3_44100_64',
+  'mp3_44100_96',
+  'mp3_44100_128',
+  'mp3_44100_192',
+  'opus_48000_128',
+  'wav_16000',
+  'wav_22050',
+  'wav_24000',
+  'wav_44100',
+  'wav_48000',
+];
+
 /** Speech-to-speech voice conversion. */
 export const speechToSpeech = async (
-  { voiceId, file, modelId = 'eleven_multilingual_sts_v2', voiceSettings, removeBackgroundNoise },
+  { voiceId, file, modelId = 'eleven_multilingual_sts_v2', voiceSettings, removeBackgroundNoise, outputFormat, seed },
   { apiKey } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
@@ -434,8 +449,14 @@ export const speechToSpeech = async (
   if (removeBackgroundNoise !== undefined) {
     form.append('remove_background_noise', String(removeBackgroundNoise));
   }
+  if (Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32) form.append('seed', String(seed));
 
-  return elevenLabsMultipart(`/speech-to-speech/${encodeURIComponent(cleanVoiceId)}`, form, { apiKey });
+  const format = STS_OUTPUT_FORMATS.includes(outputFormat) ? outputFormat : 'mp3_44100_128';
+  return elevenLabsMultipart(
+    `/speech-to-speech/${encodeURIComponent(cleanVoiceId)}?output_format=${encodeURIComponent(format)}`,
+    form,
+    { apiKey }
+  );
 };
 
 /** Creates a cloned voice from one or more audio samples. */

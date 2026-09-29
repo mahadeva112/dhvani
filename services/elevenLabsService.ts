@@ -391,7 +391,9 @@ export const speechToSpeech = async (
   audioBlob: Blob,
   modelId: string = 'eleven_multilingual_sts_v2',
   voiceSettings?: ElevenLabsVoiceSettings,
-  removeBackgroundNoise?: boolean
+  removeBackgroundNoise?: boolean,
+  /** `outputFormat` is an ElevenLabs format id; the same `seed` repeats a take. */
+  { outputFormat, seed }: { outputFormat?: string; seed?: number } = {}
 ): Promise<Blob> => {
   if (isCartesiaVoice(voiceId)) {
     throw new Error(
@@ -406,6 +408,8 @@ export const speechToSpeech = async (
   if (removeBackgroundNoise !== undefined) {
     formData.append('removeBackgroundNoise', String(removeBackgroundNoise));
   }
+  if (outputFormat) formData.append('outputFormat', outputFormat);
+  if (seed !== undefined) formData.append('seed', String(seed));
 
   return apiAudioUpload('/elevenlabs/speech-to-speech', formData, keys(apiKey));
 };
