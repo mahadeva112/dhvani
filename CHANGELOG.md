@@ -23,6 +23,32 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Sync is its own step.** The steps are now **Source & voice → Review → Final dub → Sync**. The
+  Sync panel moved out of Final dub into step 4. The results (line counts, the Original/Dub timeline and
+  **Worth a listen**) fill the main column, and a right-hand panel holds Precision, **Suggest shorter
+  lines**, **Even out loudness**, the Sync / Sync again / Cancel button and, once synced, the synced
+  dub (.wav) and subtitles timed to it (.srt). A small player at the top plays the lines you
+  **Listen** to. Once a dub exists, Final dub shows a **Continue to sync** strip where the panel used
+  to be. The header marks each step done, current, next or locked (with the reason on hover), shows
+  how many lines changed since the last sync, and shows sync progress while you work on other steps.
+  Sync is available whenever there are cues, as before. Review and Final dub are otherwise unchanged.
+- **A preview before you sync.** Before the first sync, step 4 estimates which lines will fit the time
+  the original gives them, with nothing voiced and no ElevenLabs characters used. It groups lines and
+  works out each line's time exactly as Sync does. How long each dub line takes is estimated from its
+  length and the voice's speaking rate, measured from your Final dub (or a typical rate, marked rough,
+  when there is no dub yet). The Original/Dub timeline shows the estimate striped, with the part that
+  should run past its slot in yellow. **Shorten before you sync** lists the lines likely too long:
+  **Suggest a shorter line** asks your text model for one (**Try another** asks for a different one),
+  or **Edit it myself**. Either way you see the new estimate as you type, and nothing reaches the script
+  until **Use this line**, which can be undone. Changing Precision updates the preview; once a dub is
+  synced, the real results take its place.
+- **Sync timelines scroll and play.** Under the preview's and the report's Original/Dub timeline, a
+  scroll bar covers the whole dub. Drag it, click to jump, use the arrow, Page and Home / End keys, or
+  swipe sideways on the lanes. It marks every line to check and where playback is. A play / pause
+  button and the clock sit right under the graph. Tight lines now show an amber edge instead of a
+  ring, and their row is a proper Show / Hide toggle. The playhead, the scroll bar's playback mark and
+  the clock follow the audio every frame, as on the Final dub step, instead of stepping a few times a
+  second.
 - **Hindi is the default dub language, and the voice picker suggests Indian voices.** A new install
   starts on Hindi; an install still on the old Bengali default moves to Hindi once, and picking
   Bengali again afterwards sticks. The voice picker opens on an **Indian** filter — voices with an

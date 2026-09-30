@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, ThemeMode, HeaderQuota } from './components/ProHeader';
 import { ExpressDubWizard, stepForJob } from './components/ExpressDubWizard';
+import { syncFraction } from './components/SyncPanel';
 import { VoiceSettingsModal } from './components/VoiceSettingsModal';
 import { BatchQueueModal } from './components/BatchQueueModal';
 import { PhoneticKeyboardModal } from './components/PhoneticKeyboardModal';
@@ -573,13 +574,15 @@ export default function App() {
       const bySeconds = p.streaming && sourceLength > 0 ? p.secondsGenerated / sourceLength : 0;
       return { label: 'Dubbing', fraction: Math.min(0.98, Math.max(byChars, bySeconds)) };
     }
+    // Sync runs in step 4 but keeps going on any step, so the header follows it.
+    if (isSyncing) return { label: isCancellingSync ? 'Cancelling sync' : 'Syncing', fraction: syncProgress ? Math.min(0.98, syncFraction(syncProgress)) : null };
     if (isTranscribing) return { label: pipelineStatus.replace(/\.+$/, '') || 'Transcribing', fraction: null };
     if (isTranslatingLanguage) {
       const p = translationProgress;
       return { label: 'Translating', fraction: p && p.total > 0 ? Math.min(0.98, (p.done + 0.5) / p.total) : null };
     }
     return null;
-  }, [isBatchProcessing, dubProgress, activeJob?.audioBuffer, isTranscribing, pipelineStatus, isTranslatingLanguage, translationProgress]);
+  }, [isBatchProcessing, dubProgress, activeJob?.audioBuffer, isSyncing, isCancellingSync, syncProgress, isTranscribing, pipelineStatus, isTranslatingLanguage, translationProgress]);
 
   const handleDismissSetup = useCallback(() => {
     setSetupDismissed(true);
@@ -1985,6 +1988,7 @@ export default function App() {
         targetLanguage={activeJob?.language || selectedLanguage}
         mediaDuration={activeJob?.audioBuffer?.duration}
         activity={headerActivity}
+        syncPendingCount={activeJob ? (syncPending[activeJob.id] || []).length : 0}
         // The ElevenLabs allowance only matters while ElevenLabs is the voice engine.
         quota={activeVoiceEngine === 'elevenlabs' ? elevenLabsQuota : null}
         voiceEngine={activeVoiceEngine}

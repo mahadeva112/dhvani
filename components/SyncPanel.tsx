@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, Copy, Loader2, Lock, Mic, Play, RefreshCw, Scissors, X } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, Scissors, X } from 'lucide-react';
+import { TimelineScrollbar, TimelineTransport, wheelScroll } from './TimelineControls';
+import { useLiveTime } from './useLiveTime';
 import {
   SYNC_PRECISION_OPTIONS,
   SYNC_STEPS,
@@ -11,8 +13,10 @@ import {
 } from '../services/syncService';
 
 /**
- * Sync: makes a dub that plays in step with the original, line by line, and
- * shows how well each line landed. See services/syncService.ts.
+ * Sync, step 4: makes a dub that plays in step with the original, line by
+ * line, and shows how well each line landed. The step is two panels: the
+ * settings rail (what to sync with, and the button) and the results (progress,
+ * then the report). See services/syncService.ts.
  */
 
 const OPTIONS_KEY = 'dhvani_sync_options';
@@ -42,6 +46,25 @@ const readOptions = (): SyncOptions => {
   }
 };
 
+/** The sync options, remembered across sessions. One copy serves both panels. */
+export const useSyncOptions = () => {
+  const [options, setOptions] = useState(readOptions);
+  useEffect(() => {
+    try {
+      localStorage.setItem(OPTIONS_KEY, JSON.stringify(options));
+    } catch {}
+  }, [options]);
+  return [options, setOptions] as const;
+};
+
+/** How far a sync has come, 0–1, for the progress bars. */
+export const syncFraction = (progress: SyncProgress | null) =>
+  !progress
+    ? 0.02
+    : progress.step === 2 && progress.unitsToVoice > 0
+      ? (1 + progress.unitsVoiced / progress.unitsToVoice) / SYNC_STEPS.length
+      : (progress.step - 1) / SYNC_STEPS.length;
+
 /** Why a line is worth a listen, or null when it landed cleanly. */
 const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null => {
   if (unit.silent) return 'The voice returned no audio for this line';
@@ -51,18 +74,197 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
   return null;
 };
 
-export interface SyncPanelProps {
-  report: SyncReport | null;
-  progress: SyncProgress | null;
+const sectionLabel = 'text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
+const downloadRow =
+  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
+
+export interface SyncSettingsPanelProps {
+  options: SyncOptions;
+  onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
+  /** True once this dub has been synced: the button reads Sync again. */
+  synced: boolean;
+  /** True when there is a dub for the sync to replace. */
+  hasDub: boolean;
   isSyncing: boolean;
   isCancelling: boolean;
   /** Why the last sync failed. */
   error?: string | null;
-  /** Set when Sync can't run right now, with the reason shown instead of the button. */
+  /** Set when Sync can't run right now, with the reason shown under the button. */
   blockedReason?: string | null;
-  onSync: (options: SyncOptions) => void;
+  /** Lines reworded or retaken since the last sync. */
+  pendingCount?: number;
+  /** Before a sync: the preview is on screen, and how many lines it expects to run long. */
+  previewShown?: boolean;
+  previewLongCount?: number;
+  onSync: () => void;
   onCancel: () => void;
+  /** Back to step 3. */
+  onBack: () => void;
+  /** Saves the synced dub; absent before the first sync. */
+  onDownloadWav?: () => void;
+  /** Saves subtitles timed to the synced dub; absent before the first sync. */
+  onDownloadSrt?: () => void;
+}
+
+/** The right-hand rail of step 4: what to sync with, the Sync button, and the synced files. */
+export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
+  options,
+  onOptionsChange,
+  synced,
+  hasDub,
+  isSyncing,
+  isCancelling,
+  error,
+  blockedReason,
+  pendingCount = 0,
+  previewShown = false,
+  previewLongCount = 0,
+  onSync,
+  onCancel,
+  onBack,
+  onDownloadWav,
+  onDownloadSrt,
+}) => (
+  <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
+    <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
+      <h2 className="text-[15px] font-semibold text-slate-100">Sync settings</h2>
+      <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+        <ArrowLeft className="w-3 h-3" /> Final dub
+      </button>
+    </div>
+
+    <div className={`px-4 sm:px-5 py-4 flex flex-col gap-3.5 ${isSyncing ? 'opacity-60' : ''}`}>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="sync-precision" className={sectionLabel}>
+          Precision
+        </label>
+        <select
+          id="sync-precision"
+          value={options.precision}
+          onChange={(e) => onOptionsChange((o) => ({ ...o, precision: e.target.value as SyncPrecision }))}
+          disabled={isSyncing}
+          className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+        >
+          {SYNC_PRECISION_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id} className="bg-slate-900">
+              {o.label}
+            </option>
+          ))}
+        </select>
+        {previewShown && <span className="text-[11.5px] text-slate-400">The preview updates when you change this.</span>}
+      </div>
+      <label className="flex items-start gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={options.suggest}
+          disabled={isSyncing}
+          onChange={(e) => onOptionsChange((o) => ({ ...o, suggest: e.target.checked }))}
+          className="mt-0.5 accent-indigo-500"
+        />
+        <span>
+          <span className="block text-[13px] text-slate-200">Suggest shorter lines</span>
+          <span className="block text-[11.5px] text-slate-400 mt-0.5">For lines too long for the time the original line had. Your script is never changed.</span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={options.matchLoudness}
+          disabled={isSyncing}
+          onChange={(e) => onOptionsChange((o) => ({ ...o, matchLoudness: e.target.checked }))}
+          className="mt-0.5 accent-indigo-500"
+        />
+        <span>
+          <span className="block text-[13px] text-slate-200">Even out loudness</span>
+          <span className="block text-[11.5px] text-slate-400 mt-0.5">Off, each line keeps exactly the level it was voiced at.</span>
+        </span>
+      </label>
+    </div>
+
+    {synced && (onDownloadWav || onDownloadSrt) && (
+      <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
+        <span className={sectionLabel}>Synced downloads</span>
+        {onDownloadWav && (
+          <button type="button" onClick={onDownloadWav} disabled={isSyncing} className={downloadRow}>
+            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
+            <span className="flex-1 text-[13px]">Synced dub</span>
+            <Download className="w-4 h-4 text-slate-500" />
+          </button>
+        )}
+        {onDownloadSrt && (
+          <button type="button" onClick={onDownloadSrt} disabled={isSyncing} className={downloadRow}>
+            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">SRT</span>
+            <span className="flex-1 text-[13px]">Subtitles, synced timing</span>
+            <Download className="w-4 h-4 text-slate-500" />
+          </button>
+        )}
+      </div>
+    )}
+
+    <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2">
+      {isSyncing ? (
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isCancelling}
+          className="h-11 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-sm font-medium text-slate-200 disabled:opacity-50 cursor-pointer"
+        >
+          <X className="w-4 h-4" /> {isCancelling ? 'Cancelling…' : 'Cancel sync'}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onSync}
+          disabled={Boolean(blockedReason)}
+          className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
+        >
+          {synced ? <RefreshCw className="w-4 h-4" /> : <Scissors className="w-4 h-4" />}
+          {synced ? 'Sync again' : 'Sync'}
+        </button>
+      )}
+      {blockedReason && !isSyncing ? (
+        <p className="text-center text-[11.5px] text-amber-300">{blockedReason}</p>
+      ) : error && !isSyncing ? (
+        <p role="alert" className="text-center text-[11.5px] text-rose-300">
+          Sync failed: {error}
+        </p>
+      ) : (
+        <p className="text-center text-[11.5px] text-slate-500">
+          {isSyncing
+            ? 'You can move to another step while this runs.'
+            : synced && pendingCount > 0
+              ? `Voices only the ${pendingCount === 1 ? 'changed line' : `${pendingCount} changed lines`} again.`
+              : synced
+                ? 'Places every line again with these settings.'
+                : previewShown && previewLongCount > 0
+                  ? `${previewLongCount === 1 ? '1 line is' : `${previewLongCount} lines are`} still likely too long. You can sync anyway.`
+                  : hasDub
+                  ? 'Voices every line and replaces the current dub audio.'
+                  : 'Voices every line with the voice from Final dub.'}
+        </p>
+      )}
+    </div>
+  </aside>
+);
+
+export interface SyncResultsPanelProps {
+  report: SyncReport | null;
+  progress: SyncProgress | null;
+  isSyncing: boolean;
+  isCancelling: boolean;
+  /** Lines and length of the dub, for the not-yet-synced summary. */
+  lineCount: number;
+  duration: number;
+  blockedReason?: string | null;
+  /** Runs Sync with the current settings (the rail holds them). */
+  onSync: () => void;
+  /** Shown before the first sync, in place of the plain summary: the sync preview. */
+  preview?: React.ReactNode;
   currentTime: number;
+  isPlaying: boolean;
+  onTogglePlay: () => void;
+  /** The exact playback position, read every frame while playing, so the playhead moves smoothly. */
+  getLiveTime?: () => number | null;
   onSeek: (time: number) => void;
   /** Plays source and dub together from `time`. */
   onListen: (time: number) => void;
@@ -74,29 +276,27 @@ export interface SyncPanelProps {
   onRetakeLine?: (unit: SyncUnitReport) => void;
 }
 
-export const SyncPanel: React.FC<SyncPanelProps> = ({
+/** The main column of step 4: what Sync does, its progress, then how every line landed. */
+export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   report,
   progress,
   isSyncing,
   isCancelling,
-  error,
+  lineCount,
+  duration,
   blockedReason,
   onSync,
-  onCancel,
+  preview,
   currentTime,
+  isPlaying,
+  onTogglePlay,
+  getLiveTime,
   onSeek,
   onListen,
   pendingLines = [],
   onApplyLine,
   onRetakeLine,
 }) => {
-  const [options, setOptions] = useState(readOptions);
-  useEffect(() => {
-    try {
-      localStorage.setItem(OPTIONS_KEY, JSON.stringify(options));
-    } catch {}
-  }, [options]);
-
   const review = useMemo(() => {
     if (!report) return [];
     return report.units
@@ -123,103 +323,55 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
     if (phase === 'units' && progress.unitCount > 0) return `${progress.unitCount} lines`;
     return '';
   };
-  const fraction = !progress
-    ? 0.02
-    : progress.step === 2 && progress.unitsToVoice > 0
-      ? (1 + progress.unitsVoiced / progress.unitsToVoice) / SYNC_STEPS.length
-      : (progress.step - 1) / SYNC_STEPS.length;
+  const fraction = syncFraction(progress);
+  const idle = !report && !isSyncing;
+  const precisionLabel = report ? SYNC_PRECISION_OPTIONS.find((o) => o.id === report.precision)?.label : undefined;
 
   return (
-    <section aria-label="Sync" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
-      <div className="flex flex-wrap items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h2 className="text-[15px] font-semibold text-slate-100">Sync to the original</h2>
-            {report && !isSyncing && (
-              <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
-                <Check className="w-3 h-3" /> Synced
-              </span>
-            )}
-            {isSyncing && (
-              <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">
-                {isCancelling ? 'Cancelling…' : 'In progress'}
-              </span>
-            )}
+    <section aria-label="Sync" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0">
+      <div>
+        <div className="flex flex-wrap items-center gap-2.5">
+          <h2 className="text-[15px] font-semibold text-slate-100">Sync to the original</h2>
+          {report && !isSyncing && (
+            <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
+              <Check className="w-3 h-3" /> Synced
+            </span>
+          )}
+          {isSyncing && (
+            <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">
+              {isCancelling ? 'Cancelling…' : 'In progress'}
+            </span>
+          )}
+          {idle && (
+            <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full border border-slate-700 text-slate-400">Not synced</span>
+          )}
+          {report && !isSyncing && precisionLabel && <span className="text-xs text-slate-500">{precisionLabel}</span>}
+        </div>
+        <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
+          <Lock className="w-3 h-3 shrink-0" />
+          Each line starts where the original line starts. The voice is never changed: no speed change, no volume change and no fades. Lines are only moved, and the silence inside them shortened.
+        </p>
+      </div>
+
+      {idle && preview}
+
+      {idle && !preview && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-5 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-4">
+          <div className="flex flex-wrap gap-x-8 gap-y-3 flex-1">
+            {[
+              { value: lineCount.toLocaleString(), label: 'cues to place' },
+              { value: formatClock(duration), label: 'length' },
+            ].map((f) => (
+              <div key={f.label}>
+                <span className="block text-[22px] font-semibold tabular-nums leading-tight text-slate-100">{f.value}</span>
+                <span className="text-xs text-slate-400">{f.label}</span>
+              </div>
+            ))}
           </div>
-          <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
-            <Lock className="w-3 h-3 shrink-0" />
-            Each line starts where the original line starts. The voice is never changed: no speed change, no volume change and no fades. Lines are only moved, and the silence inside them shortened.
+          <p className="sm:max-w-[16rem] text-[12.5px] text-slate-400">
+            {blockedReason || 'Pick the settings on the right, then press Sync.'}
           </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          <select
-            value={options.precision}
-            onChange={(e) => setOptions((o) => ({ ...o, precision: e.target.value as SyncPrecision }))}
-            disabled={isSyncing}
-            aria-label="Sync precision"
-            className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:opacity-50"
-          >
-            {SYNC_PRECISION_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id} className="bg-slate-900">
-                {o.label}
-              </option>
-            ))}
-          </select>
-          <label
-            className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer"
-            title="Lines too long for the time the original line had get a shorter wording suggested. Your script is never changed."
-          >
-            <input
-              type="checkbox"
-              checked={options.suggest}
-              disabled={isSyncing}
-              onChange={(e) => setOptions((o) => ({ ...o, suggest: e.target.checked }))}
-              className="accent-indigo-500"
-            />
-            Suggest shorter lines
-          </label>
-          <label
-            className="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer"
-            title="Bring every line to the same loudness. Off, each line keeps exactly the level it was voiced at."
-          >
-            <input
-              type="checkbox"
-              checked={options.matchLoudness}
-              disabled={isSyncing}
-              onChange={(e) => setOptions((o) => ({ ...o, matchLoudness: e.target.checked }))}
-              className="accent-indigo-500"
-            />
-            Even out loudness
-          </label>
-          {isSyncing ? (
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={isCancelling}
-              className="h-9 px-3.5 flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-sm font-medium text-slate-200 disabled:opacity-50 cursor-pointer"
-            >
-              <X className="w-4 h-4" /> {isCancelling ? 'Cancelling…' : 'Cancel'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onSync(options)}
-              disabled={Boolean(blockedReason)}
-              title={blockedReason || undefined}
-              className="h-9 px-4 flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
-            >
-              {report ? <RefreshCw className="w-4 h-4" /> : <Scissors className="w-4 h-4" />}
-              {report ? 'Sync again' : 'Sync'}
-            </button>
-          )}
-        </div>
-      </div>
-      {blockedReason && !isSyncing && <p className="-mt-2 text-xs text-amber-300">{blockedReason}</p>}
-      {error && !isSyncing && (
-        <p role="alert" className="-mt-2 text-xs text-rose-300">
-          Sync failed: {error}
-        </p>
       )}
 
       {isSyncing && (
@@ -230,7 +382,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
               style={{ width: `${Math.max(2, fraction * 100)}%` }}
             />
           </div>
-          <ol className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-x-6 gap-y-1.5">
+          <ol className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5">
             {SYNC_STEPS.map((s, i) => {
               const state = i + 1 < step ? 'done' : i + 1 === step ? 'active' : 'todo';
               return (
@@ -260,7 +412,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
 
       {report && !isSyncing && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
             {[
               {
                 label: 'Lines in sync',
@@ -286,7 +438,14 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
             ))}
           </div>
 
-          <SyncTimeline report={report} currentTime={currentTime} onSeek={onSeek} />
+          <SyncTimeline
+            report={report}
+            reportedTime={currentTime}
+            getLiveTime={getLiveTime}
+            onSeek={onSeek}
+            isPlaying={isPlaying}
+            onTogglePlay={onTogglePlay}
+          />
 
           {report.summary.suggestionError && (
             <p className="text-xs text-amber-300">
@@ -312,7 +471,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
                 </span>
                 <button
                   type="button"
-                  onClick={() => onSync(options)}
+                  onClick={onSync}
                   disabled={Boolean(blockedReason)}
                   className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-pointer"
                 >
@@ -321,7 +480,7 @@ export const SyncPanel: React.FC<SyncPanelProps> = ({
               </div>
             )}
             {review.length > 0 && (
-              <ul className="mt-2 max-h-[28rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
+              <ul className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
                 {review.map(({ unit, reason }) => (
                   <ReviewRow
                     key={unit.index}
@@ -454,11 +613,16 @@ const ReviewRow: React.FC<{
 };
 
 /** The original's lines above the dub's, over a 30-second window that follows the playhead. */
-const SyncTimeline: React.FC<{ report: SyncReport; currentTime: number; onSeek: (time: number) => void }> = ({
-  report,
-  currentTime,
-  onSeek,
-}) => {
+const SyncTimeline: React.FC<{
+  report: SyncReport;
+  reportedTime: number;
+  getLiveTime?: () => number | null;
+  onSeek: (time: number) => void;
+  isPlaying: boolean;
+  onTogglePlay: () => void;
+}> = ({ report, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay }) => {
+  // Every frame while playing; this timeline is small, so re-rendering it is cheap.
+  const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime);
   const total = Math.max(report.duration, ...report.units.map((u) => u.srcEnd));
   const [windowStart, setWindowStart] = useState(0);
   const [follow, setFollow] = useState(true);
@@ -474,18 +638,27 @@ const SyncTimeline: React.FC<{ report: SyncReport; currentTime: number; onSeek: 
   const end = windowStart + WINDOW_SECONDS;
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
   const visible = report.units.filter((u) => u.srcEnd >= windowStart && u.srcStart <= end);
-  const page = (dir: number) => {
+  // Scrolling by hand stops the window following playback until play is pressed or a lane clicked.
+  const scrollTo = (start: number) => {
     setFollow(false);
-    setWindowStart((s) => Math.max(0, Math.min(Math.max(0, total - WINDOW_SECONDS), s + dir * WINDOW_SECONDS * 0.8)));
+    setWindowStart(Math.max(0, Math.min(Math.max(0, total - WINDOW_SECONDS), start)));
   };
+  const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(windowStart + seconds));
   const seekAt = (e: React.MouseEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     setFollow(true);
     onSeek(windowStart + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS);
   };
+  const markers = useMemo(
+    () =>
+      report.units
+        .filter((u) => u.exceeded || !u.inSync)
+        .map((u) => ({ time: u.srcStart, tone: 'warn' as const })),
+    [report]
+  );
 
   const lane = (kind: 'source' | 'dub') => (
-    <div className="relative h-9 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt}>
+    <div className="relative h-9 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
       {visible.map((u) => {
         const from = kind === 'source' ? u.srcStart : u.placedStart;
         const to = kind === 'source' ? u.srcEnd : u.placedEnd;
@@ -525,22 +698,32 @@ const SyncTimeline: React.FC<{ report: SyncReport; currentTime: number; onSeek: 
           <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Dub
         </span>
         {lane('dub')}
+        <span />
+        <TimelineScrollbar
+          total={total}
+          windowStart={windowStart}
+          windowSeconds={WINDOW_SECONDS}
+          currentTime={currentTime}
+          markers={markers}
+          onScroll={scrollTo}
+        />
       </div>
-      <div className="pl-[5.25rem] flex items-center gap-3 text-[11px] text-slate-500">
-        <button type="button" onClick={() => page(-1)} aria-label="Earlier" className="w-6 h-6 rounded-md hover:bg-slate-800 flex items-center justify-center cursor-pointer">
-          <ChevronLeft className="w-3.5 h-3.5" />
-        </button>
-        <span className="font-mono tabular-nums">
-          {formatClock(windowStart)} – {formatClock(Math.min(end, total))}
-        </span>
-        <button type="button" onClick={() => page(1)} aria-label="Later" className="w-6 h-6 rounded-md hover:bg-slate-800 flex items-center justify-center cursor-pointer">
-          <ChevronRight className="w-3.5 h-3.5" />
-        </button>
-        <span className="ml-auto flex flex-wrap items-center gap-3">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm outline-1 outline-dashed outline-amber-300" /> Too long</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm ring-1 ring-amber-400 bg-amber-400/40" /> Outside tolerance</span>
-        </span>
-      </div>
+      <TimelineTransport
+        isPlaying={isPlaying}
+        onTogglePlay={() => {
+          setFollow(true);
+          onTogglePlay();
+        }}
+        currentTime={currentTime}
+        total={total}
+        windowStart={windowStart}
+        windowSeconds={WINDOW_SECONDS}
+      >
+        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm bg-indigo-400/50" /> In sync</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm bg-indigo-400/50 outline-1 outline-dashed outline-amber-300" /> Too long</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm ring-1 ring-amber-400 bg-amber-400/40" /> Outside tolerance</span>
+        <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 rounded-full bg-amber-400" /> On the scroll bar: a line to check</span>
+      </TimelineTransport>
     </div>
   );
 };

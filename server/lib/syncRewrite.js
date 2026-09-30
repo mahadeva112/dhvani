@@ -19,7 +19,10 @@ import { generateText } from '../providers/textModel.js';
  */
 const MIN_TARGET_SHARE = 0.5;
 
-export const buildRewritePrompt = ({ text, sourceText, language, targetChars }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
+/** Earlier suggestions for a line, shown to the model so a new try reads differently. */
+const MAX_AVOID = 3;
+
+export const buildRewritePrompt = ({ text, sourceText, language, targetChars, avoid = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
 This dub line takes too long to say in the time the original speaker took. Rewrite it so it is at most ${targetChars} characters long (it is now ${text.length}).
 
@@ -28,7 +31,11 @@ Rules:
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
 - Do not add anything that is not in the line.
-${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}
+${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${
+  avoid.length > 0
+    ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(0, MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
+    : ''
+}
 Dub line to shorten:
 ${text}
 
@@ -51,10 +58,11 @@ export const acceptRewrite = (original, rewritten, targetChars = original.length
  * unusable. Throws when the model can't be reached or refuses, so the caller
  * can tell the user why there is no suggestion.
  */
-export const shortenLine = async ({ text, sourceText, language, targetChars }, { apiKey } = {}) => {
+export const shortenLine = async ({ text, sourceText, language, targetChars, avoid = [] }, { apiKey } = {}) => {
   const { response } = await generateText({
-    contents: { role: 'user', parts: [{ text: buildRewritePrompt({ text, sourceText, language, targetChars }) }] },
-    generationConfig: { temperature: 0.3 },
+    contents: { role: 'user', parts: [{ text: buildRewritePrompt({ text, sourceText, language, targetChars, avoid }) }] },
+    // A second try at the same line is asked to differ, and given more room to.
+    generationConfig: { temperature: avoid.length > 0 ? 0.7 : 0.3 },
     apiKey,
   });
   const line = acceptRewrite(text, String(response?.text || ''), targetChars);
