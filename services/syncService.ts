@@ -269,3 +269,95 @@ export const syncedSegments = (segments: AudioSegment[], report: SyncReport): Au
   }
   return out;
 };
+
+/** One line of a sync preview: its slot, and how long the dub line is estimated to take. */
+export interface SyncPreviewUnit {
+  index: number;
+  /** Same key as the line has in a sync report. */
+  key: string;
+  cueIds: (string | number)[];
+  text: string;
+  sourceText: string;
+  srcStart: number;
+  srcEnd: number;
+  nextStart: number | null;
+  /** Seconds the line has: to where the next phrase starts, less a breath. */
+  slot: number;
+  /** Estimated seconds of speech. */
+  estimate: number;
+  /** Estimated seconds past the slot, 0 when it fits. */
+  overflow: number;
+  status: 'fits' | 'tight' | 'long';
+  /** Length a shorter wording should aim for, in characters. */
+  targetChars: number;
+}
+
+export interface SyncPreview {
+  precision: SyncPrecision;
+  charsPerSecond: number;
+  units: SyncPreviewUnit[];
+  summary: { lines: number; fits: number; tight: number; long: number; maxOverflow: number };
+}
+
+/** Which lines are likely to fit, before anything is voiced. No voice or text model is called. */
+export const previewSync = (
+  request: { segments: AudioSegment[]; precision: SyncPrecision; charsPerSecond: number; sourceDuration?: number },
+  { signal }: { signal?: AbortSignal } = {}
+): Promise<SyncPreview> =>
+  apiJson<SyncPreview>('/sync/preview', { body: { ...request, segments: request.segments.map(slimSegment) }, signal });
+
+/** A shorter wording of one line from the text model, or null when it had nothing usable. */
+export const suggestShorterLine = async (
+  request: { text: string; sourceText?: string; language?: string; targetChars: number; avoid?: string[] },
+  { signal }: { signal?: AbortSignal } = {}
+): Promise<string | null> => (await apiJson<{ line: string | null }>('/sync/shorten', { body: request, signal })).line;
+
+/** A typical dub speaking rate, used when there is no dub to measure one from. */
+export const TYPICAL_CHARS_PER_SECOND = 14;
+
+/** Silence shorter than this sits inside a line (a breath, a comma), so it counts as speaking time. */
+const LINE_BREAK_SECONDS = 0.35;
+
+/**
+ * Seconds of speech in a dub: every stretch above the noise floor, plus the
+ * short pauses inside lines. The longer silences between lines are left out,
+ * so characters over this is the voice's own rate, as Sync would meet it.
+ * Returns 0 when the buffer holds no speech.
+ */
+export const measureSpeechSeconds = (buffer: AudioBuffer): number => {
+  const data = buffer.getChannelData(0);
+  const frame = Math.max(1, Math.round(buffer.sampleRate * 0.02));
+  const levels: number[] = [];
+  for (let at = 0; at + frame <= data.length; at += frame) {
+    let sum = 0;
+    for (let i = at; i < at + frame; i++) sum += data[i] * data[i];
+    levels.push(Math.sqrt(sum / frame));
+  }
+  if (levels.length === 0) return 0;
+  const sorted = [...levels].sort((a, b) => a - b);
+  const floor = sorted[Math.floor(sorted.length * 0.1)];
+  const loud = sorted[Math.floor(sorted.length * 0.95)];
+  const threshold = Math.max(0.003, floor * 3, loud * 0.04);
+  const frameSeconds = frame / buffer.sampleRate;
+  const maxGapFrames = Math.round(LINE_BREAK_SECONDS / frameSeconds);
+
+  let speech = 0;
+  let gap = 0;
+  let started = false;
+  for (const level of levels) {
+    if (level >= threshold) {
+      if (started && gap <= maxGapFrames) speech += gap;
+      speech += 1;
+      gap = 0;
+      started = true;
+    } else if (started) gap += 1;
+  }
+  return speech * frameSeconds;
+};
+
+/** The voice's rate in characters a second, or null when it can't be believed. */
+export const speakingRate = (characters: number, speechSeconds: number): number | null => {
+  if (!(speechSeconds > 1) || characters <= 0) return null;
+  const rate = characters / speechSeconds;
+  return rate >= 5 && rate <= 35 ? rate : null;
+};

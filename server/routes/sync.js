@@ -7,6 +7,7 @@ import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat } from '..
 import { pcmToWav } from '../lib/wav.js';
 import { runSync } from '../lib/syncDub.js';
 import { shortenLine } from '../lib/syncRewrite.js';
+import { previewSync } from '../lib/syncPreview.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
 import { logger } from '../logger.js';
 
@@ -150,6 +151,38 @@ syncRouter.post(
       if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
       throw err;
     }
+  })
+);
+
+/**
+ * POST /api/sync/preview — which lines are likely to fit before anything is
+ * voiced. Body: `{ segments, precision, charsPerSecond, sourceDuration }`.
+ * Pure arithmetic on the cues: no voice and no text model is called.
+ */
+syncRouter.post('/sync/preview', (req, res) => {
+  const { segments, precision, charsPerSecond, sourceDuration } = req.body || {};
+  if (!Array.isArray(segments)) throw new ApiError('There are no cues to preview.', { status: 400, code: 'no_segments' });
+  res.json(previewSync({ segments, precision, charsPerSecond, sourceDuration }));
+});
+
+/**
+ * POST /api/sync/shorten — a shorter wording for one line, from the text
+ * model. Body: `{ text, sourceText, language, targetChars, avoid }`, `avoid`
+ * being earlier suggestions to differ from. Replies `{ line }`, null when the
+ * model's answer was not usable. The script is never changed here.
+ */
+syncRouter.post(
+  '/sync/shorten',
+  asyncHandler(async (req, res) => {
+    const { text, sourceText, language, targetChars, avoid } = req.body || {};
+    if (typeof text !== 'string' || !text.trim()) throw new ApiError('There is no line to shorten.', { status: 400, code: 'no_text' });
+    const target = Math.max(1, Math.min(text.length, Math.floor(Number(targetChars) || text.length * 0.8)));
+    const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(0, 3) : [];
+    const line = await shortenLine(
+      { text, sourceText: typeof sourceText === 'string' ? sourceText : '', language, targetChars: target, avoid: earlier },
+      { apiKey: req.get('x-gemini-key') || undefined }
+    );
+    res.json({ line });
   })
 );
 

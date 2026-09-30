@@ -14,6 +14,7 @@ import {
   Film,
   Music,
   Speech,
+  Lock,
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
 
@@ -64,7 +65,7 @@ export interface HeaderQuota {
 
 export interface ProHeaderProps {
   activeJob: BatchJob | null;
-  /** The step on screen and how to change it; steps 2 and 3 need cues. */
+  /** The step on screen and how to change it; steps 2 to 4 need cues. */
   activeStep: number;
   onStepChange: (step: number) => void;
   /** Spoken language shown next to the file; empty means auto-detect. */
@@ -72,6 +73,8 @@ export interface ProHeaderProps {
   targetLanguage?: string;
   mediaDuration?: number;
   activity?: HeaderActivity | null;
+  /** Lines reworded or retaken since the last sync: Sync shows how many. */
+  syncPendingCount?: number;
   quota?: HeaderQuota | null;
   /** The engine speaking the dub. ElevenLabs always transcribes. */
   voiceEngine?: 'elevenlabs' | 'cartesia';
@@ -170,6 +173,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   targetLanguage,
   mediaDuration,
   activity = null,
+  syncPendingCount = 0,
   quota = null,
   voiceEngine = 'elevenlabs',
   cartesiaReady = false,
@@ -208,6 +212,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
 
   const hasCues = Boolean(activeJob && activeJob.segments.length > 0);
   const hasDub = Boolean(activeJob?.synthesizedAudioUrl);
+  const hasSync = hasDub && Boolean(activeJob?.syncReport);
   const servicesOk = elevenLabsReady && translationReady;
   const voiceEngineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   /** What an engine is doing right now, e.g. "Transcription and voice", or "Off". */
@@ -254,12 +259,16 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
     return null;
   })();
 
+  // Sync is open whenever there are cues, as it was inside the dub step: it
+  // can make the dub itself. The header only marks it next once a dub exists.
   const steps = [
     { n: 1, label: 'Source & voice', enabled: true },
     { n: 2, label: 'Review', enabled: hasCues },
     { n: 3, label: 'Final dub', enabled: hasCues },
+    { n: 4, label: 'Sync', enabled: hasCues },
   ];
-  const stepDone = (n: number) => (n === 1 ? hasCues : n === 2 ? hasDub : false);
+  const stepDone = (n: number) => (n === 1 ? hasCues : n === 2 || n === 3 ? hasDub : hasSync);
+  const lockedWhy = 'Add media and transcribe it first';
 
   return (
     <header className="relative z-20 w-full bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md select-none">
@@ -307,14 +316,15 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
           )}
         </div>
 
-        {/* Centre: the three steps */}
+        {/* Centre: the four steps */}
         <nav
           aria-label="Dubbing steps"
           className="col-span-2 md:col-span-1 row-start-2 md:row-start-auto justify-self-center flex items-center gap-0.5 p-[3px] rounded-full bg-slate-900 border border-slate-800 max-w-full overflow-x-auto [scrollbar-width:none]"
         >
           {steps.map((s) => {
             const on = activeStep === s.n;
-            const done = !on && stepDone(s.n);
+            const done = !on && s.enabled && stepDone(s.n);
+            const next = !on && s.enabled && !done && s.n === activeStep + 1 && (s.n !== 4 || hasDub);
             return (
               <button
                 key={s.n}
@@ -322,13 +332,16 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                 onClick={() => s.enabled && onStepChange(s.n)}
                 disabled={!s.enabled}
                 aria-current={on ? 'step' : undefined}
-                title={s.label}
+                aria-label={s.enabled ? undefined : `${s.label}, locked. ${lockedWhy}.`}
+                title={s.enabled ? (next ? `Next: ${s.label}` : s.label) : lockedWhy}
                 className={`flex items-center gap-2 pl-1 pr-3 lg:pr-3.5 py-1 rounded-full text-[12.5px] font-medium whitespace-nowrap transition-colors ${
                   on
                     ? 'bg-slate-800 text-slate-100 shadow-sm'
-                    : s.enabled
-                      ? 'text-slate-400 hover:text-slate-200 cursor-pointer'
-                      : 'text-slate-600 cursor-not-allowed'
+                    : next
+                      ? 'text-slate-200 hover:text-white cursor-pointer'
+                      : s.enabled
+                        ? 'text-slate-400 hover:text-slate-200 cursor-pointer'
+                        : 'text-slate-500 cursor-not-allowed'
                 }`}
               >
                 <span
@@ -337,15 +350,27 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                       ? 'bg-indigo-500 border-indigo-500 text-white'
                       : done
                         ? 'bg-emerald-500/15 border-transparent text-emerald-300'
-                        : 'border-slate-700'
+                        : next
+                          ? 'border-indigo-500 text-indigo-300'
+                          : s.enabled
+                            ? 'border-slate-700'
+                            : 'border-dashed border-slate-700 text-slate-500'
                   }`}
                 >
-                  {done ? <Check className="w-3 h-3" /> : s.n}
+                  {done ? <Check className="w-3 h-3" /> : s.enabled ? s.n : <Lock className="w-2.5 h-2.5" />}
                 </span>
                 <span className="hidden sm:inline">{s.label}</span>
                 {s.n === 2 && hasCues && (
                   <span className="hidden lg:inline font-mono text-[10px] text-cyan-300 tabular-nums">
                     {activeJob!.segments.length} cues
+                  </span>
+                )}
+                {s.n === 4 && hasSync && syncPendingCount > 0 && (
+                  <span
+                    className="hidden lg:inline font-mono text-[10px] text-amber-300 tabular-nums"
+                    title="Lines changed since the last sync. Sync again to hear them."
+                  >
+                    {syncPendingCount} changed
                   </span>
                 )}
               </button>

@@ -42,6 +42,7 @@ import {
   Speech,
   ShieldCheck,
   ArrowLeftRight,
+  Scissors,
   X,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, ProcessingStatus } from '../types';
@@ -77,8 +78,17 @@ import { CustomScriptAlignModal } from './CustomScriptAlignModal';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
-import { SyncPanel } from './SyncPanel';
-import type { SyncOptions, SyncProgress, SyncUnitReport } from '../services/syncService';
+import { SyncResultsPanel, SyncSettingsPanel, useSyncOptions } from './SyncPanel';
+import {
+  distributeLineText,
+  measureSpeechSeconds,
+  speakingRate,
+  suggestShorterLine,
+  syncedSegments,
+  TYPICAL_CHARS_PER_SECOND,
+} from '../services/syncService';
+import type { SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
+import { SyncPreviewPanel, useSyncPreview } from './SyncPreviewPanel';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
@@ -511,6 +521,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
   // The header shows and switches steps, so the step lives in App.
   const setStepOverride = onStepChange;
+  // Step 4's settings, shared by its rail and the "Sync again" in its results.
+  const [syncOptions, setSyncOptions] = useSyncOptions();
   const hasSegments = Boolean(activeJob && activeJob.segments.length > 0);
 
   const getSourceText = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
@@ -526,6 +538,54 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const segments = activeJob?.segments || [];
   const latestSegments = useRef(segments);
   latestSegments.current = segments;
+
+  /*
+   * Step 4's preview, before the first sync. The voice's speaking rate comes
+   * from the Final dub when there is one (characters over seconds of speech),
+   * else a typical rate, and the preview says which.
+   */
+  const dubSpeechSeconds = useMemo(
+    () => (activeJob?.synthAudioBuffer ? measureSpeechSeconds(activeJob.synthAudioBuffer) : 0),
+    [activeJob?.synthAudioBuffer]
+  );
+  const scriptCharacters = useMemo(
+    () => segments.reduce((sum, seg) => sum + (seg.textTarget || seg.targetText || '').trim().length, 0),
+    [segments]
+  );
+  const measuredRate = activeJob?.synthesizedAudioUrl ? speakingRate(scriptCharacters, dubSpeechSeconds) : null;
+  // Rounded so small script edits don't move every estimate and refetch the preview.
+  const previewRate = Math.round((measuredRate ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
+  const hasSyncReport = Boolean(activeJob?.synthesizedAudioUrl && activeJob?.syncReport);
+  const syncPreview = useSyncPreview({
+    enabled: activeStep === 4 && !hasSyncReport && !isSyncing && segments.length > 0,
+    segments,
+    precision: syncOptions.precision,
+    charsPerSecond: previewRate,
+    sourceDuration: activeJob?.audioBuffer?.duration || 0,
+  });
+
+  /** Puts a wording of a preview line into the script, spread over its cues; returns their texts before. */
+  const applyPreviewLine = (unit: SyncPreviewUnit, text: string) => {
+    const ids = unit.cueIds.map(String);
+    const cues = segments.filter((seg) => ids.includes(String(seg.id)));
+    const before = Object.fromEntries(cues.map((cue) => [String(cue.id), getTargetText(cue)]));
+    const texts = distributeLineText(text, cues.map(getTargetText));
+    const byId = new Map(cues.map((cue, n) => [String(cue.id), texts[n] ?? '']));
+    onReplaceSegments(
+      segments.map((seg) => {
+        const next = byId.get(String(seg.id));
+        return next === undefined ? seg : { ...seg, textTarget: next, targetText: next };
+      })
+    );
+    return before;
+  };
+  const restoreCueTexts = (before: Record<string, string>) =>
+    onReplaceSegments(
+      segments.map((seg) => {
+        const text = before[String(seg.id)];
+        return text === undefined ? seg : { ...seg, textTarget: text, targetText: text };
+      })
+    );
 
   const filteredSegments = useMemo(() => {
     return segments.filter((seg) => {
@@ -766,6 +826,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     setExportSuccessMessage(
       `Saved the .srt subtitles (${opts.maxLinesPerCue} ${opts.maxLinesPerCue === 1 ? 'line' : 'lines'}, up to ${opts.maxWordsPerLine} words a line)`
     );
+    setTimeout(() => setExportSuccessMessage(null), 3500);
+  };
+
+  /** Subtitles timed to the synced dub: each cue where Sync placed its line. */
+  const handleExportSyncedSrt = () => {
+    const report = activeJob?.syncReport;
+    if (!report || segments.length === 0) return;
+    const srt = generateSrtContent(syncedSegments(segments, report), srtOptions);
+    const cleanLang = (targetLanguage || 'captions').toLowerCase().replace(/\s+/g, '_');
+    downloadFile(srt, `dhvani_${cleanLang}_synced_subtitles.srt`, 'text/srt;charset=utf-8');
+    setExportSuccessMessage('Saved the .srt subtitles, timed to the synced dub');
     setTimeout(() => setExportSuccessMessage(null), 3500);
   };
 
@@ -2349,35 +2420,44 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             )}
           </section>
 
-          {onSyncDub && (
-            <SyncPanel
-              report={hasDub ? activeJob.syncReport || null : null}
-              progress={syncProgress}
-              isSyncing={isSyncing}
-              isCancelling={isCancellingSync}
-              error={syncError}
-              pendingLines={syncPendingLines}
-              onApplyLine={onApplySyncLine}
-              onRetakeLine={onRetakeSyncLine}
-              blockedReason={
-                isSynthesizing
-                  ? 'Wait for the dub to finish first.'
-                  : voiceEngine === 'cartesia'
-                    ? 'Sync works with ElevenLabs voices for now.'
-                    : segments.length === 0
-                      ? 'There are no cues to sync yet.'
-                      : null
-              }
-              onSync={onSyncDub}
-              onCancel={() => onCancelSync?.()}
-              currentTime={currentTime}
-              onSeek={onSeek}
-              onListen={(time) => {
-                onTrackModeChange('both');
-                onSeek(time);
-                if (!isPlaying) onTogglePlay();
-              }}
-            />
+          {/* Sync is step 4; the dub hands over to it here. */}
+          {onSyncDub && hasDub && !isSynthesizing && (
+            <section
+              aria-label="Next step"
+              className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3.5 rounded-2xl border border-indigo-500/40 bg-indigo-950/30"
+            >
+              <span className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0">
+                <Scissors className="w-4 h-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-slate-100">
+                  {isSyncing
+                    ? 'Syncing the dub to the original'
+                    : activeJob.syncReport
+                      ? `Synced: ${activeJob.syncReport.summary.inSync} of ${activeJob.syncReport.summary.lines} lines in sync`
+                      : 'Next: sync the dub to the original'}
+                </p>
+                <p className="text-[12.5px] text-slate-400">
+                  {isSyncing
+                    ? 'It runs in step 4. You can keep working here.'
+                    : activeJob.syncReport && syncPendingLines.length > 0
+                      ? `${syncPendingLines.length === 1 ? '1 line has' : `${syncPendingLines.length} lines have`} changed since. Sync again to hear ${syncPendingLines.length === 1 ? 'it' : 'them'}.`
+                      : activeJob.syncReport
+                        ? 'Every line starts where the original line starts. Check the lines worth a listen in step 4.'
+                        : 'Each line is moved to start where the original line starts. The voice itself is not changed.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setStepOverride(4);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                className="h-10 px-4 flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors cursor-pointer active:translate-y-px shrink-0"
+              >
+                {isSyncing ? 'View sync' : activeJob.syncReport ? 'Open sync' : 'Continue to sync'} <ArrowRight className="w-4 h-4" />
+              </button>
+            </section>
           )}
 
           {/* Script and delivery share one height */}
@@ -2812,6 +2892,173 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </div>
             </div>
           )}
+        </div>
+        );
+      })()}
+
+      {/* ========================================================================= */}
+      {/* STEP 4: SYNC */}
+      {/* ========================================================================= */}
+      {activeStep === 4 && activeJob && (() => {
+        const hasDub = Boolean(activeJob.synthesizedAudioUrl);
+        const report = hasDub ? activeJob.syncReport || null : null;
+        const totalLength = duration || activeJob.synthAudioBuffer?.duration || activeJob.audioBuffer?.duration || 0;
+        const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
+        const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
+        const blockedReason = !onSyncDub
+          ? 'Sync is not available.'
+          : isSynthesizing
+            ? 'Wait for the dub to finish first.'
+            : voiceEngine === 'cartesia'
+              ? 'Sync works with ElevenLabs voices for now.'
+              : segments.length === 0
+                ? 'There are no cues to sync yet.'
+                : null;
+        const runSync = () => onSyncDub?.(syncOptions);
+
+        return (
+        <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
+          {/* Transport: the lines worth a listen play through it */}
+          {hasDub && (
+            <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => activeCueIndex > 0 && onSeek(segments[activeCueIndex - 1].startTime)}
+                className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
+                aria-label="Previous cue"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onTogglePlay}
+                className="w-10 h-10 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-pointer"
+                aria-label={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = segments.find((s) => s.startTime > currentTime + 0.05);
+                  if (next) onSeek(next.startTime);
+                }}
+                className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
+                aria-label="Next cue"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+              <span className="font-mono text-sm text-slate-100 tabular-nums">
+                <LiveClock currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} />{' '}
+                <span className="text-slate-500">/ {formatClock(totalLength)}</span>
+              </span>
+              <span aria-live="polite" className="flex-1 min-w-[12rem] truncate text-[13px] text-slate-300">
+                {activeCue ? getTargetText(activeCue) : <span className="text-xs text-slate-500">Press play, or Listen on a line below.</span>}
+              </span>
+              <div role="group" aria-label="Listen to" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+                {[
+                  { id: 'source' as const, label: 'Original', dot: 'bg-cyan-400' },
+                  { id: 'synth' as const, label: 'Dub', dot: 'bg-indigo-400' },
+                  { id: 'both' as const, label: 'Both', dot: '' },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    aria-pressed={trackMode === m.id}
+                    onClick={() => onTrackModeChange(m.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                      trackMode === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {m.dot && <span className={`w-2 h-2 rounded-sm ${m.dot}`} />}
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <select
+                value={playbackRate}
+                onChange={(e) => onPlaybackRateChange(Number(e.target.value))}
+                className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                aria-label="Playback speed"
+              >
+                {[0.75, 1, 1.25, 1.5].map((r) => (
+                  <option key={r} value={r} className="bg-slate-900">
+                    {r}×
+                  </option>
+                ))}
+              </select>
+            </section>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-start">
+            <SyncResultsPanel
+              report={report}
+              progress={syncProgress}
+              isSyncing={isSyncing}
+              isCancelling={isCancellingSync}
+              lineCount={segments.length}
+              duration={totalLength}
+              blockedReason={blockedReason}
+              onSync={runSync}
+              preview={
+                <SyncPreviewPanel
+                  preview={syncPreview.preview}
+                  loading={syncPreview.loading}
+                  error={syncPreview.error}
+                  rateMeasured={measuredRate !== null}
+                  currentTime={currentTime}
+                  isPlaying={isPlaying}
+                  onTogglePlay={onTogglePlay}
+                  getLiveTime={getLiveTime}
+                  onSeek={onSeek}
+                  onListenOriginal={(time) => {
+                    onTrackModeChange('source');
+                    onSeek(time);
+                    if (!isPlaying) onTogglePlay();
+                  }}
+                  onSuggest={(unit, avoid) =>
+                    suggestShorterLine({ text: unit.text, sourceText: unit.sourceText, language: targetLanguage, targetChars: unit.targetChars, avoid })
+                  }
+                  onUseLine={applyPreviewLine}
+                  onRestore={restoreCueTexts}
+                />
+              }
+              currentTime={currentTime}
+              isPlaying={isPlaying}
+              onTogglePlay={onTogglePlay}
+              getLiveTime={getLiveTime}
+              onSeek={onSeek}
+              onListen={(time) => {
+                onTrackModeChange('both');
+                onSeek(time);
+                if (!isPlaying) onTogglePlay();
+              }}
+              pendingLines={syncPendingLines}
+              onApplyLine={onApplySyncLine}
+              onRetakeLine={onRetakeSyncLine}
+            />
+            <SyncSettingsPanel
+              options={syncOptions}
+              onOptionsChange={setSyncOptions}
+              synced={Boolean(report)}
+              hasDub={hasDub}
+              isSyncing={isSyncing}
+              isCancelling={isCancellingSync}
+              error={syncError}
+              blockedReason={blockedReason}
+              pendingCount={syncPendingLines.length}
+              previewShown={!report && Boolean(syncPreview.preview)}
+              previewLongCount={syncPreview.preview?.summary.long ?? 0}
+              onSync={runSync}
+              onCancel={() => onCancelSync?.()}
+              onBack={() => {
+                setStepOverride(3);
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              onDownloadWav={report ? onDownloadWav : undefined}
+              onDownloadSrt={report ? handleExportSyncedSrt : undefined}
+            />
+          </div>
         </div>
         );
       })()}

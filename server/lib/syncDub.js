@@ -38,7 +38,7 @@ export const SYNC_PRECISION = {
 };
 
 /** Suggestions aim this far under the slot, since a new wording rarely lands exactly on its target. */
-const SUGGESTION_MARGIN = 0.92;
+export const SUGGESTION_MARGIN = 0.92;
 
 /** Hard anchors (after long pauses and speaker changes) pull this much harder in the solve. */
 const HARD_ANCHOR_WEIGHT = 3;
