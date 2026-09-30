@@ -556,6 +556,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Rounded so small script edits don't move every estimate and refetch the preview.
   const previewRate = Math.round((measuredRate ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
   const hasSyncReport = Boolean(activeJob?.synthesizedAudioUrl && activeJob?.syncReport);
+  /** The cues where Sync placed them, for subtitles that match the synced dub. */
+  const syncedCues = useMemo(
+    () => (hasSyncReport && activeJob?.syncReport ? syncedSegments(segments, activeJob.syncReport) : undefined),
+    [hasSyncReport, activeJob?.syncReport, segments]
+  );
   const syncPreview = useSyncPreview({
     enabled: activeStep === 4 && !hasSyncReport && !isSyncing && segments.length > 0,
     segments,
@@ -817,37 +822,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
   };
 
-  const handleExportSrtWithSettings = (customOpts?: SrtOptions) => {
-    if (!segments || segments.length === 0) return;
-    const opts = customOpts || srtOptions;
-    const srt = generateSrtContent(segments, opts);
+  /** Subtitles from step 4, timed to the synced dub: each cue where Sync placed its line. */
+  const handleExportStepSubtitles = (format: 'srt' | 'vtt') => {
+    if (!syncedCues || syncedCues.length === 0) return;
+    const content = format === 'srt' ? generateSrtContent(syncedCues, srtOptions) : generateVttContent(syncedCues, srtOptions);
     const cleanLang = (targetLanguage || 'captions').toLowerCase().replace(/\s+/g, '_');
-    downloadFile(srt, `dhvani_${cleanLang}_subtitles.srt`, 'text/srt;charset=utf-8');
-    setExportSuccessMessage(
-      `Saved the .srt subtitles (${opts.maxLinesPerCue} ${opts.maxLinesPerCue === 1 ? 'line' : 'lines'}, up to ${opts.maxWordsPerLine} words a line)`
-    );
+    downloadFile(content, `dhvani_${cleanLang}_synced_subtitles.${format}`, format === 'srt' ? 'text/srt;charset=utf-8' : 'text/vtt;charset=utf-8');
+    setExportSuccessMessage(`Saved the .${format} subtitles, timed to the synced dub`);
     setTimeout(() => setExportSuccessMessage(null), 3500);
-  };
-
-  /** Subtitles timed to the synced dub: each cue where Sync placed its line. */
-  const handleExportSyncedSrt = () => {
-    const report = activeJob?.syncReport;
-    if (!report || segments.length === 0) return;
-    const srt = generateSrtContent(syncedSegments(segments, report), srtOptions);
-    const cleanLang = (targetLanguage || 'captions').toLowerCase().replace(/\s+/g, '_');
-    downloadFile(srt, `dhvani_${cleanLang}_synced_subtitles.srt`, 'text/srt;charset=utf-8');
-    setExportSuccessMessage('Saved the .srt subtitles, timed to the synced dub');
-    setTimeout(() => setExportSuccessMessage(null), 3500);
-  };
-
-  const handleExportVttWithSettings = (customOpts?: SrtOptions) => {
-    if (!segments || segments.length === 0) return;
-    const opts = customOpts || srtOptions;
-    const vtt = generateVttContent(segments, opts);
-    const cleanLang = (targetLanguage || 'captions').toLowerCase().replace(/\s+/g, '_');
-    downloadFile(vtt, `dhvani_${cleanLang}_subtitles.vtt`, 'text/vtt;charset=utf-8');
-    setExportSuccessMessage('Saved the .vtt subtitles');
-    setTimeout(() => setExportSuccessMessage(null), 3000);
   };
 
   const getCpsInfo = (charCount: number, duration: number) => {
@@ -2754,14 +2736,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     disabled: !hasDub || !onDownloadWav,
                     hero: hasDub,
                   },
-                  hasDub && {
-                    tag: 'SRT',
-                    tone: 'bg-indigo-500/15 text-indigo-300',
-                    title: `${targetLanguage} subtitles`,
-                    detail: `${segments.length} cues · ${srtOptions.maxLinesPerCue} line, ${srtOptions.maxWordsPerLine} words max`,
-                    onClick: () => handleExportSrtWithSettings(),
-                    disabled: segments.length === 0,
-                  },
                   {
                     tag: 'TXT',
                     tone: 'bg-cyan-500/15 text-cyan-300',
@@ -2790,26 +2764,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <Download className="w-4 h-4 text-slate-500 shrink-0" />
                   </button>
                 ))}
-                {hasDub ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => handleExportVttWithSettings()} disabled={segments.length === 0} className={railButton}>
-                      <Download className="w-3.5 h-3.5" /> .vtt subtitles
-                    </button>
-                    <button type="button" onClick={() => setIsSrtModalOpen(true)} className={railButton}>
-                      <Sliders className="w-3.5 h-3.5" /> Subtitle settings
-                    </button>
-                  </div>
-                ) : (
-                  <p className="text-[11.5px] text-slate-500">Subtitles (.srt, .vtt) unlock once the dub audio is made.</p>
-                )}
-                <div className="grid grid-cols-2 gap-2">
-                  <button type="button" onClick={() => handleExportTargetScript('csv')} disabled={segments.length === 0} className={railButton}>
-                    <Download className="w-3.5 h-3.5" /> Cue sheet .csv
-                  </button>
-                  <button type="button" onClick={() => handleExportTargetScript('json')} disabled={segments.length === 0} className={railButton}>
-                    <Download className="w-3.5 h-3.5" /> Data .json
-                  </button>
-                </div>
               </div>
 
               {onOpenVoiceChanger && (
@@ -3056,7 +3010,38 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onDownloadWav={report ? onDownloadWav : undefined}
-              onDownloadSrt={report ? handleExportSyncedSrt : undefined}
+              subtitles={
+                report && syncedCues && syncedCues.length > 0 && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleExportStepSubtitles('srt')}
+                      disabled={isSyncing}
+                      className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      <span className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[9.5px] font-semibold shrink-0 bg-indigo-500/15 text-indigo-300">
+                        SRT
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px] font-semibold text-slate-100">{targetLanguage} subtitles</span>
+                        <span className="block text-[11.5px] text-slate-400 truncate">
+                          Timed to the synced dub · {srtOptions.maxLinesPerCue} line,{' '}
+                          {srtOptions.maxWordsPerLine} words max
+                        </span>
+                      </span>
+                      <Download className="w-4 h-4 text-slate-500 shrink-0" />
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => handleExportStepSubtitles('vtt')} disabled={isSyncing} className={railButton}>
+                        <Download className="w-3.5 h-3.5" /> .vtt subtitles
+                      </button>
+                      <button type="button" onClick={() => setIsSrtModalOpen(true)} className={railButton}>
+                        <Sliders className="w-3.5 h-3.5" /> Subtitle settings
+                      </button>
+                    </div>
+                  </>
+                )
+              }
             />
           </div>
         </div>
@@ -3094,6 +3079,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         onOptionsChange={(newOpts) => setSrtOptions(newOpts)}
         synthAudioDuration={activeJob?.synthAudioBuffer?.duration}
         hasSynthAudio={!!activeJob?.synthesizedAudioUrl}
+        syncedSegments={syncedCues}
       />
 
       {/* Custom Script Paste & Alignment Modal */}
