@@ -32,6 +32,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to be. The header marks each step done, current, next or locked (with the reason on hover), shows
   how many lines changed since the last sync, and shows sync progress while you work on other steps.
   Sync is available whenever there are cues, as before. Review and Final dub are otherwise unchanged.
+- **Subtitles come from Sync, after a sync.** The .srt, .vtt and Subtitle settings moved from Final dub
+  to step 4's right-hand panel, and appear once the dub is synced, timed to the synced dub: each cue
+  sits exactly where Sync placed its line (files end in `_synced`). Subtitle settings gains a **Synced
+  dub** timing, chosen by default, next to Original speech and The dub.
 - **A preview before you sync.** Before the first sync, step 4 estimates which lines will fit the time
   the original gives them, with nothing voiced and no ElevenLabs characters used. It groups lines and
   works out each line's time exactly as Sync does. How long each dub line takes is estimated from its
@@ -64,6 +68,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   environment now *seeds* an install that has never been configured; anything saved from **API
   Settings** is written to this computer's own config file and takes over from there. Set
   `ALLOW_KEY_SETUP=false` to make the environment the last word instead.
+
+### Removed
+
+- **Cue sheet .csv and Data .json downloads** are gone from Final dub.
 
 ### Fixed
 

@@ -102,8 +102,8 @@ export interface SyncSettingsPanelProps {
   onBack: () => void;
   /** Saves the synced dub; absent before the first sync. */
   onDownloadWav?: () => void;
-  /** Saves subtitles timed to the synced dub; absent before the first sync. */
-  onDownloadSrt?: () => void;
+  /** The subtitles section: downloads and settings, built by the step. */
+  subtitles?: React.ReactNode;
 }
 
 /** The right-hand rail of step 4: what to sync with, the Sync button, and the synced files. */
@@ -123,7 +123,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   onCancel,
   onBack,
   onDownloadWav,
-  onDownloadSrt,
+  subtitles,
 }) => (
   <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
@@ -181,23 +181,21 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       </label>
     </div>
 
-    {synced && (onDownloadWav || onDownloadSrt) && (
+    {synced && onDownloadWav && (
       <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
-        <span className={sectionLabel}>Synced downloads</span>
-        {onDownloadWav && (
-          <button type="button" onClick={onDownloadWav} disabled={isSyncing} className={downloadRow}>
-            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
-            <span className="flex-1 text-[13px]">Synced dub</span>
-            <Download className="w-4 h-4 text-slate-500" />
-          </button>
-        )}
-        {onDownloadSrt && (
-          <button type="button" onClick={onDownloadSrt} disabled={isSyncing} className={downloadRow}>
-            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">SRT</span>
-            <span className="flex-1 text-[13px]">Subtitles, synced timing</span>
-            <Download className="w-4 h-4 text-slate-500" />
-          </button>
-        )}
+        <span className={sectionLabel}>Synced dub</span>
+        <button type="button" onClick={onDownloadWav} disabled={isSyncing} className={downloadRow}>
+          <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
+          <span className="flex-1 text-[13px]">Synced dub</span>
+          <Download className="w-4 h-4 text-slate-500" />
+        </button>
+      </div>
+    )}
+
+    {subtitles && (
+      <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
+        <span className={sectionLabel}>Subtitles</span>
+        {subtitles}
       </div>
     )}
 

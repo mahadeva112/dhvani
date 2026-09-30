@@ -62,6 +62,8 @@ interface SrtExportModalProps {
   onOptionsChange?: (options: SrtOptions) => void;
   synthAudioDuration?: number;
   hasSynthAudio?: boolean;
+  /** The cues where Sync placed them, once the dub is synced: timing that matches the synced dub exactly. */
+  syncedSegments?: AudioSegment[];
 }
 
 export const SrtExportModal: React.FC<SrtExportModalProps> = ({
@@ -74,6 +76,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   onOptionsChange,
   synthAudioDuration = 0,
   hasSynthAudio = false,
+  syncedSegments,
 }) => {
   const [options, setOptions] = useState<SrtOptions>(() => {
     try {
@@ -87,7 +90,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'srt' | 'vtt'>('srt');
-  const [syncMode, setSyncMode] = useState<'dubbed' | 'original'>('original');
+  const [syncMode, setSyncMode] = useState<'synced' | 'dubbed' | 'original'>('original');
 
   /**
    * Which language track to export. Both share the same ElevenLabs timestamps;
@@ -95,12 +98,13 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
    */
   const [scriptTrack, setScriptTrack] = useState<'target' | 'source'>('target');
 
-  // Automatically default to dubbed mode if synthetic audio exists
+  // Opens on the most exact timing there is: the synced dub, else the dub, else the original speech.
+  const hasSynced = Boolean(syncedSegments && syncedSegments.length > 0);
   useEffect(() => {
     if (isOpen) {
-      setSyncMode(hasSynthAudio ? 'dubbed' : 'original');
+      setSyncMode(hasSynced ? 'synced' : hasSynthAudio ? 'dubbed' : 'original');
     }
-  }, [hasSynthAudio, isOpen]);
+  }, [hasSynced, hasSynthAudio, isOpen]);
 
   // Sync state if initialOptions changes
   useEffect(() => {
@@ -138,13 +142,15 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
    * generateSrtContent cut cues on exact measured word boundaries.
    */
   const trackSegments = useMemo(() => {
-    if (scriptTrack === 'target') return segments;
-    return segments.map((segment) => ({
+    // The synced cues carry every cue's own fields, source text included, at their placed times.
+    const base = syncMode === 'synced' && syncedSegments ? syncedSegments : segments;
+    if (scriptTrack === 'target') return base;
+    return base.map((segment) => ({
       ...segment,
       textTarget: segment.textSource || '',
       targetText: segment.textSource || '',
     }));
-  }, [segments, scriptTrack]);
+  }, [segments, syncedSegments, syncMode, scriptTrack]);
 
   // Align segments to the continuous dubbed audio timeline if selected
   const processedSegments = useMemo(() => {
@@ -157,7 +163,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   /** True when every exported cue boundary is a measured ElevenLabs word. */
   const hasExactTimings = useMemo(
     () =>
-      syncMode !== 'dubbed' &&
+      syncMode === 'original' &&
       scriptTrack === 'source' &&
       segments.some((segment) => (segment.words?.length ?? 0) > 0),
     [segments, syncMode, scriptTrack]
@@ -206,8 +212,8 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   /** Names the file after the track actually being exported. */
   const exportLabel = useMemo(() => {
     const base = scriptTrack === 'source' ? sourceLanguage || 'original' : targetLanguage || 'captions';
-    return base.toLowerCase().replace(/\s+/g, '_');
-  }, [scriptTrack, sourceLanguage, targetLanguage]);
+    return `${base.toLowerCase().replace(/\s+/g, '_')}${syncMode === 'synced' ? '_synced' : ''}`;
+  }, [scriptTrack, sourceLanguage, targetLanguage, syncMode]);
 
   const handleDownloadSrt = () => {
     if (!previewSrt) return;
@@ -401,6 +407,16 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
               <div className={segWrap} role="group" aria-label="Timed to">
                 <button type="button" aria-pressed={syncMode === 'original'} onClick={() => setSyncMode('original')} className={seg(syncMode === 'original')}>
                   Original speech
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={syncMode === 'synced'}
+                  onClick={() => setSyncMode('synced')}
+                  disabled={!hasSynced}
+                  title={hasSynced ? 'Where Sync placed each line: matches the synced dub exactly' : 'Available once the dub is synced'}
+                  className={seg(syncMode === 'synced')}
+                >
+                  Synced dub
                 </button>
                 <button
                   type="button"
