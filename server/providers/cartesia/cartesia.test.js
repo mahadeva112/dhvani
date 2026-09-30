@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { synthesizeScript, getVoices, toCartesiaOutputFormat } from './speech.js';
+import { synthesizeScript, synthesizeLines, getVoices, toCartesiaOutputFormat } from './speech.js';
 import { toCartesiaLanguage, toCartesiaVoiceId, toDhvaniVoiceId } from './client.js';
 
 const LONG_TEXT = 'The mind is restless, but you can watch it without judgement. '.repeat(60);
@@ -69,6 +69,25 @@ test('a long dub is voiced passage by passage with the right request and joined'
   assert.equal(last.passagesDone, last.passageCount);
   assert.equal(last.charsDone, last.totalChars);
   assert.equal(updates.at(-1).phase, 'joining');
+});
+
+test('sync lines are voiced one clip each, in order, with the voice and language', async () => {
+  const calls = mockFetch((url, init) => audio(JSON.parse(init.body).transcript.length * 100));
+  const done = [];
+  const lines = [{ text: 'First line.' }, { text: 'A somewhat longer second line.' }, { text: 'Third.' }];
+  const results = await synthesizeLines(
+    { voiceId: 'cartesia:voice-1', lines, modelId: 'sonic-3.6', outputFormat: 'pcm_24000', language: 'Hindi', voiceSettings: { speed: 1.1 } },
+    { apiKey: 'sk_car_test', onLine: (n) => done.push(n) }
+  );
+
+  assert.equal(calls.length, 3);
+  assert.deepEqual(results.map((r) => r.buffer.length), lines.map((l) => l.text.length * 100));
+  assert.deepEqual(done, [1, 2, 3]);
+  const body = JSON.parse(calls[0].init.body);
+  assert.equal(body.voice.id, 'voice-1');
+  assert.equal(body.language, 'hi');
+  assert.deepEqual(body.output_format, { container: 'raw', encoding: 'pcm_s16le', sample_rate: 24000 });
+  assert.deepEqual(body.generation_config, { speed: 1.1 });
 });
 
 test('generation_config is only sent to models that take it', async () => {

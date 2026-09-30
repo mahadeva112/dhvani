@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../errors.js';
 import { synthesizeLines } from '../providers/elevenlabs/speech.js';
+import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } from '../providers/cartesia/speech.js';
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat } from '../lib/media.js';
 import { pcmToWav } from '../lib/wav.js';
 import { runSync } from '../lib/syncDub.js';
@@ -23,6 +24,15 @@ const cleanLineSeeds = (value) =>
 
 /** Clips are requested in this format when the dub's own can't be decoded here. */
 const FALLBACK_FORMAT = 'mp3_44100_128';
+
+const isCartesiaVoice = (voiceId) => String(voiceId || '').startsWith('cartesia:');
+
+/**
+ * The settings a Cartesia voice takes from the ElevenLabs sliders: only the
+ * speed carries over, as in a Cartesia dub.
+ */
+const cartesiaSettings = (settings) =>
+  settings && typeof settings.speed === 'number' && Number.isFinite(settings.speed) ? { speed: settings.speed } : undefined;
 
 /**
  * Finished dubs waiting to be fetched, by id. The dub is lossless WAV, too big
@@ -95,7 +105,10 @@ syncRouter.post(
       throw new ApiError('There are no cues to sync.', { status: 400, code: 'no_segments' });
     }
 
-    const format = parseOutputFormat(outputFormat) ? outputFormat : FALLBACK_FORMAT;
+    const cartesia = isCartesiaVoice(voiceId);
+    const requested = parseOutputFormat(outputFormat) ? outputFormat : FALLBACK_FORMAT;
+    // Cartesia rounds to the rates it has, so decode what actually comes back.
+    const format = cartesia ? toCartesiaOutputFormat(requested).format : requested;
     const { codec, sampleRate } = parseOutputFormat(format);
     const hasFfmpeg = await ffmpegAvailable();
     if (codec !== 'pcm' && !hasFfmpeg) {
@@ -114,7 +127,23 @@ syncRouter.post(
     const apiKey = req.get('x-elevenlabs-key') || undefined;
     const textModelKey = req.get('x-gemini-key') || undefined;
     const audioDebug = debug === true || process.env.DHVANI_AUDIO_DEBUG === '1';
-    const voice = { voiceId, modelId, outputFormat: format, voiceSettings: voiceSettings || undefined, seed: Number.isInteger(seed) ? seed : undefined };
+    const cartesiaKey = req.get('x-cartesia-key') || undefined;
+    const voice = cartesia
+      ? {
+          voiceId,
+          // An ElevenLabs model name means the caller did not pick a Cartesia one.
+          modelId: modelId && !/^eleven_/.test(modelId) ? modelId : undefined,
+          outputFormat: format,
+          voiceSettings: cartesiaSettings(voiceSettings),
+          // Cartesia takes no seed, but a retake still needs its own cache entry.
+          seed: Number.isInteger(seed) ? seed : undefined,
+        }
+      : { voiceId, modelId, outputFormat: format, voiceSettings: voiceSettings || undefined, seed: Number.isInteger(seed) ? seed : undefined };
+    const voiceLines = cartesia
+      ? async (lines, { onLine }) =>
+          (await synthesizeCartesiaLines({ ...voice, lines, language }, { apiKey: cartesiaKey, signal: controller.signal, onLine })).map((r) => r.buffer)
+      : async (lines, { onLine }) =>
+          (await synthesizeLines({ ...voice, lines }, { apiKey, signal: controller.signal, onLine })).map((r) => r.buffer);
 
     try {
       const result = await runSync(
@@ -131,8 +160,7 @@ syncRouter.post(
           debug: audioDebug,
         },
         {
-          voiceLines: async (lines, { onLine }) =>
-            (await synthesizeLines({ ...voice, lines }, { apiKey, signal: controller.signal, onLine })).map((r) => r.buffer),
+          voiceLines,
           decode: (buffer) => decodeAudio(buffer, format),
           // One write at the end, lossless and at the clips' own rate: encoding to
           // MP3 again would be a second lossy generation of every line.
