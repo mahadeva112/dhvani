@@ -1517,10 +1517,6 @@ export default function App() {
    */
   const handleSyncDub = async ({ precision, suggest, matchLoudness }: SyncOptions) => {
     if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
-    if (isCartesiaVoice(elVoiceId)) {
-      setSyncError('Sync works with ElevenLabs voices for now. Pick an ElevenLabs voice and try again.');
-      return;
-    }
 
     const hadDub = Boolean(activeJob.synthesizedAudioUrl);
     setIsSyncing(true);

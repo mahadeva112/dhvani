@@ -2863,11 +2863,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           ? 'Sync is not available.'
           : isSynthesizing
             ? 'Wait for the dub to finish first.'
-            : voiceEngine === 'cartesia'
-              ? 'Sync works with ElevenLabs voices for now.'
-              : segments.length === 0
-                ? 'There are no cues to sync yet.'
-                : null;
+            : segments.length === 0
+              ? 'There are no cues to sync yet.'
+              : null;
         const runSync = () => onSyncDub?.(syncOptions);
 
         return (

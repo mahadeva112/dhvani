@@ -200,6 +200,41 @@ export const synthesizeScript = async (
   return { contentType: joined.contentType || contentType, buffer: joined.buffer };
 };
 
+/**
+ * Text-to-speech for a list of separate lines, one clip each, for a synced
+ * dub (see server/lib/syncDub.js): the Cartesia counterpart of the ElevenLabs
+ * synthesizeLines. Cartesia takes no neighbouring text or seed, so each line
+ * is voiced on its own with the same voice, model and settings.
+ *
+ * `lines[i]` is `{ text }`; `outputFormat` should already be one Cartesia
+ * produces (see toCartesiaOutputFormat). `onLine(done)` reports each finished
+ * line. Returns `[{ buffer }]` in the same order.
+ */
+export const synthesizeLines = async (
+  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings },
+  { apiKey, signal, onLine = () => {} } = {}
+) => {
+  requireVoiceId(voiceId);
+  const results = new Array(lines.length);
+  let done = 0;
+  let next = 0;
+  const worker = async () => {
+    while (next < lines.length) {
+      if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+      const index = next++;
+      const response = await synthesizeSpeech(
+        { voiceId, text: lines[index].text, modelId, outputFormat, language, voiceSettings },
+        { apiKey, signal }
+      );
+      results[index] = { buffer: Buffer.from(await response.arrayBuffer()) };
+      onLine(++done);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(SCRIPT_CONCURRENCY, lines.length) }, worker));
+  if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+  return results;
+};
+
 /* --------------------------------------------------------------------- */
 /* Voices                                                                 */
 /* --------------------------------------------------------------------- */
