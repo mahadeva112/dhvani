@@ -14,11 +14,18 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { AudioSegment } from '../types';
+import { useLiveTime } from './useLiveTime';
 
 export interface ReviewWaveformPlayerProps {
   audioBuffer: AudioBuffer | null;
   segments: AudioSegment[];
   currentTime: number;
+  /**
+   * The playing track's exact position. While playing, the player reads it
+   * every frame instead of waiting for `currentTime`, which the audio element
+   * only reports about four times a second.
+   */
+  getLiveTime?: () => number | null;
   duration: number;
   isPlaying: boolean;
   onTogglePlay: () => void;
@@ -120,7 +127,8 @@ const prepareCanvas = (canvas: HTMLCanvasElement | null) => {
 export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   audioBuffer,
   segments,
-  currentTime,
+  currentTime: reportedTime,
+  getLiveTime,
   duration,
   isPlaying,
   onTogglePlay,
@@ -134,6 +142,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   onTrackModeChange,
   hasSynthesizedAudio = false,
 }) => {
+  const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime);
+
   const total = duration || audioBuffer?.duration || segments[segments.length - 1]?.endTime || 0;
   const light = useIsLightTheme();
   const palette = light ? PALETTES.light : PALETTES.dark;
