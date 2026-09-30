@@ -69,6 +69,7 @@ import {
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip, MiniWaveform } from './MediaStrip';
+import { useLiveTime } from './useLiveTime';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { PhoneticSmartTextarea } from './PhoneticSmartTextarea';
 import { SrtExportModal } from './SrtExportModal';
@@ -127,6 +128,27 @@ const formatClock = (seconds: number) => {
   const sec = String(t % 60).padStart(2, '0');
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 };
+
+interface LiveTimeProps {
+  currentTime: number;
+  isPlaying: boolean;
+  getLiveTime?: () => number | null;
+}
+
+/** A lane's playhead, moved every frame while playing without re-rendering the wizard. */
+const LanePlayhead: React.FC<LiveTimeProps & { totalLength: number }> = ({ currentTime, isPlaying, getLiveTime, totalLength }) => {
+  const time = useLiveTime(currentTime, isPlaying, getLiveTime);
+  return (
+    <span
+      className="absolute top-0 bottom-0 w-0.5 bg-slate-100 pointer-events-none"
+      style={{ left: `${Math.min(100, (time / totalLength) * 100)}%` }}
+    />
+  );
+};
+
+const LiveClock: React.FC<LiveTimeProps> = ({ currentTime, isPlaying, getLiveTime }) => (
+  <>{formatClock(useLiveTime(currentTime, isPlaying, getLiveTime))}</>
+);
 
 const railButton =
   'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
@@ -205,6 +227,8 @@ interface ExpressDubWizardProps {
   isPlaying: boolean;
   onTogglePlay: () => void;
   currentTime: number;
+  /** The playing track's exact position, for a playhead that moves every frame. */
+  getLiveTime?: () => number | null;
   duration: number;
   onSeek: (time: number) => void;
   trackMode: 'source' | 'synth' | 'both';
@@ -281,6 +305,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   isPlaying,
   onTogglePlay,
   currentTime,
+  getLiveTime,
   duration,
   onSeek,
   trackMode,
@@ -1026,6 +1051,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             audioBuffer={activeJob.audioBuffer}
             segments={segments}
             currentTime={currentTime}
+            getLiveTime={getLiveTime}
             duration={duration || activeJob.audioBuffer?.duration || 0}
             isPlaying={isPlaying}
             onTogglePlay={onTogglePlay}
@@ -2180,8 +2206,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </span>
                   <div role="group" aria-label="Listen to" className="ml-auto flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
                     {[
-                      { id: 'synth' as const, label: 'Dub', dot: 'bg-indigo-400' },
                       { id: 'source' as const, label: 'Original', dot: 'bg-cyan-400' },
+                      { id: 'synth' as const, label: 'Dub', dot: 'bg-indigo-400' },
                       { id: 'both' as const, label: 'Both', dot: '' },
                     ].map((m) => (
                       <button
@@ -2200,11 +2226,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </div>
                 </div>
 
-                {/* Dub and original, one lane each; click a lane to jump there */}
+                {/* Original and dub, one lane each; click a lane to jump there */}
                 <div className="grid grid-cols-1 sm:grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
                   {[
-                    { label: `${targetLanguage} dub`, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400', muted: trackMode === 'source' },
                     { label: 'Original', buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400', muted: trackMode === 'synth' },
+                    { label: `${targetLanguage} dub`, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400', muted: trackMode === 'source' },
                   ].map((lane) => (
                     <React.Fragment key={lane.label}>
                       <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
@@ -2236,9 +2262,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           </span>
                         )}
                         {totalLength > 0 && (
-                          <span
-                            className="absolute top-0 bottom-0 w-0.5 bg-slate-100 pointer-events-none"
-                            style={{ left: `${Math.min(100, (currentTime / totalLength) * 100)}%` }}
+                          <LanePlayhead
+                            currentTime={currentTime}
+                            isPlaying={isPlaying}
+                            getLiveTime={getLiveTime}
+                            totalLength={totalLength}
                           />
                         )}
                       </div>
@@ -2281,7 +2309,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <ChevronsRight className="w-4 h-4" />
                   </button>
                   <span className="font-mono text-sm text-slate-100 tabular-nums">
-                    {formatClock(currentTime)} <span className="text-slate-500">/ {formatClock(totalLength)}</span>
+                    <LiveClock currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} />{' '}
+                    <span className="text-slate-500">/ {formatClock(totalLength)}</span>
                   </span>
 
                   <div

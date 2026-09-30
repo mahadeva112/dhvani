@@ -855,7 +855,9 @@ export default function App() {
       const source = sourceAudioRef.current;
       const synth = synthAudioRef.current;
 
-      const targetTime = seekTime !== undefined ? seekTime : currentTime;
+      // Resume from where the audio actually is: React's currentTime trails it by up to a quarter-second.
+      const heard = playMode === 'source' ? source : synth;
+      const targetTime = seekTime !== undefined ? seekTime : heard ? heard.currentTime : currentTime;
 
       if (action === 'seek') {
         if (source && isFinite(targetTime)) source.currentTime = targetTime;
@@ -901,6 +903,12 @@ export default function App() {
     },
     [syncPlayback]
   );
+
+  // The heard track's exact position, read every frame by the Review playhead so it moves smoothly.
+  const getLiveTime = useCallback(() => {
+    const el = playMode === 'source' ? sourceAudioRef.current : synthAudioRef.current;
+    return el ? el.currentTime : null;
+  }, [playMode]);
 
   // Audio elements event listeners
   useEffect(() => {
@@ -2151,6 +2159,7 @@ export default function App() {
           onSeek={handleSeek}
           trackMode={playMode}
           onTrackModeChange={setTrackMode}
+          getLiveTime={getLiveTime}
           emotionEnhance={emotionEnhance}
           onEmotionEnhanceChange={handleEmotionEnhanceChange}
           dubMatchLoudness={dubMatchLoudness}
