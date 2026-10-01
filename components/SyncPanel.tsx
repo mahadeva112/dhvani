@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, Scissors, X } from 'lucide-react';
+import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, Scissors, X } from 'lucide-react';
 import { TimelineScrollbar, TimelineTransport, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import {
@@ -102,6 +102,8 @@ export interface SyncSettingsPanelProps {
   onBack: () => void;
   /** Saves the synced dub; absent before the first sync. */
   onDownloadWav?: () => void;
+  /** Opens the voice changer on the synced dub; absent before the first sync. */
+  onOpenVoiceChanger?: () => void;
   /** The subtitles section: downloads and settings, built by the step. */
   subtitles?: React.ReactNode;
 }
@@ -123,6 +125,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   onCancel,
   onBack,
   onDownloadWav,
+  onOpenVoiceChanger,
   subtitles,
 }) => (
   <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
@@ -181,14 +184,26 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       </label>
     </div>
 
-    {synced && onDownloadWav && (
+    {synced && (onDownloadWav || onOpenVoiceChanger) && (
       <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
         <span className={sectionLabel}>Synced dub</span>
-        <button type="button" onClick={onDownloadWav} disabled={isSyncing} className={downloadRow}>
-          <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
-          <span className="flex-1 text-[13px]">Synced dub</span>
-          <Download className="w-4 h-4 text-slate-500" />
-        </button>
+        {onDownloadWav && (
+          <button type="button" onClick={onDownloadWav} disabled={isSyncing} className={downloadRow}>
+            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
+            <span className="flex-1 text-[13px]">Synced dub</span>
+            <Download className="w-4 h-4 text-slate-500" />
+          </button>
+        )}
+        {onOpenVoiceChanger && (
+          <button type="button" onClick={onOpenVoiceChanger} disabled={isSyncing} className={downloadRow}>
+            <AudioWaveform className="w-4 h-4 text-slate-400 shrink-0" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[13px]">Change the voice</span>
+              <span className="block text-[11.5px] text-slate-500 truncate">Keeps the timing; Sync again re-voices it</span>
+            </span>
+            <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+          </button>
+        )}
       </div>
     )}
 
