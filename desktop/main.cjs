@@ -1,7 +1,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { fork } = require('node:child_process');
-const { app, BrowserWindow, shell, dialog, Menu } = require('electron');
+const { app, BrowserWindow, shell, dialog, Menu, ipcMain } = require('electron');
 
 /**
  * DHVANI desktop shell.
@@ -14,6 +14,7 @@ const { app, BrowserWindow, shell, dialog, Menu } = require('electron');
 
 const PORT = Number(process.env.PORT) || 8788; // Offset from the dev default.
 const APP_URL = `http://127.0.0.1:${PORT}`;
+const RELEASES_URL = 'https://github.com/mahadeva112/dhvani/releases/latest';
 
 /**
  * The app root, holding `server/`, `dist/` and `node_modules/`.
@@ -75,6 +76,196 @@ const appendLog = (line) => {
   } catch {
     // Logging must never take the app down.
   }
+};
+
+/**
+ * App updates from GitHub Releases, driven from the page.
+ *
+ * The page shows an Update button when a newer published release exists; the
+ * user chooses when to download it and when to restart into it. Nothing
+ * downloads on its own.
+ *
+ * Only the Windows installer and the Linux AppImage can replace themselves.
+ * The zip and the single-file portable cannot be swapped in place (the updater
+ * would install a second, separate copy), and unsigned macOS builds are
+ * refused by Squirrel. Those builds still learn about a new version, from the
+ * GitHub API, and are pointed at the Releases page instead.
+ */
+const canSelfUpdate = () => {
+  if (process.env.DHVANI_UPDATE_FEED_URL) return true; // Local update testing; see setupAutoUpdates.
+  if (!app.isPackaged) return false;
+  if (process.platform === 'linux') return Boolean(process.env.APPIMAGE);
+  if (process.platform !== 'win32') return false;
+  return fs.existsSync(path.join(path.dirname(app.getPath('exe')), `Uninstall ${app.getName()}.exe`));
+};
+
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+let autoUpdater = null;
+
+/** What the page renders. Every change is pushed to it whole. */
+let updateState = {
+  status: 'idle', // idle | checking | available | not-available | downloading | downloaded | error
+  canInstall: false,
+  currentVersion: app.getVersion(),
+  version: null,
+  releaseNotes: '',
+  releaseDate: null,
+  percent: 0,
+  transferred: 0,
+  total: 0,
+  error: null,
+};
+
+const setUpdateState = (patch) => {
+  updateState = { ...updateState, ...patch };
+  mainWindow?.webContents.send('updates:state', updateState);
+  if (updateState.status === 'downloading') mainWindow?.setProgressBar(updateState.percent / 100);
+  else mainWindow?.setProgressBar(-1);
+};
+
+/** Release notes arrive as GitHub's HTML or Markdown; the page shows plain text. */
+const plainNotes = (notes) =>
+  (Array.isArray(notes) ? notes.map((n) => n.note || '').join('\n') : notes || '')
+    .replace(/<\/(p|li|h\d)>|<br\s*\/?>/gi, '\n')
+    .replace(/<li>/gi, '• ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/^#+\s*/gm, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/^\s*[-*]\s+/gm, '• ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, 4000);
+
+/** 1.2.10 is newer than 1.2.9. Pre-release suffixes are ignored. */
+const isNewer = (candidate, current) => {
+  const parts = (v) => String(v).replace(/^v/, '').split(/[.-]/).slice(0, 3).map((n) => Number(n) || 0);
+  const [a, b] = [parts(candidate), parts(current)];
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+  return false;
+};
+
+/** Builds that cannot install still deserve to hear about a new version. */
+const checkReleasesApi = async () => {
+  setUpdateState({ status: 'checking', error: null });
+  try {
+    const response = await fetch('https://api.github.com/repos/mahadeva112/dhvani/releases/latest', {
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (response.status === 404) {
+      setUpdateState({ status: 'not-available' }); // Nothing published yet.
+      return;
+    }
+    if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+    const release = await response.json();
+    if (isNewer(release.tag_name, app.getVersion())) {
+      setUpdateState({
+        status: 'available',
+        version: String(release.tag_name).replace(/^v/, ''),
+        releaseNotes: plainNotes(release.body),
+        releaseDate: release.published_at || null,
+      });
+    } else {
+      setUpdateState({ status: 'not-available' });
+    }
+  } catch (err) {
+    setUpdateState({ status: 'error', error: err?.message || String(err) });
+  }
+};
+
+const checkForUpdates = () => {
+  if (['checking', 'downloading', 'downloaded'].includes(updateState.status)) return;
+  if (!autoUpdater) {
+    checkReleasesApi();
+    return;
+  }
+  setUpdateState({ status: 'checking', error: null });
+  autoUpdater.checkForUpdates().catch(() => {}); // Reported through 'error'.
+};
+
+const setupAutoUpdates = () => {
+  ipcMain.handle('updates:get-state', () => updateState);
+  ipcMain.handle('updates:check', () => checkForUpdates());
+  ipcMain.handle('updates:download', () => {
+    if (!autoUpdater || updateState.status !== 'available') return;
+    setUpdateState({ status: 'downloading', percent: 0, transferred: 0, error: null });
+    autoUpdater.downloadUpdate().catch(() => {}); // Reported through 'error'.
+  });
+  ipcMain.handle('updates:install', () => {
+    if (!autoUpdater || updateState.status !== 'downloaded') return;
+    isQuitting = true;
+    // Silent reinstall into the same folder, then relaunch.
+    setImmediate(() => autoUpdater.quitAndInstall(true, true));
+  });
+  ipcMain.handle('updates:open-releases', () => shell.openExternal(RELEASES_URL));
+
+  if (canSelfUpdate()) {
+    try {
+      ({ autoUpdater } = require('electron-updater'));
+    } catch (err) {
+      appendLog(`[updater] unavailable: ${err.message}\n`);
+    }
+  }
+
+  if (autoUpdater) {
+    autoUpdater.logger = {
+      info: (m) => appendLog(`[updater] ${m}\n`),
+      warn: (m) => appendLog(`[updater] warn: ${m}\n`),
+      error: (m) => appendLog(`[updater] error: ${m}\n`),
+      debug: () => {},
+    };
+    // The user decides when to download; "Install when I close" covers the rest.
+    autoUpdater.autoDownload = false;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    // For trying an update end to end without publishing a release: point the
+    // app at a folder served over HTTP holding latest.yml and the installer.
+    if (process.env.DHVANI_UPDATE_FEED_URL) {
+      autoUpdater.forceDevUpdateConfig = !app.isPackaged;
+      autoUpdater.setFeedURL({ provider: 'generic', url: process.env.DHVANI_UPDATE_FEED_URL });
+    }
+
+    setUpdateState({ canInstall: true });
+
+    autoUpdater.on('update-available', (info) =>
+      setUpdateState({
+        status: 'available',
+        version: info.version,
+        releaseNotes: plainNotes(info.releaseNotes),
+        releaseDate: info.releaseDate || null,
+      })
+    );
+    autoUpdater.on('update-not-available', () => setUpdateState({ status: 'not-available' }));
+    autoUpdater.on('download-progress', (p) =>
+      setUpdateState({ status: 'downloading', percent: p.percent, transferred: p.transferred, total: p.total })
+    );
+    autoUpdater.on('update-downloaded', (info) =>
+      setUpdateState({ status: 'downloaded', version: info.version, percent: 100 })
+    );
+    autoUpdater.on('error', (err) => {
+      // A failed download leaves the update on offer, so Retry is one click.
+      const wasDownloading = updateState.status === 'downloading';
+      setUpdateState({
+        status: wasDownloading ? 'available' : 'error',
+        error: err?.message || String(err),
+      });
+    });
+  }
+
+  // Give the engine and window a moment before touching the network.
+  setTimeout(checkForUpdates, 10_000);
+  setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS).unref();
+};
+
+/** Help → Check for Updates… opens the page's update window and checks. */
+const checkForUpdatesFromMenu = () => {
+  mainWindow?.webContents.send('updates:open');
+  checkForUpdates();
 };
 
 /** Starts the Express backend as a child Node process. */
@@ -158,6 +349,8 @@ const createWindow = () => {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      // Exposes the update controls (window.dhvaniUpdates) and nothing else.
+      preload: path.join(__dirname, 'preload.cjs'),
       spellcheck: true,
     },
   });
@@ -226,6 +419,15 @@ const buildMenu = () => {
           },
           { type: 'separator' },
           {
+            label: 'Check for Updates…',
+            click: checkForUpdatesFromMenu,
+          },
+          {
+            label: `Version ${app.getVersion()}`,
+            enabled: false,
+          },
+          { type: 'separator' },
+          {
             label: 'Documentation',
             click: () => shell.openExternal('https://github.com/dhvani-studio/dhvani#readme'),
           },
@@ -253,6 +455,7 @@ if (!app.requestSingleInstanceLock()) {
       await startBackend();
       buildMenu();
       createWindow();
+      setupAutoUpdates();
     } catch (err) {
       dialog.showErrorBox(
         'DHVANI could not start',

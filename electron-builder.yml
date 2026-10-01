@@ -17,6 +17,7 @@ directories:
 # devDependencies out. Listing node_modules here by hand only fights that.
 files:
   - desktop/main.cjs
+  - desktop/preload.cjs
   - desktop/icons/**
   - server/**
   - prompts/*.txt
@@ -92,5 +93,14 @@ linux:
   category: AudioVideo
   artifactName: DHVANI-${version}-${arch}.${ext}
 
-# Unsigned builds should not advertise an auto-update feed that does not exist.
-publish: null
+# Where the installed app looks for updates (desktop/main.cjs → setupAutoUpdates).
+#
+# The builds themselves never upload (every dist script passes --publish
+# never); .github/workflows/release.yml attaches the files, latest.yml
+# included, to a draft release. An update reaches users only once that draft
+# is published — the updater ignores drafts and prereleases.
+publish:
+  provider: github
+  owner: mahadeva112
+  repo: dhvani
+  releaseType: release
