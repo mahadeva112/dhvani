@@ -112,7 +112,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
       setIsProcessingAudio(true);
       try {
         await onRetranscribeAudio(promptText);
-        setSuccessNotice(`Transcribed again and translated into ${targetLanguage}`);
+        setSuccessNotice('Transcribed again. Choose translate or your own script next.');
         setTimeout(() => {
           setSuccessNotice(null);
           onClose();
@@ -270,7 +270,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                         {isProcessingAudio ? 'Transcribing…' : 'Transcribe again from the audio'}
                       </span>
                       <span className="block text-[11.5px] text-slate-400 mt-1 leading-snug">
-                        Starts over from the original speech, then translates with this style.
+                        Starts over from the original speech. You then choose translate or your own script.
                       </span>
                       <span className="block text-[10.5px] text-amber-300 mt-1.5">
                         Uses ElevenLabs credits{lengthText ? ` for ${lengthText} of audio` : ''}

@@ -27,7 +27,7 @@ import {
   audioFileExtension,
   resegmentAudioBuffer,
 } from './services/audioService';
-import { transcribeMedia } from './services/geminiService';
+import { transcribeOnly } from './services/geminiService';
 import { retranslateCues, RetranslateProgress } from './services/subtitleService';
 import {
   getBackendHealth,
@@ -103,6 +103,7 @@ import {
   ProcessingStatus,
   AudioSegment,
   AudioTrackMode,
+  TargetSource,
 } from './types';
 
 /**
@@ -420,7 +421,11 @@ export default function App() {
   // The step on screen. Null follows the job (source, review, final dub); a
   // click in the header or wizard pins it until another job is opened.
   const [stepOverride, setStepOverride] = useState<number | null>(null);
-  const activeStep = stepOverride ?? stepForJob(activeJob);
+  // Dubbing and Sync need a script, so a transcript waiting for the choice
+  // stays on Review, where the choice is made.
+  const awaitingScript = activeJob?.targetSource === 'pending';
+  const requestedStep = stepOverride ?? stepForJob(activeJob);
+  const activeStep = awaitingScript && requestedStep > 2 ? 2 : requestedStep;
   useEffect(() => {
     setStepOverride(null);
   }, [activeJob?.id]);
@@ -647,6 +652,22 @@ export default function App() {
         // 1. Immediately update active job's language
         updateJob(activeJob.id, { language: newLang });
 
+        // A transcript still waiting for a choice is only retargeted: the
+        // user picks translate or their own script after this.
+        if (activeJob.targetSource === 'pending') return;
+
+        // The user's own script is never machine-translated. It stays as
+        // written, and the user is told it no longer matches.
+        if (activeJob.targetSource === 'custom') {
+          const previous = activeJob.language || selectedLanguage;
+          if (previous !== newLang) {
+            updateJob(activeJob.id, {
+              translationWarning: `Your script is in ${previous}, and the dub language is now ${newLang}. Paste a ${newLang} script or translate the transcript from the Translation panel.`,
+            });
+          }
+          return;
+        }
+
         // 2. If the active job already has dialogue segments, re-translate them to the new language
         if (activeJob.segments && activeJob.segments.length > 0) {
           setIsTranslatingLanguage(true);
@@ -696,7 +717,7 @@ export default function App() {
         }
       }
     },
-    [activeJob, customPrompt, updateJob]
+    [activeJob, customPrompt, selectedLanguage, updateJob]
   );
 
   // Custom Translation Prompt Handlers
@@ -746,6 +767,7 @@ export default function App() {
           segments: translatedSegments,
           script: newScript,
           customPrompt: promptToUse,
+          targetSource: 'translated',
           translatedSrt,
           translationWarning: untranslatedCueIds.length
             ? `${untranslatedCueIds.length} cue(s) kept their previous text. Timestamps are unchanged — you can retry.`
@@ -770,7 +792,47 @@ export default function App() {
     [activeJob, customPrompt, selectedLanguage, updateJob]
   );
 
-  // Re-transcribe raw audio file with custom prompt
+  /**
+   * The transcript's "Translate" choice. The only place a waiting transcript
+   * is sent to the translation engine, and only on the user's click. When the
+   * transcript is already in the dub language it becomes the script as-is,
+   * the same shortcut the pipeline takes, so no credits are spent on it.
+   */
+  const handleTranslateTranscript = useCallback(async () => {
+    if (!activeJob || activeJob.segments.length === 0) return;
+    const targetLang = activeJob.language || selectedLanguage;
+    const spoken = activeJob.detectedLanguage || activeJob.sourceLanguage || '';
+    if (spoken && spoken.toLowerCase() === targetLang.toLowerCase()) {
+      const segments = activeJob.segments.map((s) => {
+        const text = s.textSource || s.originalText || '';
+        return { ...s, textTarget: text, targetText: text };
+      });
+      updateJob(activeJob.id, {
+        segments,
+        script: segments.map((s) => s.textTarget).filter(Boolean).join(' '),
+        targetSource: 'translated',
+        translationWarning: null,
+      });
+      return;
+    }
+    await handleRetranslateWithPrompt();
+  }, [activeJob, selectedLanguage, updateJob, handleRetranslateWithPrompt]);
+
+  /** Records where the target lines came from, e.g. once a pasted script is applied. */
+  const handleTargetSourceChange = useCallback(
+    (targetSource: TargetSource) => {
+      if (!activeJob) return;
+      updateJob(activeJob.id, {
+        targetSource,
+        // A pasted script replaces whatever the translation reported.
+        ...(targetSource === 'custom' ? { translationWarning: null, translatedSrt: '' } : {}),
+      });
+    },
+    [activeJob, updateJob]
+  );
+
+  // Transcribe the raw audio again. It stops at the transcript: the user
+  // chooses translate or their own script afterwards.
   const handleRetranscribeAudio = useCallback(
     async (overridePrompt?: string) => {
       if (!activeJob || !activeJob.file) return;
@@ -779,24 +841,19 @@ export default function App() {
       setPipelineProgress(0);
       try {
         const targetLang = activeJob.language || selectedLanguage;
-        const result = await transcribeMedia(
-          activeJob.file,
-          targetLang,
-          promptToUse,
-          (status) => setPipelineStatus(status),
-          sourceLanguage
-        );
+        const result = await transcribeOnly(activeJob.file, (status) => setPipelineStatus(status), sourceLanguage);
 
         updateJob(activeJob.id, {
           language: targetLang,
           sourceLanguage,
           detectedLanguage: result.detectedLanguage,
-          script: result.script,
+          script: '',
           segments: result.segments,
           customPrompt: promptToUse,
           originalSrt: result.originalSrt,
-          translatedSrt: result.translatedSrt,
-          translationWarning: result.translationWarning,
+          translatedSrt: '',
+          translationWarning: null,
+          targetSource: 'pending',
           errorMsg: null,
           xmlOutput: '',
           validationResult: null,
@@ -1114,6 +1171,8 @@ export default function App() {
       srtBlob: null,
       synthAudioBuffer: null,
       errorMsg: null,
+      // Nothing is translated on upload; the user chooses once the transcript is in.
+      targetSource: 'pending',
     };
 
     try {
@@ -1132,31 +1191,26 @@ export default function App() {
     setActiveJobId(newJob.id);
 
     /*
-     * Run the full workflow:
-     *   ElevenLabs transcription + word timestamps -> original SRT
-     *   -> Gemini translation -> translated SRT on those same timestamps.
+     * Upload runs transcription only:
+     *   ElevenLabs transcription + word timestamps -> original SRT.
+     * Translation waits for the user to choose it (or their own script).
      */
     setIsTranscribing(true);
     setPipelineProgress(0);
     setPipelineStatus('Uploading media...');
     try {
-      const result = await transcribeMedia(
-        file,
-        selectedLanguage,
-        customPrompt,
-        (status) => setPipelineStatus(status),
-        sourceLanguage
-      );
+      const result = await transcribeOnly(file, (status) => setPipelineStatus(status), sourceLanguage);
 
       updateJob(newJob.id, {
-        script: result.script,
+        script: '',
         segments: result.segments,
         language: selectedLanguage,
         sourceLanguage,
         detectedLanguage: result.detectedLanguage,
         originalSrt: result.originalSrt,
-        translatedSrt: result.translatedSrt,
-        translationWarning: result.translationWarning,
+        translatedSrt: '',
+        translationWarning: null,
+        targetSource: 'pending',
         errorMsg: null,
         customPrompt,
         promptPresetId,
@@ -1287,7 +1341,18 @@ export default function App() {
             },
           ];
 
-    const fullScript = segments.map((s) => `[${s.speaker}]: ${s.targetText}`).join('\n\n');
+    // The sample's lines are written in Hindi. Any other dub language starts
+    // from the transcript and waits for translate or a pasted script, as an
+    // upload does; nothing is translated on load.
+    const sampleIsInTarget = !selectedLanguage || selectedLanguage === 'Hindi';
+    if (!sampleIsInTarget) {
+      segments.forEach((s) => {
+        s.textTarget = '';
+        s.targetText = '';
+      });
+    }
+
+    const fullScript = sampleIsInTarget ? segments.map((s) => `[${s.speaker}]: ${s.targetText}`).join('\n\n') : '';
 
     const newJob: BatchJob = {
       id: Math.random().toString(36).substring(2, 9),
@@ -1310,42 +1375,20 @@ export default function App() {
       srtBlob: null,
       synthAudioBuffer: null,
       errorMsg: null,
+      detectedLanguage: 'English',
+      targetSource: sampleIsInTarget ? 'translated' : 'pending',
     };
 
     await saveJobToStorage(newJob);
     setQueue([newJob]);
     setActiveJobId(newJob.id);
-
-    // The sample is written in Hindi; any other dub language gets its cues translated.
-    if (selectedLanguage && selectedLanguage !== 'Hindi') {
-      setIsTranslatingLanguage(true);
-      setTranslationProgress(null);
-      // Same streamed path as a language switch, so the card shows real progress.
-      retranslateCues(segments, {
-        targetLanguage: selectedLanguage,
-        onProgress: setTranslationProgress,
-      })
-        .then(({ segments: translated, translatedSrt }) => {
-          const translatedScript = translated
-            .map((s) => s.textTarget || (s as any).targetText || '')
-            .filter(Boolean)
-            .join(' ');
-          updateJob(newJob.id, {
-            segments: translated,
-            script: translatedScript,
-            translatedSrt,
-          });
-        })
-        .catch((e) => console.warn('Sample translation failed:', e))
-        .finally(() => setIsTranslatingLanguage(false));
-    }
   };
 
   /**
-   * Transcribes with ElevenLabs, then translates with Gemini.
+   * Transcribes with ElevenLabs and stops at the transcript.
    *
-   * ElevenLabs owns the transcript and every timestamp; Gemini only replaces
-   * cue text.
+   * ElevenLabs owns the transcript and every timestamp. The user then chooses
+   * automatic translation or their own script; neither runs from here.
    */
   const handleAutoTranscribe = async () => {
     if (!activeJob) return;
@@ -1353,11 +1396,8 @@ export default function App() {
     setPipelineProgress(0);
     try {
       const targetLang = activeJob.language || selectedLanguage;
-      const promptToUse = activeJob.customPrompt || customPrompt;
-      const result = await transcribeMedia(
+      const result = await transcribeOnly(
         activeJob.file,
-        targetLang,
-        promptToUse,
         (status) => setPipelineStatus(status),
         activeJob.sourceLanguage ?? sourceLanguage
       );
@@ -1365,12 +1405,12 @@ export default function App() {
       updateJob(activeJob.id, {
         language: targetLang,
         detectedLanguage: result.detectedLanguage,
-        script: result.script,
+        script: '',
         segments: result.segments,
-        customPrompt: promptToUse,
         originalSrt: result.originalSrt,
-        translatedSrt: result.translatedSrt,
-        translationWarning: result.translationWarning,
+        translatedSrt: '',
+        translationWarning: null,
+        targetSource: 'pending',
         errorMsg: null,
         xmlOutput: '',
         validationResult: null,
@@ -1389,6 +1429,10 @@ export default function App() {
   // Master Speech Synthesis (ElevenLabs or Gemini 3.5 Flash)
   const handleSynthesizeMaster = async () => {
     if (!activeJob || isSyncing) return;
+    if (activeJob.targetSource === 'pending') {
+      alert('Choose how to get the script first: translate the transcript or use your own script.');
+      return;
+    }
 
     // Subtitle cues are rejoined into flowing sentences; see buildSpeechScript.
     const textToSynthesize =
@@ -1517,6 +1561,7 @@ export default function App() {
    */
   const handleSyncDub = async ({ precision, suggest, matchLoudness }: SyncOptions) => {
     if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
+    if (activeJob.targetSource === 'pending') return;
 
     const hadDub = Boolean(activeJob.synthesizedAudioUrl);
     setIsSyncing(true);
@@ -2175,6 +2220,11 @@ export default function App() {
           onUpdateTranslationPrompt={handleUpdateTranslationPrompt}
           onRetranslateSegments={handleRetranslateWithPrompt}
           onRetranscribeAudio={handleRetranscribeAudio}
+          onTranslateTranscript={handleTranslateTranscript}
+          onTargetSourceChange={handleTargetSourceChange}
+          translationSummary={translationSummary}
+          translationReady={Boolean(backendHealth?.geminiConfigured)}
+          translationProgress={translationProgress}
           isTranslatingLanguage={isTranslatingLanguage}
           onOpenPromptModal={() => setIsPromptModalOpen(true)}
           onOpenVoiceChanger={() => setIsVoiceChangerOpen(true)}

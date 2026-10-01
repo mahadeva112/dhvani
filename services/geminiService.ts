@@ -106,6 +106,34 @@ export const transcribeMedia = async (
   };
 };
 
+/**
+ * Transcribes a media file and stops there: no translation model is called.
+ *
+ * ElevenLabs produces the transcript and every timestamp. Each cue's target
+ * line is left empty until the user chooses to translate or paste a script.
+ */
+export const transcribeOnly = async (
+  file: File,
+  onStatusUpdate?: (status: string) => void,
+  sourceLanguage?: string
+): Promise<{
+  segments: AudioSegment[];
+  detectedLanguage: string;
+  originalSrt: string;
+}> => {
+  const result = await transcribeAndTranslate(file, {
+    sourceLanguage: sourceLanguage || '',
+    translate: false,
+    onProgress: (progress) => onStatusUpdate?.(progress.message),
+  });
+
+  return {
+    segments: cuesToSegments(result.cues).map((segment) => ({ ...segment, textTarget: '' })),
+    detectedLanguage: result.detectedLanguage,
+    originalSrt: result.originalSrt,
+  };
+};
+
 /** How closely a cue's placed script says what its English says. */
 export type ScriptFit = 'full' | 'partial' | 'none';
 

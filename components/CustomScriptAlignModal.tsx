@@ -53,7 +53,7 @@ const rowsFrom = (segments: AudioSegment[], texts?: string[]): DraftRow[] =>
 const needsCheck = (row: DraftRow) => Boolean(row.estimated || row.fit === 'partial' || row.fit === 'none');
 
 const WAYS: { id: AlignmentStrategy; title: string; hint: string; tag?: string }[] = [
-  { id: 'ai', title: 'By meaning', hint: 'AI finds where each English cue ends in your script. Your words are kept exactly.', tag: 'Recommended' },
+  { id: 'ai', title: 'By meaning', hint: 'AI only finds where each cue ends in your script. It never rewrites or translates your words.', tag: 'Recommended' },
   { id: 'line', title: 'One line per cue', hint: 'Line 1 goes to cue 1, and so on.' },
   { id: 'sentence', title: 'By sentence', hint: "Whole sentences, shared out by each cue's length." },
   { id: 'proportional', title: 'By length', hint: "Words shared out by each cue's length." },
@@ -263,7 +263,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
               Paste your own script
             </h2>
             <p className="text-[12.5px] text-slate-400 mt-0.5">
-              Paste a {targetLanguage} script you already have. Each part is matched to the English cue it translates. The timing doesn't change.
+              Paste a {targetLanguage} script you already have. Each part is matched to the cue it translates, word for word as you wrote it. Nothing is translated and the timing doesn't change.
             </p>
           </div>
           <button
@@ -570,7 +570,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
 
         <div className="flex flex-wrap items-center gap-2.5 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
           <span className="min-w-0 flex-1 text-[11.5px] text-slate-500">
-            Replaces the {targetLanguage} in all {segments.length} cues. The English and timing stay as they are, and you can undo it.
+            Replaces the {targetLanguage} in all {segments.length} cues. The transcript and its timing stay as they are, and you can undo it.
           </span>
           <button
             type="button"
