@@ -3109,6 +3109,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               onDownloadWav={report ? onDownloadWav : undefined}
+              onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
               subtitles={
                 report && syncedCues && syncedCues.length > 0 && (
                   <>
