@@ -99,6 +99,14 @@ export interface JobHistory {
   future: JobSnapshot[];
 }
 
+/**
+ * Where a job's target-language lines came from. A transcript waits in
+ * 'pending' until the user picks automatic translation or their own script;
+ * nothing is translated before that choice. Jobs saved before this field
+ * existed have it unset and are treated as already chosen.
+ */
+export type TargetSource = 'pending' | 'translated' | 'custom';
+
 // New Interface for Batch Processing
 export interface BatchJob {
   id: string;
@@ -145,6 +153,8 @@ export interface BatchJob {
   originalSrt?: string;
   /** Translated SRT carrying the exact same timestamps. */
   translatedSrt?: string;
+  /** Automatic translation, the user's own script, or not chosen yet. */
+  targetSource?: TargetSource;
 
   /** Set when the dub was made by Sync: how each line lined up with the source. */
   syncReport?: SyncReport | null;

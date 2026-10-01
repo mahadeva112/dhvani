@@ -261,14 +261,18 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
 
   // Sync is open whenever there are cues, as it was inside the dub step: it
   // can make the dub itself. The header only marks it next once a dub exists.
+  // A transcript waiting for translate-or-your-script has nothing to dub yet.
+  const hasScript = hasCues && activeJob?.targetSource !== 'pending';
   const steps = [
     { n: 1, label: 'Source & voice', enabled: true },
     { n: 2, label: 'Review', enabled: hasCues },
-    { n: 3, label: 'Final dub', enabled: hasCues },
-    { n: 4, label: 'Sync', enabled: hasCues },
+    { n: 3, label: 'Final dub', enabled: hasScript },
+    { n: 4, label: 'Sync', enabled: hasScript },
   ];
   const stepDone = (n: number) => (n === 1 ? hasCues : n === 2 || n === 3 ? hasDub : hasSync);
-  const lockedWhy = 'Add media and transcribe it first';
+  const lockedWhy = hasCues
+    ? 'Translate the transcript or use your own script first'
+    : 'Add media and transcribe it first';
 
   return (
     <header className="relative z-20 w-full bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md select-none">

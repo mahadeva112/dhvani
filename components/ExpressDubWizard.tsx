@@ -45,7 +45,9 @@ import {
   Scissors,
   X,
 } from 'lucide-react';
-import { AudioSegment, BatchJob, ProcessingStatus } from '../types';
+import { AudioSegment, BatchJob, ProcessingStatus, TargetSource } from '../types';
+import type { RetranslateProgress } from '../services/subtitleService';
+import { TargetScriptChoice } from './TargetScriptChoice';
 import {
   Voice,
   DubProgress,
@@ -255,6 +257,15 @@ interface ExpressDubWizardProps {
   onUpdateTranslationPrompt?: (prompt: string, presetId: string) => void;
   onRetranslateSegments?: (prompt: string) => Promise<void>;
   onRetranscribeAudio?: (prompt: string) => Promise<void>;
+  /** The transcript's explicit "Translate" choice; the only path that translates a waiting transcript. */
+  onTranslateTranscript?: () => Promise<void>;
+  /** Records where the target lines came from, e.g. 'custom' once a pasted script is applied. */
+  onTargetSourceChange?: (source: TargetSource) => void;
+  /** Where translation runs, for the choice panel. */
+  translationSummary?: string | null;
+  /** False when no translation engine is set up. */
+  translationReady?: boolean;
+  translationProgress?: RetranslateProgress | null;
   isTranslatingLanguage?: boolean;
   onOpenPromptModal?: () => void;
   onOpenVoiceChanger?: () => void;
@@ -332,6 +343,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onUpdateTranslationPrompt,
   onRetranslateSegments,
   onRetranscribeAudio,
+  onTranslateTranscript,
+  onTargetSourceChange,
+  translationSummary = null,
+  translationReady = true,
+  translationProgress = null,
   isTranslatingLanguage,
   onOpenPromptModal,
   onOpenVoiceChanger,
@@ -405,12 +421,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     if (!segments || segments.length === 0) return;
     const before = new Map(segments.map((seg) => [String(seg.id), { textTarget: seg.textTarget, targetText: seg.targetText }]));
     const byId = new Map(alignedItems.map((item) => [String(item.id), item.textTarget]));
+    const sourceBefore: TargetSource = activeJob?.targetSource ?? 'translated';
     onReplaceSegments(
       segments.map((seg) => {
         const text = byId.get(String(seg.id));
         return text === undefined ? seg : { ...seg, textTarget: text, targetText: text };
       })
     );
+    onTargetSourceChange?.('custom');
 
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setExportSuccessMessage(`Your script is now in ${alignedItems.length} ${alignedItems.length === 1 ? 'cue' : 'cues'}`);
@@ -422,6 +440,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           return previous ? { ...seg, ...previous } : seg;
         })
       );
+      // A transcript that was waiting for its script waits again.
+      onTargetSourceChange?.(sourceBefore);
       setToastUndo(null);
       setExportSuccessMessage('The cues have their previous lines back');
       if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -538,6 +558,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const segments = activeJob?.segments || [];
   const latestSegments = useRef(segments);
   latestSegments.current = segments;
+  const hasTranscript = segments.some((s) => (s.textSource || s.originalText || '').trim());
+  // Transcribed, but translate-or-your-script has not been chosen yet.
+  const awaitingScript = activeJob?.targetSource === 'pending';
+  const scriptIsCustom = activeJob?.targetSource === 'custom';
 
   /*
    * Step 4's preview, before the first sync. The voice's speaking rate comes
@@ -1053,6 +1077,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <button
                   type="button"
                   onClick={async () => {
+                    // Transcribing again replaces the cues, and with them any script on them.
+                    if (
+                      hasTranscript &&
+                      !awaitingScript &&
+                      !window.confirm(
+                        scriptIsCustom
+                          ? 'Transcribe again? The new transcript replaces the current cues and your aligned script. You can paste the script again afterwards.'
+                          : 'Transcribe again? The new transcript replaces the current cues and their translation.'
+                      )
+                    ) {
+                      return;
+                    }
                     await onAutoTranscribe();
                     setStepOverride(2);
                   }}
@@ -1062,11 +1098,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   {isTranscribing ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Transcribing and translating…</span>
+                      <span>Transcribing…</span>
                     </>
                   ) : activeJob ? (
                     <>
-                      <span>Transcribe &amp; translate to {targetLanguage}</span>
+                      <Mic className="w-4 h-4" />
+                      <span>{hasTranscript ? 'Transcribe again' : 'Transcribe audio'}</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   ) : (
@@ -1085,7 +1122,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <span aria-hidden="true">→</span>
                     <span>Word timings</span>
                     <span aria-hidden="true">→</span>
-                    <span>Translate</span>
+                    <span>Translate or your script</span>
                   </div>
                 )}
               </div>
@@ -1130,7 +1167,40 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             onSensitivityChange={onSensitivityChange}
           />
 
-          {/* Workspace: cue editor and review panel share one height, so neither leaves a gap */}
+          {/*
+            Transcribed but no script yet: the user chooses automatic
+            translation or their own script before the editor opens.
+          */}
+          {awaitingScript ? (
+            <TargetScriptChoice
+              segments={segments}
+              spokenLanguage={activeJob.detectedLanguage || activeJob.sourceLanguage || ''}
+              targetLanguage={targetLanguage}
+              languages={languages}
+              onTargetLanguageChange={onTargetLanguageChange}
+              isTranscribing={isTranscribing}
+              pipelineStatus={pipelineStatus}
+              isTranslating={Boolean(isTranslatingLanguage)}
+              translationProgress={translationProgress}
+              translationStyleName={getPresetById(promptPresetId || DEFAULT_PROMPT_PRESET_ID).name}
+              translationSummary={translationSummary}
+              translationReady={translationReady}
+              onOpenPromptModal={() => {
+                if (onOpenPromptModal) onOpenPromptModal();
+                else setIsLocalPromptModalOpen(true);
+              }}
+              onTranslate={async () => {
+                if (onTranslateTranscript) await onTranslateTranscript();
+                else if (onRetranslateSegments) await onRetranslateSegments(customPrompt || '');
+              }}
+              onUseOwnScript={() => setIsAlignModalOpen(true)}
+              onSeek={onSeek}
+              activeSegmentId={
+                segments.find((s) => currentTime >= s.startTime && currentTime <= s.endTime)?.id ?? null
+              }
+            />
+          ) : (
+          /* Workspace: cue editor and review panel share one height, so neither leaves a gap */
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 lg:h-[calc(100vh-7rem)] lg:min-h-[600px]">
             <section
               aria-label="Translation cues"
@@ -1937,7 +2007,21 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
                 {/* Translation */}
                 <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
-                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Translation</span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Translation</span>
+                    <span
+                      className={`text-[10.5px] font-semibold px-2 py-0.5 rounded-full ${
+                        scriptIsCustom ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-800 text-slate-300'
+                      }`}
+                      title={
+                        scriptIsCustom
+                          ? 'The cues hold the script you pasted, aligned to the transcript. It was not translated.'
+                          : 'The cues hold the automatic translation of the transcript.'
+                      }
+                    >
+                      {scriptIsCustom ? 'Your script' : 'Automatic'}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
                     <span className="w-8 h-8 rounded-lg bg-indigo-500/15 text-indigo-300 flex items-center justify-center shrink-0">
                       <SlidersHorizontal className="w-4 h-4" />
@@ -1986,10 +2070,26 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     {onRetranslateSegments && (
                       <button
                         type="button"
-                        onClick={() => onRetranslateSegments(customPrompt || '')}
+                        onClick={() => {
+                          if (
+                            scriptIsCustom &&
+                            !window.confirm(
+                              `Replace your script with an automatic ${targetLanguage} translation? This uses translation credits. You can paste your script again afterwards.`
+                            )
+                          ) {
+                            return;
+                          }
+                          onRetranslateSegments(customPrompt || '').catch(() => {
+                            // The failure is shown in the job's warning banner.
+                          });
+                        }}
                         disabled={isTranslatingLanguage || segments.length === 0}
                         className={railButton}
-                        title="Translate every cue again with the current style"
+                        title={
+                          scriptIsCustom
+                            ? 'Replace your script with an automatic translation of the transcript'
+                            : 'Translate every cue again with the current style'
+                        }
                       >
                         <RefreshCw className={`w-3.5 h-3.5 ${isTranslatingLanguage ? 'animate-spin' : ''}`} />
                         {isTranslatingLanguage ? 'Translating…' : 'Re-translate'}
@@ -2102,6 +2202,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </div>
             </aside>
           </div>
+          )}
         </div>
       )}
 
