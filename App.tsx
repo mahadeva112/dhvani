@@ -1975,6 +1975,17 @@ export default function App() {
     [activeJob, updateJob]
   );
 
+  /** The finished dub, which is what the voice changer works on (not the source speech). */
+  const voiceChangerDubFile = useMemo(() => {
+    if (!isVoiceChangerOpen || !activeJob) return null;
+    const blob =
+      activeJob.synthesizedBlob ||
+      (activeJob.synthAudioBuffer ? audioBufferToWav(activeJob.synthAudioBuffer) : null);
+    if (!blob) return null;
+    const name = `dhvani_${activeJob.language || 'dubbed'}_dub.${audioFileExtension(blob)}`;
+    return new File([blob], name, { type: blob.type || 'audio/wav' });
+  }, [isVoiceChangerOpen, activeJob?.synthesizedBlob, activeJob?.synthAudioBuffer, activeJob?.language]);
+
   /** The dub script, offered as a starting text in the text-to-speech studio. */
   const ttsProjectScript = useMemo(() => {
     if (!isTextToSpeechOpen || !activeJob) return undefined;
@@ -2238,8 +2249,10 @@ export default function App() {
       <VoiceChangerModal
         isOpen={isVoiceChangerOpen}
         onClose={() => setIsVoiceChangerOpen(false)}
-        activeAudioFile={activeJob?.file || null}
-        activeAudioBuffer={activeJob?.audioBuffer || null}
+        dubbedAudioFile={voiceChangerDubFile}
+        dubbedAudioBuffer={activeJob?.synthAudioBuffer || null}
+        originalAudioFile={activeJob?.file || null}
+        originalAudioBuffer={activeJob?.audioBuffer || null}
         elApiKey={elApiKey}
         availableVoices={availableVoices}
         selectedVoiceId={elVoiceId}
