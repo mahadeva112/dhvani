@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, Scissors, X } from 'lucide-react';
 import { TimelineScrollbar, TimelineTransport, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
@@ -11,6 +11,7 @@ import {
   SyncReport,
   SyncUnitReport,
 } from '../services/syncService';
+import { isShort } from './SyncPreviewPanel';
 
 /**
  * Sync, step 4: makes a dub that plays in step with the original, line by
@@ -39,10 +40,11 @@ const readOptions = (): SyncOptions => {
     return {
       precision: SYNC_PRECISION_OPTIONS.some((o) => o.id === saved.precision) ? saved.precision : 'phrase',
       suggest: saved.suggest !== false,
+      suggestLonger: saved.suggestLonger !== false,
       matchLoudness: saved.matchLoudness === true,
     };
   } catch {
-    return { precision: 'phrase', suggest: true, matchLoudness: false };
+    return { precision: 'phrase', suggest: true, suggestLonger: true, matchLoudness: false };
   }
 };
 
@@ -69,12 +71,22 @@ export const syncFraction = (progress: SyncProgress | null) =>
 const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null => {
   if (unit.silent) return 'The voice returned no audio for this line';
   if (unit.exceeded) return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had`;
+  if (unit.short)
+    return `Ends ${unit.shortBy.toFixed(1)} s before the original speaker stops: ${unit.speech.toFixed(1)} s said, ${(unit.srcEnd - unit.srcStart).toFixed(1)} s spoken`;
   if (unit.overrun !== null && unit.overrun > tolerance) return `Runs ${unit.overrun.toFixed(2)} s into the next line`;
   if (unit.offset !== null && Math.abs(unit.offset) > tolerance) return unit.offset > 0 ? 'Starts late: the line before it runs long' : 'Starts early to make room';
   return null;
 };
 
-const sectionLabel = 'text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
+/** What the preview still expects, under the Sync button: lines likely too long, and lines likely to end early. */
+const previewNote = (long: number, short: number) => {
+  const lines = (n: number) => (n === 1 ? '1 line is' : `${n} lines are`);
+  if (long > 0 && short > 0) return `${lines(long)} still likely too long, ${short} end early.`;
+  if (long > 0) return `${lines(long)} still likely too long.`;
+  return `${lines(short)} likely to end early.`;
+};
+
+const sectionLabel ='text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
 const downloadRow =
   'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
 
@@ -93,9 +105,10 @@ export interface SyncSettingsPanelProps {
   blockedReason?: string | null;
   /** Lines reworded or retaken since the last sync. */
   pendingCount?: number;
-  /** Before a sync: the preview is on screen, and how many lines it expects to run long. */
+  /** Before a sync: the preview is on screen, and how many lines it expects to run long or end early. */
   previewShown?: boolean;
   previewLongCount?: number;
+  previewShortCount?: number;
   onSync: () => void;
   onCancel: () => void;
   /** Back to step 3. */
@@ -121,6 +134,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   pendingCount = 0,
   previewShown = false,
   previewLongCount = 0,
+  previewShortCount = 0,
   onSync,
   onCancel,
   onBack,
@@ -167,6 +181,21 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         <span>
           <span className="block text-[13px] text-slate-200">Suggest shorter lines</span>
           <span className="block text-[11.5px] text-slate-400 mt-0.5">For lines too long for the time the original line had. Your script is never changed.</span>
+        </span>
+      </label>
+      <label className="flex items-start gap-2.5 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={options.suggestLonger}
+          disabled={isSyncing}
+          onChange={(e) => onOptionsChange((o) => ({ ...o, suggestLonger: e.target.checked }))}
+          className="mt-0.5 accent-indigo-500"
+        />
+        <span>
+          <span className="block text-[13px] text-slate-200">Suggest fuller lines</span>
+          <span className="block text-[11.5px] text-slate-400 mt-0.5">
+            For lines that end well before the original speaker stops. Same meaning, said in full. Your script is never changed.
+          </span>
         </span>
       </label>
       <label className="flex items-start gap-2.5 cursor-pointer">
@@ -249,8 +278,8 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
               ? `Voices only the ${pendingCount === 1 ? 'changed line' : `${pendingCount} changed lines`} again.`
               : synced
                 ? 'Places every line again with these settings.'
-                : previewShown && previewLongCount > 0
-                  ? `${previewLongCount === 1 ? '1 line is' : `${previewLongCount} lines are`} still likely too long. You can sync anyway.`
+                : previewShown && (previewLongCount > 0 || previewShortCount > 0)
+                  ? `${previewNote(previewLongCount, previewShortCount)} You can sync anyway.`
                   : hasDub
                   ? 'Voices every line and replaces the current dub audio.'
                   : 'Voices every line with the voice from Final dub.'}
@@ -287,6 +316,11 @@ export interface SyncResultsPanelProps {
   onApplyLine?: (unit: SyncUnitReport, text: string) => void;
   /** Asks for a new take of a line. */
   onRetakeLine?: (unit: SyncUnitReport) => void;
+  /**
+   * Another wording of a line that is too long (shorter) or ends early (fuller),
+   * different from `avoid`; null when the text model had nothing usable.
+   */
+  onSuggestLine?: (unit: SyncUnitReport, avoid: string[]) => Promise<string | null>;
 }
 
 /** The main column of step 4: what Sync does, its progress, then how every line landed. */
@@ -309,6 +343,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   pendingLines = [],
   onApplyLine,
   onRetakeLine,
+  onSuggestLine,
 }) => {
   const review = useMemo(() => {
     if (!report) return [];
@@ -318,7 +353,9 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
       .sort(
         (a, b) =>
           Number(b.unit.exceeded) - Number(a.unit.exceeded) ||
+          Number(b.unit.short) - Number(a.unit.short) ||
           Number(a.unit.inSync) - Number(b.unit.inSync) ||
+          b.unit.shortBy - a.unit.shortBy ||
           b.unit.exceededBy - a.unit.exceededBy ||
           Math.abs(b.unit.offset ?? 99) - Math.abs(a.unit.offset ?? 99)
       );
@@ -425,7 +462,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
 
       {report && !isSyncing && (
         <>
-          <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
             {[
               {
                 label: 'Lines in sync',
@@ -442,6 +479,11 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                 label: 'Lines too long',
                 value: String(report.summary.exceeded),
                 tone: report.summary.exceeded > 0 ? 'text-amber-300' : 'text-slate-100',
+              },
+              {
+                label: 'Lines that end early',
+                value: String(report.summary.short ?? 0),
+                tone: (report.summary.short ?? 0) > 0 ? 'text-sky-300' : 'text-slate-100',
               },
             ].map((m) => (
               <div key={m.label} className="rounded-xl bg-slate-950/60 border border-slate-800 px-3.5 py-2.5">
@@ -460,10 +502,17 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             onTogglePlay={onTogglePlay}
           />
 
+          {(report.summary.meaningRejected ?? 0) > 0 && (
+            <p className="text-xs text-slate-400">
+              {report.summary.meaningRejected === 1 ? '1 suggestion was' : `${report.summary.meaningRejected} suggestions were`} held back: every
+              wording the text model offered changed the meaning of the original line. Edit {report.summary.meaningRejected === 1 ? 'that line' : 'those lines'}{' '}
+              yourself, or press Suggest one to try again.
+            </p>
+          )}
           {report.summary.suggestionError && (
             <p className="text-xs text-amber-300">
-              No shorter line could be suggested for {report.summary.exceeded - report.summary.suggested} of the lines that run long. The
-              text model said: {report.summary.suggestionError}
+              No new wording could be suggested for {Math.max(1, (report.summary.suggestionsAsked ?? report.summary.exceeded) - report.summary.suggested)} of
+              the lines that run long or end early. The text model said: {report.summary.suggestionError}
             </p>
           )}
 
@@ -473,7 +522,9 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
               <span className="text-xs text-slate-500">
                 {review.length === 0
                   ? 'Every line landed within tolerance.'
-                  : `${review.filter((r) => !r.unit.inSync).length} outside tolerance · ${report.summary.exceeded} too long for their slot`}
+                  : `${review.filter((r) => !r.unit.inSync).length} outside tolerance · ${report.summary.exceeded} too long for their slot${
+                      report.summary.short ? ` · ${report.summary.short} end early` : ''
+                    }`}
               </span>
             </div>
             {pendingLines.length > 0 && (
@@ -503,6 +554,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                     onListen={onListen}
                     onApply={onApplyLine}
                     onRetake={onRetakeLine}
+                    onSuggest={onSuggestLine}
                   />
                 ))}
               </ul>
@@ -518,7 +570,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
  * One line worth a listen: the dub line over the original line, why it was
  * flagged, and what the user can do about it. A line too long for its slot
  * gets an editable shorter wording (the suggestion, when there is one) to put
- * into the script; any line can be retaken. Neither is heard until the next
+ * into the script, and a line that ends early a fuller one; any line can be
+ * retaken. Neither is heard until the next
  * Sync, so the row shows it is waiting for one.
  */
 const ReviewRow: React.FC<{
@@ -528,11 +581,42 @@ const ReviewRow: React.FC<{
   onListen: (time: number) => void;
   onApply?: (unit: SyncUnitReport, text: string) => void;
   onRetake?: (unit: SyncUnitReport) => void;
-}> = ({ unit, reason, pending, onListen, onApply, onRetake }) => {
+  onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<string | null>;
+}> = ({ unit, reason, pending, onListen, onApply, onRetake, onSuggest }) => {
   const [draft, setDraft] = useState(unit.suggestion || unit.text);
+  const [suggested, setSuggested] = useState(Boolean(unit.suggestion));
   const [copied, setCopied] = useState(false);
-  useEffect(() => setDraft(unit.suggestion || unit.text), [unit.suggestion, unit.text]);
+  const [asking, setAsking] = useState(false);
+  const [askError, setAskError] = useState<string | null>(null);
+  // Wordings already offered for this line, so another try reads differently.
+  const tried = useRef<string[]>([]);
+  useEffect(() => {
+    setDraft(unit.suggestion || unit.text);
+    setSuggested(Boolean(unit.suggestion));
+    tried.current = unit.suggestion ? [unit.suggestion] : [];
+  }, [unit.suggestion, unit.text]);
   const changed = draft.trim() !== '' && draft.trim() !== unit.text.trim();
+  const fuller = unit.short && !unit.exceeded;
+  // The line's own voiced rate, to estimate how long a new wording takes.
+  const spoken = unit.srcEnd - unit.srcStart;
+  const draftSeconds = unit.text.trim().length > 0 ? (draft.trim().length * unit.speech) / unit.text.trim().length : 0;
+  const tryAnother = async () => {
+    if (!onSuggest || asking) return;
+    setAsking(true);
+    setAskError(null);
+    try {
+      const line = await onSuggest(unit, tried.current);
+      if (line) {
+        tried.current = [...tried.current, line].slice(-3);
+        setDraft(line);
+        setSuggested(true);
+      } else setAskError(`No usable ${fuller ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`);
+    } catch (err: any) {
+      setAskError(err?.message || 'The text model did not answer.');
+    } finally {
+      setAsking(false);
+    }
+  };
   const copy = () =>
     navigator.clipboard
       ?.writeText(draft)
@@ -555,23 +639,34 @@ const ReviewRow: React.FC<{
       <div className="min-w-0 flex-1">
         <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
         {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
-        <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : 'text-slate-400'}`}>{reason}</p>
+        <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : unit.short ? 'text-sky-300' : 'text-slate-400'}`}>{reason}</p>
 
         {pending ? (
           <p className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300">
             <RefreshCw className="w-3 h-3" /> Changed. Sync again to hear it.
           </p>
         ) : (
-          unit.exceeded &&
+          (unit.exceeded || unit.short) &&
           onApply && (
             <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
               <label className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1" htmlFor={`sync-line-${unit.key}`}>
-                {unit.suggestion ? 'Suggested shorter line' : 'Shorten this line'}
+                {suggested
+                  ? fuller
+                    ? 'Suggested fuller line'
+                    : 'Suggested shorter line'
+                  : draft.trim() !== unit.text.trim()
+                    ? 'Your wording'
+                    : fuller
+                      ? 'Make this line fuller'
+                      : 'Shorten this line'}
               </label>
               <textarea
                 id={`sync-line-${unit.key}`}
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  setSuggested(false);
+                }}
                 rows={2}
                 className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
               />
@@ -593,10 +688,32 @@ const ReviewRow: React.FC<{
                   {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   {copied ? 'Copied' : 'Copy'}
                 </button>
+                {onSuggest && unit.targetChars != null && (
+                  <button
+                    type="button"
+                    onClick={tryAnother}
+                    disabled={asking}
+                    className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 disabled:opacity-60 cursor-pointer"
+                  >
+                    {asking ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                    {asking ? 'Asking…' : suggested ? 'Try another' : 'Suggest one'}
+                  </button>
+                )}
                 <span className="text-[11px] text-slate-500 tabular-nums">
                   {draft.trim().length} / {unit.text.trim().length} characters
                 </span>
+                {fuller && draftSeconds > 0 && (
+                  <span
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-md tabular-nums ${
+                      isShort(draftSeconds, spoken) ? 'bg-sky-500/15 text-sky-300' : 'bg-emerald-500/15 text-emerald-300'
+                    }`}
+                    title="Estimated from how fast this voice said the line"
+                  >
+                    about {draftSeconds.toFixed(1)} s of {spoken.toFixed(1)} s · {isShort(draftSeconds, spoken) ? 'still ends early' : 'fills'}
+                  </span>
+                )}
               </div>
+              {askError && <p className="mt-1.5 text-[11.5px] text-rose-300">{askError}</p>}
             </div>
           )
         )}
@@ -665,8 +782,8 @@ const SyncTimeline: React.FC<{
   const markers = useMemo(
     () =>
       report.units
-        .filter((u) => u.exceeded || !u.inSync)
-        .map((u) => ({ time: u.srcStart, tone: 'warn' as const })),
+        .filter((u) => u.exceeded || u.short || !u.inSync)
+        .map((u) => ({ time: u.srcStart, tone: u.exceeded || !u.inSync ? ('warn' as const) : ('soft' as const) })),
     [report]
   );
 
@@ -694,6 +811,17 @@ const SyncTimeline: React.FC<{
           />
         );
       })}
+      {kind === 'dub' &&
+        visible.map((u) =>
+          u.short && u.placedEnd !== null ? (
+            <span
+              key={`quiet-${u.index}`}
+              title={`The dub is quiet here for about ${u.shortBy.toFixed(1)} s while the original speaker is still talking`}
+              className="absolute top-1.5 bottom-1.5 rounded-r border border-dashed border-sky-400/70 bg-sky-400/5"
+              style={{ left: `${pct(u.placedEnd)}%`, width: `${Math.max(0.3, pct(u.placedEnd + u.shortBy) - pct(u.placedEnd))}%` }}
+            />
+          ) : null
+        )}
       {currentTime >= windowStart && currentTime <= end && (
         <span className="absolute top-0 bottom-0 w-0.5 bg-slate-100 pointer-events-none" style={{ left: `${pct(currentTime)}%` }} />
       )}
@@ -735,6 +863,7 @@ const SyncTimeline: React.FC<{
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm bg-indigo-400/50" /> In sync</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm bg-indigo-400/50 outline-1 outline-dashed outline-amber-300" /> Too long</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm ring-1 ring-amber-400 bg-amber-400/40" /> Outside tolerance</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-sky-400/70 bg-sky-400/5" /> Ends early: speaker still talking</span>
         <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 rounded-full bg-amber-400" /> On the scroll bar: a line to check</span>
       </TimelineTransport>
     </div>

@@ -433,7 +433,7 @@ test('a text model that fails leaves the sync finished, with the reason reported
 
 /** A fake voice: every character takes 0.08 s to say, with 0.15 s of silence either side. */
 const SECONDS_PER_CHAR = 0.08;
-const fakeDeps = ({ shorten } = {}) => {
+const fakeDeps = ({ shorten, lengthen } = {}) => {
   const voiced = [];
   return {
     voiced,
@@ -447,6 +447,7 @@ const fakeDeps = ({ shorten } = {}) => {
       decode: async (samples) => samples,
       encode: async (samples) => ({ buffer: Buffer.from(new Uint8Array(samples.buffer)), contentType: 'audio/test' }),
       shorten,
+      lengthen,
     },
   };
 };
@@ -653,4 +654,82 @@ test('a cancelled sync stops', async () => {
     runSync({ segments: [cue(1, 0, 1, 'aaaa')], sampleRate: RATE, voice }, deps, { signal: controller.signal }),
     { code: 'cancelled' }
   );
+});
+
+test('a line that ends well before the original speaker stops is flagged short and given a fuller wording', async () => {
+  clearClipCache();
+  // The speaker talks for 3 s; 10 characters take 0.8 s, leaving 2.2 s unsaid.
+  const segments = [cue(1, 1, 4, 'x'.repeat(10)), cue(2, 6, 7, 'yyyyyyyyyy')];
+  const requests = [];
+  const { deps, voiced } = fakeDeps({
+    shorten: async () => assert.fail('nothing runs long'),
+    lengthen: async (req) => {
+      requests.push(req);
+      return 'x'.repeat(req.targetChars);
+    },
+  });
+  const { report } = await runSync({ segments, sourceDuration: 8, sampleRate: RATE, voice }, deps);
+
+  assert.deepEqual(voiced, ['x'.repeat(10), 'yyyyyyyyyy'], 'voiced exactly as written');
+  const line = report.units[0];
+  assert.equal(line.short, true);
+  assert.equal(line.exceeded, false);
+  assert.ok(Math.abs(line.shortBy - 2.2) < 0.01, `short by ${line.shortBy}`);
+  assert.ok(Math.abs(line.speech - 0.8) < 0.01, `speech ${line.speech}`);
+  // Fill 95% of the 3 s at the voice's own 12.5 chars/s: 35 characters.
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].sourceText, 'src 1');
+  assert.equal(requests[0].targetChars, 35);
+  assert.equal(line.targetChars, 35);
+  assert.equal(line.suggestion, 'x'.repeat(35));
+  assert.equal(report.units[1].short, false);
+  assert.equal(report.summary.short, 1);
+  assert.equal(report.summary.suggestionsAsked, 1);
+  assert.equal(report.summary.suggested, 1);
+});
+
+test('a fuller wording never aims past the time the line has before the next one', async () => {
+  clearClipCache();
+  // 11.5 s spoken and the next line 0.4 s later: filling 95% of the speech would leave no breath before it.
+  const segments = [cue(1, 0.2, 11.7, 'x'.repeat(10)), cue(2, 12.1, 13, 'yyyyyyyyyy')];
+  const { deps } = fakeDeps({ lengthen: async (req) => 'x'.repeat(req.targetChars) });
+  const { report } = await runSync({ segments, sourceDuration: 14, sampleRate: RATE, voice }, deps);
+  assert.equal(report.units.length, 2);
+  const line = report.units[0];
+  assert.equal(line.short, true);
+  const fill = Math.floor((10 * 11.5 * 0.95) / line.speech);
+  assert.ok(line.targetChars > 10 && line.targetChars < fill, `target ${line.targetChars}, fill ${fill}: the slot sets the limit`);
+  // Voiced at the same rate, the fuller line ends before the next one starts, less the breath kept there.
+  assert.ok(0.2 + line.targetChars * SECONDS_PER_CHAR < 12.1 - minimumGap(0.4));
+});
+
+test('with fuller lines off, a short line is still flagged but nothing is asked', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 4, 'x'.repeat(10)), cue(2, 6, 7, 'yyyyyyyyyy')];
+  const { deps } = fakeDeps({ lengthen: async () => assert.fail('should not ask for fuller lines') });
+  const { report } = await runSync({ segments, sourceDuration: 8, sampleRate: RATE, suggestLonger: false, voice }, deps);
+  assert.equal(report.units[0].short, true);
+  assert.equal(report.units[0].suggestion, null);
+  assert.equal(report.summary.suggestionsAsked, 0);
+});
+
+test('a line only a little quicker than the original is not short', async () => {
+  clearClipCache();
+  // 2.4 s of speech for 3 s spoken: 80%.
+  const { deps } = fakeDeps({ lengthen: async () => assert.fail('not short') });
+  const { report } = await runSync({ segments: [cue(1, 1, 4, 'x'.repeat(30))], sourceDuration: 6, sampleRate: RATE, voice }, deps);
+  assert.equal(report.units[0].short, false);
+  assert.equal(report.units[0].shortBy, 0);
+  assert.equal(report.units[0].targetChars, null);
+});
+
+test('a suggestion held back for changing the meaning is counted, and none is shown', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 4, 'x'.repeat(10)), cue(2, 6, 7, 'yyyyyyyyyy')];
+  const { deps } = fakeDeps({ lengthen: async () => ({ line: null, reason: 'meaning' }) });
+  const { report } = await runSync({ segments, sourceDuration: 8, sampleRate: RATE, voice }, deps);
+  assert.equal(report.units[0].short, true);
+  assert.equal(report.units[0].suggestion, null);
+  assert.equal(report.summary.meaningRejected, 1);
+  assert.equal(report.summary.suggestionError, null);
 });

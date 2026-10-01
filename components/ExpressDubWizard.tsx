@@ -87,6 +87,7 @@ import {
   measureSpeechSeconds,
   speakingRate,
   suggestShorterLine,
+  suggestLongerLine,
   syncedSegments,
   TYPICAL_CHARS_PER_SECOND,
 } from '../services/syncService';
@@ -3117,8 +3118,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onSeek(time);
                     if (!isPlaying) onTogglePlay();
                   }}
-                  onSuggest={(unit, avoid) =>
-                    suggestShorterLine({ text: unit.text, sourceText: unit.sourceText, language: targetLanguage, targetChars: unit.targetChars, avoid })
+                  onSuggest={(unit, avoid, direction) =>
+                    (direction === 'longer' ? suggestLongerLine : suggestShorterLine)({
+                      text: unit.text,
+                      sourceText: unit.sourceText,
+                      language: targetLanguage,
+                      targetChars: unit.targetChars,
+                      avoid,
+                    })
                   }
                   onUseLine={applyPreviewLine}
                   onRestore={restoreCueTexts}
@@ -3137,6 +3144,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               pendingLines={syncPendingLines}
               onApplyLine={onApplySyncLine}
               onRetakeLine={onRetakeSyncLine}
+              onSuggestLine={(unit, avoid) =>
+                unit.targetChars == null
+                  ? Promise.resolve(null)
+                  : (unit.short && !unit.exceeded ? suggestLongerLine : suggestShorterLine)({
+                      text: unit.text,
+                      sourceText: unit.sourceText,
+                      language: targetLanguage,
+                      targetChars: unit.targetChars,
+                      avoid,
+                    })
+              }
             />
             <SyncSettingsPanel
               options={syncOptions}
@@ -3150,6 +3168,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               pendingCount={syncPendingLines.length}
               previewShown={!report && Boolean(syncPreview.preview)}
               previewLongCount={syncPreview.preview?.summary.long ?? 0}
+              previewShortCount={syncPreview.preview?.summary.short ?? 0}
               onSync={runSync}
               onCancel={() => onCancelSync?.()}
               onBack={() => {

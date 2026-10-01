@@ -9,6 +9,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Sync suggests a fuller line when a dub line ends early.** The Sync preview already offered a
+  shorter wording for lines too long for their slot; it now also flags lines likely to end well
+  before the original speaker stops (under 60% of their speech and at least 1 s left quiet) under
+  **Fill out lines that end early**, and offers **Suggest a fuller line**: the same meaning, said in
+  full, restoring what the translation dropped, never new content or filler. The timeline shows the
+  quiet stretch as a dashed box. As with shorter lines, nothing changes until you press **Use this line**.
+  Sync itself does the same from the real voiced clips: a new **Suggest fuller lines** setting (on by
+  default) sits under **Suggest shorter lines**, the report counts **Lines that end early**, and each
+  one under **Worth a listen** gets a suggested fuller line with **Try another** and an estimate of
+  whether it now fills the original speech.
+- **Every suggested line is checked against the source line's meaning before you see it.** Shorter and
+  fuller wordings alike go to a second, strict text-model check that compares them with the original
+  line: every idea, negation, condition, tense, name and number must be kept, and nothing added. A
+  wording that fails gets one repair, told exactly what changed; if that fails too, no suggestion is
+  shown, and Sync says how many were held back. An unreadable check counts as a failure.
 - **Update button in the desktop app.** When a newer release is published on GitHub, a blue
   **Update to 1.x.x** button appears in the header. It opens a window with the release notes,
   **Download and install** with a progress bar, then **Restart and install** (held back while a dub or

@@ -7,7 +7,9 @@ import { ElevenLabsVoiceSettings } from './elevenLabsService';
  * plays in step with the original. The voice is never changed — no speed
  * change, no gain and no fades; lines are only moved and the silent pauses
  * inside them shortened. A line too long for its slot is flagged with a
- * suggested shorter wording, never rewritten (see server/lib/syncDub.js).
+ * suggested shorter wording, and a line that ends well before the original
+ * speaker stops with a fuller one; neither is ever applied by itself (see
+ * server/lib/syncDub.js).
  * The dub comes back as lossless WAV.
  */
 
@@ -25,6 +27,8 @@ export interface SyncOptions {
   precision: SyncPrecision;
   /** Ask the text model for shorter wordings of lines that run long. */
   suggest: boolean;
+  /** Ask the text model for fuller wordings of lines that end well before the original speaker stops. */
+  suggestLonger: boolean;
   /** Bring every line to the same loudness. Off: each line keeps the level it was voiced at. */
   matchLoudness: boolean;
 }
@@ -97,7 +101,15 @@ export interface SyncUnitReport {
   exceeded: boolean;
   /** Seconds the line runs past its slot, after its pauses were shortened. */
   exceededBy: number;
-  /** A shorter wording to use instead, or null. Never applied automatically. */
+  /** The line ends well before the original speaker stops: the dub goes quiet while they still talk. */
+  short: boolean;
+  /** Seconds of the original speech the dub leaves unsaid; 0 unless `short`. */
+  shortBy: number;
+  /** Seconds the dub line's words take, as voiced. */
+  speech: number;
+  /** Length a new wording should aim for: shorter when `exceeded`, longer when `short`, otherwise null. */
+  targetChars: number | null;
+  /** A shorter (or, for a short line, fuller) wording to use instead, or null. Never applied automatically. */
   suggestion: string | null;
   /** Seconds taken out of the pauses inside the line. */
   pauseTrimmed: number;
@@ -117,7 +129,13 @@ export interface SyncReport {
     overlaps: number;
     /** Lines too long for their slot, and how many of them got a suggestion. */
     exceeded: number;
+    /** Lines that end well before the original speaker stops. */
+    short: number;
+    /** Suggestions asked for, long and short lines together, and how many came back. */
+    suggestionsAsked: number;
     suggested: number;
+    /** Suggestions held back because every wording the text model offered changed the meaning. */
+    meaningRejected: number;
     /** Why some or all suggestions are missing: the text model's error, or null. */
     suggestionError: string | null;
     pauseTrimmed: number;
@@ -136,7 +154,7 @@ export const SYNC_STEPS = [
   { phase: 'placing', label: 'Placing every line' },
   { phase: 'rendering', label: 'Rendering one file' },
   { phase: 'checking', label: 'Checking the result' },
-  { phase: 'suggesting', label: 'Suggesting shorter lines' },
+  { phase: 'suggesting', label: 'Suggesting better-fitting lines' },
 ] as const;
 
 export interface SyncProgress {
@@ -162,6 +180,8 @@ export interface SyncRequest {
   precision: SyncPrecision;
   /** Ask the text model for shorter wordings of lines that run long. */
   suggest: boolean;
+  /** Ask the text model for fuller wordings of lines that end early. */
+  suggestLonger?: boolean;
   matchLoudness?: boolean;
   /** Retaken lines, by key: each is voiced again with its own seed. */
   lineSeeds?: Record<string, number>;
@@ -283,12 +303,17 @@ export interface SyncPreviewUnit {
   nextStart: number | null;
   /** Seconds the line has: to where the next phrase starts, less a breath. */
   slot: number;
+  /** Seconds the original speaker talks for. */
+  spoken: number;
   /** Estimated seconds of speech. */
   estimate: number;
   /** Estimated seconds past the slot, 0 when it fits. */
   overflow: number;
-  status: 'fits' | 'tight' | 'long';
-  /** Length a shorter wording should aim for, in characters. */
+  /** Estimated seconds of the original speech the dub leaves silent; 0 unless the line is short. */
+  underflow: number;
+  /** 'short': the dub likely ends well before the original speaker stops. */
+  status: 'fits' | 'tight' | 'long' | 'short';
+  /** Length a new wording should aim for, in characters: shorter for a long line, longer for a short one. */
   targetChars: number;
 }
 
@@ -296,7 +321,8 @@ export interface SyncPreview {
   precision: SyncPrecision;
   charsPerSecond: number;
   units: SyncPreviewUnit[];
-  summary: { lines: number; fits: number; tight: number; long: number; maxOverflow: number };
+  /** `fits` includes the short lines, which fit their slot; `short` counts them on their own. */
+  summary: { lines: number; fits: number; tight: number; long: number; short: number; maxOverflow: number };
 }
 
 /** Which lines are likely to fit, before anything is voiced. No voice or text model is called. */
@@ -306,11 +332,28 @@ export const previewSync = (
 ): Promise<SyncPreview> =>
   apiJson<SyncPreview>('/sync/preview', { body: { ...request, segments: request.segments.map(slimSegment) }, signal });
 
-/** A shorter wording of one line from the text model, or null when it had nothing usable. */
-export const suggestShorterLine = async (
-  request: { text: string; sourceText?: string; language?: string; targetChars: number; avoid?: string[] },
-  { signal }: { signal?: AbortSignal } = {}
-): Promise<string | null> => (await apiJson<{ line: string | null }>('/sync/shorten', { body: request, signal })).line;
+type LineRequest = { text: string; sourceText?: string; language?: string; targetChars: number; avoid?: string[] };
+
+/**
+ * A new wording from the server, which has already checked it means what the
+ * source line means. Null when nothing usable came back; throws, with a reason
+ * to show, when every wording changed the meaning.
+ */
+const askForLine = async (path: string, request: LineRequest, signal?: AbortSignal): Promise<string | null> => {
+  const { line, reason } = await apiJson<{ line: string | null; reason?: 'unusable' | 'meaning' | null }>(path, { body: request, signal });
+  if (!line && reason === 'meaning') {
+    throw new Error('Every wording the text model offered changed the meaning of the original line, so none is shown. Try again, or edit it yourself.');
+  }
+  return line;
+};
+
+/** A shorter wording of one line from the text model, meaning checked, or null when it had nothing usable. */
+export const suggestShorterLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<string | null> =>
+  askForLine('/sync/shorten', request, signal);
+
+/** A fuller wording of one line that ends too early, meaning checked, or null when it had nothing usable. */
+export const suggestLongerLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<string | null> =>
+  askForLine('/sync/lengthen', request, signal);
 
 /** A typical dub speaking rate, used when there is no dub to measure one from. */
 export const TYPICAL_CHARS_PER_SECOND = 14;
