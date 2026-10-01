@@ -88,8 +88,12 @@ const actionButton =
 interface VoiceChangerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  activeAudioFile?: File | null;
-  activeAudioBuffer?: AudioBuffer | null;
+  /** The project's finished dub: what the voice changer and effects work on. */
+  dubbedAudioFile?: File | null;
+  dubbedAudioBuffer?: AudioBuffer | null;
+  /** The original speaker's audio, the default sample for cloning their voice. */
+  originalAudioFile?: File | null;
+  originalAudioBuffer?: AudioBuffer | null;
   availableVoices: Voice[];
   selectedVoiceId: string;
   elApiKey: string;
@@ -108,8 +112,10 @@ type ModeTab = 'sts' | 'clone' | 'effects';
 export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   isOpen,
   onClose,
-  activeAudioFile,
-  activeAudioBuffer,
+  dubbedAudioFile,
+  dubbedAudioBuffer,
+  originalAudioFile,
+  originalAudioBuffer,
   availableVoices,
   selectedVoiceId,
   elApiKey,
@@ -127,12 +133,13 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     [availableVoices]
   );
 
-  // Source audio state
-  const [sourceAudioFile, setSourceAudioFile] = useState<File | null>(activeAudioFile || null);
+  // Input audio: the project's dub unless another file is chosen or recorded
+  const [sourceAudioFile, setSourceAudioFile] = useState<File | null>(dubbedAudioFile || null);
   const [sourceAudioUrl, setSourceAudioUrl] = useState<string | null>(null);
   const [sourceAudioBuffer, setSourceAudioBuffer] = useState<AudioBuffer | null>(
-    activeAudioBuffer || null
+    dubbedAudioBuffer || null
   );
+  const inputIsProjectDub = Boolean(dubbedAudioFile) && sourceAudioFile === dubbedAudioFile;
 
   // Target voice state for STS
   const [targetVoiceId, setTargetVoiceId] = useState<string>(selectedVoiceId || 'CwhRBWXzGAHq8TQ4Fs17');
@@ -251,14 +258,14 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cloneFileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Initialize source audio if active file changes
+  // Follow the project's dub whenever it changes
   useEffect(() => {
-    if (activeAudioFile) {
-      setSourceAudioFile(activeAudioFile);
-      const url = URL.createObjectURL(activeAudioFile);
+    if (dubbedAudioFile) {
+      setSourceAudioFile(dubbedAudioFile);
+      const url = URL.createObjectURL(dubbedAudioFile);
       setSourceAudioUrl(url);
-      if (activeAudioBuffer) {
-        setSourceAudioBuffer(activeAudioBuffer);
+      if (dubbedAudioBuffer) {
+        setSourceAudioBuffer(dubbedAudioBuffer);
       } else {
         decodeAudioBlobUrl(url)
           .then((buf) => setSourceAudioBuffer(buf))
@@ -266,7 +273,11 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       }
       return () => URL.revokeObjectURL(url);
     }
-  }, [activeAudioFile, activeAudioBuffer]);
+    // No dub (yet) for this project: don't keep showing another project's.
+    setSourceAudioFile(null);
+    setSourceAudioUrl(null);
+    setSourceAudioBuffer(null);
+  }, [dubbedAudioFile, dubbedAudioBuffer]);
 
   // Sync selected voice
   useEffect(() => {
@@ -377,7 +388,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   // EXECUTE: Speech-to-Speech
   const handleRunSpeechToSpeech = async () => {
     if (!sourceAudioFile && !sourceAudioBuffer) {
-      setErrorMessage('Please provide or record speech audio first.');
+      setErrorMessage('Generate the dub first, or choose a file to change.');
       return;
     }
     try {
@@ -433,7 +444,8 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       setErrorMessage('Please enter a name for the new cloned voice.');
       return;
     }
-    const samples = cloneFiles.length > 0 ? cloneFiles : sourceAudioFile ? [sourceAudioFile] : [];
+    // The original speaker is the natural voice to clone, not the synthetic dub.
+    const samples = cloneFiles.length > 0 ? cloneFiles : originalAudioFile ? [originalAudioFile] : [];
     if (samples.length === 0) {
       setErrorMessage('Please upload or select an audio sample to clone.');
       return;
@@ -481,7 +493,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   // EXECUTE: DSP Voice Modulation
   const handleRunDspEffect = async () => {
     if (!sourceAudioBuffer && !sourceAudioFile) {
-      setErrorMessage('Please upload or provide an audio file first.');
+      setErrorMessage('Generate the dub first, or choose a file to change.');
       return;
     }
 
@@ -559,8 +571,9 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     .join(' · ');
   const shortName = (name?: string) => (name || '').trim().split(/\s+[-–—|]\s+/)[0];
   const sourceLength = sourceAudioBuffer ? formatLength(sourceAudioBuffer.duration) : null;
+  const originalLength = originalAudioBuffer ? formatLength(originalAudioBuffer.duration) : null;
   const sampleSeconds =
-    (cloneFiles.length === 0 && sourceAudioBuffer ? sourceAudioBuffer.duration : 0) + cloneSampleSeconds;
+    (cloneFiles.length === 0 && originalAudioBuffer ? originalAudioBuffer.duration : 0) + cloneSampleSeconds;
   const effect = EFFECTS.find((e) => e.id === selectedEffect) || EFFECTS[0];
 
   const runLabel =
@@ -678,22 +691,22 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
           </button>
         </div>
 
-        {/* Source audio, shared by every mode */}
+        {/* Input audio (the dub by default), shared by every mode */}
         <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-5 sm:px-6 py-3 border-b border-slate-800 bg-slate-950/40 shrink-0">
-          <span className="hidden sm:block w-14 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 shrink-0">Source</span>
+          <span className="hidden sm:block w-14 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 shrink-0">{inputIsProjectDub || !sourceAudioFile ? 'Dub' : 'Input'}</span>
           <span className="w-[34px] h-[34px] rounded-[9px] bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
             {isRecording ? <Mic className="w-4 h-4" /> : <FileAudio className="w-4 h-4" />}
           </span>
           <span className="min-w-0 basis-[calc(100%-46px)] sm:basis-auto sm:w-60">
             <span className="block text-[13px] font-semibold text-slate-100 truncate" title={sourceAudioFile?.name}>
-              {isRecording ? 'Recording…' : sourceAudioFile?.name || 'No audio yet'}
+              {isRecording ? 'Recording…' : sourceAudioFile?.name || 'No dubbed audio yet'}
             </span>
             <span className="block text-[11.5px] text-slate-400 font-mono tabular-nums">
               {isRecording
                 ? formatLength(recordDuration)
                 : sourceAudioFile
-                  ? [sourceLength, sourceAudioFile === activeAudioFile ? 'from this project' : 'your file'].filter(Boolean).join(' · ')
-                  : 'Choose a file or record'}
+                  ? [sourceLength, inputIsProjectDub ? 'dubbed audio' : 'your file'].filter(Boolean).join(' · ')
+                  : 'Generate the dub first, or choose a file'}
             </span>
           </span>
           <button
@@ -701,7 +714,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             onClick={() => playTrack('source')}
             disabled={!sourceAudioUrl || isRecording}
             className="w-[30px] h-[30px] rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center shrink-0 disabled:opacity-30 cursor-pointer"
-            aria-label={playingTrack === 'source' ? 'Stop source' : 'Play source'}
+            aria-label={playingTrack === 'source' ? 'Stop input' : 'Play input'}
           >
             {playingTrack === 'source' ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-px" />}
           </button>
@@ -1014,11 +1027,11 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
-                    {cloneFiles.length === 0 && sourceAudioFile && (
+                    {cloneFiles.length === 0 && originalAudioFile && (
                       <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-slate-800 text-[12.5px]">
                         <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                        <span className="min-w-0 flex-1 truncate text-slate-200">Source audio ({sourceAudioFile.name})</span>
-                        {sourceLength && <span className="font-mono text-[11.5px] text-slate-500">{sourceLength}</span>}
+                        <span className="min-w-0 flex-1 truncate text-slate-200">Original speaker ({originalAudioFile.name})</span>
+                        {originalLength && <span className="font-mono text-[11.5px] text-slate-500">{originalLength}</span>}
                       </div>
                     )}
                     {cloneFiles.map((f, i) => (
@@ -1053,7 +1066,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                   <button
                     type="button"
                     onClick={handleRunVoiceClone}
-                    disabled={isProcessing || isRecording || !cloneName.trim() || (cloneFiles.length === 0 && !sourceAudioFile)}
+                    disabled={isProcessing || isRecording || !cloneName.trim() || (cloneFiles.length === 0 && !originalAudioFile)}
                     className={primaryButton}
                   >
                     <UserPlus className="w-4 h-4" /> Create voice
@@ -1152,7 +1165,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                   <Check className="w-3.5 h-3.5" /> Ready. Compare, then choose what to do with it.
                 </span>
                 {[
-                  { track: 'source' as const, title: 'Original', sub: 'Speaker', buffer: sourceAudioBuffer, color: 'text-cyan-400/80' },
+                  { track: 'source' as const, title: 'Before', sub: inputIsProjectDub ? 'Current dub' : 'Your file', buffer: sourceAudioBuffer, color: 'text-cyan-400/80' },
                   { track: 'output' as const, title: 'Changed', sub: outputLabel, buffer: outputBuffer, color: 'text-indigo-400' },
                 ].map((lane) => (
                   <div
@@ -1187,20 +1200,22 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                         <Film className="w-4 h-4" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block text-[13px] font-semibold text-slate-100">Use as the dub</span>
+                        <span className="block text-[13px] font-semibold text-slate-100">Replace the dub</span>
                         <span className="block text-[11.5px] text-slate-400">Becomes the finished audio in Final dub</span>
                       </span>
                     </button>
                   )}
-                  <button type="button" onClick={handleApplyToProject} className={actionButton}>
-                    <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
-                      <RefreshCw className="w-4 h-4" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-[13px] font-semibold text-slate-100">Use as the source audio</span>
-                      <span className="block text-[11.5px] text-slate-400">Replaces the project's audio with this</span>
-                    </span>
-                  </button>
+                  {!inputIsProjectDub && (
+                    <button type="button" onClick={handleApplyToProject} className={actionButton}>
+                      <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                        <RefreshCw className="w-4 h-4" />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[13px] font-semibold text-slate-100">Use as the source audio</span>
+                        <span className="block text-[11.5px] text-slate-400">Replaces the project's audio with this</span>
+                      </span>
+                    </button>
+                  )}
                   <button type="button" onClick={handleDownloadOutput} className={actionButton}>
                     <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
                       <Download className="w-4 h-4" />
