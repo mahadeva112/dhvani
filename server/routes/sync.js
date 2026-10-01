@@ -7,7 +7,7 @@ import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } fr
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat } from '../lib/media.js';
 import { pcmToWav } from '../lib/wav.js';
 import { runSync } from '../lib/syncDub.js';
-import { shortenLine } from '../lib/syncRewrite.js';
+import { shortenLine, lengthenLine } from '../lib/syncRewrite.js';
 import { previewSync } from '../lib/syncPreview.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
 import { logger } from '../logger.js';
@@ -73,7 +73,9 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  *
  * Body: `{ segments, sourceDuration, voiceId, modelId, outputFormat,
  * voiceSettings, language, seed, lineSeeds, precision, suggest,
- * matchLoudness, debug, jobId }`. `lineSeeds` maps a line's key to the seed
+ * suggestLonger, matchLoudness, debug, jobId }`. `suggest` and `suggestLonger`
+ * (both on unless false) ask for shorter wordings of long lines and fuller
+ * wordings of lines that end early. `lineSeeds` maps a line's key to the seed
  * of a retake of it; `matchLoudness` evens out the lines' loudness (off
  * unless asked for); `debug`, or DHVANI_AUDIO_DEBUG=1, adds
  * `report.audioDebug` and logs it. Replies with `{ audioId, contentType,
@@ -96,6 +98,7 @@ syncRouter.post(
       lineSeeds,
       precision,
       suggest,
+      suggestLonger,
       matchLoudness,
       debug,
       jobId,
@@ -153,6 +156,7 @@ syncRouter.post(
           sampleRate,
           precision,
           suggest: suggest !== false,
+          suggestLonger: suggestLonger !== false,
           language,
           voice,
           lineSeeds: cleanLineSeeds(lineSeeds),
@@ -166,6 +170,7 @@ syncRouter.post(
           // MP3 again would be a second lossy generation of every line.
           encode: async (samples) => ({ buffer: pcmToWav(await encodeAudio(samples, `pcm_${sampleRate}`), { sampleRate }), contentType: 'audio/wav' }),
           shorten: (request) => shortenLine(request, { apiKey: textModelKey }),
+          lengthen: (request) => lengthenLine(request, { apiKey: textModelKey }),
         },
         {
           signal: controller.signal,
@@ -196,8 +201,10 @@ syncRouter.post('/sync/preview', (req, res) => {
 /**
  * POST /api/sync/shorten — a shorter wording for one line, from the text
  * model. Body: `{ text, sourceText, language, targetChars, avoid }`, `avoid`
- * being earlier suggestions to differ from. Replies `{ line }`, null when the
- * model's answer was not usable. The script is never changed here.
+ * being earlier suggestions to differ from. Replies `{ line, reason }`: `line`
+ * is null when no wording passed, `reason` then being 'unusable' or 'meaning'
+ * (every wording changed what the source line says). Every line returned has
+ * passed the meaning check (syncRewrite.js). The script is never changed here.
  */
 syncRouter.post(
   '/sync/shorten',
@@ -206,11 +213,34 @@ syncRouter.post(
     if (typeof text !== 'string' || !text.trim()) throw new ApiError('There is no line to shorten.', { status: 400, code: 'no_text' });
     const target = Math.max(1, Math.min(text.length, Math.floor(Number(targetChars) || text.length * 0.8)));
     const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(0, 3) : [];
-    const line = await shortenLine(
+    const { line, reason } = await shortenLine(
       { text, sourceText: typeof sourceText === 'string' ? sourceText : '', language, targetChars: target, avoid: earlier },
       { apiKey: req.get('x-gemini-key') || undefined }
     );
-    res.json({ line });
+    res.json({ line, reason });
+  })
+);
+
+/**
+ * POST /api/sync/lengthen — a fuller wording for one line that ends well
+ * before the original speaker does, from the text model. Body as for
+ * /sync/shorten; `targetChars` is the length to aim for, more than the line
+ * has now. Replies `{ line, reason }` as /sync/shorten does, every line
+ * returned having passed the meaning check. The script is never changed here.
+ */
+syncRouter.post(
+  '/sync/lengthen',
+  asyncHandler(async (req, res) => {
+    const { text, sourceText, language, targetChars, avoid } = req.body || {};
+    if (typeof text !== 'string' || !text.trim()) throw new ApiError('There is no line to make fuller.', { status: 400, code: 'no_text' });
+    // At most three times the line: past that it is a new line, not a fuller one.
+    const target = Math.max(text.length + 1, Math.min(text.length * 3, Math.floor(Number(targetChars) || text.length * 1.5)));
+    const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(0, 3) : [];
+    const { line, reason } = await lengthenLine(
+      { text, sourceText: typeof sourceText === 'string' ? sourceText : '', language, targetChars: target, avoid: earlier },
+      { apiKey: req.get('x-gemini-key') || undefined }
+    );
+    res.json({ line, reason });
   })
 );
 

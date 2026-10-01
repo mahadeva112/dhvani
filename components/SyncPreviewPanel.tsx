@@ -8,9 +8,10 @@ import { previewSync, SyncPrecision, SyncPreview, SyncPreviewUnit } from '../ser
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
  * time the original gives them, drawn on the same Original / Dub timeline the
- * sync report uses, and a shorter wording for the lines that are likely too
- * long. Lengths are estimated from characters and a speaking rate, so every
- * figure here says so. See server/lib/syncPreview.js.
+ * sync report uses, a shorter wording for the lines that are likely too
+ * long, and a fuller one for the lines likely to end while the original
+ * speaker is still talking. Lengths are estimated from characters and a
+ * speaking rate, so every figure here says so. See server/lib/syncPreview.js.
  */
 
 /** Seconds of the timeline shown at once, as in the report's timeline. */
@@ -29,6 +30,19 @@ const HATCH_FIT_SWATCH = 'repeating-linear-gradient(135deg, #818cf8 0 2px, rgba(
 /** A tight line gets an amber edge along its bottom: it fits, only just. */
 const TIGHT_EDGE = 'inset 0 -3px 0 rgba(252,211,77,0.9)';
 const HATCH_OVER_SWATCH = 'repeating-linear-gradient(135deg, #fbbf24 0 2px, rgba(251,191,36,0.4) 2px 4px)';
+/** Where a short line leaves the original speech unspoken: an empty, dashed box. */
+const QUIET_BOX = 'border border-dashed border-sky-400/70 bg-sky-400/5';
+
+/**
+ * When a line is short, as server/lib/syncDub.js decides it (isShortLine), so a
+ * wording typed here is judged the way the preview and the sync judge it.
+ */
+const SHORT_SHARE = 0.6;
+const MIN_SHORT_GAP = 1;
+export const isShort = (seconds: number, spoken: number) => seconds < spoken * SHORT_SHARE && spoken - seconds >= MIN_SHORT_GAP;
+
+/** Which way a line's wording has to change: fewer words to fit its slot, or more to fill the original speech. */
+export type RewriteDirection = 'shorter' | 'longer';
 
 /** Fetches the preview again whenever the script, the precision or the rate change. */
 export const useSyncPreview = ({
@@ -98,8 +112,8 @@ export interface SyncPreviewPanelProps {
   onSeek: (time: number) => void;
   /** Plays the original from `time`. */
   onListenOriginal: (time: number) => void;
-  /** A shorter wording of a line, from the text model. */
-  onSuggest: (unit: SyncPreviewUnit, avoid: string[]) => Promise<string | null>;
+  /** A shorter (or, for a line that ends early, fuller) wording of a line, from the text model. */
+  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) => Promise<string | null>;
   /** Puts a wording into the script; returns the cues' texts before, for Undo. */
   onUseLine: (unit: SyncPreviewUnit, text: string) => Record<string, string>;
   /** Puts cue texts back, for Undo. */
@@ -123,38 +137,82 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
 }) => {
   const [rows, setRows] = useState<Record<string, RowState>>({});
   const [showTight, setShowTight] = useState(false);
-  const setRow = (key: string, state: RowState) => setRows((r) => ({ ...r, [key]: state }));
   // A suggestion that comes back after its row changed is dropped.
   const requests = useRef<Record<string, number>>({});
+  // The way a line is being reworded, fixed when work on it starts: once a fuller
+  // wording is used the line is no longer short, but its row stays where it was.
+  const directions = useRef<Record<string, RewriteDirection>>({});
+  const directionOf = (unit: SyncPreviewUnit): RewriteDirection =>
+    directions.current[unit.key] ?? (unit.status === 'short' ? 'longer' : 'shorter');
+  const setRow = (unit: SyncPreviewUnit, state: RowState) => {
+    if (state.kind === 'idle') delete directions.current[unit.key];
+    else directions.current[unit.key] = directionOf(unit);
+    setRows((r) => ({ ...r, [unit.key]: state }));
+  };
 
   const units = preview?.units || [];
+  const worked = (u: SyncPreviewUnit) => Boolean(rows[u.key]) && rows[u.key].kind !== 'idle';
+  const open = (u: SyncPreviewUnit) => rows[u.key]?.kind !== 'kept' && rows[u.key]?.kind !== 'used';
   // A line stays listed once it has been worked on, even when it now fits.
-  const listed = units.filter((u) => u.status === 'long' || (rows[u.key] && rows[u.key].kind !== 'idle'));
+  const listed = units.filter((u) => directionOf(u) === 'shorter' && (u.status === 'long' || worked(u)));
+  const listedShort = units.filter((u) => directionOf(u) === 'longer' && (u.status === 'short' || worked(u)));
   const tight = units.filter((u) => u.status === 'tight' && !listed.includes(u));
   const stillLong = units.filter((u) => u.status === 'long').length;
-  const openLong = units.filter((u) => u.status === 'long' && rows[u.key]?.kind !== 'kept' && rows[u.key]?.kind !== 'used');
+  const stillShort = units.filter((u) => u.status === 'short').length;
+  const openLong = units.filter((u) => u.status === 'long' && open(u));
+  const openShort = units.filter((u) => u.status === 'short' && open(u));
 
   const suggest = async (unit: SyncPreviewUnit) => {
     const current = rows[unit.key];
     const tried = current && 'tried' in current ? current.tried : [];
+    const direction = directionOf(unit);
     const id = (requests.current[unit.key] || 0) + 1;
     requests.current[unit.key] = id;
-    setRow(unit.key, { kind: 'working', tried });
+    setRow(unit, { kind: 'working', tried });
     try {
-      const line = await onSuggest(unit, tried);
+      const line = await onSuggest(unit, tried, direction);
       if (requests.current[unit.key] !== id) return;
-      if (line) setRow(unit.key, { kind: 'draft', text: line, suggested: true, tried: [...tried, line] });
-      else setRow(unit.key, { kind: 'error', message: 'No usable shorter wording came back. Try again, or edit it yourself.', tried });
+      if (line) setRow(unit, { kind: 'draft', text: line, suggested: true, tried: [...tried, line] });
+      else
+        setRow(unit, {
+          kind: 'error',
+          message: `No usable ${direction === 'longer' ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`,
+          tried,
+        });
     } catch (err: any) {
       if (requests.current[unit.key] !== id) return;
-      setRow(unit.key, { kind: 'error', message: err?.message || 'The text model did not answer.', tried });
+      setRow(unit, { kind: 'error', message: err?.message || 'The text model did not answer.', tried });
     }
   };
   const stop = (unit: SyncPreviewUnit) => {
     requests.current[unit.key] = (requests.current[unit.key] || 0) + 1;
-    setRow(unit.key, { kind: 'idle' });
+    setRow(unit, { kind: 'idle' });
   };
-  const suggestAll = () => openLong.filter((u) => !rows[u.key] || rows[u.key].kind === 'idle' || rows[u.key].kind === 'error').forEach(suggest);
+  const notStarted = (u: SyncPreviewUnit) => !rows[u.key] || rows[u.key].kind === 'idle' || rows[u.key].kind === 'error';
+  const suggestAll = (list: SyncPreviewUnit[]) => list.filter(notStarted).forEach(suggest);
+
+  /** What every row needs; its direction decides how it reads. */
+  const rowProps = (unit: SyncPreviewUnit) => ({
+    unit,
+    cps: preview?.charsPerSecond ?? 1,
+    direction: directionOf(unit),
+    state: rows[unit.key] || ({ kind: 'idle' } as RowState),
+    onSuggest: () => suggest(unit),
+    onStop: () => stop(unit),
+    onEdit: () => setRow(unit, { kind: 'draft', text: unit.text, suggested: false, tried: [] }),
+    onDraft: (text: string) => {
+      const current = rows[unit.key];
+      setRow(unit, { kind: 'draft', text, suggested: false, tried: current && 'tried' in current ? current.tried : [] });
+    },
+    onUse: (text: string) => setRow(unit, { kind: 'used', text, before: onUseLine(unit, text) }),
+    onKeep: () => setRow(unit, { kind: 'kept' }),
+    onUndo: () => {
+      const current = rows[unit.key];
+      if (current?.kind === 'used') onRestore(current.before);
+      setRow(unit, { kind: 'idle' });
+    },
+    onListen: () => onListenOriginal(Math.max(0, unit.srcStart - 0.6)),
+  });
 
   if (error && !preview) {
     return <p className="text-xs text-amber-300">The preview could not be worked out: {error}</p>;
@@ -189,11 +247,12 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
         {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
         {[
           { label: 'Likely to fit', value: `${summary.fits} / ${summary.lines}` },
           { label: 'Tight, likely fit', value: String(summary.tight) },
           { label: 'Likely too long', value: String(summary.long), tone: summary.long > 0 ? 'text-amber-300' : 'text-emerald-300' },
+          { label: 'Ends early, est.', value: String(summary.short), tone: summary.short > 0 ? 'text-sky-300' : 'text-slate-100' },
           {
             label: 'Longest overrun, est.',
             value: summary.long > 0 ? `+${summary.maxOverflow.toFixed(1)} s` : 'none',
@@ -231,7 +290,7 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
           {openLong.length > 1 && (
             <button
               type="button"
-              onClick={suggestAll}
+              onClick={() => suggestAll(openLong)}
               className="h-8 px-3 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
             >
               Suggest for all {openLong.length}
@@ -242,27 +301,7 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
         {(listed.length > 0 || tight.length > 0) && (
           <ul className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
             {listed.map((unit) => (
-              <PreviewRow
-                key={unit.key}
-                unit={unit}
-                cps={preview.charsPerSecond}
-                state={rows[unit.key] || { kind: 'idle' }}
-                onSuggest={() => suggest(unit)}
-                onStop={() => stop(unit)}
-                onEdit={() => setRow(unit.key, { kind: 'draft', text: unit.text, suggested: false, tried: [] })}
-                onDraft={(text) => {
-                  const current = rows[unit.key];
-                  setRow(unit.key, { kind: 'draft', text, suggested: false, tried: current && 'tried' in current ? current.tried : [] });
-                }}
-                onUse={(text) => setRow(unit.key, { kind: 'used', text, before: onUseLine(unit, text) })}
-                onKeep={() => setRow(unit.key, { kind: 'kept' })}
-                onUndo={() => {
-                  const current = rows[unit.key];
-                  if (current?.kind === 'used') onRestore(current.before);
-                  setRow(unit.key, { kind: 'idle' });
-                }}
-                onListen={() => onListenOriginal(Math.max(0, unit.srcStart - 0.6))}
-              />
+              <PreviewRow key={unit.key} {...rowProps(unit)} />
             ))}
             {tight.length > 0 && (
               <li>
@@ -286,38 +325,59 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
             )}
             {showTight &&
               tight.map((unit) => (
-                <PreviewRow
-                  key={unit.key}
-                  unit={unit}
-                  cps={preview.charsPerSecond}
-                  state={{ kind: 'idle' }}
-                  onSuggest={() => suggest(unit)}
-                  onStop={() => stop(unit)}
-                  onEdit={() => setRow(unit.key, { kind: 'draft', text: unit.text, suggested: false, tried: [] })}
-                  onDraft={() => {}}
-                  onUse={() => {}}
-                  onKeep={() => setRow(unit.key, { kind: 'kept' })}
-                  onUndo={() => {}}
-                  onListen={() => onListenOriginal(Math.max(0, unit.srcStart - 0.6))}
-                />
+                <PreviewRow key={unit.key} {...rowProps(unit)} state={{ kind: 'idle' }} onDraft={() => {}} onUse={() => {}} onUndo={() => {}} />
               ))}
           </ul>
         )}
       </div>
+
+      {listedShort.length > 0 && (
+        <div>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-[13.5px] font-semibold text-slate-100">Fill out lines that end early</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {stillShort === 0
+                  ? 'No line is likely to end well before the original speaker stops.'
+                  : `${stillShort === 1 ? '1 line is' : `${stillShort} lines are`} likely to end well before the original speaker stops, so the dub goes quiet while the speaker is still talking on screen. A fuller wording with the same meaning closes the gap. Suggestions use your text model, not ElevenLabs.`}
+              </p>
+            </div>
+            {openShort.length > 1 && (
+              <button
+                type="button"
+                onClick={() => suggestAll(openShort)}
+                className="h-8 px-3 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+              >
+                Suggest for all {openShort.length}
+              </button>
+            )}
+          </div>
+          <ul className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
+            {listedShort.map((unit) => (
+              <PreviewRow key={unit.key} {...rowProps(unit)} />
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };
 
-/** The estimate for a wording, against the line's slot. */
+/**
+ * The estimate for a wording: against the line's slot, and against the
+ * original speech, which a fuller wording has to fill without running past.
+ */
 const fitOf = (text: string, unit: SyncPreviewUnit, cps: number) => {
   const seconds = text.trim().length / cps;
   const over = seconds - unit.slot;
-  return { seconds, over, fits: over <= 0 };
+  const short = isShort(seconds, unit.spoken);
+  return { seconds, over, fits: over <= 0, short, fills: over <= 0 && !short };
 };
 
 const PreviewRow: React.FC<{
   unit: SyncPreviewUnit;
   cps: number;
+  direction: RewriteDirection;
   state: RowState;
   onSuggest: () => void;
   onStop: () => void;
@@ -327,20 +387,52 @@ const PreviewRow: React.FC<{
   onKeep: () => void;
   onUndo: () => void;
   onListen: () => void;
-}> = ({ unit, cps, state, onSuggest, onStop, onEdit, onDraft, onUse, onKeep, onUndo, onListen }) => {
-  const long = unit.status === 'long';
+}> = ({ unit, cps, direction, state, onSuggest, onStop, onEdit, onDraft, onUse, onKeep, onUndo, onListen }) => {
+  const longer = direction === 'longer';
+  // A line the user may leave as it is: too long, or ending early.
+  const flagged = unit.status === 'long' || unit.status === 'short';
   const pill =
-    state.kind === 'used' ? 'fits' : unit.status === 'long' ? `+${unit.overflow.toFixed(1)} s` : unit.status === 'tight' ? 'tight' : 'fits';
+    state.kind === 'used'
+      ? 'fits'
+      : unit.status === 'long'
+        ? `+${unit.overflow.toFixed(1)} s`
+        : unit.status === 'short'
+          ? `−${unit.underflow.toFixed(1)} s`
+          : unit.status === 'tight'
+            ? 'tight'
+            : 'fits';
   const pillTone =
     state.kind === 'used' || unit.status === 'fits'
       ? 'bg-emerald-500/15 text-emerald-300'
       : state.kind === 'kept'
         ? 'bg-slate-800 text-slate-300'
-        : unit.status === 'tight'
-          ? 'bg-amber-500/10 text-amber-200'
-          : 'bg-amber-500/15 text-amber-300';
+        : unit.status === 'short'
+          ? 'bg-sky-500/15 text-sky-300'
+          : unit.status === 'tight'
+            ? 'bg-amber-500/10 text-amber-200'
+            : 'bg-amber-500/15 text-amber-300';
   const draftFit = state.kind === 'draft' ? fitOf(state.text, unit, cps) : null;
   const changed = state.kind === 'draft' && state.text.trim() !== '' && state.text.trim() !== unit.text.trim();
+  const noteTone = state.kind === 'used' ? 'text-slate-400' : unit.status === 'long' ? 'text-amber-300' : unit.status === 'short' ? 'text-sky-300' : 'text-slate-400';
+  const note =
+    state.kind === 'used'
+      ? 'Put into the script. Sync voices this wording.'
+      : state.kind === 'kept'
+        ? longer
+          ? `Kept. The dub goes quiet for about ${unit.underflow.toFixed(1)} s while the original speaker is still talking.`
+          : 'Kept. Sync shortens the pauses inside it first; if it is still long, the next line starts late and shows in Worth a listen.'
+        : longer
+          ? `About ${unit.estimate.toFixed(1)} s of speech; the original speaker talks for ${unit.spoken.toFixed(1)} s`
+          : `About ${unit.estimate.toFixed(1)} s of speech for a ${unit.slot.toFixed(1)} s slot`;
+  const draftBadge = !draftFit
+    ? null
+    : !draftFit.fits
+      ? { good: false, text: `${longer ? 'About' : 'Still about'} ${draftFit.seconds.toFixed(1)} s · +${draftFit.over.toFixed(1)} s past its slot` }
+      : longer
+        ? draftFit.short
+          ? { good: false, text: `Still about ${draftFit.seconds.toFixed(1)} s of ${unit.spoken.toFixed(1)} s · ends early` }
+          : { good: true, text: `Now about ${draftFit.seconds.toFixed(1)} s of ${unit.spoken.toFixed(1)} s · fills` }
+        : { good: true, text: `Now about ${draftFit.seconds.toFixed(1)} s · fits` };
 
   return (
     <li className="flex items-start gap-3 py-3">
@@ -349,13 +441,7 @@ const PreviewRow: React.FC<{
       <div className="min-w-0 flex-1">
         <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
         {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
-        <p className={`text-[11.5px] mt-1 ${state.kind === 'used' ? 'text-slate-400' : long ? 'text-amber-300' : 'text-slate-400'}`}>
-          {state.kind === 'used'
-            ? 'Put into the script. Sync voices this wording.'
-            : state.kind === 'kept'
-              ? 'Kept. Sync shortens the pauses inside it first; if it is still long, the next line starts late and shows in Worth a listen.'
-              : `About ${unit.estimate.toFixed(1)} s of speech for a ${unit.slot.toFixed(1)} s slot`}
-        </p>
+        <p className={`text-[11.5px] mt-1 ${noteTone}`}>{note}</p>
 
         {(state.kind === 'idle' || state.kind === 'error') && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -364,7 +450,7 @@ const PreviewRow: React.FC<{
               onClick={onSuggest}
               className="h-7 px-2.5 rounded-md border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
             >
-              {state.kind === 'error' ? 'Try again' : 'Suggest a shorter line'}
+              {state.kind === 'error' ? 'Try again' : longer ? 'Suggest a fuller line' : 'Suggest a shorter line'}
             </button>
             <button
               type="button"
@@ -373,7 +459,7 @@ const PreviewRow: React.FC<{
             >
               <Pencil className="w-3 h-3" /> Edit it myself
             </button>
-            {long && (
+            {flagged && (
               <button type="button" onClick={onKeep} className="h-7 px-2 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer">
                 Keep as is
               </button>
@@ -384,17 +470,17 @@ const PreviewRow: React.FC<{
 
         {state.kind === 'working' && (
           <div role="status" className="mt-2 flex items-center gap-2 h-7 text-xs text-slate-300">
-            <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin" /> Asking the text model for a shorter wording…
+            <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin" /> Asking the text model for a {longer ? 'fuller' : 'shorter'} wording…
             <button type="button" onClick={onStop} className="ml-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-400 cursor-pointer">
               Stop
             </button>
           </div>
         )}
 
-        {state.kind === 'draft' && draftFit && (
+        {state.kind === 'draft' && draftBadge && (
           <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
             <label className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1" htmlFor={`preview-line-${unit.key}`}>
-              {state.suggested ? 'Suggested shorter line' : 'Your wording'}
+              {state.suggested ? (longer ? 'Suggested fuller line' : 'Suggested shorter line') : 'Your wording'}
             </label>
             <textarea
               id={`preview-line-${unit.key}`}
@@ -422,22 +508,20 @@ const PreviewRow: React.FC<{
               </button>
               <button
                 type="button"
-                onClick={long ? onKeep : onUndo}
+                onClick={flagged ? onKeep : onUndo}
                 className="h-7 px-2 flex items-center gap-1 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer"
               >
-                <X className="w-3 h-3" /> {long ? 'Keep as is' : 'Cancel'}
+                <X className="w-3 h-3" /> {flagged ? 'Keep as is' : 'Cancel'}
               </button>
               <span className="ml-auto text-[11px] text-slate-500 tabular-nums">
                 {state.text.trim().length} / {unit.text.trim().length} characters
               </span>
               <span
                 className={`text-[11px] font-semibold px-2 py-0.5 rounded-md tabular-nums ${
-                  draftFit.fits ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+                  draftBadge.good ? 'bg-emerald-500/15 text-emerald-300' : longer && draftFit?.fits ? 'bg-sky-500/15 text-sky-300' : 'bg-amber-500/15 text-amber-300'
                 }`}
               >
-                {draftFit.fits
-                  ? `Now about ${draftFit.seconds.toFixed(1)} s · fits`
-                  : `Still about ${draftFit.seconds.toFixed(1)} s · +${draftFit.over.toFixed(1)} s`}
+                {draftBadge.text}
               </span>
             </div>
           </div>
@@ -450,7 +534,11 @@ const PreviewRow: React.FC<{
                 state.kind === 'used' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-800 text-slate-300'
               }`}
             >
-              {state.kind === 'used' ? `About ${fitOf(state.text, unit, cps).seconds.toFixed(1)} s for a ${unit.slot.toFixed(1)} s slot` : 'Kept'}
+              {state.kind === 'used'
+                ? longer
+                  ? `About ${fitOf(state.text, unit, cps).seconds.toFixed(1)} s of ${unit.spoken.toFixed(1)} s of original speech`
+                  : `About ${fitOf(state.text, unit, cps).seconds.toFixed(1)} s for a ${unit.slot.toFixed(1)} s slot`
+                : 'Kept'}
             </span>
             <button
               type="button"
@@ -477,7 +565,8 @@ const PreviewRow: React.FC<{
 /**
  * The report's timeline, before a sync: the original's lines above, the dub
  * lines where Sync will start them below, striped because their length is an
- * estimate. The part of a line estimated to run past its slot is yellow; a
+ * estimate. The part of a line estimated to run past its slot is yellow; the
+ * part of the original speech a short line leaves silent is a dashed box; a
  * thin mark shows where each slot ends.
  */
 const PreviewTimeline: React.FC<{
@@ -573,6 +662,13 @@ const PreviewTimeline: React.FC<{
                     style={{ left: `${pct(u.srcStart + u.slot)}%`, width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart + u.slot))}%`, background: HATCH_OVER }}
                   />
                 )}
+                {u.status === 'short' && (
+                  <span
+                    title={`${u.text}\nEnds about ${u.underflow.toFixed(1)} s before the original speaker stops`}
+                    className={`absolute top-1.5 bottom-1.5 rounded-r ${QUIET_BOX}`}
+                    style={{ left: `${pct(u.srcStart + u.estimate)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart + u.estimate))}%` }}
+                  />
+                )}
                 <span
                   aria-hidden="true"
                   className="absolute top-0.5 bottom-0.5 w-px bg-slate-600 pointer-events-none"
@@ -607,6 +703,7 @@ const PreviewTimeline: React.FC<{
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ background: HATCH_FIT_SWATCH }} /> Likely fits</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ background: HATCH_FIT_SWATCH, boxShadow: 'inset 0 -2px 0 #fcd34d' }} /> Tight</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ background: HATCH_OVER_SWATCH }} /> Runs past its slot</span>
+        <span className="flex items-center gap-1.5"><span className={`w-3 h-2.5 rounded-sm ${QUIET_BOX}`} /> Speaker still talking, dub quiet</span>
         <span className="flex items-center gap-1.5"><span className="w-px h-3 bg-slate-500" /> Next line starts</span>
       </TimelineTransport>
     </div>

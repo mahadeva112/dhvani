@@ -10,7 +10,7 @@
  * first, never a promise.
  */
 import { buildSyncUnits, minimumGap } from './syncUnits.js';
-import { SYNC_PRECISION, SUGGESTION_MARGIN, lineKey } from './syncDub.js';
+import { SYNC_PRECISION, SUGGESTION_MARGIN, LENGTHEN_FILL, isShortLine, lineKey } from './syncDub.js';
 
 /** A line estimated to use more than this share of its slot is tight: it should fit, just. */
 export const TIGHT_SHARE = 0.9;
@@ -24,9 +24,12 @@ const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
 /**
  * Returns `{ precision, charsPerSecond, units, summary }`. Each unit is
  * `{ index, key, cueIds, text, sourceText, srcStart, srcEnd, nextStart, slot,
- * estimate, overflow, status, targetChars }`, `status` being 'fits', 'tight'
- * or 'long'. `targetChars` is the length a shorter wording should aim for,
- * worked out as Sync works it out for its own suggestions.
+ * spoken, estimate, overflow, underflow, status, targetChars }`, `status`
+ * being 'fits', 'tight', 'long' or 'short'. `spoken` is how long the original
+ * speaker talks for and `underflow` how much of that the dub leaves silent.
+ * `targetChars` is the length a new wording should aim for: shorter for a long
+ * line, worked out as Sync works it out for its own suggestions; longer for a
+ * short one, filling the original speech but never past the slot.
  */
 export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDuration = 0 } = {}) => {
   const level = SYNC_PRECISION[precision] ? precision : 'phrase';
@@ -42,7 +45,14 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
     const slot = Math.max(0.05, end - unit.srcStart);
     const estimate = unit.text.length / cps;
     const overflow = estimate - slot;
-    const status = overflow > allowedOverflow ? 'long' : estimate > slot * TIGHT_SHARE ? 'tight' : 'fits';
+    const spoken = Math.max(0, unit.srcEnd - unit.srcStart);
+    const underflow = Math.max(0, spoken - estimate);
+    const short = isShortLine(estimate, spoken);
+    const status = overflow > allowedOverflow ? 'long' : estimate > slot * TIGHT_SHARE ? 'tight' : short ? 'short' : 'fits';
+    const targetChars =
+      status === 'short'
+        ? Math.max(unit.text.length + 1, Math.floor(cps * Math.min(spoken * LENGTHEN_FILL, slot * SUGGESTION_MARGIN)))
+        : Math.max(1, Math.floor(unit.text.length * Math.min(1, slot / estimate) * SUGGESTION_MARGIN));
     return {
       index,
       key: lineKey(unit),
@@ -53,10 +63,12 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
       srcEnd: unit.srcEnd,
       nextStart: unit.nextStart,
       slot,
+      spoken,
       estimate,
       overflow: Math.max(0, overflow),
+      underflow: status === 'short' ? underflow : 0,
       status,
-      targetChars: Math.max(1, Math.floor(unit.text.length * Math.min(1, slot / estimate) * SUGGESTION_MARGIN)),
+      targetChars,
     };
   });
 
@@ -67,9 +79,11 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
     units: previews,
     summary: {
       lines: previews.length,
-      fits: count('fits'),
+      // A short line fits its slot too; `short` counts the ones that end early.
+      fits: count('fits') + count('short'),
       tight: count('tight'),
       long: count('long'),
+      short: count('short'),
       maxOverflow: previews.reduce((max, p) => (p.status === 'long' ? Math.max(max, p.overflow) : max), 0),
     },
   };

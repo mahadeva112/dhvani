@@ -11,8 +11,9 @@
  *    as voiced: no speed change, no gain and no fades.
  * 6. The placement is measured against the source phrase by phrase.
  * 7. A line still too long for its slot gets a shorter wording suggested by
- *    the text model. It is only a suggestion: the dub says what the script
- *    says, and nothing is rewritten without the user.
+ *    the text model, and a line that ends well before the original speaker
+ *    stops gets a fuller one. They are only suggestions: the dub says what the
+ *    script says, and nothing is rewritten without the user.
  *
  * The voice, the text model and the codecs are passed in, so the whole run
  * can be tested with fakes.
@@ -39,6 +40,25 @@ export const SYNC_PRECISION = {
 
 /** Suggestions aim this far under the slot, since a new wording rarely lands exactly on its target. */
 export const SUGGESTION_MARGIN = 0.92;
+
+/**
+ * A line whose speech takes less than this share of the time the original
+ * speaker talks for is short: the dub goes quiet while the speaker is still
+ * talking on screen. Dubbing adaptation treats under about 60% as too short.
+ */
+export const SHORT_SHARE = 0.6;
+
+/** A short line must also leave at least this many seconds unspoken, or the gap is too small to see. */
+export const MIN_SHORT_GAP = 1;
+
+/**
+ * A fuller wording aims to cover this share of the original speech: close to
+ * all of it, with room for a voice that comes out a little slower.
+ */
+export const LENGTHEN_FILL = 0.95;
+
+/** True when `speech` seconds of dub leave too much of `spoken` seconds of original unsaid. */
+export const isShortLine = (speech, spoken) => speech < spoken * SHORT_SHARE && spoken - speech >= MIN_SHORT_GAP;
 
 /** Hard anchors (after long pauses and speaker changes) pull this much harder in the solve. */
 const HARD_ANCHOR_WEIGHT = 3;
@@ -96,7 +116,8 @@ const mapLimit = async (items, limit, fn) => {
 /**
  * Runs a sync.
  *
- * `params`: `{ segments, sourceDuration, sampleRate, precision, suggest, language, voice, lineSeeds, matchLoudness, debug }`,
+ * `params`: `{ segments, sourceDuration, sampleRate, precision, suggest, suggestLonger, language, voice, lineSeeds, matchLoudness, debug }`,
+ * where `suggest` asks for shorter wordings of long lines and `suggestLonger` for fuller wordings of short ones (both on by default),
  * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`,
  * `lineSeeds` maps a line's key (see lineKey) to the seed of a retake of it,
  * `matchLoudness` evens out the lines' loudness (off by default: each line is
@@ -107,13 +128,26 @@ const mapLimit = async (items, limit, fn) => {
  * - `voiceLines(lines)` → `[Buffer]`, voicing `[{ text, previousText, nextText }]` in order;
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
  * - `encode(samples)` → `{ buffer, contentType }`;
- * - `shorten({ text, sourceText, language, targetChars })` → a shorter wording or null, throwing
- *   when the text model fails (optional).
+ * - `shorten({ text, sourceText, language, targetChars })` → a shorter wording, or null, or
+ *   `{ line, reason }` with `reason` 'meaning' when every wording changed the meaning; throwing
+ *   when the text model fails (optional);
+ * - `lengthen({ text, sourceText, language, targetChars })` → a fuller wording, the same way (optional).
  *
  * Returns `{ buffer, contentType, report }`.
  */
 export const runSync = async (params, deps, { signal, onProgress = () => {} } = {}) => {
-  const { segments, sourceDuration = 0, sampleRate, suggest = true, language, voice, lineSeeds = {}, matchLoudness = false, debug = false } = params;
+  const {
+    segments,
+    sourceDuration = 0,
+    sampleRate,
+    suggest = true,
+    suggestLonger = true,
+    language,
+    voice,
+    lineSeeds = {},
+    matchLoudness = false,
+    debug = false,
+  } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
   const checkCancelled = () => {
@@ -302,23 +336,48 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     return Boolean(line) && (exceededBy[i] > allowedOverflow || (!line.inSync && exceededBy[i] > 0));
   });
 
-  // 7. Suggesting: a shorter wording for each line that is too long, for the user to take or leave.
+  // A line ends early when its words, as voiced, leave much of the original speech unsaid.
+  const spokenOf = (i) => Math.max(0, units[i].srcEnd - units[i].srcStart);
+  const shortBy = units.map((_, i) => (lineFor.get(i) && !exceeded[i] && isShortLine(clips[i].speech, spokenOf(i)) ? spokenOf(i) - clips[i].speech : 0));
+
+  /** Seconds the words of line `i` may take: its slot, less the silence around them. */
+  const speechBudget = (i) => {
+    const clip = core(i);
+    return Math.max(0.2, budget(i) - clip.lead - (clip.length - clip.lead - clip.speech));
+  };
+  // The voice's own rate on this line turns seconds into characters.
+  const targetChars = units.map((unit, i) => {
+    if (exceeded[i]) return Math.max(1, Math.floor(unit.text.length * Math.min(1, speechBudget(i) / clips[i].speech) * SUGGESTION_MARGIN));
+    if (shortBy[i] > 0) {
+      const aim = Math.min(spokenOf(i) * LENGTHEN_FILL, speechBudget(i) * SUGGESTION_MARGIN);
+      return Math.max(unit.text.length + 1, Math.floor(unit.text.length * (aim / clips[i].speech)));
+    }
+    return null;
+  });
+
+  // 7. Suggesting: a shorter wording for each line that is too long and a fuller
+  // one for each line that ends early, for the user to take or leave.
   report({ phase: 'suggesting', step: 7 });
   const suggestions = new Map();
   let suggestionError = null;
+  // Suggestions held back because every wording changed what the source line says.
+  let meaningRejected = 0;
   const tooLong = units.map((_, i) => i).filter((i) => exceeded[i]);
-  if (suggest && deps.shorten && tooLong.length > 0) {
-    report({ suggestionsTotal: tooLong.length });
+  const tooShort = units.map((_, i) => i).filter((i) => shortBy[i] > 0);
+  const asks = [
+    ...(suggest && deps.shorten ? tooLong.map((i) => ({ i, ask: deps.shorten })) : []),
+    ...(suggestLonger && deps.lengthen ? tooShort.map((i) => ({ i, ask: deps.lengthen })) : []),
+  ];
+  if (asks.length > 0) {
+    report({ suggestionsTotal: asks.length });
     let done = 0;
-    await mapLimit(tooLong, SUGGESTION_CONCURRENCY, async (i) => {
+    await mapLimit(asks, SUGGESTION_CONCURRENCY, async ({ i, ask }) => {
       checkCancelled();
-      const clip = core(i);
-      const tail = clip.length - clip.lead - clip.speech;
-      const speechBudget = Math.max(0.2, budget(i) - clip.lead - tail);
-      const targetChars = Math.max(1, Math.floor(units[i].text.length * Math.min(1, speechBudget / clip.speech) * SUGGESTION_MARGIN));
       try {
-        const line = await deps.shorten({ text: units[i].text, sourceText: units[i].sourceText, language, targetChars });
+        const answer = await ask({ text: units[i].text, sourceText: units[i].sourceText, language, targetChars: targetChars[i] });
+        const line = typeof answer === 'string' || answer === null ? answer : answer?.line;
         if (line && line !== units[i].text) suggestions.set(i, line);
+        else if (answer?.reason === 'meaning') meaningRejected++;
       } catch (err) {
         // The dub is finished either way; a missing suggestion must not fail the sync.
         suggestionError ??= err?.message || 'The text model did not answer.';
@@ -345,6 +404,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       silent: !line,
       exceeded: exceeded[i],
       exceededBy: exceededBy[i],
+      short: shortBy[i] > 0,
+      shortBy: shortBy[i],
+      speech: clips[i] ? clips[i].speech : 0,
+      targetChars: targetChars[i],
       suggestion: suggestions.get(i) || null,
       pauseTrimmed: pauseTrimmed.get(i) || 0,
     };
@@ -361,7 +424,11 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         ...summary,
         lines: units.length,
         exceeded: tooLong.length,
+        short: tooShort.length,
+        // Suggestions asked for: long lines with `suggest` on, short ones with `suggestLonger` on.
+        suggestionsAsked: asks.length,
         suggested: suggestions.size,
+        meaningRejected,
         suggestionError,
         pauseTrimmed: pauseTrimmed.size,
         silent: units.length - placedIndex.length,

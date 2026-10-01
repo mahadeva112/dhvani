@@ -1559,7 +1559,7 @@ export default function App() {
    * phrase, so the dub plays in step with the original. The result replaces
    * the dub, and is exactly as long as the source.
    */
-  const handleSyncDub = async ({ precision, suggest, matchLoudness }: SyncOptions) => {
+  const handleSyncDub = async ({ precision, suggest, suggestLonger, matchLoudness }: SyncOptions) => {
     if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
     if (activeJob.targetSource === 'pending') return;
 
@@ -1601,6 +1601,7 @@ export default function App() {
           seed,
           precision,
           suggest,
+          suggestLonger,
           matchLoudness,
           lineSeeds: syncLineSeedsRef.current[activeJob.id],
           debug: audioDebugEnabled(),
