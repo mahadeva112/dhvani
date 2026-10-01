@@ -15,8 +15,10 @@ import {
   Music,
   Speech,
   Lock,
+  Download,
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
+import { UpdateControl, openUpdates, updatesSupported } from './UpdateControl';
 
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
@@ -382,8 +384,11 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
           })}
         </nav>
 
-        {/* Right: services, queue, tools, new dub */}
+        {/* Right: update, services, queue, tools, new dub */}
         <div className="flex items-center justify-end gap-2 min-w-0">
+          {/* Desktop app only. A running dub or sync holds back the restart. */}
+          <UpdateControl busy={Boolean(activity)} />
+
           <div className="relative" ref={servicesRef}>
             <button
               type="button"
@@ -602,6 +607,18 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                         onClick={runAndClose(onOpenCustomPrompt)}
                       />
                     )}
+                  </>
+                )}
+
+                {updatesSupported() && (
+                  <>
+                    <div className="h-px bg-slate-800 my-1.5 mx-1" />
+                    <MenuItem
+                      icon={<Download className="w-4 h-4" />}
+                      label="Check for updates"
+                      hint="New versions from GitHub"
+                      onClick={runAndClose(openUpdates)}
+                    />
                   </>
                 )}
 

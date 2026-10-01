@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Update button in the desktop app.** When a newer release is published on GitHub, a blue
+  **Update to 1.x.x** button appears in the header. It opens a window with the release notes,
+  **Download and install** with a progress bar, then **Restart and install** (held back while a dub or
+  sync runs) or **Install when I close**. **Tools → Check for updates** checks on demand; DHVANI also
+  checks when it opens and every four hours, and never downloads without being asked. The installed
+  Windows app and the Linux AppImage install updates themselves; portable copies and macOS builds are
+  sent to the Releases page. Only published releases are offered, never drafts.
 - **Cartesia as a second voice engine.** ElevenLabs stays the default. Switch to Cartesia under
   **API settings → Transcription and voice**, or with the **ElevenLabs | Cartesia** switch in the
   voice picker (without a Cartesia key yet, it opens API settings on Cartesia so you can paste one). Only one engine is on at a time: switching to

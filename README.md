@@ -61,6 +61,14 @@ install.
 > The builds are not code-signed, so Windows SmartScreen shows "More info → Run anyway", and macOS
 > needs right-click → Open the first time.
 
+**Updates.** When a new version is out, a blue **Update to 1.x.x** button appears in the header.
+Click it to see what's new, then **Download and install**. Keep working while it downloads; when it's
+done, **Restart and install** (held back while a dub or sync is running) or **Install when I close**.
+Your keys and settings are kept. **Tools → Check for updates** (or Help → Check for Updates…) checks on
+demand; otherwise DHVANI checks when it opens and every four hours. This works in the installed Windows
+app and the Linux AppImage. Portable copies and the macOS build show the button too, but it opens the
+Releases page instead of installing.
+
 ### Portable zip
 
 Download `dhvani-1.0.0.zip`, unzip it anywhere, and read `FIRST-RUN.txt`.
@@ -146,6 +154,23 @@ last word instead, set `ALLOW_KEY_SETUP=false`, which refuses UI writes outright
 | `npm run dist:zip` | Builds the portable zip into `release/` |
 | `npm run docker:build` / `docker:run` | Builds and starts the container |
 | `npm run icon` | Regenerates the app icon and favicon |
+
+### Publishing an update
+
+Installed apps update from **published** GitHub Releases, not from pushes to `main`.
+
+1. Bump the version and tag it: `npm version patch` (or `minor` / `major`). The new version must be
+   higher than the one people have installed.
+2. Push the commit and the tag: `git push --follow-tags`.
+3. The **Release** workflow builds the installers and attaches them, with `latest.yml`, to a
+   **draft** release. Review the notes and click **Publish release**.
+
+Installed apps show the Update button within four hours, or straight away from Tools → Check for
+updates. Drafts and prereleases are never offered.
+
+To try an update without publishing, build a higher version into a folder
+(`npx electron-builder --win nsis --publish never -c.extraMetadata.version=1.0.1 -c.directories.output=feed`),
+serve that folder over HTTP, and start the installed app with `DHVANI_UPDATE_FEED_URL` set to its URL.
 
 ## Using your own LLM gateway
 

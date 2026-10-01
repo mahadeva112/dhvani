@@ -49,10 +49,14 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: dhvani-${{ matrix.os }}
+          # latest*.yml and the blockmaps are what the installed app's updater
+          # reads; without them a published release is invisible to it.
           path: |
             release/*.exe
             release/*.dmg
             release/*.AppImage
+            release/*.blockmap
+            release/latest*.yml
           if-no-files-found: error
 
   zip:
