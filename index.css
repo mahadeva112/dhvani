@@ -769,3 +769,46 @@ html.light #review-audio-waveform-player .bg-amber-950\/30 span {
   0% { transform: translateX(-100%); }
   100% { transform: translateX(300%); }
 }
+
+/* ========================================================================= */
+/* REVIEW: CONTINUOUS DOCUMENT VIEW                                           */
+/* ========================================================================= */
+
+/* Search matches, painted with the CSS Custom Highlight API so the editable text is left untouched. */
+::highlight(dhvani-doc-match) {
+  background-color: rgba(250, 204, 21, 0.3);
+}
+::highlight(dhvani-doc-match-current) {
+  background-color: rgba(250, 204, 21, 0.85);
+  color: #0f172a;
+}
+
+/* The cue under the playhead. */
+.doc-seg-active {
+  background-color: rgba(34, 211, 238, 0.12);
+}
+/* A sentence and its pair in the other language, while hovered or edited. */
+.doc-seg[data-pair] {
+  background-color: rgba(99, 102, 241, 0.16);
+}
+.doc-seg[contenteditable]:focus {
+  background-color: rgba(99, 102, 241, 0.22);
+  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.6);
+}
+/* An empty cue keeps a visible, clickable place in the text. */
+.doc-seg[contenteditable]:empty::before {
+  content: attr(data-placeholder);
+  font-style: italic;
+  color: #64748b;
+}
+
+html.light .doc-seg-active {
+  background-color: rgba(8, 145, 178, 0.12);
+}
+html.light .doc-seg[data-pair] {
+  background-color: rgba(79, 70, 229, 0.1);
+}
+html.light .doc-seg[contenteditable]:focus {
+  background-color: rgba(79, 70, 229, 0.12);
+  box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.45);
+}

@@ -43,6 +43,7 @@ import {
   ShieldCheck,
   ArrowLeftRight,
   Scissors,
+  BookOpen,
   X,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, ProcessingStatus, TargetSource } from '../types';
@@ -95,14 +96,16 @@ import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translation
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
 import { useSignoff } from '../services/signoffService';
+import { ContinuousDocumentView, ContinuousDocumentHandle } from './review/ContinuousDocumentView';
 
-type ReviewMode = 'grid' | 'table' | 'spotlight' | 'script' | 'qa';
+type ReviewMode = 'grid' | 'table' | 'spotlight' | 'script' | 'document' | 'qa';
 
 const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'table', label: 'Cues', Icon: Table },
   { id: 'grid', label: 'Cards', Icon: LayoutGrid },
   { id: 'spotlight', label: 'Spotlight', Icon: Maximize2 },
   { id: 'script', label: 'Script', Icon: FileText },
+  { id: 'document', label: 'Document', Icon: BookOpen },
   { id: 'qa', label: 'QA', Icon: ShieldCheck },
 ];
 
@@ -384,6 +387,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [toastUndo, setToastUndo] = useState<(() => void) | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scriptScrollRef = useRef<HTMLDivElement>(null);
+  const documentViewRef = useRef<ContinuousDocumentHandle>(null);
 
   // Pagination State for Long Scripts (30m to 1h) compatibility
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -454,12 +458,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   };
 
   const scrollToTop = () => {
+    // The document view scrolls its two columns itself.
+    if (reviewMode === 'document') return documentViewRef.current?.scrollToEdge('top');
     if (scriptScrollRef.current) {
       scriptScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
   const scrollToBottom = () => {
+    if (reviewMode === 'document') return documentViewRef.current?.scrollToEdge('bottom');
     if (scriptScrollRef.current) {
       scriptScrollRef.current.scrollTo({
         top: scriptScrollRef.current.scrollHeight,
@@ -761,6 +768,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const idx = segments.findIndex((s) => s.id === seg.id);
     if (idx !== -1) setSpotlightIndex(idx);
     onSeek(seg.startTime);
+    // The document shows every cue, so it opens the cue in place.
+    if (reviewMode === 'document') {
+      documentViewRef.current?.reveal(seg.id, { focus: true });
+      return;
+    }
     setReviewMode('table');
 
     /*
@@ -1153,6 +1165,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               if (cardEl) {
                 cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
               }
+              documentViewRef.current?.reveal(seg.id);
             }}
             activeSegmentId={
               segments.find((s) => currentTime >= s.startTime && currentTime <= s.endTime)?.id || null
@@ -1251,7 +1264,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         type="text"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Find in cues"
+                        onKeyDown={(e) => {
+                          if (reviewMode === 'document' && e.key === 'Enter') {
+                            e.preventDefault();
+                            documentViewRef.current?.stepMatch(e.shiftKey ? -1 : 1);
+                          }
+                        }}
+                        placeholder={reviewMode === 'document' ? 'Find in script' : 'Find in cues'}
                         className="w-full h-8 bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-7 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                       />
                       {searchQuery && (
@@ -1295,7 +1314,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 {onOpenPhoneticKeyboard && (
                   <button
                     type="button"
-                    onClick={() => onOpenPhoneticKeyboard()}
+                    onClick={() =>
+                      onOpenPhoneticKeyboard(
+                        reviewMode === 'document' ? documentViewRef.current?.lastFocusedSegment() ?? undefined : undefined
+                      )
+                    }
                     className="ml-auto w-8 h-8 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
                     title="Open the Indic phonetic keyboard"
                     aria-label="Open the Indic phonetic keyboard"
@@ -1307,7 +1330,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
               {/* Active view */}
               <div ref={scriptScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
-                <div className={reviewMode === 'table' ? '' : 'p-3 sm:p-4 space-y-4'}>
+                <div
+                  className={
+                    reviewMode === 'table' ? '' : reviewMode === 'document' ? 'h-full p-3 sm:p-4' : 'p-3 sm:p-4 space-y-4'
+                  }
+                >
           {/* ========================================================================= */}
           {/* OPTION 5: QA & SIGN-OFF COCKPIT */}
           {/* ========================================================================= */}
@@ -1322,8 +1349,29 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             />
           )}
 
-          {/* Empty Filter State */}
-          {reviewMode !== 'qa' && filteredSegments.length === 0 && (
+          {/* ========================================================================= */}
+          {/* OPTION 6: CONTINUOUS DOCUMENT (the whole script as running prose) */}
+          {/* ========================================================================= */}
+          {reviewMode === 'document' && segments.length > 0 && (
+            <ContinuousDocumentView
+              ref={documentViewRef}
+              segments={segments}
+              sourceLanguage={activeJob.detectedLanguage || activeJob.sourceLanguage || sourceLanguage}
+              targetLanguage={targetLanguage}
+              getSourceText={getSourceText}
+              getTargetText={getTargetText}
+              onUpdateSegment={onUpdateSegment}
+              getPaceLevel={(seg) => getPace(getTargetText(seg), seg.duration).level}
+              pacingFilter={pacingFilter}
+              searchQuery={searchQuery}
+              activeSegmentId={activeSegmentId}
+              isPlaying={isPlaying}
+              onSeek={onSeek}
+            />
+          )}
+
+          {/* Empty Filter State (the document dims and highlights instead of filtering) */}
+          {reviewMode !== 'qa' && reviewMode !== 'document' && filteredSegments.length === 0 && (
             <div className="m-3 p-8 rounded-2xl bg-slate-950/60 border border-dashed border-slate-800 text-center space-y-2">
               <p className="text-sm font-semibold text-slate-300">No dialogue cues matched your filter</p>
               <p className="text-xs text-slate-500">Try changing your search query or pacing filter.</p>
@@ -1889,7 +1937,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
               <div className="flex items-center justify-between gap-3 px-4 py-2 border-t border-slate-800 text-[11px] text-slate-500">
                 <span className="tabular-nums">
-                  {reviewMode === 'qa'
+                  {reviewMode === 'qa' || reviewMode === 'document'
                     ? `${segments.length} cues`
                     : `Showing ${filteredSegments.length} of ${segments.length} cues`}
                 </span>
