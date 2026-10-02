@@ -1,7 +1,10 @@
 name: Release
 
-# Builds the desktop installers and the zip distribution when a version tag is
-# pushed, then attaches them to a draft GitHub release for you to review.
+# Builds the desktop installers and the zip distributions when a version tag is
+# pushed, then publishes them as a GitHub release. Publishing is what makes the
+# installed apps see the update, so a tag push is the whole release:
+#
+#   npm run release          # bumps the patch version, tags, pushes
 on:
   push:
     tags: ['v*.*.*']
@@ -53,6 +56,7 @@ jobs:
           # reads; without them a published release is invisible to it.
           path: |
             release/*.exe
+            release/DHVANI-*.zip
             release/*.dmg
             release/*.AppImage
             release/*.blockmap
@@ -82,7 +86,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Draft release
+    name: Publish release
     needs: [build, zip]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
@@ -93,10 +97,12 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Create draft release
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          # Draft, so the release notes can be reviewed before anyone sees it.
-          draft: true
+          # Published, not a draft: the updater ignores drafts, and this is
+          # the step that offers the new version to installed copies.
+          draft: false
+          make_latest: true
           generate_release_notes: true
           files: artifacts/*
