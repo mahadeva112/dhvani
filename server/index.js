@@ -1,3 +1,5 @@
+// First, so every outbound connection trusts the OS certificate store.
+import { systemCertificateCount, proxyInUse } from './lib/network.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import express from 'express';
@@ -211,6 +213,11 @@ const server = app.listen(config.port, config.host, () => {
   if (keys.elevenLabs === 'saved' || keys.gemini === 'saved' || keys.gateway === 'saved') {
     logger.info(`Using API keys saved at ${CONFIG_FILE}`);
   }
+
+  if (systemCertificateCount) {
+    logger.info(`Trusting ${systemCertificateCount} certificates from the system store as well as Node's own.`);
+  }
+  if (proxyInUse()) logger.info(`Outbound requests go through the system proxy ${proxyInUse()}.`);
 
   const translation = translationSetup();
   if (translation.mode === 'gateway') {

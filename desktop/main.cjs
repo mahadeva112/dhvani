@@ -1,7 +1,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { fork } = require('node:child_process');
-const { app, BrowserWindow, shell, dialog, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session } = require('electron');
 
 /**
  * DHVANI desktop shell.
@@ -268,9 +268,70 @@ const checkForUpdatesFromMenu = () => {
   checkForUpdates();
 };
 
+/** `PROXY host:port; DIRECT` → `http://host:port`. Null for DIRECT or SOCKS. */
+const proxyUrlFrom = (rule) => {
+  const first = String(rule || '').split(';')[0].trim();
+  const match = first.match(/^(PROXY|HTTPS)\s+(\S+)$/i);
+  if (!match) return null;
+  return `${match[1].toUpperCase() === 'HTTPS' ? 'https' : 'http'}://${match[2]}`;
+};
+
+/** URLs the user saved in Settings: their own gateway or regional hosts. */
+const savedEndpoints = () => {
+  try {
+    const saved = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'config.json'), 'utf8'));
+    return ['llmGatewayUrl', 'geminiBaseUrl', 'elevenLabsBaseUrl', 'cartesiaBaseUrl']
+      .map((field) => saved?.[field])
+      .filter((value) => typeof value === 'string' && /^https?:\/\//i.test(value));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The proxy Windows (or macOS) is set to use, for the engine.
+ *
+ * The engine is plain Node, and Node connects directly unless it is told about
+ * a proxy. Chrome, curl and Python's urllib all follow the system setting, so
+ * on an office network they work while a direct connection is blocked. Asking
+ * Chromium covers manual proxies, PAC scripts and auto-detect alike.
+ *
+ * Hosts the system reaches directly (a gateway on the LAN, for one) go in
+ * NO_PROXY so they are not sent through a proxy that cannot reach them.
+ */
+const systemProxyEnv = async () => {
+  // A proxy set by hand in the environment wins.
+  if (process.env.HTTPS_PROXY || process.env.https_proxy) return { NODE_USE_ENV_PROXY: '1' };
+
+  try {
+    const proxy = proxyUrlFrom(await session.defaultSession.resolveProxy('https://api.elevenlabs.io'));
+    if (!proxy) return {};
+
+    const direct = ['localhost', '127.0.0.1', '::1'];
+    for (const endpoint of savedEndpoints()) {
+      if (!proxyUrlFrom(await session.defaultSession.resolveProxy(endpoint))) {
+        direct.push(new URL(endpoint).hostname);
+      }
+    }
+
+    appendLog(`[network] system proxy ${proxy}; direct for ${direct.join(', ')}\n`);
+    return {
+      NODE_USE_ENV_PROXY: '1',
+      HTTPS_PROXY: proxy,
+      HTTP_PROXY: proxy,
+      NO_PROXY: [...new Set([process.env.NO_PROXY, ...direct].filter(Boolean))].join(','),
+    };
+  } catch (err) {
+    appendLog(`[network] could not read the system proxy: ${err.message}\n`);
+    return {};
+  }
+};
+
 /** Starts the Express backend as a child Node process. */
-const startBackend = () =>
-  new Promise((resolve, reject) => {
+const startBackend = async () => {
+  const proxyEnv = await systemProxyEnv();
+
+  return new Promise((resolve, reject) => {
     const serverEntry = path.join(APP_ROOT, 'server', 'index.js');
 
     if (!fs.existsSync(serverEntry)) {
@@ -282,6 +343,7 @@ const startBackend = () =>
       cwd: APP_ROOT,
       env: {
         ...process.env,
+        ...proxyEnv,
         NODE_ENV: 'production',
         PORT: String(PORT),
         HOST: '127.0.0.1',
@@ -332,6 +394,7 @@ const startBackend = () =>
 
     probe();
   });
+};
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
