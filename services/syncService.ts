@@ -1,6 +1,7 @@
 import { apiGet, apiGetAudio, apiJson } from './apiClient';
 import { AudioSegment } from '../types';
 import { ElevenLabsVoiceSettings } from './elevenLabsService';
+import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
@@ -187,6 +188,8 @@ export interface SyncRequest {
   lineSeeds?: Record<string, number>;
   /** Report what the render did to every line (SyncReport.audioDebug). */
   debug?: boolean;
+  /** How a Cartesia voice is voiced; used in place of modelId and voiceSettings for one. */
+  cartesia?: CartesiaVoicePrefs;
 }
 
 /** Only what the server reads from each cue; word timings and legacy fields stay behind. */
@@ -203,11 +206,17 @@ export const syncDub = async (
   request: SyncRequest,
   { apiKey, jobId, signal }: { apiKey?: string; jobId?: string; signal?: AbortSignal } = {}
 ): Promise<{ blob: Blob; report: SyncReport }> => {
+  const { cartesia, ...rest } = request;
+  // A Cartesia voice gets the same model and delivery as a Cartesia dub.
+  const voice =
+    cartesia && isCartesiaVoice(request.voiceId)
+      ? { modelId: cartesia.modelId || undefined, voiceSettings: cartesiaDelivery(cartesia) }
+      : { voiceSettings: request.voiceSettings || undefined };
   const data = await apiJson<{ audioId: string; contentType: string; report: SyncReport }>('/sync', {
     body: {
-      ...request,
+      ...rest,
+      ...voice,
       segments: request.segments.map(slimSegment),
-      voiceSettings: request.voiceSettings || undefined,
       jobId,
     },
     keys: { elevenLabsKey: apiKey },
