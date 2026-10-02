@@ -49,6 +49,8 @@ interface VoiceSettingsModalProps {
   onTuneStabilityChange?: (enabled: boolean) => void;
   /** What the last dub or sync changed about the stability, if anything. */
   lastStabilityAdjustment?: StabilityAdjustment | null;
+  /** True when a Cartesia key is set up; shown as the connection for a Cartesia voice. */
+  cartesiaReady?: boolean;
   /** How a Cartesia voice is voiced; shown in place of the ElevenLabs settings for one. */
   cartesiaPrefs?: CartesiaVoicePrefs;
   onCartesiaPrefsChange?: (prefs: CartesiaVoicePrefs) => void;
@@ -112,6 +114,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   tuneStability = true,
   onTuneStabilityChange,
   lastStabilityAdjustment = null,
+  cartesiaReady = false,
   cartesiaPrefs,
   onCartesiaPrefsChange,
   availableVoices,
@@ -518,6 +521,18 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             </div>
             )}
 
+            {cartesiaVoice ? (
+              // A Cartesia voice is spoken by Cartesia, so that is the connection that matters.
+              <div className="md:mt-auto flex items-center gap-2 text-xs text-slate-400">
+                <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${cartesiaReady ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                <span className="min-w-0 truncate">{cartesiaReady ? 'Cartesia connected' : 'Cartesia is not set up'}</span>
+                {onOpenApiSettings && (
+                  <button type="button" onClick={onOpenApiSettings} className="ml-auto text-indigo-400 hover:text-indigo-300 shrink-0 cursor-pointer">
+                    Manage key
+                  </button>
+                )}
+              </div>
+            ) : (
             <div className="md:mt-auto flex items-center gap-2 text-xs text-slate-400">
               <span
                 className={`w-[7px] h-[7px] rounded-full shrink-0 ${
@@ -554,6 +569,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 )
               )}
             </div>
+            )}
           </div>
 
           {/* Right: how it is delivered */}
