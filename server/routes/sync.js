@@ -28,11 +28,19 @@ const FALLBACK_FORMAT = 'mp3_44100_128';
 const isCartesiaVoice = (voiceId) => String(voiceId || '').startsWith('cartesia:');
 
 /**
- * The settings a Cartesia voice takes from the ElevenLabs sliders: only the
- * speed carries over, as in a Cartesia dub.
+ * The delivery a Cartesia voice is synced with: speed, volume and emotion, as
+ * in a Cartesia dub. Anything else (ElevenLabs stability, style...) is dropped;
+ * the provider clamps the values and ignores them on models that don't take them.
  */
-const cartesiaSettings = (settings) =>
-  settings && typeof settings.speed === 'number' && Number.isFinite(settings.speed) ? { speed: settings.speed } : undefined;
+export const cartesiaSettings = (settings) => {
+  if (!settings || typeof settings !== 'object') return undefined;
+  const out = {};
+  for (const key of ['speed', 'volume']) {
+    if (typeof settings[key] === 'number' && Number.isFinite(settings[key])) out[key] = settings[key];
+  }
+  if (typeof settings.emotion === 'string' && settings.emotion.trim()) out.emotion = settings.emotion.trim();
+  return Object.keys(out).length ? out : undefined;
+};
 
 /**
  * Finished dubs waiting to be fetched, by id. The dub is lossless WAV, too big

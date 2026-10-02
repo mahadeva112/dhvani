@@ -45,6 +45,10 @@ import {
   CARTESIA_EMOTIONS,
   MIN_CARTESIA_SPEED,
   MAX_CARTESIA_SPEED,
+  DEFAULT_CARTESIA_PREFS,
+  cartesiaTakesControls,
+  cartesiaDelivery,
+  type CartesiaVoicePrefs,
 } from '../services/cartesiaService';
 import { audioFileExtension, createWavBlobFromPcm, decodeAudioBlobUrl } from '../services/audioService';
 import { POPULAR_ELEVENLABS_VOICES, VoiceSelectorCard, VoiceEngine, VOICE_ENGINE_LABELS } from './VoiceSelectorCard';
@@ -89,7 +93,6 @@ interface StudioPrefs {
     seedLocked: boolean;
     seed: number;
   };
-  cartesia: { modelId: string; speed: number; volume: number; emotion: string };
 }
 
 type TakeStatus = 'running' | 'done' | 'failed' | 'cancelled';
@@ -143,16 +146,16 @@ const readPrefs = (fallbackModel: string): StudioPrefs => {
       seedLocked: false,
       seed: randomSeed(),
     },
-    cartesia: { modelId: CARTESIA_MODELS[0].id, speed: 1, volume: 1, emotion: '' },
   };
   try {
-    const saved = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null');
-    if (!saved) return base;
+    const stored = JSON.parse(localStorage.getItem(PREFS_KEY) || 'null');
+    if (!stored) return base;
+    // Cartesia settings now live with the dub's (see readCartesiaPrefs).
+    const { cartesia: _shared, ...saved } = stored;
     return {
       ...base,
       ...saved,
       el: { ...base.el, ...saved.el, settings: { ...base.el.settings, ...saved.el?.settings } },
-      cartesia: { ...base.cartesia, ...saved.cartesia },
       voices: { ...saved.voices },
     };
   } catch {
@@ -183,6 +186,9 @@ interface TextToSpeechModalProps {
   elModelId: string;
   /** True when a Cartesia key is set up. */
   cartesiaAvailable?: boolean;
+  /** How a Cartesia voice is voiced, shared with the dub and the Sync tab. */
+  cartesiaPrefs?: CartesiaVoicePrefs;
+  onCartesiaPrefsChange?: (prefs: CartesiaVoicePrefs) => void;
   targetLanguage?: string;
   /** The project's dub script, offered as text to start from. */
   projectScript?: string;
@@ -200,6 +206,8 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
   selectedVoiceId,
   elModelId,
   cartesiaAvailable = false,
+  cartesiaPrefs,
+  onCartesiaPrefsChange,
   targetLanguage = 'Hindi',
   projectScript,
   onSetDubbedMaster,
@@ -261,8 +269,8 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
     [persist]
   );
   const setEl = (patch: Partial<StudioPrefs['el']>) => updatePrefs((p) => ({ ...p, el: { ...p.el, ...patch } }));
-  const setCartesia = (patch: Partial<StudioPrefs['cartesia']>) =>
-    updatePrefs((p) => ({ ...p, cartesia: { ...p.cartesia, ...patch } }));
+  const cartesia = cartesiaPrefs || { ...DEFAULT_CARTESIA_PREFS, modelId: CARTESIA_MODELS[0].id };
+  const setCartesia = (patch: Partial<CartesiaVoicePrefs>) => onCartesiaPrefsChange?.({ ...cartesia, ...patch });
 
   useEffect(() => {
     try {
@@ -343,8 +351,8 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
   const takesTags = performsAudioTags(prefs.el.modelId);
   const isV3 = /^eleven_v3/.test(prefs.el.modelId);
   const speedApplies = modelTakesSpeed(prefs.el.modelId);
-  const cartesiaModel = CARTESIA_MODELS.find((m) => m.id === prefs.cartesia.modelId);
-  const cartesiaControls = /^sonic-3/.test(prefs.cartesia.modelId);
+  const cartesiaModel = CARTESIA_MODELS.find((m) => m.id === cartesia.modelId);
+  const cartesiaControls = cartesiaTakesControls(cartesia.modelId);
 
   const chars = text.trim().length;
   const estimatedSeconds = chars / CHARS_PER_SECOND;
@@ -380,7 +388,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
     const modelLabel =
       e === 'elevenlabs'
         ? elModel?.name || prefs.el.modelId
-        : cartesiaModel?.name || prefs.cartesia.modelId;
+        : cartesiaModel?.name || cartesia.modelId;
 
     setTakes((prev) => {
       const next: Take[] = [
@@ -437,14 +445,9 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
         blob = await synthesizeWithCartesia(takeVoiceId, script, {
           outputFormat: format,
           language: prefs.language,
-          modelId: prefs.cartesia.modelId,
-          ...(cartesiaControls
-            ? {
-                speed: prefs.cartesia.speed,
-                volume: prefs.cartesia.volume,
-                emotion: prefs.cartesia.emotion || undefined,
-              }
-            : {}),
+          modelId: cartesia.modelId,
+          // The same delivery a dub of this voice gets.
+          ...cartesiaDelivery(cartesia),
           jobId,
           signal: controller.signal,
         });
@@ -915,7 +918,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       <label htmlFor="tts-ca-model" className="text-xs text-slate-400">Model</label>
                       <select
                         id="tts-ca-model"
-                        value={prefs.cartesia.modelId}
+                        value={cartesia.modelId}
                         onChange={(ev) => setCartesia({ modelId: ev.target.value })}
                         className={`${field} cursor-pointer`}
                       >
@@ -929,7 +932,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       <label htmlFor="tts-ca-emotion" className="text-xs text-slate-400">Emotion</label>
                       <select
                         id="tts-ca-emotion"
-                        value={prefs.cartesia.emotion}
+                        value={cartesia.emotion}
                         disabled={!cartesiaControls}
                         onChange={(ev) => setCartesia({ emotion: ev.target.value })}
                         className={`${field} cursor-pointer`}
@@ -944,7 +947,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                     </div>
                   </div>
                   <div className="grid sm:grid-cols-2 gap-4">
-                    {slider('Speed', cartesiaControls ? 'Speaking rate; 1.0 is natural.' : 'Sonic 3 models only.', prefs.cartesia.speed, (v) => setCartesia({ speed: v }), {
+                    {slider('Speed', cartesiaControls ? 'Speaking rate; 1.0 is natural.' : 'Sonic 3 models only.', cartesia.speed, (v) => setCartesia({ speed: v }), {
                       min: MIN_CARTESIA_SPEED,
                       max: MAX_CARTESIA_SPEED,
                       step: 0.01,
@@ -952,7 +955,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       ends: ['Slower', 'Faster'],
                       disabled: !cartesiaControls,
                     })}
-                    {slider('Volume', cartesiaControls ? 'Loudness of the read; 1.0 is normal.' : 'Sonic 3 models only.', prefs.cartesia.volume, (v) => setCartesia({ volume: v }), {
+                    {slider('Volume', cartesiaControls ? 'Loudness of the read; 1.0 is normal.' : 'Sonic 3 models only.', cartesia.volume, (v) => setCartesia({ volume: v }), {
                       min: 0.5,
                       max: 2,
                       step: 0.05,

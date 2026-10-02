@@ -17,6 +17,16 @@ import {
   modelTakesSpeed,
   isElevenLabsDefault,
 } from '../services/elevenLabsService';
+import {
+  isCartesiaVoice,
+  cartesiaTakesControls,
+  CARTESIA_MODELS,
+  CARTESIA_EMOTIONS,
+  DEFAULT_CARTESIA_PREFS,
+  MIN_CARTESIA_SPEED,
+  MAX_CARTESIA_SPEED,
+  type CartesiaVoicePrefs,
+} from '../services/cartesiaService';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { VoiceSelectorCard } from './VoiceSelectorCard';
 
@@ -32,6 +42,9 @@ interface VoiceSettingsModalProps {
   /** Null means the selected voice's own ElevenLabs settings are used. */
   elVoiceSettings?: ElevenLabsVoiceSettings | null;
   onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
+  /** How a Cartesia voice is voiced; shown in place of the ElevenLabs settings for one. */
+  cartesiaPrefs?: CartesiaVoicePrefs;
+  onCartesiaPrefsChange?: (prefs: CartesiaVoicePrefs) => void;
   availableVoices: Voice[];
   isLoadingVoices: boolean;
   onRefreshVoices: () => void;
@@ -89,6 +102,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   onElModelIdChange,
   elVoiceSettings = null,
   onElVoiceSettingsChange,
+  cartesiaPrefs,
+  onCartesiaPrefsChange,
   availableVoices,
   isLoadingVoices,
   onRefreshVoices,
@@ -131,8 +146,13 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
    * generic default.
    */
   const [voiceOwnSettings, setVoiceOwnSettings] = useState<ElevenLabsVoiceSettings | null>(null);
+  // A Cartesia voice has no ElevenLabs settings; it is voiced with cartesiaPrefs.
+  const cartesiaVoice = isCartesiaVoice(elVoiceId);
+  const cartesia = cartesiaPrefs || { ...DEFAULT_CARTESIA_PREFS, modelId: CARTESIA_MODELS[0].id };
+  const cartesiaControls = cartesiaTakesControls(cartesia.modelId);
+  const updateCartesia = (patch: Partial<CartesiaVoicePrefs>) => onCartesiaPrefsChange?.({ ...cartesia, ...patch });
   useEffect(() => {
-    if (!isOpen || !elVoiceId) return;
+    if (!isOpen || !elVoiceId || cartesiaVoice) return;
     let cancelled = false;
     setVoiceOwnSettings(null);
     getVoiceSettings(elApiKey, elVoiceId)
@@ -141,7 +161,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, elApiKey, elVoiceId]);
+  }, [isOpen, elApiKey, elVoiceId, cartesiaVoice]);
 
   const usingVoiceOwnSettings = !elVoiceSettings;
   const shownSettings = elVoiceSettings || voiceOwnSettings || DEFAULT_VOICE_SETTINGS;
@@ -185,7 +205,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
     }
   }, [isOpen, elApiKey, handleValidateApiKey, validationStatus]);
 
-  const voices = realtimeVoices.length > 0 ? realtimeVoices : availableVoices;
+  // The live list is ElevenLabs' own; a Cartesia voice is only in the app's list.
+  const voices = realtimeVoices.length > 0 && !cartesiaVoice ? realtimeVoices : availableVoices;
   const selectedVoice = useMemo(() => voices.find((v) => v.voice_id === elVoiceId) || null, [voices, elVoiceId]);
   const voicesLoaded = voices.length > 0;
   const voiceFullName = (
@@ -246,7 +267,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
     setPreviewError(null);
     try {
       // Spoken with the settings shown, so moving a slider and listening again compares them.
-      const blob = await synthesizeSamplePreview(elApiKey, elVoiceId, tryText.trim(), elModelId, elVoiceSettings);
+      const blob = await synthesizeSamplePreview(elApiKey, elVoiceId, tryText.trim(), elModelId, elVoiceSettings, cartesia);
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
@@ -386,6 +407,41 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
               </div>
             </div>
 
+            {cartesiaVoice ? (
+              <div className="flex flex-col gap-2">
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Cartesia model</span>
+                <div role="radiogroup" aria-label="Cartesia model" className="flex flex-col gap-1.5">
+                  {CARTESIA_MODELS.map((m) => {
+                    const on = m.id === cartesia.modelId;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        disabled={!onCartesiaPrefsChange}
+                        onClick={() => updateCartesia({ modelId: m.id })}
+                        className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-pointer ${
+                          on ? 'border-indigo-500 bg-slate-900 ring-4 ring-indigo-500/10' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <span
+                          className={`w-[15px] h-[15px] mt-0.5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 ${
+                            on ? 'border-indigo-400' : 'border-slate-600'
+                          }`}
+                        >
+                          {on && <span className="w-[7px] h-[7px] rounded-full bg-indigo-400" />}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-[13px] font-semibold text-slate-100">{m.name}</span>
+                          <span className="block text-[11.5px] text-slate-400 mt-0.5 leading-snug line-clamp-2">{m.description}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
             <div className="flex flex-col gap-2">
               <span className="flex items-center justify-between text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
                 Model
@@ -450,6 +506,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 </button>
               )}
             </div>
+            )}
 
             <div className="md:mt-auto flex items-center gap-2 text-xs text-slate-400">
               <span
@@ -491,6 +548,58 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
 
           {/* Right: how it is delivered */}
           <div className="px-5 sm:px-6 py-5 flex flex-col gap-5 min-w-0">
+            {cartesiaVoice ? (
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Delivery</span>
+                  <p className="text-[12.5px] text-slate-400">
+                    {cartesiaControls
+                      ? 'Used for the dub, the Sync tab and the text-to-speech studio alike.'
+                      : 'This model ignores emotion, speed and volume. Pick a Sonic 3 model to use them.'}
+                  </p>
+                </div>
+                <div className={`flex flex-col gap-2 ${cartesiaControls ? '' : 'opacity-45'}`}>
+                  <span className="text-[13px] font-semibold text-slate-100">Emotion</span>
+                  <div role="radiogroup" aria-label="Emotion" className="flex flex-wrap gap-1.5">
+                    {['', ...CARTESIA_EMOTIONS].map((emo) => {
+                      const on = cartesia.emotion === emo;
+                      return (
+                        <button
+                          key={emo || 'auto'}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          disabled={!cartesiaControls || !onCartesiaPrefsChange}
+                          onClick={() => updateCartesia({ emotion: emo })}
+                          className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                            on ? 'bg-slate-100 text-slate-900 border-slate-100' : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                          }`}
+                        >
+                          {emo ? emo.charAt(0).toUpperCase() + emo.slice(1) : 'Let the model choose'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                {slider(
+                  'Speed',
+                  'Slower gives the voice room; faster helps a line fit its slot.',
+                  cartesia.speed,
+                  (v) => updateCartesia({ speed: v }),
+                  [`${MIN_CARTESIA_SPEED.toFixed(2)}× slower`, `${MAX_CARTESIA_SPEED.toFixed(2)}× faster`],
+                  { min: MIN_CARTESIA_SPEED, max: MAX_CARTESIA_SPEED, format: (v) => `${v.toFixed(2)}×`, disabled: !cartesiaControls }
+                )}
+                {slider(
+                  'Volume',
+                  'Loudness of the read; 1.0 is normal.',
+                  cartesia.volume,
+                  (v) => updateCartesia({ volume: v }),
+                  ['Softer', 'Louder'],
+                  { min: 0.5, max: 2, format: (v) => `${v.toFixed(2)}×`, disabled: !cartesiaControls }
+                )}
+              </div>
+            ) : (
+            <>
             <div className="flex flex-col gap-2">
               <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Delivery</span>
               <div role="radiogroup" aria-label="Delivery settings" className="grid sm:grid-cols-2 gap-2">
@@ -636,6 +745,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 </div>
               </div>
             )}
+            </>
+            )}
 
             {/* Try it */}
             <div className="flex flex-col gap-2">
@@ -691,13 +802,19 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
         {/* Footer */}
         <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
           <span className="flex-1 min-w-[12rem] text-xs text-slate-400">Saved on this computer. Applies to the next dub.</span>
-          {onElVoiceSettingsChange && (
+          {cartesiaVoice && onCartesiaPrefsChange && (
+            <ResetDefaultsButton
+              onClick={() => updateCartesia({ speed: 1, volume: 1, emotion: '' })}
+              disabled={cartesia.speed === 1 && cartesia.volume === 1 && !cartesia.emotion}
+            />
+          )}
+          {!cartesiaVoice && onElVoiceSettingsChange && (
             <ResetDefaultsButton
               onClick={() => onElVoiceSettingsChange({ ...DEFAULT_VOICE_SETTINGS })}
               disabled={!usingVoiceOwnSettings && isElevenLabsDefault(elVoiceSettings)}
             />
           )}
-          {onElVoiceSettingsChange && (
+          {!cartesiaVoice && onElVoiceSettingsChange && (
             <button
               type="button"
               onClick={() => onElVoiceSettingsChange(null)}

@@ -53,7 +53,14 @@ import {
   getModels,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
-import { getCartesiaVoices, isCartesiaVoice } from './services/cartesiaService';
+import {
+  getCartesiaVoices,
+  isCartesiaVoice,
+  readCartesiaPrefs,
+  saveCartesiaPrefs,
+  CARTESIA_MODELS,
+  type CartesiaVoicePrefs,
+} from './services/cartesiaService';
 
 /** Renamed from 'elVoiceSettings' so the old forced defaults every install saved are dropped. */
 const VOICE_SETTINGS_STORAGE_KEY = 'elVoiceSettingsV2';
@@ -301,6 +308,22 @@ export default function App() {
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
   const [backendChecked, setBackendChecked] = useState<boolean>(false);
   const [backendSettings, setBackendSettings] = useState<BackendSettings | null>(null);
+
+  // How a Cartesia voice is voiced: one set for the dub, the Sync tab and the studio.
+  const [cartesiaPrefs, setCartesiaPrefs] = useState<CartesiaVoicePrefs>(readCartesiaPrefs);
+  /** With the model resolved: the one picked, else the server's, else the newest Sonic. */
+  const cartesiaVoice = useMemo<CartesiaVoicePrefs>(
+    () => ({
+      ...cartesiaPrefs,
+      modelId: cartesiaPrefs.modelId || backendSettings?.server?.values.cartesiaTtsModel || CARTESIA_MODELS[0].id,
+    }),
+    [cartesiaPrefs, backendSettings]
+  );
+  const cartesiaModelName = CARTESIA_MODELS.find((m) => m.id === cartesiaVoice.modelId)?.name || cartesiaVoice.modelId;
+  const handleCartesiaPrefsChange = useCallback((prefs: CartesiaVoicePrefs) => {
+    setCartesiaPrefs(prefs);
+    saveCartesiaPrefs(prefs);
+  }, []);
 
   /** Set when the user chooses to configure keys via .env instead of the UI. */
   const [setupDismissed, setSetupDismissed] = useState<boolean>(() => {
@@ -1477,6 +1500,7 @@ export default function App() {
         {
           expressive: emotionEnhance,
           matchLoudness: dubMatchLoudness,
+          cartesia: cartesiaVoice,
           language: activeJob.language || selectedLanguage,
           jobId,
           signal: controller.signal,
@@ -1605,6 +1629,7 @@ export default function App() {
           matchLoudness,
           lineSeeds: syncLineSeedsRef.current[activeJob.id],
           debug: audioDebugEnabled(),
+          cartesia: cartesiaVoice,
         },
         { apiKey: elApiKey, jobId, signal: controller.signal }
       );
@@ -2051,7 +2076,7 @@ export default function App() {
         translationSummary={translationSummary}
         voiceSummary={
           activeVoiceEngine === 'cartesia'
-            ? `Cartesia ${backendSettings?.server?.values.cartesiaTtsModel || 'Sonic'}`
+            ? `Cartesia ${cartesiaModelName}`
             : elModels.find((m) => m.model_id === elModelId)?.name || elModelId
         }
         translationStyleName={getPresetById(activeJob?.promptPresetId || promptPresetId).name}
@@ -2184,7 +2209,7 @@ export default function App() {
           onSynthesizeMaster={handleSynthesizeMaster}
           ttsModelName={
             isCartesiaVoice(elVoiceId)
-              ? `Cartesia ${backendSettings?.server?.values.cartesiaTtsModel || 'Sonic'}`
+              ? `Cartesia ${cartesiaModelName}`
               : elModels.find((model) => model.model_id === elModelId)?.name || elModelId
           }
           elModelId={elModelId}
@@ -2274,6 +2299,8 @@ export default function App() {
         selectedVoiceId={elVoiceId}
         elModelId={elModelId}
         cartesiaAvailable={cartesiaConfigured}
+        cartesiaPrefs={cartesiaVoice}
+        onCartesiaPrefsChange={handleCartesiaPrefsChange}
         targetLanguage={activeJob?.language || selectedLanguage}
         projectScript={ttsProjectScript}
         onSetDubbedMaster={activeJob ? handleSetDubbedMaster : undefined}
@@ -2322,6 +2349,8 @@ export default function App() {
         onElModelIdChange={handleElModelIdChange}
         elVoiceSettings={elVoiceSettings}
         onElVoiceSettingsChange={handleElVoiceSettingsChange}
+        cartesiaPrefs={cartesiaVoice}
+        onCartesiaPrefsChange={handleCartesiaPrefsChange}
         availableVoices={engineVoices}
         isLoadingVoices={isLoadingVoices}
         onRefreshVoices={fetchVoices}
