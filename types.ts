@@ -21,6 +21,12 @@ export interface AudioSegment {
   textTarget?: string; // Translated text (timings are NOT re-derived from it)
   emotion?: string; // Specific tone or vocal style
   speedRate?: number; // Target speed pacing
+  /**
+   * Seconds the user trimmed this cue's dub line to on the sync timeline, set
+   * on the line's first cue. Suggestions aim for it instead of the length
+   * worked out from the slot; Sync still starts the line with its sentence.
+   */
+  dubTargetSeconds?: number;
   /** Word timings from ElevenLabs, used to cut SRT cues exactly. */
   words?: WordTimestamp[];
   /**
@@ -145,6 +151,12 @@ export interface BatchJob {
   synthesizedBlob: Blob | null; // Added for IndexedDB persistence
   
   synthAudioBuffer: AudioBuffer | null; // Visual waveform data for output
+  /**
+   * Characters in the script the dub was voiced from. The voice's speaking
+   * rate is these over the dub's seconds of speech, so editing the script
+   * afterwards doesn't shift the rate every estimate is made at.
+   */
+  dubScriptCharacters?: number;
   
   srtUrl: string | null; // New field for SRT download
   srtBlob: Blob | null; // Added for IndexedDB persistence

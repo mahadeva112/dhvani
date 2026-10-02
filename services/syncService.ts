@@ -315,7 +315,40 @@ export interface SyncPreviewUnit {
   status: 'fits' | 'tight' | 'long' | 'short';
   /** Length a new wording should aim for, in characters: shorter for a long line, longer for a short one. */
   targetChars: number;
+  /** Seconds the user trimmed the line to on the timeline; set only client-side, by withLineTargets. */
+  wantSeconds?: number;
 }
+
+/** A trimmed line within this many seconds of its trim already matches it. */
+export const TRIM_TOLERANCE = 0.2;
+
+/** Shortest length a line can be trimmed to. */
+export const MIN_TRIM_SECONDS = 0.3;
+
+/**
+ * The preview with the user's trims applied: a trimmed line aims for the
+ * characters its trimmed length holds at the preview's rate. Status, slot and
+ * estimate are left as the server worked them out, so the counts still say
+ * how each line sits in its slot.
+ */
+export const withLineTargets = (preview: SyncPreview | null, segments: AudioSegment[]): SyncPreview | null => {
+  if (!preview) return null;
+  const want = new Map<string, number>();
+  for (const seg of segments) if (seg.dubTargetSeconds && seg.dubTargetSeconds > 0) want.set(String(seg.id), seg.dubTargetSeconds);
+  if (want.size === 0) return preview;
+  return {
+    ...preview,
+    units: preview.units.map((unit) => {
+      const seconds = want.get(unit.key);
+      if (!seconds) return unit;
+      return { ...unit, wantSeconds: seconds, targetChars: Math.max(1, Math.round(seconds * preview.charsPerSecond)) };
+    }),
+  };
+};
+
+/** True when a trimmed line's estimate is off its trim, so it needs a new wording to match. */
+export const wantsChange = (unit: SyncPreviewUnit) =>
+  unit.wantSeconds !== undefined && Math.abs(unit.estimate - unit.wantSeconds) > TRIM_TOLERANCE;
 
 export interface SyncPreview {
   precision: SyncPrecision;
@@ -397,6 +430,14 @@ export const measureSpeechSeconds = (buffer: AudioBuffer): number => {
   }
   return speech * frameSeconds;
 };
+
+/**
+ * Characters the voice is asked to say, counted as the speaking rate counts
+ * them. Saved with each dub, so edits made after it don't change the rate the
+ * dub is measured at.
+ */
+export const scriptCharacterCount = (segments: AudioSegment[]): number =>
+  segments.reduce((sum, seg) => sum + (seg.textTarget || seg.targetText || '').trim().length, 0);
 
 /** The voice's rate in characters a second, or null when it can't be believed. */
 export const speakingRate = (characters: number, speechSeconds: number): number | null => {

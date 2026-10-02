@@ -9,6 +9,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Final dub shows each line's sync fit.** The Final script now times every dub line against its
+  source sentence, the same estimate the Sync preview makes: a badge (**+0.6 s over**, **Ends 1.4 s
+  early**, **Tight** or **Fits**), a bar against the slot, and a **Sync fit** strip with the counts and
+  a **Lines to fix** filter. The software picks the direction from the source sentence, so a line
+  offers **Suggest a shorter line** or **Suggest a fuller line**, never both, with the length to aim
+  for; fitting lines show nothing to do. **Suggest for all** asks for every open line its own way.
+  Nothing is voiced and no ElevenLabs characters are used; Sync voices the new wording.
+- **Final dub shows the Sync preview, and you can trim a line to the length you want.** The same
+  counts and Original / Dub timeline as the Sync step now sit above the Final script. Click a dub
+  bar and drag its end (or use the arrow keys) to the length the line should take: a readout shows
+  the seconds and the characters they hold, the trim snaps to the end of the original speech, and
+  it never runs past the next line. That line's suggestion then aims for your length
+  (**Suggest a 2.6 s line**), shorter or fuller as the trim needs. Trims are saved with the project,
+  the Sync step's suggestions use them too, and **Reset trim** goes back to the length from the
+  slot. Only the length is trimmed: Sync still starts every line where its sentence starts.
+- **The speaking rate no longer drifts as you edit.** A dub now saves how many characters it was
+  voiced from, so editing lines afterwards no longer moves every other line's estimate.
+
 - **Sync suggests a fuller line when a dub line ends early.** The Sync preview already offered a
   shorter wording for lines too long for their slot; it now also flags lines likely to end well
   before the original speaker stops (under 60% of their speech and at least 1 s left quiet) under
