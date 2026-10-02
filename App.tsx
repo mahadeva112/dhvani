@@ -88,6 +88,7 @@ import {
   syncedSegments,
   distributeLineText,
   audioDebugEnabled,
+  scriptCharacterCount,
   SyncOptions,
   SyncProgress,
   SyncUnitReport,
@@ -1512,6 +1513,7 @@ export default function App() {
       updateJob(activeJob.id, {
         synthesizedAudioUrl: url,
         synthesizedBlob: blob,
+        dubScriptCharacters: scriptCharacterCount(activeJob.segments),
         srtUrl,
         srtBlob,
         syncReport: null,
@@ -1626,6 +1628,7 @@ export default function App() {
       updateJob(activeJob.id, {
         synthesizedAudioUrl: url,
         synthesizedBlob: blob,
+        dubScriptCharacters: scriptCharacterCount(activeJob.segments),
         srtUrl: URL.createObjectURL(srtBlob),
         srtBlob,
         syncReport: report,

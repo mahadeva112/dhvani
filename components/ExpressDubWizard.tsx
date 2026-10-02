@@ -5,6 +5,7 @@ import {
   Pause,
   CheckCircle2,
   ArrowRight,
+  Loader2,
   RotateCcw,
   Download,
   FileText,
@@ -85,14 +86,19 @@ import { SyncResultsPanel, SyncSettingsPanel, useSyncOptions } from './SyncPanel
 import {
   distributeLineText,
   measureSpeechSeconds,
+  scriptCharacterCount,
   speakingRate,
   suggestShorterLine,
   suggestLongerLine,
   syncedSegments,
   TYPICAL_CHARS_PER_SECOND,
+  withLineTargets,
 } from '../services/syncService';
 import type { SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
-import { SyncPreviewPanel, useSyncPreview } from './SyncPreviewPanel';
+import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline } from './SyncPreviewPanel';
+import type { RewriteDirection } from './SyncPreviewPanel';
+import { FitMeter, ScriptFitStrip, fitAdvice, needsFix } from './FinalScriptFit';
+import type { ScriptFitFilter } from './FinalScriptFit';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
@@ -572,19 +578,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const scriptIsCustom = activeJob?.targetSource === 'custom';
 
   /*
-   * Step 4's preview, before the first sync. The voice's speaking rate comes
-   * from the Final dub when there is one (characters over seconds of speech),
-   * else a typical rate, and the preview says which.
+   * The sync preview: step 4's before the first sync, and the Final script's
+   * sync fit on step 3. The voice's speaking rate comes from the Final dub
+   * when there is one (the characters it was voiced from over its seconds of
+   * speech), else a typical rate, and both say which.
    */
   const dubSpeechSeconds = useMemo(
     () => (activeJob?.synthAudioBuffer ? measureSpeechSeconds(activeJob.synthAudioBuffer) : 0),
     [activeJob?.synthAudioBuffer]
   );
-  const scriptCharacters = useMemo(
-    () => segments.reduce((sum, seg) => sum + (seg.textTarget || seg.targetText || '').trim().length, 0),
-    [segments]
-  );
-  const measuredRate = activeJob?.synthesizedAudioUrl ? speakingRate(scriptCharacters, dubSpeechSeconds) : null;
+  const scriptCharacters = useMemo(() => scriptCharacterCount(segments), [segments]);
+  // Counted when the dub was made, so editing lines afterwards doesn't shift the rate. Older dubs didn't save it.
+  const rateCharacters = activeJob?.dubScriptCharacters ?? scriptCharacters;
+  const measuredRate = activeJob?.synthesizedAudioUrl ? speakingRate(rateCharacters, dubSpeechSeconds) : null;
   // Rounded so small script edits don't move every estimate and refetch the preview.
   const previewRate = Math.round((measuredRate ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
   const hasSyncReport = Boolean(activeJob?.synthesizedAudioUrl && activeJob?.syncReport);
@@ -594,7 +600,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     [hasSyncReport, activeJob?.syncReport, segments]
   );
   const syncPreview = useSyncPreview({
-    enabled: activeStep === 4 && !hasSyncReport && !isSyncing && segments.length > 0,
+    enabled:
+      ((activeStep === 4 && !hasSyncReport) || (activeStep === 3 && !isSynthesizing)) && !isSyncing && segments.length > 0,
     segments,
     precision: syncOptions.precision,
     charsPerSecond: previewRate,
@@ -623,6 +630,56 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         return text === undefined ? seg : { ...seg, textTarget: text, targetText: text };
       })
     );
+  /** A shorter or a fuller wording of a line, from the text model; the line's status decides which. */
+  const suggestLine = (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) =>
+    (direction === 'longer' ? suggestLongerLine : suggestShorterLine)({
+      text: unit.text,
+      sourceText: unit.sourceText,
+      language: targetLanguage,
+      targetChars: unit.targetChars,
+      avoid,
+    });
+  /** Step 3's rewording, kept apart from step 4's so each step's rows are its own. */
+  const finalFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
+  /** The preview with the lengths the user trimmed lines to on the timeline; both steps use it. */
+  const linePreview = useMemo(() => withLineTargets(syncPreview.preview, segments), [syncPreview.preview, segments]);
+  /** The dub bar picked on the Final dub timeline, for trimming. */
+  const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
+  const selectedLine = linePreview?.units.find((u) => u.key === selectedLineKey) || null;
+  /**
+   * Saves a line's trimmed length on its first cue, or clears it with null.
+   * The line's work starts over, so its direction is decided from the new length.
+   */
+  const trimLine = (unit: SyncPreviewUnit, seconds: number | null) => {
+    const first = String(unit.cueIds[0]);
+    onReplaceSegments(
+      segments.map((seg) => {
+        if (String(seg.id) !== first) return seg;
+        const { dubTargetSeconds: _old, ...rest } = seg;
+        return seconds === null ? rest : { ...rest, dubTargetSeconds: seconds };
+      })
+    );
+    finalFixes.reset(unit);
+  };
+  const [finalScriptFilter, setFinalScriptFilter] = useState<ScriptFitFilter>('all');
+  /**
+   * The Final script's rows, one block per sync line: cues Sync voices as one
+   * clip stay together, so the line's fit and its suggestion sit once beside
+   * all of them. Cues with nothing to voice stand alone.
+   */
+  const finalScriptGroups = useMemo(() => {
+    const unitOf = new Map<string, SyncPreviewUnit>();
+    for (const unit of linePreview?.units || []) for (const id of unit.cueIds) unitOf.set(String(id), unit);
+    const groups: { key: string; unit: SyncPreviewUnit | null; cues: { seg: AudioSegment; index: number }[] }[] = [];
+    segments.forEach((seg, index) => {
+      const unit = unitOf.get(String(seg.id)) || null;
+      const last = groups[groups.length - 1];
+      if (unit && last?.unit === unit) last.cues.push({ seg, index });
+      else groups.push({ key: unit ? `line-${unit.key}` : `cue-${seg.id}`, unit, cues: [{ seg, index }] });
+    });
+    return groups;
+  }, [segments, linePreview]);
+  const finalToFix = (linePreview?.units || []).filter((u) => needsFix(u) && finalFixes.notStarted(u));
 
   const filteredSegments = useMemo(() => {
     return segments.filter((seg) => {
@@ -2592,6 +2649,72 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             </section>
           )}
 
+          {/* The Sync preview, as step 4 shows it, with trimming: pick a dub bar and drag its end to the length you want. */}
+          {!isSynthesizing && linePreview && (
+            <section aria-label="Sync preview" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-[15px] font-semibold text-slate-100">Sync preview</h2>
+                  <p className="text-xs text-slate-400">
+                    {measuredRate !== null ? 'An estimate' : 'A rough estimate'} from the text length, at {linePreview.charsPerSecond.toFixed(1)} chars/s{' '}
+                    {measuredRate !== null ? 'from this dub' : '(a typical rate)'}. Click a dub bar, then drag its end to the length you want; that
+                    line's suggestion aims for it.
+                  </p>
+                </div>
+                {syncPreview.loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
+              </div>
+              <PreviewCards preview={linePreview} />
+              <PreviewTimeline
+                units={linePreview.units}
+                reportedTime={currentTime}
+                getLiveTime={getLiveTime}
+                onSeek={onSeek}
+                isPlaying={isPlaying}
+                onTogglePlay={onTogglePlay}
+                selectedKey={selectedLineKey}
+                // Picking a line only shows it in the card below; the page stays where the user scrolled it.
+                onSelect={(unit) => setSelectedLineKey(unit.key)}
+                onTrim={trimLine}
+                charsPerSecond={linePreview.charsPerSecond}
+              />
+              {selectedLine &&
+                (() => {
+                  const unit = selectedLine;
+                  const fix = finalFixes.controlsFor(unit);
+                  const fixing = needsFix(unit) || fix.state.kind !== 'idle';
+                  const note = fix.state.kind === 'idle' ? fitAdvice(unit) : lineNote(unit, fix.state, fix.direction).text;
+                  const lineNumber = segments.findIndex((seg) => String(seg.id) === unit.key) + 1;
+                  return (
+                    <div className="rounded-xl border border-indigo-500/30 bg-slate-950/60 px-3.5 py-3">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                        <span className="text-[13px] font-semibold text-slate-100">Line {String(lineNumber).padStart(2, '0')}</span>
+                        <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">{formatClock(unit.srcStart)}</span>
+                        <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">
+                          about {unit.estimate.toFixed(1)} s · slot {unit.slot.toFixed(1)} s · original speech {unit.spoken.toFixed(1)} s
+                        </span>
+                        <span className="ml-auto flex items-center gap-1.5">
+                          {unit.wantSeconds !== undefined && (
+                            <button type="button" onClick={() => trimLine(unit, null)} className={railButton} title="Go back to the length worked out from the slot">
+                              <RotateCcw className="w-3.5 h-3.5" /> Reset trim
+                            </button>
+                          )}
+                          <button type="button" onClick={() => setSelectedLineKey(null)} className={railButton} aria-label="Close this line">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      </div>
+                      <p className="mt-1.5 text-[14px] text-slate-100 leading-snug">{unit.text}</p>
+                      {unit.sourceText && <p className="text-xs text-slate-500 mt-0.5">{unit.sourceText}</p>}
+                      <p className={`text-[11.5px] mt-1.5 ${fixing ? (fix.direction === 'longer' ? 'text-sky-300' : 'text-amber-300') : 'text-slate-400'}`}>
+                        {note || 'Fits its slot. Drag the end of its bar to set a length of your own.'}
+                      </p>
+                      {fixing && <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...fix} />}
+                    </div>
+                  );
+                })()}
+            </section>
+          )}
+
           {/* Script and delivery share one height */}
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-stretch lg:flex-1">
             <section
@@ -2637,36 +2760,117 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </div>
               </div>
 
+              {!isSynthesizing && (
+                <ScriptFitStrip
+                  preview={linePreview}
+                  loading={syncPreview.loading}
+                  error={syncPreview.error}
+                  rateMeasured={measuredRate !== null}
+                  filter={finalScriptFilter}
+                  onFilter={setFinalScriptFilter}
+                  toFix={{
+                    shorter: finalToFix.filter((u) => finalFixes.directionOf(u) === 'shorter').length,
+                    longer: finalToFix.filter((u) => finalFixes.directionOf(u) === 'longer').length,
+                  }}
+                  onFixAll={() => finalFixes.suggestAll(finalToFix)}
+                />
+              )}
+
               <div className="flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar py-1.5">
-                {segments.map((seg, i) => {
-                  const isNow = seg.id === activeSegmentId;
-                  return (
-                    <button
-                      key={seg.id}
-                      type="button"
-                      onClick={() => onSeek(seg.startTime)}
-                      className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${
-                        finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
-                      } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
-                    >
-                      <span className={`font-mono text-[11px] pt-1 tabular-nums ${isNow ? 'text-indigo-300' : 'text-slate-500'}`}>
-                        {String(i + 1).padStart(2, '0')}
-                      </span>
-                      {finalScriptLayout !== 'dialogue' && (
-                        <span className="font-mono text-[11.5px] text-slate-400 pt-1 tabular-nums">{formatClock(seg.startTime)}</span>
-                      )}
-                      <span className="min-w-0">
-                        {seg.speaker && (i === 0 || segments[i - 1].speaker !== seg.speaker) && (
-                          <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500">{seg.speaker}</span>
-                        )}
-                        <span className="block text-[15px] text-slate-100 leading-relaxed">{getTargetText(seg)}</span>
-                        {finalScriptLayout === 'bilingual' && (
-                          <span className="block text-xs text-slate-500 mt-0.5">{getSourceText(seg)}</span>
-                        )}
-                      </span>
-                    </button>
+                {(() => {
+                  const fitShown = Boolean(linePreview) && !isSynthesizing;
+                  const cps = linePreview?.charsPerSecond ?? 1;
+                  // A line stays listed under Lines to fix once it has been worked on, even when it now fits.
+                  const shown = finalScriptGroups.filter(
+                    (g) => finalScriptFilter === 'all' || !fitShown || (g.unit && (needsFix(g.unit) || finalFixes.worked(g.unit)))
                   );
-                })}
+                  if (shown.length === 0) {
+                    return (
+                      <p className="px-4 py-6 text-center text-xs text-slate-500">
+                        No line is likely to run past its slot or end early.{' '}
+                        <button type="button" onClick={() => setFinalScriptFilter('all')} className="text-indigo-300 hover:text-indigo-200 cursor-pointer">
+                          Show all lines
+                        </button>
+                      </p>
+                    );
+                  }
+                  // The fit's note and controls line up under the text, past the number (and the time).
+                  const indent = finalScriptLayout === 'dialogue' ? 'pl-[3.75rem]' : 'pl-[9rem]';
+                  return shown.map((group) => {
+                    const unit = fitShown ? group.unit : null;
+                    const fix = unit ? finalFixes.controlsFor(unit) : null;
+                    const fixing = Boolean(unit && fix && (needsFix(unit) || fix.state.kind !== 'idle'));
+                    const note = unit && fix ? (fix.state.kind === 'idle' ? { text: fitAdvice(unit), tone: '' } : lineNote(unit, fix.state, fix.direction)) : null;
+                    const noteTone =
+                      note?.tone || (unit?.status === 'long' ? 'text-amber-300' : unit?.status === 'short' ? 'text-sky-300' : 'text-slate-500');
+                    return (
+                      <div
+                        key={group.key}
+                        id={group.unit ? `final-line-${group.unit.key}` : undefined}
+                        className={`border-t border-slate-800/50 first:border-t-0 scroll-mt-2 ${
+                          group.unit && group.unit.key === selectedLineKey ? 'bg-indigo-950/20 ring-1 ring-inset ring-indigo-500/40' : ''
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-start">
+                          <div className="flex-1 min-w-0">
+                            {group.cues.map(({ seg, index: i }) => {
+                              const isNow = seg.id === activeSegmentId;
+                              return (
+                                <button
+                                  key={seg.id}
+                                  type="button"
+                                  onClick={() => onSeek(seg.startTime)}
+                                  className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${
+                                    finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
+                                  } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
+                                >
+                                  <span className={`font-mono text-[11px] pt-1 tabular-nums ${isNow ? 'text-indigo-300' : 'text-slate-500'}`}>
+                                    {String(i + 1).padStart(2, '0')}
+                                  </span>
+                                  {finalScriptLayout !== 'dialogue' && (
+                                    <span className="font-mono text-[11.5px] text-slate-400 pt-1 tabular-nums">{formatClock(seg.startTime)}</span>
+                                  )}
+                                  <span className="min-w-0">
+                                    {seg.speaker && (i === 0 || segments[i - 1].speaker !== seg.speaker) && (
+                                      <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500">{seg.speaker}</span>
+                                    )}
+                                    <span className="block text-[15px] text-slate-100 leading-relaxed">{getTargetText(seg)}</span>
+                                    {finalScriptLayout === 'bilingual' && (
+                                      <span className="block text-xs text-slate-500 mt-0.5">{getSourceText(seg)}</span>
+                                    )}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {unit && <FitMeter unit={unit} className={`${indent} sm:pl-0 pr-4 pb-2 sm:py-3 sm:w-40 shrink-0`} />}
+                        </div>
+                        {unit && fix && note?.text && (
+                          <div className={`${indent} pr-4 pb-3`}>
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <p className={`text-[11.5px] ${noteTone}`}>{note.text}</p>
+                              {fixing && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    onTrackModeChange('source');
+                                    onSeek(Math.max(0, unit.srcStart - 0.6));
+                                    if (!isPlaying) onTogglePlay();
+                                  }}
+                                  className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+                                  title="Play the original sentence"
+                                >
+                                  <Play className="w-3 h-3 fill-current" /> Original
+                                </button>
+                              )}
+                            </div>
+                            {fixing && <LineFixControls unit={unit} cps={cps} {...fix} />}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             </section>
 
@@ -3104,7 +3308,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onSync={runSync}
               preview={
                 <SyncPreviewPanel
-                  preview={syncPreview.preview}
+                  preview={linePreview}
                   loading={syncPreview.loading}
                   error={syncPreview.error}
                   rateMeasured={measuredRate !== null}
@@ -3118,15 +3322,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onSeek(time);
                     if (!isPlaying) onTogglePlay();
                   }}
-                  onSuggest={(unit, avoid, direction) =>
-                    (direction === 'longer' ? suggestLongerLine : suggestShorterLine)({
-                      text: unit.text,
-                      sourceText: unit.sourceText,
-                      language: targetLanguage,
-                      targetChars: unit.targetChars,
-                      avoid,
-                    })
-                  }
+                  onSuggest={suggestLine}
                   onUseLine={applyPreviewLine}
                   onRestore={restoreCueTexts}
                 />
