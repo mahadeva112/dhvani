@@ -76,8 +76,10 @@ interface ContinuousDocumentViewProps {
   getTargetText: (seg: AudioSegment) => string;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
   getPaceLevel: (seg: AudioSegment) => PaceLevel;
+  /** True for a line that ends well before the original speaker stops, for the Ends early filter. */
+  isEndingEarly?: (seg: AudioSegment) => boolean;
   /** The Review step's pacing filter; here it dims other sentences rather than removing them from the text. */
-  pacingFilter: 'all' | 'risk' | 'tight';
+  pacingFilter: 'all' | 'risk' | 'tight' | 'short';
   searchQuery: string;
   activeSegmentId: string | number | null;
   isPlaying: boolean;
@@ -98,6 +100,7 @@ export function ContinuousDocumentView({
   getTargetText,
   onUpdateSegment,
   getPaceLevel,
+  isEndingEarly,
   pacingFilter,
   searchQuery,
   activeSegmentId,
@@ -374,6 +377,7 @@ export function ContinuousDocumentView({
 
   const isDimmed = (seg: AudioSegment) => {
     if (pacingFilter === 'all') return false;
+    if (pacingFilter === 'short') return !isEndingEarly?.(seg);
     const level = getPaceLevel(seg);
     return pacingFilter === 'risk' ? level !== 'fast' : level !== 'tight';
   };

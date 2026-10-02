@@ -95,7 +95,7 @@ import {
   withLineTargets,
 } from '../services/syncService';
 import type { SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
-import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline } from './SyncPreviewPanel';
+import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort } from './SyncPreviewPanel';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, needsFix } from './FinalScriptFit';
 import type { ScriptFitFilter } from './FinalScriptFit';
@@ -137,6 +137,48 @@ const getPace = (text: string, duration: number) => {
     barClass: level === 'fast' ? 'bg-rose-400' : level === 'tight' ? 'bg-amber-400' : 'bg-emerald-400',
   };
 };
+
+/** Review estimates a line's speech at the top of a natural pace, so a new wording aims to read naturally. */
+const REVIEW_CPS = 14;
+/** A new wording aims a little under its time, and a fuller one close to all of it, as Sync's suggestions do (server/lib/syncDub.js). */
+const REVIEW_SHORTER_MARGIN = 0.92;
+const REVIEW_FULLER_FILL = 0.95;
+
+/**
+ * One cue as a line to reword on the Review step, in the shape the Final
+ * dub's rewording works on. Too fast (see getPace) is a line to shorten; a
+ * line that at a natural pace ends well before the original speaker stops is
+ * one to make fuller. The cue's own time is both its slot and its speech.
+ */
+const reviewLineOf = (seg: AudioSegment, text: string, sourceText: string): SyncPreviewUnit => {
+  const duration = Math.max(0, seg.duration || seg.endTime - seg.startTime);
+  const length = text.trim().length;
+  const estimate = length / REVIEW_CPS;
+  const level = getPace(text, duration).level;
+  const short = level === 'natural' && length > 0 && isShort(estimate, duration);
+  return {
+    index: 0,
+    key: String(seg.id),
+    cueIds: [seg.id],
+    text,
+    sourceText,
+    srcStart: seg.startTime,
+    srcEnd: seg.endTime,
+    nextStart: null,
+    slot: duration,
+    spoken: duration,
+    estimate,
+    overflow: Math.max(0, estimate - duration),
+    underflow: short ? duration - estimate : 0,
+    status: level === 'fast' ? 'long' : level === 'tight' ? 'tight' : short ? 'short' : 'fits',
+    targetChars: short
+      ? Math.max(length + 1, Math.floor(REVIEW_CPS * duration * REVIEW_FULLER_FILL))
+      : Math.max(1, Math.floor(REVIEW_CPS * duration * REVIEW_SHORTER_MARGIN)),
+  };
+};
+
+/** True when a cue's line ends well before the original speaker stops: one to make fuller. */
+const endsEarly = (seg: AudioSegment, text: string) => reviewLineOf(seg, text, '').status === 'short';
 
 /** Rough time left, in words. */
 const formatTimeLeft = (seconds: number) =>
@@ -372,7 +414,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Pro Review Suite Mode & Controls
   const [reviewMode, setReviewMode] = useState<ReviewMode>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight'>('all');
+  const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight' | 'short'>('all');
   const [finalScriptLayout, setFinalScriptLayout] = useState<'dialogue' | 'timecoded' | 'bilingual'>('bilingual');
   const [isVoicePickerOpen, setIsVoicePickerOpen] = useState(false);
   const { favorites: favoriteVoices } = useFavoriteVoices();
@@ -642,6 +684,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     });
   /** Step 3's rewording, kept apart from step 4's so each step's rows are its own. */
   const finalFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
+  /** The Review step's rewording, one cue at a time. */
+  const reviewFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
   /** The preview with the lengths the user trimmed lines to on the timeline; both steps use it. */
   const linePreview = useMemo(() => withLineTargets(syncPreview.preview, segments), [syncPreview.preview, segments]);
   /** The dub bar picked on the Final dub timeline, for trimming. */
@@ -698,6 +742,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
       if (pacingFilter === 'risk') return cps > 18;
       if (pacingFilter === 'tight') return cps > 14 && cps <= 18;
+      if (pacingFilter === 'short') return endsEarly(seg, getTargetText(seg));
       return true;
     });
   }, [segments, searchQuery, pacingFilter]);
@@ -803,9 +848,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [isSynthesizing, dubProgress, segments, activeJob?.audioBuffer]);
 
   const pacingCounts = useMemo(() => {
-    const counts = { natural: 0, tight: 0, fast: 0 };
+    const counts = { natural: 0, tight: 0, fast: 0, short: 0 };
     segments.forEach((seg) => {
       counts[getPace(getTargetText(seg), seg.duration).level]++;
+      if (endsEarly(seg, getTargetText(seg))) counts.short++;
     });
     return counts;
   }, [segments]);
@@ -1349,6 +1395,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         { id: 'all' as const, label: 'All', count: segments.length, dot: '' },
                         { id: 'risk' as const, label: 'Too fast', count: pacingCounts.fast, dot: 'bg-rose-400' },
                         { id: 'tight' as const, label: 'Tight', count: pacingCounts.tight, dot: 'bg-amber-400' },
+                        { id: 'short' as const, label: 'Ends early', count: pacingCounts.short, dot: 'bg-sky-400' },
                       ].map((f) => (
                         <button
                           key={f.id}
@@ -1421,6 +1468,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               getTargetText={getTargetText}
               onUpdateSegment={onUpdateSegment}
               getPaceLevel={(seg) => getPace(getTargetText(seg), seg.duration).level}
+              isEndingEarly={(seg) => endsEarly(seg, getTargetText(seg))}
               pacingFilter={pacingFilter}
               searchQuery={searchQuery}
               activeSegmentId={activeSegmentId}
@@ -1697,12 +1745,32 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         placeholder={`${targetLanguage} line`}
                         compactToolbar
                       />
-                      {pace.level === 'fast' && (
-                        <p className="mt-1.5 flex items-start gap-1.5 text-[11.5px] text-rose-300 leading-snug">
-                          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-                          <span>Too long for {seg.duration.toFixed(1)}s. Shorten it so the voice doesn't rush.</span>
-                        </p>
-                      )}
+                      {(() => {
+                        const line = reviewLineOf(seg, tgtText, srcText);
+                        const fix = reviewFixes.controlsFor(line);
+                        const flagged = line.status === 'long' || line.status === 'short';
+                        if (!flagged && fix.state.kind === 'idle') return null;
+                        const started = fix.state.kind !== 'idle' && fix.state.kind !== 'error';
+                        return (
+                          <>
+                            {!started && line.status === 'long' && (
+                              <p className="mt-1.5 flex items-start gap-1.5 text-[11.5px] text-rose-300 leading-snug">
+                                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                                <span>Too long for {seg.duration.toFixed(1)}s. Shorten it so the voice doesn't rush.</span>
+                              </p>
+                            )}
+                            {!started && line.status === 'short' && (
+                              <p className="mt-1.5 flex items-start gap-1.5 text-[11.5px] text-sky-300 leading-snug">
+                                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                                <span>
+                                  Ends about {line.underflow.toFixed(1)}s before the original speaker stops. A fuller line fills the gap.
+                                </span>
+                              </p>
+                            )}
+                            <LineFixControls unit={line} cps={REVIEW_CPS} {...fix} />
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 );
