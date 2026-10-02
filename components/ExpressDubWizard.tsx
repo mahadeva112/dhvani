@@ -138,25 +138,32 @@ const getPace = (text: string, duration: number) => {
   };
 };
 
-/** Review estimates a line's speech at the top of a natural pace, so a new wording aims to read naturally. */
+/** Review judges whether a line ends early at the top of a natural pace (see getPace). */
 const REVIEW_CPS = 14;
+/** Past this a line is too fast (see getPace); a shorter wording has to come in under it. */
+const REVIEW_FAST_CPS = 18;
 /** A new wording aims a little under its time, and a fuller one close to all of it, as Sync's suggestions do (server/lib/syncDub.js). */
 const REVIEW_SHORTER_MARGIN = 0.92;
 const REVIEW_FULLER_FILL = 0.95;
 
 /**
  * One cue as a line to reword on the Review step, in the shape the Final
- * dub's rewording works on. Too fast (see getPace) is a line to shorten; a
- * line that at a natural pace ends well before the original speaker stops is
- * one to make fuller. The cue's own time is both its slot and its speech.
+ * dub's rewording works on, with the rate its speech is measured at. Too fast
+ * (see getPace) is a line to shorten, measured at the too-fast limit so a
+ * wording that fits is no longer too fast: aiming lower would ask a short line
+ * to lose so much that no wording keeps its meaning. A line that at a natural
+ * pace ends well before the original speaker stops is one to make fuller. The
+ * cue's own time is both its slot and its speech.
  */
-const reviewLineOf = (seg: AudioSegment, text: string, sourceText: string): SyncPreviewUnit => {
+const reviewLineOf = (seg: AudioSegment, text: string, sourceText: string): SyncPreviewUnit & { cps: number } => {
   const duration = Math.max(0, seg.duration || seg.endTime - seg.startTime);
   const length = text.trim().length;
-  const estimate = length / REVIEW_CPS;
   const level = getPace(text, duration).level;
-  const short = level === 'natural' && length > 0 && isShort(estimate, duration);
+  const short = level === 'natural' && length > 0 && isShort(length / REVIEW_CPS, duration);
+  const cps = short ? REVIEW_CPS : REVIEW_FAST_CPS;
+  const estimate = length / cps;
   return {
+    cps,
     index: 0,
     key: String(seg.id),
     cueIds: [seg.id],
@@ -173,7 +180,7 @@ const reviewLineOf = (seg: AudioSegment, text: string, sourceText: string): Sync
     status: level === 'fast' ? 'long' : level === 'tight' ? 'tight' : short ? 'short' : 'fits',
     targetChars: short
       ? Math.max(length + 1, Math.floor(REVIEW_CPS * duration * REVIEW_FULLER_FILL))
-      : Math.max(1, Math.floor(REVIEW_CPS * duration * REVIEW_SHORTER_MARGIN)),
+      : Math.max(1, Math.floor(REVIEW_FAST_CPS * duration * REVIEW_SHORTER_MARGIN)),
   };
 };
 
@@ -1746,7 +1753,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         compactToolbar
                       />
                       {(() => {
-                        const line = reviewLineOf(seg, tgtText, srcText);
+                        const { cps: lineCps, ...line } = reviewLineOf(seg, tgtText, srcText);
                         const fix = reviewFixes.controlsFor(line);
                         const flagged = line.status === 'long' || line.status === 'short';
                         if (!flagged && fix.state.kind === 'idle') return null;
@@ -1767,7 +1774,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 </span>
                               </p>
                             )}
-                            <LineFixControls unit={line} cps={REVIEW_CPS} {...fix} />
+                            <LineFixControls unit={line} cps={lineCps} {...fix} />
                           </>
                         );
                       })()}

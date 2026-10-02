@@ -98,4 +98,15 @@ test('the rewrite prompt makes the original line the authority on meaning', () =
   const prompt = buildRewritePrompt(request);
   assert.match(prompt, /The meaning must not change\. The original line is the authority/);
   assert.match(prompt, /every negation/);
+  assert.match(prompt, /keep its own word for each idea/);
+});
+
+test("the check judges only what a suggestion changes, not the dub line's own word choices or grammar", () => {
+  const prompt = buildMeaningCheckPrompt({ text: 'dub line', sourceText: 'source line', candidate: 'new', language: 'Hindi', direction: 'shorter' });
+  assert.match(prompt, /Judge only what the suggested wording changes/);
+  assert.match(prompt, /already uses for an idea in the original line/);
+  assert.match(prompt, /Grammar that Hindi naturally uses/);
+  assert.match(prompt, /If you are not sure, it does not keep the meaning/);
+  const noSource = buildMeaningCheckPrompt({ text: 'dub line', sourceText: '', candidate: 'new', direction: 'shorter' });
+  assert.doesNotMatch(noSource, /accepted translation/);
 });
