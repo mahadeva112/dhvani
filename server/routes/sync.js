@@ -80,7 +80,7 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  * fading it.
  *
  * Body: `{ segments, sourceDuration, voiceId, modelId, outputFormat,
- * voiceSettings, language, seed, lineSeeds, precision, suggest,
+ * voiceSettings, language, seed, lineSeeds, precision, join, suggest,
  * suggestLonger, matchLoudness, debug, jobId }`. `suggest` and `suggestLonger`
  * (both on unless false) ask for shorter wordings of long lines and fuller
  * wordings of lines that end early. `lineSeeds` maps a line's key to the seed
@@ -105,6 +105,7 @@ syncRouter.post(
       seed,
       lineSeeds,
       precision,
+      join,
       suggest,
       suggestLonger,
       matchLoudness,
@@ -163,6 +164,7 @@ syncRouter.post(
           sourceDuration: Number(sourceDuration) || 0,
           sampleRate,
           precision,
+          join,
           suggest: suggest !== false,
           suggestLonger: suggestLonger !== false,
           language,
@@ -197,13 +199,13 @@ syncRouter.post(
 
 /**
  * POST /api/sync/preview — which lines are likely to fit before anything is
- * voiced. Body: `{ segments, precision, charsPerSecond, sourceDuration }`.
+ * voiced. Body: `{ segments, precision, charsPerSecond, sourceDuration, join }`.
  * Pure arithmetic on the cues: no voice and no text model is called.
  */
 syncRouter.post('/sync/preview', (req, res) => {
-  const { segments, precision, charsPerSecond, sourceDuration } = req.body || {};
+  const { segments, precision, charsPerSecond, sourceDuration, join } = req.body || {};
   if (!Array.isArray(segments)) throw new ApiError('There are no cues to preview.', { status: 400, code: 'no_segments' });
-  res.json(previewSync({ segments, precision, charsPerSecond, sourceDuration }));
+  res.json(previewSync({ segments, precision, charsPerSecond, sourceDuration, join }));
 });
 
 /**

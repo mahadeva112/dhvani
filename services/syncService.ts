@@ -7,7 +7,8 @@ import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './ca
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
  * plays in step with the original. The voice is never changed — no speed
  * change, no gain and no fades; lines are only moved and the silent pauses
- * inside them shortened. A line too long for its slot is flagged with a
+ * inside them shortened (SyncJoinSettings decides how far; its two fades are
+ * off unless asked for). A line too long for its slot is flagged with a
  * suggested shorter wording, and a line that ends well before the original
  * speaker stops with a fuller one; neither is ever applied by itself (see
  * server/lib/syncDub.js).
@@ -23,9 +24,114 @@ export const SYNC_PRECISION_OPTIONS: { id: SyncPrecision; label: string }[] = [
   { id: 'loose', label: 'Loose (±300 ms)' },
 ];
 
+/**
+ * How a synced dub joins its lines. Times are in seconds, shares from 0 to 1;
+ * the server keeps every value inside its range (server/lib/syncSettings.js).
+ * Only `spliceCrossfade` and `edgeFade` change the audio itself.
+ */
+export interface SyncJoinSettings {
+  /** Smallest silence between one line's tail and the next line's first sound. */
+  minGap: number;
+  /** The same, where the speaker changes. */
+  speakerGap: number;
+  /** Share of the source pause the dub keeps at least (up to 0.6 s). */
+  gapShare: number;
+  /** A line's breath before its first word never plays over the line before. */
+  breathClear: boolean;
+  /** Take silence out of the pauses inside a line that runs long. */
+  shortenPauses: boolean;
+  /** A pause inside a line is never shortened below this. */
+  minInnerPause: number;
+  /** The most of any one pause that may be taken out. */
+  maxPauseTake: number;
+  /** Equal-power crossfade at each pause cut; 0 is a plain cut inside silence. Changes the audio. */
+  spliceCrossfade: number;
+  /** A line's tail runs until the audio stays below this level, in dBFS. */
+  tailFloorDb: number;
+  /** Silence kept after a line's tail. */
+  tailHold: number;
+  /** Fade for an edge that stops on sound; 0 keeps the 3 ms micro-fade. Changes the audio. */
+  edgeFade: number;
+  /** A line starting later than this after its source line is flagged. */
+  maxLateStart: number;
+  /** Cues closer than this, by the same speaker, are voiced as one line. */
+  unitGap: number;
+  /** A joined line is never longer than this. */
+  maxUnit: number;
+  /** A join with less than this between the words either side is flagged. */
+  flagJoin: number;
+}
+
+export type SyncJoinPreset = 'natural' | 'tight' | 'lipsync' | 'custom';
+
+/** Natural is also what the server syncs with when no settings are sent. */
+export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJoinSettings> = {
+  natural: {
+    minGap: 0.18,
+    speakerGap: 0.3,
+    gapShare: 0.5,
+    breathClear: true,
+    shortenPauses: true,
+    minInnerPause: 0.25,
+    maxPauseTake: 0.4,
+    spliceCrossfade: 0,
+    tailFloorDb: -70,
+    tailHold: 0.04,
+    edgeFade: 0,
+    maxLateStart: 0.25,
+    unitGap: 0.4,
+    maxUnit: 12,
+    flagJoin: 0.15,
+  },
+  tight: {
+    minGap: 0.12,
+    speakerGap: 0.22,
+    gapShare: 0.35,
+    breathClear: true,
+    shortenPauses: true,
+    minInnerPause: 0.2,
+    maxPauseTake: 0.6,
+    spliceCrossfade: 0,
+    tailFloorDb: -70,
+    tailHold: 0.025,
+    edgeFade: 0,
+    maxLateStart: 0.18,
+    unitGap: 0.3,
+    maxUnit: 12,
+    flagJoin: 0.11,
+  },
+  lipsync: {
+    minGap: 0.09,
+    speakerGap: 0.18,
+    gapShare: 0.3,
+    breathClear: true,
+    shortenPauses: true,
+    minInnerPause: 0.18,
+    maxPauseTake: 0.7,
+    spliceCrossfade: 0,
+    tailFloorDb: -70,
+    tailHold: 0.015,
+    edgeFade: 0,
+    maxLateStart: 0.1,
+    unitGap: 0.25,
+    maxUnit: 12,
+    flagJoin: 0.09,
+  },
+};
+
+export const SYNC_JOIN_PRESET_OPTIONS: { id: SyncJoinPreset; label: string; hint: string }[] = [
+  { id: 'natural', label: 'Natural (recommended)', hint: 'Room to breathe between lines.' },
+  { id: 'tight', label: 'Tight', hint: 'Follows the original pauses closely.' },
+  { id: 'lipsync', label: 'Strict lip-sync', hint: 'Smallest gaps, for on-screen faces.' },
+  { id: 'custom', label: 'Custom', hint: 'Your own settings, below.' },
+];
+
 /** What the user picks before a sync. */
 export interface SyncOptions {
   precision: SyncPrecision;
+  /** Which preset `join` came from; 'custom' once any of it is changed. */
+  preset: SyncJoinPreset;
+  join: SyncJoinSettings;
   /** Ask the text model for shorter wordings of lines that run long. */
   suggest: boolean;
   /** Ask the text model for fuller wordings of lines that end well before the original speaker stops. */
@@ -114,10 +220,18 @@ export interface SyncUnitReport {
   suggestion: string | null;
   /** Seconds taken out of the pauses inside the line. */
   pauseTrimmed: number;
+  /** The line's first word landed later after its source line than the join settings allow. */
+  late: boolean;
+  /** Seconds from this line's last word to the next line's first; null for the last line. */
+  joinAfter: number | null;
+  /** `joinAfter` is under the join settings' review limit. */
+  tightJoin: boolean;
 }
 
 export interface SyncReport {
   precision: SyncPrecision;
+  /** The join settings the sync ran with, as the server kept them. */
+  join: SyncJoinSettings;
   tolerance: number;
   /** Length of the synced dub. */
   duration: number;
@@ -140,6 +254,10 @@ export interface SyncReport {
     /** Why some or all suggestions are missing: the text model's error, or null. */
     suggestionError: string | null;
     pauseTrimmed: number;
+    /** Lines pushed later than the join settings allow. */
+    late: number;
+    /** Joins with less silence between the words than the review limit. */
+    tightJoins: number;
     silent: number;
   };
   units: SyncUnitReport[];
@@ -179,6 +297,8 @@ export interface SyncRequest {
   language?: string;
   seed?: number;
   precision: SyncPrecision;
+  /** How lines are joined; the server's Natural settings when left out. */
+  join?: SyncJoinSettings;
   /** Ask the text model for shorter wordings of lines that run long. */
   suggest: boolean;
   /** Ask the text model for fuller wordings of lines that end early. */
@@ -369,7 +489,7 @@ export interface SyncPreview {
 
 /** Which lines are likely to fit, before anything is voiced. No voice or text model is called. */
 export const previewSync = (
-  request: { segments: AudioSegment[]; precision: SyncPrecision; charsPerSecond: number; sourceDuration?: number },
+  request: { segments: AudioSegment[]; precision: SyncPrecision; charsPerSecond: number; sourceDuration?: number; join?: SyncJoinSettings },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncPreview> =>
   apiJson<SyncPreview>('/sync/preview', { body: { ...request, segments: request.segments.map(slimSegment) }, signal });

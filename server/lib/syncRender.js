@@ -15,6 +15,10 @@
  * a step, and a step clicks. There the edge moves to the nearest quiet sample
  * within EDGE_SEARCH_SECONDS, and only when there is none does the edge get a
  * MICRO_FADE_SECONDS fade, in the render, never in the clip.
+ *
+ * Two opt-in settings do change the audio (see syncSettings.js): a crossfade
+ * at each pause cut, and a longer fade than the micro-fade for an edge that
+ * stops on sound. Both are off unless asked for.
  */
 import { matchingGains } from './loudness.js';
 
@@ -42,10 +46,10 @@ export const MICRO_FADE_SECONDS = 0.003;
  * `run` samples, i.e. where a cut is inaudible; `samples.length` when the
  * audio never goes quiet.
  */
-const quietAfter = (samples, from, run) => {
+const quietAfter = (samples, from, run, quiet = QUIET) => {
   let count = 0;
   for (let i = from; i < samples.length; i++) {
-    count = Math.abs(samples[i]) < QUIET ? count + 1 : 0;
+    count = Math.abs(samples[i]) < quiet ? count + 1 : 0;
     if (count >= run) return i + 1;
   }
   return samples.length;
@@ -67,8 +71,13 @@ const quietBefore = (samples, from, run) => {
  * `{ samples, lead, speech, start, end }` — `lead` is the seconds before the
  * first word, `speech` the seconds from first to last word, and `start`/`end`
  * the range of the clip kept — or null when the clip is silent.
+ *
+ * `tailQuiet` is how quiet (linear) the audio after the last word must stay
+ * before the tail ends; a lower level keeps more of a voice's decay.
+ * `tailHold` keeps that many more seconds after it, as far as the clip goes.
+ * Either way the tail ends inside silence.
  */
-export const prepareClip = (samples, sampleRate) => {
+export const prepareClip = (samples, sampleRate, { tailQuiet = QUIET, tailHold = 0 } = {}) => {
   let first = -1;
   for (let i = 0; i < samples.length; i++) {
     if (Math.abs(samples[i]) > SPEECH_THRESHOLD) {
@@ -82,7 +91,7 @@ export const prepareClip = (samples, sampleRate) => {
 
   const run = Math.max(1, Math.round(QUIET_RUN_SECONDS * sampleRate));
   const start = quietBefore(samples, first - 1, run);
-  const end = quietAfter(samples, last + 1, run);
+  const end = Math.min(samples.length, quietAfter(samples, last + 1, run, Math.min(QUIET, tailQuiet)) + Math.round(Math.max(0, tailHold) * sampleRate));
   return {
     samples: samples.slice(start, end),
     lead: (first - start) / sampleRate,
@@ -116,18 +125,22 @@ const innerPauses = (samples, sampleRate) => {
 /**
  * Shortens the pauses between words in a clip by up to `seconds` in total,
  * taking from the longest pauses first and never leaving one shorter than
- * MIN_INNER_PAUSE_SECONDS. Only silence is removed: each pause loses its
- * middle, and the audio either side of every cut is silent, so the cut can't
- * be heard. Returns `{ samples, removed, cuts }`, `cuts` being the sample
- * ranges taken out, in order.
+ * `minPause` (MIN_INNER_PAUSE_SECONDS unless given) and never taking more
+ * than `maxTake` of any one pause. Only silence is removed: each pause loses
+ * its middle, and the audio either side of every cut is silent, so the cut
+ * can't be heard. `crossfade` (seconds, 0 by default) blends the two sides of
+ * each cut with an equal-power crossfade instead, for room tone that differs
+ * either side; it changes those samples. Returns `{ samples, removed, cuts }`,
+ * `cuts` being the sample ranges taken out, in order.
  */
-export const shortenPauses = (samples, sampleRate, seconds) => {
-  const floor = Math.round(MIN_INNER_PAUSE_SECONDS * sampleRate);
+export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INNER_PAUSE_SECONDS, maxTake = 1, crossfade = 0 } = {}) => {
+  const floor = Math.round(minPause * sampleRate);
   let budget = Math.round(Math.max(0, seconds) * sampleRate);
   const cuts = [];
   for (const pause of innerPauses(samples, sampleRate)) {
     if (budget <= 0) break;
-    const spare = pause.end - pause.start - floor;
+    const length = pause.end - pause.start;
+    const spare = Math.min(length - floor, Math.floor(Math.max(0, maxTake) * length));
     if (spare <= 0) continue;
     const take = Math.min(spare, budget);
     const start = Math.round((pause.start + pause.end - take) / 2);
@@ -139,11 +152,19 @@ export const shortenPauses = (samples, sampleRate, seconds) => {
   cuts.sort((a, b) => a.start - b.start);
   const removedSamples = cuts.reduce((sum, cut) => sum + cut.end - cut.start, 0);
   const output = new Float32Array(samples.length - removedSamples);
+  const blend = Math.round(Math.max(0, crossfade) * sampleRate);
   let from = 0;
   let to = 0;
   for (const cut of cuts) {
-    output.set(samples.subarray(from, cut.start), to);
-    to += cut.start - from;
+    // The last `fade` samples before the cut fade out over the last `fade` samples it removes, which fade in.
+    const fade = Math.min(blend, cut.end - cut.start, cut.start - from);
+    output.set(samples.subarray(from, cut.start - fade), to);
+    to += cut.start - fade - from;
+    for (let k = 0; k < fade; k++) {
+      const t = ((k + 0.5) / fade) * (Math.PI / 2);
+      output[to + k] = samples[cut.start - fade + k] * Math.cos(t) + samples[cut.end - fade + k] * Math.sin(t);
+    }
+    to += fade;
     from = cut.end;
   }
   output.set(samples.subarray(from), to);
@@ -221,13 +242,14 @@ export const clipEdges = (samples, { startLimit, endLimit, fadeLength, joinedSta
  *
  * `matchLoudness` first brings every clip to the same speech loudness (one
  * gain per clip). It is off unless asked for, since it changes how each line
- * was voiced. `log`, when given, is called once per clip with exactly what
- * the render did to it.
+ * was voiced. `fadeSeconds` is the fade an edge that stops on sound gets
+ * (MICRO_FADE_SECONDS unless asked for longer). `log`, when given, is called
+ * once per clip with exactly what the render did to it.
  */
-export const renderTimeline = (clips, { sampleRate, length = 0, runOut = 0.3, matchLoudness = false, log } = {}) => {
+export const renderTimeline = (clips, { sampleRate, length = 0, runOut = 0.3, matchLoudness = false, fadeSeconds = MICRO_FADE_SECONDS, log } = {}) => {
   const gains = matchLoudness ? matchingGains(clips.map((clip) => clip.samples), sampleRate) : clips.map(() => 1);
   const searchLimit = Math.round(EDGE_SEARCH_SECONDS * sampleRate);
-  const fadeLength = Math.max(1, Math.round(MICRO_FADE_SECONDS * sampleRate));
+  const fadeLength = Math.max(1, Math.round(Math.max(MICRO_FADE_SECONDS, fadeSeconds) * sampleRate));
 
   const starts = clips.map((clip) => Math.max(0, Number.isInteger(clip.startSample) ? clip.startSample : Math.round(clip.position * sampleRate)));
   const continues = (a, b) =>

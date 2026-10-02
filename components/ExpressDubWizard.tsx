@@ -604,6 +604,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       ((activeStep === 4 && !hasSyncReport) || (activeStep === 3 && !isSynthesizing)) && !isSyncing && segments.length > 0,
     segments,
     precision: syncOptions.precision,
+    join: syncOptions.join,
     charsPerSecond: previewRate,
     sourceDuration: activeJob?.audioBuffer?.duration || 0,
   });

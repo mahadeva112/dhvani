@@ -21,7 +21,8 @@
 import { createHash } from 'node:crypto';
 import { ApiError } from '../errors.js';
 import { cancelledError } from './http.js';
-import { buildSyncUnits, minimumGap } from './syncUnits.js';
+import { buildSyncUnits, unitGapAfter } from './syncUnits.js';
+import { resolveJoinSettings, dbToAmplitude } from './syncSettings.js';
 import { placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, shortenPauses, renderTimeline, startAfterCut } from './syncRender.js';
 import { TTS_CONTEXT_CHARS } from './ttsText.js';
@@ -70,7 +71,8 @@ const SUGGESTION_CONCURRENCY = 4;
  * A clip often opens with a soft breath or room noise before its first word
  * (below speech level, above silence). All of it is kept, but only this much
  * before the first word counts when clips are spaced out: the rest may overlap
- * the silent tail of the line before, where it is mixed in, never cut.
+ * the silent tail of the line before, where it is mixed in, never cut. With
+ * `breathClear` on (the default) the whole pre-roll is spaced out instead.
  */
 const LEAD_GUARD_SECONDS = 0.03;
 
@@ -116,7 +118,8 @@ const mapLimit = async (items, limit, fn) => {
 /**
  * Runs a sync.
  *
- * `params`: `{ segments, sourceDuration, sampleRate, precision, suggest, suggestLonger, language, voice, lineSeeds, matchLoudness, debug }`,
+ * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, language, voice, lineSeeds, matchLoudness, debug }`,
+ * where `join` is how lines are joined (gaps, pauses, tails and flags; see syncSettings.js, Natural when left out),
  * where `suggest` asks for shorter wordings of long lines and `suggestLonger` for fuller wordings of short ones (both on by default),
  * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`,
  * `lineSeeds` maps a line's key (see lineKey) to the seed of a retake of it,
@@ -150,6 +153,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
+  const join = resolveJoinSettings(params.join);
   const checkCancelled = () => {
     if (signal?.aborted) throw cancelledError('Sync');
   };
@@ -162,7 +166,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   report({});
 
   // 1. Units
-  const units = buildSyncUnits(segments).filter((unit) => hasWords(unit.text));
+  const units = buildSyncUnits(segments, join).filter((unit) => hasWords(unit.text));
   if (units.length === 0) {
     throw new ApiError('There are no translated lines to sync.', { status: 400, code: 'no_lines' });
   }
@@ -202,17 +206,17 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   for (const buffer of buffers) {
     const samples = await deps.decode(buffer);
     voicedLength.push(samples.length);
-    clips.push(prepareClip(samples, sampleRate));
+    clips.push(prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold }));
   }
   checkCancelled();
 
   /**
    * The part of clip `i` that is spaced out against its neighbours: from just
    * before its first word to the end of its tail. `head` is the pre-roll before
-   * that, which may overlap the line before.
+   * that, which may overlap the line before; none when breaths are kept clear.
    */
   const core = (i) => {
-    const head = Math.max(0, clips[i].lead - LEAD_GUARD_SECONDS);
+    const head = join.breathClear ? 0 : Math.max(0, clips[i].lead - LEAD_GUARD_SECONDS);
     return { head, lead: clips[i].lead - head, speech: clips[i].speech, length: clips[i].samples.length / sampleRate - head };
   };
 
@@ -222,7 +226,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     const start = unit.srcStart - core(i).lead;
     const limit =
       unit.nextStart !== null
-        ? unit.nextStart - (clips[i + 1] ? core(i + 1).lead : 0) - minimumGap(unit.gapAfter)
+        ? unit.nextStart - (clips[i + 1] ? core(i + 1).lead : 0) - unitGapAfter(unit, join)
         : sourceDuration > 0
           ? Math.max(sourceDuration, unit.srcEnd) + 0.5
           : Infinity;
@@ -236,8 +240,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const pauseCuts = new Map();
   units.forEach((_, i) => {
     const excess = overflow(i);
-    if (!clips[i] || excess <= 0) return;
-    const { samples, removed, cuts } = shortenPauses(clips[i].samples, sampleRate, excess);
+    if (!join.shortenPauses || !clips[i] || excess <= 0) return;
+    const { samples, removed, cuts } = shortenPauses(clips[i].samples, sampleRate, excess, {
+      minPause: join.minInnerPause,
+      maxTake: join.maxPauseTake,
+      crossfade: join.spliceCrossfade,
+    });
     if (removed > 0) {
       clips[i] = { ...clips[i], samples, speech: clips[i].speech - removed };
       pauseTrimmed.set(i, removed);
@@ -254,7 +262,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       return {
         want,
         length: cores[n].length,
-        gapAfter: n < placedIndex.length - 1 ? minimumGap(unit.gapAfter) : 0,
+        gapAfter: n < placedIndex.length - 1 ? unitGapAfter(unit, join) : 0,
         weight: unit.hardAnchor ? HARD_ANCHOR_WEIGHT : 1,
         earliest: want - tolerance,
         // Only the first word has to be inside the track; what comes before it may be dropped.
@@ -283,7 +291,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       positions[n] += cut.delay / sampleRate;
       return { samples: clips[i].samples.subarray(cut.from), startSample: 0, maxStartShift: 0 };
     }),
-    { sampleRate, length: sourceDuration, matchLoudness, log: debug ? (entry) => rendered.push(entry) : undefined }
+    { sampleRate, length: sourceDuration, matchLoudness, fadeSeconds: join.edgeFade, log: debug ? (entry) => rendered.push(entry) : undefined }
   );
   const { buffer, contentType } = await deps.encode(track);
   checkCancelled();
@@ -335,6 +343,13 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     const line = lineFor.get(i);
     return Boolean(line) && (exceededBy[i] > allowedOverflow || (!line.inSync && exceededBy[i] > 0));
   });
+  // A line pushed later than the user allows, and a join with too little silence between the words either side.
+  const late = units.map((_, i) => Boolean(lineFor.get(i)) && lineFor.get(i).offset > join.maxLateStart);
+  const joinAfter = new Map();
+  placedIndex.forEach((i, n) => {
+    if (n < placedIndex.length - 1) joinAfter.set(i, lines[n + 1].placedStart - lines[n].placedEnd);
+  });
+  const tightJoin = units.map((_, i) => joinAfter.has(i) && joinAfter.get(i) < join.flagJoin);
 
   // A line ends early when its words, as voiced, leave much of the original speech unsaid.
   const spokenOf = (i) => Math.max(0, units[i].srcEnd - units[i].srcStart);
@@ -410,6 +425,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       targetChars: targetChars[i],
       suggestion: suggestions.get(i) || null,
       pauseTrimmed: pauseTrimmed.get(i) || 0,
+      late: late[i],
+      joinAfter: joinAfter.has(i) ? joinAfter.get(i) : null,
+      tightJoin: tightJoin[i],
     };
   });
 
@@ -419,6 +437,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     report: {
       precision,
       tolerance,
+      join,
       duration: track.length / sampleRate,
       summary: {
         ...summary,
@@ -431,6 +450,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         meaningRejected,
         suggestionError,
         pauseTrimmed: pauseTrimmed.size,
+        late: late.filter(Boolean).length,
+        tightJoins: tightJoin.filter(Boolean).length,
         silent: units.length - placedIndex.length,
       },
       units: unitReports,

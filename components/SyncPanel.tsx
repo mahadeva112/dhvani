@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, Scissors, X } from 'lucide-react';
+import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, Scissors, X } from 'lucide-react';
 import { TimelineScrollbar, TimelineTransport, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import {
@@ -12,6 +12,7 @@ import {
   SyncUnitReport,
 } from '../services/syncService';
 import { isShort } from './SyncPreviewPanel';
+import { joinPresetOf, readJoinSettings, SyncJoinSettingsPanel } from './SyncJoinSettings';
 
 /**
  * Sync, step 4: makes a dub that plays in step with the original, line by
@@ -34,17 +35,43 @@ const formatClock = (seconds: number) => {
 
 const formatOffset = (seconds: number) => `${seconds > 0 ? '+' : seconds < 0 ? '−' : '±'}${Math.abs(seconds).toFixed(2)} s`;
 
+/** The settings Sync starts with: phrase precision, Natural joins, both kinds of suggestion, loudness as voiced. */
+export const defaultSyncOptions = (): SyncOptions => ({
+  precision: 'phrase',
+  preset: 'natural',
+  join: readJoinSettings(null),
+  suggest: true,
+  suggestLonger: true,
+  matchLoudness: false,
+});
+
+const isDefaultOptions = (options: SyncOptions) => {
+  const defaults = defaultSyncOptions();
+  return (
+    options.precision === defaults.precision &&
+    options.preset === defaults.preset &&
+    options.suggest === defaults.suggest &&
+    options.suggestLonger === defaults.suggestLonger &&
+    options.matchLoudness === defaults.matchLoudness &&
+    joinPresetOf(options.join) === 'natural'
+  );
+};
+
 const readOptions = (): SyncOptions => {
   try {
     const saved = JSON.parse(localStorage.getItem(OPTIONS_KEY) || '{}');
+    const join = readJoinSettings(saved.join);
     return {
       precision: SYNC_PRECISION_OPTIONS.some((o) => o.id === saved.precision) ? saved.precision : 'phrase',
+      // A saved Custom stays Custom even when it happens to match a preset.
+      preset: saved.preset === 'custom' ? 'custom' : joinPresetOf(join),
+      join,
       suggest: saved.suggest !== false,
       suggestLonger: saved.suggestLonger !== false,
       matchLoudness: saved.matchLoudness === true,
     };
   } catch {
-    return { precision: 'phrase', suggest: true, suggestLonger: true, matchLoudness: false };
+    return defaultSyncOptions();
   }
 };
 
@@ -74,6 +101,9 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
   if (unit.short)
     return `Ends ${unit.shortBy.toFixed(1)} s before the original speaker stops: ${unit.speech.toFixed(1)} s said, ${(unit.srcEnd - unit.srcStart).toFixed(1)} s spoken`;
   if (unit.overrun !== null && unit.overrun > tolerance) return `Runs ${unit.overrun.toFixed(2)} s into the next line`;
+  if (unit.tightJoin && unit.joinAfter !== null)
+    return `Only ${Math.max(0, Math.round(unit.joinAfter * 1000))} ms before the next line starts: it may sound cut off`;
+  if (unit.late && unit.offset !== null) return `Starts ${unit.offset.toFixed(2)} s late: the line before it runs long`;
   if (unit.offset !== null && Math.abs(unit.offset) > tolerance) return unit.offset > 0 ? 'Starts late: the line before it runs long' : 'Starts early to make room';
   return null;
 };
@@ -170,6 +200,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         </select>
         {previewShown && <span className="text-[11.5px] text-slate-400">The preview updates when you change this.</span>}
       </div>
+      <SyncJoinSettingsPanel options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />
       <label className="flex items-start gap-2.5 cursor-pointer">
         <input
           type="checkbox"
@@ -211,6 +242,15 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           <span className="block text-[11.5px] text-slate-400 mt-0.5">Off, each line keeps exactly the level it was voiced at.</span>
         </span>
       </label>
+      <button
+        type="button"
+        onClick={() => onOptionsChange(defaultSyncOptions())}
+        disabled={isSyncing || isDefaultOptions(options)}
+        title={isDefaultOptions(options) ? 'Already on the default settings' : 'Phrase precision, Natural line joins, both suggestions on, loudness as voiced'}
+        className="self-start flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+      >
+        <RotateCcw className="w-3.5 h-3.5" /> Reset to defaults
+      </button>
     </div>
 
     {synced && (onDownloadWav || onOpenVoiceChanger) && (
@@ -524,7 +564,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                   ? 'Every line landed within tolerance.'
                   : `${review.filter((r) => !r.unit.inSync).length} outside tolerance · ${report.summary.exceeded} too long for their slot${
                       report.summary.short ? ` · ${report.summary.short} end early` : ''
-                    }`}
+                    }${report.summary.tightJoins ? ` · ${report.summary.tightJoins} tight ${report.summary.tightJoins === 1 ? 'join' : 'joins'}` : ''}`}
               </span>
             </div>
             {pendingLines.length > 0 && (
