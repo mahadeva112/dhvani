@@ -54,6 +54,7 @@ This dub line takes too long to say in the time the original speaker took. Rewri
 Rules:
 - The meaning must not change. ${sourceText ? 'The original line is the authority: e' : 'E'}very idea in it must still be there: who does what to whom, every negation, condition, qualifier and emphasis, the tense, and the speaker's intent.
 - Drop only filler and repetition first, then use shorter words or phrasing for the same ideas.
+- Shorten the dub line as it is written: keep its own word for each idea rather than translating the original again.
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
 - Do not add anything that is not in the original line.
@@ -136,6 +137,14 @@ It does NOT keep the meaning if, compared with the ${sourceText ? 'original line
 - adds any idea, fact, example or opinion that is not there${direction === 'longer' ? ' (saying what is there more fully is fine)' : ''};
 - changes who does what to whom, a negation, the tense, a number, a name or a key term;
 - changes the tone or intent, such as a question into a statement, or a request into an order.
+${
+  sourceText
+    ? `
+Judge only what the suggested wording changes. The current dub line is the accepted translation: a word or phrasing it already uses for an idea in the original line (a near-synonym, an idiom) is not a change, even where it differs from the original line, so keeping it is fine.
+`
+    : ''
+}
+Grammar that ${language || 'the dub language'} naturally uses for the same meaning is not a change: a past or perfective form inside an "if" clause, a dropped pronoun, a different word order, a punctuation mark or a pause.
 
 If you are not sure, it does not keep the meaning.
 
