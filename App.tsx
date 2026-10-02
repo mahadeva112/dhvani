@@ -2380,6 +2380,7 @@ export default function App() {
         tuneStability={tuneStability}
         onTuneStabilityChange={handleTuneStabilityChange}
         lastStabilityAdjustment={lastStabilityAdjustment}
+        cartesiaReady={cartesiaConfigured}
         cartesiaPrefs={cartesiaVoice}
         onCartesiaPrefsChange={handleCartesiaPrefsChange}
         availableVoices={engineVoices}
