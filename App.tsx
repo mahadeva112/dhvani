@@ -3115,6 +3115,11 @@ export default function App() {
         availableVoices={availableVoices}
         selectedVoiceId={elVoiceId}
         elModelId={elModelId}
+        dubVoiceSettings={elVoiceSettings}
+        onDubVoiceSettingsChange={handleElVoiceSettingsChange}
+        onDubModelIdChange={handleElModelIdChange}
+        dubExpressive={emotionEnhance}
+        onDubExpressiveChange={handleEmotionEnhanceChange}
         cartesiaAvailable={cartesiaConfigured}
         cartesiaPrefs={cartesiaVoice}
         onCartesiaPrefsChange={handleCartesiaPrefsChange}

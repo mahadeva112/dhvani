@@ -86,6 +86,8 @@ interface StudioPrefs {
   outputFormat: string;
   voices: Partial<Record<VoiceEngine, string>>;
   el: {
+    /** Use the dub's model, voice settings and delivery cues, so a take sounds like the dub. */
+    followDub: boolean;
     modelId: string;
     useOwnSettings: boolean;
     settings: ElevenLabsVoiceSettings;
@@ -139,6 +141,7 @@ const readPrefs = (fallbackModel: string): StudioPrefs => {
     outputFormat: 'mp3_44100_128',
     voices: {},
     el: {
+      followDub: true,
       modelId: fallbackModel || DEFAULT_ELEVENLABS_MODEL,
       useOwnSettings: true,
       settings: { ...DEFAULT_VOICE_SETTINGS },
@@ -184,6 +187,15 @@ interface TextToSpeechModalProps {
   selectedVoiceId: string;
   /** The dub's ElevenLabs model, used until the studio has its own. */
   elModelId: string;
+  /**
+   * The dub's ElevenLabs settings (null: the voice's own) and delivery cues.
+   * With the setters given, the studio can share them ("Same as the dub").
+   */
+  dubVoiceSettings?: ElevenLabsVoiceSettings | null;
+  onDubVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
+  onDubModelIdChange?: (modelId: string) => void;
+  dubExpressive?: boolean;
+  onDubExpressiveChange?: (enabled: boolean) => void;
   /** True when a Cartesia key is set up. */
   cartesiaAvailable?: boolean;
   /** How a Cartesia voice is voiced, shared with the dub and the Sync tab. */
@@ -205,6 +217,11 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
   availableVoices,
   selectedVoiceId,
   elModelId,
+  dubVoiceSettings = null,
+  onDubVoiceSettingsChange,
+  onDubModelIdChange,
+  dubExpressive = false,
+  onDubExpressiveChange,
   cartesiaAvailable = false,
   cartesiaPrefs,
   onCartesiaPrefsChange,
@@ -268,7 +285,35 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
       }),
     [persist]
   );
-  const setEl = (patch: Partial<StudioPrefs['el']>) => updatePrefs((p) => ({ ...p, el: { ...p.el, ...patch } }));
+  const setOwnEl = (patch: Partial<StudioPrefs['el']>) => updatePrefs((p) => ({ ...p, el: { ...p.el, ...patch } }));
+  // "Same as the dub": the model, settings and delivery cues are the dub's own, read and written there.
+  const canFollowDub = Boolean(onDubVoiceSettingsChange && onDubModelIdChange && onDubExpressiveChange);
+  const followDub = prefs.el.followDub && canFollowDub;
+  const el: StudioPrefs['el'] = followDub
+    ? {
+        ...prefs.el,
+        modelId: elModelId || prefs.el.modelId,
+        useOwnSettings: !dubVoiceSettings,
+        settings: dubVoiceSettings || prefs.el.settings,
+        expressive: dubExpressive,
+      }
+    : prefs.el;
+  const setEl = (patch: Partial<StudioPrefs['el']>) => {
+    if (!followDub) return setOwnEl(patch);
+    const { modelId, useOwnSettings, settings, expressive, ...rest } = patch;
+    if (modelId !== undefined) onDubModelIdChange?.(modelId);
+    if (expressive !== undefined) onDubExpressiveChange?.(expressive);
+    if (useOwnSettings === true) onDubVoiceSettingsChange?.(null);
+    else if (settings !== undefined || useOwnSettings === false) onDubVoiceSettingsChange?.({ ...(settings ?? el.settings) });
+    if (Object.keys(rest).length) setOwnEl(rest);
+  };
+  /** Switches sharing on or off; switched off, the studio starts from the dub's values so nothing jumps. */
+  const setFollowDub = (on: boolean) =>
+    setOwnEl(
+      on
+        ? { followDub: true }
+        : { followDub: false, modelId: el.modelId, useOwnSettings: el.useOwnSettings, settings: el.settings, expressive: el.expressive }
+    );
   const cartesia = cartesiaPrefs || { ...DEFAULT_CARTESIA_PREFS, modelId: CARTESIA_MODELS[0].id };
   const setCartesia = (patch: Partial<CartesiaVoicePrefs>) => onCartesiaPrefsChange?.({ ...cartesia, ...patch });
 
@@ -346,11 +391,11 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
     []
   );
 
-  const elModel = models.find((m) => m.model_id === prefs.el.modelId) ||
-    ALL_ELEVENLABS_MODELS.find((m) => m.model_id === prefs.el.modelId);
-  const takesTags = performsAudioTags(prefs.el.modelId);
-  const isV3 = /^eleven_v3/.test(prefs.el.modelId);
-  const speedApplies = modelTakesSpeed(prefs.el.modelId);
+  const elModel = models.find((m) => m.model_id === el.modelId) ||
+    ALL_ELEVENLABS_MODELS.find((m) => m.model_id === el.modelId);
+  const takesTags = performsAudioTags(el.modelId);
+  const isV3 = /^eleven_v3/.test(el.modelId);
+  const speedApplies = modelTakesSpeed(el.modelId);
   const cartesiaModel = CARTESIA_MODELS.find((m) => m.id === cartesia.modelId);
   const cartesiaControls = cartesiaTakesControls(cartesia.modelId);
 
@@ -384,10 +429,10 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
     runsRef.current.set(id, { jobId, controller });
 
     const format = prefs.outputFormat;
-    const seed = e === 'elevenlabs' ? (prefs.el.seedLocked ? prefs.el.seed : randomSeed()) : undefined;
+    const seed = e === 'elevenlabs' ? (el.seedLocked ? el.seed : randomSeed()) : undefined;
     const modelLabel =
       e === 'elevenlabs'
-        ? elModel?.name || prefs.el.modelId
+        ? elModel?.name || el.modelId
         : cartesiaModel?.name || cartesia.modelId;
 
     setTakes((prev) => {
@@ -430,11 +475,11 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
     try {
       let blob: Blob;
       if (e === 'elevenlabs') {
-        const settings = prefs.el.useOwnSettings
+        const settings = el.useOwnSettings
           ? null
-          : { ...prefs.el.settings, ...(speedApplies ? {} : { speed: undefined }) };
-        blob = await synthesizeSpeech(elApiKey, takeVoiceId, script, prefs.el.modelId, format, settings, {
-          expressive: prefs.el.expressive && takesTags,
+          : { ...el.settings, ...(speedApplies ? {} : { speed: undefined }) };
+        blob = await synthesizeSpeech(elApiKey, takeVoiceId, script, el.modelId, format, settings, {
+          expressive: el.expressive && takesTags,
           audioTags: takesTags,
           language: prefs.language,
           seed,
@@ -575,7 +620,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
 
   const canGenerate = chars > 0 && Boolean(voiceId);
   const canCompare = cartesiaAvailable && chars > 0 && Boolean(voiceIdFor('elevenlabs')) && Boolean(voiceIdFor('cartesia'));
-  const activeSettings = prefs.el.useOwnSettings ? ownSettings : prefs.el.settings;
+  const activeSettings = el.useOwnSettings ? ownSettings : el.settings;
   const formatHint = OUTPUT_FORMATS.find((f) => f.id === prefs.outputFormat)?.hint;
 
   const slider = (
@@ -820,7 +865,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                 {engine === 'elevenlabs' && (
                   <ResetDefaultsButton
                     onClick={() => setEl({ useOwnSettings: false, settings: { ...DEFAULT_VOICE_SETTINGS } })}
-                    disabled={!prefs.el.useOwnSettings && isElevenLabsDefault(prefs.el.settings)}
+                    disabled={!el.useOwnSettings && isElevenLabsDefault(el.settings)}
                   />
                 )}
               </div>
@@ -832,12 +877,12 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       <label htmlFor="tts-el-model" className="text-xs text-slate-400">Model</label>
                       <select
                         id="tts-el-model"
-                        value={prefs.el.modelId}
+                        value={el.modelId}
                         onChange={(ev) => setEl({ modelId: ev.target.value })}
                         className={`${field} cursor-pointer`}
                       >
-                        {!models.some((m) => m.model_id === prefs.el.modelId) && (
-                          <option value={prefs.el.modelId} className="bg-slate-900">{prefs.el.modelId}</option>
+                        {!models.some((m) => m.model_id === el.modelId) && (
+                          <option value={el.modelId} className="bg-slate-900">{el.modelId}</option>
                         )}
                         {models.map((m) => (
                           <option key={m.model_id} value={m.model_id} className="bg-slate-900">
@@ -852,17 +897,27 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       {toggle(
                         'Auto delivery cues',
                         takesTags ? 'Adds [calm], [sighs]… so it is performed, not read' : 'Eleven v3 and v4 only',
-                        prefs.el.expressive && takesTags,
+                        el.expressive && takesTags,
                         (v) => setEl({ expressive: v }),
                         !takesTags
                       )}
                     </div>
                   </div>
 
+                  {canFollowDub &&
+                    toggle(
+                      'Same as the dub',
+                      followDub
+                        ? 'Model, settings and delivery cues are shared with the dub; changes here apply to it too'
+                        : 'This studio keeps its own model and settings',
+                      followDub,
+                      setFollowDub
+                    )}
+
                   {toggle(
                     "Use the voice's own settings",
                     'How the voice sounds on the ElevenLabs website',
-                    prefs.el.useOwnSettings,
+                    el.useOwnSettings,
                     (v) => setEl(v ? { useOwnSettings: true } : { useOwnSettings: false, settings: { ...DEFAULT_VOICE_SETTINGS, ...(ownSettings || {}) } })
                   )}
 
@@ -871,35 +926,35 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       'Stability',
                       isV3 ? 'Below 0.5 creative, 0.5 natural, above robust.' : 'Higher is steadier; lower is more emotional.',
                       activeSettings?.stability ?? DEFAULT_VOICE_SETTINGS.stability,
-                      (v) => setEl({ settings: { ...prefs.el.settings, stability: v } }),
-                      { ends: ['Variable', 'Stable'], disabled: prefs.el.useOwnSettings }
+                      (v) => setEl({ settings: { ...el.settings, stability: v } }),
+                      { ends: ['Variable', 'Stable'], disabled: el.useOwnSettings }
                     )}
                     {slider(
                       'Similarity',
                       'How closely it keeps to the original voice.',
                       activeSettings?.similarity_boost ?? DEFAULT_VOICE_SETTINGS.similarity_boost,
-                      (v) => setEl({ settings: { ...prefs.el.settings, similarity_boost: v } }),
-                      { ends: ['Looser', 'Closer'], disabled: prefs.el.useOwnSettings }
+                      (v) => setEl({ settings: { ...el.settings, similarity_boost: v } }),
+                      { ends: ['Looser', 'Closer'], disabled: el.useOwnSettings }
                     )}
                     {slider(
                       'Style exaggeration',
                       'Amplifies the voice’s style. Costs latency; 0 is safest.',
                       activeSettings?.style ?? 0,
-                      (v) => setEl({ settings: { ...prefs.el.settings, style: v } }),
-                      { ends: ['None', 'Strong'], disabled: prefs.el.useOwnSettings }
+                      (v) => setEl({ settings: { ...el.settings, style: v } }),
+                      { ends: ['None', 'Strong'], disabled: el.useOwnSettings }
                     )}
                     {slider(
                       'Speed',
                       speedApplies ? 'Speaking rate; 1.0 is natural.' : 'This model ignores speed.',
                       activeSettings?.speed ?? 1,
-                      (v) => setEl({ settings: { ...prefs.el.settings, speed: v } }),
+                      (v) => setEl({ settings: { ...el.settings, speed: v } }),
                       {
                         min: MIN_VOICE_SPEED,
                         max: MAX_VOICE_SPEED,
                         step: 0.01,
                         suffix: '×',
                         ends: ['Slower', 'Faster'],
-                        disabled: prefs.el.useOwnSettings || !speedApplies,
+                        disabled: el.useOwnSettings || !speedApplies,
                       }
                     )}
                   </div>
@@ -907,8 +962,8 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                     'Speaker boost',
                     'Sharpens likeness to the voice, slightly slower',
                     activeSettings?.use_speaker_boost !== false,
-                    (v) => setEl({ settings: { ...prefs.el.settings, use_speaker_boost: v } }),
-                    prefs.el.useOwnSettings
+                    (v) => setEl({ settings: { ...el.settings, use_speaker_boost: v } }),
+                    el.useOwnSettings
                   )}
                 </>
               ) : (
@@ -1000,9 +1055,9 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       type="number"
                       min={0}
                       max={4294967295}
-                      value={prefs.el.seedLocked ? prefs.el.seed : ''}
+                      value={el.seedLocked ? el.seed : ''}
                       placeholder="Random each take"
-                      disabled={!prefs.el.seedLocked}
+                      disabled={!el.seedLocked}
                       onChange={(ev) => {
                         const n = Math.floor(Number(ev.target.value));
                         if (Number.isFinite(n)) setEl({ seed: Math.min(4294967295, Math.max(0, n)) });
@@ -1011,14 +1066,14 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => setEl({ seedLocked: !prefs.el.seedLocked })}
-                      aria-pressed={prefs.el.seedLocked}
-                      title={prefs.el.seedLocked ? 'Unlock: a new seed each take' : 'Lock the seed to repeat a take'}
+                      onClick={() => setEl({ seedLocked: !el.seedLocked })}
+                      aria-pressed={el.seedLocked}
+                      title={el.seedLocked ? 'Unlock: a new seed each take' : 'Lock the seed to repeat a take'}
                       className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border cursor-pointer ${
-                        prefs.el.seedLocked ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200' : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100'
+                        el.seedLocked ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200' : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100'
                       }`}
                     >
-                      {prefs.el.seedLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      {el.seedLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
                     </button>
                     <button
                       type="button"
