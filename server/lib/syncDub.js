@@ -86,7 +86,19 @@ const CLIP_CACHE_LIMIT = 2000;
 const clipCache = new Map();
 
 const cacheKey = (voice, text) =>
-  createHash('sha256').update(JSON.stringify([voice.voiceId, voice.modelId, voice.outputFormat, voice.voiceSettings ?? null, voice.seed ?? null, text])).digest('hex');
+  createHash('sha256')
+    .update(
+      JSON.stringify([
+        voice.voiceId,
+        voice.modelId,
+        voice.outputFormat,
+        voice.voiceSettings ?? null,
+        voice.seed ?? null,
+        voice.tuneStability === false,
+        text,
+      ])
+    )
+    .digest('hex');
 
 const remember = (key, buffer) => {
   clipCache.delete(key);
@@ -125,7 +137,9 @@ const mapLimit = async (items, limit, fn) => {
  * a sample-exact account of every cut, placement, gain and fade.
  *
  * `deps`:
- * - `voiceLines(lines)` → `[Buffer]`, voicing `[{ text, previousText, nextText }]` in order;
+ * - `voiceLines(lines, { onLine, readCount })` → `[Buffer]`, voicing `[{ text, previousText, nextText }]` in order;
+ *   `readCount` is how many lines the whole dub has, so a retake of one line is voiced with the
+ *   same settings as the rest of the read;
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
  * - `encode(samples)` → `{ buffer, contentType }`;
  * - `shorten({ text, sourceText, language, targetChars })` → a shorter wording, or null, or
@@ -187,7 +201,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       nextText: i < units.length - 1 ? units[i + 1].text.slice(0, TTS_CONTEXT_CHARS) : undefined,
       seed: seedOf(units[i]),
     }));
-    const voiced = await deps.voiceLines(lines, { onLine: (done) => report({ unitsVoiced: done }) });
+    const voiced = await deps.voiceLines(lines, { onLine: (done) => report({ unitsVoiced: done }), readCount: units.length });
     missing.forEach((i, n) => {
       buffers[i] = voiced[n];
       remember(cacheKey(voiceOf(units[i]), units[i].text), voiced[n]);

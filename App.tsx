@@ -51,6 +51,7 @@ import {
   ALL_ELEVENLABS_MODELS,
   DEFAULT_ELEVENLABS_MODEL,
   getModels,
+  type StabilityAdjustment,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
 import {
@@ -164,6 +165,23 @@ export default function App() {
       return false;
     }
   });
+
+  // Whether the backend may steady a long dub's stability on the voice's own settings. On by default.
+  const [tuneStability, setTuneStability] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dhvani_tune_stability') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const handleTuneStabilityChange = useCallback((enabled: boolean) => {
+    setTuneStability(enabled);
+    try {
+      localStorage.setItem('dhvani_tune_stability', String(enabled));
+    } catch {}
+  }, []);
+  /** What the last dub or sync changed about the stability, shown in Voice Settings. */
+  const [lastStabilityAdjustment, setLastStabilityAdjustment] = useState<StabilityAdjustment | null>(null);
 
   // Whether a dub's passages are brought to one loudness. Off by default: each keeps the level it was voiced at.
   const [dubMatchLoudness, setDubMatchLoudness] = useState<boolean>(() => {
@@ -1500,6 +1518,8 @@ export default function App() {
         {
           expressive: emotionEnhance,
           matchLoudness: dubMatchLoudness,
+          tuneStability,
+          onStabilityAdjustment: setLastStabilityAdjustment,
           cartesia: cartesiaVoice,
           language: activeJob.language || selectedLanguage,
           jobId,
@@ -1629,6 +1649,7 @@ export default function App() {
           matchLoudness,
           lineSeeds: syncLineSeedsRef.current[activeJob.id],
           debug: audioDebugEnabled(),
+          tuneStability,
           cartesia: cartesiaVoice,
         },
         { apiKey: elApiKey, jobId, signal: controller.signal }
@@ -1639,6 +1660,7 @@ export default function App() {
         console.table(lines.map(({ pauseCuts, ...line }) => ({ ...line, pauseCuts: pauseCuts.length })));
       }
       setSyncPending((pending) => ({ ...pending, [activeJob.id]: [] }));
+      setLastStabilityAdjustment(report.stabilityAdjustment ?? null);
 
       let srtOpts = DEFAULT_SRT_OPTIONS;
       try {
@@ -2303,6 +2325,7 @@ export default function App() {
         onDubModelIdChange={handleElModelIdChange}
         dubExpressive={emotionEnhance}
         onDubExpressiveChange={handleEmotionEnhanceChange}
+        tuneStability={tuneStability}
         cartesiaAvailable={cartesiaConfigured}
         cartesiaPrefs={cartesiaVoice}
         onCartesiaPrefsChange={handleCartesiaPrefsChange}
@@ -2354,6 +2377,9 @@ export default function App() {
         onElModelIdChange={handleElModelIdChange}
         elVoiceSettings={elVoiceSettings}
         onElVoiceSettingsChange={handleElVoiceSettingsChange}
+        tuneStability={tuneStability}
+        onTuneStabilityChange={handleTuneStabilityChange}
+        lastStabilityAdjustment={lastStabilityAdjustment}
         cartesiaPrefs={cartesiaVoice}
         onCartesiaPrefsChange={handleCartesiaPrefsChange}
         availableVoices={engineVoices}

@@ -144,7 +144,7 @@ export const apiUpload = async <T = any>(
 export const apiAudio = async (
   path: string,
   body: unknown,
-  { keys, signal }: RequestOptions = {}
+  { keys, signal, onHeaders }: RequestOptions & { onHeaders?: (headers: Headers) => void } = {}
 ): Promise<Blob> =>
   withNetworkGuard(async () => {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -155,6 +155,7 @@ export const apiAudio = async (
     });
 
     if (!response.ok) throw await toApiError(response);
+    onHeaders?.(response.headers);
     return response.blob();
   });
 

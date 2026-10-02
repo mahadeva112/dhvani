@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { synthesizeScript, secondsOfAudio, speechToSpeech } from './speech.js';
+import { synthesizeScript, synthesizeLines, secondsOfAudio, speechToSpeech, readSettings } from './speech.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../../lib/dubJobs.js';
 
 const SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1 };
@@ -237,4 +237,41 @@ test('a long read on the voice’s saved settings is held steady; explicit setti
     { apiKey: 'test-key' }
   );
   assert.ok(bodies.every((body) => body.voice_settings.stability === 0.3));
+});
+
+test('a changed stability is reported, and auto-tune off sends the saved value as it is', async () => {
+  const bodies = [];
+  mockFetch({ onRequest: (url, init) => url.includes('/text-to-speech/') && bodies.push(JSON.parse(init.body)) });
+  const tuned = await synthesizeScript({ voiceId: 'v1', text: LONG_TEXT, modelId: 'eleven_v4', outputFormat: FORMAT }, { apiKey: 'test-key' });
+  assert.deepEqual(tuned.stabilityAdjustment, { from: 0.5, to: 0.6, reason: 'steady_script', count: bodies.length });
+
+  bodies.length = 0;
+  const exact = await synthesizeScript(
+    { voiceId: 'v1', text: LONG_TEXT, modelId: 'eleven_v4', outputFormat: FORMAT, tuneStability: false },
+    { apiKey: 'test-key' }
+  );
+  assert.equal(exact.stabilityAdjustment, null);
+  assert.ok(bodies.length > 1 && bodies.every((body) => body.voice_settings.stability === 0.5));
+});
+
+test('stability is only tuned on saved settings, and v3 is held at Natural', () => {
+  const saved = { ...SETTINGS, stability: 0.8 };
+  assert.deepEqual(readSettings(saved, 'eleven_v3', { explicit: false, count: 1 }).stabilityAdjustment, {
+    from: 0.8,
+    to: 0.5,
+    reason: 'v3_natural',
+    count: 1,
+  });
+  assert.equal(readSettings(saved, 'eleven_v3', { explicit: true, count: 1 }).settings, saved, 'settings the user chose are kept');
+  assert.equal(readSettings(saved, 'eleven_v3', { explicit: false, count: 1, tune: false }).settings, saved);
+  // One passage on a stitched model has no joins to keep steady.
+  assert.equal(readSettings({ ...SETTINGS, stability: 0.3 }, 'eleven_v4', { explicit: false, count: 1 }).stabilityAdjustment, null);
+});
+
+test('a retake of one synced line is voiced with the settings the rest of the dub had', async () => {
+  const bodies = [];
+  mockFetch({ onRequest: (url, init) => url.includes('/text-to-speech/') && bodies.push(JSON.parse(init.body)) });
+  const lines = [{ text: 'Only this line is voiced again.' }];
+  await synthesizeLines({ voiceId: 'v1', lines, modelId: 'eleven_v4', outputFormat: FORMAT, readCount: 12 }, { apiKey: 'test-key' });
+  assert.equal(bodies[0].voice_settings.stability, 0.6, 'held steady like the other eleven lines');
 });

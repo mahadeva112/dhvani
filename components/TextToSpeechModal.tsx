@@ -196,6 +196,8 @@ interface TextToSpeechModalProps {
   onDubModelIdChange?: (modelId: string) => void;
   dubExpressive?: boolean;
   onDubExpressiveChange?: (enabled: boolean) => void;
+  /** The dub's auto-tune stability switch, so a long take is voiced the way a dub is. */
+  tuneStability?: boolean;
   /** True when a Cartesia key is set up. */
   cartesiaAvailable?: boolean;
   /** How a Cartesia voice is voiced, shared with the dub and the Sync tab. */
@@ -222,6 +224,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
   onDubModelIdChange,
   dubExpressive = false,
   onDubExpressiveChange,
+  tuneStability = true,
   cartesiaAvailable = false,
   cartesiaPrefs,
   onCartesiaPrefsChange,
@@ -480,6 +483,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
           : { ...el.settings, ...(speedApplies ? {} : { speed: undefined }) };
         blob = await synthesizeSpeech(elApiKey, takeVoiceId, script, el.modelId, format, settings, {
           expressive: el.expressive && takesTags,
+          tuneStability,
           audioTags: takesTags,
           language: prefs.language,
           seed,

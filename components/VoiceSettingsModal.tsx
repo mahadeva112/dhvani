@@ -16,6 +16,8 @@ import {
   getVoiceSettings,
   modelTakesSpeed,
   isElevenLabsDefault,
+  describeStabilityAdjustment,
+  type StabilityAdjustment,
 } from '../services/elevenLabsService';
 import {
   isCartesiaVoice,
@@ -42,6 +44,11 @@ interface VoiceSettingsModalProps {
   /** Null means the selected voice's own ElevenLabs settings are used. */
   elVoiceSettings?: ElevenLabsVoiceSettings | null;
   onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
+  /** Whether a long dub's stability may be steadied on the voice's own settings. */
+  tuneStability?: boolean;
+  onTuneStabilityChange?: (enabled: boolean) => void;
+  /** What the last dub or sync changed about the stability, if anything. */
+  lastStabilityAdjustment?: StabilityAdjustment | null;
   /** How a Cartesia voice is voiced; shown in place of the ElevenLabs settings for one. */
   cartesiaPrefs?: CartesiaVoicePrefs;
   onCartesiaPrefsChange?: (prefs: CartesiaVoicePrefs) => void;
@@ -102,6 +109,9 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   onElModelIdChange,
   elVoiceSettings = null,
   onElVoiceSettingsChange,
+  tuneStability = true,
+  onTuneStabilityChange,
+  lastStabilityAdjustment = null,
   cartesiaPrefs,
   onCartesiaPrefsChange,
   availableVoices,
@@ -648,6 +658,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             </div>
 
             {usingVoiceOwnSettings ? (
+              <div className="flex flex-col gap-3">
               <p className="text-[12.5px] text-slate-400 px-3 py-2.5 rounded-[11px] border border-slate-800">
                 {voiceOwnSettings
                   ? `Using the saved settings: stability ${(voiceOwnSettings.stability ?? 0.5).toFixed(2)}, similarity ${(
@@ -657,6 +668,38 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     }.`
                   : 'Loading the voice’s saved settings…'}
               </p>
+              {onTuneStabilityChange && (
+                <div className="flex items-center gap-3">
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold text-slate-100">Auto-tune stability</span>
+                    <span className="block text-[11.5px] text-slate-400">
+                      {tuneStability
+                        ? 'A long dub is kept at stability 0.60 or more so every part has one tone; Eleven v3 is held at Natural (0.50).'
+                        : 'The saved stability is used exactly as it is, even if the tone shifts between parts.'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={tuneStability}
+                    aria-label="Auto-tune stability"
+                    onClick={() => onTuneStabilityChange(!tuneStability)}
+                    className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer ${
+                      tuneStability ? 'bg-indigo-500' : 'bg-slate-700'
+                    }`}
+                  >
+                    <span
+                      className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${
+                        tuneStability ? 'left-[17px]' : 'left-[3px]'
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
+              {lastStabilityAdjustment && (
+                <p className="text-[12px] text-amber-300">Last dub: {describeStabilityAdjustment(lastStabilityAdjustment)}</p>
+              )}
+              </div>
             ) : (
               <div className="flex flex-col gap-4">
                 <div role="group" aria-label="Starting points" className="flex flex-wrap gap-1.5">

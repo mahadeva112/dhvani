@@ -22,6 +22,13 @@ const cleanLineSeeds = (value) =>
     )
   );
 
+/**
+ * The last stability adjustment per voice and settings. A sync whose lines all
+ * come from the clip cache voices nothing, but its clips still carry it.
+ */
+const adjustments = new Map();
+const adjustmentKey = (voice) => JSON.stringify([voice.voiceId, voice.modelId, voice.voiceSettings ?? null, voice.tuneStability]);
+
 /** Clips are requested in this format when the dub's own can't be decoded here. */
 const FALLBACK_FORMAT = 'mp3_44100_128';
 
@@ -108,6 +115,7 @@ syncRouter.post(
       suggest,
       suggestLonger,
       matchLoudness,
+      tuneStability,
       debug,
       jobId,
     } = req.body || {};
@@ -149,12 +157,34 @@ syncRouter.post(
           // Cartesia takes no seed, but a retake still needs its own cache entry.
           seed: Number.isInteger(seed) ? seed : undefined,
         }
-      : { voiceId, modelId, outputFormat: format, voiceSettings: voiceSettings || undefined, seed: Number.isInteger(seed) ? seed : undefined };
+      : {
+          voiceId,
+          modelId,
+          outputFormat: format,
+          voiceSettings: voiceSettings || undefined,
+          seed: Number.isInteger(seed) ? seed : undefined,
+          tuneStability: tuneStability !== false,
+        };
+    // What was changed about the voice's saved stability, reported with the sync.
+    let stabilityAdjustment = cartesia ? null : adjustments.get(adjustmentKey(voice)) ?? null;
     const voiceLines = cartesia
       ? async (lines, { onLine }) =>
           (await synthesizeCartesiaLines({ ...voice, lines, language }, { apiKey: cartesiaKey, signal: controller.signal, onLine })).map((r) => r.buffer)
-      : async (lines, { onLine }) =>
-          (await synthesizeLines({ ...voice, lines }, { apiKey, signal: controller.signal, onLine })).map((r) => r.buffer);
+      : async (lines, { onLine, readCount }) =>
+          (
+            await synthesizeLines(
+              { ...voice, lines, readCount },
+              {
+                apiKey,
+                signal: controller.signal,
+                onLine,
+                onStabilityAdjustment: (adjustment) => {
+                  stabilityAdjustment = adjustment;
+                  adjustments.set(adjustmentKey(voice), adjustment);
+                },
+              }
+            )
+          ).map((r) => r.buffer);
 
     try {
       const result = await runSync(
@@ -187,7 +217,11 @@ syncRouter.post(
       );
       if (job) finishDubJob(jobId, 'done');
       if (result.report.audioDebug) logAudioDebug(result.report.audioDebug);
-      res.json({ audioId: keepResult(result.buffer, result.contentType), contentType: result.contentType, report: result.report });
+      res.json({
+        audioId: keepResult(result.buffer, result.contentType),
+        contentType: result.contentType,
+        report: { ...result.report, stabilityAdjustment },
+      });
     } catch (err) {
       if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
       throw err;
