@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSyncUnits, minimumGap, HARD_ANCHOR_GAP_SECONDS } from './syncUnits.js';
+import { buildSyncUnits, minimumGap, unitGapAfter, HARD_ANCHOR_GAP_SECONDS } from './syncUnits.js';
+import { DEFAULT_JOIN_SETTINGS, resolveJoinSettings } from './syncSettings.js';
 import { pava, placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, shortenPauses, renderTimeline, MIN_INNER_PAUSE_SECONDS } from './syncRender.js';
 import { acceptRewrite } from './syncRewrite.js';
@@ -48,11 +49,32 @@ test('a long pause makes a hard anchor', () => {
   assert.equal(units[1].hardAnchor, true);
 });
 
-test('the minimum gap never exceeds the source pause and never drops below a breath', () => {
-  assert.equal(minimumGap(0.05), 0.05);
-  assert.equal(minimumGap(0.2), 0.08);
-  assert.ok(Math.abs(minimumGap(1) - 0.3) < 1e-9);
-  assert.equal(minimumGap(5), 0.6);
+test('the minimum gap never drops below the floor, however little the source paused', () => {
+  assert.equal(minimumGap(0.05), DEFAULT_JOIN_SETTINGS.minGap);
+  assert.equal(minimumGap(0.05, DEFAULT_JOIN_SETTINGS, true), DEFAULT_JOIN_SETTINGS.speakerGap);
+  assert.ok(Math.abs(minimumGap(1) - 0.5) < 1e-9, 'half of a 1 s source pause');
+  assert.equal(minimumGap(5), 0.6, 'a long pause lends the rest to a line that runs long');
+  assert.equal(minimumGap(0.2, { minGap: 0.08, speakerGap: 0.08, gapShare: 0.3 }), 0.08);
+  assert.equal(minimumGap(null), 0);
+});
+
+test('a speaker change asks for its own gap, and the grouping threshold is the one asked for', () => {
+  const segments = [cue(1, 0, 1, 'a'), cue(2, 1.3, 2, 'b'), { ...cue(3, 2.1, 3, 'c'), speaker: 'B' }];
+  const units = buildSyncUnits(segments);
+  assert.deepEqual(units.map((u) => u.cueIds), [[1, 2], [3]]);
+  assert.equal(units[0].speakerChangeAfter, true);
+  assert.equal(unitGapAfter(units[0]), DEFAULT_JOIN_SETTINGS.speakerGap);
+  assert.deepEqual(buildSyncUnits(segments, { unitGap: 0.2, maxUnit: 12 }).map((u) => u.cueIds), [[1], [2], [3]]);
+});
+
+test('join settings fall back to Natural and are kept inside their ranges', () => {
+  assert.deepEqual(resolveJoinSettings(undefined), DEFAULT_JOIN_SETTINGS);
+  const settings = resolveJoinSettings({ minGap: 5, spliceCrossfade: -1, breathClear: false, tailFloorDb: 'x', flagJoin: null });
+  assert.equal(settings.minGap, 0.6);
+  assert.equal(settings.spliceCrossfade, 0);
+  assert.equal(settings.breathClear, false);
+  assert.equal(settings.tailFloorDb, DEFAULT_JOIN_SETTINGS.tailFloorDb);
+  assert.equal(settings.flagJoin, DEFAULT_JOIN_SETTINGS.flagJoin);
 });
 
 test('pava returns the closest non-decreasing sequence', () => {
@@ -178,6 +200,42 @@ test('shortenPauses takes time from a silent pause between words and leaves the 
   const { removed: most } = shortenPauses(samples, RATE, 5);
   assert.ok(most <= 0.8 - MIN_INNER_PAUSE_SECONDS + 0.02);
   assert.ok(most > 0.5);
+});
+
+test('shortenPauses takes no more of a pause than asked, and no less of it than the floor asked', () => {
+  const samples = prepareClip(clip({ lead: 0, tone: 1, gap: 0.8, tail: 0 }), RATE).samples;
+  const { removed: capped } = shortenPauses(samples, RATE, 5, { maxTake: 0.25 });
+  assert.ok(capped <= 0.8 * 0.25 + 0.01, `removed ${capped}`);
+  const { removed: floored } = shortenPauses(samples, RATE, 5, { minPause: 0.5 });
+  assert.ok(floored <= 0.8 - 0.5 + 0.02, `removed ${floored}`);
+});
+
+test('a splice crossfade removes as much as a plain cut, and only touches the samples at the join', () => {
+  const samples = prepareClip(clip({ lead: 0, tone: 1, gap: 0.8, tail: 0 }), RATE).samples;
+  // Room tone either side of the pause, quieter than silence.
+  for (let i = 0; i < samples.length; i++) if (samples[i] === 0) samples[i] = 0.0004 * Math.sin(i);
+  const plain = shortenPauses(samples, RATE, 0.4);
+  const faded = shortenPauses(samples, RATE, 0.4, { crossfade: 0.01 });
+  assert.equal(faded.samples.length, plain.samples.length);
+  const join = plain.cuts[0].start;
+  let changed = 0;
+  for (let i = 0; i < plain.samples.length; i++) if (plain.samples[i] !== faded.samples[i]) changed++;
+  assert.ok(changed > 0 && changed <= Math.round(0.01 * RATE));
+  for (let i = 0; i < join - Math.round(0.01 * RATE); i++) assert.equal(faded.samples[i], plain.samples[i]);
+});
+
+test('a deeper tail floor and a tail hold keep more of what follows the last word, never past the clip', () => {
+  const source = clip({ lead: 0.1, tone: 0.5, tail: 0.5 });
+  const toneEnd = Math.round(0.6 * RATE);
+  // A decay between -60 and -70 dBFS for 0.1 s after the tone.
+  for (let i = toneEnd; i < toneEnd + Math.round(0.1 * RATE); i++) source[i] = 0.0006 * Math.sin(i);
+  const plain = prepareClip(source, RATE);
+  const deep = prepareClip(source, RATE, { tailQuiet: 0.0003 });
+  assert.ok(deep.end - plain.end >= Math.round(0.09 * RATE), 'the soft decay is kept');
+  const held = prepareClip(source, RATE, { tailQuiet: 0.0003, tailHold: 0.04 });
+  assert.equal(held.end - deep.end, Math.round(0.04 * RATE));
+  assert.equal(prepareClip(source, RATE, { tailHold: 10 }).end, source.length);
+  assert.equal(held.speech, plain.speech, 'where the words are does not move');
 });
 
 test('shortenPauses never cuts into a breath inside a pause', () => {
@@ -495,15 +553,42 @@ test('a soft breath before the first word does not delay a line at 0:00', async 
   assert.ok(Math.abs(report.units[0].offset) < 0.01, `offset ${report.units[0].offset}`);
 });
 
-test("a soft breath may overlap the silent end of the line before, and the first word still lands on time", async () => {
+test("with breaths not kept clear, a soft breath may overlap the silent end of the line before, and the first word still lands on time", async () => {
   clearClipCache();
   const { deps } = breathyDeps(0.6);
   // A 0.5 s source pause: less than the 0.6 s breath.
   const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 2.5, 3.5, 'bbbbbbbbbb')];
-  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice }, deps);
+  const join = { breathClear: false, minGap: 0.08, gapShare: 0.3, tailFloorDb: -60, tailHold: 0 };
+  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice, join }, deps);
   for (const unit of report.units) assert.ok(Math.abs(unit.offset) < 0.01, `offset ${unit.offset}`);
   assert.equal(report.summary.overlaps, 0, 'breath over silence is not an overlap');
   assert.equal(report.summary.inSync, 2);
+});
+
+test('with breaths kept clear, a breath never plays over the line before', async () => {
+  clearClipCache();
+  const { deps } = breathyDeps(0.6);
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 2.5, 3.5, 'bbbbbbbbbb')];
+  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice, debug: true }, deps);
+  const [first, second] = report.audioDebug.lines;
+  const gap = (second.timelineStartSample - first.timelineEndSample) / RATE;
+  assert.ok(gap >= minimumGap(0.5) - 2 / RATE, `gap ${gap}`);
+  assert.equal(report.join.breathClear, true);
+});
+
+test('a join tighter than the review limit, and a line pushed late, are flagged', async () => {
+  clearClipCache();
+  const { deps } = fakeDeps();
+  // 20 characters take 1.6 s; line 1 has 0:01 to 0:02.5 before line 2.
+  const segments = [cue(1, 1, 2, 'x'.repeat(20)), cue(2, 2.5, 3.5, 'yyyyy')];
+  const join = { minGap: 0.04, gapShare: 0, tailFloorDb: -60, tailHold: 0, flagJoin: 0.4, maxLateStart: 0.05 };
+  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice, suggest: false, join }, deps);
+  assert.equal(report.units[0].tightJoin, true);
+  assert.ok(report.units[0].joinAfter < 0.4);
+  assert.equal(report.units[1].joinAfter, null);
+  assert.equal(report.units[1].late, true);
+  assert.equal(report.summary.tightJoins, 1);
+  assert.equal(report.summary.late, 1);
 });
 
 test('measureSync counts clips that overlap', () => {

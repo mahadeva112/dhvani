@@ -9,7 +9,8 @@
  * Sync measures the real clips, so this is a guide to which lines to shorten
  * first, never a promise.
  */
-import { buildSyncUnits, minimumGap } from './syncUnits.js';
+import { buildSyncUnits, unitGapAfter } from './syncUnits.js';
+import { resolveJoinSettings } from './syncSettings.js';
 import { SYNC_PRECISION, SUGGESTION_MARGIN, LENGTHEN_FILL, isShortLine, lineKey } from './syncDub.js';
 
 /** A line estimated to use more than this share of its slot is tight: it should fit, just. */
@@ -29,18 +30,20 @@ const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
  * speaker talks for and `underflow` how much of that the dub leaves silent.
  * `targetChars` is the length a new wording should aim for: shorter for a long
  * line, worked out as Sync works it out for its own suggestions; longer for a
- * short one, filling the original speech but never past the slot.
+ * short one, filling the original speech but never past the slot. `join`
+ * groups the lines and sets the gaps as it does for Sync.
  */
-export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDuration = 0 } = {}) => {
+export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDuration = 0, join: requested } = {}) => {
+  const join = resolveJoinSettings(requested);
   const level = SYNC_PRECISION[precision] ? precision : 'phrase';
   const { allowedOverflow } = SYNC_PRECISION[level];
   const cps = Math.min(MAX_CPS, Math.max(MIN_CPS, Number(charsPerSecond) || 14));
-  const units = buildSyncUnits(segments).filter((unit) => hasWords(unit.text));
+  const units = buildSyncUnits(segments, join).filter((unit) => hasWords(unit.text));
 
   const previews = units.map((unit, index) => {
     const end =
       unit.nextStart !== null
-        ? unit.nextStart - minimumGap(unit.gapAfter)
+        ? unit.nextStart - unitGapAfter(unit, join)
         : Math.max(Number(sourceDuration) || 0, unit.srcEnd) + 0.5;
     const slot = Math.max(0.05, end - unit.srcStart);
     const estimate = unit.text.length / cps;

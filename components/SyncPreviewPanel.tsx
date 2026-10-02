@@ -6,6 +6,7 @@ import { AudioSegment } from '../types';
 import {
   MIN_TRIM_SECONDS,
   previewSync,
+  SyncJoinSettings,
   SyncPrecision,
   SyncPreview,
   SyncPreviewUnit,
@@ -61,12 +62,14 @@ export const useSyncPreview = ({
   enabled,
   segments,
   precision,
+  join,
   charsPerSecond,
   sourceDuration,
 }: {
   enabled: boolean;
   segments: AudioSegment[];
   precision: SyncPrecision;
+  join?: SyncJoinSettings;
   charsPerSecond: number;
   sourceDuration: number;
 }) => {
@@ -80,7 +83,7 @@ export const useSyncPreview = ({
     // Typing in the script changes the segments on every key; wait for a pause.
     const timer = window.setTimeout(() => {
       setLoading(true);
-      previewSync({ segments, precision, charsPerSecond, sourceDuration }, { signal: controller.signal })
+      previewSync({ segments, precision, join, charsPerSecond, sourceDuration }, { signal: controller.signal })
         .then((next) => {
           setPreview(next);
           setError(null);
@@ -96,7 +99,7 @@ export const useSyncPreview = ({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, segments, precision, charsPerSecond, sourceDuration]);
+  }, [enabled, segments, precision, join, charsPerSecond, sourceDuration]);
 
   return { preview: enabled ? preview : null, error: enabled ? error : null, loading };
 };
