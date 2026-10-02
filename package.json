@@ -49,6 +49,8 @@
     "dist:mac": "npm run build && electron-builder --mac --publish never",
     "dist:linux": "npm run build && electron-builder --linux --publish never",
     "dist:zip": "node scripts/package-release.mjs",
+    "release": "npm version patch -m \"Release %s\" && git push --follow-tags",
+    "release:minor": "npm version minor -m \"Release %s\" && git push --follow-tags",
     "docker:build": "docker build -t dhvani:latest .",
     "docker:run": "docker compose up -d"
   },
