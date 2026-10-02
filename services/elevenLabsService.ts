@@ -19,6 +19,36 @@ export interface ElevenLabsVoiceSettings {
   speed?: number;
 }
 
+/**
+ * What the backend changed about a voice's saved stability for a dub, so the
+ * passages share one tone (`steady_script`) or Eleven v3 stays at Natural
+ * (`v3_natural`). Only made on the voice's own settings with auto-tune on.
+ */
+export interface StabilityAdjustment {
+  from: number;
+  to: number;
+  reason: 'steady_script' | 'v3_natural';
+  /** Passages or lines the read had. */
+  count: number;
+}
+
+/** One plain sentence for a StabilityAdjustment. */
+export const describeStabilityAdjustment = ({ from, to, reason, count }: StabilityAdjustment): string =>
+  reason === 'v3_natural'
+    ? `Eleven v3 was held at Natural: stability ${from.toFixed(2)} → ${to.toFixed(2)}.`
+    : `Stability raised ${from.toFixed(2)} → ${to.toFixed(2)} to keep ${count} ${count === 1 ? 'part' : 'parts'} on one tone.`;
+
+const STABILITY_HEADER = 'X-Dhvani-Stability-Adjustment';
+
+const readStabilityAdjustment = (headers: Headers): StabilityAdjustment | null => {
+  try {
+    const value = headers.get(STABILITY_HEADER);
+    return value ? (JSON.parse(value) as StabilityAdjustment) : null;
+  } catch {
+    return null;
+  }
+};
+
 /** ElevenLabs accepts 0.7–1.2 for `speed`; anything outside is rejected. */
 export const MIN_VOICE_SPEED = 0.7;
 export const MAX_VOICE_SPEED = 1.2;
@@ -130,6 +160,8 @@ export const synthesizeSpeech = async (
     seed,
     matchLoudness = false,
     steady = false,
+    tuneStability = true,
+    onStabilityAdjustment,
     cartesia,
     jobId,
     signal,
@@ -152,6 +184,13 @@ export const synthesizeSpeech = async (
     matchLoudness?: boolean;
     /** Voice expression Neutral: the ElevenLabs voice is held calm and even. */
     steady?: boolean;
+    /**
+     * On the voice's own settings, let the backend steady a long read's
+     * stability (and hold Eleven v3 at Natural). Off: the saved value is used as it is.
+     */
+    tuneStability?: boolean;
+    /** Told what the backend changed about the stability, or null when nothing was. */
+    onStabilityAdjustment?: (adjustment: StabilityAdjustment | null) => void;
     /** How a Cartesia voice is voiced; the ElevenLabs settings don't apply to one. */
     cartesia?: CartesiaVoicePrefs;
     /** Names the dub so its progress can be polled and it can be cancelled. */
@@ -168,6 +207,8 @@ export const synthesizeSpeech = async (
   // settings, only the speed carries over from the ElevenLabs sliders.
   if (isCartesiaVoice(voiceId)) {
     const delivery = cartesia ? cartesiaDelivery(cartesia) : { speed: voiceSettings?.speed };
+    // Stability is an ElevenLabs setting; nothing about it is changed here.
+    onStabilityAdjustment?.(null);
     return synthesizeWithCartesia(voiceId, cleanText, {
       outputFormat,
       language,
@@ -195,9 +236,10 @@ export const synthesizeSpeech = async (
       seed,
       matchLoudness,
       ...(steady && { steady: true }),
+      tuneStability,
       jobId,
     },
-    { ...keys(apiKey), signal }
+    { ...keys(apiKey), signal, onHeaders: (headers) => onStabilityAdjustment?.(readStabilityAdjustment(headers)) }
   );
 };
 

@@ -88,7 +88,7 @@ test('voice expression Neutral holds every read calm and even, without slowing i
   const lively = { stability: 0.3, similarity_boost: 0.6, style: 0.4, use_speaker_boost: true, speed: 1.05 };
   for (const modelId of ['eleven_v3', 'eleven_v4', 'eleven_multilingual_v2']) {
     for (const explicit of [true, false]) {
-      const settings = readSettings(lively, modelId, { explicit, count: 3, steady: true });
+      const settings = readSettings(lively, modelId, { explicit, count: 3, steady: true }).settings;
       assert.equal(settings.stability, NEUTRAL_VOICE.stability);
       assert.equal(settings.similarity_boost, NEUTRAL_VOICE.similarity_boost);
       assert.equal(settings.style, 0);
@@ -96,9 +96,9 @@ test('voice expression Neutral holds every read calm and even, without slowing i
     }
   }
   // A voice already steadier than the floor stays as it is.
-  const even = readSettings({ stability: 0.9, similarity_boost: 0.95, style: 0 }, 'eleven_v4', { explicit: false, count: 1, steady: true });
+  const even = readSettings({ stability: 0.9, similarity_boost: 0.95, style: 0 }, 'eleven_v4', { explicit: false, count: 1, steady: true }).settings;
   assert.equal(even.stability, 0.9);
   assert.equal(even.similarity_boost, 0.95);
   // Without Neutral, settings the user chose are kept.
-  assert.deepEqual(readSettings(lively, 'eleven_v3', { explicit: true, count: 3 }), lively);
+  assert.deepEqual(readSettings(lively, 'eleven_v3', { explicit: true, count: 3 }).settings, lively);
 });

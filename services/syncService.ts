@@ -1,6 +1,6 @@
 import { apiGet, apiGetAudio, apiJson, apiPutBlob, DhvaniApiError } from './apiClient';
 import { AudioSegment, DubLines, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
-import { ElevenLabsVoiceSettings } from './elevenLabsService';
+import { ElevenLabsVoiceSettings, StabilityAdjustment } from './elevenLabsService';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
 import { castPayload, fetchMixed } from './castService';
 import { keepTermsFor } from './glossaryService';
@@ -263,6 +263,8 @@ export interface SyncReport {
   precision: SyncPrecision;
   /** The join settings the sync ran with, as the server kept them. */
   join: SyncJoinSettings;
+  /** What the backend changed about the voice's saved stability, or null when nothing was. */
+  stabilityAdjustment?: StabilityAdjustment | null;
   tolerance: number;
   /** Length of the synced dub. */
   duration: number;
@@ -346,6 +348,8 @@ export interface SyncRequest {
   /** Ask the text model for fuller wordings of lines that end early. */
   suggestLonger?: boolean;
   matchLoudness?: boolean;
+  /** On the voice's own settings, let the backend steady the stability (see synthesizeSpeech). */
+  tuneStability?: boolean;
   /** Retaken lines, by key: each is voiced again with its own seed. */
   lineSeeds?: Record<string, number>;
   /** Report what the render did to every line (SyncReport.audioDebug). */

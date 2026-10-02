@@ -123,6 +123,8 @@ app.use(
       return callback(null, false);
     },
     allowedHeaders: ['Content-Type', 'x-elevenlabs-key', 'x-gemini-key', 'x-cartesia-key'],
+    // Read by the app to say what was changed about a voice's saved stability.
+    exposedHeaders: ['X-Dhvani-Stability-Adjustment'],
   })
 );
 

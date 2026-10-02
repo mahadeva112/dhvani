@@ -129,7 +129,18 @@ const clipCache = new Map();
 
 const cacheKey = (voice, text) =>
   createHash('sha256')
-    .update(JSON.stringify([voice.voiceId, voice.modelId, voice.outputFormat, voice.voiceSettings ?? null, voice.steady === true, voice.seed ?? null, text]))
+    .update(
+      JSON.stringify([
+        voice.voiceId,
+        voice.modelId,
+        voice.outputFormat,
+        voice.voiceSettings ?? null,
+        voice.steady === true,
+        voice.seed ?? null,
+        voice.tuneStability === false,
+        text,
+      ])
+    )
     .digest('hex');
 
 const remember = (key, buffer) => {
@@ -187,7 +198,9 @@ const mapLimit = async (items, limit, fn) => {
  * one gain per speaker instead of one per line.
  *
  * `deps`:
- * - `voiceLines(lines, { voice, onLine })` → `[Buffer]`, voicing `[{ text, previousText, nextText, seed }]` in order with `voice`;
+ * - `voiceLines(lines, { voice, onLine, readCount })` → `[Buffer]`, voicing `[{ text, previousText, nextText, seed }]` in order
+ *   with `voice`; `readCount` is how many lines the whole dub has, so a retake of one line is voiced
+ *   with the same settings as the rest of the read;
  * - `cue(texts)` → the same texts with delivery cues (voice expression Expressive), every word kept (optional);
  * - `dubTakes(units)` → for each unit, its take cut from the Final dub (mono Float32Array at
  *   `sampleRate`) or null to voice it (optional; see dubTakes.js);
@@ -333,6 +346,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       const voiced = await deps.voiceLines(lines, {
         voice: baseVoiceOf(units[group[0]]),
         onLine: (done) => report({ unitsVoiced: before + done }),
+        readCount: units.length,
       });
       group.forEach((i, n) => {
         buffers[i] = voiced[n];

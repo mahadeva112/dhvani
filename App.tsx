@@ -54,6 +54,7 @@ import {
   getModels,
   performsAudioTags,
   VoiceExpression,
+  type StabilityAdjustment,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
 import { matchSourceDelivery } from './services/sourceCueService';
@@ -242,6 +243,23 @@ export default function App() {
       return true;
     }
   });
+
+  // Whether the backend may steady a long dub's stability on the voice's own settings. On by default.
+  const [tuneStability, setTuneStability] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dhvani_tune_stability') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const handleTuneStabilityChange = useCallback((enabled: boolean) => {
+    setTuneStability(enabled);
+    try {
+      localStorage.setItem('dhvani_tune_stability', String(enabled));
+    } catch {}
+  }, []);
+  /** What the last dub or sync changed about the stability, shown in Voice Settings. */
+  const [lastStabilityAdjustment, setLastStabilityAdjustment] = useState<StabilityAdjustment | null>(null);
 
   // Whether uploads are transcribed with speakers told apart, and how many speakers (0: let ElevenLabs decide).
   const [multiSpeakerInput, setMultiSpeakerInput] = useState<boolean>(() => {
@@ -2210,6 +2228,8 @@ export default function App() {
         performanceTags: matchSource,
         steady: expression === 'neutral',
         matchLoudness,
+        tuneStability,
+        onStabilityAdjustment: setLastStabilityAdjustment,
         cartesia: cartesiaForExpression(cartesiaVoice, expression),
         language,
         jobId: readJobId,
@@ -2329,6 +2349,7 @@ export default function App() {
           ...(dub && { dub }),
           ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
           ...(Object.keys(locked).length > 0 && { locked }),
+          tuneStability,
         },
         { apiKey: elApiKey, jobId, signal: controller.signal }
       );
@@ -2339,6 +2360,7 @@ export default function App() {
         console.info('[sync audio]', format);
         console.table(lines.map(({ pauseCuts, ...line }) => ({ ...line, pauseCuts: pauseCuts.length })));
       }
+      setLastStabilityAdjustment(report.stabilityAdjustment ?? null);
 
       const url = URL.createObjectURL(blob);
       // A dub made before Dub and Sync were one step stays as it was, beside the synced dub.
@@ -3118,8 +3140,9 @@ export default function App() {
         dubVoiceSettings={elVoiceSettings}
         onDubVoiceSettingsChange={handleElVoiceSettingsChange}
         onDubModelIdChange={handleElModelIdChange}
-        dubExpressive={emotionEnhance}
-        onDubExpressiveChange={handleEmotionEnhanceChange}
+        dubExpressive={voiceExpression === 'expressive'}
+        onDubExpressiveChange={(on) => handleVoiceExpressionChange(on ? 'expressive' : 'off')}
+        tuneStability={tuneStability}
         cartesiaAvailable={cartesiaConfigured}
         cartesiaPrefs={cartesiaVoice}
         onCartesiaPrefsChange={handleCartesiaPrefsChange}
@@ -3171,6 +3194,9 @@ export default function App() {
         onElModelIdChange={handleElModelIdChange}
         elVoiceSettings={elVoiceSettings}
         onElVoiceSettingsChange={handleElVoiceSettingsChange}
+        tuneStability={tuneStability}
+        onTuneStabilityChange={handleTuneStabilityChange}
+        lastStabilityAdjustment={lastStabilityAdjustment}
         cartesiaPrefs={cartesiaVoice}
         onCartesiaPrefsChange={handleCartesiaPrefsChange}
         availableVoices={engineVoices}

@@ -30,6 +30,13 @@ const cleanLineSeeds = (value) =>
     )
   );
 
+/**
+ * The last stability adjustment per voice and settings. A sync whose lines all
+ * come from the clip cache voices nothing, but its clips still carry it.
+ */
+const adjustments = new Map();
+const adjustmentKey = (voice) => JSON.stringify([voice.voiceId, voice.modelId, voice.voiceSettings ?? null, voice.tuneStability]);
+
 /** Clips are requested in this format when the dub's own can't be decoded here. */
 const FALLBACK_FORMAT = 'mp3_44100_128';
 
@@ -55,7 +62,7 @@ export const cartesiaSettings = (settings) => {
  * returns. An ElevenLabs model name on a Cartesia voice (or the other way
  * round) means no model was picked for that engine, so its default is used.
  */
-const makeVoice = ({ voiceId, modelId, voiceSettings }, { requested, seed, steady = false }) => {
+const makeVoice = ({ voiceId, modelId, voiceSettings }, { requested, seed, steady = false, tuneStability = true }) => {
   const cleanSeed = Number.isInteger(seed) ? seed : undefined;
   if (isCartesiaVoice(voiceId)) {
     return {
@@ -78,6 +85,8 @@ const makeVoice = ({ voiceId, modelId, voiceSettings }, { requested, seed, stead
     seed: cleanSeed,
     // Voice expression Neutral: a calm, even read (see NEUTRAL_VOICE in speech.js).
     ...(steady && { steady: true }),
+    // Off: the saved stability is used as it is (see readSettings in speech.js).
+    tuneStability,
   };
 };
 
@@ -90,11 +99,11 @@ const MAX_CAST = 32;
  * voice, is voiced by `main`. Every voice must decode at one sample rate,
  * since nothing is resampled.
  */
-const castVoices = (cast, main, { requested, seed, steady }) => {
+const castVoices = (cast, main, { requested, seed, steady, tuneStability }) => {
   const voices = new Map();
   for (const [speaker, entry] of Object.entries(cast && typeof cast === 'object' ? cast : {}).slice(0, MAX_CAST)) {
     if (typeof speaker !== 'string' || speaker.length > 128 || !entry || typeof entry.voiceId !== 'string' || !entry.voiceId.trim()) continue;
-    voices.set(speaker, makeVoice(entry, { requested, seed, steady }));
+    voices.set(speaker, makeVoice(entry, { requested, seed, steady, tuneStability }));
   }
   const rates = new Set([main, ...voices.values()].map((voice) => parseOutputFormat(voice.outputFormat)?.sampleRate));
   if (rates.size > 1) {
@@ -125,11 +134,15 @@ const cueLinesWith = ({ language, apiKey }) => async (texts) => {
   return cued;
 };
 
-/** Voices lines with whichever engine `voice` belongs to. */
-const voiceLinesWith = ({ apiKey, cartesiaKey, language, signal }) => async (lines, { voice, onLine }) =>
+/**
+ * Voices lines with whichever engine `voice` belongs to. `readCount` is how
+ * many lines the whole dub has, and `onStabilityAdjustment` hears what an
+ * ElevenLabs voice's saved stability was changed to (see readSettings).
+ */
+const voiceLinesWith = ({ apiKey, cartesiaKey, language, signal }) => async (lines, { voice, onLine, readCount, onStabilityAdjustment }) =>
   voice.cartesia
     ? (await synthesizeCartesiaLines({ ...voice, lines, language }, { apiKey: cartesiaKey, signal, onLine })).map((r) => r.buffer)
-    : (await synthesizeLines({ ...voice, lines }, { apiKey, signal, onLine })).map((r) => r.buffer);
+    : (await synthesizeLines({ ...voice, lines, readCount }, { apiKey, signal, onLine, onStabilityAdjustment })).map((r) => r.buffer);
 
 /** One lossless write at the clips' own rate; `float` keeps a mix above full scale exactly as summed. */
 const encodeWav = (sampleRate) => async (samples, { float = false } = {}) =>
@@ -350,6 +363,7 @@ syncRouter.post(
       suggestLonger,
       keep,
       matchLoudness,
+      tuneStability,
       debug,
       jobId,
       multiSpeaker,
@@ -395,11 +409,12 @@ syncRouter.post(
     const textModelKey = req.get('x-gemini-key') || undefined;
     const audioDebug = debug === true || process.env.DHVANI_AUDIO_DEBUG === '1';
     const cartesiaKey = req.get('x-cartesia-key') || undefined;
+    const voiceOptions = { requested, seed, steady: steady === true, tuneStability: tuneStability !== false };
     const voice = cartesia
-      ? { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed, steady: steady === true }), outputFormat: format }
-      : { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed, steady: steady === true }), modelId, outputFormat: format };
+      ? { ...makeVoice({ voiceId, modelId, voiceSettings }, voiceOptions), outputFormat: format }
+      : { ...makeVoice({ voiceId, modelId, voiceSettings }, voiceOptions), modelId, outputFormat: format };
     const several = multiSpeaker === true;
-    const voiceFor = several ? castVoices(cast, voice, { requested, seed, steady: steady === true }) : undefined;
+    const voiceFor = several ? castVoices(cast, voice, voiceOptions) : undefined;
     // Emotion follows the dub: one voice on a model that performs tags (ElevenLabs) or takes an emotion (Cartesia sonic-3).
     const tags =
       !several &&
@@ -410,7 +425,19 @@ syncRouter.post(
     // Expressive on Cartesia needs no cues: with no emotion set, sonic-3 takes it from the words.
     const cueLines = tags && !cartesia && !sourceTagged && expressive === true ? cueLinesWith({ language, apiKey: textModelKey }) : undefined;
     const voiceWith = voiceLinesWith({ apiKey, cartesiaKey, language, signal: controller.signal });
-    const voiceLines = (lines, { voice: lineVoice, onLine }) => voiceWith(lines, { voice: lineVoice || voice, onLine });
+    // What was changed about the main voice's saved stability, reported with the sync.
+    let stabilityAdjustment = cartesia ? null : adjustments.get(adjustmentKey(voice)) ?? null;
+    const voiceLines = (lines, { voice: lineVoice, onLine, readCount }) =>
+      voiceWith(lines, {
+        voice: lineVoice || voice,
+        onLine,
+        readCount,
+        onStabilityAdjustment: (adjustment) => {
+          if ((lineVoice || voice) !== voice) return;
+          stabilityAdjustment = adjustment;
+          adjustments.set(adjustmentKey(voice), adjustment);
+        },
+      });
 
     try {
       const result = await runSync(
@@ -464,7 +491,7 @@ syncRouter.post(
         audioId: keepResult(result.buffer, result.contentType),
         contentType: result.contentType,
         stems: (result.stems || []).map((stem) => ({ speaker: stem.speaker, audioId: keepResult(stem.buffer, stem.contentType), contentType: stem.contentType })),
-        report: result.report,
+        report: { ...result.report, stabilityAdjustment },
         bank: {
           bankId,
           audioId: keepResult(bankFile.buffer, bankFile.contentType),

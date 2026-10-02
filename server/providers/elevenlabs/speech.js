@@ -173,21 +173,39 @@ const neutralSettings = (settings) => ({
 /**
  * The settings a read of `count` passages or lines is voiced with. With
  * `steady` (Neutral) the read is held calm and even (see NEUTRAL_VOICE). With
- * the voice's saved settings (no `voiceSettings` from the caller), v3 is held at
- * Natural, and a multi-passage read on a stitched model is kept at least at
- * STEADY_SCRIPT_STABILITY so the passages share one tone.
+ * the voice's saved settings (no `voiceSettings` from the caller) and `tune` on,
+ * v3 is held at Natural, and a multi-passage read on a stitched model is kept
+ * at least at STEADY_SCRIPT_STABILITY so the passages share one tone. With
+ * `tune` off, or settings the caller chose, they are used exactly as they are.
+ *
+ * Returns `{ settings, stabilityAdjustment }`, the adjustment being
+ * `{ from, to, reason, count }` (`reason` 'v3_natural' or 'steady_script')
+ * so the change can be shown to the user, or null when nothing was changed.
  */
-export const readSettings = (settings, modelId, { explicit, count, steady = false }) => {
-  if (steady) return neutralSettings(settings);
-  if (explicit) return settings;
-  const stability = settings.stability ?? DEFAULT_VOICE_SETTINGS.stability;
+export const readSettings = (saved, modelId, { explicit, count, steady = false, tune = true }) => {
+  if (steady) return { settings: neutralSettings(saved), stabilityAdjustment: null };
+  const unchanged = { settings: saved, stabilityAdjustment: null };
+  if (explicit || !tune) return unchanged;
+  const stability = saved.stability ?? DEFAULT_VOICE_SETTINGS.stability;
+  const adjust = (to, reason) => ({
+    settings: { ...saved, stability: to },
+    stabilityAdjustment: { from: stability, to, reason, count },
+  });
   if (isV3(modelId)) {
-    return stability > V3_NATURAL_STABILITY ? { ...settings, stability: V3_NATURAL_STABILITY } : settings;
+    return stability > V3_NATURAL_STABILITY ? adjust(V3_NATURAL_STABILITY, 'v3_natural') : unchanged;
   }
   if (count > 1 && supportsStitching(modelId) && stability < STEADY_SCRIPT_STABILITY) {
-    return { ...settings, stability: STEADY_SCRIPT_STABILITY };
+    return adjust(STEADY_SCRIPT_STABILITY, 'steady_script');
   }
-  return settings;
+  return unchanged;
+};
+
+const logAdjustment = (adjustment) => {
+  if (!adjustment) return;
+  logger.info(
+    `Stability ${adjustment.from} -> ${adjustment.to} for ${adjustment.count} passage(s) (${adjustment.reason}); ` +
+      'turn off "Auto-tune stability" in Voice Settings to use the saved value as it is.'
+  );
 };
 
 /** Formats a multi-passage script can be generated in: DHVANI can decode and re-encode them. */
@@ -366,6 +384,7 @@ export const synthesizeScript = async (
     seed,
     matchLoudness = false,
     steady = false,
+    tuneStability = true,
   },
   { apiKey, textModelKey, signal, onProgress = () => {} } = {}
 ) => {
@@ -396,11 +415,13 @@ export const synthesizeScript = async (
   if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
 
   // Load the voice's settings once instead of once per passage.
-  const settings = readSettings(await resolveSettings(cleanVoiceId, voiceSettings, apiKey), resolvedModel, {
+  const { settings, stabilityAdjustment } = readSettings(await resolveSettings(cleanVoiceId, voiceSettings, apiKey), resolvedModel, {
     explicit: Boolean(voiceSettings),
     count: chunks.length,
     steady,
+    tune: tuneStability,
   });
+  logAdjustment(stabilityAdjustment);
   const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
 
   const parts = new Array(chunks.length);
@@ -483,9 +504,9 @@ export const synthesizeScript = async (
   if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
   onProgress({ phase: 'joining', passageCount: chunks.length, passagesDone: chunks.length, totalChars, charsDone: totalChars });
   // Even a one-passage dub goes through the join for its lead-in and run-out.
-  if (!isJoinable(outputFormat)) return { contentType, buffer: parts[0] };
+  if (!isJoinable(outputFormat)) return { contentType, buffer: parts[0], stabilityAdjustment };
   const joined = await joinAudio(parts, passages, outputFormat, { matchLoudness });
-  return { contentType: joined.contentType || contentType, buffer: joined.buffer };
+  return { contentType: joined.contentType || contentType, buffer: joined.buffer, stabilityAdjustment };
 };
 
 /**
@@ -500,21 +521,39 @@ export const synthesizeScript = async (
  * `seed` asks for a different take of that line alone, and its `pace`
  * multiplies the voice's speed for it. With `performanceTags`, the
  * source-matched tags in the lines are kept (see sourceCues.js); with `steady`
- * the lines are held calm and even (see NEUTRAL_VOICE). `onLine(done)` reports
- * each finished line. Returns `[{ buffer, requestId }]` in the same order.
+ * the lines are held calm and even (see NEUTRAL_VOICE). `readCount` is how
+ * many lines the whole read has (default: `lines.length`), so a retake of a
+ * few lines gets the settings the rest were voiced with. `onLine(done)` reports
+ * each finished line, and `onStabilityAdjustment` what readSettings changed
+ * (once, before any line is voiced). Returns `[{ buffer, requestId }]` in the
+ * same order.
  */
 export const synthesizeLines = async (
-  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', voiceSettings, seed, performanceTags = false, steady = false },
-  { apiKey, signal, onLine = () => {} } = {}
+  {
+    voiceId,
+    lines,
+    modelId,
+    outputFormat = 'mp3_44100_128',
+    voiceSettings,
+    seed,
+    performanceTags = false,
+    steady = false,
+    tuneStability = true,
+    readCount,
+  },
+  { apiKey, signal, onLine = () => {}, onStabilityAdjustment = () => {} } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
   const resolvedModel = modelId || config.elevenlabs.ttsModel;
 
-  const settings = readSettings(await resolveSettings(cleanVoiceId, voiceSettings, apiKey), resolvedModel, {
+  const { settings, stabilityAdjustment } = readSettings(await resolveSettings(cleanVoiceId, voiceSettings, apiKey), resolvedModel, {
     explicit: Boolean(voiceSettings),
-    count: lines.length,
+    count: Math.max(lines.length, Number.isInteger(readCount) ? readCount : 0),
     steady,
+    tune: tuneStability,
   });
+  logAdjustment(stabilityAdjustment);
+  onStabilityAdjustment(stabilityAdjustment);
   const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
 
   const results = new Array(lines.length);

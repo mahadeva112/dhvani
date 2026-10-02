@@ -16,6 +16,9 @@ import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob }
 
 export const elevenLabsRouter = Router();
 
+/** Response header saying what was changed about a voice's saved stability (see readSettings). */
+export const STABILITY_HEADER = 'X-Dhvani-Stability-Adjustment';
+
 const apiKey = (req) => req.get('x-elevenlabs-key') || undefined;
 
 /** Pipes a provider audio response through to the browser without buffering it. */
@@ -99,7 +102,7 @@ elevenLabsRouter.get(
 elevenLabsRouter.post(
   '/elevenlabs/tts',
   asyncHandler(async (req, res) => {
-    const { voiceId, text, modelId, outputFormat, voiceSettings, expressive, audioTags, performanceTags, steady, language, seed, matchLoudness, jobId } =
+    const { voiceId, text, modelId, outputFormat, voiceSettings, expressive, audioTags, performanceTags, steady, language, seed, matchLoudness, tuneStability, jobId } =
       req.body || {};
     const job = startDubJob(jobId);
     const controller = job?.controller || new AbortController();
@@ -109,7 +112,7 @@ elevenLabsRouter.post(
 
     try {
       // No voiceSettings means "use the voice's own settings", as the ElevenLabs website does.
-      const { contentType, buffer } = await synthesizeScript(
+      const { contentType, buffer, stabilityAdjustment } = await synthesizeScript(
         {
           voiceId,
           text,
@@ -123,6 +126,7 @@ elevenLabsRouter.post(
           seed: Number.isInteger(seed) ? seed : undefined,
           matchLoudness: matchLoudness === true,
           steady: steady === true,
+          tuneStability: tuneStability !== false,
         },
         {
           apiKey: apiKey(req),
@@ -134,6 +138,8 @@ elevenLabsRouter.post(
       if (job) finishDubJob(jobId, 'done');
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Length', buffer.length);
+      // What was changed about the voice's saved stability, so the app can say so.
+      if (stabilityAdjustment) res.setHeader(STABILITY_HEADER, JSON.stringify(stabilityAdjustment));
       res.end(buffer);
     } catch (err) {
       if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
