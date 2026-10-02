@@ -1,5 +1,6 @@
 import { ApiError, fromProviderResponse } from '../errors.js';
 import { logger } from '../logger.js';
+import { describeNetworkError } from './network.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -66,7 +67,7 @@ export const requestWithRetry = async (
         if (attempt === retries) throw lastError;
       } else {
         lastError = new ApiError(
-          `Could not reach ${provider}: ${err?.message || 'network error'}. Check your internet connection.`,
+          `Could not reach ${provider}: ${describeNetworkError(err)}`,
           { status: 503, code: 'network_error', provider, retryable: true }
         );
         if (attempt === retries) throw lastError;
@@ -74,7 +75,9 @@ export const requestWithRetry = async (
     }
 
     const delay = baseDelayMs * 2 ** attempt;
-    logger.warn(`${provider} attempt ${attempt + 1} failed (${lastError.code}); retrying in ${delay}ms`);
+    logger.warn(
+      `${provider} attempt ${attempt + 1} failed (${lastError.code}): ${lastError.message} — retrying in ${delay}ms`
+    );
     await sleep(delay);
   }
 
