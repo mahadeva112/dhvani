@@ -19,6 +19,55 @@ export const isCartesiaVoice = (voiceId?: string | null): boolean =>
 export const MIN_CARTESIA_SPEED = 0.6;
 export const MAX_CARTESIA_SPEED = 1.5;
 
+/**
+ * How a Cartesia voice is voiced. One set, shared by the dub, the Sync tab
+ * and the text-to-speech studio, so a voice sounds the same in all three.
+ */
+export interface CartesiaVoicePrefs {
+  /** Empty uses the model configured on the server. */
+  modelId: string;
+  speed: number;
+  volume: number;
+  /** Empty lets the model choose. */
+  emotion: string;
+}
+
+export const DEFAULT_CARTESIA_PREFS: CartesiaVoicePrefs = { modelId: '', speed: 1, volume: 1, emotion: '' };
+
+const CARTESIA_PREFS_KEY = 'dhvani_cartesia_prefs';
+/** Where the studio kept its Cartesia settings before they were shared. */
+const STUDIO_PREFS_KEY = 'dhvani_tts_studio_prefs';
+
+export const readCartesiaPrefs = (): CartesiaVoicePrefs => {
+  try {
+    const shared = JSON.parse(localStorage.getItem(CARTESIA_PREFS_KEY) || 'null');
+    if (shared && typeof shared === 'object') return { ...DEFAULT_CARTESIA_PREFS, ...shared };
+    const studio = JSON.parse(localStorage.getItem(STUDIO_PREFS_KEY) || 'null')?.cartesia;
+    if (!studio || typeof studio !== 'object') return { ...DEFAULT_CARTESIA_PREFS };
+    // Saved at once: the studio no longer keeps its own copy.
+    const migrated = { ...DEFAULT_CARTESIA_PREFS, ...studio };
+    saveCartesiaPrefs(migrated);
+    return migrated;
+  } catch {
+    return { ...DEFAULT_CARTESIA_PREFS };
+  }
+};
+
+export const saveCartesiaPrefs = (prefs: CartesiaVoicePrefs) => {
+  try {
+    localStorage.setItem(CARTESIA_PREFS_KEY, JSON.stringify(prefs));
+  } catch {}
+};
+
+/** Speed, volume and emotion only steer the sonic-3 family; other models ignore them. */
+export const cartesiaTakesControls = (modelId?: string) => /^sonic-3/.test(modelId || '');
+
+/** The delivery settings sent for `prefs`: none for a model that ignores them. */
+export const cartesiaDelivery = (prefs: CartesiaVoicePrefs): { speed: number; volume: number; emotion?: string } | undefined =>
+  cartesiaTakesControls(prefs.modelId)
+    ? { speed: prefs.speed, volume: prefs.volume, ...(prefs.emotion ? { emotion: prefs.emotion } : {}) }
+    : undefined;
+
 /** The Cartesia voice library, or [] when no Cartesia key is set up or it cannot be reached. */
 export const getCartesiaVoices = async (): Promise<Voice[]> => {
   try {

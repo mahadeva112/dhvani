@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { synthesizeScript, synthesizeLines, getVoices, toCartesiaOutputFormat } from './speech.js';
 import { toCartesiaLanguage, toCartesiaVoiceId, toDhvaniVoiceId } from './client.js';
+import { cartesiaSettings } from '../../routes/sync.js';
 
 const LONG_TEXT = 'The mind is restless, but you can watch it without judgement. '.repeat(60);
 
@@ -88,6 +89,28 @@ test('sync lines are voiced one clip each, in order, with the voice and language
   assert.equal(body.language, 'hi');
   assert.deepEqual(body.output_format, { container: 'raw', encoding: 'pcm_s16le', sample_rate: 24000 });
   assert.deepEqual(body.generation_config, { speed: 1.1 });
+});
+
+test('a synced line is voiced with the same model, emotion and volume as a dub', async () => {
+  // What the app sends for a Cartesia voice, plus ElevenLabs fields that must not leak through.
+  const delivery = { speed: 0.9, volume: 1.4, emotion: 'calm', stability: 0.3, style: 0.5 };
+  assert.deepEqual(cartesiaSettings(delivery), { speed: 0.9, volume: 1.4, emotion: 'calm' });
+  assert.equal(cartesiaSettings({ stability: 0.5 }), undefined);
+  assert.equal(cartesiaSettings(null), undefined);
+
+  const calls = mockFetch(() => audio());
+  await synthesizeScript(
+    { voiceId: 'cartesia:v', text: 'Hello there.', modelId: 'sonic-3', outputFormat: 'pcm_16000', voiceSettings: delivery },
+    { apiKey: 'sk_car_test' }
+  );
+  await synthesizeLines(
+    { voiceId: 'cartesia:v', lines: [{ text: 'Hello there.' }], modelId: 'sonic-3', outputFormat: 'pcm_16000', voiceSettings: cartesiaSettings(delivery) },
+    { apiKey: 'sk_car_test' }
+  );
+  const [dub, synced] = calls.map((call) => JSON.parse(call.init.body));
+  assert.equal(synced.model_id, 'sonic-3');
+  assert.deepEqual(synced.generation_config, { speed: 0.9, volume: 1.4, emotion: 'calm' });
+  assert.deepEqual(synced, dub, 'the sync and the dub ask Cartesia for exactly the same thing');
 });
 
 test('generation_config is only sent to models that take it', async () => {

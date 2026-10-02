@@ -1,5 +1,5 @@
 import { apiAudio, apiAudioUpload, apiGet, apiJson, apiUpload, DhvaniApiError } from './apiClient';
-import { isCartesiaVoice, synthesizeWithCartesia } from './cartesiaService';
+import { isCartesiaVoice, synthesizeWithCartesia, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
 
 /**
  * ElevenLabs client.
@@ -119,6 +119,7 @@ export const synthesizeSpeech = async (
     language,
     seed,
     matchLoudness = false,
+    cartesia,
     jobId,
     signal,
   }: {
@@ -133,6 +134,8 @@ export const synthesizeSpeech = async (
     seed?: number;
     /** Bring every passage of a long script to the same loudness. Off: each keeps the level it was voiced at. */
     matchLoudness?: boolean;
+    /** How a Cartesia voice is voiced; the ElevenLabs settings don't apply to one. */
+    cartesia?: CartesiaVoicePrefs;
     /** Names the dub so its progress can be polled and it can be cancelled. */
     jobId?: string;
     signal?: AbortSignal;
@@ -142,13 +145,16 @@ export const synthesizeSpeech = async (
   const cleanText = audioTags ? String(text || '').trim() : cleanTextForNaturalSpeech(text);
   if (!cleanText) throw new Error('No dialogue text provided for synthesis.');
 
-  // A Cartesia voice is spoken by Cartesia. Only the speed carries over from
-  // the ElevenLabs sliders; delivery cues are an Eleven v3/v4 feature.
+  // A Cartesia voice is spoken by Cartesia with its own model and delivery, as in
+  // the studio. Delivery cues are an Eleven v3/v4 feature. Without Cartesia
+  // settings, only the speed carries over from the ElevenLabs sliders.
   if (isCartesiaVoice(voiceId)) {
+    const delivery = cartesia ? cartesiaDelivery(cartesia) : { speed: voiceSettings?.speed };
     return synthesizeWithCartesia(voiceId, cleanText, {
       outputFormat,
       language,
-      speed: voiceSettings?.speed,
+      modelId: cartesia?.modelId || undefined,
+      ...delivery,
       matchLoudness,
       jobId,
       signal,
@@ -394,8 +400,10 @@ export const synthesizeSamplePreview = async (
   sampleText: string = 'Hello! This is a real-time preview of my dubbed voice in ElevenLabs.',
   modelId: string = DEFAULT_ELEVENLABS_MODEL,
   /** Null or omitted uses the voice's own settings, as a dub would. */
-  voiceSettings: ElevenLabsVoiceSettings | null = null
-): Promise<Blob> => synthesizeSpeech(apiKey, voiceId, sampleText, modelId, 'mp3_44100_128', voiceSettings);
+  voiceSettings: ElevenLabsVoiceSettings | null = null,
+  /** How a Cartesia voice is voiced, as a dub would. */
+  cartesia?: CartesiaVoicePrefs
+): Promise<Blob> => synthesizeSpeech(apiKey, voiceId, sampleText, modelId, 'mp3_44100_128', voiceSettings, { cartesia });
 
 /** Speech-to-speech voice conversion. */
 export const speechToSpeech = async (
