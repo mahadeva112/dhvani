@@ -125,12 +125,40 @@ export const analyzeAudio = async (
   }
 };
 
+/** The sample rate in a WAV file's header, or null for anything that isn't a readable WAV. */
+export const wavSampleRate = (bytes: ArrayBuffer): number | null => {
+  const view = new DataView(bytes);
+  const tag = (at: number) => String.fromCharCode(...new Uint8Array(bytes, at, 4));
+  if (bytes.byteLength < 12 || tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null;
+  for (let at = 12; at + 8 <= bytes.byteLength; ) {
+    const size = view.getUint32(at + 4, true);
+    if (tag(at) === 'fmt ' && at + 16 <= bytes.byteLength) {
+      const rate = view.getUint32(at + 12, true);
+      return rate > 0 ? rate : null;
+    }
+    at += 8 + size + (size % 2); // chunks are padded to an even length
+  }
+  return null;
+};
+
 /**
- * Decodes a blob URL into an AudioBuffer.
+ * Decodes a blob URL into an AudioBuffer. A WAV (every joined dub is one) is
+ * decoded at its own sample rate, so its samples are the file's, not resampled
+ * to the sound card's rate: written back with audioBufferToWav, it is the same
+ * audio. Anything else is decoded at the device's rate.
  */
 export const decodeAudioBlobUrl = async (blobUrl: string): Promise<AudioBuffer> => {
     const response = await fetch(blobUrl);
     const arrayBuffer = await response.arrayBuffer();
+    const rate = wavSampleRate(arrayBuffer);
+    if (rate && typeof OfflineAudioContext !== 'undefined') {
+      try {
+        // An offline context decodes at the rate it is made with and needs no audio device.
+        return await new OfflineAudioContext(1, 1, rate).decodeAudioData(arrayBuffer.slice(0));
+      } catch {
+        // A rate the browser can't make a context at: decode at the device's rate below.
+      }
+    }
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
     try {
       return await audioContext.decodeAudioData(arrayBuffer);
@@ -185,8 +213,11 @@ export const audioBufferToWav = (buffer: AudioBuffer): Blob => {
   offset = 44;
   while(pos < buffer.length){
     for(i = 0; i < numOfChan; i++){
-      sample = Math.max(-1, Math.min(1, channels[i][pos])); // clamp
-      sample = (sample < 0 ? sample * 0x8000 : sample * 0x7FFF) | 0; // scale to 16-bit signed int
+      // Chromium decodes a 16-bit sample as n / 32768 below zero and n / 32767 above it;
+      // this is the exact inverse, rounded (truncating moved a quarter of all samples by
+      // one step), so decoded 16-bit audio is written back bit for bit.
+      sample = Math.max(-1, Math.min(1, channels[i][pos]));
+      sample = Math.round(sample < 0 ? sample * 0x8000 : sample * 0x7fff);
       view.setInt16(offset, sample, true);
       offset += 2;
     }
