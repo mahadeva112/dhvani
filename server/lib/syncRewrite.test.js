@@ -51,14 +51,15 @@ test('a wording that changes the meaning is repaired once, with what was wrong',
   assert.match(prompts.rewrite[1], /- the negation is lost/);
 });
 
-test('when every wording changes the meaning, nothing is suggested', async () => {
+test('when every wording changes the meaning, none passes, and the last comes back flagged', async () => {
   const { generate, prompts } = fakeModel({
     lines: ['मैं कल सुबह दस बजे बाज़ार जाऊँगा', 'कल सुबह दस बजे बाज़ार जाऊँगा'],
-    checks: [{ sameMeaning: false, issues: ['negation lost'] }, { sameMeaning: false, issues: ['negation lost'] }],
+    checks: [{ sameMeaning: false, issues: ['negation lost'] }, { sameMeaning: false, issues: ['emphasis dropped'] }],
   });
-  const { line, reason } = await suggestLine({ ...request, direction: 'shorter' }, { generate });
+  const { line, reason, flagged } = await suggestLine({ ...request, direction: 'shorter' }, { generate });
   assert.equal(line, null);
   assert.equal(reason, 'meaning');
+  assert.deepEqual(flagged, { line: 'कल सुबह दस बजे बाज़ार जाऊँगा', issues: ['emphasis dropped'] });
   assert.equal(prompts.rewrite.length, 2, 'one repair, no more');
 });
 
@@ -71,11 +72,22 @@ test('a check that gives no readable answer counts as a failure', async () => {
 });
 
 test('an answer that fails the length checks is never sent to the meaning check', async () => {
-  const { generate, prompts } = fakeModel({ lines: [request.text + ' और भी'] });
-  const { line, reason } = await suggestLine({ ...request, direction: 'shorter' }, { generate });
+  const { generate, prompts } = fakeModel({ lines: [request.text + ' और भी', request.text] });
+  const { line, reason, flagged } = await suggestLine({ ...request, direction: 'shorter' }, { generate });
   assert.equal(line, null);
   assert.equal(reason, 'unusable');
+  assert.equal(flagged, null);
   assert.equal(prompts.check.length, 0);
+});
+
+test('an answer of the wrong length gets a second try', async () => {
+  const { generate, prompts } = fakeModel({
+    lines: [request.text + ' और भी', 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी'],
+    checks: [{ sameMeaning: true, issues: [] }],
+  });
+  const { line } = await suggestLine({ ...request, direction: 'shorter' }, { generate });
+  assert.equal(line, 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी');
+  assert.equal(prompts.rewrite.length, 2);
 });
 
 test('a fuller wording is checked for anything added, and may restore what the source says', async () => {

@@ -213,8 +213,10 @@ syncRouter.post('/sync/preview', (req, res) => {
  * model. Body: `{ text, sourceText, language, targetChars, avoid }`, `avoid`
  * being earlier suggestions to differ from. Replies `{ line, reason }`: `line`
  * is null when no wording passed, `reason` then being 'unusable' or 'meaning'
- * (every wording changed what the source line says). Every line returned has
- * passed the meaning check (syncRewrite.js). The script is never changed here.
+ * (every wording changed what the source line says). Every `line` returned has
+ * passed the meaning check (syncRewrite.js); with 'meaning', `flagged` is the
+ * closest wording and what the check found, `{ line, issues }`, for the user
+ * to judge. The script is never changed here.
  */
 syncRouter.post(
   '/sync/shorten',
@@ -223,11 +225,11 @@ syncRouter.post(
     if (typeof text !== 'string' || !text.trim()) throw new ApiError('There is no line to shorten.', { status: 400, code: 'no_text' });
     const target = Math.max(1, Math.min(text.length, Math.floor(Number(targetChars) || text.length * 0.8)));
     const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(0, 3) : [];
-    const { line, reason } = await shortenLine(
+    const { line, reason, flagged } = await shortenLine(
       { text, sourceText: typeof sourceText === 'string' ? sourceText : '', language, targetChars: target, avoid: earlier },
       { apiKey: req.get('x-gemini-key') || undefined }
     );
-    res.json({ line, reason });
+    res.json({ line, reason, flagged });
   })
 );
 
@@ -235,8 +237,8 @@ syncRouter.post(
  * POST /api/sync/lengthen — a fuller wording for one line that ends well
  * before the original speaker does, from the text model. Body as for
  * /sync/shorten; `targetChars` is the length to aim for, more than the line
- * has now. Replies `{ line, reason }` as /sync/shorten does, every line
- * returned having passed the meaning check. The script is never changed here.
+ * has now. Replies `{ line, reason, flagged }` as /sync/shorten does, every
+ * `line` returned having passed the meaning check. The script is never changed here.
  */
 syncRouter.post(
   '/sync/lengthen',
@@ -246,11 +248,11 @@ syncRouter.post(
     // At most three times the line: past that it is a new line, not a fuller one.
     const target = Math.max(text.length + 1, Math.min(text.length * 3, Math.floor(Number(targetChars) || text.length * 1.5)));
     const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(0, 3) : [];
-    const { line, reason } = await lengthenLine(
+    const { line, reason, flagged } = await lengthenLine(
       { text, sourceText: typeof sourceText === 'string' ? sourceText : '', language, targetChars: target, avoid: earlier },
       { apiKey: req.get('x-gemini-key') || undefined }
     );
-    res.json({ line, reason });
+    res.json({ line, reason, flagged });
   })
 );
 

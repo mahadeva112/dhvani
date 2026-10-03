@@ -497,24 +497,37 @@ export const previewSync = (
 type LineRequest = { text: string; sourceText?: string; language?: string; targetChars: number; avoid?: string[] };
 
 /**
- * A new wording from the server, which has already checked it means what the
- * source line means. Null when nothing usable came back; throws, with a reason
- * to show, when every wording changed the meaning.
+ * A new wording of a line. `issues` is set when the meaning check did not
+ * pass it: what the check found changed, for the user to judge before using it.
  */
-const askForLine = async (path: string, request: LineRequest, signal?: AbortSignal): Promise<string | null> => {
-  const { line, reason } = await apiJson<{ line: string | null; reason?: 'unusable' | 'meaning' | null }>(path, { body: request, signal });
-  if (!line && reason === 'meaning') {
-    throw new Error('Every wording the text model offered changed the meaning of the original line, so none is shown. Try again, or edit it yourself.');
-  }
-  return line;
+export interface LineSuggestion {
+  text: string;
+  issues?: string[];
+}
+
+/**
+ * A new wording from the server, which has checked it means what the source
+ * line means. When every wording failed that check, the closest one still
+ * comes back, with `issues`, so pressing the button always gives the user
+ * something to judge and edit. Null when nothing usable came back.
+ */
+const askForLine = async (path: string, request: LineRequest, signal?: AbortSignal): Promise<LineSuggestion | null> => {
+  const { line, flagged } = await apiJson<{
+    line: string | null;
+    reason?: 'unusable' | 'meaning' | null;
+    flagged?: { line: string; issues: string[] } | null;
+  }>(path, { body: request, signal });
+  if (line) return { text: line };
+  if (flagged?.line) return { text: flagged.line, issues: flagged.issues?.length ? flagged.issues : ['The meaning may differ from the original line.'] };
+  return null;
 };
 
-/** A shorter wording of one line from the text model, meaning checked, or null when it had nothing usable. */
-export const suggestShorterLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<string | null> =>
+/** A shorter wording of one line from the text model, or null when it had nothing usable. */
+export const suggestShorterLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<LineSuggestion | null> =>
   askForLine('/sync/shorten', request, signal);
 
-/** A fuller wording of one line that ends too early, meaning checked, or null when it had nothing usable. */
-export const suggestLongerLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<string | null> =>
+/** A fuller wording of one line that ends too early, or null when it had nothing usable. */
+export const suggestLongerLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<LineSuggestion | null> =>
   askForLine('/sync/lengthen', request, signal);
 
 /** A typical dub speaking rate, used when there is no dub to measure one from. */
