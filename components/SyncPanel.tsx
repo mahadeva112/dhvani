@@ -3,6 +3,7 @@ import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2,
 import { TimelineScrollbar, TimelineTransport, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import {
+  LineSuggestion,
   SYNC_PRECISION_OPTIONS,
   SYNC_STEPS,
   SyncOptions,
@@ -11,7 +12,7 @@ import {
   SyncReport,
   SyncUnitReport,
 } from '../services/syncService';
-import { isShort } from './SyncPreviewPanel';
+import { isShort, MeaningWarning } from './SyncPreviewPanel';
 import { joinPresetOf, readJoinSettings, SyncJoinSettingsPanel } from './SyncJoinSettings';
 
 /**
@@ -360,7 +361,7 @@ export interface SyncResultsPanelProps {
    * Another wording of a line that is too long (shorter) or ends early (fuller),
    * different from `avoid`; null when the text model had nothing usable.
    */
-  onSuggestLine?: (unit: SyncUnitReport, avoid: string[]) => Promise<string | null>;
+  onSuggestLine?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion | null>;
 }
 
 /** The main column of step 4: what Sync does, its progress, then how every line landed. */
@@ -621,18 +622,21 @@ const ReviewRow: React.FC<{
   onListen: (time: number) => void;
   onApply?: (unit: SyncUnitReport, text: string) => void;
   onRetake?: (unit: SyncUnitReport) => void;
-  onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<string | null>;
+  onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion | null>;
 }> = ({ unit, reason, pending, onListen, onApply, onRetake, onSuggest }) => {
   const [draft, setDraft] = useState(unit.suggestion || unit.text);
   const [suggested, setSuggested] = useState(Boolean(unit.suggestion));
   const [copied, setCopied] = useState(false);
   const [asking, setAsking] = useState(false);
   const [askError, setAskError] = useState<string | null>(null);
+  // What the meaning check found in the shown suggestion, when it did not pass it.
+  const [issues, setIssues] = useState<string[] | null>(null);
   // Wordings already offered for this line, so another try reads differently.
   const tried = useRef<string[]>([]);
   useEffect(() => {
     setDraft(unit.suggestion || unit.text);
     setSuggested(Boolean(unit.suggestion));
+    setIssues(null);
     tried.current = unit.suggestion ? [unit.suggestion] : [];
   }, [unit.suggestion, unit.text]);
   const changed = draft.trim() !== '' && draft.trim() !== unit.text.trim();
@@ -647,9 +651,10 @@ const ReviewRow: React.FC<{
     try {
       const line = await onSuggest(unit, tried.current);
       if (line) {
-        tried.current = [...tried.current, line].slice(-3);
-        setDraft(line);
+        tried.current = [...tried.current, line.text].slice(-3);
+        setDraft(line.text);
         setSuggested(true);
+        setIssues(line.issues ?? null);
       } else setAskError(`No usable ${fuller ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`);
     } catch (err: any) {
       setAskError(err?.message || 'The text model did not answer.');
@@ -700,12 +705,14 @@ const ReviewRow: React.FC<{
                       ? 'Make this line fuller'
                       : 'Shorten this line'}
               </label>
+              {suggested && issues && <MeaningWarning issues={issues} />}
               <textarea
                 id={`sync-line-${unit.key}`}
                 value={draft}
                 onChange={(e) => {
                   setDraft(e.target.value);
                   setSuggested(false);
+                  setIssues(null);
                 }}
                 rows={2}
                 className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"

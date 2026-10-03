@@ -4,6 +4,7 @@ import { TimelineScrollbar, TimelineTransport, wheelScroll } from './TimelineCon
 import { useLiveTime } from './useLiveTime';
 import { AudioSegment } from '../types';
 import {
+  LineSuggestion,
   MIN_TRIM_SECONDS,
   previewSync,
   SyncJoinSettings,
@@ -108,7 +109,8 @@ export const useSyncPreview = ({
 export type LineFixState =
   | { kind: 'idle' }
   | { kind: 'working'; tried: string[] }
-  | { kind: 'draft'; text: string; suggested: boolean; tried: string[] }
+  /** `issues`: what the meaning check found in a suggestion it did not pass. */
+  | { kind: 'draft'; text: string; suggested: boolean; tried: string[]; issues?: string[] }
   | { kind: 'error'; message: string; tried: string[] }
   | { kind: 'used'; text: string; before: Record<string, string> }
   | { kind: 'kept' };
@@ -136,7 +138,7 @@ export const useLineFixes = ({
   onUseLine,
   onRestore,
 }: {
-  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) => Promise<string | null>;
+  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) => Promise<LineSuggestion | null>;
   onUseLine: (unit: SyncPreviewUnit, text: string) => Record<string, string>;
   onRestore: (before: Record<string, string>) => void;
 }) => {
@@ -167,7 +169,7 @@ export const useLineFixes = ({
     try {
       const line = await onSuggest(unit, tried, direction);
       if (requests.current[unit.key] !== id) return;
-      if (line) setRow(unit, { kind: 'draft', text: line, suggested: true, tried: [...tried, line] });
+      if (line) setRow(unit, { kind: 'draft', text: line.text, suggested: true, tried: [...tried, line.text], issues: line.issues });
       else
         setRow(unit, {
           kind: 'error',
@@ -227,7 +229,7 @@ export interface SyncPreviewPanelProps {
   /** Plays the original from `time`. */
   onListenOriginal: (time: number) => void;
   /** A shorter (or, for a line that ends early, fuller) wording of a line, from the text model. */
-  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) => Promise<string | null>;
+  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) => Promise<LineSuggestion | null>;
   /** Puts a wording into the script; returns the cues' texts before, for Undo. */
   onUseLine: (unit: SyncPreviewUnit, text: string) => Record<string, string>;
   /** Puts cue texts back, for Undo. */
@@ -484,6 +486,14 @@ export const lineNote = (unit: SyncPreviewUnit, state: LineFixState, direction: 
   };
 };
 
+/** Shown with a suggestion the meaning check did not pass, so the user reads it before using it. */
+export const MeaningWarning: React.FC<{ issues: string[] }> = ({ issues }) => (
+  <div role="note" className="mb-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11.5px] text-amber-300 leading-snug">
+    <span className="font-semibold">Check the meaning before using this.</span> The closest wording the text model found may differ from the
+    original line: {issues.slice(0, 3).join('; ')}.
+  </div>
+);
+
 export interface LineFixControlsProps {
   unit: SyncPreviewUnit;
   cps: number;
@@ -584,6 +594,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           <label className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1" htmlFor={`preview-line-${unit.key}`}>
             {state.suggested ? (longer ? 'Suggested fuller line' : 'Suggested shorter line') : 'Your wording'}
           </label>
+          {state.suggested && state.issues && <MeaningWarning issues={state.issues} />}
           <textarea
             id={`preview-line-${unit.key}`}
             value={state.text}

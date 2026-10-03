@@ -21,7 +21,10 @@
  * call (`checkMeaning`) that compares it against the source line, strictly and
  * at temperature 0. A wording that fails gets one repair: the model is told
  * exactly what changed and tries again, and that wording is checked too. If
- * it still fails, no suggestion is shown at all; a doubtful one never is.
+ * it still fails, Sync's own suggestions show nothing: a doubtful one is
+ * never offered unasked. When the user asked for one line, though, the last
+ * wording comes back as `flagged`, with what the check found, so the user
+ * gets a wording to judge and edit rather than an empty answer.
  */
 import { logger } from '../logger.js';
 import { generateText } from '../providers/textModel.js';
@@ -177,10 +180,13 @@ export const checkMeaning = async ({ text, sourceText, candidate, language, dire
 
 /**
  * Writes a new wording of a line, `direction` 'shorter' or 'longer', and only
- * returns it once the meaning check passed. Returns `{ line, reason }`: the
- * line, or null with `reason` 'unusable' (no answer passed the length checks)
- * or 'meaning' (every wording changed what the source line says). Throws when
- * the text model can't be reached or refuses, so the caller can say why.
+ * returns it as `line` once the meaning check passed. Returns
+ * `{ line, reason, flagged }`: the line, or null with `reason` 'unusable' (no
+ * answer passed the length checks) or 'meaning' (every wording changed what
+ * the source line says). With 'meaning', `flagged` is the last wording and the
+ * check's issues, `{ line, issues }`, for a caller that shows it marked as
+ * such; null otherwise. Throws when the text model can't be reached or
+ * refuses, so the caller can say why.
  */
 export const suggestLine = async (
   { text, sourceText, language, targetChars, avoid = [], direction },
@@ -191,24 +197,28 @@ export const suggestLine = async (
   const accept = longer ? acceptLengthen : acceptRewrite;
   const kind = longer ? 'fuller' : 'shorter';
   let fix = null;
-  let changedMeaning = false;
+  let flagged = null;
+  let retried = false;
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     const { response } = await generate({
       contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, fix }) }] },
       // A second try at the same line is asked to differ, and given more room to.
-      generationConfig: { temperature: avoid.length > 0 || fix ? 0.7 : 0.3 },
+      generationConfig: { temperature: avoid.length > 0 || fix || retried ? 0.7 : 0.3 },
       apiKey,
     });
     const line = accept(text, String(response?.text || ''), targetChars);
-    if (!line) break;
+    retried = true;
+    // An answer of the wrong length gets the same second try as one that changed the meaning.
+    if (!line) continue;
     const check = await checkMeaning({ text, sourceText, candidate: line, language, direction }, { apiKey, generate });
-    if (check.ok) return { line, reason: null };
-    changedMeaning = true;
-    logger.info(`A suggested ${kind} dub line changed the meaning (${check.issues.join('; ') || 'no detail'}); ${attempt < MAX_REPAIRS ? 'asking again' : 'none is shown'}.`);
-    fix = { line, issues: check.issues.length > 0 ? check.issues : ['The meaning is not the same as the original line.'] };
+    if (check.ok) return { line, reason: null, flagged: null };
+    const issues = check.issues.length > 0 ? check.issues : ['The meaning is not the same as the original line.'];
+    logger.info(`A suggested ${kind} dub line changed the meaning (${issues.join('; ')}); ${attempt < MAX_REPAIRS ? 'asking again' : 'it is only offered flagged'}.`);
+    flagged = { line, issues };
+    fix = flagged;
   }
-  if (!changedMeaning) logger.info(`A suggested ${kind} dub line was not usable; none is shown for that line.`);
-  return { line: null, reason: changedMeaning ? 'meaning' : 'unusable' };
+  if (!flagged) logger.info(`A suggested ${kind} dub line was not usable; none is shown for that line.`);
+  return { line: null, reason: flagged ? 'meaning' : 'unusable', flagged };
 };
 
 /** A shorter wording of `text`, no longer than `targetChars`, that keeps its meaning. See suggestLine. */
