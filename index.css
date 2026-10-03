@@ -235,7 +235,9 @@ html.light .bg-slate-950\/95,
 html.light .bg-slate-950\/90,
 html.light .bg-slate-950\/80,
 html.light .bg-slate-950\/70,
-html.light .bg-slate-950\/60 {
+html.light .bg-slate-950\/60,
+html.light .bg-slate-950\/40,
+html.light .bg-slate-950\/30 {
   background-color: #f8fafc !important;
   border-color: #e2e8f0 !important;
 }
