@@ -36,13 +36,13 @@ const formatClock = (seconds: number) => {
 
 const formatOffset = (seconds: number) => `${seconds > 0 ? '+' : seconds < 0 ? '−' : '±'}${Math.abs(seconds).toFixed(2)} s`;
 
-/** The settings Sync starts with: phrase precision, Natural joins, both kinds of suggestion, loudness as voiced. */
+/** The settings Sync starts with: phrase precision, Natural joins, no suggestions, loudness as voiced. */
 export const defaultSyncOptions = (): SyncOptions => ({
   precision: 'phrase',
   preset: 'natural',
   join: readJoinSettings(null),
-  suggest: true,
-  suggestLonger: true,
+  suggest: false,
+  suggestLonger: false,
   matchLoudness: false,
 });
 
@@ -67,8 +67,8 @@ const readOptions = (): SyncOptions => {
       // A saved Custom stays Custom even when it happens to match a preset.
       preset: saved.preset === 'custom' ? 'custom' : joinPresetOf(join),
       join,
-      suggest: saved.suggest !== false,
-      suggestLonger: saved.suggestLonger !== false,
+      suggest: saved.suggest === true,
+      suggestLonger: saved.suggestLonger === true,
       matchLoudness: saved.matchLoudness === true,
     };
   } catch {

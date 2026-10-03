@@ -9,6 +9,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **A new version announces itself once.** When the desktop app finds a newer release, a notice in
+  the corner says so, with **See what's new** and **Later**. Each version shows it once; the header's
+  Update button stays as before.
 - **Final dub shows each line's sync fit.** The Final script now times every dub line against its
   source sentence, the same estimate the Sync preview makes: a badge (**+0.6 s over**, **Ends 1.4 s
   early**, **Tight** or **Fits**), a bar against the slot, and a **Sync fit** strip with the counts and
@@ -63,6 +66,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Sync starts with line suggestions off.** **Suggest shorter lines** and **Suggest fuller lines**
+  are now unchecked by default; turn them on when you want them.
 - **Sync is its own step.** The steps are now **Source & voice → Review → Final dub → Sync**. The
   Sync panel moved out of Final dub into step 4. The results (line counts, the Original/Dub timeline and
   **Worth a listen**) fill the main column, and a right-hand panel holds Precision, **Suggest shorter

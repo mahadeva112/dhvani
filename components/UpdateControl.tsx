@@ -41,6 +41,17 @@ export const openUpdates = () => window.dispatchEvent(new Event(OPEN_UPDATES_EVE
 /** True inside the desktop app, the only place updates exist. */
 export const updatesSupported = () => typeof window !== 'undefined' && Boolean(window.dhvaniUpdates);
 
+/** The last version whose "update available" notice was shown, so each release announces itself once. */
+const NOTICE_KEY = 'dhvani_update_notice_seen';
+
+const readNoticeSeen = () => {
+  try {
+    return localStorage.getItem(NOTICE_KEY);
+  } catch {
+    return null;
+  }
+};
+
 const megabytes = (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`;
 
 const PillSpinner = () => (
@@ -51,13 +62,15 @@ const PillSpinner = () => (
  * The header's Update button and the window behind it.
  *
  * Renders nothing outside the desktop app, and nothing in the header until a
- * newer published release exists. The user picks when to download and when to
+ * newer published release exists. Each new version also announces itself once
+ * with a corner notice; dismissing it or opening the window retires it. The user picks when to download and when to
  * restart; `busy` holds the restart back while a dub or sync is running.
  */
 export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) => {
   const api = typeof window !== 'undefined' ? window.dhvaniUpdates : undefined;
   const [state, setState] = React.useState<AppUpdateState | null>(null);
   const [open, setOpen] = React.useState(false);
+  const [noticeSeen, setNoticeSeen] = React.useState(readNoticeSeen);
 
   React.useEffect(() => {
     if (!api) return;
@@ -85,11 +98,30 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
+  const markNoticeSeen = React.useCallback((v: string | null) => {
+    if (!v) return;
+    setNoticeSeen(v);
+    try {
+      localStorage.setItem(NOTICE_KEY, v);
+    } catch {
+      // The notice simply shows again next launch.
+    }
+  }, []);
+
+  // Opening the window counts as seeing the notice.
+  React.useEffect(() => {
+    if (open && state?.version && (state.status === 'available' || state.status === 'downloading' || state.status === 'downloaded')) {
+      markNoticeSeen(state.version);
+    }
+  }, [open, state?.version, state?.status, markNoticeSeen]);
+
   if (!api || !state) return null;
 
   const { status, canInstall, version, currentVersion } = state;
   const percent = Math.round(state.percent || 0);
   const offered = status === 'available' || status === 'downloading' || status === 'downloaded';
+
+  const showNotice = status === 'available' && !open && Boolean(version) && noticeSeen !== version;
 
   const pillLabel =
     status === 'downloading' ? `Downloading ${percent}%` : status === 'downloaded' ? 'Restart to update' : `Update to ${version}`;
@@ -128,6 +160,49 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
           <span className="hidden sm:inline tabular-nums">{pillLabel}</span>
         </button>
       )}
+
+      {showNotice &&
+        createPortal(
+          <div
+            role="status"
+            className="fixed bottom-6 right-6 z-50 w-[min(22rem,calc(100vw-2rem))] flex items-start gap-3 p-4 rounded-[14px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 animate-in fade-in slide-in-from-bottom-2 duration-300"
+          >
+            <div className="w-8 h-8 rounded-[9px] bg-blue-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
+              <Download className="w-4 h-4" strokeWidth={2.5} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13.5px] font-semibold leading-snug">DHVANI {version} is available</p>
+              <p className="text-[12px] text-slate-400 mt-0.5">
+                {canInstall ? 'Download it when it suits you. Your keys and settings are kept.' : 'Get it from the Releases page.'}
+              </p>
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => setOpen(true)}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                >
+                  See what’s new
+                </button>
+                <button
+                  type="button"
+                  onClick={() => markNoticeSeen(version)}
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                >
+                  Later
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => markNoticeSeen(version)}
+              aria-label="Dismiss"
+              className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>,
+          document.body
+        )}
 
       {open &&
         createPortal(
