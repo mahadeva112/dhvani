@@ -64,10 +64,7 @@
     "express-rate-limit": "^8.7.0",
     "helmet": "^8.3.0",
     "jszip": "^3.10.2",
-    "lucide-react": "^1.45.0",
-    "multer": "^2.0.2",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.1"
+    "multer": "^2.0.2"
   },
   "optionalDependencies": {
     "ffmpeg-static": "^5.2.0"
@@ -82,6 +79,9 @@
     "cross-env": "^10.1.0",
     "electron": "^44.4.2",
     "electron-builder": "^26.15.3",
+    "lucide-react": "^1.45.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.1",
     "tailwindcss": "^4.3.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

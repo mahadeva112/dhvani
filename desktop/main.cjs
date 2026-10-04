@@ -100,13 +100,16 @@ const canSelfUpdate = () => {
 };
 
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+const INSTALL_NOTICE_MS = 1500;
 
 let autoUpdater = null;
 
 /** What the page renders. Every change is pushed to it whole. */
 let updateState = {
-  status: 'idle', // idle | checking | available | not-available | downloading | downloaded | error
+  status: 'idle', // idle | checking | available | not-available | downloading | downloaded | installing | error
   canInstall: false,
+  // The installer relaunches the app with --updated after a self-update.
+  justUpdated: process.argv.includes('--updated'),
   currentVersion: app.getVersion(),
   version: null,
   releaseNotes: '',
@@ -121,6 +124,7 @@ const setUpdateState = (patch) => {
   updateState = { ...updateState, ...patch };
   mainWindow?.webContents.send('updates:state', updateState);
   if (updateState.status === 'downloading') mainWindow?.setProgressBar(updateState.percent / 100);
+  else if (updateState.status === 'installing') mainWindow?.setProgressBar(2, { mode: 'indeterminate' });
   else mainWindow?.setProgressBar(-1);
 };
 
@@ -179,7 +183,7 @@ const checkReleasesApi = async () => {
 };
 
 const checkForUpdates = () => {
-  if (['checking', 'downloading', 'downloaded'].includes(updateState.status)) return;
+  if (['checking', 'downloading', 'downloaded', 'installing'].includes(updateState.status)) return;
   if (!autoUpdater) {
     checkReleasesApi();
     return;
@@ -199,8 +203,11 @@ const setupAutoUpdates = () => {
   ipcMain.handle('updates:install', () => {
     if (!autoUpdater || updateState.status !== 'downloaded') return;
     isQuitting = true;
-    // Silent reinstall into the same folder, then relaunch.
-    setImmediate(() => autoUpdater.quitAndInstall(true, true));
+    setUpdateState({ status: 'installing' });
+    // Silent reinstall into the same folder, then relaunch. The pause lets the
+    // page show that DHVANI is about to close; the installer shows its own
+    // small window while the app is gone (desktop/installer.nsh).
+    setTimeout(() => autoUpdater.quitAndInstall(true, true), INSTALL_NOTICE_MS);
   });
   ipcMain.handle('updates:open-releases', () => shell.openExternal(RELEASES_URL));
 

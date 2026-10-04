@@ -1,12 +1,14 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Download, RotateCw, X, Check, AlertCircle, ExternalLink } from 'lucide-react';
+import { Download, RotateCw, X, Check, CheckCircle2, AlertCircle, ExternalLink, Circle } from 'lucide-react';
 
 /** The updater's state as desktop/main.cjs pushes it. */
 export interface AppUpdateState {
-  status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+  status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'installing' | 'error';
   /** False for portable copies: they can learn about an update but not install it. */
   canInstall: boolean;
+  /** This launch is the installer reopening the app after a self-update. */
+  justUpdated: boolean;
   currentVersion: string;
   version: string | null;
   releaseNotes: string;
@@ -44,13 +46,31 @@ export const updatesSupported = () => typeof window !== 'undefined' && Boolean(w
 /** The last version whose "update available" notice was shown, so each release announces itself once. */
 const NOTICE_KEY = 'dhvani_update_notice_seen';
 
-const readNoticeSeen = () => {
+/** The version whose "updated" message was shown, so it appears once per update. */
+const UPDATED_KEY = 'dhvani_updated_notice_seen';
+/** The version that last ran, so an update installed by hand is announced too. */
+const LAST_VERSION_KEY = 'dhvani_last_version';
+
+const readKey = (key: string) => {
   try {
-    return localStorage.getItem(NOTICE_KEY);
+    return localStorage.getItem(key);
   } catch {
     return null;
   }
 };
+
+const writeKey = (key: string, value: string) => {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // The message simply shows again next launch.
+  }
+};
+
+const readNoticeSeen = () => readKey(NOTICE_KEY);
+
+/** Read once per page load: the version that ran before this launch. */
+const previousVersion = readKey(LAST_VERSION_KEY);
 
 const megabytes = (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`;
 
@@ -71,6 +91,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
   const [state, setState] = React.useState<AppUpdateState | null>(null);
   const [open, setOpen] = React.useState(false);
   const [noticeSeen, setNoticeSeen] = React.useState(readNoticeSeen);
+  const [updatedSeen, setUpdatedSeen] = React.useState(() => readKey(UPDATED_KEY));
 
   React.useEffect(() => {
     if (!api) return;
@@ -101,12 +122,17 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
   const markNoticeSeen = React.useCallback((v: string | null) => {
     if (!v) return;
     setNoticeSeen(v);
-    try {
-      localStorage.setItem(NOTICE_KEY, v);
-    } catch {
-      // The notice simply shows again next launch.
-    }
+    writeKey(NOTICE_KEY, v);
   }, []);
+
+  const markUpdatedSeen = React.useCallback((v: string) => {
+    setUpdatedSeen(v);
+    writeKey(UPDATED_KEY, v);
+  }, []);
+
+  React.useEffect(() => {
+    if (state?.currentVersion) writeKey(LAST_VERSION_KEY, state.currentVersion);
+  }, [state?.currentVersion]);
 
   // Opening the window counts as seeing the notice.
   React.useEffect(() => {
@@ -121,10 +147,23 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
   const percent = Math.round(state.percent || 0);
   const offered = status === 'available' || status === 'downloading' || status === 'downloaded';
 
-  const showNotice = status === 'available' && !open && Boolean(version) && noticeSeen !== version;
+  const installing = status === 'installing';
+
+  // The installer passes --updated; a version change since the last run also
+  // covers an update installed by hand.
+  const updated = state.justUpdated || (previousVersion !== null && previousVersion !== currentVersion);
+  const showUpdated = updated && !installing && updatedSeen !== currentVersion;
+
+  const showNotice = status === 'available' && !open && !showUpdated && Boolean(version) && noticeSeen !== version;
 
   const pillLabel =
-    status === 'downloading' ? `Downloading ${percent}%` : status === 'downloaded' ? 'Restart to update' : `Update to ${version}`;
+    status === 'downloading'
+      ? `Downloading ${percent}%`
+      : status === 'downloaded'
+        ? 'Restart to update'
+        : installing
+          ? 'Installing…'
+          : `Update to ${version}`;
 
   const title =
     status === 'checking'
@@ -150,7 +189,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
           className="flex items-center gap-1.5 h-[34px] px-3 rounded-full bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold whitespace-nowrap transition-colors cursor-pointer"
           title={status === 'downloaded' ? `DHVANI ${version} is ready to install` : `DHVANI ${version} is available`}
         >
-          {status === 'downloading' ? (
+          {status === 'downloading' || installing ? (
             <PillSpinner />
           ) : status === 'downloaded' ? (
             <RotateCw className="w-3.5 h-3.5" strokeWidth={2.5} />
@@ -160,6 +199,99 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
           <span className="hidden sm:inline tabular-nums">{pillLabel}</span>
         </button>
       )}
+
+      {installing &&
+        createPortal(
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <section
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="installing-title"
+              className="w-full max-w-[26rem] rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
+            >
+              <div className="flex items-center gap-3.5 px-5 py-4 border-b border-slate-800">
+                <div className="w-[38px] h-[38px] rounded-[10px] bg-blue-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
+                  <RotateCw className="w-[18px] h-[18px]" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h2 id="installing-title" className="text-lg font-semibold leading-tight">
+                    Installing DHVANI {version}
+                  </h2>
+                  <p className="text-[12.5px] text-slate-400 mt-0.5 tabular-nums">
+                    Installed {currentVersion} · New {version}
+                  </p>
+                </div>
+              </div>
+              <div className="px-5 py-4" aria-live="polite">
+                <ol className="flex flex-col gap-2.5 text-[13px]">
+                  <li className="flex items-center gap-2.5 text-slate-300">
+                    <Check className="w-4 h-4 text-emerald-400" /> Update downloaded
+                  </li>
+                  <li className="flex items-center gap-2.5 text-slate-100 font-medium">
+                    <span className="w-4 h-4 flex items-center justify-center text-blue-400">
+                      <PillSpinner />
+                    </span>
+                    Closing DHVANI to install
+                  </li>
+                  <li className="flex items-center gap-2.5 text-slate-500">
+                    <Circle className="w-4 h-4" /> Opening the new version
+                  </li>
+                </ol>
+                <div className="mt-4 h-1.5 rounded-full bg-slate-800 overflow-hidden" aria-hidden="true">
+                  <div className="h-full w-1/3 rounded-full bg-blue-500 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
+                </div>
+                <p className="text-[12px] text-slate-400 mt-3">
+                  DHVANI closes for about a minute while it installs, then opens again by itself. Your keys and settings are kept.
+                </p>
+              </div>
+            </section>
+          </div>,
+          document.body
+        )}
+
+      {showUpdated &&
+        createPortal(
+          <div
+            role="status"
+            className="fixed bottom-6 right-6 z-50 w-[min(22rem,calc(100vw-2rem))] flex items-start gap-3 p-4 rounded-[14px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 animate-in fade-in slide-in-from-bottom-2 duration-300"
+          >
+            <div className="w-8 h-8 rounded-[9px] bg-emerald-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
+              <CheckCircle2 className="w-4 h-4" strokeWidth={2.5} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13.5px] font-semibold leading-snug">Updated to DHVANI {currentVersion}</p>
+              <p className="text-[12px] text-slate-400 mt-0.5">Your keys, settings and projects are where you left them.</p>
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    markUpdatedSeen(currentVersion);
+                    api.openReleases();
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> See what’s new
+                </button>
+                <button
+                  type="button"
+                  onClick={() => markUpdatedSeen(currentVersion)}
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => markUpdatedSeen(currentVersion)}
+              aria-label="Dismiss"
+              className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>,
+          document.body
+        )}
 
       {showNotice &&
         createPortal(
@@ -205,6 +337,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
         )}
 
       {open &&
+        !installing &&
         createPortal(
         <div
           className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200 select-text"
