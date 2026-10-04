@@ -892,7 +892,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
    * in the sync preview and in the sync report. Until the preview has grouped
    * the cues into lines each cue takes its own; a cue in no line (no words) has none.
    */
-  const cueLines = useMemo(() => lineIndexByCue(linePreview?.units), [linePreview]);
+  // Once synced, the report's lines: they are the ones the synced dub was built from.
+  const cueLines = useMemo(
+    () => lineIndexByCue(hasSyncReport ? activeJob?.syncReport?.units : linePreview?.units),
+    [hasSyncReport, activeJob?.syncReport, linePreview]
+  );
   const cueColor = useCallback(
     (seg: AudioSegment, index: number): string | null => {
       if (cueLines.size === 0) return hueOf(index);
@@ -3735,6 +3739,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const report = hasSyncReport ? activeJob.syncReport || null : null;
         const totalLength = duration || dubBuffer?.duration || activeJob.audioBuffer?.duration || 0;
         const sourceLength = duration || activeJob.audioBuffer?.duration || 0;
+        const syncedLength = dubBuffer?.duration || sourceLength;
         const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
         const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
         const blockedReason = !onSyncDub
@@ -3754,10 +3759,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               {report &&
                 renderTrackLanes(
                   [
-                    { label: 'Original', track: 'source', length: sourceLength, buffer: activeJob.audioBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400' },
-                    { label: 'Synced', track: 'synth', length: dubBuffer?.duration || sourceLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400' },
+                    { label: 'Original', track: 'source', length: sourceLength, buffer: activeJob.audioBuffer, dot: 'bg-cyan-400', color: 'text-slate-400/30', spans: lineLanes.sourceSpans },
+                    { label: 'Synced', track: 'synth', length: syncedLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-slate-400/30', spans: lineLanes.dubSpans },
                   ],
-                  heardDuration || totalLength
+                  heardDuration || totalLength,
+                  // Each lane is drawn on its own track's length, so the links show where a line moved to.
+                  sourceLength > 0 && syncedLength > 0
+                    ? lineLanes.lineStarts.map((start) => ({ from: start.source / sourceLength, to: start.dub / syncedLength, color: start.color }))
+                    : undefined
                 )}
               <div className="flex flex-wrap items-center gap-3">
               <button

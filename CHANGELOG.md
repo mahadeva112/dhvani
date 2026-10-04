@@ -103,6 +103,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   runs past its slot or into the next line has a thin strip under it in place of the stripes. The
   Sync preview's Original lane now shows the original's waveform, and the report's Original lane
   says where the original ends.
+- **The Sync step's player shows line colours too.** Its Original and Synced lanes draw each line in
+  its colour, with links between them showing where each line moved to in the synced dub.
 - **Sync timelines open on the whole track, and zoom in for detail.** The Sync preview's timeline
   and the **Sync to the original** report used to show 30 seconds at a time. Both now open on the
   whole track. To see a part up close, use the **Zoom in** / **Zoom out** buttons, Ctrl + scroll (or
