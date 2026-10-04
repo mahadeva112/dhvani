@@ -77,6 +77,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Natural syncs closer, with fewer pause cuts.** A line that runs long now uses more of the pause
+  after it before any silence inside it is taken out: the dub keeps at least 30% of the original
+  pause between lines (was 50%), never less than 180 ms, and 250 ms where the speaker changes (was
+  300 ms). Lines are grouped, voiced, trimmed and rendered as before. If you picked Natural (or any
+  preset) before, Sync uses the new values; Custom settings are kept as they are.
 - **Sync starts with line suggestions off.** **Suggest shorter lines** and **Suggest fuller lines**
   are now unchecked by default; turn them on when you want them.
 - **Sync is its own step.** The steps are now **Source & voice → Review → Final dub → Sync**. The

@@ -68,8 +68,8 @@ export type SyncJoinPreset = 'natural' | 'tight' | 'lipsync' | 'custom';
 export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJoinSettings> = {
   natural: {
     minGap: 0.18,
-    speakerGap: 0.3,
-    gapShare: 0.5,
+    speakerGap: 0.25,
+    gapShare: 0.3,
     breathClear: true,
     shortenPauses: true,
     minInnerPause: 0.25,

@@ -9,7 +9,7 @@ test('each line gets the slot Sync gives it: to the next phrase, less a breath',
   // 10 characters at 10 chars/s = 1 s of speech.
   const { units } = previewSync({ segments: [cue(1, 0, 1, 'aaaaaaaaaa'), cue(2, 3, 4, 'bbbbbbbbbb')], charsPerSecond: 10, sourceDuration: 5 });
   assert.equal(units.length, 2);
-  // The source pause after line 1 is 2 s; Sync keeps 0.6 s of it (half, at most 0.6 s).
+  // The source pause after line 1 is 2 s; Sync keeps 0.6 s of it (30%, at most 0.6 s).
   assert.ok(Math.abs(units[0].slot - 2.4) < 1e-9);
   assert.ok(Math.abs(units[0].estimate - 1) < 1e-9);
   assert.equal(units[0].status, 'fits');
@@ -25,23 +25,23 @@ test('cues spoken as one phrase are previewed as one line, as Sync voices them',
 });
 
 test('lines are fits, tight or long by the precision chosen', () => {
-  // Slot of line 1: 0 -> 2, less the 0.5 s kept from a 1 s pause = 1.5 s.
+  // Slot of line 1: 0 -> 2, less the 0.3 s kept from a 1 s pause = 1.7 s.
   const segments = (chars) => [cue(1, 0, 1, 'x'.repeat(chars)), cue(2, 2, 3, 'yy')];
   const at = (chars, precision) => previewSync({ segments: segments(chars), charsPerSecond: 10, precision }).units[0].status;
   assert.equal(at(10, 'phrase'), 'fits'); // 1.0 s
-  assert.equal(at(Math.ceil(1.5 * TIGHT_SHARE * 10) + 1, 'phrase'), 'tight');
-  assert.equal(at(17, 'phrase'), 'tight'); // 1.7 s: 0.2 s over, inside phrase's 0.3 s allowance
-  assert.equal(at(17, 'lipsync'), 'long'); // lip-sync allows only 0.15 s
-  assert.equal(at(20, 'phrase'), 'long'); // 2.0 s: 0.5 s over
+  assert.equal(at(Math.ceil(1.7 * TIGHT_SHARE * 10) + 1, 'phrase'), 'tight');
+  assert.equal(at(19, 'phrase'), 'tight'); // 1.9 s: 0.2 s over, inside phrase's 0.3 s allowance
+  assert.equal(at(19, 'lipsync'), 'long'); // lip-sync allows only 0.15 s
+  assert.equal(at(22, 'phrase'), 'long'); // 2.2 s: 0.5 s over
 });
 
 test('a long line gets a target length that fits its slot, with the same margin as Sync', () => {
   const { units, summary } = previewSync({ segments: [cue(1, 0, 1, 'x'.repeat(40)), cue(2, 2, 3, 'yy')], charsPerSecond: 10 });
   assert.equal(units[0].status, 'long');
-  // 40 chars take 4 s; the slot is 1.5 s, so aim for 40 * 1.5 / 4 * 0.92 = 13.8 -> 13.
-  assert.equal(units[0].targetChars, 13);
+  // 40 chars take 4 s; the slot is 1.7 s, so aim for 40 * 1.7 / 4 * 0.92 = 15.64 -> 15.
+  assert.equal(units[0].targetChars, 15);
   assert.equal(summary.long, 1);
-  assert.ok(Math.abs(summary.maxOverflow - 2.5) < 1e-9);
+  assert.ok(Math.abs(summary.maxOverflow - 2.3) < 1e-9);
 });
 
 test('the preview takes the gaps and grouping Sync is asked to use', () => {

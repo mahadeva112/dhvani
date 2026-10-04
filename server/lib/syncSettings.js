@@ -15,9 +15,13 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   /** Smallest silence between one line's tail and the next line's first sound. */
   minGap: 0.18,
   /** The same, where the speaker changes. */
-  speakerGap: 0.3,
-  /** Share of the source pause the dub keeps at least (up to MAX_KEPT_PAUSE_SECONDS). */
-  gapShare: 0.5,
+  speakerGap: 0.25,
+  /**
+   * Share of the source pause the dub keeps at least (up to MAX_KEPT_PAUSE_SECONDS).
+   * It only matters after a line that runs long, and the less it keeps, the more of
+   * the pause that line may use before its own pauses are cut or the next line moves.
+   */
+  gapShare: 0.3,
   /** Space a line's whole pre-roll (breath, room noise) clear of the line before, instead of mixing it over its tail. */
   breathClear: true,
   /** Take silence out of the pauses inside a line that runs long. */

@@ -52,7 +52,7 @@ test('a long pause makes a hard anchor', () => {
 test('the minimum gap never drops below the floor, however little the source paused', () => {
   assert.equal(minimumGap(0.05), DEFAULT_JOIN_SETTINGS.minGap);
   assert.equal(minimumGap(0.05, DEFAULT_JOIN_SETTINGS, true), DEFAULT_JOIN_SETTINGS.speakerGap);
-  assert.ok(Math.abs(minimumGap(1) - 0.5) < 1e-9, 'half of a 1 s source pause');
+  assert.ok(Math.abs(minimumGap(1) - 0.3) < 1e-9, '30% of a 1 s source pause');
   assert.equal(minimumGap(5), 0.6, 'a long pause lends the rest to a line that runs long');
   assert.equal(minimumGap(0.2, { minGap: 0.08, speakerGap: 0.08, gapShare: 0.3 }), 0.08);
   assert.equal(minimumGap(null), 0);

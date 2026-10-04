@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, Scissors, X } from 'lucide-react';
 import {
   LineSuggestion,
+  SYNC_JOIN_PRESETS,
   SYNC_PRECISION_OPTIONS,
   SYNC_STEPS,
   SyncOptions,
@@ -58,11 +59,13 @@ const isDefaultOptions = (options: SyncOptions) => {
 const readOptions = (): SyncOptions => {
   try {
     const saved = JSON.parse(localStorage.getItem(OPTIONS_KEY) || '{}');
-    const join = readJoinSettings(saved.join);
+    // A saved preset is read as the preset is now, so a retuned preset reaches everyone who picked it.
+    const preset = (Object.keys(SYNC_JOIN_PRESETS) as (keyof typeof SYNC_JOIN_PRESETS)[]).find((id) => id === saved.preset);
+    const join = preset ? { ...SYNC_JOIN_PRESETS[preset] } : readJoinSettings(saved.join);
     return {
       precision: SYNC_PRECISION_OPTIONS.some((o) => o.id === saved.precision) ? saved.precision : 'phrase',
       // A saved Custom stays Custom even when it happens to match a preset.
-      preset: saved.preset === 'custom' ? 'custom' : joinPresetOf(join),
+      preset: preset ?? (saved.preset === 'custom' ? 'custom' : joinPresetOf(join)),
       join,
       suggest: saved.suggest === true,
       suggestLonger: saved.suggestLonger === true,
