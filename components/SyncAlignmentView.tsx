@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
-import { bufferSeconds, computePeaks } from '../services/playbackTimeline';
+import { LINE_HUES, hueOf, withAlpha } from './lineColors';
+import { WindowWaveform, usePeaks } from './WindowWaveform';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 
@@ -10,14 +11,19 @@ import { useLiveTime } from './useLiveTime';
  * ruler) shows a window of it that follows the playhead.
  *
  *   ruler      time
- *   Original   the original's waveform and lines, numbered
+ *   Original   the original's waveform over its lines, numbered; past the
+ *              original's end, a note that it has ended
  *   links      a sync line from each original line's start to its dub line's
  *              start: upright is in sync, a slant is the dub early or late
- *   Synced     the synced dub's waveform and lines, numbered, over a dashed
- *              outline of where the original line is; the part of a line that
- *              runs into the next original line is hatched
+ *   Synced     the synced dub's waveform over its lines, numbered with a dot
+ *              for how the line landed, and a dashed outline of where the
+ *              original line is; the part of a line that runs into the next
+ *              original line has a red strip under it
  *   drift      each line's start error over the whole window, against the
  *              tolerance band, so drift that builds up line after line shows
+ *
+ * Each line has its own colour (lineColors.ts), the same in both lanes and on
+ * its link, so a line's original and synced halves pair up at a glance.
  *
  * Hovering a line (or the line under the playhead) picks out the pair and
  * spells out its numbers underneath.
@@ -25,8 +31,6 @@ import { useLiveTime } from './useLiveTime';
 
 /** Above this a late or early start is drawn red rather than amber. */
 const FAR_OFF_SECONDS = 0.5;
-/** Waveform peaks per second: finer than the closest zoom needs at any width. */
-const PEAKS_PER_SECOND = 100;
 
 const formatClock = (seconds: number) => {
   const t = Math.max(0, seconds || 0);
@@ -43,71 +47,10 @@ const toneOf = (u: SyncUnitReport, tolerance: number): Tone => {
   return Math.abs(u.offset) > FAR_OFF_SECONDS || (u.overrun ?? 0) > FAR_OFF_SECONDS ? 'far' : Math.abs(u.offset) > tolerance || (u.overrun ?? 0) > tolerance ? 'off' : 'sync';
 };
 const TONE = {
-  sync: { stroke: '#34d399', dot: 'bg-emerald-400', bar: 'bg-indigo-400/55', text: 'text-emerald-300' },
-  off: { stroke: '#fbbf24', dot: 'bg-amber-400', bar: 'bg-amber-400/45', text: 'text-amber-300' },
-  far: { stroke: '#fb7185', dot: 'bg-rose-400', bar: 'bg-rose-400/45', text: 'text-rose-300' },
-  none: { stroke: '#64748b', dot: 'bg-slate-500', bar: 'bg-slate-600/40', text: 'text-slate-400' },
-};
-const HATCH = 'repeating-linear-gradient(135deg, rgba(251,113,133,0.75) 0 3px, rgba(251,113,133,0.15) 3px 6px)';
-
-/** Peaks of a whole buffer, once; drawn a window at a time. */
-const usePeaks = (buffer: AudioBuffer | null | undefined) =>
-  useMemo(() => {
-    if (!buffer) return null;
-    try {
-      return { peaks: computePeaks(buffer, Math.max(1, Math.ceil(bufferSeconds(buffer) * PEAKS_PER_SECOND))), seconds: bufferSeconds(buffer) };
-    } catch {
-      return null;
-    }
-  }, [buffer]);
-
-/** A lane's waveform for [from, from + span], in the canvas's text colour. */
-const WindowWaveform: React.FC<{ data: { peaks: Float32Array; seconds: number } | null; from: number; span: number; className: string }> = ({
-  data,
-  from,
-  span,
-  className,
-}) => {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const [size, setSize] = useState(0);
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const observer = new ResizeObserver(() => setSize((n) => n + 1));
-    observer.observe(canvas);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    if (!w || !h) return;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-    if (!data || data.seconds <= 0) return;
-    ctx.fillStyle = getComputedStyle(canvas).color;
-    const bars = Math.max(1, Math.floor(w / 2));
-    const barWidth = w / bars;
-    const n = data.peaks.length;
-    for (let i = 0; i < bars; i++) {
-      const t0 = from + (span * i) / bars;
-      const t1 = from + (span * (i + 1)) / bars;
-      if (t1 <= 0 || t0 >= data.seconds) continue;
-      const b0 = Math.max(0, Math.floor((t0 / data.seconds) * n));
-      const b1 = Math.min(n, Math.max(b0 + 1, Math.floor((t1 / data.seconds) * n)));
-      let a = 0;
-      for (let b = b0; b < b1; b++) if (data.peaks[b] > a) a = data.peaks[b];
-      const bh = Math.max(1, a * (h - 4));
-      ctx.fillRect(i * barWidth, (h - bh) / 2, Math.max(1, barWidth - 0.5), bh);
-    }
-  }, [data, from, span, size]);
-  return <canvas ref={ref} aria-hidden="true" className={`absolute inset-0 w-full h-full pointer-events-none ${className}`} />;
+  sync: { stroke: '#34d399', dot: 'bg-emerald-400', text: 'text-emerald-300' },
+  off: { stroke: '#fbbf24', dot: 'bg-amber-400', text: 'text-amber-300' },
+  far: { stroke: '#fb7185', dot: 'bg-rose-400', text: 'text-rose-300' },
+  none: { stroke: '#64748b', dot: 'bg-slate-500', text: 'text-slate-400' },
 };
 
 export const SyncAlignmentView: React.FC<{
@@ -138,6 +81,8 @@ export const SyncAlignmentView: React.FC<{
     onFollow: zoom.followTo,
   });
   const sourcePeaks = usePeaks(sourceBuffer);
+  /** Where the original's audio ends; past it the Original lane says so rather than sitting empty. */
+  const sourceEnd = sourcePeaks?.seconds ?? report.duration;
   const dubPeaks = usePeaks(dubBuffer);
 
   const end = windowStart + WINDOW_SECONDS;
@@ -154,6 +99,24 @@ export const SyncAlignmentView: React.FC<{
   const focus = hovered !== null ? units.find((u) => u.index === hovered) : atPlayhead;
   const focusIndex = focus?.index ?? null;
   const dim = (u: SyncUnitReport) => hovered !== null && u.index !== hovered;
+  const sourceSpans = useMemo(
+    () => units.map((u) => ({ from: u.srcStart, to: u.srcEnd, color: hueOf(u.index), faded: hovered !== null && u.index !== hovered })),
+    [units, hovered]
+  );
+  const dubSpans = useMemo(
+    () =>
+      units.flatMap((u) =>
+        u.placedStart === null || u.placedEnd === null
+          ? []
+          : [{ from: u.placedStart, to: u.placedEnd, color: hueOf(u.index), faded: hovered !== null && u.index !== hovered }]
+      ),
+    [units, hovered]
+  );
+  /** A line's highlight, under the waveform: a tint of its colour, stronger with a ring when picked out. */
+  const highlight = (u: SyncUnitReport) => ({
+    background: withAlpha(hueOf(u.index), u.index === focusIndex ? 0.24 : 0.12),
+    boxShadow: u.index === focusIndex ? `0 0 0 1px ${withAlpha(hueOf(u.index), 0.7)}` : undefined,
+  });
 
   const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(windowStart + seconds));
   const seekAt = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -184,9 +147,16 @@ export const SyncAlignmentView: React.FC<{
   const longCount = units.filter((u) => u.exceeded).length;
 
   const laneLabel = 'flex items-center gap-1.5 text-[11px] text-slate-400';
-  const lineNumber = (u: SyncUnitReport, from: number, to: number) =>
+  /** The line's number in its colour, on a dark pill so it reads over the waveform; on the dub, with a dot for how it landed. */
+  const lineNumber = (u: SyncUnitReport, from: number, to: number, tone?: Tone) =>
     pct(to) - pct(from) > 3.2 ? (
-      <span className="absolute left-1 top-0.5 font-mono text-[9.5px] font-semibold text-slate-100/90 pointer-events-none">{u.index + 1}</span>
+      <span
+        className="absolute z-10 left-1 top-1 flex items-center gap-1 rounded bg-slate-950/85 px-1 font-mono text-[9.5px] font-semibold leading-[14px] pointer-events-none"
+        style={{ color: hueOf(u.index) }}
+      >
+        {tone && <span className={`w-1.5 h-1.5 rounded-full ${TONE[tone].dot}`} />}
+        {u.index + 1}
+      </span>
     ) : null;
 
   const fx = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 1000;
@@ -205,21 +175,29 @@ export const SyncAlignmentView: React.FC<{
           <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
         </span>
         <div className="relative h-11 rounded-t-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
-          <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS} className="text-cyan-300/25" />
+          {sourceEnd > 0 && sourceEnd < end && (
+            <span
+              aria-hidden="true"
+              className="absolute top-1 bottom-1 right-0 rounded border border-dashed border-slate-600/70 bg-slate-800/40 pointer-events-none flex items-center overflow-hidden"
+              style={{ left: `${Math.max(0, pct(sourceEnd))}%` }}
+            >
+              <span className="px-2 text-[11px] text-slate-400 whitespace-nowrap">Original ends {formatClock(sourceEnd)}</span>
+            </span>
+          )}
           {visible.map((u) => (
             <span
               key={u.index}
               onMouseEnter={() => setHovered(u.index)}
               onClick={seekLine(u.srcStart)}
               title={`#${u.index + 1} ${u.sourceText}`}
-              className={`absolute top-1.5 bottom-1.5 rounded bg-cyan-400/35 border-l-2 border-cyan-300 transition-opacity ${dim(u) ? 'opacity-30' : ''} ${
-                u.index === focusIndex ? 'ring-1 ring-cyan-200' : ''
-              }`}
-              style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%` }}
+              className={`absolute top-1.5 bottom-1.5 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
+              style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%`, ...highlight(u) }}
             >
               {lineNumber(u, u.srcStart, u.srcEnd)}
             </span>
           ))}
+          {/* Over the lines, at full strength, as in the player above */}
+          <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS} spans={sourceSpans} className="text-slate-400/30" />
           <span ref={playheadRef(0)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
         </div>
 
@@ -235,7 +213,7 @@ export const SyncAlignmentView: React.FC<{
                   y1={0}
                   x2={fx(u.placedStart)}
                   y2={28}
-                  stroke={TONE[tones.get(u.index) ?? 'none'].stroke}
+                  stroke={hueOf(u.index)}
                   strokeWidth={u.index === focusIndex ? 2.5 : 1.5}
                   strokeOpacity={dim(u) ? 0.2 : 0.9}
                   vectorEffect="non-scaling-stroke"
@@ -251,7 +229,6 @@ export const SyncAlignmentView: React.FC<{
           <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Synced
         </span>
         <div className="relative h-11 rounded-b-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
-          <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS} className="text-indigo-300/25" />
           {/* Where each line should be: the original line's span */}
           {visible.map((u) => (
             <span
@@ -273,22 +250,20 @@ export const SyncAlignmentView: React.FC<{
                   onMouseEnter={() => setHovered(u.index)}
                   onClick={seekLine(u.placedStart)}
                   title={`#${u.index + 1} ${u.text}`}
-                  className={`absolute top-1.5 bottom-1.5 rounded border-l-2 transition-opacity ${TONE[tone].bar} ${dim(u) ? 'opacity-30' : ''} ${
-                    u.index === focusIndex ? 'ring-1 ring-indigo-200' : ''
-                  }`}
+                  className={`absolute top-1.5 bottom-1.5 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
                   style={{
                     left: `${pct(u.placedStart)}%`,
                     width: `${Math.max(0.3, pct(u.placedEnd) - pct(u.placedStart))}%`,
-                    borderLeftColor: TONE[tone].stroke,
+                    ...highlight(u),
                   }}
                 >
-                  {lineNumber(u, u.placedStart, u.placedEnd)}
+                  {lineNumber(u, u.placedStart, u.placedEnd, tone)}
                 </span>
                 {runOn !== null && (
                   <span
                     aria-hidden="true"
-                    className={`absolute top-1.5 bottom-1.5 rounded-r pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
-                    style={{ left: `${pct(runOn)}%`, width: `${Math.max(0.3, pct(u.placedEnd) - pct(runOn))}%`, background: HATCH }}
+                    className={`absolute bottom-0.5 h-[3px] rounded-full bg-rose-400 pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
+                    style={{ left: `${pct(runOn)}%`, width: `${Math.max(0.3, pct(u.placedEnd) - pct(runOn))}%` }}
                   />
                 )}
                 {u.short && (
@@ -301,6 +276,7 @@ export const SyncAlignmentView: React.FC<{
               </React.Fragment>
             );
           })}
+          <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS} spans={dubSpans} className="text-slate-400/30" />
           <span ref={playheadRef(2)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
         </div>
 
@@ -398,10 +374,18 @@ export const SyncAlignmentView: React.FC<{
         windowStart={windowStart}
         windowSeconds={WINDOW_SECONDS}
       >
-        <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 rounded bg-emerald-400" /> In sync</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 rounded bg-amber-400" /> Off by up to {FAR_OFF_SECONDS} s</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 rounded bg-rose-400" /> Off by more</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ background: HATCH }} /> Runs into the next line</span>
+        <span className="flex items-center gap-1.5">
+          <span className="flex gap-0.5">
+            {LINE_HUES.map((hue) => (
+              <span key={hue} className="w-2 h-2.5 rounded-sm" style={{ background: hue }} />
+            ))}
+          </span>
+          Each line's colour, the same in both lanes
+        </span>
+        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> In sync</span>
+        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Off by up to {FAR_OFF_SECONDS} s</span>
+        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Off by more</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded-full bg-rose-400" /> Runs into the next line</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-slate-500" /> Where the original line is</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-sky-400/70" /> Ends early</span>
       </TimelineTransport>

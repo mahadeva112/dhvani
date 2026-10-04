@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Loader2, Pencil, Play, RotateCcw, X } from 'lucide-react';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
+import { hueOf, withAlpha } from './lineColors';
+import { WindowWaveform, usePeaks } from './WindowWaveform';
 import { AudioSegment } from '../types';
 import {
   LineSuggestion,
@@ -31,12 +33,13 @@ const formatClock = (seconds: number) => {
   return `${m}:${s}`;
 };
 
-const HATCH_FIT = 'repeating-linear-gradient(135deg, rgba(129,140,248,0.55) 0 6px, rgba(129,140,248,0.25) 6px 12px)';
-const HATCH_OVER = 'repeating-linear-gradient(135deg, rgba(251,191,36,0.75) 0 6px, rgba(251,191,36,0.4) 6px 12px)';
-const HATCH_FIT_SWATCH = 'repeating-linear-gradient(135deg, #818cf8 0 2px, rgba(129,140,248,0.3) 2px 4px)';
-/** A tight line gets an amber edge along its bottom: it fits, only just. */
-const TIGHT_EDGE = 'inset 0 -3px 0 rgba(252,211,77,0.9)';
-const HATCH_OVER_SWATCH = 'repeating-linear-gradient(135deg, #fbbf24 0 2px, rgba(251,191,36,0.4) 2px 4px)';
+/** How a line is likely to fit, as the dot by its number on the dub lane. */
+const STATUS_DOT: Record<SyncPreviewUnit['status'], string> = {
+  fits: 'bg-emerald-400',
+  tight: 'bg-amber-300',
+  long: 'bg-amber-400',
+  short: 'bg-sky-400',
+};
 /** Where a short line leaves the original speech unspoken: an empty, dashed box. */
 const QUIET_BOX = 'border border-dashed border-sky-400/70 bg-sky-400/5';
 /** The length the user trimmed a line to. */
@@ -235,6 +238,8 @@ export interface SyncPreviewPanelProps {
   onRestore: (before: Record<string, string>) => void;
   /** See PreviewTimeline: shown in place of the playhead while an unsynced dub is heard. */
   offClockNote?: React.ReactNode;
+  /** The original, for the timeline's waveform. */
+  sourceBuffer?: AudioBuffer | null;
 }
 
 export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
@@ -252,6 +257,7 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
   onUseLine,
   onRestore,
   offClockNote,
+  sourceBuffer,
 }) => {
   const [showTight, setShowTight] = useState(false);
   const fixes = useLineFixes({ onSuggest, onUseLine, onRestore });
@@ -317,6 +323,7 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
         isPlaying={isPlaying}
         onTogglePlay={onTogglePlay}
         offClockNote={offClockNote}
+        sourceBuffer={sourceBuffer}
       />
 
       <div>
@@ -675,6 +682,7 @@ const PreviewRow: React.FC<LineFixControlsProps & { onListen: () => void }> = ({
   const note = lineNote(unit, state, direction);
   return (
     <li className="flex items-start gap-3 py-3">
+      <span aria-hidden="true" className="shrink-0 w-1 self-stretch rounded-full" style={{ background: hueOf(unit.index) }} />
       <span className={`shrink-0 mt-0.5 font-mono text-[11px] px-2 py-0.5 rounded-md tabular-nums ${pill.tone}`}>{pill.text}</span>
       <span className="shrink-0 mt-0.5 font-mono text-[11.5px] text-slate-500 tabular-nums w-14">{formatClock(unit.srcStart)}</span>
       <div className="min-w-0 flex-1">
@@ -696,11 +704,13 @@ const PreviewRow: React.FC<LineFixControlsProps & { onListen: () => void }> = ({
 };
 
 /**
- * The report's timeline, before a sync: the original's lines above, the dub
- * lines where Sync will start them below, striped because their length is an
- * estimate. The part of a line estimated to run past its slot is yellow; the
- * part of the original speech a short line leaves silent is a dashed box; a
- * thin mark shows where each slot ends.
+ * The report's timeline, before a sync: the original's waveform and lines
+ * above, the dub lines where Sync will start them below, outlined in dashes
+ * because their length is an estimate. Each line has its own colour, as in the
+ * sync report (lineColors.ts), and a dot by its number for how it is likely to
+ * fit. The part of a line estimated to run past its slot has an amber strip
+ * under it; the part of the original speech a short line leaves silent is a
+ * dashed box; a thin mark shows where each slot ends.
  *
  * Given onSelect and onTrim, a dub bar can be picked and its end dragged to
  * the length the user wants the line to take: a trim. Only the length counts;
@@ -727,7 +737,9 @@ export const PreviewTimeline: React.FC<{
   offClockNote?: React.ReactNode;
   /** The line under the playhead as it changes, or null between lines. */
   onCurrentLine?: (unit: SyncPreviewUnit | null) => void;
-}> = ({ units, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay, selectedKey, onSelect, onTrim, charsPerSecond, offClockNote, onCurrentLine }) => {
+  /** The original, for the Original lane's waveform. */
+  sourceBuffer?: AudioBuffer | null;
+}> = ({ units, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay, selectedKey, onSelect, onTrim, charsPerSecond, offClockNote, onCurrentLine, sourceBuffer }) => {
   const [drag, setDrag] = useState<{ key: string; seconds: number } | null>(null);
   // The clocks show tenths; the playheads move every frame through playheadRef.
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
@@ -794,6 +806,19 @@ export const PreviewTimeline: React.FC<{
     return Math.max(MIN_TRIM_SECONDS, Math.min(u.slot, snapped));
   };
   const dragged = drag ? units.find((u) => u.key === drag.key) : undefined;
+  const sourcePeaks = usePeaks(sourceBuffer);
+  const sourceSpans = useMemo(() => units.map((u) => ({ from: u.srcStart, to: u.srcEnd, color: hueOf(u.index) })), [units]);
+  /** The line's number in its colour, on a dark pill so it reads over the waveform; on the dub, with a dot for how it fits. */
+  const lineNumber = (u: SyncPreviewUnit, seconds: number, dot?: string) =>
+    pct(u.srcStart + seconds) - pct(u.srcStart) > 3.2 ? (
+      <span
+        className="absolute z-10 left-1 top-1 flex items-center gap-1 rounded bg-slate-950/85 px-1 font-mono text-[9.5px] font-semibold leading-[14px] pointer-events-none"
+        style={{ color: hueOf(u.index) }}
+      >
+        {dot && <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />}
+        {u.index + 1}
+      </span>
+    ) : null;
   const playhead = (index: number) => (
     <span ref={playheadRef(index)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
   );
@@ -807,24 +832,28 @@ export const PreviewTimeline: React.FC<{
         <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
           <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
         </span>
-        <div className="relative h-9 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
+        <div className="relative h-11 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
           {visible.map((u) => (
             <span
               key={u.key}
               title={u.sourceText}
-              className={`absolute top-1.5 bottom-1.5 rounded bg-cyan-400/35 ${u.key === current?.key ? 'ring-2 ring-white/80' : ''}`}
-              style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%` }}
-            />
+              className={`absolute top-1.5 bottom-1.5 rounded ${u.key === current?.key ? 'ring-2 ring-white/80' : ''}`}
+              style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%`, background: withAlpha(hueOf(u.index), 0.12) }}
+            >
+              {lineNumber(u, u.srcEnd - u.srcStart)}
+            </span>
           ))}
+          {/* Over the lines, in each line's colour */}
+          <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS} spans={sourceSpans} className="text-slate-400/30" />
           {playhead(0)}
         </div>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span className="w-2 h-2 rounded-sm" style={{ background: HATCH_FIT_SWATCH }} /> Dub, est.
+          <span className="w-2 h-2 rounded-sm border border-dashed border-indigo-300" /> Dub, est.
         </span>
-        <div className="relative h-9 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
+        <div className="relative h-11 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
           {visible.map((u) => {
-            const fit = Math.min(u.estimate, u.slot);
             const over = u.estimate - u.slot;
+            const hue = hueOf(u.index);
             const selected = u.key === selectedKey;
             const trim = drag?.key === u.key ? drag.seconds : u.wantSeconds;
             const handleAt = trim ?? Math.min(u.estimate, u.slot);
@@ -842,21 +871,27 @@ export const PreviewTimeline: React.FC<{
                 <span
                   title={title}
                   onClick={pick}
-                  className={`absolute top-1.5 bottom-1.5 ${over > 0 ? 'rounded-l' : 'rounded'}`}
+                  className="absolute top-1.5 bottom-1.5 rounded border border-dashed"
                   style={{
                     left: `${pct(u.srcStart)}%`,
-                    width: `${Math.max(0.3, pct(u.srcStart + fit) - pct(u.srcStart))}%`,
-                    background: HATCH_FIT,
-                    boxShadow:
-                      [u.status === 'tight' ? TIGHT_EDGE : '', selected ? SELECTED_RING : u.key === current?.key ? NOW_RING : ''].filter(Boolean).join(', ') ||
-                      undefined,
+                    width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart))}%`,
+                    background: withAlpha(hue, 0.14),
+                    borderColor: withAlpha(hue, 0.75),
+                    boxShadow: selected ? SELECTED_RING : u.key === current?.key ? NOW_RING : undefined,
                   }}
-                />
+                >
+                  {lineNumber(u, u.estimate, STATUS_DOT[u.status])}
+                  {pct(u.srcStart + u.estimate) - pct(u.srcStart) > 9 && (
+                    <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
+                      ≈{u.estimate.toFixed(1)} s
+                    </span>
+                  )}
+                </span>
                 {over > 0 && (
                   <span
                     title={title}
-                    className="absolute top-1.5 bottom-1.5 rounded-r"
-                    style={{ left: `${pct(u.srcStart + u.slot)}%`, width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart + u.slot))}%`, background: HATCH_OVER }}
+                    className="absolute bottom-0.5 h-[3px] rounded-full bg-amber-400 pointer-events-none"
+                    style={{ left: `${pct(u.srcStart + u.slot)}%`, width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart + u.slot))}%` }}
                   />
                 )}
                 {u.status === 'short' && (
@@ -978,9 +1013,10 @@ export const PreviewTimeline: React.FC<{
         windowStart={windowStart}
         windowSeconds={WINDOW_SECONDS}
       >
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ background: HATCH_FIT_SWATCH }} /> Likely fits</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ background: HATCH_FIT_SWATCH, boxShadow: 'inset 0 -2px 0 #fcd34d' }} /> Tight</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm" style={{ background: HATCH_OVER_SWATCH }} /> Runs past its slot</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-indigo-300 bg-indigo-300/15" /> Estimated length, in the line's colour</span>
+        <span className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT.fits}`} /> Likely fits</span>
+        <span className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT.tight}`} /> Tight</span>
+        <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded-full bg-amber-400" /> Runs past its slot</span>
         <span className="flex items-center gap-1.5"><span className={`w-3 h-2.5 rounded-sm ${QUIET_BOX}`} /> Speaker still talking, dub quiet</span>
         <span className="flex items-center gap-1.5"><span className="w-px h-3 bg-slate-500" /> Next line starts</span>
         {onTrim && (

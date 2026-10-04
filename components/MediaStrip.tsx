@@ -24,10 +24,15 @@ const formatSize = (bytes: number) =>
       ? `${(bytes / 1024 / 1024).toFixed(1)} MB`
       : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
-/** Peak overview of an audio buffer, drawn at the canvas's own width in its text colour. */
-export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string }> = ({
+/**
+ * Peak overview of an audio buffer, drawn at the canvas's own width in its
+ * text colour; given `spans` (seconds into the buffer), each span's stretch
+ * is drawn in that span's colour instead.
+ */
+export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string; spans?: { from: number; to: number; color: string }[] }> = ({
   buffer,
   className = 'text-cyan-400/70',
+  spans,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -53,9 +58,11 @@ export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string }>
       // Sampling every 16th value is plenty for an overview of a long file.
       const peaks = computePeaks(buffer, barCount, 16);
 
-      ctx.fillStyle = getComputedStyle(canvas).color;
+      const color = getComputedStyle(canvas).color;
       peaks.forEach((peak, i) => {
         const h = Math.max(2, peak * (height - 4));
+        const t = ((i + 0.5) / barCount) * buffer.duration;
+        ctx.fillStyle = spans?.find((s) => t >= s.from && t < s.to)?.color ?? color;
         ctx.fillRect(i * barWidth, (height - h) / 2, Math.max(1, barWidth - 1), h);
       });
     };
@@ -64,7 +71,7 @@ export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string }>
     const observer = new ResizeObserver(draw);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [buffer]);
+  }, [buffer, spans]);
 
   return <canvas ref={canvasRef} className={`w-full h-full block ${className}`} aria-hidden="true" />;
 };

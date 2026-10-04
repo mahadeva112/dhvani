@@ -103,6 +103,7 @@ import type { SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from 
 import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort } from './SyncPreviewPanel';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, needsFix } from './FinalScriptFit';
+import { hueOf, lineIndexByCue, withAlpha } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
@@ -218,6 +219,15 @@ interface TrackLane {
   length: number;
   buffer: AudioBuffer | null | undefined;
   dot: string;
+  color: string;
+  /** Each line's stretch of this track, in seconds, in the line's colour: tinted behind the waveform and drawn over it. */
+  spans?: { from: number; to: number; color: string }[];
+}
+
+/** A line's start on one lane joined to its start on the next, as fractions of each lane's length. */
+interface LaneLink {
+  from: number;
+  to: number;
   color: string;
 }
 
@@ -878,6 +888,44 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   const selectedLine = linePreview?.units.find((u) => u.key === selectedLineKey) || null;
   /**
+   * A cue's colour: its line's (lineColors.ts), so a line keeps one colour here,
+   * in the sync preview and in the sync report. Until the preview has grouped
+   * the cues into lines each cue takes its own; a cue in no line (no words) has none.
+   */
+  const cueLines = useMemo(() => lineIndexByCue(linePreview?.units), [linePreview]);
+  const cueColor = useCallback(
+    (seg: AudioSegment, index: number): string | null => {
+      if (cueLines.size === 0) return hueOf(index);
+      const line = cueLines.get(String(seg.id));
+      return line === undefined ? null : hueOf(line);
+    },
+    [cueLines]
+  );
+  /**
+   * The Final dub lanes in line colours: each cue's stretch of the original and
+   * of the dub, and where each line starts on both. Kept between renders, since
+   * a new set of spans redraws the waveforms.
+   */
+  const lineLanes = useMemo(() => {
+    const cueColors = segments.map((seg, i) => cueColor(seg, i));
+    const dubById = new Map(dubCues.map((cue) => [String(cue.id), cue]));
+    const sourceSpans: { from: number; to: number; color: string }[] = [];
+    const dubSpans: { from: number; to: number; color: string }[] = [];
+    const lineStarts: { source: number; dub: number; color: string }[] = [];
+    segments.forEach((seg, i) => {
+      const color = cueColors[i];
+      if (!color) return;
+      sourceSpans.push({ from: seg.startTime, to: seg.endTime, color });
+      const cue = dubById.get(String(seg.id));
+      if (!cue) return;
+      dubSpans.push({ from: cue.startTime, to: cue.endTime, color });
+      // One link per line, from its first cue.
+      const sameLine = i > 0 && cueLines.size > 0 && cueLines.get(String(seg.id)) === cueLines.get(String(segments[i - 1].id));
+      if (!sameLine) lineStarts.push({ source: seg.startTime, dub: cue.startTime, color });
+    });
+    return { cueColors, sourceSpans, dubSpans, lineStarts };
+  }, [segments, dubCues, cueColor, cueLines]);
+  /**
    * Saves a line's trimmed length on its first cue, or clears it with null.
    * The line's work starts over, so its direction is decided from the new length.
    */
@@ -1196,9 +1244,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
    * step show them; click a lane to jump there. The lane not being heard is
    * dimmed, and a click on it starts it at that point.
    */
-  const renderTrackLanes = (lanes: TrackLane[], rulerLength: number) => (
+  const renderTrackLanes = (lanes: TrackLane[], rulerLength: number, links?: LaneLink[]) => (
     <div className="grid grid-cols-1 sm:grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
-      {lanes.map((lane) => {
+      {lanes.map((lane, laneIndex) => {
         const muted = lane.track === 'source' ? trackMode === 'synth' : trackMode === 'source';
         return (
           <React.Fragment key={lane.label}>
@@ -1228,8 +1276,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               }}
               className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer transition-opacity ${muted ? 'opacity-40' : ''}`}
             >
+              {lane.spans &&
+                lane.length > 0 &&
+                lane.spans.map((span, n) => (
+                  <span
+                    key={n}
+                    aria-hidden="true"
+                    className="absolute top-1.5 bottom-1.5 rounded pointer-events-none"
+                    style={{
+                      left: `${(span.from / lane.length) * 100}%`,
+                      width: `${Math.max(0.2, ((span.to - span.from) / lane.length) * 100)}%`,
+                      background: withAlpha(span.color, 0.12),
+                    }}
+                  />
+                ))}
               {lane.buffer ? (
-                <MiniWaveform buffer={lane.buffer} className={lane.color} />
+                <MiniWaveform buffer={lane.buffer} className={`relative ${lane.color}`} spans={lane.spans} />
               ) : (
                 <span className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-500">Waveform not available</span>
               )}
@@ -1238,6 +1300,25 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <LanePlayhead currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} totalLength={lane.length} />
               )}
             </div>
+            {/* Each line's start on this lane joined to its start on the next */}
+            {links && laneIndex === 0 && lanes.length > 1 && (
+              <>
+                <span className="hidden sm:block text-[10px] text-slate-500">Same line</span>
+                <svg viewBox="0 0 1000 20" preserveAspectRatio="none" className="w-full h-5" aria-hidden="true">
+                  {links.map((link, n) => (
+                    <path
+                      key={n}
+                      d={`M ${link.from * 1000} 0 C ${link.from * 1000} 11, ${link.to * 1000} 9, ${link.to * 1000} 20`}
+                      fill="none"
+                      stroke={link.color}
+                      strokeOpacity={0.6}
+                      strokeWidth={1.25}
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ))}
+                </svg>
+              </>
+            )}
           </React.Fragment>
         );
       })}
@@ -2746,6 +2827,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
         const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
         const openIssues = openFindings.length;
+        const { cueColors, sourceSpans, dubSpans, lineStarts } = lineLanes;
+        const laneLinks =
+          sourceLength > 0 && dubLength > 0
+            ? lineStarts.map((start) => ({ from: start.source / sourceLength, to: start.dub / dubLength, color: start.color }))
+            : undefined;
 
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
@@ -2911,10 +2997,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
                 {renderTrackLanes(
                   [
-                    { label: 'Original', track: 'source', length: sourceLength, buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400' },
-                    { label: `${targetLanguage} dub`, track: 'synth', length: dubLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400' },
+                    { label: 'Original', track: 'source', length: sourceLength, buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-slate-400/30', spans: sourceSpans },
+                    { label: `${targetLanguage} dub`, track: 'synth', length: dubLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-slate-400/30', spans: dubSpans },
                   ],
-                  heardDuration
+                  heardDuration,
+                  laneLinks
                 )}
 
                 {multiSpeaker && activeJob.dubMix && (
@@ -2963,8 +3050,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   >
                     {activeCue ? (
                       <>
-                        <span className="font-mono text-[10.5px] text-slate-500 shrink-0">
-                          #{String(activeCueIndex + 1).padStart(2, '0')}
+                        <span className="font-mono text-[10.5px] shrink-0 flex items-center gap-1.5" style={{ color: cueColors[activeCueIndex] ?? '#64748b' }}>
+                          <span className="w-2 h-2 rounded-sm" style={{ background: cueColors[activeCueIndex] ?? '#64748b' }} />#{String(activeCueIndex + 1).padStart(2, '0')}
                         </span>
                         <span className="min-w-0">
                           <span className="block text-[15px] font-medium text-slate-100 leading-snug">{getTargetText(activeCue)}</span>
@@ -3062,6 +3149,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 charsPerSecond={linePreview.charsPerSecond}
                 offClockNote={previewOffClockNote}
                 onCurrentLine={(unit) => setNowLineKey(unit?.key ?? null)}
+                sourceBuffer={sourceBuffer}
               />
               {selectedLine &&
                 (() => {
@@ -3193,9 +3281,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <div
                         key={group.key}
                         id={group.unit ? `final-line-${group.unit.key}` : undefined}
-                        className={`border-t border-slate-800/50 first:border-t-0 scroll-mt-2 border-l-2 ${
-                          group.unit && group.unit.key === nowLineKey ? 'border-l-white/80 bg-slate-800/40' : 'border-l-transparent'
+                        className={`border-t border-slate-800/50 first:border-t-0 scroll-mt-2 border-l-[3px] ${
+                          group.unit && group.unit.key === nowLineKey ? 'border-l-white/80 bg-slate-800/40' : group.unit ? '' : 'border-l-transparent'
                         } ${group.unit && group.unit.key === selectedLineKey ? 'bg-indigo-950/20 ring-1 ring-inset ring-indigo-500/40' : ''}`}
+                        // The line's colour, as on the timelines; white while it plays.
+                        style={group.unit && group.unit.key !== nowLineKey ? { borderLeftColor: hueOf(group.unit.index) } : undefined}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-start">
                           <div className="flex-1 min-w-0">
@@ -3210,7 +3300,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                     finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
                                   } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
                                 >
-                                  <span className={`font-mono text-[11px] pt-1 tabular-nums ${isNow ? 'text-indigo-300' : 'text-slate-500'}`}>
+                                  <span
+                                    className={`font-mono text-[11px] pt-1 tabular-nums ${isNow ? 'text-indigo-300' : 'text-slate-500'}`}
+                                    style={!isNow && cueColor(seg, i) ? { color: cueColor(seg, i) as string } : undefined}
+                                  >
                                     {String(i + 1).padStart(2, '0')}
                                   </span>
                                   {finalScriptLayout !== 'dialogue' && (
@@ -3797,6 +3890,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onSuggest={suggestLine}
                   onUseLine={applyPreviewLine}
                   onRestore={restoreCueTexts}
+                  sourceBuffer={activeJob.audioBuffer}
                 />
               }
               currentTime={sourceClockTime}

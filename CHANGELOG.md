@@ -95,6 +95,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Each line keeps one colour, and the waveforms are no longer covered.** In Final dub, the Sync
+  preview and the **Sync to the original** report, every line has its own colour, the same in the
+  Original and dub lanes, the line lists and the links between them, so a line can be followed from
+  step to step. The waveform is drawn bright over a light tint of that colour instead of faintly
+  under solid or striped bars. How a line fits or landed shows as a dot by its number; a line that
+  runs past its slot or into the next line has a thin strip under it in place of the stripes. The
+  Sync preview's Original lane now shows the original's waveform, and the report's Original lane
+  says where the original ends.
 - **Sync timelines open on the whole track, and zoom in for detail.** The Sync preview's timeline
   and the **Sync to the original** report used to show 30 seconds at a time. Both now open on the
   whole track. To see a part up close, use the **Zoom in** / **Zoom out** buttons, Ctrl + scroll (or
