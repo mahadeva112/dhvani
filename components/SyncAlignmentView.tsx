@@ -19,8 +19,9 @@ import { useLiveTime } from './useLiveTime';
  *              for how the line landed, and a dashed outline of where the
  *              original line is; the part of a line that runs into the next
  *              original line has a red strip under it
- *   drift      each line's start error over the whole window, against the
- *              tolerance band, so drift that builds up line after line shows
+ *   drift      each line's start error over the whole window, a dot in the
+ *              line's colour, against the tolerance band, so drift that builds
+ *              up line after line shows
  *
  * Each line has its own colour (lineColors.ts), the same in both lanes and on
  * its link, so a line's original and synced halves pair up at a glance.
@@ -307,10 +308,9 @@ export const SyncAlignmentView: React.FC<{
                 onMouseEnter={() => setHovered(u.index)}
                 onClick={seekLine(u.srcStart)}
                 title={`#${u.index + 1}: starts ${formatOffset(u.offset)}`}
-                className={`absolute w-2 h-2 -ml-1 -mt-1 rounded-full ${TONE[tones.get(u.index) ?? 'none'].dot} ${
-                  u.index === focusIndex ? 'ring-2 ring-white/70' : ''
-                } ${dim(u) ? 'opacity-30' : ''}`}
-                style={{ left: `${pct(u.srcStart)}%`, top: y(u.offset) }}
+                className={`absolute w-2 h-2 -ml-1 -mt-1 rounded-full ${u.index === focusIndex ? 'ring-2 ring-white/70' : ''} ${dim(u) ? 'opacity-30' : ''}`}
+                // The line's colour, as on the lanes; how far off it is shows in how high it sits.
+                style={{ left: `${pct(u.srcStart)}%`, top: y(u.offset), background: hueOf(u.index) }}
               />
             )
           )}
