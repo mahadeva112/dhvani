@@ -2,7 +2,7 @@
   "name": "dhvani",
   "productName": "DHVANI",
   "private": true,
-  "version": "1.0.7",
+  "version": "1.0.8",
   "type": "module",
   "main": "desktop/main.cjs",
   "description": "Local AI dubbing studio. ElevenLabs for transcription, word-accurate subtitle timestamps and voice; Gemini for translation.",
