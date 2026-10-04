@@ -708,13 +708,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   );
   /*
    * The sync previews draw lines where they will sit on the original's clock,
-   * so playing or clicking one plays the original; their playheads read the
-   * original's clock whatever is heard.
+   * and their playheads read that clock whatever is heard. Playing or
+   * clicking one keeps the track picked in Listen to (Original, Dub or Both);
+   * a click is mapped onto the heard track's clock.
    */
-  const previewSeek = useCallback((t: number) => switchTrack('source', { seek: t }), [switchTrack]);
-  const previewTogglePlay = useCallback(
-    () => (isPlaying ? onTogglePlay() : switchTrack('source', { play: true })),
-    [isPlaying, onTogglePlay, switchTrack]
+  const previewSeek = seekSource;
+  const previewTogglePlay = onTogglePlay;
+  /** Plays from a time on the original's clock on the track picked in Listen to. */
+  const listenHere = useCallback(
+    (t: number) => switchTrack(trackMode, { seek: toHeardClock(t), play: true }),
+    [switchTrack, trackMode, toHeardClock]
   );
   const listenOriginal = useCallback((t: number) => switchTrack('source', { seek: t, play: true }), [switchTrack]);
   /*
@@ -3512,7 +3515,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onTogglePlay={onTogglePlay}
               getLiveTime={getSourceLiveTime}
               onSeek={seekSource}
-              onListen={(time) => switchTrack('both', { seek: time, play: true })}
+              onListen={listenHere}
               sourceBuffer={activeJob.audioBuffer}
               dubBuffer={report ? activeJob.synthAudioBuffer : null}
               pendingLines={syncPendingLines}
