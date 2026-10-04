@@ -46,6 +46,13 @@ export interface AudioSegment {
 }
 
 export type AudioTrackMode = 'source' | 'synth' | 'both';
+/** How a track switch moves playback: where the new track starts, and whether it plays. */
+export interface TrackSwitchOptions {
+  /** Position on the new track; defaults to where the heard track is now. */
+  seek?: number;
+  /** Defaults to whether something is playing now. */
+  play?: boolean;
+}
 export type StudioViewMode = 'express' | 'dual' | 'script' | 'teleprompter';
 
 export enum ProcessingStatus {

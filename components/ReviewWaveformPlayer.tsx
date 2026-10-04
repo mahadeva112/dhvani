@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useRef, useEffect, useLayoutEffect, useState, useMemo, useCallback } from 'react';
 import {
   Play,
   Pause,
@@ -14,7 +14,8 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { AudioSegment } from '../types';
-import { useLiveTime } from './useLiveTime';
+import { useLiveFrame, useLiveTime } from './useLiveTime';
+import { bufferSeconds, computePeaks } from '../services/playbackTimeline';
 
 export interface ReviewWaveformPlayerProps {
   audioBuffer: AudioBuffer | null;
@@ -31,7 +32,6 @@ export interface ReviewWaveformPlayerProps {
   onTogglePlay: () => void;
   onSeek: (time: number) => void;
   onSelectSegment?: (segment: AudioSegment) => void;
-  activeSegmentId?: string | number | null;
   targetLanguage?: string;
   playbackRate?: number;
   onPlaybackRateChange?: (rate: number) => void;
@@ -124,6 +124,23 @@ const prepareCanvas = (canvas: HTMLCanvasElement | null) => {
   return { ctx, w, h };
 };
 
+/** The cue being heard at `t`, or between cues the one about to be heard. */
+const cueIndexAt = (segments: AudioSegment[], t: number) => {
+  const inside = segments.findIndex((s) => t >= s.startTime && t <= s.endTime);
+  if (inside >= 0) return inside;
+  const next = segments.findIndex((s) => s.endTime >= t);
+  return next >= 0 ? next : segments.length - 1;
+};
+
+/** Puts a playhead at fraction `f` of its box, and shows the played layer up to it. */
+const placePlayhead = (head: HTMLElement | null, played: HTMLElement | null, f: number) => {
+  if (head) {
+    head.style.display = f >= 0 && f <= 1 ? '' : 'none';
+    head.style.left = `${f * 100}%`;
+  }
+  if (played) played.style.clipPath = `inset(0 ${(1 - Math.max(0, Math.min(1, f))) * 100}% 0 0)`;
+};
+
 export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   audioBuffer,
   segments,
@@ -134,7 +151,6 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   onTogglePlay,
   onSeek,
   onSelectSegment,
-  activeSegmentId,
   targetLanguage = 'Hindi',
   playbackRate = 1,
   onPlaybackRateChange,
@@ -142,7 +158,14 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   onTrackModeChange,
   hasSynthesizedAudio = false,
 }) => {
-  const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime);
+  /*
+   * Two clocks for two jobs. Playheads and the played colour move every frame
+   * through refs (applyFrame below), so they sit on the frame being painted
+   * and the waveform is never redrawn to move them. The clock text and the
+   * logic use the position in tenths, re-rendering ten times a second.
+   */
+  const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
+  const liveRef = useRef(reportedTime);
 
   const total = duration || audioBuffer?.duration || segments[segments.length - 1]?.endTime || 0;
   const light = useIsLightTheme();
@@ -161,12 +184,22 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   });
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [showMini, setShowMini] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(() => cueIndexAt(segments, reportedTime));
+  const activeIndexRef = useRef(activeIndex);
 
   const sectionRef = useRef<HTMLElement>(null);
   const waveRef = useRef<HTMLCanvasElement>(null);
+  const wavePlayedRef = useRef<HTMLCanvasElement>(null);
+  const waveHeadRef = useRef<HTMLDivElement>(null);
   const overviewRef = useRef<HTMLCanvasElement>(null);
+  const overviewPlayedRef = useRef<HTMLCanvasElement>(null);
+  const overviewHeadRef = useRef<HTMLDivElement>(null);
   const compactRef = useRef<HTMLCanvasElement>(null);
+  const compactPlayedRef = useRef<HTMLCanvasElement>(null);
+  const compactHeadRef = useRef<HTMLDivElement>(null);
   const miniRef = useRef<HTMLCanvasElement>(null);
+  const miniPlayedRef = useRef<HTMLCanvasElement>(null);
+  const miniHeadRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<'wave' | 'overview' | null>(null);
   const [redrawTick, setRedrawTick] = useState(0);
 
@@ -178,47 +211,27 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
 
   const span = total > 0 ? total / zoom : 1;
   const clampStart = useCallback((start: number, s = span) => Math.max(0, Math.min(Math.max(0, total - s), start)), [total, span]);
+  /** Where playback is this instant, not as of the last re-render. */
+  const timeNow = () => liveRef.current;
 
   /*
    * Peaks for the whole file, computed once per buffer. About forty per
    * second, capped, is fine enough for the deepest zoom and cheap to redraw.
+   * They are placed by the buffer's own length, so they line up with the
+   * audio whatever `duration` the caller passes.
    */
   const peaks = useMemo(() => {
     if (!audioBuffer) return null;
     try {
-      const data = audioBuffer.getChannelData(0);
-      const buckets = Math.max(200, Math.min(60000, Math.ceil(audioBuffer.duration * 40)));
-      const size = Math.max(1, Math.floor(data.length / buckets));
-      const out = new Float32Array(buckets);
-      let max = 0.0001;
-      for (let b = 0; b < buckets; b++) {
-        let peak = 0;
-        const start = b * size;
-        const end = Math.min(start + size, data.length);
-        for (let i = start; i < end; i += 8) {
-          const v = Math.abs(data[i]);
-          if (v > peak) peak = v;
-        }
-        out[b] = peak;
-        if (peak > max) max = peak;
-      }
-      for (let b = 0; b < buckets; b++) out[b] = out[b] / max;
-      return out;
+      return computePeaks(audioBuffer, Math.max(200, Math.min(60000, Math.ceil(audioBuffer.duration * 40))));
     } catch (e) {
       console.warn('Could not read the waveform:', e);
       return null;
     }
   }, [audioBuffer]);
+  const peakSeconds = audioBuffer ? bufferSeconds(audioBuffer) : total;
 
-  const activeIndex = useMemo(() => {
-    const byId = activeSegmentId != null ? segments.findIndex((s) => s.id === activeSegmentId) : -1;
-    if (byId >= 0) return byId;
-    // Between cues, the next one is the one about to be heard.
-    const next = segments.findIndex((s) => s.endTime >= currentTime);
-    return next >= 0 ? next : segments.length - 1;
-  }, [segments, activeSegmentId, currentTime]);
-  const activeCue = activeIndex >= 0 ? segments[activeIndex] : null;
-  const insideCue = Boolean(activeCue && currentTime >= activeCue.startTime && currentTime <= activeCue.endTime);
+  const activeCue = activeIndex >= 0 ? segments[activeIndex] ?? null : null;
 
   // ---------- navigation ----------
   const seekTo = useCallback(
@@ -245,21 +258,26 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     [segments, onSeek, onSelectSegment, span, clampStart]
   );
 
-  const prevCue = useCallback(() => {
+  const prevCue = () => {
     if (!segments.length) return;
+    const t = timeNow();
+    const index = cueIndexAt(segments, t);
+    const cue = segments[index];
+    const inside = Boolean(cue && t >= cue.startTime && t <= cue.endTime);
     // A second into a cue, "previous" restarts it, as a media player's back button does.
-    if (activeCue && insideCue && currentTime - activeCue.startTime > 1) return goToCue(activeIndex);
+    if (cue && inside && t - cue.startTime > 1) return goToCue(index);
     let prev = -1;
     segments.forEach((s, i) => {
-      if (s.startTime < currentTime - 0.05) prev = i;
+      if (s.startTime < t - 0.05) prev = i;
     });
-    goToCue(Math.max(0, insideCue ? activeIndex - 1 : prev));
-  }, [segments, activeCue, insideCue, currentTime, activeIndex, goToCue]);
+    goToCue(Math.max(0, inside ? index - 1 : prev));
+  };
 
-  const nextCue = useCallback(() => {
-    const next = segments.findIndex((s) => s.startTime > currentTime + 0.05);
+  const nextCue = () => {
+    const t = timeNow();
+    const next = segments.findIndex((s) => s.startTime > t + 0.05);
     if (next >= 0) goToCue(next);
-  }, [segments, currentTime, goToCue]);
+  };
 
   const changeZoom = useCallback(
     (dir: 1 | -1, anchor?: number) => {
@@ -267,46 +285,71 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
         const i = ZOOMS.indexOf(z);
         const nz = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? 0 : i) + dir))];
         const ns = total / nz;
-        const focus = anchor ?? currentTime;
+        const focus = anchor ?? liveRef.current;
         setViewStart(Math.max(0, Math.min(Math.max(0, total - ns), focus - ns * 0.35)));
         return nz;
       });
     },
-    [total, currentTime]
+    [total]
   );
 
-  // Loop the current cue.
-  useEffect(() => {
-    if (!loop || !activeCue || !isPlaying) return;
-    if (currentTime >= activeCue.endTime) onSeek(activeCue.startTime);
-  }, [loop, activeCue, currentTime, isPlaying, onSeek]);
+  /*
+   * Every frame while playing, and after every render: playheads, played
+   * colour, the current cue, looping and following, all from the exact
+   * position. Looping happens on the frame playback crosses the cue's end,
+   * not up to a quarter-second later.
+   */
+  const applyFrame = (t: number) => {
+    const prev = liveRef.current;
+    liveRef.current = t;
+    const vs = zoom === 1 ? 0 : viewStart;
+    placePlayhead(waveHeadRef.current, wavePlayedRef.current, (t - vs) / span);
+    const whole = total > 0 ? t / total : 0;
+    placePlayhead(overviewHeadRef.current, overviewPlayedRef.current, whole);
+    placePlayhead(compactHeadRef.current, compactPlayedRef.current, whole);
+    placePlayhead(miniHeadRef.current, miniPlayedRef.current, whole);
 
-  // Follow playback: keep the playhead in the view while zoomed in.
-  useEffect(() => {
-    if (!follow || zoom === 1) return;
-    if (currentTime < viewStart + span * 0.05 || currentTime > viewStart + span * 0.85) {
-      setViewStart(clampStart(currentTime - span * 0.25));
+    const looped = segments[activeIndexRef.current];
+    if (loop && isPlaying && looped && prev < looped.endTime && t >= looped.endTime && t - prev < 0.5) {
+      onSeek(looped.startTime);
+      return;
     }
-  }, [follow, zoom, currentTime, viewStart, span, clampStart]);
+    const index = cueIndexAt(segments, t);
+    if (index !== activeIndexRef.current) {
+      activeIndexRef.current = index;
+      setActiveIndex(index);
+    }
+    // Follow playback: keep the playhead in the view while zoomed in.
+    if (follow && zoom > 1 && (t < vs + span * 0.05 || t > vs + span * 0.85)) {
+      setViewStart(clampStart(t - span * 0.25));
+    }
+  };
+  useLiveFrame(reportedTime, isPlaying, getLiveTime, applyFrame);
+  // Zoom, scroll, resizes and new cues move what the position maps to.
+  useLayoutEffect(() => {
+    applyFrame(liveRef.current);
+  });
 
   // Keyboard: arrows move 5 s, comma and full stop step cues, L loops. Space is the app's.
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyHandler.current = (e: KeyboardEvent) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const el = e.target as HTMLElement | null;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+    if (e.key === 'ArrowLeft') seekTo(timeNow() - 5, false);
+    else if (e.key === 'ArrowRight') seekTo(timeNow() + 5, false);
+    else if (e.key === ',') prevCue();
+    else if (e.key === '.') nextCue();
+    else if (e.key === 'l' || e.key === 'L') setLoop((v) => !v);
+    else return;
+    e.preventDefault();
+  };
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
-      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
-      if (e.key === 'ArrowLeft') seekTo(currentTime - 5, false);
-      else if (e.key === 'ArrowRight') seekTo(currentTime + 5, false);
-      else if (e.key === ',') prevCue();
-      else if (e.key === '.') nextCue();
-      else if (e.key === 'l' || e.key === 'L') setLoop((v) => !v);
-      else return;
-      e.preventDefault();
-    };
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [currentTime, seekTo, prevCue, nextCue]);
+  }, []);
 
   // Mini player: shown once the player has scrolled up out of sight.
   useEffect(() => {
@@ -331,6 +374,11 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   }, [compact, showMini]);
 
   // ---------- drawing ----------
+  /*
+   * The waveform is drawn twice per strip: once in the unplayed colour, and
+   * once in the played colour on a layer above that applyFrame clips at the
+   * playhead. Neither is redrawn as playback moves.
+   */
   const drawBars = (
     ctx: CanvasRenderingContext2D,
     w: number,
@@ -338,21 +386,23 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     height: number,
     from: number,
     to: number,
+    color: string,
     step = 3
   ) => {
     const bars = Math.max(1, Math.floor(w / step));
+    const barWidth = w / bars;
+    ctx.fillStyle = color;
     for (let i = 0; i < bars; i++) {
       const t0 = from + ((to - from) * i) / bars;
       const t1 = from + ((to - from) * (i + 1)) / bars;
       let a = 0.06;
-      if (peaks && total > 0) {
-        const b0 = Math.floor((t0 / total) * peaks.length);
-        const b1 = Math.max(b0 + 1, Math.floor((t1 / total) * peaks.length));
-        for (let b = b0; b < b1 && b < peaks.length; b++) if (peaks[b] > a) a = peaks[b];
+      if (peaks && peakSeconds > 0) {
+        const b0 = Math.floor((t0 / peakSeconds) * peaks.length);
+        const b1 = Math.max(b0 + 1, Math.floor((t1 / peakSeconds) * peaks.length));
+        for (let b = Math.max(0, b0); b < b1 && b < peaks.length; b++) if (peaks[b] > a) a = peaks[b];
       }
       const bh = Math.max(2, a * height);
-      ctx.fillStyle = t1 <= currentTime ? palette.played : palette.wave;
-      ctx.fillRect(i * step, top + (height - bh) / 2, Math.max(1, step - 1), bh);
+      ctx.fillRect(i * barWidth, top + (height - bh) / 2, Math.max(1, barWidth - 1), bh);
     }
   };
 
@@ -390,26 +440,28 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
         ctx.fillText(String(i + 1).padStart(2, '0'), a + 5, 14);
       }
     });
-    drawBars(ctx, w, 24, h - 30, vs, ve);
-    if (activeCue) {
+    drawBars(ctx, w, 24, h - 30, vs, ve, palette.wave);
+    const cue = segments[activeIndex];
+    if (cue) {
       ctx.strokeStyle = palette.currentEdge;
       ctx.lineWidth = 1.5;
-      ctx.strokeRect(x(activeCue.startTime), 0.75, x(activeCue.endTime) - x(activeCue.startTime), h - 1.5);
-    }
-    const ph = x(currentTime);
-    if (ph >= 0 && ph <= w) {
-      ctx.fillStyle = palette.playhead;
-      ctx.fillRect(ph - 1, 0, 2, h);
-      ctx.beginPath();
-      ctx.arc(ph, 4, 4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.strokeRect(x(cue.startTime), 0.75, x(cue.endTime) - x(cue.startTime), h - 1.5);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, peaks, segments, currentTime, activeIndex, zoom, viewStart, span, palette, redrawTick]);
+  }, [compact, peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick]);
+
+  useEffect(() => {
+    if (compact) return;
+    const c = prepareCanvas(wavePlayedRef.current);
+    if (!c) return;
+    const vs = zoom === 1 ? 0 : viewStart;
+    drawBars(c.ctx, c.w, 24, c.h - 30, vs, vs + span, palette.played);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compact, peaks, zoom, viewStart, span, palette, redrawTick]);
 
   // Whole-file overview (full view), and the compact and mini strips.
   useEffect(() => {
-    const draw = (canvas: HTMLCanvasElement | null, marks: boolean) => {
+    const draw = (canvas: HTMLCanvasElement | null, played: HTMLCanvasElement | null, marks: boolean) => {
       const c = prepareCanvas(canvas);
       if (!c || total <= 0) return;
       const { ctx, w, h } = c;
@@ -419,15 +471,15 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
           if (cpsOf(seg) > 18) ctx.fillRect((seg.startTime / total) * w, 0, Math.max(1.5, ((seg.endTime - seg.startTime) / total) * w), 3);
         });
       }
-      drawBars(ctx, w, marks ? 4 : 2, h - (marks ? 6 : 4), 0, total, 2);
-      ctx.fillStyle = palette.playhead;
-      ctx.fillRect((currentTime / total) * w - 1, 0, 2, h);
+      drawBars(ctx, w, marks ? 4 : 2, h - (marks ? 6 : 4), 0, total, palette.wave, 2);
+      const p = prepareCanvas(played);
+      if (p) drawBars(p.ctx, p.w, marks ? 4 : 2, p.h - (marks ? 6 : 4), 0, total, palette.played, 2);
     };
-    if (!compact) draw(overviewRef.current, true);
-    if (compact) draw(compactRef.current, true);
-    if (showMini) draw(miniRef.current, false);
+    if (!compact) draw(overviewRef.current, overviewPlayedRef.current, true);
+    if (compact) draw(compactRef.current, compactPlayedRef.current, true);
+    if (showMini) draw(miniRef.current, miniPlayedRef.current, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, showMini, peaks, segments, currentTime, total, palette, redrawTick]);
+  }, [compact, showMini, peaks, segments, total, palette, redrawTick]);
 
   // ---------- pointer ----------
   const timeAt = (e: React.PointerEvent | React.MouseEvent, el: HTMLElement, whole: boolean) => {
@@ -609,7 +661,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 type="button"
                 onClick={() => {
                   setFollow((v) => !v);
-                  if (!follow) setViewStart(clampStart(currentTime - span * 0.25));
+                  if (!follow) setViewStart(clampStart(timeNow() - span * 0.25));
                 }}
                 aria-pressed={follow}
                 className={iconBtn(follow)}
@@ -656,6 +708,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               onPointerUp={() => (dragRef.current = null)}
             >
               <canvas ref={compactRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+              <canvas ref={compactPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+              <div ref={compactHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
             </div>
             {loopButton}
           </div>
@@ -702,6 +756,10 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 onWheel={onWheel}
               >
                 <canvas ref={waveRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+                <canvas ref={wavePlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+                <div ref={waveHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }}>
+                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full" style={{ background: palette.playhead }} />
+                </div>
                 {!audioBuffer && (
                   <span className="absolute inset-0 flex items-center justify-center text-xs text-slate-500">Reading the audio…</span>
                 )}
@@ -722,6 +780,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 onPointerUp={(e) => onOverviewPointer(e, 'up')}
               >
                 <canvas ref={overviewRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+                <canvas ref={overviewPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+                <div ref={overviewHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
                 {zoom > 1 && total > 0 && (
                   <span
                     className="absolute top-0 bottom-0 rounded-md border-[1.5px] border-indigo-400 bg-indigo-400/10 pointer-events-none"
@@ -734,7 +794,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             {/* Transport and the live caption */}
             <div className="flex flex-wrap items-center gap-3 px-3.5 py-3">
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => seekTo(currentTime - 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer" aria-label="Back 5 seconds" title="Back 5 seconds (←)">
+                <button type="button" onClick={() => seekTo(timeNow() - 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer" aria-label="Back 5 seconds" title="Back 5 seconds (←)">
                   <RotateCcw className="w-4 h-4" />
                 </button>
                 <button type="button" onClick={prevCue} className={roundBtn} aria-label="Previous cue" title="Previous cue (,)">
@@ -744,7 +804,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 <button type="button" onClick={nextCue} className={roundBtn} aria-label="Next cue" title="Next cue (.)">
                   <SkipForward className="w-3.5 h-3.5 fill-current" />
                 </button>
-                <button type="button" onClick={() => seekTo(currentTime + 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer" aria-label="Forward 5 seconds" title="Forward 5 seconds (→)">
+                <button type="button" onClick={() => seekTo(timeNow() + 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer" aria-label="Forward 5 seconds" title="Forward 5 seconds (→)">
                   <RotateCw className="w-4 h-4" />
                 </button>
               </div>
@@ -822,6 +882,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             onPointerDown={(e) => seekTo(timeAt(e, e.currentTarget, true))}
           >
             <canvas ref={miniRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+            <canvas ref={miniPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+            <div ref={miniHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
           </div>
         </div>
       )}

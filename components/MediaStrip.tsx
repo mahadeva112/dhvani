@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Upload, Film, Music, Radio, Tv, RefreshCw } from 'lucide-react';
+import { computePeaks } from '../services/playbackTimeline';
 
 interface MediaStripProps {
   file: File | null;
@@ -39,34 +40,23 @@ export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string }>
       const height = canvas.clientHeight;
       if (!width || !height) return;
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
-      ctx.scale(dpr, dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      const data = buffer.getChannelData(0);
-      const barCount = Math.floor(width / 3);
-      const step = Math.max(1, Math.floor(data.length / barCount));
-      const peaks: number[] = [];
-      let max = 0;
-      for (let i = 0; i < barCount; i++) {
-        let peak = 0;
-        const start = i * step;
-        // Sampling every 16th value is plenty for an overview of a long file.
-        for (let j = start; j < Math.min(start + step, data.length); j += 16) {
-          const v = Math.abs(data[j]);
-          if (v > peak) peak = v;
-        }
-        peaks.push(peak);
-        if (peak > max) max = peak;
-      }
+      // Exact slices of the file, spread over the full width, so x on the canvas is time in the file.
+      const barCount = Math.max(1, Math.floor(width / 3));
+      const barWidth = width / barCount;
+      // Sampling every 16th value is plenty for an overview of a long file.
+      const peaks = computePeaks(buffer, barCount, 16);
 
       ctx.fillStyle = getComputedStyle(canvas).color;
       peaks.forEach((peak, i) => {
-        const h = Math.max(2, (peak / (max || 1)) * (height - 4));
-        ctx.fillRect(i * 3, (height - h) / 2, 2, h);
+        const h = Math.max(2, peak * (height - 4));
+        ctx.fillRect(i * barWidth, (height - h) / 2, Math.max(1, barWidth - 1), h);
       });
     };
 

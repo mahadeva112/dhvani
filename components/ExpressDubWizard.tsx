@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   Volume2,
   Play,
@@ -47,7 +47,7 @@ import {
   BookOpen,
   X,
 } from 'lucide-react';
-import { AudioSegment, BatchJob, ProcessingStatus, TargetSource } from '../types';
+import { AudioSegment, BatchJob, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import type { RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import {
@@ -70,11 +70,13 @@ import {
   TargetScriptFormat,
   SrtOptions,
   DEFAULT_SRT_OPTIONS,
+  adjustSegmentsForDubbedTimeline,
 } from '../services/srtService';
+import { timelineMapper } from '../services/playbackTimeline';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip, MiniWaveform } from './MediaStrip';
-import { useLiveTime } from './useLiveTime';
+import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { PhoneticSmartTextarea } from './PhoneticSmartTextarea';
 import { SrtExportModal } from './SrtExportModal';
@@ -206,19 +208,18 @@ interface LiveTimeProps {
   getLiveTime?: () => number | null;
 }
 
-/** A lane's playhead, moved every frame while playing without re-rendering the wizard. */
+/** A lane's playhead, moved every frame while playing on the painted frame, without re-rendering anything. */
 const LanePlayhead: React.FC<LiveTimeProps & { totalLength: number }> = ({ currentTime, isPlaying, getLiveTime, totalLength }) => {
-  const time = useLiveTime(currentTime, isPlaying, getLiveTime);
-  return (
-    <span
-      className="absolute top-0 bottom-0 w-0.5 bg-slate-100 pointer-events-none"
-      style={{ left: `${Math.min(100, (time / totalLength) * 100)}%` }}
-    />
-  );
+  const ref = useRef<HTMLSpanElement>(null);
+  useLiveFrame(currentTime, isPlaying, getLiveTime, (time) => {
+    if (ref.current) ref.current.style.left = `${Math.max(0, Math.min(100, (time / totalLength) * 100))}%`;
+  });
+  return <span ref={ref} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />;
 };
 
+/** Whole seconds, so it re-renders once a second. */
 const LiveClock: React.FC<LiveTimeProps> = ({ currentTime, isPlaying, getLiveTime }) => (
-  <>{formatClock(useLiveTime(currentTime, isPlaying, getLiveTime))}</>
+  <>{formatClock(useLiveTime(currentTime, isPlaying, getLiveTime, 1))}</>
 );
 
 const railButton =
@@ -303,7 +304,8 @@ interface ExpressDubWizardProps {
   duration: number;
   onSeek: (time: number) => void;
   trackMode: 'source' | 'synth' | 'both';
-  onTrackModeChange: (mode: 'source' | 'synth' | 'both') => void;
+  /** Switches what is heard as one action; see TrackSwitchOptions. */
+  onTrackModeChange: (mode: 'source' | 'synth' | 'both', options?: TrackSwitchOptions) => void;
   playbackRate?: number;
   onPlaybackRateChange?: (rate: number) => void;
   onResetSession?: () => void;
@@ -648,6 +650,109 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     () => (hasSyncReport && activeJob?.syncReport ? syncedSegments(segments, activeJob.syncReport) : undefined),
     [hasSyncReport, activeJob?.syncReport, segments]
   );
+  /*
+   * Each track's own clock. The original's cues are the segments. The dub's
+   * are where Sync placed them, which is the original's clock; before a sync
+   * they are where the lines fall in the dub as voiced, estimated from line
+   * lengths over its duration. While the unsynced dub is heard its clock
+   * differs from the original's, so cue times are mapped between the two:
+   * every playhead, caption, highlight and jump uses the clock being heard.
+   */
+  const dubBuffer = activeJob?.synthAudioBuffer ?? null;
+  const dubCues = useMemo(
+    () => syncedCues ?? (dubBuffer ? adjustSegmentsForDubbedTimeline(segments, dubBuffer.duration) : segments),
+    [syncedCues, dubBuffer, segments]
+  );
+  const hasDubAudio = Boolean(activeJob?.synthesizedAudioUrl);
+  const hearingDub = trackMode === 'synth' && hasDubAudio;
+  const dubToSource = useMemo(() => timelineMapper(dubCues, segments), [dubCues, segments]);
+  const sourceToDub = useMemo(() => timelineMapper(segments, dubCues), [segments, dubCues]);
+  const dubClockDiffers = hearingDub && !hasSyncReport;
+  /** A time on the heard clock as a time on the original's. */
+  const toSourceClock = useCallback((t: number) => (dubClockDiffers ? dubToSource(t) : t), [dubClockDiffers, dubToSource]);
+  /** A time on the original's clock as a time on the heard one. */
+  const toHeardClock = useCallback((t: number) => (dubClockDiffers ? sourceToDub(t) : t), [dubClockDiffers, sourceToDub]);
+  const sourceClockTime = toSourceClock(currentTime);
+  const getSourceLiveTime = useMemo(
+    () =>
+      getLiveTime
+        ? () => {
+            const t = getLiveTime();
+            return t === null ? null : toSourceClock(t);
+          }
+        : undefined,
+    [getLiveTime, toSourceClock]
+  );
+  /** Seeks to a time on the original's clock, wherever that is on the heard track. */
+  const seekSource = useCallback((t: number) => onSeek(toHeardClock(t)), [onSeek, toHeardClock]);
+  const heardCues = hearingDub ? dubCues : segments;
+  const heardBuffer = hearingDub ? dubBuffer : activeJob?.audioBuffer ?? null;
+  const heardDuration = hearingDub ? dubBuffer?.duration || 0 : duration || activeJob?.audioBuffer?.duration || 0;
+
+  /*
+   * Switching between the original and an unsynced dub keeps the same moment
+   * of speech, not the same second. Synced, the two share a clock.
+   */
+  const switchTrack = useCallback(
+    (mode: 'source' | 'synth' | 'both', options: TrackSwitchOptions = {}) => {
+      let seek = options.seek;
+      const fromDub = trackMode === 'synth' && hasDubAudio;
+      const toDub = mode === 'synth' && hasDubAudio;
+      if (seek === undefined && !hasSyncReport && fromDub !== toDub) {
+        const now = getLiveTime?.() ?? currentTime;
+        seek = fromDub ? dubToSource(now) : sourceToDub(now);
+      }
+      onTrackModeChange(mode, { ...options, seek });
+    },
+    [trackMode, hasDubAudio, hasSyncReport, getLiveTime, currentTime, dubToSource, sourceToDub, onTrackModeChange]
+  );
+  /*
+   * The sync previews draw lines where they will sit on the original's clock,
+   * so playing or clicking one plays the original; their playheads read the
+   * original's clock whatever is heard.
+   */
+  const previewSeek = useCallback((t: number) => switchTrack('source', { seek: t }), [switchTrack]);
+  const previewTogglePlay = useCallback(
+    () => (isPlaying ? onTogglePlay() : switchTrack('source', { play: true })),
+    [isPlaying, onTogglePlay, switchTrack]
+  );
+  const listenOriginal = useCallback((t: number) => switchTrack('source', { seek: t, play: true }), [switchTrack]);
+  /*
+   * The unsynced dub is one take with its lines back to back, so it has no
+   * place on the previews' timeline (the original's): a playhead there could
+   * only guess the line, and would jump over every pause between lines. So
+   * while it is heard the previews hide their playhead and say why.
+   */
+  const previewOffClockNote = dubClockDiffers ? (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span>
+        You're hearing the dub, which isn't synced yet: its lines run back to back, so they don't sit on this timeline. The player above shows where the
+        dub is.
+      </span>
+      <button
+        type="button"
+        onClick={() => switchTrack('source', { play: true })}
+        className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-100 cursor-pointer"
+      >
+        <Play className="w-3 h-3 fill-current" /> Hear the original here
+      </button>
+    </span>
+  ) : undefined;
+  /** The preview line under the playhead, for the Final script to pick out and keep in view. */
+  const [nowLineKey, setNowLineKey] = useState<string | null>(null);
+  const finalListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!nowLineKey || !isPlaying) return;
+    const list = finalListRef.current;
+    const row = document.getElementById(`final-line-${nowLineKey}`);
+    if (!list || !row || !list.contains(row)) return;
+    // Scroll the list itself, never the page, and only when the line has left it.
+    const top = row.offsetTop; // The list is positioned, so this is from its top.
+    if (top < list.scrollTop || top + row.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTo({ top: Math.max(0, top - list.clientHeight * 0.25), behavior: 'smooth' });
+    }
+  }, [nowLineKey, isPlaying]);
+
   const syncPreview = useSyncPreview({
     enabled:
       ((activeStep === 4 && !hasSyncReport) || (activeStep === 3 && !isSynthesizing)) && !isSyncing && segments.length > 0,
@@ -755,8 +860,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [segments, searchQuery, pacingFilter]);
 
   const activeSegmentId = useMemo(() => {
-    return segments.find((s) => currentTime >= s.startTime && currentTime <= s.endTime)?.id || null;
-  }, [segments, currentTime]);
+    return segments.find((s) => sourceClockTime >= s.startTime && sourceClockTime <= s.endTime)?.id || null;
+  }, [segments, sourceClockTime]);
 
   // Auto-page progression on playback or segment updates
   useEffect(() => {
@@ -879,7 +984,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const handleJumpToCue = (seg: AudioSegment) => {
     const idx = segments.findIndex((s) => s.id === seg.id);
     if (idx !== -1) setSpotlightIndex(idx);
-    onSeek(seg.startTime);
+    seekSource(seg.startTime);
     // The document shows every cue, so it opens the cue in place.
     if (reviewMode === 'document') {
       documentViewRef.current?.reveal(seg.id, { focus: true });
@@ -1261,12 +1366,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {activeStep === 2 && activeJob && (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           {/* Interactive Audio Waveform & Pro Audition Player */}
+          {/* The waveform, cues and clock of the track being heard. */}
           <ReviewWaveformPlayer
-            audioBuffer={activeJob.audioBuffer}
-            segments={segments}
+            audioBuffer={heardBuffer}
+            segments={heardCues}
             currentTime={currentTime}
             getLiveTime={getLiveTime}
-            duration={duration || activeJob.audioBuffer?.duration || 0}
+            duration={heardDuration}
             isPlaying={isPlaying}
             onTogglePlay={onTogglePlay}
             onSeek={onSeek}
@@ -1279,14 +1385,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               }
               documentViewRef.current?.reveal(seg.id);
             }}
-            activeSegmentId={
-              segments.find((s) => currentTime >= s.startTime && currentTime <= s.endTime)?.id || null
-            }
             targetLanguage={targetLanguage}
             playbackRate={playbackRate}
             onPlaybackRateChange={onPlaybackRateChange}
             trackMode={trackMode}
-            onTrackModeChange={onTrackModeChange}
+            onTrackModeChange={switchTrack}
             hasSynthesizedAudio={Boolean(activeJob.synthesizedAudioUrl)}
             sensitivity={analysisSensitivity}
             onSensitivityChange={onSensitivityChange}
@@ -1319,10 +1422,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 else if (onRetranslateSegments) await onRetranslateSegments(customPrompt || '');
               }}
               onUseOwnScript={() => setIsAlignModalOpen(true)}
-              onSeek={onSeek}
-              activeSegmentId={
-                segments.find((s) => currentTime >= s.startTime && currentTime <= s.endTime)?.id ?? null
-              }
+              onSeek={seekSource}
+              activeSegmentId={activeSegmentId}
             />
           ) : (
           /* Workspace: cue editor and review panel share one height, so neither leaves a gap */
@@ -1480,7 +1581,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               searchQuery={searchQuery}
               activeSegmentId={activeSegmentId}
               isPlaying={isPlaying}
-              onSeek={onSeek}
+              onSeek={seekSource}
             />
           )}
 
@@ -1520,7 +1621,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   const tgtText = getTargetText(seg);
                   const isCuePlaying = playingSegmentId === seg.id;
                   const isCueActive =
-                    (currentTime >= seg.startTime && currentTime <= seg.endTime) || isCuePlaying;
+                    (sourceClockTime >= seg.startTime && sourceClockTime <= seg.endTime) || isCuePlaying;
                   const charCount = tgtText.length;
                   const cpsInfo = getCpsInfo(charCount, seg.duration);
                   const isCopied = copiedCueId === seg.id;
@@ -1665,7 +1766,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 const srcText = getSourceText(seg);
                 const tgtText = getTargetText(seg);
                 const isCuePlaying = playingSegmentId === seg.id;
-                const isCueActive = (currentTime >= seg.startTime && currentTime <= seg.endTime) || isCuePlaying;
+                const isCueActive = (sourceClockTime >= seg.startTime && sourceClockTime <= seg.endTime) || isCuePlaying;
                 const pace = getPace(tgtText, seg.duration);
                 const cueNumber = (currentPage - 1) * itemsPerPage + index + 1;
 
@@ -1706,7 +1807,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     {/* Time: click to jump the player here */}
                     <button
                       type="button"
-                      onClick={() => onSeek(seg.startTime)}
+                      onClick={() => seekSource(seg.startTime)}
                       className="self-start text-left font-mono text-[11.5px] text-slate-300 hover:text-indigo-300 leading-snug tabular-nums cursor-pointer md:pt-1"
                       title="Jump the player to this cue"
                     >
@@ -2393,9 +2494,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {/* ========================================================================= */}
       {activeStep === 3 && activeJob && (() => {
         const hasDub = Boolean(activeJob.synthesizedAudioUrl);
-        const dubBuffer = activeJob.synthAudioBuffer;
         const sourceBuffer = activeJob.audioBuffer;
         const totalLength = duration || dubBuffer?.duration || sourceBuffer?.duration || 0;
+        // Each lane is drawn on its own track's length; the two differ until the dub is synced.
+        const sourceLength = duration || sourceBuffer?.duration || 0;
+        const dubLength = dubBuffer?.duration || 0;
         const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
         const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
         const openIssues = openFindings.length;
@@ -2550,7 +2653,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         key={m.id}
                         type="button"
                         aria-pressed={trackMode === m.id}
-                        onClick={() => onTrackModeChange(m.id)}
+                        onClick={() => switchTrack(m.id)}
                         className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                           trackMode === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                         }`}
@@ -2565,8 +2668,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 {/* Original and dub, one lane each; click a lane to jump there */}
                 <div className="grid grid-cols-1 sm:grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
                   {[
-                    { label: 'Original', buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400', muted: trackMode === 'synth' },
-                    { label: `${targetLanguage} dub`, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400', muted: trackMode === 'source' },
+                    { label: 'Original', track: 'source' as const, length: sourceLength, buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400', muted: trackMode === 'synth' },
+                    { label: `${targetLanguage} dub`, track: 'synth' as const, length: dubLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400', muted: trackMode === 'source' },
                   ].map((lane) => (
                     <React.Fragment key={lane.label}>
                       <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
@@ -2578,14 +2681,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         tabIndex={0}
                         aria-label={`${lane.label} position`}
                         aria-valuemin={0}
-                        aria-valuemax={Math.round(totalLength)}
-                        aria-valuenow={Math.round(currentTime)}
+                        aria-valuemax={Math.round(lane.length)}
+                        aria-valuenow={Math.round(lane.muted ? 0 : currentTime)}
                         onClick={(e) => {
+                          if (lane.length <= 0) return;
                           const r = e.currentTarget.getBoundingClientRect();
-                          onSeek(((e.clientX - r.left) / r.width) * totalLength);
+                          const t = ((e.clientX - r.left) / r.width) * lane.length;
+                          // A time on this lane's own track: a muted lane starts being heard there.
+                          if (lane.muted) switchTrack(lane.track, { seek: t });
+                          else onSeek(t);
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === 'ArrowRight') onSeek(Math.min(totalLength, currentTime + 5));
+                          if (lane.muted) return;
+                          if (e.key === 'ArrowRight') onSeek(Math.min(lane.length, currentTime + 5));
                           if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
                         }}
                         className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer transition-opacity ${lane.muted ? 'opacity-40' : ''}`}
@@ -2597,12 +2705,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             Waveform not available
                           </span>
                         )}
-                        {totalLength > 0 && (
+                        {/* Only on lanes being heard, at the heard position over that lane's own length. */}
+                        {!lane.muted && lane.length > 0 && (
                           <LanePlayhead
                             currentTime={currentTime}
                             isPlaying={isPlaying}
                             getLiveTime={getLiveTime}
-                            totalLength={totalLength}
+                            totalLength={lane.length}
                           />
                         )}
                       </div>
@@ -2610,7 +2719,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   ))}
                   <div className="sm:col-start-2 flex justify-between font-mono text-[10px] text-slate-500 tabular-nums">
                     {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-                      <span key={f}>{formatClock(totalLength * f)}</span>
+                      <span key={f}>{formatClock(heardDuration * f)}</span>
                     ))}
                   </div>
                 </div>
@@ -2619,7 +2728,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => activeCueIndex > 0 && onSeek(segments[activeCueIndex - 1].startTime)}
+                    onClick={() => activeCueIndex > 0 && seekSource(segments[activeCueIndex - 1].startTime)}
                     className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
                     aria-label="Previous cue"
                   >
@@ -2636,8 +2745,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const next = segments.find((s) => s.startTime > currentTime + 0.05);
-                      if (next) onSeek(next.startTime);
+                      const next = segments.find((s) => s.startTime > sourceClockTime + 0.05);
+                      if (next) seekSource(next.startTime);
                     }}
                     className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
                     aria-label="Next cue"
@@ -2646,7 +2755,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </button>
                   <span className="font-mono text-sm text-slate-100 tabular-nums">
                     <LiveClock currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} />{' '}
-                    <span className="text-slate-500">/ {formatClock(totalLength)}</span>
+                    <span className="text-slate-500">/ {formatClock(heardDuration || totalLength)}</span>
                   </span>
 
                   <div
@@ -2742,16 +2851,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <PreviewCards preview={linePreview} />
               <PreviewTimeline
                 units={linePreview.units}
-                reportedTime={currentTime}
-                getLiveTime={getLiveTime}
-                onSeek={onSeek}
+                reportedTime={sourceClockTime}
+                getLiveTime={getSourceLiveTime}
+                onSeek={previewSeek}
                 isPlaying={isPlaying}
-                onTogglePlay={onTogglePlay}
+                onTogglePlay={previewTogglePlay}
                 selectedKey={selectedLineKey}
                 // Picking a line only shows it in the card below; the page stays where the user scrolled it.
                 onSelect={(unit) => setSelectedLineKey(unit.key)}
                 onTrim={trimLine}
                 charsPerSecond={linePreview.charsPerSecond}
+                offClockNote={previewOffClockNote}
+                onCurrentLine={(unit) => setNowLineKey(unit?.key ?? null)}
               />
               {selectedLine &&
                 (() => {
@@ -2852,7 +2963,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 />
               )}
 
-              <div className="flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar py-1.5">
+              <div ref={finalListRef} className="relative flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar py-1.5">
                 {(() => {
                   const fitShown = Boolean(linePreview) && !isSynthesizing;
                   const cps = linePreview?.charsPerSecond ?? 1;
@@ -2883,9 +2994,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <div
                         key={group.key}
                         id={group.unit ? `final-line-${group.unit.key}` : undefined}
-                        className={`border-t border-slate-800/50 first:border-t-0 scroll-mt-2 ${
-                          group.unit && group.unit.key === selectedLineKey ? 'bg-indigo-950/20 ring-1 ring-inset ring-indigo-500/40' : ''
-                        }`}
+                        className={`border-t border-slate-800/50 first:border-t-0 scroll-mt-2 border-l-2 ${
+                          group.unit && group.unit.key === nowLineKey ? 'border-l-white/80 bg-slate-800/40' : 'border-l-transparent'
+                        } ${group.unit && group.unit.key === selectedLineKey ? 'bg-indigo-950/20 ring-1 ring-inset ring-indigo-500/40' : ''}`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-start">
                           <div className="flex-1 min-w-0">
@@ -2895,7 +3006,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 <button
                                   key={seg.id}
                                   type="button"
-                                  onClick={() => onSeek(seg.startTime)}
+                                  onClick={() => seekSource(seg.startTime)}
                                   className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${
                                     finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
                                   } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
@@ -2928,11 +3039,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                               {fixing && (
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    onTrackModeChange('source');
-                                    onSeek(Math.max(0, unit.srcStart - 0.6));
-                                    if (!isPlaying) onTogglePlay();
-                                  }}
+                                  onClick={() => listenOriginal(Math.max(0, unit.srcStart - 0.6))}
                                   className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
                                   title="Play the original sentence"
                                 >
@@ -3305,7 +3412,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => activeCueIndex > 0 && onSeek(segments[activeCueIndex - 1].startTime)}
+                onClick={() => activeCueIndex > 0 && seekSource(segments[activeCueIndex - 1].startTime)}
                 className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
                 aria-label="Previous cue"
               >
@@ -3322,8 +3429,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const next = segments.find((s) => s.startTime > currentTime + 0.05);
-                  if (next) onSeek(next.startTime);
+                  const next = segments.find((s) => s.startTime > sourceClockTime + 0.05);
+                  if (next) seekSource(next.startTime);
                 }}
                 className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
                 aria-label="Next cue"
@@ -3332,7 +3439,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </button>
               <span className="font-mono text-sm text-slate-100 tabular-nums">
                 <LiveClock currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} />{' '}
-                <span className="text-slate-500">/ {formatClock(totalLength)}</span>
+                <span className="text-slate-500">/ {formatClock(heardDuration || totalLength)}</span>
               </span>
               <span aria-live="polite" className="flex-1 min-w-[12rem] truncate text-[13px] text-slate-300">
                 {activeCue ? getTargetText(activeCue) : <span className="text-xs text-slate-500">Press play, or Listen on a line below.</span>}
@@ -3347,7 +3454,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     key={m.id}
                     type="button"
                     aria-pressed={trackMode === m.id}
-                    onClick={() => onTrackModeChange(m.id)}
+                    onClick={() => switchTrack(m.id)}
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                       trackMode === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                     }`}
@@ -3388,31 +3495,26 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   loading={syncPreview.loading}
                   error={syncPreview.error}
                   rateMeasured={measuredRate !== null}
-                  currentTime={currentTime}
+                  currentTime={sourceClockTime}
                   isPlaying={isPlaying}
-                  onTogglePlay={onTogglePlay}
-                  getLiveTime={getLiveTime}
-                  onSeek={onSeek}
-                  onListenOriginal={(time) => {
-                    onTrackModeChange('source');
-                    onSeek(time);
-                    if (!isPlaying) onTogglePlay();
-                  }}
+                  onTogglePlay={previewTogglePlay}
+                  getLiveTime={getSourceLiveTime}
+                  onSeek={previewSeek}
+                  onListenOriginal={listenOriginal}
+                  offClockNote={previewOffClockNote}
                   onSuggest={suggestLine}
                   onUseLine={applyPreviewLine}
                   onRestore={restoreCueTexts}
                 />
               }
-              currentTime={currentTime}
+              currentTime={sourceClockTime}
               isPlaying={isPlaying}
               onTogglePlay={onTogglePlay}
-              getLiveTime={getLiveTime}
-              onSeek={onSeek}
-              onListen={(time) => {
-                onTrackModeChange('both');
-                onSeek(time);
-                if (!isPlaying) onTogglePlay();
-              }}
+              getLiveTime={getSourceLiveTime}
+              onSeek={seekSource}
+              onListen={(time) => switchTrack('both', { seek: time, play: true })}
+              sourceBuffer={activeJob.audioBuffer}
+              dubBuffer={report ? activeJob.synthAudioBuffer : null}
               pendingLines={syncPendingLines}
               onApplyLine={onApplySyncLine}
               onRetakeLine={onRetakeSyncLine}

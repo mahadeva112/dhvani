@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, Scissors, X } from 'lucide-react';
-import { TimelineScrollbar, TimelineTransport, wheelScroll } from './TimelineControls';
-import { useLiveTime } from './useLiveTime';
 import {
   LineSuggestion,
   SYNC_PRECISION_OPTIONS,
@@ -13,6 +11,7 @@ import {
   SyncUnitReport,
 } from '../services/syncService';
 import { isShort, MeaningWarning } from './SyncPreviewPanel';
+import { SyncAlignmentView } from './SyncAlignmentView';
 import { joinPresetOf, readJoinSettings, SyncJoinSettingsPanel } from './SyncJoinSettings';
 
 /**
@@ -24,8 +23,6 @@ import { joinPresetOf, readJoinSettings, SyncJoinSettingsPanel } from './SyncJoi
 
 const OPTIONS_KEY = 'dhvani_sync_options';
 
-/** Seconds of the timeline shown at once. */
-const WINDOW_SECONDS = 30;
 
 const formatClock = (seconds: number) => {
   const t = Math.max(0, seconds || 0);
@@ -362,6 +359,9 @@ export interface SyncResultsPanelProps {
    * different from `avoid`; null when the text model had nothing usable.
    */
   onSuggestLine?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion | null>;
+  /** The original and the synced dub, drawn behind the lines of the alignment view. */
+  sourceBuffer?: AudioBuffer | null;
+  dubBuffer?: AudioBuffer | null;
 }
 
 /** The main column of step 4: what Sync does, its progress, then how every line landed. */
@@ -385,6 +385,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   onApplyLine,
   onRetakeLine,
   onSuggestLine,
+  sourceBuffer,
+  dubBuffer,
 }) => {
   const review = useMemo(() => {
     if (!report) return [];
@@ -440,7 +442,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
         </div>
         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
           <Lock className="w-3 h-3 shrink-0" />
-          Each line starts where the original line starts. The voice is never changed: no speed change, no volume change and no fades. Lines are only moved, and the silence inside them shortened.
+          Each line is placed to start where the original line starts; a line longer than its original pushes the ones after it later. The voice is never changed: no speed change, no volume change and no fades. Lines are only moved, and the silence inside them shortened.
         </p>
       </div>
 
@@ -534,13 +536,15 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             ))}
           </div>
 
-          <SyncTimeline
+          <SyncAlignmentView
             report={report}
             reportedTime={currentTime}
             getLiveTime={getLiveTime}
             onSeek={onSeek}
             isPlaying={isPlaying}
             onTogglePlay={onTogglePlay}
+            sourceBuffer={sourceBuffer}
+            dubBuffer={dubBuffer}
           />
 
           {(report.summary.meaningRejected ?? 0) > 0 && (
@@ -789,130 +793,3 @@ const ReviewRow: React.FC<{
   );
 };
 
-/** The original's lines above the dub's, over a 30-second window that follows the playhead. */
-const SyncTimeline: React.FC<{
-  report: SyncReport;
-  reportedTime: number;
-  getLiveTime?: () => number | null;
-  onSeek: (time: number) => void;
-  isPlaying: boolean;
-  onTogglePlay: () => void;
-}> = ({ report, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay }) => {
-  // Every frame while playing; this timeline is small, so re-rendering it is cheap.
-  const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime);
-  const total = Math.max(report.duration, ...report.units.map((u) => u.srcEnd));
-  const [windowStart, setWindowStart] = useState(0);
-  const [follow, setFollow] = useState(true);
-
-  // Follow playback: page the window forward when the playhead leaves it.
-  useEffect(() => {
-    if (!follow) return;
-    if (currentTime < windowStart || currentTime > windowStart + WINDOW_SECONDS) {
-      setWindowStart(Math.max(0, Math.min(total - WINDOW_SECONDS, currentTime - 2)));
-    }
-  }, [currentTime, follow, windowStart, total]);
-
-  const end = windowStart + WINDOW_SECONDS;
-  const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
-  const visible = report.units.filter((u) => u.srcEnd >= windowStart && u.srcStart <= end);
-  // Scrolling by hand stops the window following playback until play is pressed or a lane clicked.
-  const scrollTo = (start: number) => {
-    setFollow(false);
-    setWindowStart(Math.max(0, Math.min(Math.max(0, total - WINDOW_SECONDS), start)));
-  };
-  const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(windowStart + seconds));
-  const seekAt = (e: React.MouseEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    setFollow(true);
-    onSeek(windowStart + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS);
-  };
-  const markers = useMemo(
-    () =>
-      report.units
-        .filter((u) => u.exceeded || u.short || !u.inSync)
-        .map((u) => ({ time: u.srcStart, tone: u.exceeded || !u.inSync ? ('warn' as const) : ('soft' as const) })),
-    [report]
-  );
-
-  const lane = (kind: 'source' | 'dub') => (
-    <div className="relative h-9 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
-      {visible.map((u) => {
-        const from = kind === 'source' ? u.srcStart : u.placedStart;
-        const to = kind === 'source' ? u.srcEnd : u.placedEnd;
-        if (from === null || to === null) return null;
-        const flagged = kind === 'dub' && !u.inSync;
-        return (
-          <span
-            key={u.index}
-            title={kind === 'dub' ? `${u.text}${u.offset !== null ? ` (${formatOffset(u.offset)})` : ''}` : u.sourceText}
-            className={`absolute top-1.5 bottom-1.5 rounded ${
-              kind === 'source'
-                ? 'bg-cyan-400/35'
-                : flagged
-                  ? 'bg-amber-400/40 ring-1 ring-amber-400'
-                  : u.exceeded
-                    ? 'bg-indigo-400/50 outline-1 outline-dashed outline-amber-300'
-                    : 'bg-indigo-400/50'
-            }`}
-            style={{ left: `${pct(from)}%`, width: `${Math.max(0.3, pct(to) - pct(from))}%` }}
-          />
-        );
-      })}
-      {kind === 'dub' &&
-        visible.map((u) =>
-          u.short && u.placedEnd !== null ? (
-            <span
-              key={`quiet-${u.index}`}
-              title={`The dub is quiet here for about ${u.shortBy.toFixed(1)} s while the original speaker is still talking`}
-              className="absolute top-1.5 bottom-1.5 rounded-r border border-dashed border-sky-400/70 bg-sky-400/5"
-              style={{ left: `${pct(u.placedEnd)}%`, width: `${Math.max(0.3, pct(u.placedEnd + u.shortBy) - pct(u.placedEnd))}%` }}
-            />
-          ) : null
-        )}
-      {currentTime >= windowStart && currentTime <= end && (
-        <span className="absolute top-0 bottom-0 w-0.5 bg-slate-100 pointer-events-none" style={{ left: `${pct(currentTime)}%` }} />
-      )}
-    </div>
-  );
-
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
-        <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
-        </span>
-        {lane('source')}
-        <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Dub
-        </span>
-        {lane('dub')}
-        <span />
-        <TimelineScrollbar
-          total={total}
-          windowStart={windowStart}
-          windowSeconds={WINDOW_SECONDS}
-          currentTime={currentTime}
-          markers={markers}
-          onScroll={scrollTo}
-        />
-      </div>
-      <TimelineTransport
-        isPlaying={isPlaying}
-        onTogglePlay={() => {
-          setFollow(true);
-          onTogglePlay();
-        }}
-        currentTime={currentTime}
-        total={total}
-        windowStart={windowStart}
-        windowSeconds={WINDOW_SECONDS}
-      >
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm bg-indigo-400/50" /> In sync</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm bg-indigo-400/50 outline-1 outline-dashed outline-amber-300" /> Too long</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm ring-1 ring-amber-400 bg-amber-400/40" /> Outside tolerance</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-sky-400/70 bg-sky-400/5" /> Ends early: speaker still talking</span>
-        <span className="flex items-center gap-1.5"><span className="w-0.5 h-3 rounded-full bg-amber-400" /> On the scroll bar: a line to check</span>
-      </TimelineTransport>
-    </div>
-  );
-};

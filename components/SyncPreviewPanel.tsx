@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Loader2, Pencil, Play, RotateCcw, X } from 'lucide-react';
-import { TimelineScrollbar, TimelineTransport, wheelScroll } from './TimelineControls';
+import { TimelineScrollbar, TimelineTransport, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { AudioSegment } from '../types';
 import {
@@ -46,6 +46,8 @@ const QUIET_BOX = 'border border-dashed border-sky-400/70 bg-sky-400/5';
 const TRIM_BOX = 'border-2 border-dashed border-indigo-300/90';
 /** The dub bar picked for trimming. */
 const SELECTED_RING = '0 0 0 2px rgba(165,180,252,0.95)';
+/** The line under the playhead. */
+const NOW_RING = '0 0 0 2px rgba(255,255,255,0.8)';
 
 /**
  * When a line is short, as server/lib/syncDub.js decides it (isShortLine), so a
@@ -234,6 +236,8 @@ export interface SyncPreviewPanelProps {
   onUseLine: (unit: SyncPreviewUnit, text: string) => Record<string, string>;
   /** Puts cue texts back, for Undo. */
   onRestore: (before: Record<string, string>) => void;
+  /** See PreviewTimeline: shown in place of the playhead while an unsynced dub is heard. */
+  offClockNote?: React.ReactNode;
 }
 
 export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
@@ -250,6 +254,7 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
   onSuggest,
   onUseLine,
   onRestore,
+  offClockNote,
 }) => {
   const [showTight, setShowTight] = useState(false);
   const fixes = useLineFixes({ onSuggest, onUseLine, onRestore });
@@ -314,6 +319,7 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
         onSeek={onSeek}
         isPlaying={isPlaying}
         onTogglePlay={onTogglePlay}
+        offClockNote={offClockNote}
       />
 
       <div>
@@ -717,20 +723,51 @@ export const PreviewTimeline: React.FC<{
   onTrim?: (unit: SyncPreviewUnit, seconds: number) => void;
   /** For the readout while trimming: characters the trimmed length holds. */
   charsPerSecond?: number;
-}> = ({ units, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay, selectedKey, onSelect, onTrim, charsPerSecond }) => {
+  /**
+   * Shown instead of the playhead when what is heard is not on this
+   * timeline's clock (an unsynced dub): the reason, and how to hear the original.
+   */
+  offClockNote?: React.ReactNode;
+  /** The line under the playhead as it changes, or null between lines. */
+  onCurrentLine?: (unit: SyncPreviewUnit | null) => void;
+}> = ({ units, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay, selectedKey, onSelect, onTrim, charsPerSecond, offClockNote, onCurrentLine }) => {
   const [drag, setDrag] = useState<{ key: string; seconds: number } | null>(null);
-  // Every frame while playing; this timeline is small, so re-rendering it is cheap.
-  const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime);
+  // The clocks show tenths; the playheads move every frame through playheadRef.
+  const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
   const total = Math.max(WINDOW_SECONDS, ...units.map((u) => Math.max(u.srcEnd, u.srcStart + u.estimate)));
   const [windowStart, setWindowStart] = useState(0);
   const [follow, setFollow] = useState(true);
+  const playheadRef = useWindowPlayheads({
+    reportedTime,
+    isPlaying,
+    getLiveTime,
+    windowStart,
+    windowSeconds: WINDOW_SECONDS,
+    follow,
+    onFollow: (t) => setWindowStart(Math.max(0, Math.min(total - WINDOW_SECONDS, t - 2))),
+    hidden: Boolean(offClockNote),
+  });
 
-  useEffect(() => {
-    if (!follow) return;
-    if (currentTime < windowStart || currentTime > windowStart + WINDOW_SECONDS) {
-      setWindowStart(Math.max(0, Math.min(total - WINDOW_SECONDS, currentTime - 2)));
+  /*
+   * The line under the playhead: from its start until the next line's, or
+   * until its own dub would end if that is later. Picked out on both lanes
+   * and spelled out below them, so the playhead and its line always agree.
+   */
+  const current = useMemo(() => {
+    if (offClockNote) return null;
+    let found: SyncPreviewUnit | null = null;
+    for (const u of units) {
+      if (u.srcStart > currentTime) break;
+      const until = Math.max(u.nextStart ?? -Infinity, u.srcEnd, u.srcStart + u.estimate);
+      if (currentTime < until) found = u;
     }
-  }, [currentTime, follow, windowStart, total]);
+    return found;
+  }, [units, currentTime, offClockNote]);
+  const onCurrentLineRef = useRef(onCurrentLine);
+  onCurrentLineRef.current = onCurrentLine;
+  useEffect(() => {
+    onCurrentLineRef.current?.(current);
+  }, [current]);
 
   const end = windowStart + WINDOW_SECONDS;
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
@@ -764,8 +801,8 @@ export const PreviewTimeline: React.FC<{
     return Math.max(MIN_TRIM_SECONDS, Math.min(u.slot, snapped));
   };
   const dragged = drag ? units.find((u) => u.key === drag.key) : undefined;
-  const playhead = currentTime >= windowStart && currentTime <= end && (
-    <span className="absolute top-0 bottom-0 w-0.5 bg-slate-100 pointer-events-none" style={{ left: `${pct(currentTime)}%` }} />
+  const playhead = (index: number) => (
+    <span ref={playheadRef(index)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
   );
 
   return (
@@ -779,11 +816,11 @@ export const PreviewTimeline: React.FC<{
             <span
               key={u.key}
               title={u.sourceText}
-              className="absolute top-1.5 bottom-1.5 rounded bg-cyan-400/35"
+              className={`absolute top-1.5 bottom-1.5 rounded bg-cyan-400/35 ${u.key === current?.key ? 'ring-2 ring-white/80' : ''}`}
               style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%` }}
             />
           ))}
-          {playhead}
+          {playhead(0)}
         </div>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
           <span className="w-2 h-2 rounded-sm" style={{ background: HATCH_FIT_SWATCH }} /> Dub, est.
@@ -814,7 +851,9 @@ export const PreviewTimeline: React.FC<{
                     left: `${pct(u.srcStart)}%`,
                     width: `${Math.max(0.3, pct(u.srcStart + fit) - pct(u.srcStart))}%`,
                     background: HATCH_FIT,
-                    boxShadow: [u.status === 'tight' ? TIGHT_EDGE : '', selected ? SELECTED_RING : ''].filter(Boolean).join(', ') || undefined,
+                    boxShadow:
+                      [u.status === 'tight' ? TIGHT_EDGE : '', selected ? SELECTED_RING : u.key === current?.key ? NOW_RING : ''].filter(Boolean).join(', ') ||
+                      undefined,
                   }}
                 />
                 {over > 0 && (
@@ -888,7 +927,7 @@ export const PreviewTimeline: React.FC<{
               </React.Fragment>
             );
           })}
-          {playhead}
+          {playhead(1)}
         </div>
         {drag && dragged && (
           <>
@@ -910,6 +949,28 @@ export const PreviewTimeline: React.FC<{
           onScroll={scrollTo}
         />
       </div>
+      {offClockNote ? (
+        <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-[12px] text-slate-300">{offClockNote}</div>
+      ) : (
+        <div className="min-h-[2.75rem] rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-[12px]" aria-live="polite">
+          {current ? (
+            <>
+              <div className="flex flex-wrap items-center gap-x-3 font-mono tabular-nums">
+                <span className="font-semibold text-slate-100">Now #{current.index + 1}</span>
+                <span className="text-cyan-300">
+                  Original {formatClock(current.srcStart)}–{formatClock(current.srcEnd)}
+                </span>
+                <span className={current.status === 'long' ? 'text-amber-300' : current.status === 'short' ? 'text-sky-300' : 'text-slate-400'}>
+                  dub ≈ {current.estimate.toFixed(1)} s in a {current.slot.toFixed(1)} s slot
+                </span>
+              </div>
+              <p className="text-slate-300 truncate">{current.text}</p>
+            </>
+          ) : (
+            <span className="text-slate-500">{isPlaying ? 'Between lines' : 'Press play: the line under the playhead shows here.'}</span>
+          )}
+        </div>
+      )}
       <TimelineTransport
         isPlaying={isPlaying}
         onTogglePlay={() => {

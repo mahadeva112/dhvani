@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo, startTransition } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, ThemeMode, HeaderQuota } from './components/ProHeader';
 import { ExpressDubWizard, stepForJob } from './components/ExpressDubWizard';
@@ -112,6 +112,7 @@ import {
   AudioSegment,
   AudioTrackMode,
   TargetSource,
+  TrackSwitchOptions,
 } from './types';
 
 /**
@@ -907,10 +908,21 @@ export default function App() {
   const playMode: AudioTrackMode = synthAudioUrl ? trackMode : 'source';
 
   // Sync playback rate to audio elements, including ones mounted after the rate was set
+  const playbackRateRef = useRef(playbackRate);
+  playbackRateRef.current = playbackRate;
   useEffect(() => {
     if (sourceAudioRef.current) sourceAudioRef.current.playbackRate = playbackRate;
     if (synthAudioRef.current) synthAudioRef.current.playbackRate = playbackRate;
   }, [playbackRate, sourceAudioUrl, synthAudioUrl]);
+
+  /*
+   * The dub URL whose buffer is being decoded, so the effect below and the
+   * dub and sync handlers don't decode the same file twice, and the URL the
+   * active job plays now, so a decode that lands after a newer dub is dropped.
+   */
+  const decodingSynthUrlRef = useRef<string | null>(null);
+  const currentSynthUrlRef = useRef<string | null>(synthAudioUrl);
+  currentSynthUrlRef.current = synthAudioUrl;
 
   // Re-decode audio buffers if needed
   useEffect(() => {
@@ -924,62 +936,123 @@ export default function App() {
         })
         .catch((e) => console.warn('Audio decode notice:', e));
     }
-    if (activeJob && !activeJob.synthAudioBuffer && synthAudioUrl) {
-      decodeAudioBlobUrl(synthAudioUrl)
+    if (activeJob && !activeJob.synthAudioBuffer && synthAudioUrl && decodingSynthUrlRef.current !== synthAudioUrl) {
+      const url = synthAudioUrl;
+      decodingSynthUrlRef.current = url;
+      decodeAudioBlobUrl(url)
         .then((buffer) => {
-          updateJob(activeJob.id, { synthAudioBuffer: buffer });
+          if (currentSynthUrlRef.current === url) updateJob(activeJob.id, { synthAudioBuffer: buffer });
         })
-        .catch((e) => console.warn('Synth decode notice:', e));
+        .catch((e) => console.warn('Synth decode notice:', e))
+        .finally(() => {
+          if (decodingSynthUrlRef.current === url) decodingSynthUrlRef.current = null;
+        });
     }
   }, [activeJob?.id, synthAudioUrl]);
 
   // --- AUDIO SYNCHRONIZATION ENGINE ---
+  /*
+   * Everything here reads refs, not render-time values, so a handler that
+   * switches the track and then plays in the same click sees the new track.
+   *
+   * The heard clock: the original in 'source' and 'both' (where the dub is
+   * locked to it), the dub in 'synth'. In 'both', once the original has ended
+   * the dub is all that is left to hear, so it becomes the clock.
+   */
+  const playModeRef = useRef<AudioTrackMode>(playMode);
+  playModeRef.current = playMode;
+  const isPlayingRef = useRef(isPlaying);
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
+  /** A position, on the heard clock, where playback stops by itself: the end of a solo cue. */
+  const stopAtRef = useRef<number | null>(null);
+
+  const setPlaying = useCallback((playing: boolean) => {
+    isPlayingRef.current = playing;
+    setIsPlaying(playing);
+  }, []);
+
+  const elementsFor = useCallback((mode: AudioTrackMode) => {
+    const source = sourceAudioRef.current;
+    const synth = synthAudioRef.current?.src ? synthAudioRef.current : null;
+    const els = mode === 'source' ? [source] : mode === 'synth' ? [synth] : [source, synth];
+    return els.filter((el): el is HTMLAudioElement => Boolean(el));
+  }, []);
+
+  const heardElement = useCallback((mode: AudioTrackMode = playModeRef.current) => {
+    const source = sourceAudioRef.current;
+    const synth = synthAudioRef.current;
+    if (mode === 'synth') return synth;
+    if (mode === 'both' && source?.ended && synth && !synth.ended) return synth;
+    return source;
+  }, []);
+
+  const pauseAll = useCallback(() => {
+    stopAtRef.current = null;
+    setPlaying(false);
+    sourceAudioRef.current?.pause();
+    synthAudioRef.current?.pause();
+    const heard = heardElement();
+    if (heard) setCurrentTime(heard.currentTime);
+  }, [heardElement, setPlaying]);
+
+  /** Puts every element on the same position, so whichever track plays next starts where the playhead is. */
+  const seekAll = useCallback((time: number) => {
+    if (!isFinite(time)) return;
+    const t = Math.max(0, time);
+    [sourceAudioRef.current, synthAudioRef.current].forEach((el) => {
+      if (el) el.currentTime = t;
+    });
+    setCurrentTime(t);
+  }, []);
+
+  const startPlayback = useCallback(
+    (mode: AudioTrackMode, at: number) => {
+      const els = elementsFor(mode);
+      if (els.length === 0) return;
+      seekAll(at);
+      setPlaying(true);
+      els.forEach((el) => {
+        el.playbackRate = playbackRateRef.current;
+        el.play().catch((e) => {
+          // A play cut short by a pause or a new source is expected; anything else means nothing is playing.
+          if (e?.name === 'AbortError') return;
+          console.warn(e);
+          if (isPlayingRef.current) pauseAll();
+        });
+      });
+    },
+    [elementsFor, seekAll, setPlaying, pauseAll]
+  );
+
   const syncPlayback = useCallback(
     (action: 'play' | 'pause' | 'seek', seekTime?: number) => {
-      const source = sourceAudioRef.current;
-      const synth = synthAudioRef.current;
-
-      // Resume from where the audio actually is: React's currentTime trails it by up to a quarter-second.
-      const heard = playMode === 'source' ? source : synth;
-      const targetTime = seekTime !== undefined ? seekTime : heard ? heard.currentTime : currentTime;
-
       if (action === 'seek') {
-        if (source && isFinite(targetTime)) source.currentTime = targetTime;
-        if (synth && isFinite(targetTime)) synth.currentTime = targetTime;
-        setCurrentTime(targetTime);
+        if (seekTime === undefined) return;
+        stopAtRef.current = null;
+        seekAll(seekTime);
         return;
       }
-
       if (action === 'play') {
-        setIsPlaying(true);
-        if (playMode === 'source' || playMode === 'both') {
-          if (source) {
-            source.currentTime = targetTime;
-            source.play().catch(console.warn);
-          }
-        }
-        if (playMode === 'synth' || playMode === 'both') {
-          if (synth && synth.src) {
-            synth.currentTime = targetTime;
-            synth.play().catch(console.warn);
-          }
-        }
+        // Resume from where the audio actually is: React's currentTime trails it by up to a quarter-second.
+        const heard = heardElement();
+        const at = seekTime ?? (heard ? heard.currentTime : currentTimeRef.current);
+        startPlayback(playModeRef.current, at);
       } else {
-        setIsPlaying(false);
-        if (source) source.pause();
-        if (synth) synth.pause();
+        pauseAll();
       }
     },
-    [currentTime, playMode]
+    [heardElement, seekAll, startPlayback, pauseAll]
   );
 
   const togglePlay = useCallback(() => {
-    if (isPlaying) {
+    if (isPlayingRef.current) {
       syncPlayback('pause');
     } else {
+      stopAtRef.current = null;
       syncPlayback('play');
     }
-  }, [isPlaying, syncPlayback]);
+  }, [syncPlayback]);
 
   const handleSeek = useCallback(
     (time: number) => {
@@ -988,35 +1061,178 @@ export default function App() {
     [syncPlayback]
   );
 
-  // The heard track's exact position, read every frame by the Review playhead so it moves smoothly.
+  /*
+   * Switches what is heard as one action: the old track stops, the new one
+   * starts at the same position (or `seek`), playing if anything was. The
+   * playhead's clock and the audio change together, so they never disagree.
+   */
+  const changeTrackMode = useCallback(
+    (mode: AudioTrackMode, options: TrackSwitchOptions = {}) => {
+      const next: AudioTrackMode = currentSynthUrlRef.current ? mode : 'source';
+      const heard = heardElement();
+      const at = options.seek ?? (heard ? heard.currentTime : currentTimeRef.current);
+      const play = options.play ?? isPlayingRef.current;
+      stopAtRef.current = null;
+      if (next === playModeRef.current) {
+        // Same track: a seek and a play or pause, without stopping what is already playing.
+        setTrackMode(mode);
+        if (play && !isPlayingRef.current) startPlayback(next, at);
+        else if (!play && isPlayingRef.current) {
+          pauseAll();
+          seekAll(at);
+        } else if (options.seek !== undefined) seekAll(at);
+        return;
+      }
+      playModeRef.current = next;
+      setTrackMode(mode);
+      sourceAudioRef.current?.pause();
+      synthAudioRef.current?.pause();
+      if (play) {
+        startPlayback(next, at);
+      } else {
+        setPlaying(false);
+        seekAll(at);
+      }
+    },
+    [heardElement, startPlayback, setPlaying, seekAll, pauseAll]
+  );
+
+  // The heard track's exact position, read every frame by the playheads so they move smoothly.
   const getLiveTime = useCallback(() => {
-    const el = playMode === 'source' ? sourceAudioRef.current : synthAudioRef.current;
+    const el = heardElement();
     return el ? el.currentTime : null;
-  }, [playMode]);
+  }, [heardElement]);
 
-  // Audio elements event listeners
+  /*
+   * Playing state follows the elements, not just our own calls: a pause from
+   * the system or media keys, a track that ends, or a play from outside all
+   * land here. Bound to both elements; each event is judged against the
+   * tracks the current mode plays.
+   */
   useEffect(() => {
-    const source = sourceAudioRef.current;
-    const synth = synthAudioRef.current;
-    const activeEl = playMode === 'source' ? source : synth;
-    if (!activeEl) return;
+    const els = [sourceAudioRef.current, synthAudioRef.current].filter((el): el is HTMLAudioElement => Boolean(el));
+    if (els.length === 0) return;
+    const inMode = (el: HTMLAudioElement) => elementsFor(playModeRef.current).includes(el);
 
-    const onTimeUpdate = () => {
-      setCurrentTime(activeEl.currentTime);
+    const onTimeUpdate = (e: Event) => {
+      const el = e.currentTarget as HTMLAudioElement;
+      // A transition: the re-render this sets off (the whole page, on a long script) yields to the
+      // animation frames that move the playheads, instead of blocking them four times a second.
+      if (el === heardElement()) {
+        const t = el.currentTime;
+        startTransition(() => setCurrentTime(t));
+      }
+    };
+    const onPause = (e: Event) => {
+      const el = e.currentTarget as HTMLAudioElement;
+      // Our own pauses clear isPlayingRef first; a pause followed by a play in the same task has el.paused false again.
+      if (!isPlayingRef.current || !el.paused || el.ended || !inMode(el)) return;
+      pauseAll();
+    };
+    const onEnded = (e: Event) => {
+      const el = e.currentTarget as HTMLAudioElement;
+      if (!isPlayingRef.current || !inMode(el)) return;
+      // In 'both' the longer track plays on; playback is over when every track has stopped.
+      if (elementsFor(playModeRef.current).every((x) => x.paused)) {
+        stopAtRef.current = null;
+        setPlaying(false);
+        setCurrentTime(el.currentTime);
+      }
+    };
+    const onPlay = (e: Event) => {
+      const el = e.currentTarget as HTMLAudioElement;
+      if (isPlayingRef.current || !inMode(el)) return;
+      // Started from outside (media keys): bring the other track in at the same position.
+      startPlayback(playModeRef.current, el.currentTime);
     };
 
-    const onEnded = () => {
-      setIsPlaying(false);
-    };
-
-    activeEl.addEventListener('timeupdate', onTimeUpdate);
-    activeEl.addEventListener('ended', onEnded);
+    els.forEach((el) => {
+      el.addEventListener('timeupdate', onTimeUpdate);
+      el.addEventListener('pause', onPause);
+      el.addEventListener('ended', onEnded);
+      el.addEventListener('play', onPlay);
+    });
     return () => {
-      activeEl.removeEventListener('timeupdate', onTimeUpdate);
-      activeEl.removeEventListener('ended', onEnded);
+      els.forEach((el) => {
+        // An element replaced by a new file must not play on, unheard by the transport.
+        if (!el.isConnected) el.pause();
+        el.removeEventListener('timeupdate', onTimeUpdate);
+        el.removeEventListener('pause', onPause);
+        el.removeEventListener('ended', onEnded);
+        el.removeEventListener('play', onPlay);
+      });
     };
-    // sourceAudioUrl too: its <audio> mounts only once a file is loaded.
-  }, [playMode, sourceAudioUrl, synthAudioUrl]);
+    // The URLs too: each <audio> is keyed by its URL, so a new file is a new element.
+  }, [sourceAudioUrl, synthAudioUrl, elementsFor, heardElement, pauseAll, setPlaying, startPlayback]);
+
+  /*
+   * A new file under a track (a new dub, a sync result, another job) is a
+   * new element starting at zero. Playback that used it stops, and the new
+   * element is put where the playhead was so the two still agree.
+   */
+  const lastUrlsRef = useRef({ source: sourceAudioUrl, synth: synthAudioUrl });
+  useEffect(() => {
+    const last = lastUrlsRef.current;
+    lastUrlsRef.current = { source: sourceAudioUrl, synth: synthAudioUrl };
+    const sourceChanged = last.source !== sourceAudioUrl;
+    const synthChanged = last.synth !== synthAudioUrl;
+    if (!sourceChanged && !synthChanged) return;
+    if (isPlayingRef.current && (sourceChanged || playModeRef.current !== 'source')) pauseAll();
+    if (sourceChanged) return; // A new job starts from zero; its loaders reset the position.
+    const el = synthAudioRef.current;
+    if (!el) return;
+    const at = currentTimeRef.current;
+    const restore = () => {
+      el.currentTime = Math.min(at, isFinite(el.duration) ? el.duration : at);
+    };
+    if (el.readyState >= 1) restore();
+    else el.addEventListener('loadedmetadata', restore, { once: true });
+    return () => el.removeEventListener('loadedmetadata', restore);
+  }, [sourceAudioUrl, synthAudioUrl, pauseAll]);
+
+  /*
+   * While playing, every frame: stop a solo cue exactly at its end, and in
+   * 'both' keep the dub locked to the original. Two <audio> elements run on
+   * separate clocks and drift apart; small drift is pulled in by nudging the
+   * dub's rate by 1% (preview only, never a render), large drift by a seek.
+   */
+  useEffect(() => {
+    if (!isPlaying) return;
+    let frame = 0;
+    let lastLock = 0;
+    const tick = (now: number) => {
+      const heard = heardElement();
+      if (stopAtRef.current !== null && heard && heard.currentTime >= stopAtRef.current) {
+        pauseAll();
+        return;
+      }
+      const source = sourceAudioRef.current;
+      const synth = synthAudioRef.current;
+      if (playModeRef.current === 'both' && source && synth && now - lastLock > 100) {
+        lastLock = now;
+        const rate = playbackRateRef.current;
+        if (source.paused || synth.paused || source.seeking || synth.seeking) {
+          if (synth.playbackRate !== rate) synth.playbackRate = rate;
+        } else {
+          const drift = synth.currentTime - source.currentTime;
+          if (Math.abs(drift) > 0.08) {
+            synth.currentTime = source.currentTime;
+            synth.playbackRate = rate;
+          } else if (Math.abs(drift) > 0.012) {
+            synth.playbackRate = rate * (drift > 0 ? 0.99 : 1.01);
+          } else if (synth.playbackRate !== rate) {
+            synth.playbackRate = rate;
+          }
+        }
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (synthAudioRef.current) synthAudioRef.current.playbackRate = playbackRateRef.current;
+    };
+  }, [isPlaying, heardElement, pauseAll]);
 
   // Spacebar shortcuts for play/pause
   useEffect(() => {
@@ -1518,9 +1734,11 @@ export default function App() {
       const srtBlob = new Blob([srtContent], { type: 'text/srt' });
       const srtUrl = URL.createObjectURL(srtBlob);
 
-      // Decode synthetic audio buffer for waveform and playback
+      // Decode synthetic audio buffer for waveform and playback; a newer dub by then makes it stale.
+      decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
         .then((synthBuffer) => {
+          if (currentSynthUrlRef.current !== url) return;
           const alignedSegments = adjustSegmentsForDubbedTimeline(activeJob.segments, synthBuffer.duration, srtOpts);
           const alignedSrtContent = generateSrtContent(alignedSegments, srtOpts);
           const alignedSrtBlob = new Blob([alignedSrtContent], { type: 'text/srt' });
@@ -1532,11 +1750,16 @@ export default function App() {
             srtBlob: alignedSrtBlob,
           });
         })
-        .catch(console.warn);
+        .catch(console.warn)
+        .finally(() => {
+          if (decodingSynthUrlRef.current === url) decodingSynthUrlRef.current = null;
+        });
 
       updateJob(activeJob.id, {
         synthesizedAudioUrl: url,
         synthesizedBlob: blob,
+        // Until the new dub decodes, no waveform rather than the previous dub's.
+        synthAudioBuffer: null,
         dubScriptCharacters: scriptCharacterCount(activeJob.segments),
         srtUrl,
         srtBlob,
@@ -1658,11 +1881,19 @@ export default function App() {
         srtUrl: URL.createObjectURL(srtBlob),
         srtBlob,
         syncReport: report,
+        // Until the synced dub decodes, no waveform rather than the previous dub's.
+        synthAudioBuffer: null,
         status: ProcessingStatus.COMPLETED,
       });
+      decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
-        .then((synthBuffer) => updateJob(activeJob.id, { synthAudioBuffer: synthBuffer }))
-        .catch(console.warn);
+        .then((synthBuffer) => {
+          if (currentSynthUrlRef.current === url) updateJob(activeJob.id, { synthAudioBuffer: synthBuffer });
+        })
+        .catch(console.warn)
+        .finally(() => {
+          if (decodingSynthUrlRef.current === url) decodingSynthUrlRef.current = null;
+        });
 
       // Synced, the dub is best judged against the original.
       setTrackMode('both');
@@ -1760,18 +1991,18 @@ export default function App() {
   );
 
   // Play Solo Original Audio for specific segment
+  /*
+   * Play one cue of the original and stop at its end. It switches to the
+   * original so the playhead follows what is heard; the transport loop stops
+   * it on the frame the cue ends.
+   */
   const handlePlaySoloSegment = useCallback(
     (seg: AudioSegment) => {
-      const source = sourceAudioRef.current;
-      if (!source) return;
-      handleSeek(seg.startTime);
-      source.currentTime = seg.startTime;
-      source.play().catch(console.warn);
-      setTimeout(() => {
-        if (source && !isPlaying) source.pause();
-      }, seg.duration * 1000);
+      if (!sourceAudioRef.current) return;
+      changeTrackMode('source', { seek: seg.startTime, play: true });
+      stopAtRef.current = seg.endTime;
     },
-    [handleSeek, isPlaying]
+    [changeTrackMode]
   );
 
   // Download Master Lossless WAV
@@ -1863,9 +2094,9 @@ export default function App() {
     await clearAllJobsFromStorage();
     setQueue([]);
     setActiveJobId(null);
-    setCurrentTime(0);
-    setIsPlaying(false);
-  }, []);
+    pauseAll();
+    seekAll(0);
+  }, [pauseAll, seekAll]);
 
   const handleAddFilesToQueue = useCallback(
     async (files: FileList | File[]) => {
@@ -1927,9 +2158,9 @@ export default function App() {
     }
     setQueue([]);
     setActiveJobId(null);
-    setCurrentTime(0);
-    setIsPlaying(false);
-  }, [activeJob]);
+    pauseAll();
+    seekAll(0);
+  }, [activeJob, pauseAll, seekAll]);
 
   // Voice Changer: Replace source audio with transformed speech
   const handleApplyTransformedAudio = useCallback(
@@ -2058,8 +2289,9 @@ export default function App() {
       }`}
     >
       {/* Hidden Audio Elements for Reference & Synth */}
-      {sourceAudioUrl && <audio ref={sourceAudioRef} src={sourceAudioUrl} preload="auto" />}
-      {synthAudioUrl && <audio ref={synthAudioRef} src={synthAudioUrl} preload="auto" />}
+      {/* Keyed by URL: a new file is a new element, so no stale position or pending play carries over. */}
+      {sourceAudioUrl && <audio key={sourceAudioUrl} ref={sourceAudioRef} src={sourceAudioUrl} preload="auto" />}
+      {synthAudioUrl && <audio key={synthAudioUrl} ref={synthAudioRef} src={synthAudioUrl} preload="auto" />}
 
       {/* Streamlined Clean Header */}
       <ProHeader
@@ -2244,7 +2476,7 @@ export default function App() {
           duration={totalDuration}
           onSeek={handleSeek}
           trackMode={playMode}
-          onTrackModeChange={setTrackMode}
+          onTrackModeChange={changeTrackMode}
           getLiveTime={getLiveTime}
           emotionEnhance={emotionEnhance}
           onEmotionEnhanceChange={handleEmotionEnhanceChange}
@@ -2382,8 +2614,8 @@ export default function App() {
         activeJobId={activeJobId}
         onSelectJob={(id) => {
           setActiveJobId(id);
-          setCurrentTime(0);
-          setIsPlaying(false);
+          pauseAll();
+          seekAll(0);
         }}
         onRemoveJob={handleRemoveJobFromQueue}
         onClearQueue={handleClearAllQueue}

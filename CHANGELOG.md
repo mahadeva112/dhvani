@@ -64,6 +64,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   whose word timestamps set cue edges exactly as ElevenLabs' do. Cartesia retired its voice changer
   in August 2026, so changing a recording's voice still needs an ElevenLabs voice.
 
+- **The synced timeline shows how every line landed.** Sync's Original / Dub view now draws a
+  line from each original line's start to its dub line's start (upright when in sync, slanted when
+  early or late, coloured by how far off), numbers the lines in both lanes, shows both waveforms,
+  outlines where each original line is, hatches the part of a dub line that runs into the next
+  line, and charts each line's start error against the tolerance so drift that builds up line after
+  line is plain to see. Hover a line for its times, offset and overrun; when long lines push the dub
+  late, a note says so.
+- **The Final dub preview names the line being heard.** The line under the playhead is ringed on
+  both lanes and spelled out under the timeline (**Now #12**), and the Final script highlights it
+  and keeps it in view while playing.
+
 ### Changed
 
 - **Sync starts with line suggestions off.** **Suggest shorter lines** and **Suggest fuller lines**
@@ -119,6 +130,21 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Cue sheet .csv and Data .json downloads** are gone from Final dub.
 
 ### Fixed
+
+- **Playheads always match what you hear.** Every waveform and timeline now moves its playhead on
+  the frame being drawn, from the audio's own position, and never re-renders the page to do it:
+  - Switching Original / Dub / Both is one step, so the playhead's clock and the audio can no
+    longer disagree; the Listen buttons no longer play the wrong track.
+  - In **Both**, the dub is kept locked to the original instead of drifting.
+  - Pauses from the system or media keys, a track ending, and a new dub arriving now update the
+    player instead of leaving it showing play.
+  - Each lane and waveform is drawn on its own track's length, and waveforms line up with the audio
+    over long files (they drifted by up to 1.6 s an hour on 44.1 kHz devices).
+  - While an unsynced dub plays, cue highlights and jumps follow the dub; the sync previews hide
+    their playhead instead of guessing, since an unsynced dub's lines don't sit on the original's
+    timeline.
+  - Long scripts no longer make the playhead stutter.
+  - A new dub no longer shows the previous dub's waveform while it loads.
 
 - **Dubs sound spoken, not read aloud.** Three causes:
   - Translation was briefed as subtitles, so it came back as written language. It is now briefed as

@@ -1,5 +1,6 @@
-import React, { useRef } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { Pause, Play } from 'lucide-react';
+import { useLiveFrame } from './useLiveTime';
 
 /**
  * Controls under the sync timelines (the preview's and the report's): a
@@ -14,6 +15,55 @@ const formatClock = (seconds: number) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+/**
+ * Playheads for a timeline that shows `windowSeconds` from `windowStart`.
+ * They move every frame through refs, so each is on the painted frame and
+ * nothing re-renders to move it; following playback, the window pages
+ * forward the frame the playhead leaves it. Returns a ref for each playhead.
+ */
+export const useWindowPlayheads = ({
+  reportedTime,
+  isPlaying,
+  getLiveTime,
+  windowStart,
+  windowSeconds,
+  follow,
+  onFollow,
+  hidden = false,
+}: {
+  reportedTime: number;
+  isPlaying: boolean;
+  getLiveTime?: () => number | null;
+  windowStart: number;
+  windowSeconds: number;
+  follow: boolean;
+  /** Called with the position when following playback and it has left the window. */
+  onFollow: (time: number) => void;
+  /** Hides the playheads: the position being heard is not on this timeline's clock. */
+  hidden?: boolean;
+}) => {
+  const heads = useRef<(HTMLElement | null)[]>([]);
+  const live = useRef(reportedTime);
+  const apply = (t: number) => {
+    live.current = t;
+    const f = (t - windowStart) / windowSeconds;
+    heads.current.forEach((el) => {
+      if (!el) return;
+      el.style.display = !hidden && f >= 0 && f <= 1 ? '' : 'none';
+      el.style.left = `${f * 100}%`;
+    });
+    if (!hidden && follow && (t < windowStart || t > windowStart + windowSeconds)) onFollow(t);
+  };
+  useLiveFrame(reportedTime, isPlaying, getLiveTime, apply);
+  // Scrolling the window moves where the position falls in it.
+  useLayoutEffect(() => {
+    apply(live.current);
+  });
+  return (index: number) => (el: HTMLElement | null) => {
+    heads.current[index] = el;
+  };
+};
 
 export interface TimelineMarker {
   time: number;
