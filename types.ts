@@ -45,6 +45,40 @@ export interface AudioSegment {
   text?: string;
 }
 
+/** The voice one speaker is dubbed with, in a dub with several speakers. */
+export interface SpeakerVoice {
+  voiceId: string;
+}
+
+/**
+ * How a mix of several voices that peaks above full scale is handled: kept
+ * exactly as summed in a 32-bit float file, or turned down as a whole.
+ */
+export type MixPeakMode = 'float' | 'lower';
+
+/** What mixing a dub with several speakers did, from the server. */
+export interface DubMixReport {
+  speakers: string[];
+  /** The mix's peak in dBFS (above 0 when speakers talking together sum past full scale), and where. */
+  peakDb: number | null;
+  peakAt: number;
+  overFullScale: boolean;
+  peak: MixPeakMode;
+  /** How far the whole mix was turned down; 0 unless `peak` is 'lower' and it went over. */
+  loweredDb: number;
+  /** dB per speaker when speakers were evened out; empty otherwise. */
+  gains: Record<string, number>;
+  /** Synced dubs: overlaps kept from the original, and lines of one speaker that ran into each other. */
+  overlapsKept?: number;
+  selfOverlaps?: number;
+}
+
+/** One speaker's part of a dub, the same length as the mix. */
+export interface DubStem {
+  speaker: string;
+  blob: Blob;
+}
+
 export type AudioTrackMode = 'source' | 'synth' | 'both';
 /** How a track switch moves playback: where the new track starts, and whether it plays. */
 export interface TrackSwitchOptions {
@@ -175,8 +209,25 @@ export interface BatchJob {
   /** Automatic translation, the user's own script, or not chosen yet. */
   targetSource?: TargetSource;
 
-  /** Set when the dub was made by Sync: how each line lined up with the source. */
+  /**
+   * The synced dub: Sync's own file, kept beside the dub above, which it
+   * never replaces. The Final dub step plays the dub; the Sync step plays
+   * this one under the original.
+   */
+  syncedAudioUrl?: string | null;
+  syncedBlob?: Blob | null;
+  syncedAudioBuffer?: AudioBuffer | null;
+  /** Set with the synced dub: how each line lined up with the source. */
   syncReport?: SyncReport | null;
+
+  /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
+  cast?: Record<string, SpeakerVoice>;
+  /** Set when the dub was voiced by several speakers: one track per speaker, and what the mix did. */
+  dubStems?: DubStem[] | null;
+  dubMix?: DubMixReport | null;
+  /** The same for the synced dub. */
+  syncedStems?: DubStem[] | null;
+  syncMix?: DubMixReport | null;
   
   // Errors
   errorMsg: string | null;

@@ -47,7 +47,10 @@ import {
   BookOpen,
   X,
 } from 'lucide-react';
-import { AudioSegment, BatchJob, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
+import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
+import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker } from '../services/speakers';
+import type { SpeakerSlip } from '../services/speakers';
+import { SpeakerBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
 import type { RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import {
@@ -208,6 +211,16 @@ interface LiveTimeProps {
   getLiveTime?: () => number | null;
 }
 
+/** One track's lane in a player: the original or a dub, drawn over its own length. */
+interface TrackLane {
+  label: string;
+  track: 'source' | 'synth';
+  length: number;
+  buffer: AudioBuffer | null | undefined;
+  dot: string;
+  color: string;
+}
+
 /** A lane's playhead, moved every frame while playing on the painted frame, without re-rendering anything. */
 const LanePlayhead: React.FC<LiveTimeProps & { totalLength: number }> = ({ currentTime, isPlaying, getLiveTime, totalLength }) => {
   const ref = useRef<HTMLSpanElement>(null);
@@ -230,7 +243,7 @@ const railButton =
  * cues, review until there is a dub, then the final dub.
  */
 export const stepForJob = (job: BatchJob | null): number =>
-  !job || job.segments.length === 0 ? 1 : job.synthesizedAudioUrl || job.synthAudioBuffer ? 3 : 2;
+  !job || job.segments.length === 0 ? 1 : job.synthesizedAudioUrl || job.synthAudioBuffer ? 3 : job.syncedAudioUrl ? 4 : 2;
 
 interface ExpressDubWizardProps {
   /** The step on screen, owned by App so the header can show and change it. */
@@ -334,6 +347,19 @@ interface ExpressDubWizardProps {
   onOpenTextToSpeech?: () => void;
   analysisSensitivity?: number;
   onSensitivityChange?: (sensitivity: number) => void;
+  /** Whether uploads are transcribed with speakers told apart, and how many speakers (0: detect). */
+  multiSpeakerInput?: boolean;
+  onMultiSpeakerInputChange?: (enabled: boolean) => void;
+  speakerCount?: number;
+  onSpeakerCountChange?: (count: number) => void;
+  /** Gives a speaker their own voice; null hands them back to the main voice. */
+  onCastChange?: (speaker: string, voiceId: string | null) => void;
+  /** Renames a speaker on every cue; a name already in use merges the two. */
+  onRenameSpeaker?: (from: string, to: string) => void;
+  /** How a mix of several voices above full scale is written. */
+  mixPeak?: MixPeakMode;
+  onMixPeakChange?: (mode: MixPeakMode) => void;
+  onDownloadStem?: (speaker: string) => void;
 }
 
 export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
@@ -415,6 +441,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onOpenTextToSpeech,
   analysisSensitivity = 50,
   onSensitivityChange,
+  multiSpeakerInput = false,
+  onMultiSpeakerInputChange,
+  speakerCount = 0,
+  onSpeakerCountChange,
+  onCastChange,
+  onRenameSpeaker,
+  mixPeak = 'float',
+  onMixPeakChange,
+  onDownloadStem,
 }) => {
   const [playingSegmentId, setPlayingSegmentId] = useState<string | number | null>(null);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
@@ -424,6 +459,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [reviewMode, setReviewMode] = useState<ReviewMode>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight' | 'short'>('all');
+  // Several speakers: whose cues the review shows (none: everyone), and labels to check.
+  const [speakerFilter, setSpeakerFilter] = useState<string[]>([]);
+  const [slipsOnly, setSlipsOnly] = useState(false);
+  const [keptSlips, setKeptSlips] = useState<Set<string>>(() => new Set());
+  // The speaker whose voice the library picks, or null for the main voice.
+  const [castPickFor, setCastPickFor] = useState<string | null>(null);
   const [finalScriptLayout, setFinalScriptLayout] = useState<'dialogue' | 'timecoded' | 'bilingual'>('bilingual');
   const [isVoicePickerOpen, setIsVoicePickerOpen] = useState(false);
   const { favorites: favoriteVoices } = useFavoriteVoices();
@@ -621,6 +662,28 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   };
 
   const segments = activeJob?.segments || [];
+
+  // Several speakers: who they are, labels that look like slips, and where two talk at once.
+  const speakers = useMemo(() => listSpeakers(segments), [segments]);
+  const multiSpeaker = useMemo(() => isMultiSpeaker(segments), [segments]);
+  const speakerSlips = useMemo(() => {
+    if (!multiSpeaker) return new Map<string, SpeakerSlip>();
+    const slips = likelySlips(segments);
+    for (const id of keptSlips) slips.delete(id);
+    return slips;
+  }, [segments, multiSpeaker, keptSlips]);
+  const speakerOverlaps = useMemo(() => (multiSpeaker ? overlapsBefore(segments) : new Map<string, { speaker: string; seconds: number }>()), [segments, multiSpeaker]);
+  const overlapIds = useMemo(() => new Set(speakerOverlaps.keys()), [speakerOverlaps]);
+  const speakerByName = useMemo(() => new Map(speakers.map((s) => [s.name, s])), [speakers]);
+  const cueIndexById = useMemo(() => new Map(segments.map((seg, i) => [String(seg.id), i])), [segments]);
+  // A filter on a speaker who was renamed or merged away no longer applies.
+  useEffect(() => {
+    setSpeakerFilter((filter) => {
+      const next = filter.filter((name) => speakerByName.has(name));
+      return next.length === filter.length ? filter : next;
+    });
+    if (speakerSlips.size === 0) setSlipsOnly(false);
+  }, [speakerByName, speakerSlips.size]);
   const latestSegments = useRef(segments);
   latestSegments.current = segments;
   const hasTranscript = segments.some((s) => (s.textSource || s.originalText || '').trim());
@@ -644,7 +707,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const measuredRate = activeJob?.synthesizedAudioUrl ? speakingRate(rateCharacters, dubSpeechSeconds) : null;
   // Rounded so small script edits don't move every estimate and refetch the preview.
   const previewRate = Math.round((measuredRate ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
-  const hasSyncReport = Boolean(activeJob?.synthesizedAudioUrl && activeJob?.syncReport);
+  const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
+  /*
+   * The Sync step plays the synced dub as its second track once there is one
+   * (App picks the same file), every other step the dub, which Sync leaves as
+   * it was.
+   */
+  const onSyncedTrack = activeStep === 4 && hasSyncReport;
   /** The cues where Sync placed them, for subtitles that match the synced dub. */
   const syncedCues = useMemo(
     () => (hasSyncReport && activeJob?.syncReport ? syncedSegments(segments, activeJob.syncReport) : undefined),
@@ -658,16 +727,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
    * differs from the original's, so cue times are mapped between the two:
    * every playhead, caption, highlight and jump uses the clock being heard.
    */
-  const dubBuffer = activeJob?.synthAudioBuffer ?? null;
+  const dubBuffer = (onSyncedTrack ? activeJob?.syncedAudioBuffer : activeJob?.synthAudioBuffer) ?? null;
   const dubCues = useMemo(
-    () => syncedCues ?? (dubBuffer ? adjustSegmentsForDubbedTimeline(segments, dubBuffer.duration) : segments),
-    [syncedCues, dubBuffer, segments]
+    () =>
+      (onSyncedTrack ? syncedCues : undefined) ??
+      (dubBuffer ? adjustSegmentsForDubbedTimeline(segments, dubBuffer.duration) : segments),
+    [onSyncedTrack, syncedCues, dubBuffer, segments]
   );
-  const hasDubAudio = Boolean(activeJob?.synthesizedAudioUrl);
+  const hasDubAudio = onSyncedTrack || Boolean(activeJob?.synthesizedAudioUrl);
   const hearingDub = trackMode === 'synth' && hasDubAudio;
   const dubToSource = useMemo(() => timelineMapper(dubCues, segments), [dubCues, segments]);
   const sourceToDub = useMemo(() => timelineMapper(segments, dubCues), [segments, dubCues]);
-  const dubClockDiffers = hearingDub && !hasSyncReport;
+  const dubClockDiffers = hearingDub && !onSyncedTrack;
   /** A time on the heard clock as a time on the original's. */
   const toSourceClock = useCallback((t: number) => (dubClockDiffers ? dubToSource(t) : t), [dubClockDiffers, dubToSource]);
   /** A time on the original's clock as a time on the heard one. */
@@ -698,13 +769,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       let seek = options.seek;
       const fromDub = trackMode === 'synth' && hasDubAudio;
       const toDub = mode === 'synth' && hasDubAudio;
-      if (seek === undefined && !hasSyncReport && fromDub !== toDub) {
+      if (seek === undefined && !onSyncedTrack && fromDub !== toDub) {
         const now = getLiveTime?.() ?? currentTime;
         seek = fromDub ? dubToSource(now) : sourceToDub(now);
       }
       onTrackModeChange(mode, { ...options, seek });
     },
-    [trackMode, hasDubAudio, hasSyncReport, getLiveTime, currentTime, dubToSource, sourceToDub, onTrackModeChange]
+    [trackMode, hasDubAudio, onSyncedTrack, getLiveTime, currentTime, dubToSource, sourceToDub, onTrackModeChange]
   );
   /*
    * The sync previews draw lines where they will sit on the original's clock,
@@ -848,6 +919,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       const speaker = (seg.speaker || '').toLowerCase();
       const q = searchQuery.trim().toLowerCase();
 
+      if (speakerFilter.length > 0 && !speakerFilter.includes(speakerOf(seg))) return false;
+      if (slipsOnly && !speakerSlips.has(String(seg.id))) return false;
+
       if (q && !srcText.includes(q) && !tgtText.includes(q) && !speaker.includes(q)) {
         return false;
       }
@@ -860,7 +934,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       if (pacingFilter === 'short') return endsEarly(seg, getTargetText(seg));
       return true;
     });
-  }, [segments, searchQuery, pacingFilter]);
+  }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips]);
 
   const activeSegmentId = useMemo(() => {
     return segments.find((s) => sourceClockTime >= s.startTime && sourceClockTime <= s.endTime)?.id || null;
@@ -1117,6 +1191,64 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     };
   };
 
+  /*
+   * The original and a dub, one lane each, as the Final dub step and the Sync
+   * step show them; click a lane to jump there. The lane not being heard is
+   * dimmed, and a click on it starts it at that point.
+   */
+  const renderTrackLanes = (lanes: TrackLane[], rulerLength: number) => (
+    <div className="grid grid-cols-1 sm:grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
+      {lanes.map((lane) => {
+        const muted = lane.track === 'source' ? trackMode === 'synth' : trackMode === 'source';
+        return (
+          <React.Fragment key={lane.label}>
+            <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
+              <span className={`w-2 h-2 rounded-sm shrink-0 ${lane.dot}`} />
+              {lane.label}
+            </span>
+            <div
+              role="slider"
+              tabIndex={0}
+              aria-label={`${lane.label} position`}
+              aria-valuemin={0}
+              aria-valuemax={Math.round(lane.length)}
+              aria-valuenow={Math.round(muted ? 0 : currentTime)}
+              onClick={(e) => {
+                if (lane.length <= 0) return;
+                const r = e.currentTarget.getBoundingClientRect();
+                const t = ((e.clientX - r.left) / r.width) * lane.length;
+                // A time on this lane's own track: a muted lane starts being heard there.
+                if (muted) switchTrack(lane.track, { seek: t });
+                else onSeek(t);
+              }}
+              onKeyDown={(e) => {
+                if (muted) return;
+                if (e.key === 'ArrowRight') onSeek(Math.min(lane.length, currentTime + 5));
+                if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
+              }}
+              className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer transition-opacity ${muted ? 'opacity-40' : ''}`}
+            >
+              {lane.buffer ? (
+                <MiniWaveform buffer={lane.buffer} className={lane.color} />
+              ) : (
+                <span className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-500">Waveform not available</span>
+              )}
+              {/* Only on lanes being heard, at the heard position over that lane's own length. */}
+              {!muted && lane.length > 0 && (
+                <LanePlayhead currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} totalLength={lane.length} />
+              )}
+            </div>
+          </React.Fragment>
+        );
+      })}
+      <div className="sm:col-start-2 flex justify-between font-mono text-[10px] text-slate-500 tabular-nums">
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <span key={f}>{formatClock(rulerLength * f)}</span>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="w-full flex-1 flex flex-col space-y-4 sm:space-y-5">
       {/* ========================================================================= */}
@@ -1235,6 +1367,66 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   Auto detect works for most talks. Set the language when speakers mix languages.
                 </p>
               </div>
+
+              {onMultiSpeakerInputChange && (
+                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
+                  <label className="flex items-start justify-between gap-3 cursor-pointer">
+                    <span className="flex flex-col gap-0.5">
+                      <span className="text-[13px] font-semibold text-slate-100">More than one person speaks</span>
+                      <span className="text-[11.5px] text-slate-500 leading-snug">
+                        ElevenLabs labels who says each line, so every speaker can get their own voice.
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={multiSpeakerInput}
+                      aria-label="More than one person speaks"
+                      onClick={() => onMultiSpeakerInputChange(!multiSpeakerInput)}
+                      className={`relative w-9 h-5 rounded-full shrink-0 mt-0.5 transition-colors cursor-pointer ${
+                        multiSpeakerInput ? 'bg-indigo-500' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${multiSpeakerInput ? 'left-[19px]' : 'left-[3px]'}`}
+                      />
+                    </button>
+                  </label>
+                  {multiSpeakerInput && onSpeakerCountChange && (
+                    <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
+                      <label htmlFor="express-wizard-speaker-count">How many speakers</label>
+                      <select
+                        id="express-wizard-speaker-count"
+                        value={speakerCount}
+                        onChange={(e) => onSpeakerCountChange(Number(e.target.value))}
+                        className="h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      >
+                        <option value={0} className="bg-slate-900">Detect</option>
+                        {Array.from({ length: 9 }, (_, i) => i + 2).map((n) => (
+                          <option key={n} value={n} className="bg-slate-900">
+                            {n}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  {multiSpeakerInput && speakerCount === 0 && (
+                    <p className="text-[11px] text-slate-500 leading-snug">Setting the number helps when two voices sound alike.</p>
+                  )}
+                  {multiSpeakerInput && activeJob && segments.length > 0 && !multiSpeaker && onRetranscribeAudio && (
+                    <button
+                      type="button"
+                      onClick={() => onRetranscribeAudio(activeJob.customPrompt ?? customPrompt ?? '').catch(() => {})}
+                      disabled={isTranscribing}
+                      title="This file was transcribed as one speaker. Transcribing again clears its translated lines."
+                      className={`${railButton} w-full`}
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isTranscribing ? 'animate-spin' : ''}`} />
+                      {isTranscribing ? 'Transcribing…' : 'Transcribe again to find speakers'}
+                    </button>
+                  )}
+                </div>
+              )}
 
               <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
@@ -1397,6 +1589,30 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             sensitivity={analysisSensitivity}
             onSensitivityChange={onSensitivityChange}
           />
+
+          {multiSpeaker && (
+            <SpeakerBar
+              speakers={speakers}
+              segments={segments}
+              duration={activeJob.audioBuffer?.duration || duration}
+              currentTime={sourceClockTime}
+              onSeek={seekSource}
+              filter={speakerFilter}
+              onFilterChange={(filter) => {
+                setSpeakerFilter(filter);
+                setCurrentPage(1);
+              }}
+              slipCount={speakerSlips.size}
+              slipsShown={slipsOnly}
+              onShowSlips={() => {
+                setSlipsOnly((on) => !on);
+                setReviewMode('table');
+                setCurrentPage(1);
+              }}
+              onRenameSpeaker={onRenameSpeaker}
+              overlapIds={overlapIds}
+            />
+          )}
 
           {/*
             Transcribed but no script yet: the user chooses automatic
@@ -1771,7 +1987,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 const isCuePlaying = playingSegmentId === seg.id;
                 const isCueActive = (sourceClockTime >= seg.startTime && sourceClockTime <= seg.endTime) || isCuePlaying;
                 const pace = getPace(tgtText, seg.duration);
-                const cueNumber = (currentPage - 1) * itemsPerPage + index + 1;
+                // The cue's own number, so a filtered list still names cues as everywhere else.
+                const cueNumber = (cueIndexById.get(String(seg.id)) ?? (currentPage - 1) * itemsPerPage + index) + 1;
 
                 return (
                   <div
@@ -1831,12 +2048,36 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
                     {/* Original */}
                     <div className="col-span-3 md:col-span-1 text-[13px] text-slate-400 leading-relaxed">
-                      {seg.speaker && (
-                        <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-0.5">
-                          {seg.speaker}
+                      {multiSpeaker ? (
+                        <span className="block mb-1">
+                          <SpeakerPicker
+                            value={speakerOf(seg)}
+                            speakers={speakers}
+                            onChange={(speaker) => onUpdateSegment(seg.id, { speaker })}
+                          />
                         </span>
+                      ) : (
+                        seg.speaker && (
+                          <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-0.5">
+                            {seg.speaker}
+                          </span>
+                        )
                       )}
                       {srcText || <span className="text-slate-600 italic">No original text</span>}
+                      {multiSpeaker && (
+                        <SpeakerCueNotes
+                          current={speakerOf(seg)}
+                          slip={speakerSlips.get(String(seg.id))}
+                          overlap={speakerOverlaps.get(String(seg.id))}
+                          onHear={() => {
+                            setPlayingSegmentId(seg.id);
+                            onPlaySegmentSolo(seg);
+                            setTimeout(() => setPlayingSegmentId(null), seg.duration * 1000 + 500);
+                          }}
+                          onAccept={(speaker) => onUpdateSegment(seg.id, { speaker })}
+                          onKeep={() => setKeptSlips((kept) => new Set(kept).add(String(seg.id)))}
+                        />
+                      )}
                     </div>
 
                     {/* Translation */}
@@ -2668,64 +2909,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </div>
                 </div>
 
-                {/* Original and dub, one lane each; click a lane to jump there */}
-                <div className="grid grid-cols-1 sm:grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
-                  {[
-                    { label: 'Original', track: 'source' as const, length: sourceLength, buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400', muted: trackMode === 'synth' },
-                    { label: `${targetLanguage} dub`, track: 'synth' as const, length: dubLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400', muted: trackMode === 'source' },
-                  ].map((lane) => (
-                    <React.Fragment key={lane.label}>
-                      <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
-                        <span className={`w-2 h-2 rounded-sm shrink-0 ${lane.dot}`} />
-                        {lane.label}
-                      </span>
-                      <div
-                        role="slider"
-                        tabIndex={0}
-                        aria-label={`${lane.label} position`}
-                        aria-valuemin={0}
-                        aria-valuemax={Math.round(lane.length)}
-                        aria-valuenow={Math.round(lane.muted ? 0 : currentTime)}
-                        onClick={(e) => {
-                          if (lane.length <= 0) return;
-                          const r = e.currentTarget.getBoundingClientRect();
-                          const t = ((e.clientX - r.left) / r.width) * lane.length;
-                          // A time on this lane's own track: a muted lane starts being heard there.
-                          if (lane.muted) switchTrack(lane.track, { seek: t });
-                          else onSeek(t);
-                        }}
-                        onKeyDown={(e) => {
-                          if (lane.muted) return;
-                          if (e.key === 'ArrowRight') onSeek(Math.min(lane.length, currentTime + 5));
-                          if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
-                        }}
-                        className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer transition-opacity ${lane.muted ? 'opacity-40' : ''}`}
-                      >
-                        {lane.buffer ? (
-                          <MiniWaveform buffer={lane.buffer} className={lane.color} />
-                        ) : (
-                          <span className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-500">
-                            Waveform not available
-                          </span>
-                        )}
-                        {/* Only on lanes being heard, at the heard position over that lane's own length. */}
-                        {!lane.muted && lane.length > 0 && (
-                          <LanePlayhead
-                            currentTime={currentTime}
-                            isPlaying={isPlaying}
-                            getLiveTime={getLiveTime}
-                            totalLength={lane.length}
-                          />
-                        )}
-                      </div>
-                    </React.Fragment>
-                  ))}
-                  <div className="sm:col-start-2 flex justify-between font-mono text-[10px] text-slate-500 tabular-nums">
-                    {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-                      <span key={f}>{formatClock(heardDuration * f)}</span>
-                    ))}
+                {renderTrackLanes(
+                  [
+                    { label: 'Original', track: 'source', length: sourceLength, buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400' },
+                    { label: `${targetLanguage} dub`, track: 'synth', length: dubLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400' },
+                  ],
+                  heardDuration
+                )}
+
+                {multiSpeaker && activeJob.dubMix && (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2.5">
+                    <MixChecks mix={activeJob.dubMix} />
                   </div>
-                </div>
+                )}
 
                 {/* Transport and live caption */}
                 <div className="flex flex-wrap items-center gap-3">
@@ -2810,17 +3006,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <p className="text-sm font-semibold text-slate-100">
                   {isSyncing
                     ? 'Syncing the dub to the original'
-                    : activeJob.syncReport
+                    : hasSyncReport && activeJob.syncReport
                       ? `Synced: ${activeJob.syncReport.summary.inSync} of ${activeJob.syncReport.summary.lines} lines in sync`
                       : 'Next: sync the dub to the original'}
                 </p>
                 <p className="text-[12.5px] text-slate-400">
                   {isSyncing
                     ? 'It runs in step 4. You can keep working here.'
-                    : activeJob.syncReport && syncPendingLines.length > 0
+                    : hasSyncReport && syncPendingLines.length > 0
                       ? `${syncPendingLines.length === 1 ? '1 line has' : `${syncPendingLines.length} lines have`} changed since. Sync again to hear ${syncPendingLines.length === 1 ? 'it' : 'them'}.`
-                      : activeJob.syncReport
-                        ? 'Every line starts where the original line starts. Check the lines worth a listen in step 4.'
+                      : hasSyncReport
+                        ? 'Every line starts where the original line starts. The synced dub is in step 4; the dub here stays as it was.'
                         : 'Each line is moved to start where the original line starts. The voice itself is not changed.'}
                 </p>
               </div>
@@ -2832,7 +3028,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 }}
                 className="h-10 px-4 flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors cursor-pointer active:translate-y-px shrink-0"
               >
-                {isSyncing ? 'View sync' : activeJob.syncReport ? 'Open sync' : 'Continue to sync'} <ArrowRight className="w-4 h-4" />
+                {isSyncing ? 'View sync' : hasSyncReport ? 'Open sync' : 'Continue to sync'} <ArrowRight className="w-4 h-4" />
               </button>
             </section>
           )}
@@ -3022,7 +3218,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                   )}
                                   <span className="min-w-0">
                                     {seg.speaker && (i === 0 || segments[i - 1].speaker !== seg.speaker) && (
-                                      <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500">{seg.speaker}</span>
+                                      <span
+                                        className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500"
+                                        style={multiSpeaker ? { color: speakerByName.get(speakerOf(seg))?.color } : undefined}
+                                      >
+                                        {seg.speaker}
+                                      </span>
                                     )}
                                     <span className="block text-[15px] text-slate-100 leading-relaxed">{getTargetText(seg)}</span>
                                     {finalScriptLayout === 'bilingual' && (
@@ -3069,15 +3270,39 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </button>
               </div>
 
+              {multiSpeaker && onCastChange && (
+                <div className="px-4 sm:px-5 pt-4 flex flex-col gap-2">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Cast</span>
+                  <CastCard
+                    speakers={speakers}
+                    cast={activeJob.cast}
+                    mainVoiceId={elVoiceId}
+                    availableVoices={availableVoices}
+                    disabled={isSynthesizing}
+                    onPick={(speaker) => {
+                      setCastPickFor(speaker);
+                      setIsVoicePickerOpen(true);
+                    }}
+                    onUseMain={(speaker) => onCastChange(speaker, null)}
+                  />
+                </div>
+              )}
+
               <div className="px-4 sm:px-5 py-4 flex flex-col gap-2.5">
-                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{multiSpeaker ? 'Main voice' : 'Voice'}</span>
+                {multiSpeaker && (
+                  <span className="-mt-1 text-[11px] text-slate-500 leading-snug">Speaks for anyone in the cast without a voice of their own.</span>
+                )}
                 <div className="flex items-center gap-2">
                   <div className="flex-1 min-w-0">
                     <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
                   </div>
                   <button
                     type="button"
-                    onClick={() => setIsVoicePickerOpen(true)}
+                    onClick={() => {
+                      setCastPickFor(null);
+                      setIsVoicePickerOpen(true);
+                    }}
                     className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
                   >
                     Change
@@ -3137,7 +3362,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </div>
                 )}
                 {voiceEngine === 'elevenlabs' && onEmotionEnhanceChange && (() => {
-                  const takesCues = Boolean(elModelId && performsAudioTags(elModelId));
+                  // A dub with several voices is read as written: delivery cues are written for one continuous read.
+                  const takesCues = Boolean(elModelId && performsAudioTags(elModelId)) && !multiSpeaker;
                   return (
                     <label
                       className={`flex items-start gap-2.5 text-xs ${takesCues ? 'cursor-pointer' : 'opacity-60 cursor-default'}`}
@@ -3155,7 +3381,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <span className="text-[11px] text-slate-500 leading-snug">
                           {takesCues
                             ? 'Adds cues like [calm] and [sighs] before voicing. Off: the script is spoken exactly as written.'
-                            : 'Eleven v3 and v4 only.'}
+                            : multiSpeaker
+                              ? 'For a dub in one voice. With several speakers, each reads the script as written.'
+                              : 'Eleven v3 and v4 only.'}
                         </span>
                       </span>
                     </label>
@@ -3171,12 +3399,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
                     />
                     <span className="flex flex-col gap-0.5">
-                      <span className="text-slate-200 font-medium">Even out loudness</span>
+                      <span className="text-slate-200 font-medium">{multiSpeaker ? 'Even out speakers' : 'Even out loudness'}</span>
                       <span className="text-[11px] text-slate-500 leading-snug">
-                        Brings every passage of a long script to one level. Off: each keeps exactly the level it was voiced at.
+                        {multiSpeaker
+                          ? 'One gain per speaker, so every voice sits at one level and keeps its own dynamics. Off: every line exactly as voiced.'
+                          : 'Brings every passage of a long script to one level. Off: each keeps exactly the level it was voiced at.'}
                       </span>
                     </span>
                   </label>
+                )}
+                {multiSpeaker && onMixPeakChange && (
+                  <div className="pt-1" title={hasDub ? 'Applies the next time you dub.' : undefined}>
+                    <MixPeakChoice value={mixPeak} onChange={onMixPeakChange} disabled={isSynthesizing} />
+                  </div>
                 )}
                 {showVoiceSliders && (
                   <div className="flex flex-col gap-3 pt-1">
@@ -3304,6 +3539,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <Download className="w-4 h-4 text-slate-500 shrink-0" />
                   </button>
                 ))}
+                {hasDub && multiSpeaker && activeJob.dubStems && activeJob.dubStems.length > 0 && onDownloadStem && (
+                  <StemDownloads stems={activeJob.dubStems} speakers={speakers} onDownload={onDownloadStem} />
+                )}
               </div>
 
               {onOpenVoiceChanger && (
@@ -3365,7 +3603,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onKeyDown={(e) => e.key === 'Escape' && setIsVoicePickerOpen(false)}
             >
               <div className="w-full max-w-5xl flex flex-col gap-3">
-                <div className="flex justify-end">
+                <div className="flex items-center justify-end gap-3">
+                  {castPickFor && (
+                    <span className="mr-auto text-sm text-slate-200">
+                      Voice for <SpeakerChip speaker={speakerByName.get(castPickFor)} name={castPickFor} />
+                    </span>
+                  )}
                   <button
                     type="button"
                     onClick={() => setIsVoicePickerOpen(false)}
@@ -3375,8 +3618,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </button>
                 </div>
                 <VoiceSelectorCard
-                  elVoiceId={elVoiceId}
-                  onElVoiceIdChange={onElVoiceIdChange}
+                  elVoiceId={castPickFor ? activeJob.cast?.[castPickFor]?.voiceId || elVoiceId : elVoiceId}
+                  onElVoiceIdChange={castPickFor && onCastChange ? (id) => onCastChange(castPickFor, id) : onElVoiceIdChange}
                   availableVoices={availableVoices}
                   targetLanguage={targetLanguage}
                   voiceEngine={voiceEngine}
@@ -3394,9 +3637,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {/* STEP 4: SYNC */}
       {/* ========================================================================= */}
       {activeStep === 4 && activeJob && (() => {
-        const hasDub = Boolean(activeJob.synthesizedAudioUrl);
-        const report = hasDub ? activeJob.syncReport || null : null;
-        const totalLength = duration || activeJob.synthAudioBuffer?.duration || activeJob.audioBuffer?.duration || 0;
+        // Before the first sync the player here plays the dub; after it, the synced dub.
+        const hasDub = hasDubAudio;
+        const report = hasSyncReport ? activeJob.syncReport || null : null;
+        const totalLength = duration || dubBuffer?.duration || activeJob.audioBuffer?.duration || 0;
+        const sourceLength = duration || activeJob.audioBuffer?.duration || 0;
         const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
         const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
         const blockedReason = !onSyncDub
@@ -3410,9 +3655,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
-          {/* Transport: the lines worth a listen play through it */}
+          {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
           {hasDub && (
-            <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-wrap items-center gap-3">
+            <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
+              {report &&
+                renderTrackLanes(
+                  [
+                    { label: 'Original', track: 'source', length: sourceLength, buffer: activeJob.audioBuffer, dot: 'bg-cyan-400', color: 'text-cyan-400' },
+                    { label: 'Synced', track: 'synth', length: dubBuffer?.duration || sourceLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-indigo-400' },
+                  ],
+                  heardDuration || totalLength
+                )}
+              <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => activeCueIndex > 0 && seekSource(segments[activeCueIndex - 1].startTime)}
@@ -3479,6 +3733,41 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </option>
                 ))}
               </select>
+              </div>
+            </section>
+          )}
+
+          {multiSpeaker && (
+            <section aria-label="Speakers in the synced dub" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-1">Cast</span>
+                {speakers.map((s) => (
+                  <SpeakerChip
+                    key={s.name}
+                    speaker={s}
+                    name={s.name}
+                    suffix={
+                      (availableVoices.find((v) => v.voice_id === (activeJob.cast?.[s.name]?.voiceId || elVoiceId))?.name || '')
+                        .split(/\s+[-–—|]\s+/)[0] || undefined
+                    }
+                  />
+                ))}
+                <button type="button" onClick={() => setStepOverride(3)} className="ml-auto text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+                  Change voices in Final dub
+                </button>
+              </div>
+              {report && activeJob.syncMix ? (
+                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <MixChecks mix={activeJob.syncMix} synced />
+                  {activeJob.syncedStems && activeJob.syncedStems.length > 0 && onDownloadStem && (
+                    <StemDownloads stems={activeJob.syncedStems} speakers={speakers} onDownload={onDownloadStem} />
+                  )}
+                </div>
+              ) : (
+                <p className="text-[12px] text-slate-400">
+                  Each speaker is voiced with their own voice and placed on their own lines. Where two people talk at once in the original, the dub keeps that overlap.
+                </p>
+              )}
             </section>
           )}
 
@@ -3517,7 +3806,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onSeek={seekSource}
               onListen={listenHere}
               sourceBuffer={activeJob.audioBuffer}
-              dubBuffer={report ? activeJob.synthAudioBuffer : null}
+              dubBuffer={report ? activeJob.syncedAudioBuffer : null}
               pendingLines={syncPendingLines}
               onApplyLine={onApplySyncLine}
               onRetakeLine={onRetakeSyncLine}

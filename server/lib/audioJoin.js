@@ -37,17 +37,15 @@ export const DUB_LEAD_IN_SECONDS = 0.3;
 export const DUB_RUN_OUT_SECONDS = 1.2;
 
 /**
- * Joins mono float passages into one dub. `pauses[i]` is the pause, in
+ * Where each passage goes in a joined dub. `pauses[i]` is the pause, in
  * seconds, after passage `i` (so between its last word and the next
  * passage's first, plus the breathing room above); `leadIn` and `runOut` are
- * the silence before the first word and after the last. A single passage gets
- * the same treatment. `log` receives what the render did to each passage (see
- * renderTimeline). Returns one Float32Array.
+ * the silence before the first word and after the last. Returns
+ * `{ clips, length }`: `clips[n]` is `{ index, samples, startSample }` for each
+ * passage with sound in it (a silent passage adds only its pause), ready for
+ * renderTimeline, and `length` is the dub's length in samples.
  */
-export const joinPassages = (
-  passages,
-  { sampleRate, pauses = [], leadIn = DUB_LEAD_IN_SECONDS, runOut = DUB_RUN_OUT_SECONDS, matchLoudness = false, log }
-) => {
+export const layoutPassages = (passages, { sampleRate, pauses = [], leadIn = DUB_LEAD_IN_SECONDS, runOut = DUB_RUN_OUT_SECONDS }) => {
   const toSamples = (seconds) => Math.round(Math.max(0, seconds ?? 0) * sampleRate);
 
   const pieces = [];
@@ -56,7 +54,7 @@ export const joinPassages = (
     if (!clip) return; // a silent passage adds nothing but its pause
     pieces.push({ index, samples: clip.samples, lead: toSamples(clip.lead), speech: toSamples(clip.speech) });
   });
-  if (pieces.length === 0) return new Float32Array(0);
+  if (pieces.length === 0) return { clips: [], length: 0 };
 
   // Whole-sample starts: each passage's first word lands where the pause asks,
   // but a passage never starts before the one before it has ended.
@@ -69,11 +67,21 @@ export const joinPassages = (
         ? toSamples(leadIn + WORD_LEAD_SECONDS)
         : lastWordEnd + toSamples((pauses[pieces[n - 1].index] ?? 0) + WORD_TAIL_SECONDS + WORD_LEAD_SECONDS);
     const start = Math.max(end, wordAt - piece.lead);
-    clips.push({ samples: piece.samples, startSample: start });
+    clips.push({ index: piece.index, samples: piece.samples, startSample: start });
     end = start + piece.samples.length;
     lastWordEnd = start + piece.lead + piece.speech;
   });
 
-  const total = Math.max(end, lastWordEnd + toSamples(runOut + END_TAIL_SECONDS));
-  return renderTimeline(clips, { sampleRate, length: total / sampleRate, runOut: 0, matchLoudness, log });
+  return { clips, length: Math.max(end, lastWordEnd + toSamples(runOut + END_TAIL_SECONDS)) };
+};
+
+/**
+ * Joins mono float passages into one dub, laid out by layoutPassages (same
+ * options). A single passage gets the same treatment. `log` receives what the
+ * render did to each passage (see renderTimeline). Returns one Float32Array.
+ */
+export const joinPassages = (passages, { sampleRate, pauses = [], leadIn, runOut, matchLoudness = false, log }) => {
+  const { clips, length } = layoutPassages(passages, { sampleRate, pauses, leadIn, runOut });
+  if (clips.length === 0) return new Float32Array(0);
+  return renderTimeline(clips, { sampleRate, length: length / sampleRate, runOut: 0, matchLoudness, log });
 };

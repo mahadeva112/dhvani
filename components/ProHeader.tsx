@@ -214,7 +214,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
 
   const hasCues = Boolean(activeJob && activeJob.segments.length > 0);
   const hasDub = Boolean(activeJob?.synthesizedAudioUrl);
-  const hasSync = hasDub && Boolean(activeJob?.syncReport);
+  const hasSync = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   const servicesOk = elevenLabsReady && translationReady;
   const voiceEngineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   /** What an engine is doing right now, e.g. "Transcription and voice", or "Off". */

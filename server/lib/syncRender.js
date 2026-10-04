@@ -226,10 +226,10 @@ export const clipEdges = (samples, { startLimit, endLimit, fadeLength, joinedSta
 
 /**
  * Renders placed clips into one mono track at least `length` seconds long.
- * `clips[i]` is `{ samples, position | startSample, maxStartShift? }`: where
- * the clip's first sample goes, in seconds or as a whole sample, and how many
- * samples its start edge may move (EDGE_SEARCH_SECONDS unless less is
- * allowed).
+ * `clips[i]` is `{ samples, position | startSample, maxStartShift?, gain? }`:
+ * where the clip's first sample goes, in seconds or as a whole sample, how
+ * many samples its start edge may move (EDGE_SEARCH_SECONDS unless less is
+ * allowed) and a gain asked for by the caller (1 unless given).
  *
  * Each clip is copied in sample for sample at a gain of 1, at a whole-sample
  * offset (rounded once from `position`). Moving an edge (see clipEdges) only
@@ -243,11 +243,16 @@ export const clipEdges = (samples, { startLimit, endLimit, fadeLength, joinedSta
  * `matchLoudness` first brings every clip to the same speech loudness (one
  * gain per clip). It is off unless asked for, since it changes how each line
  * was voiced. `fadeSeconds` is the fade an edge that stops on sound gets
- * (MICRO_FADE_SECONDS unless asked for longer). `log`, when given, is called
- * once per clip with exactly what the render did to it.
+ * (MICRO_FADE_SECONDS unless asked for longer). A mix that would clip is
+ * turned down as a whole unless `limitPeak` is false. `log`, when given, is
+ * called once per clip with exactly what the render did to it.
  */
-export const renderTimeline = (clips, { sampleRate, length = 0, runOut = 0.3, matchLoudness = false, fadeSeconds = MICRO_FADE_SECONDS, log } = {}) => {
-  const gains = matchLoudness ? matchingGains(clips.map((clip) => clip.samples), sampleRate) : clips.map(() => 1);
+export const renderTimeline = (
+  clips,
+  { sampleRate, length = 0, runOut = 0.3, matchLoudness = false, fadeSeconds = MICRO_FADE_SECONDS, limitPeak = true, log } = {}
+) => {
+  const matched = matchLoudness ? matchingGains(clips.map((clip) => clip.samples), sampleRate) : clips.map(() => 1);
+  const gains = clips.map((clip, n) => matched[n] * (Number.isFinite(clip.gain) ? clip.gain : 1));
   const searchLimit = Math.round(EDGE_SEARCH_SECONDS * sampleRate);
   const fadeLength = Math.max(1, Math.round(Math.max(MICRO_FADE_SECONDS, fadeSeconds) * sampleRate));
 
@@ -284,9 +289,10 @@ export const renderTimeline = (clips, { sampleRate, length = 0, runOut = 0.3, ma
     }
   });
 
-  // Only a mix that would clip is turned down, and then the whole track by one gain.
+  // Only a mix that would clip is turned down, and then the whole track by one
+  // gain. With `limitPeak` off the mix is left as summed, for a float file.
   let top = 0;
-  for (let i = 0; i < output.length; i++) top = Math.max(top, Math.abs(output[i]));
+  if (limitPeak) for (let i = 0; i < output.length; i++) top = Math.max(top, Math.abs(output[i]));
   const peakGain = top > 1 ? 1 / top : 1;
   if (peakGain < 1) for (let i = 0; i < output.length; i++) output[i] *= peakGain;
 

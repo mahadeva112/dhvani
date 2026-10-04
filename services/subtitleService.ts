@@ -79,7 +79,9 @@ export interface TranscribeAndTranslateOptions extends RequestOptions {
   targetLanguage?: string;
   customPrompt?: string;
   translate?: boolean;
+  /** Ask ElevenLabs to tell speakers apart, and optionally how many there are. */
   diarize?: boolean;
+  numSpeakers?: number;
   onProgress?: (progress: PipelineProgress) => void;
 }
 
@@ -97,6 +99,7 @@ export const transcribeAndTranslate = async (
     customPrompt = '',
     translate = true,
     diarize = false,
+    numSpeakers,
     onProgress,
     keys,
     signal,
@@ -109,6 +112,7 @@ export const transcribeAndTranslate = async (
   formData.append('customPrompt', customPrompt);
   formData.append('translate', String(translate));
   formData.append('diarize', String(diarize));
+  if (diarize && numSpeakers) formData.append('numSpeakers', String(numSpeakers));
 
   return apiStream<PipelineResult>('/pipeline/subtitles', formData, {
     keys,

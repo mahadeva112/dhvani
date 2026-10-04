@@ -28,6 +28,7 @@ export const runSubtitlePipeline = async (
     translate = true,
     cueOptions = {},
     diarize = false,
+    numSpeakers,
     transcriptionProvider = activeProviders.transcription,
     translationProvider = activeProviders.translation,
     elevenLabsKey,
@@ -45,6 +46,7 @@ export const runSubtitlePipeline = async (
   const transcription = await transcriber.transcribe(file, {
     sourceLanguage,
     diarize,
+    numSpeakers,
     cueOptions,
     apiKey: elevenLabsKey,
     onStatus: (message) => onProgress({ stage: 'transcribing', progress: 0.2, message }),

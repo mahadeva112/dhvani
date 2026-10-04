@@ -115,7 +115,9 @@ export const transcribeMedia = async (
 export const transcribeOnly = async (
   file: File,
   onStatusUpdate?: (status: string) => void,
-  sourceLanguage?: string
+  sourceLanguage?: string,
+  /** `diarize` labels who says each cue; `numSpeakers`, when known, helps tell alike voices apart. */
+  { diarize = false, numSpeakers }: { diarize?: boolean; numSpeakers?: number } = {}
 ): Promise<{
   segments: AudioSegment[];
   detectedLanguage: string;
@@ -124,6 +126,8 @@ export const transcribeOnly = async (
   const result = await transcribeAndTranslate(file, {
     sourceLanguage: sourceLanguage || '',
     translate: false,
+    diarize,
+    numSpeakers,
     onProgress: (progress) => onStatusUpdate?.(progress.message),
   });
 

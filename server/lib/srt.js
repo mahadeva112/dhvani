@@ -22,6 +22,17 @@ const SENTENCE_END = /[.!?。！？।॥؟…]["'”’)\]]*$/;
 const round3 = (value) => Math.round(value * 1000) / 1000;
 
 /**
+ * A readable name for a diarized speaker: Scribe's `speaker_0` becomes
+ * "Speaker 1". Any other id is kept as it is; no id means no speaker.
+ */
+export const speakerLabel = (speakerId) => {
+  const id = String(speakerId ?? '').trim();
+  if (!id) return null;
+  const numbered = /^speaker_(\d+)$/i.exec(id);
+  return numbered ? `Speaker ${Number(numbered[1]) + 1}` : id;
+};
+
+/**
  * Keeps only real spoken words. ElevenLabs also returns `spacing` tokens and,
  * when enabled, `audio_event` tokens such as `(laughter)` — neither should
  * drive subtitle timing or text.
@@ -36,7 +47,7 @@ export const filterSpokenWords = (words = []) =>
       text: String(word.text).trim(),
       start: round3(Number(word.start)),
       end: round3(Math.max(Number(word.end), Number(word.start))),
-      speaker: word.speaker_id || null,
+      speaker: speakerLabel(word.speaker_id),
     }))
     .sort((a, b) => a.start - b.start);
 

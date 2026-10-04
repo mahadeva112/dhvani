@@ -53,6 +53,8 @@ import {
   getModels,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
+import { conversationTurns, isMultiSpeaker, renameCast, renameSpeaker } from './services/speakers';
+import { dubConversation } from './services/castService';
 import {
   getCartesiaVoices,
   isCartesiaVoice,
@@ -92,7 +94,6 @@ import {
   syncDub,
   getSyncProgress,
   cancelSync,
-  syncedSegments,
   distributeLineText,
   audioDebugEnabled,
   scriptCharacterCount,
@@ -113,6 +114,9 @@ import {
   AudioTrackMode,
   TargetSource,
   TrackSwitchOptions,
+  DubMixReport,
+  DubStem,
+  MixPeakMode,
 } from './types';
 
 /**
@@ -175,6 +179,58 @@ export default function App() {
       return false;
     }
   });
+
+  // Whether uploads are transcribed with speakers told apart, and how many speakers (0: let ElevenLabs decide).
+  const [multiSpeakerInput, setMultiSpeakerInput] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dhvani_multi_speaker') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const [speakerCount, setSpeakerCount] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem('dhvani_speaker_count'));
+      return Number.isInteger(saved) && saved >= 2 && saved <= 32 ? saved : 0;
+    } catch {
+      return 0;
+    }
+  });
+  // How a mix of several voices that peaks above full scale is written: as summed in float, or turned down.
+  const [mixPeak, setMixPeak] = useState<MixPeakMode>(() => {
+    try {
+      return localStorage.getItem('dhvani_mix_peak') === 'lower' ? 'lower' : 'float';
+    } catch {
+      return 'float';
+    }
+  });
+
+  const handleMultiSpeakerInputChange = useCallback((enabled: boolean) => {
+    setMultiSpeakerInput(enabled);
+    try {
+      localStorage.setItem('dhvani_multi_speaker', String(enabled));
+    } catch {}
+  }, []);
+
+  const handleSpeakerCountChange = useCallback((count: number) => {
+    setSpeakerCount(count);
+    try {
+      localStorage.setItem('dhvani_speaker_count', String(count));
+    } catch {}
+  }, []);
+
+  const handleMixPeakChange = useCallback((mode: MixPeakMode) => {
+    setMixPeak(mode);
+    try {
+      localStorage.setItem('dhvani_mix_peak', mode);
+    } catch {}
+  }, []);
+
+  /** What a transcription is asked for: speakers told apart when the user said several people speak. */
+  const speakerOptions = useMemo(
+    () => ({ diarize: multiSpeakerInput, numSpeakers: multiSpeakerInput && speakerCount ? speakerCount : undefined }),
+    [multiSpeakerInput, speakerCount]
+  );
 
   const handleDubMatchLoudnessChange = useCallback((enabled: boolean) => {
     setDubMatchLoudness(enabled);
@@ -637,8 +693,29 @@ export default function App() {
   useEffect(() => {
     const loadStorage = async () => {
       try {
-        const saved = await getAllJobsFromStorage();
-        if (saved && saved.length > 0) {
+        const stored = await getAllJobsFromStorage();
+        if (stored && stored.length > 0) {
+          // Object URLs die with the page, so each saved file gets a new one; the buffers decode from them.
+          const saved = stored.map((stale) => {
+            // Saved before Sync kept its own file: the dub's slot holds the synced dub, and the unsynced one is gone.
+            const job =
+              stale.syncReport && stale.synthesizedBlob && !stale.syncedBlob
+                ? { ...stale, syncedBlob: stale.synthesizedBlob, synthesizedBlob: null }
+                : stale;
+            return {
+              ...job,
+              synthesizedAudioUrl: job.synthesizedBlob ? URL.createObjectURL(job.synthesizedBlob) : null,
+              syncedAudioUrl: job.syncedBlob ? URL.createObjectURL(job.syncedBlob) : null,
+              srtUrl: job.srtBlob ? URL.createObjectURL(job.srtBlob) : null,
+              // A dub or sync in flight ended with the page; it leaves what there was, as a cancel does.
+              status:
+                job.status === ProcessingStatus.SYNTHESIZING_AUDIO
+                  ? job.synthesizedBlob || job.syncedBlob
+                    ? ProcessingStatus.COMPLETED
+                    : ProcessingStatus.IDLE
+                  : job.status,
+            };
+          });
           setQueue(saved);
           setActiveJobId(saved[0].id);
         }
@@ -727,6 +804,14 @@ export default function App() {
               synthesizedBlob: null,
               synthAudioBuffer: null,
               xmlOutput: '',
+              syncedAudioUrl: null,
+              syncedBlob: null,
+              syncedAudioBuffer: null,
+              syncReport: null,
+              dubStems: null,
+              dubMix: null,
+              syncedStems: null,
+              syncMix: null,
             });
           } catch (err: any) {
             // The transcription and its timings survive a failed translation.
@@ -801,6 +886,14 @@ export default function App() {
           synthesizedBlob: null,
           synthAudioBuffer: null,
           xmlOutput: '',
+          syncedAudioUrl: null,
+          syncedBlob: null,
+          syncedAudioBuffer: null,
+          syncReport: null,
+          dubStems: null,
+          dubMix: null,
+          syncedStems: null,
+          syncMix: null,
         });
       } catch (err: any) {
         console.warn('Retranslate with prompt error:', err);
@@ -866,7 +959,7 @@ export default function App() {
       setPipelineProgress(0);
       try {
         const targetLang = activeJob.language || selectedLanguage;
-        const result = await transcribeOnly(activeJob.file, (status) => setPipelineStatus(status), sourceLanguage);
+        const result = await transcribeOnly(activeJob.file, (status) => setPipelineStatus(status), sourceLanguage, speakerOptions);
 
         updateJob(activeJob.id, {
           language: targetLang,
@@ -883,8 +976,18 @@ export default function App() {
           xmlOutput: '',
           validationResult: null,
           synthesizedAudioUrl: null,
+          synthesizedBlob: null,
           srtUrl: null,
+          srtBlob: null,
           synthAudioBuffer: null,
+          syncedAudioUrl: null,
+          syncedBlob: null,
+          syncedAudioBuffer: null,
+          syncReport: null,
+          dubStems: null,
+          dubMix: null,
+          syncedStems: null,
+          syncMix: null,
         });
       } catch (err: any) {
         updateJob(activeJob.id, { errorMsg: describePipelineError(err) });
@@ -894,7 +997,7 @@ export default function App() {
         setPipelineStatus('');
       }
     },
-    [activeJob, customPrompt, selectedLanguage, sourceLanguage, updateJob]
+    [activeJob, customPrompt, selectedLanguage, sourceLanguage, speakerOptions, updateJob]
   );
 
   // Audio source & synth URLs
@@ -903,7 +1006,14 @@ export default function App() {
     return URL.createObjectURL(activeJob.file);
   }, [activeJob?.file]);
 
-  const synthAudioUrl = activeJob?.synthesizedAudioUrl || null;
+  /*
+   * The second track: the Sync step plays the synced dub once there is one,
+   * every other step the dub. Each keeps its own file, so syncing never
+   * replaces the dub the Final dub step plays.
+   */
+  const playsSynced = activeStep === 4 && Boolean(activeJob?.syncedAudioUrl);
+  const synthAudioUrl = (playsSynced ? activeJob?.syncedAudioUrl : activeJob?.synthesizedAudioUrl) || null;
+  const synthBufferField = playsSynced ? 'syncedAudioBuffer' : 'synthAudioBuffer';
   // Until there is a dub the original is the only thing to hear, whatever mode was last picked.
   const playMode: AudioTrackMode = synthAudioUrl ? trackMode : 'source';
 
@@ -923,6 +1033,11 @@ export default function App() {
   const decodingSynthUrlRef = useRef<string | null>(null);
   const currentSynthUrlRef = useRef<string | null>(synthAudioUrl);
   currentSynthUrlRef.current = synthAudioUrl;
+  /** The active job's dub and synced dub, so a decode that lands after a newer file of its kind is dropped. */
+  const currentDubUrlRef = useRef<string | null>(null);
+  currentDubUrlRef.current = activeJob?.synthesizedAudioUrl || null;
+  const currentSyncedUrlRef = useRef<string | null>(null);
+  currentSyncedUrlRef.current = activeJob?.syncedAudioUrl || null;
 
   // Re-decode audio buffers if needed
   useEffect(() => {
@@ -936,12 +1051,13 @@ export default function App() {
         })
         .catch((e) => console.warn('Audio decode notice:', e));
     }
-    if (activeJob && !activeJob.synthAudioBuffer && synthAudioUrl && decodingSynthUrlRef.current !== synthAudioUrl) {
+    if (activeJob && !activeJob[synthBufferField] && synthAudioUrl && decodingSynthUrlRef.current !== synthAudioUrl) {
       const url = synthAudioUrl;
+      const field = synthBufferField;
       decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
         .then((buffer) => {
-          if (currentSynthUrlRef.current === url) updateJob(activeJob.id, { synthAudioBuffer: buffer });
+          if (currentSynthUrlRef.current === url) updateJob(activeJob.id, { [field]: buffer });
         })
         .catch((e) => console.warn('Synth decode notice:', e))
         .finally(() => {
@@ -1439,7 +1555,7 @@ export default function App() {
     setPipelineProgress(0);
     setPipelineStatus('Uploading media...');
     try {
-      const result = await transcribeOnly(file, (status) => setPipelineStatus(status), sourceLanguage);
+      const result = await transcribeOnly(file, (status) => setPipelineStatus(status), sourceLanguage, speakerOptions);
 
       updateJob(newJob.id, {
         script: '',
@@ -1639,7 +1755,8 @@ export default function App() {
       const result = await transcribeOnly(
         activeJob.file,
         (status) => setPipelineStatus(status),
-        activeJob.sourceLanguage ?? sourceLanguage
+        activeJob.sourceLanguage ?? sourceLanguage,
+        speakerOptions
       );
 
       updateJob(activeJob.id, {
@@ -1655,8 +1772,18 @@ export default function App() {
         xmlOutput: '',
         validationResult: null,
         synthesizedAudioUrl: null,
+        synthesizedBlob: null,
         srtUrl: null,
+        srtBlob: null,
         synthAudioBuffer: null,
+        syncedAudioUrl: null,
+        syncedBlob: null,
+        syncedAudioBuffer: null,
+        syncReport: null,
+        dubStems: null,
+        dubMix: null,
+        syncedStems: null,
+        syncMix: null,
       });
     } catch (err: any) {
       updateJob(activeJob.id, { errorMsg: describePipelineError(err) });
@@ -1707,22 +1834,46 @@ export default function App() {
     }, 700);
 
     try {
-      const blob = await synthesizeSpeech(
-        elApiKey,
-        elVoiceId,
-        textToSynthesize,
-        elModelId,
-        elOutputFormat,
-        elVoiceSettings,
-        {
-          expressive: emotionEnhance,
-          matchLoudness: dubMatchLoudness,
-          cartesia: cartesiaVoice,
-          language: activeJob.language || selectedLanguage,
-          jobId,
-          signal: controller.signal,
-        }
-      );
+      // Several speakers: each is voiced by their own voice, turn by turn, with a stem each.
+      const several = isMultiSpeaker(activeJob.segments);
+      let blob: Blob;
+      let dubStems: DubStem[] | null = null;
+      let dubMix: DubMixReport | null = null;
+      if (several) {
+        const result = await dubConversation(
+          {
+            turns: conversationTurns(activeJob.segments),
+            cast: activeJob.cast,
+            voiceId: elVoiceId,
+            voicing: { modelId: elModelId, voiceSettings: elVoiceSettings, cartesia: cartesiaVoice },
+            outputFormat: elOutputFormat,
+            language: activeJob.language || selectedLanguage,
+            matchSpeakers: dubMatchLoudness,
+            peak: mixPeak,
+          },
+          { apiKey: elApiKey, jobId, signal: controller.signal }
+        );
+        blob = result.blob;
+        dubStems = result.stems;
+        dubMix = result.report;
+      } else {
+        blob = await synthesizeSpeech(
+          elApiKey,
+          elVoiceId,
+          textToSynthesize,
+          elModelId,
+          elOutputFormat,
+          elVoiceSettings,
+          {
+            expressive: emotionEnhance,
+            matchLoudness: dubMatchLoudness,
+            cartesia: cartesiaVoice,
+            language: activeJob.language || selectedLanguage,
+            jobId,
+            signal: controller.signal,
+          }
+        );
+      }
 
       const url = URL.createObjectURL(blob);
       let srtOpts = DEFAULT_SRT_OPTIONS;
@@ -1738,7 +1889,7 @@ export default function App() {
       decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
         .then((synthBuffer) => {
-          if (currentSynthUrlRef.current !== url) return;
+          if (currentDubUrlRef.current !== url) return;
           const alignedSegments = adjustSegmentsForDubbedTimeline(activeJob.segments, synthBuffer.duration, srtOpts);
           const alignedSrtContent = generateSrtContent(alignedSegments, srtOpts);
           const alignedSrtBlob = new Blob([alignedSrtContent], { type: 'text/srt' });
@@ -1763,7 +1914,9 @@ export default function App() {
         dubScriptCharacters: scriptCharacterCount(activeJob.segments),
         srtUrl,
         srtBlob,
-        syncReport: null,
+        dubStems,
+        dubMix,
+        // The synced dub is its own file, voiced line by line, so a new dub leaves it as it was.
         status: ProcessingStatus.COMPLETED,
       });
 
@@ -1805,14 +1958,15 @@ export default function App() {
 
   /**
    * Sync: voices the cues line by line and places each line on its source
-   * phrase, so the dub plays in step with the original. The result replaces
-   * the dub, and is exactly as long as the source.
+   * phrase, so the dub plays in step with the original. The result is the
+   * synced dub, its own file beside the dub (which it leaves alone), and is
+   * exactly as long as the source.
    */
   const handleSyncDub = async ({ precision, join, suggest, suggestLonger, matchLoudness }: SyncOptions) => {
     if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
     if (activeJob.targetSource === 'pending') return;
 
-    const hadDub = Boolean(activeJob.synthesizedAudioUrl);
+    const hadDub = Boolean(activeJob.synthesizedAudioUrl || activeJob.syncedAudioUrl);
     setIsSyncing(true);
     setSyncError(null);
     updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null });
@@ -1838,7 +1992,8 @@ export default function App() {
       activeJob.audioBuffer?.duration || activeJob.audioMetadata?.duration || activeJob.segments[activeJob.segments.length - 1].endTime;
 
     try {
-      const { blob, report } = await syncDub(
+      const several = isMultiSpeaker(activeJob.segments);
+      const { blob, stems, report } = await syncDub(
         {
           segments: activeJob.segments,
           sourceDuration,
@@ -1856,6 +2011,7 @@ export default function App() {
           lineSeeds: syncLineSeedsRef.current[activeJob.id],
           debug: audioDebugEnabled(),
           cartesia: cartesiaVoice,
+          ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
         },
         { apiKey: elApiKey, jobId, signal: controller.signal }
       );
@@ -1866,29 +2022,22 @@ export default function App() {
       }
       setSyncPending((pending) => ({ ...pending, [activeJob.id]: [] }));
 
-      let srtOpts = DEFAULT_SRT_OPTIONS;
-      try {
-        const saved = localStorage.getItem('dhvani_srt_options');
-        if (saved) srtOpts = JSON.parse(saved);
-      } catch {}
-      const srtBlob = new Blob([generateSrtContent(syncedSegments(activeJob.segments, report), srtOpts)], { type: 'text/srt' });
       const url = URL.createObjectURL(blob);
-
+      // The dub, its waveform and its subtitles stay as they are: the Final dub step still plays it.
       updateJob(activeJob.id, {
-        synthesizedAudioUrl: url,
-        synthesizedBlob: blob,
-        dubScriptCharacters: scriptCharacterCount(activeJob.segments),
-        srtUrl: URL.createObjectURL(srtBlob),
-        srtBlob,
+        syncedAudioUrl: url,
+        syncedBlob: blob,
         syncReport: report,
-        // Until the synced dub decodes, no waveform rather than the previous dub's.
-        synthAudioBuffer: null,
+        syncedStems: several ? stems : null,
+        syncMix: several ? report.mix || null : null,
+        // Until the synced dub decodes, no waveform rather than the previous sync's.
+        syncedAudioBuffer: null,
         status: ProcessingStatus.COMPLETED,
       });
       decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
-        .then((synthBuffer) => {
-          if (currentSynthUrlRef.current === url) updateJob(activeJob.id, { synthAudioBuffer: synthBuffer });
+        .then((syncedBuffer) => {
+          if (currentSyncedUrlRef.current === url) updateJob(activeJob.id, { syncedAudioBuffer: syncedBuffer });
         })
         .catch(console.warn)
         .finally(() => {
@@ -1899,7 +2048,7 @@ export default function App() {
       setTrackMode('both');
       refreshQuota();
     } catch (err: any) {
-      // A failed or cancelled sync leaves whatever dub there was before.
+      // A failed or cancelled sync leaves the dub and the last synced dub as they were.
       updateJob(activeJob.id, { status: hadDub ? ProcessingStatus.COMPLETED : ProcessingStatus.IDLE });
       if (!controller.signal.aborted && err?.code !== 'cancelled') {
         console.error('Sync Error:', err);
@@ -2005,31 +2154,65 @@ export default function App() {
     [changeTrackMode]
   );
 
-  // Download Master Lossless WAV
+  // Download Master Lossless WAV: the synced dub from the Sync step, the dub everywhere else
   const handleDownloadMasterWav = useCallback(() => {
-    if (!activeJob?.synthesizedBlob) {
-      if (activeJob?.synthAudioBuffer) {
-        const blob = audioBufferToWav(activeJob.synthAudioBuffer);
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `dhvani_${activeJob.language || 'dubbed'}_master.wav`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }
-      return;
-    }
-    const url = URL.createObjectURL(activeJob.synthesizedBlob);
+    if (!activeJob) return;
+    const blob = playsSynced ? activeJob.syncedBlob : activeJob.synthesizedBlob;
+    const buffer = playsSynced ? activeJob.syncedAudioBuffer : activeJob.synthAudioBuffer;
+    const file = blob || (buffer ? audioBufferToWav(buffer) : null);
+    if (!file) return;
+    const url = URL.createObjectURL(file);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dhvani_${activeJob.language || 'dubbed'}_master.${audioFileExtension(activeJob.synthesizedBlob)}`;
+    a.download = `dhvani_${activeJob.language || 'dubbed'}_${playsSynced ? 'synced' : 'master'}.${blob ? audioFileExtension(blob) : 'wav'}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [activeJob]);
+  }, [activeJob, playsSynced]);
+
+  /** Gives one speaker a voice of their own; null hands them back to the main voice. */
+  const handleCastChange = useCallback(
+    (speaker: string, voiceId: string | null) => {
+      if (!activeJob) return;
+      const cast = { ...(activeJob.cast || {}) };
+      if (voiceId) cast[speaker] = { voiceId };
+      else delete cast[speaker];
+      updateJob(activeJob.id, { cast });
+    },
+    [activeJob, updateJob]
+  );
+
+  /** Renames a speaker on every cue they speak; renaming to a speaker who exists merges the two. */
+  const handleRenameSpeaker = useCallback(
+    (from: string, to: string) => {
+      if (!activeJob || !to.trim() || from === to.trim()) return;
+      updateJob(activeJob.id, {
+        segments: renameSpeaker(activeJob.segments, from, to),
+        cast: renameCast(activeJob.cast, from, to),
+      });
+    },
+    [activeJob, updateJob]
+  );
+
+  /** Saves one speaker's track of the dub. */
+  const handleDownloadStem = useCallback(
+    (speaker: string) => {
+      // The Sync step hands out the synced dub's stems; every other step the dub's.
+      const stems = playsSynced ? activeJob?.syncedStems : activeJob?.dubStems;
+      const stem = stems?.find((s) => s.speaker === speaker);
+      if (!stem) return;
+      const url = URL.createObjectURL(stem.blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `dhvani_${activeJob?.language || 'dubbed'}_${playsSynced ? 'synced_' : ''}${speaker.replace(/[^\p{L}\p{N}]+/gu, '_')}.${audioFileExtension(stem.blob)}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    },
+    [activeJob, playsSynced]
+  );
 
   // Download SubRip (.SRT) Subtitles
   const handleDownloadMasterSrt = useCallback(() => {
@@ -2220,32 +2403,32 @@ export default function App() {
     [activeJob, selectedLanguage, customPrompt, promptPresetId, updateJob]
   );
 
-  // Voice Changer: Set as synthesized master dubbed track
+  // Voice Changer: its result takes the place of the track it worked on, the synced dub from the Sync step or the dub
   const handleSetDubbedMaster = useCallback(
     (masterBlob: Blob, masterBuffer: AudioBuffer) => {
       if (!activeJob) return;
       const masterUrl = URL.createObjectURL(masterBlob);
-      updateJob(activeJob.id, {
-        synthAudioBuffer: masterBuffer,
-        synthesizedAudioUrl: masterUrl,
-        synthesizedBlob: masterBlob,
-        status: ProcessingStatus.COMPLETED,
-      });
+      updateJob(
+        activeJob.id,
+        playsSynced
+          ? { syncedAudioBuffer: masterBuffer, syncedAudioUrl: masterUrl, syncedBlob: masterBlob, status: ProcessingStatus.COMPLETED }
+          : { synthAudioBuffer: masterBuffer, synthesizedAudioUrl: masterUrl, synthesizedBlob: masterBlob, status: ProcessingStatus.COMPLETED }
+      );
       setTrackMode('synth');
     },
-    [activeJob, updateJob]
+    [activeJob, playsSynced, updateJob]
   );
 
-  /** The finished dub, which is what the voice changer works on (not the source speech). */
+  /** The finished dub (synced on the Sync step), which is what the voice changer works on (not the source speech). */
+  const voiceChangerBuffer = (playsSynced ? activeJob?.syncedAudioBuffer : activeJob?.synthAudioBuffer) || null;
+  const voiceChangerBlob = (playsSynced ? activeJob?.syncedBlob : activeJob?.synthesizedBlob) || null;
   const voiceChangerDubFile = useMemo(() => {
     if (!isVoiceChangerOpen || !activeJob) return null;
-    const blob =
-      activeJob.synthesizedBlob ||
-      (activeJob.synthAudioBuffer ? audioBufferToWav(activeJob.synthAudioBuffer) : null);
+    const blob = voiceChangerBlob || (voiceChangerBuffer ? audioBufferToWav(voiceChangerBuffer) : null);
     if (!blob) return null;
-    const name = `dhvani_${activeJob.language || 'dubbed'}_dub.${audioFileExtension(blob)}`;
+    const name = `dhvani_${activeJob.language || 'dubbed'}_${playsSynced ? 'synced' : 'dub'}.${audioFileExtension(blob)}`;
     return new File([blob], name, { type: blob.type || 'audio/wav' });
-  }, [isVoiceChangerOpen, activeJob?.synthesizedBlob, activeJob?.synthAudioBuffer, activeJob?.language]);
+  }, [isVoiceChangerOpen, voiceChangerBlob, voiceChangerBuffer, playsSynced, activeJob?.language]);
 
   /** The dub script, offered as a starting text in the text-to-speech studio. */
   const ttsProjectScript = useMemo(() => {
@@ -2486,6 +2669,15 @@ export default function App() {
           onPlaybackRateChange={setPlaybackRate}
           onResetSession={handleResetSession}
           onDownloadWav={handleDownloadMasterWav}
+          multiSpeakerInput={multiSpeakerInput}
+          onMultiSpeakerInputChange={handleMultiSpeakerInputChange}
+          speakerCount={speakerCount}
+          onSpeakerCountChange={handleSpeakerCountChange}
+          onCastChange={handleCastChange}
+          onRenameSpeaker={handleRenameSpeaker}
+          mixPeak={mixPeak}
+          onMixPeakChange={handleMixPeakChange}
+          onDownloadStem={handleDownloadStem}
           onDownloadSrt={handleDownloadMasterSrt}
           onDownloadScript={handleDownloadMasterScript}
           customPrompt={activeJob?.customPrompt || customPrompt}
@@ -2512,7 +2704,7 @@ export default function App() {
         isOpen={isVoiceChangerOpen}
         onClose={() => setIsVoiceChangerOpen(false)}
         dubbedAudioFile={voiceChangerDubFile}
-        dubbedAudioBuffer={activeJob?.synthAudioBuffer || null}
+        dubbedAudioBuffer={voiceChangerBuffer}
         originalAudioFile={activeJob?.file || null}
         originalAudioBuffer={activeJob?.audioBuffer || null}
         elApiKey={elApiKey}

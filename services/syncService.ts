@@ -1,7 +1,8 @@
 import { apiGet, apiGetAudio, apiJson } from './apiClient';
-import { AudioSegment } from '../types';
+import { AudioSegment, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
 import { ElevenLabsVoiceSettings } from './elevenLabsService';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
+import { castPayload, fetchMixed } from './castService';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
@@ -190,6 +191,8 @@ export interface SyncUnitReport {
   /** Names the line for a retake: the id of its first cue. */
   key: string;
   cueIds: (string | number)[];
+  /** Who says the line, when the transcript tells speakers apart. */
+  speaker?: string | null;
   /** What the dub says: the script as written. */
   text: string;
   sourceText: string;
@@ -261,6 +264,8 @@ export interface SyncReport {
     silent: number;
   };
   units: SyncUnitReport[];
+  /** Only for a dub with several speakers: what the mix did, and the overlaps it kept. */
+  mix?: DubMixReport;
   /** Only when the sync ran in audio debug mode. */
   audioDebug?: SyncAudioDebug;
 }
@@ -310,6 +315,15 @@ export interface SyncRequest {
   debug?: boolean;
   /** How a Cartesia voice is voiced; used in place of modelId and voiceSettings for one. */
   cartesia?: CartesiaVoicePrefs;
+  /**
+   * Several speakers: each is voiced by their own voice from `cast` (the main
+   * voice when they have none), overlaps in the original are kept, and the
+   * dub comes back with one stem per speaker.
+   */
+  multiSpeaker?: boolean;
+  cast?: Record<string, SpeakerVoice>;
+  /** How a mix above full scale is handled, with several speakers. */
+  peak?: MixPeakMode;
 }
 
 /** Only what the server reads from each cue; word timings and legacy fields stay behind. */
@@ -325,26 +339,32 @@ const slimSegment = (segment: AudioSegment) => ({
 export const syncDub = async (
   request: SyncRequest,
   { apiKey, jobId, signal }: { apiKey?: string; jobId?: string; signal?: AbortSignal } = {}
-): Promise<{ blob: Blob; report: SyncReport }> => {
-  const { cartesia, ...rest } = request;
+): Promise<{ blob: Blob; stems: DubStem[]; report: SyncReport }> => {
+  const { cartesia, cast, multiSpeaker, ...rest } = request;
   // A Cartesia voice gets the same model and delivery as a Cartesia dub.
   const voice =
     cartesia && isCartesiaVoice(request.voiceId)
       ? { modelId: cartesia.modelId || undefined, voiceSettings: cartesiaDelivery(cartesia) }
       : { voiceSettings: request.voiceSettings || undefined };
-  const data = await apiJson<{ audioId: string; contentType: string; report: SyncReport }>('/sync', {
-    body: {
-      ...rest,
-      ...voice,
-      segments: request.segments.map(slimSegment),
-      jobId,
-    },
-    keys: { elevenLabsKey: apiKey },
-    signal,
-  });
-  // The dub is fetched on its own, as it is: lossless WAV is too big to ride inside JSON.
-  const blob = await apiGetAudio(`/sync/audio/${encodeURIComponent(data.audioId)}`, { signal });
-  return { blob, report: data.report };
+  const data = await apiJson<{ audioId: string; contentType: string; stems: { speaker: string; audioId: string; contentType: string }[]; report: SyncReport }>(
+    '/sync',
+    {
+      body: {
+        ...rest,
+        ...voice,
+        segments: request.segments.map(slimSegment),
+        ...(multiSpeaker && {
+          multiSpeaker: true,
+          cast: castPayload(cast, { modelId: request.modelId, voiceSettings: request.voiceSettings, cartesia }),
+        }),
+        jobId,
+      },
+      keys: { elevenLabsKey: apiKey },
+      signal,
+    }
+  );
+  // The dub, and any stems, are fetched on their own: lossless WAV is too big to ride inside JSON.
+  return fetchMixed(data, signal);
 };
 
 export const getSyncProgress = (jobId: string): Promise<SyncProgress> =>

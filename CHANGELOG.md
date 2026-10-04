@@ -9,6 +9,19 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Dubs with several speakers, one voice each.** Turn on **More than one person speaks** in Dub
+  setup and ElevenLabs labels who says each line (optionally told how many speakers there are). The
+  Review step then shows who speaks when, filters cues by speaker, lets you rename speakers or merge
+  one into another, hand any cue to another speaker, and flags labels that look like slips (a short
+  switch between two lines of one speaker, or a speaker who says almost nothing) with **Make it …**
+  and **Keep**. In Final dub a **Cast** card gives each speaker their own voice, from ElevenLabs or
+  Cartesia; anyone without one is read by the main voice. Each speaker is voiced as one read, told
+  only their own lines either side, so voices never pick up each other's delivery. Sync keeps the
+  overlaps where people talk at once in the original instead of pushing lines back. Every line is
+  kept exactly as voiced; **Even out speakers** (off by default) gives one gain per speaker. Where
+  speakers overlap, the mix is kept as summed in 32-bit float so nothing clips, or, if you choose,
+  lowered as a whole by a stated amount. Both dubs come with one stem per speaker to download, all
+  the same length. The QA check no longer blocks on two speakers overlapping.
 - **A new version announces itself once.** When the desktop app finds a newer release, a notice in
   the corner says so, with **See what's new** and **Later**. Each version shows it once; the header's
   Update button stays as before.
@@ -144,6 +157,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Sync no longer replaces the dub.** Syncing used to overwrite the Final dub, so the unsynced dub
+  was gone. Now the synced dub is its own file: the Final dub step keeps playing the dub, and the
+  Sync step plays the synced dub. Its player shows the whole original with the whole synced dub
+  under it, one waveform each, as the Final dub step does, and the line view below names its lanes
+  **Original** and **Synced**. Download
+  and the voice changer use the file of the step you are on, a new dub keeps the synced one, and a
+  batch export carries both (`_dubbed` and `_synced`).
+- **The dub and the synced dub come back after a reload.** They were saved but nothing reopened
+  them, so a reloaded session had no dub to play. Now both play again, and a job reloaded while it
+  was dubbing or syncing no longer shows as still working. A session saved before this fix shows its
+  synced dub in the Sync step, since the dub that sync replaced was already gone.
 - **Playheads always match what you hear.** Every waveform and timeline now moves its playhead on
   the frame being drawn, from the audio's own position, and never re-renders the page to do it:
   - Switching Original / Dub / Both is one step, so the playhead's clock and the audio can no

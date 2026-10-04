@@ -26,6 +26,7 @@ import { resolveJoinSettings, dbToAmplitude } from './syncSettings.js';
 import { placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, shortenPauses, renderTimeline, startAfterCut } from './syncRender.js';
 import { TTS_CONTEXT_CHARS } from './ttsText.js';
+import { mixSpeakers } from './speakerMix.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -63,6 +64,9 @@ export const isShortLine = (speech, spoken) => speech < spoken * SHORT_SHARE && 
 
 /** Hard anchors (after long pauses and speaker changes) pull this much harder in the solve. */
 const HARD_ANCHOR_WEIGHT = 3;
+
+/** A speaker's line may start this close to the end of their previous one before it counts as talking over themself. */
+const SELF_OVERLAP_SLACK = 0.01;
 
 /** Suggestions asked for at once. */
 const SUGGESTION_CONCURRENCY = 4;
@@ -118,7 +122,7 @@ const mapLimit = async (items, limit, fn) => {
 /**
  * Runs a sync.
  *
- * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, language, voice, lineSeeds, matchLoudness, debug }`,
+ * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, language, voice, voiceFor, multiSpeaker, peak, lineSeeds, matchLoudness, debug }`,
  * where `join` is how lines are joined (gaps, pauses, tails and flags; see syncSettings.js, Natural when left out),
  * where `suggest` asks for shorter wordings of long lines and `suggestLonger` for fuller wordings of short ones (both on by default),
  * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`,
@@ -127,16 +131,25 @@ const mapLimit = async (items, limit, fn) => {
  * kept at the level it was voiced at) and `debug` adds `report.audioDebug`,
  * a sample-exact account of every cut, placement, gain and fade.
  *
+ * With `multiSpeaker`, each line is voiced by `voiceFor(speaker)` (`voice`
+ * when that returns nothing) and told only the lines either side by the same
+ * speaker; where the original has two speakers talking over each other the
+ * dub keeps that overlap rather than pushing the second line back; and the
+ * track is mixed with one stem per speaker (see speakerMix.js), `peak`
+ * deciding how a mix above full scale is handled and `matchLoudness` giving
+ * one gain per speaker instead of one per line.
+ *
  * `deps`:
- * - `voiceLines(lines)` → `[Buffer]`, voicing `[{ text, previousText, nextText }]` in order;
+ * - `voiceLines(lines, { voice, onLine })` → `[Buffer]`, voicing `[{ text, previousText, nextText }]` in order with `voice`;
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
- * - `encode(samples)` → `{ buffer, contentType }`;
+ * - `encode(samples, { float })` → `{ buffer, contentType }`, `float` asking for 32-bit float;
  * - `shorten({ text, sourceText, language, targetChars })` → a shorter wording, or null, or
  *   `{ line, reason }` with `reason` 'meaning' when every wording changed the meaning; throwing
  *   when the text model fails (optional);
  * - `lengthen({ text, sourceText, language, targetChars })` → a fuller wording, the same way (optional).
  *
- * Returns `{ buffer, contentType, report }`.
+ * Returns `{ buffer, contentType, report }`, plus `stems` (`[{ speaker, buffer, contentType }]`)
+ * with `multiSpeaker`.
  */
 export const runSync = async (params, deps, { signal, onProgress = () => {} } = {}) => {
   const {
@@ -147,6 +160,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     suggestLonger = true,
     language,
     voice,
+    voiceFor,
+    multiSpeaker = false,
+    peak = 'float',
     lineSeeds = {},
     matchLoudness = false,
     debug = false,
@@ -175,7 +191,16 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // 2. Voicing. A retaken line is voiced with its own seed, which is a new take of it.
   report({ phase: 'voicing', step: 2 });
   const seedOf = (unit) => (Number.isInteger(lineSeeds[lineKey(unit)]) ? lineSeeds[lineKey(unit)] : voice.seed);
-  const voiceOf = (unit) => ({ ...voice, seed: seedOf(unit) });
+  const speakerOf = (unit) => unit.speaker || 'Speaker';
+  const baseVoiceOf = (unit) => (multiSpeaker && voiceFor ? voiceFor(speakerOf(unit)) || voice : voice);
+  const voiceOf = (unit) => ({ ...baseVoiceOf(unit), seed: seedOf(unit) });
+  // The lines a line is told about: its neighbours, by the same speaker when there are several.
+  const neighbour = (i, step) => {
+    for (let j = i + step; j >= 0 && j < units.length; j += step) {
+      if (!multiSpeaker || speakerOf(units[j]) === speakerOf(units[i])) return units[j];
+    }
+    return null;
+  };
   const buffers = new Array(units.length);
   const missing = [];
   units.forEach((unit, i) => {
@@ -184,18 +209,32 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     else missing.push(i);
   });
   report({ unitsToVoice: missing.length });
-  if (missing.length > 0) {
-    const lines = missing.map((i) => ({
+  // One run of requests per voice, so all of a speaker's lines are read as one.
+  const groups = new Map();
+  for (const i of missing) {
+    const key = multiSpeaker ? speakerOf(units[i]) : '';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(i);
+  }
+  let voicedSoFar = 0;
+  for (const indexes of groups.values()) {
+    checkCancelled();
+    const lines = indexes.map((i) => ({
       text: units[i].text,
-      previousText: i > 0 ? units[i - 1].text.slice(-TTS_CONTEXT_CHARS) : undefined,
-      nextText: i < units.length - 1 ? units[i + 1].text.slice(0, TTS_CONTEXT_CHARS) : undefined,
+      previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS),
+      nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS),
       seed: seedOf(units[i]),
     }));
-    const voiced = await deps.voiceLines(lines, { onLine: (done) => report({ unitsVoiced: done }) });
-    missing.forEach((i, n) => {
+    const before = voicedSoFar;
+    const voiced = await deps.voiceLines(lines, {
+      voice: baseVoiceOf(units[indexes[0]]),
+      onLine: (done) => report({ unitsVoiced: before + done }),
+    });
+    indexes.forEach((i, n) => {
       buffers[i] = voiced[n];
       remember(cacheKey(voiceOf(units[i]), units[i].text), voiced[n]);
     });
+    voicedSoFar += indexes.length;
   }
   checkCancelled();
 
@@ -220,13 +259,23 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     return { head, lead: clips[i].lead - head, speech: clips[i].speech, length: clips[i].samples.length / sampleRate - head };
   };
 
+  /**
+   * How much of unit `i` the next speaker's line overlaps in the original,
+   * with several speakers: a line started before the other speaker had
+   * finished. The dub keeps that overlap instead of pushing the line back.
+   */
+  const overlapAfter = (i) =>
+    multiSpeaker && units[i].speakerChangeAfter && units[i + 1] ? Math.max(0, units[i].srcEnd - units[i + 1].srcStart) : 0;
+  /** The pause the dub must leave after unit `i`; negative where an overlap is kept. */
+  const gapAfterUnit = (i) => (overlapAfter(i) > 0 ? -overlapAfter(i) : unitGapAfter(units[i], join));
+
   /** How long unit `i`'s core may be: from its wanted start to where the next clip's core wants to start, less a breath. */
   const budget = (i) => {
     const unit = units[i];
     const start = unit.srcStart - core(i).lead;
     const limit =
       unit.nextStart !== null
-        ? unit.nextStart - (clips[i + 1] ? core(i + 1).lead : 0) - unitGapAfter(unit, join)
+        ? unit.nextStart - (clips[i + 1] ? core(i + 1).lead : 0) - gapAfterUnit(i)
         : sourceDuration > 0
           ? Math.max(sourceDuration, unit.srcEnd) + 0.5
           : Infinity;
@@ -262,7 +311,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       return {
         want,
         length: cores[n].length,
-        gapAfter: n < placedIndex.length - 1 ? unitGapAfter(unit, join) : 0,
+        gapAfter: n < placedIndex.length - 1 ? gapAfterUnit(i) : 0,
         weight: unit.hardAnchor ? HARD_ANCHOR_WEIGHT : 1,
         earliest: want - tolerance,
         // Only the first word has to be inside the track; what comes before it may be dropped.
@@ -280,20 +329,30 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const dropped = placedIndex.map(() => 0);
   const delayed = placedIndex.map(() => 0);
   const rendered = [];
-  const track = renderTimeline(
-    placedIndex.map((i, n) => {
-      const start = positions[n] - cores[n].head;
-      if (start >= 0) return { samples: clips[i].samples, position: start };
-      const cut = startAfterCut(clips[i].samples, Math.round(-start * sampleRate), Math.round(clips[i].lead * sampleRate), sampleRate);
-      dropped[n] = cut.from;
-      delayed[n] = cut.delay;
-      // Keeping a little more of the pre-roll starts the line that much later; the check below measures it there.
-      positions[n] += cut.delay / sampleRate;
-      return { samples: clips[i].samples.subarray(cut.from), startSample: 0, maxStartShift: 0 };
-    }),
-    { sampleRate, length: sourceDuration, matchLoudness, fadeSeconds: join.edgeFade, log: debug ? (entry) => rendered.push(entry) : undefined }
-  );
-  const { buffer, contentType } = await deps.encode(track);
+  const placedClips = placedIndex.map((i, n) => {
+    const speaker = speakerOf(units[i]);
+    const start = positions[n] - cores[n].head;
+    if (start >= 0) return { samples: clips[i].samples, position: start, speaker };
+    const cut = startAfterCut(clips[i].samples, Math.round(-start * sampleRate), Math.round(clips[i].lead * sampleRate), sampleRate);
+    dropped[n] = cut.from;
+    delayed[n] = cut.delay;
+    // Keeping a little more of the pre-roll starts the line that much later; the check below measures it there.
+    positions[n] += cut.delay / sampleRate;
+    return { samples: clips[i].samples.subarray(cut.from), startSample: 0, maxStartShift: 0, speaker };
+  });
+  const log = debug ? (entry) => rendered.push(entry) : undefined;
+  const mixed = multiSpeaker
+    ? mixSpeakers(placedClips, { sampleRate, length: sourceDuration, fadeSeconds: join.edgeFade, peak, matchSpeakers: matchLoudness, log })
+    : null;
+  const track = mixed
+    ? mixed.mix
+    : renderTimeline(placedClips, { sampleRate, length: sourceDuration, matchLoudness, fadeSeconds: join.edgeFade, log });
+  const float = Boolean(mixed) && mixed.report.peak === 'float';
+  const { buffer, contentType } = await deps.encode(track, { float });
+  const stems = [];
+  if (mixed) {
+    for (const stem of mixed.stems) stems.push({ speaker: stem.speaker, ...(await deps.encode(stem.samples, { float })) });
+  }
   checkCancelled();
 
   // Where every sample of every line came from and where it went, for tracing an artifact to the step that made it.
@@ -349,7 +408,22 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   placedIndex.forEach((i, n) => {
     if (n < placedIndex.length - 1) joinAfter.set(i, lines[n + 1].placedStart - lines[n].placedEnd);
   });
-  const tightJoin = units.map((_, i) => joinAfter.has(i) && joinAfter.get(i) < join.flagJoin);
+  // A kept overlap is not a tight join: the original speakers overlap there too.
+  const tightJoin = units.map((_, i) => joinAfter.has(i) && overlapAfter(i) === 0 && joinAfter.get(i) < join.flagJoin);
+
+  // With several speakers: the overlaps kept from the original, and any place
+  // one speaker's lines run into each other (never wanted).
+  let overlapsKept = 0;
+  let selfOverlaps = 0;
+  if (multiSpeaker) {
+    const lastEnd = new Map();
+    placedIndex.forEach((i, n) => {
+      if (n < placedIndex.length - 1 && overlapAfter(i) > 0 && lines[n + 1].placedStart < lines[n].placedEnd) overlapsKept++;
+      const speaker = speakerOf(units[i]);
+      if (lastEnd.has(speaker) && lines[n].placedStart < lastEnd.get(speaker) - SELF_OVERLAP_SLACK) selfOverlaps++;
+      lastEnd.set(speaker, Math.max(lastEnd.get(speaker) ?? 0, lines[n].placedEnd));
+    });
+  }
 
   // A line ends early when its words, as voiced, leave much of the original speech unsaid.
   const spokenOf = (i) => Math.max(0, units[i].srcEnd - units[i].srcStart);
@@ -407,6 +481,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       index: i,
       key: lineKey(unit),
       cueIds: unit.cueIds,
+      speaker: unit.speaker || null,
       text: unit.text,
       sourceText: unit.sourceText,
       srcStart: unit.srcStart,
@@ -434,6 +509,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   return {
     buffer,
     contentType,
+    ...(mixed && { stems }),
     report: {
       precision,
       tolerance,
@@ -455,6 +531,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         silent: units.length - placedIndex.length,
       },
       units: unitReports,
+      ...(mixed && { mix: { ...mixed.report, overlapsKept, selfOverlaps } }),
       ...(audioDebug && { audioDebug }),
     },
   };

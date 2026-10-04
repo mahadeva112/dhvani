@@ -34,7 +34,7 @@ const jobStage = (job: BatchJob): { kind: StageKind; label?: string; dubbing?: b
     case ProcessingStatus.VALIDATING_XML:
       return { kind: 'working', label: 'Preparing' };
   }
-  if (job.status === ProcessingStatus.COMPLETED || job.synthesizedAudioUrl) return { kind: 'dubbed' };
+  if (job.status === ProcessingStatus.COMPLETED || job.synthesizedAudioUrl || job.syncedAudioUrl) return { kind: 'dubbed' };
   if (job.segments.length > 0) return { kind: 'review' };
   return { kind: 'waiting' };
 };
@@ -143,13 +143,27 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
           jobFolder.file(`${safeBaseName}_dubbed.${audioFileExtension(audioBlob)}`, audioBlob);
         }
 
+        // The synced dub is its own file beside the dub, so it goes in as well.
+        let syncedBlob: Blob | null = job.syncedBlob || null;
+        if (!syncedBlob && job.syncedAudioBuffer) {
+          try {
+            syncedBlob = audioBufferToWav(job.syncedAudioBuffer);
+          } catch (err) {
+            console.error(`Failed to encode the synced AudioBuffer for ${rawFileName}:`, err);
+          }
+        }
+        if (syncedBlob) {
+          jobFolder.file(`${safeBaseName}_synced.${audioFileExtension(syncedBlob)}`, syncedBlob);
+        }
+
         manifest.jobs.push({
           jobId: job.id,
           fileName: rawFileName,
           language: job.language,
           cueCount: job.segments.length,
           durationSeconds: job.audioMetadata?.duration || (job.audioBuffer?.duration || 0),
-          hasAudio: !!audioBlob
+          hasAudio: !!audioBlob,
+          hasSyncedAudio: !!syncedBlob
         });
       }
 

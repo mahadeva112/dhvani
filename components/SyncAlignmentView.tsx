@@ -12,7 +12,7 @@ import { useLiveTime } from './useLiveTime';
  *   Original   the original's waveform and lines, numbered
  *   links      a sync line from each original line's start to its dub line's
  *              start: upright is in sync, a slant is the dub early or late
- *   Dub        the synced dub's waveform and lines, numbered, over a dashed
+ *   Synced     the synced dub's waveform and lines, numbered, over a dashed
  *              outline of where the original line is; the part of a line that
  *              runs into the next original line is hatched
  *   drift      each line's start error over the whole window, against the
@@ -261,7 +261,7 @@ export const SyncAlignmentView: React.FC<{
 
         {/* Dub */}
         <span className={laneLabel}>
-          <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Dub
+          <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Synced
         </span>
         <div className="relative h-11 rounded-b-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
           <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS} className="text-indigo-300/25" />
@@ -371,10 +371,10 @@ export const SyncAlignmentView: React.FC<{
               </span>
               {focus.placedStart !== null && focus.placedEnd !== null ? (
                 <span className="text-indigo-300">
-                  Dub {formatClock(focus.placedStart)}–{formatClock(focus.placedEnd)}
+                  Synced {formatClock(focus.placedStart)}–{formatClock(focus.placedEnd)}
                 </span>
               ) : (
-                <span className="text-slate-500">Dub: no audio</span>
+                <span className="text-slate-500">Synced: no audio</span>
               )}
               {focus.offset !== null && (
                 <span className={TONE[tones.get(focus.index) ?? 'none'].text}>

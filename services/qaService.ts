@@ -332,6 +332,7 @@ export function runQa(segments: AudioSegment[], options: RunQaOptions): QaReport
 
   let anySourceText = false;
   let previousEnd: number | null = null;
+  let previousSpeaker: string | null = null;
 
   cues.forEach((seg, index) => {
     const cueNumber = index + 1;
@@ -370,7 +371,10 @@ export function runQa(segments: AudioSegment[], options: RunQaOptions): QaReport
     }
 
     /* --- ordering and overlap -------------------------------------- */
-    if (previousEnd !== null && Number.isFinite(seg.startTime)) {
+    // Two speakers talking at once is crosstalk in the recording, not a timing fault.
+    const speaker = (seg.speaker || '').trim();
+    const crosstalk = Boolean(speaker && previousSpeaker && speaker !== previousSpeaker);
+    if (previousEnd !== null && Number.isFinite(seg.startTime) && !crosstalk) {
       if (seg.startTime < previousEnd - 0.001) {
         push({
           ...base,
@@ -384,6 +388,7 @@ export function runQa(segments: AudioSegment[], options: RunQaOptions): QaReport
       }
     }
     if (Number.isFinite(seg.endTime)) previousEnd = seg.endTime;
+    previousSpeaker = speaker || null;
 
     /* --- timing provenance ----------------------------------------- */
     if (seg.timingSource === 'derived') {

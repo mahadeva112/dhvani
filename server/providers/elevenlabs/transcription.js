@@ -33,12 +33,16 @@ const guessMime = (filename, fallback) =>
  * ElevenLabs is the single source of truth for both the transcript and every
  * timestamp in the pipeline.
  */
+/** Scribe tells apart at most this many speakers. */
+export const MAX_SPEAKERS = 32;
+
 export const transcribeFile = async (
   file,
   {
     sourceLanguage = '',
     modelId,
     diarize = false,
+    numSpeakers,
     tagAudioEvents = false,
     cueOptions = {},
     apiKey,
@@ -76,6 +80,11 @@ export const transcribeFile = async (
     form.append('model_id', modelId || config.elevenlabs.sttModel);
     form.append('timestamps_granularity', 'word');
     form.append('diarize', String(Boolean(diarize)));
+    // A known speaker count helps Scribe tell apart voices that sound alike.
+    const speakers = Number(numSpeakers);
+    if (diarize && Number.isInteger(speakers) && speakers >= 1 && speakers <= MAX_SPEAKERS) {
+      form.append('num_speakers', String(speakers));
+    }
     form.append('tag_audio_events', String(Boolean(tagAudioEvents)));
 
     // Omitting language_code lets Scribe auto-detect, which is what "Auto Detect" means.

@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../errors.js';
-import { synthesizeLines } from '../providers/elevenlabs/speech.js';
+import { synthesizeLines, cleanTextForNaturalSpeech } from '../providers/elevenlabs/speech.js';
 import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } from '../providers/cartesia/speech.js';
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat } from '../lib/media.js';
-import { pcmToWav } from '../lib/wav.js';
+import { pcmToWav, floatToWav } from '../lib/wav.js';
 import { runSync } from '../lib/syncDub.js';
+import { runConversation } from '../lib/conversationDub.js';
+import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
 import { shortenLine, lengthenLine } from '../lib/syncRewrite.js';
 import { previewSync } from '../lib/syncPreview.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
@@ -41,6 +43,71 @@ export const cartesiaSettings = (settings) => {
   if (typeof settings.emotion === 'string' && settings.emotion.trim()) out.emotion = settings.emotion.trim();
   return Object.keys(out).length ? out : undefined;
 };
+
+/**
+ * One voice of a dub: what it is voiced with, in the format its engine
+ * returns. An ElevenLabs model name on a Cartesia voice (or the other way
+ * round) means no model was picked for that engine, so its default is used.
+ */
+const makeVoice = ({ voiceId, modelId, voiceSettings }, { requested, seed }) => {
+  const cleanSeed = Number.isInteger(seed) ? seed : undefined;
+  if (isCartesiaVoice(voiceId)) {
+    return {
+      voiceId,
+      cartesia: true,
+      modelId: modelId && !/^eleven_/.test(modelId) ? modelId : undefined,
+      outputFormat: toCartesiaOutputFormat(requested).format,
+      voiceSettings: cartesiaSettings(voiceSettings),
+      // Cartesia takes no seed, but a retake still needs its own cache entry.
+      seed: cleanSeed,
+    };
+  }
+  return {
+    voiceId,
+    cartesia: false,
+    modelId: modelId && /^eleven_/.test(modelId) ? modelId : undefined,
+    outputFormat: requested,
+    voiceSettings: voiceSettings && typeof voiceSettings === 'object' ? voiceSettings : undefined,
+    seed: cleanSeed,
+  };
+};
+
+/** Speakers allowed in one cast; Scribe tells apart at most 32. */
+const MAX_CAST = 32;
+
+/**
+ * The voice for each speaker: `cast` maps a speaker's name to
+ * `{ voiceId, modelId, voiceSettings }`; a speaker not in it, or with no
+ * voice, is voiced by `main`. Every voice must decode at one sample rate,
+ * since nothing is resampled.
+ */
+const castVoices = (cast, main, { requested, seed }) => {
+  const voices = new Map();
+  for (const [speaker, entry] of Object.entries(cast && typeof cast === 'object' ? cast : {}).slice(0, MAX_CAST)) {
+    if (typeof speaker !== 'string' || speaker.length > 128 || !entry || typeof entry.voiceId !== 'string' || !entry.voiceId.trim()) continue;
+    voices.set(speaker, makeVoice(entry, { requested, seed }));
+  }
+  const rates = new Set([main, ...voices.values()].map((voice) => parseOutputFormat(voice.outputFormat)?.sampleRate));
+  if (rates.size > 1) {
+    throw new ApiError(
+      'These voices come back at different sample rates, and DHVANI never resamples a voice. Pick voices from one engine, or a PCM output format both engines produce.',
+      { status: 400, code: 'cast_sample_rates' }
+    );
+  }
+  return (speaker) => voices.get(speaker) || main;
+};
+
+/** Voices lines with whichever engine `voice` belongs to. */
+const voiceLinesWith = ({ apiKey, cartesiaKey, language, signal }) => async (lines, { voice, onLine }) =>
+  voice.cartesia
+    ? (await synthesizeCartesiaLines({ ...voice, lines, language }, { apiKey: cartesiaKey, signal, onLine })).map((r) => r.buffer)
+    : (await synthesizeLines({ ...voice, lines }, { apiKey, signal, onLine })).map((r) => r.buffer);
+
+/** One lossless write at the clips' own rate; `float` keeps a mix above full scale exactly as summed. */
+const encodeWav = (sampleRate) => async (samples, { float = false } = {}) =>
+  float
+    ? { buffer: floatToWav(samples, { sampleRate }), contentType: 'audio/wav' }
+    : { buffer: pcmToWav(await encodeAudio(samples, `pcm_${sampleRate}`), { sampleRate }), contentType: 'audio/wav' };
 
 /**
  * Finished dubs waiting to be fetched, by id. The dub is lossless WAV, too big
@@ -111,6 +178,9 @@ syncRouter.post(
       matchLoudness,
       debug,
       jobId,
+      multiSpeaker,
+      cast,
+      peak,
     } = req.body || {};
 
     if (!Array.isArray(segments) || segments.length === 0) {
@@ -141,21 +211,12 @@ syncRouter.post(
     const audioDebug = debug === true || process.env.DHVANI_AUDIO_DEBUG === '1';
     const cartesiaKey = req.get('x-cartesia-key') || undefined;
     const voice = cartesia
-      ? {
-          voiceId,
-          // An ElevenLabs model name means the caller did not pick a Cartesia one.
-          modelId: modelId && !/^eleven_/.test(modelId) ? modelId : undefined,
-          outputFormat: format,
-          voiceSettings: cartesiaSettings(voiceSettings),
-          // Cartesia takes no seed, but a retake still needs its own cache entry.
-          seed: Number.isInteger(seed) ? seed : undefined,
-        }
-      : { voiceId, modelId, outputFormat: format, voiceSettings: voiceSettings || undefined, seed: Number.isInteger(seed) ? seed : undefined };
-    const voiceLines = cartesia
-      ? async (lines, { onLine }) =>
-          (await synthesizeCartesiaLines({ ...voice, lines, language }, { apiKey: cartesiaKey, signal: controller.signal, onLine })).map((r) => r.buffer)
-      : async (lines, { onLine }) =>
-          (await synthesizeLines({ ...voice, lines }, { apiKey, signal: controller.signal, onLine })).map((r) => r.buffer);
+      ? { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed }), outputFormat: format }
+      : { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed }), modelId, outputFormat: format };
+    const several = multiSpeaker === true;
+    const voiceFor = several ? castVoices(cast, voice, { requested, seed }) : undefined;
+    const voiceWith = voiceLinesWith({ apiKey, cartesiaKey, language, signal: controller.signal });
+    const voiceLines = (lines, { voice: lineVoice, onLine }) => voiceWith(lines, { voice: lineVoice || voice, onLine });
 
     try {
       const result = await runSync(
@@ -169,6 +230,9 @@ syncRouter.post(
           suggestLonger: suggestLonger !== false,
           language,
           voice,
+          voiceFor,
+          multiSpeaker: several,
+          peak: MIX_PEAK_MODES.includes(peak) ? peak : 'float',
           lineSeeds: cleanLineSeeds(lineSeeds),
           matchLoudness: matchLoudness === true,
           debug: audioDebug,
@@ -178,7 +242,7 @@ syncRouter.post(
           decode: (buffer) => decodeAudio(buffer, format),
           // One write at the end, lossless and at the clips' own rate: encoding to
           // MP3 again would be a second lossy generation of every line.
-          encode: async (samples) => ({ buffer: pcmToWav(await encodeAudio(samples, `pcm_${sampleRate}`), { sampleRate }), contentType: 'audio/wav' }),
+          encode: encodeWav(sampleRate),
           shorten: (request) => shortenLine(request, { apiKey: textModelKey }),
           lengthen: (request) => lengthenLine(request, { apiKey: textModelKey }),
         },
@@ -189,7 +253,88 @@ syncRouter.post(
       );
       if (job) finishDubJob(jobId, 'done');
       if (result.report.audioDebug) logAudioDebug(result.report.audioDebug);
-      res.json({ audioId: keepResult(result.buffer, result.contentType), contentType: result.contentType, report: result.report });
+      res.json({
+        audioId: keepResult(result.buffer, result.contentType),
+        contentType: result.contentType,
+        stems: (result.stems || []).map((stem) => ({ speaker: stem.speaker, audioId: keepResult(stem.buffer, stem.contentType), contentType: stem.contentType })),
+        report: result.report,
+      });
+    } catch (err) {
+      if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
+      throw err;
+    }
+  })
+);
+
+/**
+ * POST /api/dub/conversation — a dub with one voice per speaker, not synced:
+ * the script read turn by turn, the pause between turns following the
+ * original. Body: `{ turns, cast, voiceId, modelId, outputFormat,
+ * voiceSettings, language, seed, matchSpeakers, peak, jobId }`, `turns` being
+ * `[{ speaker, text, gapAfter }]` in spoken order and `cast` as for /sync.
+ * Replies `{ audioId, contentType, stems, report }` as /sync does; progress is
+ * polled like a one-voice dub, at /api/elevenlabs/tts/jobs/:jobId.
+ */
+syncRouter.post(
+  '/dub/conversation',
+  asyncHandler(async (req, res) => {
+    const { turns, cast, voiceId, modelId, outputFormat, voiceSettings, language, seed, matchSpeakers, peak, jobId } = req.body || {};
+    if (!Array.isArray(turns) || turns.length === 0) {
+      throw new ApiError('There is no dialogue to dub.', { status: 400, code: 'no_turns' });
+    }
+
+    const requested = parseOutputFormat(outputFormat) ? outputFormat : FALLBACK_FORMAT;
+    const main = makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed });
+    const voiceFor = castVoices(cast, main, { requested, seed });
+    const { codec, sampleRate } = parseOutputFormat(main.outputFormat);
+    if (codec !== 'pcm' && !(await ffmpegAvailable())) {
+      throw new ApiError("A dub with several voices needs ffmpeg to join the voices' MP3 passages. Install ffmpeg and try again.", {
+        status: 501,
+        code: 'ffmpeg_missing',
+      });
+    }
+
+    const job = startDubJob(jobId);
+    const controller = job?.controller || new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
+
+    try {
+      const result = await runConversation(
+        {
+          turns: turns.slice(0, 20000).map((turn) => ({
+            speaker: String(turn?.speaker || 'Speaker').slice(0, 128),
+            text: cleanTextForNaturalSpeech(String(turn?.text || '')),
+            gapAfter: Number(turn?.gapAfter),
+          })),
+          sampleRate,
+          voiceFor,
+          matchSpeakers: matchSpeakers === true,
+          peak: MIX_PEAK_MODES.includes(peak) ? peak : 'float',
+        },
+        {
+          voiceLines: (voice, lines, { onLine }) =>
+            voiceLinesWith({
+              apiKey: req.get('x-elevenlabs-key') || undefined,
+              cartesiaKey: req.get('x-cartesia-key') || undefined,
+              language,
+              signal: controller.signal,
+            })(lines, { voice, onLine }),
+          decode: (buffer, voice) => decodeAudio(buffer, voice.outputFormat),
+        },
+        { signal: controller.signal, onProgress: (progress) => job && updateDubJob(jobId, progress) }
+      );
+      const encode = encodeWav(sampleRate);
+      const float = result.report.peak === 'float';
+      const mix = await encode(result.mix, { float });
+      const stems = [];
+      for (const stem of result.stems) {
+        const encoded = await encode(stem.samples, { float });
+        stems.push({ speaker: stem.speaker, audioId: keepResult(encoded.buffer, encoded.contentType), contentType: encoded.contentType });
+      }
+      if (job) finishDubJob(jobId, 'done');
+      res.json({ audioId: keepResult(mix.buffer, mix.contentType), contentType: mix.contentType, stems, report: result.report });
     } catch (err) {
       if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
       throw err;

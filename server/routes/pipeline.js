@@ -45,6 +45,7 @@ pipelineRouter.post(
       customPrompt = '',
       translate = 'true',
       diarize = 'false',
+      numSpeakers = '',
     } = req.body || {};
 
     res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
@@ -65,6 +66,7 @@ pipelineRouter.post(
         customPrompt,
         translate: translate !== 'false',
         diarize: diarize === 'true',
+        numSpeakers: Number(numSpeakers) || undefined,
         cueOptions: parseJsonField(req.body?.cueOptions, {}),
         ...keys(req),
         onProgress: (event) => send({ type: 'progress', ...event }),

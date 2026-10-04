@@ -39,12 +39,14 @@ export const saveJobToStorage = async (job: BatchJob): Promise<void> => {
     const store = transaction.objectStore(STORE_NAME);
 
     // Create a clone that only contains serializable data (File, Blob, strings, numbers, objects)
-    // We EXCLUDE: audioBuffer, synthAudioBuffer, synthesizedAudioUrl, srtUrl
+    // We EXCLUDE: audioBuffer, synthAudioBuffer, syncedAudioBuffer, synthesizedAudioUrl, syncedAudioUrl, srtUrl
     const serializableJob = {
       ...job,
       audioBuffer: null, // Cannot store
       synthAudioBuffer: null, // Cannot store
+      syncedAudioBuffer: null, // Cannot store
       synthesizedAudioUrl: null, // Revoked on reload
+      syncedAudioUrl: null, // Revoked on reload
       srtUrl: null // Revoked on reload
     };
 
