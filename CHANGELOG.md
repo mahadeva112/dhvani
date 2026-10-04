@@ -95,6 +95,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Sync timelines open on the whole track, and zoom in for detail.** The Sync preview's timeline
+  and the **Sync to the original** report used to show 30 seconds at a time. Both now open on the
+  whole track. To see a part up close, use the **Zoom in** / **Zoom out** buttons, Ctrl + scroll (or
+  a trackpad pinch) over the lanes, or drag across the times above them; **Whole track** goes back.
+  Zoomed in, the scroll bar and following the playhead work as before. The preview's timeline now
+  has the same time ruler as the report's.
 - **Updates install faster.** The desktop app no longer ships about 4,300 files it never used (the
   UI's libraries are already bundled into it), so each update has far fewer files to delete, write
   and virus-scan.

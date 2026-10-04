@@ -1,10 +1,11 @@
-import React, { useLayoutEffect, useRef } from 'react';
-import { Pause, Play } from 'lucide-react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Maximize2, Pause, Play, ZoomIn, ZoomOut } from 'lucide-react';
 import { useLiveFrame } from './useLiveTime';
 
 /**
- * Controls under the sync timelines (the preview's and the report's): a
- * scroll bar over the whole dub, and play / pause with the clock.
+ * Controls for the sync timelines (the preview's and the report's): zoom and
+ * a time ruler above, a scroll bar over the whole dub, and play / pause with
+ * the clock.
  */
 
 const formatClock = (seconds: number) => {
@@ -15,6 +16,179 @@ const formatClock = (seconds: number) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+/** The closest zoom: seconds of the timeline shown at once. */
+const MIN_WINDOW_SECONDS = 4;
+/** Each zoom button press shows this much less, or more, of the timeline. */
+const ZOOM_STEP = 2;
+/** Ruler steps, in seconds; the finest that keeps the labels apart is used. */
+const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
+const MAX_TICKS = 8;
+
+export type TimelineZoom = ReturnType<typeof useTimelineZoom>;
+
+/**
+ * The part of a timeline on screen. It opens on the whole of `total`; zooming
+ * in (the buttons, Ctrl + wheel or a pinch over `lanesRef`, or a drag across
+ * the ruler) shows a window of it, which follows playback while `follow` is on.
+ */
+export const useTimelineZoom = (total: number, currentTime: number) => {
+  const fullSpan = Math.max(MIN_WINDOW_SECONDS, total);
+  // Seconds on screen; null is the whole timeline.
+  const [zoomSpan, setZoomSpan] = useState<number | null>(null);
+  const windowSeconds = zoomSpan === null ? fullSpan : Math.min(zoomSpan, fullSpan);
+  const maxStart = Math.max(0, total - windowSeconds);
+  const [rawStart, setRawStart] = useState(0);
+  const windowStart = clamp(rawStart, 0, maxStart);
+  const [follow, setFollow] = useState(true);
+
+  /** Shows `span` seconds, keeping `anchor` (a time) at `at` (0-1 across the lanes). */
+  const zoomTo = (span: number, anchor: number, at: number) => {
+    const next = clamp(span, MIN_WINDOW_SECONDS, fullSpan);
+    if (next >= fullSpan - 1e-6) {
+      setZoomSpan(null);
+      setRawStart(0);
+      return;
+    }
+    setZoomSpan(next);
+    setRawStart(clamp(anchor - at * next, 0, total - next));
+  };
+  // The buttons zoom about the playhead when it is on screen, else the middle.
+  const zoomBy = (factor: number) => {
+    const onScreen = currentTime >= windowStart && currentTime <= windowStart + windowSeconds;
+    const anchor = onScreen ? currentTime : windowStart + windowSeconds / 2;
+    zoomTo(windowSeconds * factor, anchor, (anchor - windowStart) / windowSeconds);
+  };
+  const fitAll = () => {
+    setZoomSpan(null);
+    setRawStart(0);
+  };
+  // Scrolling by hand stops the window following playback until play is pressed or a lane clicked.
+  const scrollTo = (start: number) => {
+    setFollow(false);
+    setRawStart(clamp(start, 0, maxStart));
+  };
+  /** Pages the window to `time` while following playback. */
+  const followTo = (time: number) => setRawStart(clamp(time - windowSeconds / 15, 0, maxStart));
+
+  // Ctrl + wheel (and a trackpad pinch, which arrives as one) zooms about the
+  // pointer. Listened for natively: React's wheel listener is passive, so it
+  // can't keep the browser from zooming the page.
+  const lanesRef = useRef<HTMLDivElement>(null);
+  const rulerRef = useRef<HTMLDivElement>(null);
+  const wheelZoom = useRef<(e: WheelEvent) => void>(() => {});
+  wheelZoom.current = (e: WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    const r = rulerRef.current?.getBoundingClientRect();
+    if (!r || !r.width) return;
+    e.preventDefault();
+    const at = clamp((e.clientX - r.left) / r.width, 0, 1);
+    setFollow(false);
+    zoomTo(windowSeconds * Math.exp(e.deltaY * 0.0025), windowStart + at * windowSeconds, at);
+  };
+  useEffect(() => {
+    const el = lanesRef.current;
+    if (!el) return;
+    const listener = (e: WheelEvent) => wheelZoom.current(e);
+    el.addEventListener('wheel', listener, { passive: false });
+    return () => el.removeEventListener('wheel', listener);
+  }, []);
+
+  return {
+    windowStart,
+    windowSeconds,
+    zoomed: zoomSpan !== null && windowSeconds < fullSpan,
+    canZoomIn: windowSeconds > MIN_WINDOW_SECONDS + 1e-6,
+    follow,
+    setFollow,
+    scrollTo,
+    followTo,
+    zoomTo,
+    zoomBy,
+    fitAll,
+    lanesRef,
+    rulerRef,
+  };
+};
+
+const ZOOM_BUTTON =
+  'h-7 min-w-7 px-1.5 rounded-md flex items-center justify-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 disabled:hover:bg-transparent disabled:cursor-default cursor-pointer';
+
+/** Zoom in / out and back to the whole timeline, with how else to zoom. */
+export const TimelineZoomControls: React.FC<{ zoom: TimelineZoom }> = ({ zoom }) => (
+  <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-slate-500">
+    <span className="hidden sm:inline">Ctrl + scroll to zoom, or drag across the times</span>
+    <div className="flex items-center gap-0.5 rounded-lg border border-slate-800 bg-slate-950/60 p-0.5" role="group" aria-label="Zoom">
+      <button type="button" className={ZOOM_BUTTON} onClick={() => zoom.zoomBy(1 / ZOOM_STEP)} disabled={!zoom.canZoomIn} aria-label="Zoom in" title="Zoom in">
+        <ZoomIn className="w-4 h-4" />
+      </button>
+      <button type="button" className={ZOOM_BUTTON} onClick={() => zoom.zoomBy(ZOOM_STEP)} disabled={!zoom.zoomed} aria-label="Zoom out" title="Zoom out">
+        <ZoomOut className="w-4 h-4" />
+      </button>
+      <button type="button" className={ZOOM_BUTTON} onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Show the whole track">
+        <Maximize2 className="w-3.5 h-3.5" /> Whole track
+      </button>
+    </div>
+  </div>
+);
+
+/** Times across the window on screen. Dragging across it zooms to the stretch dragged over. */
+export const TimelineRuler: React.FC<{ zoom: TimelineZoom }> = ({ zoom }) => {
+  const { windowStart, windowSeconds, rulerRef } = zoom;
+  const [pick, setPick] = useState<{ from: number; to: number } | null>(null);
+  const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
+  const timeAt = (clientX: number) => {
+    const r = rulerRef.current!.getBoundingClientRect();
+    return windowStart + clamp((clientX - r.left) / r.width, 0, 1) * windowSeconds;
+  };
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const t = timeAt(e.clientX);
+    setPick({ from: t, to: t });
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (pick) setPick({ ...pick, to: timeAt(e.clientX) });
+  };
+  const onPointerUp = () => {
+    if (!pick) return;
+    const a = Math.min(pick.from, pick.to);
+    const b = Math.max(pick.from, pick.to);
+    setPick(null);
+    if (b - a < 0.25) return;
+    zoom.setFollow(false);
+    zoom.zoomTo(b - a, (a + b) / 2, 0.5);
+  };
+
+  const step = TICK_STEPS.find((s) => windowSeconds / s <= MAX_TICKS) ?? TICK_STEPS[TICK_STEPS.length - 1];
+  const ticks: number[] = [];
+  for (let t = Math.ceil(windowStart / step) * step; t <= windowStart + windowSeconds + 1e-6; t += step) ticks.push(t);
+
+  return (
+    <div
+      ref={rulerRef}
+      className="relative h-4 font-mono text-[10px] text-slate-500 tabular-nums cursor-zoom-in select-none touch-none"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => setPick(null)}
+      title="Drag across the times to zoom to that part"
+    >
+      {ticks.map((t) => (
+        <span key={t} aria-hidden="true" className="absolute top-0 -translate-x-1/2 pointer-events-none whitespace-nowrap" style={{ left: `${pct(t)}%` }}>
+          {formatClock(t).replace(/\.0$/, '')}
+        </span>
+      ))}
+      {pick && (
+        <span
+          aria-hidden="true"
+          className="absolute -top-0.5 -bottom-0.5 rounded bg-indigo-400/30 border border-indigo-300/70 pointer-events-none"
+          style={{ left: `${pct(Math.min(pick.from, pick.to))}%`, width: `${pct(Math.max(pick.from, pick.to)) - pct(Math.min(pick.from, pick.to))}%` }}
+        />
+      )}
+    </div>
+  );
+};
 
 /**
  * Playheads for a timeline that shows `windowSeconds` from `windowStart`.

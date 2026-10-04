@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Loader2, Pencil, Play, RotateCcw, X } from 'lucide-react';
-import { TimelineScrollbar, TimelineTransport, useWindowPlayheads, wheelScroll } from './TimelineControls';
+import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { AudioSegment } from '../types';
 import {
@@ -23,9 +23,6 @@ import {
  * speaker is still talking. Lengths are estimated from characters and a
  * speaking rate, so every figure here says so. See server/lib/syncPreview.js.
  */
-
-/** Seconds of the timeline shown at once, as in the report's timeline. */
-const WINDOW_SECONDS = 30;
 
 const formatClock = (seconds: number) => {
   const t = Math.max(0, seconds || 0);
@@ -734,9 +731,10 @@ export const PreviewTimeline: React.FC<{
   const [drag, setDrag] = useState<{ key: string; seconds: number } | null>(null);
   // The clocks show tenths; the playheads move every frame through playheadRef.
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
-  const total = Math.max(WINDOW_SECONDS, ...units.map((u) => Math.max(u.srcEnd, u.srcStart + u.estimate)));
-  const [windowStart, setWindowStart] = useState(0);
-  const [follow, setFollow] = useState(true);
+  const total = Math.max(0, ...units.map((u) => Math.max(u.srcEnd, u.srcStart + u.estimate)));
+  // Opens on the whole dub; zooming in shows a window of it, as in the report's timeline.
+  const zoom = useTimelineZoom(total, currentTime);
+  const { windowStart, windowSeconds: WINDOW_SECONDS, follow, setFollow, scrollTo } = zoom;
   const playheadRef = useWindowPlayheads({
     reportedTime,
     isPlaying,
@@ -744,7 +742,7 @@ export const PreviewTimeline: React.FC<{
     windowStart,
     windowSeconds: WINDOW_SECONDS,
     follow,
-    onFollow: (t) => setWindowStart(Math.max(0, Math.min(total - WINDOW_SECONDS, t - 2))),
+    onFollow: zoom.followTo,
     hidden: Boolean(offClockNote),
   });
 
@@ -775,11 +773,6 @@ export const PreviewTimeline: React.FC<{
     () => units.filter((u) => Math.max(u.srcEnd, u.srcStart + u.estimate) >= windowStart && u.srcStart <= end),
     [units, windowStart, end]
   );
-  // Scrolling by hand stops the window following playback until play is pressed or a lane clicked.
-  const scrollTo = (start: number) => {
-    setFollow(false);
-    setWindowStart(Math.max(0, Math.min(Math.max(0, total - WINDOW_SECONDS), start)));
-  };
   const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(windowStart + seconds));
   const markers = useMemo(
     () =>
@@ -807,7 +800,10 @@ export const PreviewTimeline: React.FC<{
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
+      <TimelineZoomControls zoom={zoom} />
+      <div ref={zoom.lanesRef} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
+        <span />
+        <TimelineRuler zoom={zoom} />
         <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
           <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
         </span>

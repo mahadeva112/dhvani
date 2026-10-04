@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import { bufferSeconds, computePeaks } from '../services/playbackTimeline';
-import { TimelineScrollbar, TimelineTransport, useWindowPlayheads, wheelScroll } from './TimelineControls';
+import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 
 /**
- * How every synced line landed against the original, over a 30-second window
- * that follows the playhead.
+ * How every synced line landed against the original. It opens on the whole
+ * track; zooming in (the buttons, Ctrl + wheel or a pinch, or a drag across the
+ * ruler) shows a window of it that follows the playhead.
  *
  *   ruler      time
  *   Original   the original's waveform and lines, numbered
@@ -22,11 +23,9 @@ import { useLiveTime } from './useLiveTime';
  * spells out its numbers underneath.
  */
 
-/** Seconds of the timeline shown at once. */
-const WINDOW_SECONDS = 30;
 /** Above this a late or early start is drawn red rather than amber. */
 const FAR_OFF_SECONDS = 0.5;
-/** Waveform peaks per second: finer than a 30-second window needs at any width. */
+/** Waveform peaks per second: finer than the closest zoom needs at any width. */
 const PEAKS_PER_SECOND = 100;
 
 const formatClock = (seconds: number) => {
@@ -126,8 +125,8 @@ export const SyncAlignmentView: React.FC<{
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
   const units = useMemo(() => [...report.units].sort((a, b) => a.srcStart - b.srcStart), [report]);
   const total = Math.max(report.duration, ...units.map((u) => Math.max(u.srcEnd, u.placedEnd ?? 0)));
-  const [windowStart, setWindowStart] = useState(0);
-  const [follow, setFollow] = useState(true);
+  const zoom = useTimelineZoom(total, currentTime);
+  const { windowStart, windowSeconds: WINDOW_SECONDS, follow, setFollow, scrollTo } = zoom;
   const [hovered, setHovered] = useState<number | null>(null);
   const playheadRef = useWindowPlayheads({
     reportedTime,
@@ -136,7 +135,7 @@ export const SyncAlignmentView: React.FC<{
     windowStart,
     windowSeconds: WINDOW_SECONDS,
     follow,
-    onFollow: (t) => setWindowStart(Math.max(0, Math.min(total - WINDOW_SECONDS, t - 2))),
+    onFollow: zoom.followTo,
   });
   const sourcePeaks = usePeaks(sourceBuffer);
   const dubPeaks = usePeaks(dubBuffer);
@@ -156,10 +155,6 @@ export const SyncAlignmentView: React.FC<{
   const focusIndex = focus?.index ?? null;
   const dim = (u: SyncUnitReport) => hovered !== null && u.index !== hovered;
 
-  const scrollTo = (start: number) => {
-    setFollow(false);
-    setWindowStart(Math.max(0, Math.min(Math.max(0, total - WINDOW_SECONDS), start)));
-  };
   const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(windowStart + seconds));
   const seekAt = (e: React.MouseEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
@@ -188,10 +183,6 @@ export const SyncAlignmentView: React.FC<{
   const maxLate = offsets.length ? Math.max(...offsets) : 0;
   const longCount = units.filter((u) => u.exceeded).length;
 
-  // Ruler ticks every 5 s.
-  const ticks: number[] = [];
-  for (let t = Math.ceil(windowStart / 5) * 5; t <= end; t += 5) ticks.push(t);
-
   const laneLabel = 'flex items-center gap-1.5 text-[11px] text-slate-400';
   const lineNumber = (u: SyncUnitReport, from: number, to: number) =>
     pct(to) - pct(from) > 3.2 ? (
@@ -202,16 +193,12 @@ export const SyncAlignmentView: React.FC<{
 
   return (
     <div className="flex flex-col gap-1.5" onMouseLeave={() => setHovered(null)}>
-      <div className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 items-center">
-        {/* Ruler */}
+      <TimelineZoomControls zoom={zoom} />
+
+      <div ref={zoom.lanesRef} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 items-center">
+        {/* Ruler: drag across it to zoom to that stretch */}
         <span />
-        <div className="relative h-4 font-mono text-[10px] text-slate-500 tabular-nums" aria-hidden="true">
-          {ticks.map((t) => (
-            <span key={t} className="absolute top-0 -translate-x-1/2" style={{ left: `${pct(t)}%` }}>
-              {formatClock(t).replace(/\.0$/, '')}
-            </span>
-          ))}
-        </div>
+        <TimelineRuler zoom={zoom} />
 
         {/* Original */}
         <span className={laneLabel}>
