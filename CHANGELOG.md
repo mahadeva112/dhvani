@@ -151,6 +151,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Long scripts no longer make the playhead stutter.
   - A new dub no longer shows the previous dub's waveform while it loads.
 
+- **The Sync step plays the track you picked.** The Sync preview's play button and timeline switched
+  back to **Original**, and **Listen** on a synced line switched to **Both**, whatever was picked in
+  Listen to. They now play **Original**, **Dub** or **Both** as chosen; on an unsynced dub, a click on
+  the preview timeline lands on the same line in the dub. **▶ Original** on a line still plays the
+  original.
+
 - **Dubs sound spoken, not read aloud.** Three causes:
   - Translation was briefed as subtitles, so it came back as written language. It is now briefed as
     a dub to be spoken: everyday spoken vocabulary rather than bookish words, the speaker's own
