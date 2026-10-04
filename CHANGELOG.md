@@ -12,6 +12,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A new version announces itself once.** When the desktop app finds a newer release, a notice in
   the corner says so, with **See what's new** and **Later**. Each version shows it once; the header's
   Update button stays as before.
+- **Updates show their progress while they install.** **Restart and install** used to close DHVANI
+  with nothing on screen until the new version opened. Now the app shows the install steps for a
+  moment before it closes, a small **Updating DHVANI** window stays on top while the installer runs
+  (Windows, in-app updates only), and once the new version opens a message in the corner confirms
+  it, once.
 - **Final dub shows each line's sync fit.** The Final script now times every dub line against its
   source sentence, the same estimate the Sync preview makes: a badge (**+0.6 s over**, **Ends 1.4 s
   early**, **Tight** or **Fits**), a bar against the slot, and a **Sync fit** strip with the counts and
@@ -77,6 +82,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Updates install faster.** The desktop app no longer ships about 4,300 files it never used (the
+  UI's libraries are already bundled into it), so each update has far fewer files to delete, write
+  and virus-scan.
 - **Natural syncs closer, with fewer pause cuts.** A line that runs long now uses more of the pause
   after it before any silence inside it is taken out: the dub keeps at least 30% of the original
   pause between lines (was 50%), never less than 180 ms, and 250 ms where the speaker changes (was
