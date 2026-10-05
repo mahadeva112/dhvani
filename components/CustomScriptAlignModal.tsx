@@ -549,7 +549,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                       {item.targetText.trim() ? (
                         (tooFast || !flag) && (
                           <span className={`font-mono text-[10.5px] px-2 py-0.5 rounded-full whitespace-nowrap ${tooFast ? 'bg-rose-500/15 text-rose-300' : 'bg-emerald-500/15 text-emerald-300'}`}>
-                            {tooFast ? `${cps.toFixed(0)} cps` : 'OK'}
+                            {tooFast ? 'Too fast' : 'OK'}
                           </span>
                         )
                       ) : (

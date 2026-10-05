@@ -9,10 +9,26 @@ export interface TranslationPromptPreset {
 
 export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
   {
+    id: 'conversational',
+    name: 'Natural Conversational',
+    shortDesc: 'Fluid spoken dialogue, modern idioms, everyday cadence & natural pauses',
+    badge: 'Recommended',
+    category: 'style',
+    prompt: `You are an expert dialogue adapter and dubbing director.
+Translate the speech naturally and fluently into the target language.
+
+CORE PRINCIPLES:
+1. Natural Spoken Cadence: Write lines as real people actually speak, avoiding stiff textbook grammar or overly literal phrasing.
+2. Timing & Rhythm: Phrase lines so they naturally fit the duration and pause structure of the original speaker.
+3. Cultural Adaptation: Translate idioms and cultural references into natural, contemporary target-language equivalents.
+4. Loanwords: Keep standard modern technical, media, and digital terms (like internet, app, podcast, studio, website) in their recognized form.
+5. Emotion & Pacing: Retain the speaker's emotional energy, humor, or contemplation without artificial embellishment.`
+  },
+  {
     id: 'three_step',
     name: 'Sadhguru 3-Step Dubbing',
     shortDesc: 'Translation, review and punctuation passes using the per-language prompts',
-    badge: 'Recommended',
+    badge: '3-step',
     category: 'persona',
     // The first line is what switches the backend to the 3-step pipeline
     // (server/providers/gemini/threeStepTranslation.js). Lines starting with
@@ -27,22 +43,6 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 # Marathi, Nepali, Odia, Tamil and Telugu; other languages get the
 # standard translation.
 # Keep the first line. Write any extra instructions below it without a "#".`
-  },
-  {
-    id: 'conversational',
-    name: 'Natural Conversational',
-    shortDesc: 'Fluid spoken dialogue, modern idioms, everyday cadence & natural pauses',
-    badge: 'Natural',
-    category: 'style',
-    prompt: `You are an expert dialogue adapter and dubbing director.
-Translate the speech naturally and fluently into the target language.
-
-CORE PRINCIPLES:
-1. Natural Spoken Cadence: Write lines as real people actually speak, avoiding stiff textbook grammar or overly literal phrasing.
-2. Timing & Rhythm: Phrase lines so they naturally fit the duration and pause structure of the original speaker.
-3. Cultural Adaptation: Translate idioms and cultural references into natural, contemporary target-language equivalents.
-4. Loanwords: Keep standard modern technical, media, and digital terms (like internet, app, podcast, studio, website) in their recognized form.
-5. Emotion & Pacing: Retain the speaker's emotional energy, humor, or contemplation without artificial embellishment.`
   },
   {
     id: 'sadhguru',
@@ -125,28 +125,15 @@ export const QUICK_PROMPT_TAGS = [
   { label: 'Sanskrit/Spiritual vocabulary', tag: '\n- Use classical spiritual equivalents for philosophical concepts (Mukti, Divya, Chitta, Chetana).' },
 ];
 
-export const DEFAULT_PROMPT_PRESET_ID = 'three_step';
+/**
+ * The style a translation uses until the user picks another. Only a pick made
+ * in the prompt dialog is saved, so anyone who never chose one follows this.
+ */
+export const DEFAULT_PROMPT_PRESET_ID = 'conversational';
 
 export const getPresetById = (id: string): TranslationPromptPreset => {
-  return TRANSLATION_PRESETS.find((p) => p.id === id) || TRANSLATION_PRESETS[0];
-};
-
-/**
- * One-time move of existing installs onto the 3-step default. Only a saved
- * choice that is still the old default with its text unedited is cleared, so a
- * style someone picked or edited on purpose is left alone.
- */
-export const adoptThreeStepDefault = (): void => {
-  const FLAG = 'dhvani_prompt_default_three_step';
-  try {
-    if (localStorage.getItem(FLAG)) return;
-    localStorage.setItem(FLAG, '1');
-    const savedId = localStorage.getItem('dhvani_prompt_preset_id');
-    const savedPrompt = localStorage.getItem('dhvani_custom_prompt');
-    const unedited = !savedPrompt || savedPrompt.trim() === getPresetById('conversational').prompt.trim();
-    if ((!savedId || savedId === 'conversational') && unedited) {
-      localStorage.removeItem('dhvani_prompt_preset_id');
-      localStorage.removeItem('dhvani_custom_prompt');
-    }
-  } catch {}
+  return (
+    TRANSLATION_PRESETS.find((p) => p.id === id) ||
+    TRANSLATION_PRESETS.find((p) => p.id === DEFAULT_PROMPT_PRESET_ID)!
+  );
 };

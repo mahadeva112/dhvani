@@ -128,6 +128,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Translation uses Natural Conversational by default.** It now heads the style list as the
+  recommended style, in place of Sadhguru 3-Step Dubbing. A style you picked yourself in the
+  Translation style dialog is kept.
 - **Review says how a line paces in words, not cps.** The cue list, Cards, Spotlight, the player's
   caption and the Review panel's "Needs attention" no longer show characters-per-second figures:
   each line reads **Natural**, **Tight** or **Too fast**, with its pacing bar, and a QA finding says
