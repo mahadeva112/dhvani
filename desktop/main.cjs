@@ -206,7 +206,7 @@ const setupAutoUpdates = () => {
     setUpdateState({ status: 'installing' });
     // Silent reinstall into the same folder, then relaunch. The pause lets the
     // page show that DHVANI is about to close; the installer shows its own
-    // small window while the app is gone (desktop/installer.nsh).
+    // "Updating DHVANI" window until the new version opens (desktop/installer.nsh).
     setTimeout(() => autoUpdater.quitAndInstall(true, true), INSTALL_NOTICE_MS);
   });
   ipcMain.handle('updates:open-releases', () => shell.openExternal(RELEASES_URL));
