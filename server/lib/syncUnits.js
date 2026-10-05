@@ -11,6 +11,7 @@
  */
 
 import { DEFAULT_JOIN_SETTINGS, MAX_KEPT_PAUSE_SECONDS } from './syncSettings.js';
+import { endsSentence } from './ttsText.js';
 
 /** Cues closer together than this were spoken as one phrase (the default; see syncSettings.js). */
 export const UNIT_GAP_SECONDS = DEFAULT_JOIN_SETTINGS.unitGap;
@@ -25,6 +26,15 @@ export const HARD_ANCHOR_GAP_SECONDS = 1.2;
 /** Longer units are split at the next cue, so one late line can't drag a whole paragraph (the default). */
 export const MAX_UNIT_SECONDS = DEFAULT_JOIN_SETTINGS.maxUnit;
 
+/**
+ * A sentence is never cut in two to keep a unit short: a unit whose text
+ * hasn't ended a sentence takes the next cue even past `maxUnit`, up to this
+ * length, and across a pause up to HARD_ANCHOR_GAP_SECONDS. Voiced in two
+ * halves, each half ends as if the sentence were over, and the voice often
+ * cuts the first one off before its last word is finished.
+ */
+export const MAX_SENTENCE_UNIT_SECONDS = 30;
+
 const cueText = (segment) => String(segment?.textTarget || segment?.targetText || '').trim();
 const cueSourceText = (segment) => String(segment?.textSource || segment?.originalText || '').trim();
 
@@ -35,22 +45,28 @@ const finite = (value) => typeof value === 'number' && Number.isFinite(value);
  * have nothing to voice. Returns units in source order, each with
  * `{ index, cueIds, text, sourceText, srcStart, srcEnd, speaker, gapBefore, gapAfter, nextStart, speakerChangeAfter, hardAnchor }`.
  * `nextStart` is null for the last unit; `gapBefore` is null for the first.
- * `unitGap` and `maxUnit` (seconds) decide which cues are joined.
+ * `unitGap` and `maxUnit` (seconds) decide which cues are joined; a sentence
+ * left open is finished in the same unit (see MAX_SENTENCE_UNIT_SECONDS),
+ * unless `unitGap` is 0 or the text has no sentence marks at all.
  */
 export const buildSyncUnits = (segments = [], { unitGap = UNIT_GAP_SECONDS, maxUnit = MAX_UNIT_SECONDS } = {}) => {
   const cues = segments
     .filter((segment) => cueText(segment) && finite(segment.startTime) && finite(segment.endTime))
     .sort((a, b) => a.startTime - b.startTime);
+  // Text with no sentence marks says nothing about where sentences end.
+  const keepSentences = unitGap > 0 && cues.some((cue) => endsSentence(cueText(cue)));
 
   const units = [];
   let current = null;
 
   for (const cue of cues) {
+    const open = keepSentences && current && !endsSentence(current.text);
+    const gap = current ? cue.startTime - current.srcEnd : 0;
     const joins =
       current &&
-      cue.startTime - current.srcEnd < unitGap &&
       (cue.speaker || null) === current.speaker &&
-      cue.endTime - current.srcStart <= maxUnit;
+      (gap < unitGap || (open && gap < HARD_ANCHOR_GAP_SECONDS)) &&
+      cue.endTime - current.srcStart <= (open ? Math.max(maxUnit, MAX_SENTENCE_UNIT_SECONDS) : maxUnit);
 
     if (joins) {
       current.cueIds.push(cue.id);

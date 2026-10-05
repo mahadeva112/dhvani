@@ -98,6 +98,8 @@ export const syncFraction = (progress: SyncProgress | null) =>
 /** Why a line is worth a listen, or null when it landed cleanly. */
 const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null => {
   if (unit.silent) return 'The voice returned no audio for this line';
+  if (unit.cutOff)
+    return `The voice stops before the last word is finished${unit.retakes ? `, in all ${unit.retakes + 1} takes` : ''}: retake it or reword the line`;
   if (unit.exceeded) return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had`;
   if (unit.short)
     return `Ends ${unit.shortBy.toFixed(1)} s before the original speaker stops: ${unit.speech.toFixed(1)} s said, ${(unit.srcEnd - unit.srcStart).toFixed(1)} s spoken`;
@@ -581,7 +583,9 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                   ? 'Every line landed within tolerance.'
                   : `${review.filter((r) => !r.unit.inSync).length} outside tolerance · ${report.summary.exceeded} too long for their slot${
                       report.summary.short ? ` · ${report.summary.short} end early` : ''
-                    }${report.summary.tightJoins ? ` · ${report.summary.tightJoins} tight ${report.summary.tightJoins === 1 ? 'join' : 'joins'}` : ''}`}
+                    }${report.summary.tightJoins ? ` · ${report.summary.tightJoins} tight ${report.summary.tightJoins === 1 ? 'join' : 'joins'}` : ''}${
+                      report.summary.cutOff ? ` · ${report.summary.cutOff} cut off` : ''
+                    }`}
               </span>
             </div>
             {pendingLines.length > 0 && (

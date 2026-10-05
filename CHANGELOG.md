@@ -231,6 +231,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Sync no longer cuts off the end of a line, or clicks there.** A line the voice stopped
+  mid-word, still loud, used to go into the dub as it was, ending on an audible click. Sync now
+  spots such a take and voices the line again with another seed, up to two more times, and uses the
+  first take that finishes its last word. A line still cut off after that is listed under **Worth a
+  listen**, so you can retake or reword it. A take you locked in Edit timing is kept as it is.
+  Two changes make cut-off takes rarer. Sync no longer splits a sentence across two lines: a cue
+  whose sentence isn't over takes the next cue, past the grouping gap (up to 1.2 s) and past the
+  longest line (up to 30 s). And each line is voiced ending in a full stop, or a danda in Bengali,
+  Hindi, Marathi, Nepali, Assamese and Odia, so the voice finishes it.
 - **Review's Previous / Next buttons work, and stay in reach.** While the playhead rested inside a
   cue, the list snapped straight back to that cue's page, so Next and Previous looked dead. Now the
   list moves only when playback reaches a new cue. The paging bar stays pinned to the bottom of the

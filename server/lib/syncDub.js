@@ -26,7 +26,7 @@ import { resolveJoinSettings, dbToAmplitude } from './syncSettings.js';
 import { placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, shortenPauses, applyCuts, renderTimeline, startAfterCut } from './syncRender.js';
 import { matchingGains } from './loudness.js';
-import { TTS_CONTEXT_CHARS } from './ttsText.js';
+import { TTS_CONTEXT_CHARS, withSentenceEnd } from './ttsText.js';
 import { mixSpeakers, speakerGains } from './speakerMix.js';
 
 /**
@@ -85,6 +85,12 @@ const validCuts = (cuts, length) => {
 
 /** A speaker's line may start this close to the end of their previous one before it counts as talking over themself. */
 const SELF_OVERLAP_SLACK = 0.01;
+
+/** Times a line the voice cut off mid-word is voiced again before it is reported instead. */
+export const MAX_RETAKES = 2;
+
+/** The seed of retake `attempt` of a line voiced with `seed` (none: the voice picked one). */
+const retakeSeed = (seed, attempt) => ((Number.isInteger(seed) ? seed : 0) + attempt * 7919) % 2 ** 32;
 
 /** Suggestions asked for at once. */
 const SUGGESTION_CONCURRENCY = 4;
@@ -234,53 +240,85 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
     return null;
   };
+  // What each line is voiced from: its text, ending a sentence so the voice finishes the last word.
+  const spoken = units.map((unit) => withSentenceEnd(unit.text));
   const buffers = new Array(units.length);
-  const missing = [];
-  units.forEach((unit, i) => {
-    const cached = clipCache.get(cacheKey(voiceOf(unit), unit.text));
-    if (cached) buffers[i] = cached;
-    else missing.push(i);
-  });
-  report({ unitsToVoice: missing.length });
-  // One run of requests per voice, so all of a speaker's lines are read as one.
-  const groups = new Map();
-  for (const i of missing) {
-    const key = multiSpeaker ? speakerOf(units[i]) : '';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(i);
-  }
+  const clips = new Array(units.length);
+  const voicedLength = new Array(units.length);
+  const fit = async (i) => {
+    const samples = await deps.decode(buffers[i]);
+    voicedLength[i] = samples.length;
+    clips[i] = prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold });
+  };
+
+  /**
+   * Voices lines `indexes` with `seedFor(unit)` as their seed, from the cache
+   * where it has them, one run of requests per voice so all of a speaker's
+   * lines are read as one, and fits each take.
+   */
   let voicedSoFar = 0;
-  for (const indexes of groups.values()) {
+  const voiceAndFit = async (indexes, seedFor) => {
+    const voiceWith = (i) => ({ ...baseVoiceOf(units[i]), seed: seedFor(units[i]) });
+    const missing = [];
+    for (const i of indexes) {
+      const cached = clipCache.get(cacheKey(voiceWith(i), spoken[i]));
+      if (cached) buffers[i] = cached;
+      else missing.push(i);
+    }
+    report({ unitsToVoice: progress.unitsToVoice + missing.length });
+    const groups = new Map();
+    for (const i of missing) {
+      const key = multiSpeaker ? speakerOf(units[i]) : '';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(i);
+    }
+    for (const group of groups.values()) {
+      checkCancelled();
+      const lines = group.map((i) => ({
+        text: spoken[i],
+        previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS),
+        nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS),
+        seed: seedFor(units[i]),
+      }));
+      const before = voicedSoFar;
+      const voiced = await deps.voiceLines(lines, {
+        voice: baseVoiceOf(units[group[0]]),
+        onLine: (done) => report({ unitsVoiced: before + done }),
+      });
+      group.forEach((i, n) => {
+        buffers[i] = voiced[n];
+        remember(cacheKey(voiceWith(i), spoken[i]), voiced[n]);
+      });
+      voicedSoFar += group.length;
+    }
     checkCancelled();
-    const lines = indexes.map((i) => ({
-      text: units[i].text,
-      previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS),
-      nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS),
-      seed: seedOf(units[i]),
-    }));
-    const before = voicedSoFar;
-    const voiced = await deps.voiceLines(lines, {
-      voice: baseVoiceOf(units[indexes[0]]),
-      onLine: (done) => report({ unitsVoiced: before + done }),
-    });
-    indexes.forEach((i, n) => {
-      buffers[i] = voiced[n];
-      remember(cacheKey(voiceOf(units[i]), units[i].text), voiced[n]);
-    });
-    voicedSoFar += indexes.length;
+    for (const i of indexes) await fit(i);
+    checkCancelled();
+  };
+
+  await voiceAndFit(
+    units.map((_, i) => i),
+    seedOf
+  );
+
+  // A take the voice cut off before its last word died away is voiced again
+  // with another seed, up to MAX_RETAKES times. A take the user locked in
+  // Edit timing is theirs and is kept. Retake seeds follow from the line's own
+  // seed, so a later sync finds the same takes in the cache.
+  const retakes = units.map(() => 0);
+  const heldByLock = (i) => {
+    const lock = locked && typeof locked === 'object' ? locked[lineKey(units[i])] : null;
+    return Boolean(lock) && lock.hash === clipHash(clips[i].samples);
+  };
+  for (let attempt = 1; attempt <= MAX_RETAKES; attempt++) {
+    const cut = units.map((_, i) => i).filter((i) => clips[i]?.cutOff && !heldByLock(i));
+    if (cut.length === 0) break;
+    await voiceAndFit(cut, (unit) => retakeSeed(seedOf(unit), attempt));
+    for (const i of cut) retakes[i] = attempt;
   }
-  checkCancelled();
 
   // 3. Fitting
   report({ phase: 'fitting', step: 3 });
-  const clips = [];
-  const voicedLength = [];
-  for (const buffer of buffers) {
-    const samples = await deps.decode(buffer);
-    voicedLength.push(samples.length);
-    clips.push(prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold }));
-  }
-  checkCancelled();
   // Each take by its samples before any pause is shortened: a locked line is the same line only if this matches.
   const hashes = clips.map((clip) => (clip ? clipHash(clip.samples) : null));
   const lockOf = units.map((unit, i) => {
@@ -603,6 +641,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       late: late[i],
       joinAfter: joinAfter.has(i) ? joinAfter.get(i) : null,
       tightJoin: tightJoin[i],
+      retakes: retakes[i],
+      cutOff: Boolean(clips[i]?.cutOff),
     };
   });
 
@@ -630,6 +670,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         late: late.filter(Boolean).length,
         tightJoins: tightJoin.filter(Boolean).length,
         silent: units.length - placedIndex.length,
+        retaken: retakes.filter((n) => n > 0).length,
+        cutOff: clips.filter((clip) => clip?.cutOff).length,
       },
       units: unitReports,
       ...(mixed && { mix: { ...mixed.report, overlapsKept, selfOverlaps } }),

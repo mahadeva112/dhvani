@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitTextForSpeech, splitPassages, contextAround } from './ttsText.js';
+import { splitTextForSpeech, splitPassages, contextAround, endsSentence, withSentenceEnd } from './ttsText.js';
 
 test('short text is sent as a single passage', () => {
   assert.deepEqual(splitTextForSpeech('Hello there. How are you?'), ['Hello there. How are you?']);
@@ -65,4 +65,16 @@ test('each passage reports the boundary it ends on, so the join can pause to mat
 test('a passage cut mid-sentence reports a word break', () => {
   const [first] = splitPassages('word '.repeat(100), 60);
   assert.equal(first.breakAfter, 'word');
+});
+
+test('a line voiced on its own always ends a sentence, in the mark of its script', () => {
+  assert.equal(withSentenceEnd('আমি বাড়ি যাচ্ছি'), 'আমি বাড়ি যাচ্ছি।');
+  assert.equal(withSentenceEnd('मैं घर जा रहा हूँ,'), 'मैं घर जा रहा हूँ।');
+  assert.equal(withSentenceEnd('நான் வீட்டுக்குப் போகிறேன்'), 'நான் வீட்டுக்குப் போகிறேன்.');
+  assert.equal(withSentenceEnd('I am going home —  '), 'I am going home.');
+  // Already ending a sentence: left as it is.
+  for (const done of ['আমি যাচ্ছি।', 'Really?', 'He said "go."', 'যাও!']) assert.equal(withSentenceEnd(done), done);
+  assert.equal(endsSentence('আমি যাচ্ছি, '), false);
+  assert.equal(endsSentence('আমি যাচ্ছি। '), true);
+  assert.equal(withSentenceEnd(''), '');
 });

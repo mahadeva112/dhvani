@@ -67,7 +67,7 @@ test('the bank holds every placed line, and rendering it with no edits is the sy
 });
 
 test('with loudness matching on, the bank carries each line its gain and the render still matches', async () => {
-  const takes = { aaaaaaaaaa: () => voiced('aaaaaaaaaa', { level: 0.05 }) };
+  const takes = { 'aaaaaaaaaa.': () => voiced('aaaaaaaaaa', { level: 0.05 }) };
   const { buffer, bank } = await sync({ matchLoudness: true }, takes);
   assert.ok(bank.lines[0].gain > 1, 'the quiet line is brought up');
   assert.deepEqual(await render(bank, asSynced(bank)), asFloat(buffer));
@@ -189,7 +189,7 @@ test('a locked line is cut again exactly as the sync it was edited on cut it', a
 test('a dub with several speakers renders from its bank as it was mixed', async () => {
   clearClipCache();
   const segments = [cue(1, 1, 2, 'aaaaaaaaaa', { speaker: 'A' }), cue(2, 4, 5, 'bbbbbbbbbb', { speaker: 'B' })];
-  const takes = { aaaaaaaaaa: () => voiced('aaaaaaaaaa', { level: 0.1 }) };
+  const takes = { 'aaaaaaaaaa.': () => voiced('aaaaaaaaaa', { level: 0.1 }) };
   const { buffer, bank, report } = await runSync(
     { segments, sourceDuration: 7, sampleRate: RATE, voice, multiSpeaker: true, voiceFor: () => voice, matchLoudness: true },
     deps(takes)

@@ -32,6 +32,14 @@ const SPEECH_THRESHOLD = 0.0032;
 const QUIET = 0.001;
 const QUIET_RUN_SECONDS = 0.02;
 
+/**
+ * About -40 dBFS: a clip that is this loud within its last CUT_OFF_WINDOW_SECONDS,
+ * with no silence after its last word, was stopped by the voice mid-word. A
+ * clip that only trails off in breath or room noise is not.
+ */
+const CUT_OFF_LEVEL = 0.01;
+const CUT_OFF_WINDOW_SECONDS = 0.01;
+
 /** A pause inside a line is never shortened below this, so the line still breathes. */
 export const MIN_INNER_PAUSE_SECONDS = 0.18;
 
@@ -43,8 +51,8 @@ export const MICRO_FADE_SECONDS = 0.003;
 
 /**
  * The first index at or after `from` where the audio has been quiet for
- * `run` samples, i.e. where a cut is inaudible; `samples.length` when the
- * audio never goes quiet.
+ * `run` samples, i.e. where a cut is inaudible; -1 when the audio never goes
+ * quiet that long.
  */
 const quietAfter = (samples, from, run, quiet = QUIET) => {
   let count = 0;
@@ -52,7 +60,7 @@ const quietAfter = (samples, from, run, quiet = QUIET) => {
     count = Math.abs(samples[i]) < quiet ? count + 1 : 0;
     if (count >= run) return i + 1;
   }
-  return samples.length;
+  return -1;
 };
 
 /** The last index at or before `from` such that the `run` samples after it are quiet; 0 when none are. */
@@ -68,9 +76,11 @@ const quietBefore = (samples, from, run) => {
 /**
  * The part of a generated clip from the silence before its first sound to the
  * silence after its last one, decay and breaths included. Returns
- * `{ samples, lead, speech, start, end }` — `lead` is the seconds before the
- * first word, `speech` the seconds from first to last word, and `start`/`end`
- * the range of the clip kept — or null when the clip is silent.
+ * `{ samples, lead, speech, start, end, cutOff }` — `lead` is the seconds
+ * before the first word, `speech` the seconds from first to last word,
+ * `start`/`end` the range of the clip kept, and `cutOff` true when the clip
+ * ends at speech level, before its last sound has died away (the voice
+ * stopped mid-word; the clip is kept as it is) — or null when the clip is silent.
  *
  * `tailQuiet` is how quiet (linear) the audio after the last word must stay
  * before the tail ends; a lower level keeps more of a voice's decay.
@@ -91,13 +101,17 @@ export const prepareClip = (samples, sampleRate, { tailQuiet = QUIET, tailHold =
 
   const run = Math.max(1, Math.round(QUIET_RUN_SECONDS * sampleRate));
   const start = quietBefore(samples, first - 1, run);
-  const end = Math.min(samples.length, quietAfter(samples, last + 1, run, Math.min(QUIET, tailQuiet)) + Math.round(Math.max(0, tailHold) * sampleRate));
+  const tail = quietAfter(samples, last + 1, run, Math.min(QUIET, tailQuiet));
+  let endPeak = 0;
+  for (let i = Math.max(0, samples.length - Math.round(CUT_OFF_WINDOW_SECONDS * sampleRate)); i < samples.length; i++) endPeak = Math.max(endPeak, Math.abs(samples[i]));
+  const end = Math.min(samples.length, (tail === -1 ? samples.length : tail) + Math.round(Math.max(0, tailHold) * sampleRate));
   return {
     samples: samples.slice(start, end),
     lead: (first - start) / sampleRate,
     speech: (last + 1 - first) / sampleRate,
     start,
     end,
+    cutOff: quietAfter(samples, last + 1, run) === -1 && endPeak >= CUT_OFF_LEVEL,
   };
 };
 

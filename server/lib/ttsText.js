@@ -16,6 +16,31 @@ export const TTS_CONTEXT_CHARS = 300;
 /** Sentence-ending punctuation across the scripts DHVANI dubs into, plus trailing quotes. */
 const SENTENCE_END = /[.!?…।॥。！？؟]+["'”’)\]]*(?=\s)/gu;
 
+/** The same at the very end of a text. */
+const ENDS_SENTENCE = /[.!?…।॥。！？؟]+["'”’)\]]*$/u;
+
+/** True when `text` ends a sentence: its last mark is a full stop, danda, question or exclamation mark. */
+export const endsSentence = (text) => ENDS_SENTENCE.test(String(text ?? '').trimEnd());
+
+/** Scripts that end a sentence with a danda (।): Devanagari, Bengali/Assamese and Odia. */
+const DANDA_SCRIPT = /[ऀ-৿଀-୿]/u;
+
+/**
+ * `text` as it should be sent to be voiced on its own: ending a sentence.
+ * Voiced without a closing mark, a line is often cut off by the voice before
+ * its last word is finished. A trailing comma, colon or dash is replaced by
+ * the mark; anything already ending a sentence is left as it is.
+ */
+export const withSentenceEnd = (text) => {
+  const trimmed = String(text ?? '').trimEnd();
+  if (!trimmed || endsSentence(trimmed)) return trimmed;
+  const bare = trimmed.replace(/[\s,;:،、\-–—]+$/u, '');
+  if (!bare) return trimmed;
+  const letters = bare.match(/\p{L}/gu);
+  const mark = letters && DANDA_SCRIPT.test(letters[letters.length - 1]) ? '।' : '.';
+  return `${bare}${mark}`;
+};
+
 /** Last index in `window` just past a match of `pattern`, or -1. */
 const lastBoundary = (window, pattern) => {
   let cut = -1;
@@ -53,7 +78,7 @@ const breakAfter = (chunk, separator) => {
   if (/\n\s*\n/.test(separator)) return 'paragraph';
   if (/\n/.test(separator)) return 'line';
   if (!separator) return 'none';
-  return /[.!?…।॥。！？؟]+["'”’)\]]*$/u.test(chunk) ? 'sentence' : 'word';
+  return endsSentence(chunk) ? 'sentence' : 'word';
 };
 
 /**

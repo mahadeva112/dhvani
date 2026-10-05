@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSyncUnits, minimumGap, unitGapAfter, HARD_ANCHOR_GAP_SECONDS } from './syncUnits.js';
-import { DEFAULT_JOIN_SETTINGS, resolveJoinSettings } from './syncSettings.js';
+import { DEFAULT_JOIN_SETTINGS, resolveJoinSettings, dbToAmplitude } from './syncSettings.js';
 import { pava, placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, shortenPauses, renderTimeline, MIN_INNER_PAUSE_SECONDS } from './syncRender.js';
 import { acceptRewrite } from './syncRewrite.js';
-import { runSync, clearClipCache } from './syncDub.js';
+import { runSync, clearClipCache, clipHash, MAX_RETAKES } from './syncDub.js';
 
 const RATE = 8000;
 
@@ -42,6 +42,20 @@ test('cues spoken as one phrase become one unit; a pause or speaker change start
   assert.equal(units[2].nextStart, null);
   assert.equal(units[1].hardAnchor, false);
   assert.equal(units[2].hardAnchor, true, 'a speaker change is a hard anchor');
+});
+
+test('a sentence is never cut in two: a cue that leaves it open takes the next one', () => {
+  const segments = [cue(1, 0, 1, 'আমি আজ সকালে,'), cue(2, 1.8, 3, 'বাজারে গিয়েছিলাম।'), cue(3, 3.8, 5, 'তারপর ফিরলাম।')];
+  // 0.8 s between cues 1 and 2 is past the 0.4 s grouping gap, but the sentence isn't over.
+  assert.deepEqual(buildSyncUnits(segments).map((u) => u.cueIds), [[1, 2], [3]]);
+  // Past the longest unit too, as long as the sentence is still open.
+  const long = [cue(1, 0, 8, 'এক দুই তিন'), cue(2, 8.1, 14, 'চার পাঁচ।'), cue(3, 14.1, 20, 'ছয়।')];
+  assert.deepEqual(buildSyncUnits(long).map((u) => u.cueIds), [[1, 2], [3]]);
+  // A pause long enough to be a hard anchor still starts a new unit, and so does a new speaker.
+  assert.deepEqual(buildSyncUnits([cue(1, 0, 1, 'এক'), cue(2, 1 + HARD_ANCHOR_GAP_SECONDS, 3, 'দুই।')]).map((u) => u.cueIds), [[1], [2]]);
+  assert.deepEqual(buildSyncUnits([cue(1, 0, 1, 'এক'), cue(2, 1.5, 3, 'দুই।', { speaker: 'B' })]).map((u) => u.cueIds), [[1], [2]]);
+  // A grouping gap of 0 asks for every cue on its own.
+  assert.deepEqual(buildSyncUnits(segments, { unitGap: 0, maxUnit: 12 }).map((u) => u.cueIds), [[1], [2], [3]]);
 });
 
 test('a long pause makes a hard anchor', () => {
@@ -172,6 +186,19 @@ test('prepareClip keeps the silence edges only, and reports where the words are'
   assert.ok(Math.abs(prepared.samples[0]) < QUIET);
   assert.ok(Math.abs(prepared.samples[prepared.samples.length - 1]) < QUIET);
   assert.equal(prepareClip(new Float32Array(RATE), RATE), null);
+});
+
+test('prepareClip reports a clip the voice cut off before its last sound died away', () => {
+  assert.equal(prepareClip(clip({ tone: 1, tail: 0.2 }), RATE).cutOff, false);
+  // Stopped mid-word: loud to the very end, or with only a few ms of quiet after.
+  assert.equal(prepareClip(clip({ tone: 1, tail: 0 }), RATE).cutOff, true);
+  assert.equal(prepareClip(clip({ tone: 1, tail: 0.005 }), RATE).cutOff, true);
+  // Kept whole either way.
+  assert.equal(prepareClip(clip({ lead: 0, tone: 1, tail: 0 }), RATE).samples.length, RATE);
+  // Trailing off in breath or room noise (about -60 dBFS) to the end is not a cut.
+  const breathy = clip({ tone: 1, tail: 0.2 });
+  for (let i = breathy.length - Math.round(0.2 * RATE); i < breathy.length; i++) breathy[i] = 0.0012 * Math.sin((2 * Math.PI * 90 * i) / RATE);
+  assert.equal(prepareClip(breathy, RATE).cutOff, false);
 });
 
 test('prepareClip keeps the whole decay of the last word, however quiet it gets', () => {
@@ -489,7 +516,7 @@ test('a text model that fails leaves the sync finished, with the reason reported
   assert.equal(report.summary.suggestionError, 'Budget has been exceeded');
 });
 
-/** A fake voice: every character takes 0.08 s to say, with 0.15 s of silence either side. */
+/** A fake voice: every character takes 0.08 s to say (the closing mark the sync adds takes none), with 0.15 s of silence either side. */
 const SECONDS_PER_CHAR = 0.08;
 const fakeDeps = ({ shorten, lengthen } = {}) => {
   const voiced = [];
@@ -500,7 +527,7 @@ const fakeDeps = ({ shorten, lengthen } = {}) => {
         lines.map((line, n) => {
           voiced.push(line.text);
           onLine(n + 1);
-          return clip({ lead: 0.15, tone: line.text.length * SECONDS_PER_CHAR, tail: 0.15 });
+          return clip({ lead: 0.15, tone: line.text.replace(/[.।]$/u, '').length * SECONDS_PER_CHAR, tail: 0.15 });
         }),
       decode: async (samples) => samples,
       encode: async (samples) => ({ buffer: Buffer.from(new Uint8Array(samples.buffer)), contentType: 'audio/test' }),
@@ -612,7 +639,7 @@ test('a line too long for its slot is voiced as written, flagged, and given a su
   const progress = [];
   const { report } = await runSync({ segments, sourceDuration: 8, sampleRate: RATE, voice }, deps, { onProgress: (p) => progress.push(p) });
 
-  assert.deepEqual(voiced, ['x'.repeat(30), 'yyyyyyyyyy', 'zzzzzzzzzz'], 'each line voiced once, exactly as written');
+  assert.deepEqual(voiced, ['x'.repeat(30) + '.', 'yyyyyyyyyy.', 'zzzzzzzzzz.'], 'each line voiced once, as written and ending a sentence');
   assert.equal(report.units[0].text, 'x'.repeat(30));
   assert.equal(report.units[0].exceeded, true);
   assert.ok(report.units[0].exceededBy > 0.5, `exceeded by ${report.units[0].exceededBy}`);
@@ -663,7 +690,7 @@ test('a resync after a retake or a changed line voices only that line', async ()
     return voiceLines(batch, options);
   };
   const { report } = await runSync({ segments, sourceDuration: 9, sampleRate: RATE, voice, lineSeeds: { 1: 99 } }, retake.deps);
-  assert.deepEqual(retake.voiced, ['aaaaaaaaaa']);
+  assert.deepEqual(retake.voiced, ['aaaaaaaaaa.']);
   assert.equal(lines[0].seed, 99);
   assert.equal(report.units[0].key, '1');
 
@@ -671,7 +698,68 @@ test('a resync after a retake or a changed line voices only that line', async ()
   const changed = fakeDeps();
   const edited = [segments[0], segments[1], cue(3, 7, 8, 'cccc')];
   await runSync({ segments: edited, sourceDuration: 9, sampleRate: RATE, voice, lineSeeds: { 1: 99 } }, changed.deps);
-  assert.deepEqual(changed.voiced, ['cccc']);
+  assert.deepEqual(changed.voiced, ['cccc.']);
+});
+
+/** A voice that cuts off the takes whose seed is in `cutSeeds` (no seed counts as -1). */
+const cuttingDeps = (cutSeeds) => {
+  const { deps } = fakeDeps();
+  const requests = [];
+  deps.voiceLines = async (lines, { onLine }) =>
+    lines.map((line, n) => {
+      requests.push({ text: line.text, seed: line.seed });
+      onLine(n + 1);
+      const cut = cutSeeds.includes(Number.isInteger(line.seed) ? line.seed : -1);
+      return clip({ lead: 0.15, tone: (line.text.length - 1) * SECONDS_PER_CHAR, tail: cut ? 0 : 0.15 });
+    });
+  return { deps, requests };
+};
+
+test('a take the voice cut off mid-word is voiced again with another seed, and the good take is used', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 4, 5, 'bbbbbbbbbb')];
+  const { deps, requests } = cuttingDeps([-1]);
+  // Line 2 has its own seed, which the voice doesn't cut off.
+  const { report } = await runSync({ segments, sourceDuration: 7, sampleRate: RATE, voice, lineSeeds: { 2: 5 } }, deps);
+  assert.deepEqual(requests.map((r) => r.text), ['aaaaaaaaaa.', 'bbbbbbbbbb.', 'aaaaaaaaaa.']);
+  assert.ok(Number.isInteger(requests[2].seed) && requests[2].seed !== 5);
+  assert.equal(report.units[0].retakes, 1);
+  assert.equal(report.units[0].cutOff, false);
+  assert.equal(report.units[1].retakes, 0);
+  assert.equal(report.summary.retaken, 1);
+  assert.equal(report.summary.cutOff, 0);
+
+  // A second sync finds the retake in the cache: nothing is voiced again.
+  const again = cuttingDeps([-1]);
+  const second = await runSync({ segments, sourceDuration: 7, sampleRate: RATE, voice, lineSeeds: { 2: 5 } }, again.deps);
+  assert.equal(again.requests.length, 0);
+  assert.equal(second.report.units[0].cutOff, false);
+});
+
+test('a line cut off in every take is retaken MAX_RETAKES times, then reported', async () => {
+  clearClipCache();
+  const { deps, requests } = cuttingDeps([-1, 7919, 15838]);
+  const { report } = await runSync({ segments: [cue(1, 1, 2, 'aaaaaaaaaa')], sourceDuration: 4, sampleRate: RATE, voice }, deps);
+  assert.equal(requests.length, 1 + MAX_RETAKES);
+  assert.equal(report.units[0].retakes, MAX_RETAKES);
+  assert.equal(report.units[0].cutOff, true);
+  assert.equal(report.summary.cutOff, 1);
+});
+
+test('a cut-off take the user locked in Edit timing is kept as it is', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa')];
+  const { deps, requests } = cuttingDeps([-1]);
+  // The take as the sync fits it, cut off, is the one the user locked.
+  const take = prepareClip(clip({ lead: 0.15, tone: 10 * SECONDS_PER_CHAR, tail: 0 }), RATE, {
+    tailQuiet: dbToAmplitude(DEFAULT_JOIN_SETTINGS.tailFloorDb),
+    tailHold: DEFAULT_JOIN_SETTINGS.tailHold,
+  });
+  const locked = { 1: { hash: clipHash(take.samples), cuts: [], crossfade: 0, start: 1, end: 2.5 } };
+  const { report } = await runSync({ segments, sourceDuration: 4, sampleRate: RATE, voice, locked }, deps);
+  assert.equal(requests.length, 1, 'no retake');
+  assert.equal(report.units[0].retakes, 0);
+  assert.equal(report.units[0].cutOff, true);
 });
 
 test('audio debug accounts for every sample of every line, and the dub is each clip as voiced', async () => {
@@ -755,7 +843,7 @@ test('a line that ends well before the original speaker stops is flagged short a
   });
   const { report } = await runSync({ segments, sourceDuration: 8, sampleRate: RATE, voice }, deps);
 
-  assert.deepEqual(voiced, ['x'.repeat(10), 'yyyyyyyyyy'], 'voiced exactly as written');
+  assert.deepEqual(voiced, ['x'.repeat(10) + '.', 'yyyyyyyyyy.'], 'voiced as written, ending a sentence');
   const line = report.units[0];
   assert.equal(line.short, true);
   assert.equal(line.exceeded, false);

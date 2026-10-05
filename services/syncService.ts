@@ -230,6 +230,10 @@ export interface SyncUnitReport {
   joinAfter: number | null;
   /** `joinAfter` is under the join settings' review limit. */
   tightJoin: boolean;
+  /** Times the line was voiced again because the voice cut it off mid-word (absent in older reports). */
+  retakes?: number;
+  /** The take used still ends before its last word died away: the voice cut it off. */
+  cutOff?: boolean;
 }
 
 export interface SyncReport {
@@ -263,6 +267,9 @@ export interface SyncReport {
     /** Joins with less silence between the words than the review limit. */
     tightJoins: number;
     silent: number;
+    /** Lines voiced again because the voice cut them off, and lines still cut off after that. */
+    retaken?: number;
+    cutOff?: number;
   };
   units: SyncUnitReport[];
   /** Only for a dub with several speakers: what the mix did, and the overlaps it kept. */
