@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Your projects: every dub is kept until you delete it.** **New dub** no longer deletes the dub
+  you were on; it starts a new project beside it. A **Projects** menu in the header lists your recent
+  projects to switch between, rename or delete, and **See all projects** opens the full list (what
+  was the Batch queue), with **Clear all history**. A project's file, translation and dub are only
+  removed when you delete it or clear all history, each after a confirmation. Projects are listed
+  newest first, show when they were last worked on, and the app reopens the one you had open.
+  Opening a project lands on the step you last had it on, or as far as it has got: a file not yet
+  transcribed opens on **Source & voice** (it used to open on Review with empty cues), and is listed
+  as not started.
 - **Dubs with several speakers, one voice each.** Turn on **More than one person speaks** in Dub
   setup and ElevenLabs labels who says each line (optionally told how many speakers there are). The
   Review step then shows who speaks when, filters cues by speaker, lets you rename speakers or merge

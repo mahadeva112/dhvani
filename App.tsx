@@ -69,6 +69,13 @@ const VOICE_SETTINGS_STORAGE_KEY = 'elVoiceSettingsV2';
 /** Which engine speaks the dub, and the last voice picked on each one. */
 const VOICE_ENGINE_STORAGE_KEY = 'dhvani_voice_engine';
 const LAST_VOICE_STORAGE_KEY = 'dhvani_voice_by_engine';
+/** The project that was open, so a restart comes back to it. */
+const OPEN_PROJECT_STORAGE_KEY = 'dhvani_open_project';
+/**
+ * Not working on a project: its audio, decoded again each time it opens, and
+ * the step it is on. Changing these leaves when it was last worked on.
+ */
+const VIEW_FIELDS = new Set<string>(['audioBuffer', 'synthAudioBuffer', 'syncedAudioBuffer', 'lastStep']);
 const DEFAULT_ELEVENLABS_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
 
 const engineOfVoice = (voiceId?: string | null): VoiceEngine =>
@@ -107,6 +114,7 @@ import {
   deleteJobFromStorage,
   clearAllJobsFromStorage,
 } from './services/storageService';
+import { byNewest, hasTranscript } from './services/projects';
 import {
   BatchJob,
   ProcessingStatus,
@@ -499,13 +507,16 @@ export default function App() {
   // Active Job helper
   const activeJob = useMemo(() => queue.find((j) => j.id === activeJobId) || null, [queue, activeJobId]);
 
-  // The step on screen. Null follows the job (source, review, final dub); a
-  // click in the header or wizard pins it until another job is opened.
+  // The step on screen. Null follows the job: the step the user last picked on
+  // it, else as far as it has got. A pick in the header or wizard is kept on
+  // the job, so opening it again lands there.
   const [stepOverride, setStepOverride] = useState<number | null>(null);
   // Dubbing and Sync need a script, so a transcript waiting for the choice
   // stays on Review, where the choice is made.
   const awaitingScript = activeJob?.targetSource === 'pending';
-  const requestedStep = stepOverride ?? stepForJob(activeJob);
+  // A step kept from before only counts once there is a transcript to work on.
+  const keptStep = activeJob?.lastStep && (activeJob.lastStep === 1 || hasTranscript(activeJob.segments)) ? activeJob.lastStep : null;
+  const requestedStep = stepOverride ?? keptStep ?? stepForJob(activeJob);
   const activeStep = awaitingScript && requestedStep > 2 ? 2 : requestedStep;
   useEffect(() => {
     setStepOverride(null);
@@ -716,8 +727,14 @@ export default function App() {
                   : job.status,
             };
           });
+          saved.sort(byNewest);
           setQueue(saved);
-          setActiveJobId(saved[0].id);
+          // Back to the project that was open, else the newest.
+          let lastOpen: string | null = null;
+          try {
+            lastOpen = localStorage.getItem(OPEN_PROJECT_STORAGE_KEY);
+          } catch {}
+          setActiveJobId(saved.some((j) => j.id === lastOpen) ? lastOpen : saved[0].id);
         }
       } catch (err) {
         console.warn('Could not load stored session:', err);
@@ -726,12 +743,21 @@ export default function App() {
     loadStorage();
   }, []);
 
+  useEffect(() => {
+    if (!activeJobId) return;
+    try {
+      localStorage.setItem(OPEN_PROJECT_STORAGE_KEY, activeJobId);
+    } catch {}
+  }, [activeJobId]);
+
   // Update storage & state helper
   const updateJob = useCallback((id: string, updates: Partial<BatchJob>) => {
+    // Opening a project or moving between its steps isn't working on it.
+    const worksOnIt = Object.keys(updates).some((k) => !VIEW_FIELDS.has(k));
     setQueue((prev) =>
       prev.map((job) => {
         if (job.id === id) {
-          const updatedJob = { ...job, ...updates };
+          const updatedJob = { ...job, ...updates, ...(worksOnIt ? { updatedAt: Date.now() } : {}) };
           saveJobToStorage(updatedJob).catch((err) => console.error('Storage Save Error:', err));
           return updatedJob;
         }
@@ -739,6 +765,14 @@ export default function App() {
       })
     );
   }, []);
+
+  const handleStepChange = useCallback(
+    (step: number) => {
+      setStepOverride(step);
+      if (activeJob && activeJob.lastStep !== step) updateJob(activeJob.id, { lastStep: step });
+    },
+    [activeJob, updateJob]
+  );
 
   // Central Target Language Change Handler with Instant Re-translation
   const handleLanguageChange = useCallback(
@@ -1046,7 +1080,7 @@ export default function App() {
         .then(({ buffer, segments }) => {
           updateJob(activeJob.id, {
             audioBuffer: buffer,
-            segments: activeJob.segments.length > 0 ? activeJob.segments : segments,
+            ...(activeJob.segments.length > 0 ? {} : { segments }),
           });
         })
         .catch((e) => console.warn('Audio decode notice:', e));
@@ -1505,6 +1539,8 @@ export default function App() {
     const file = fileArray[0];
     const newJob: BatchJob = {
       id: Math.random().toString(36).substring(2, 9),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
       file,
       status: ProcessingStatus.ANALYZING_AUDIO,
       script: '',
@@ -1543,7 +1579,8 @@ export default function App() {
     }
 
     await saveJobToStorage(newJob);
-    setQueue([newJob]);
+    // A new project goes in beside the others; nothing is deleted until the user deletes it.
+    setQueue((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
 
     /*
@@ -1712,6 +1749,8 @@ export default function App() {
 
     const newJob: BatchJob = {
       id: Math.random().toString(36).substring(2, 9),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
       file,
       status: ProcessingStatus.IDLE,
       script: fullScript,
@@ -1736,7 +1775,8 @@ export default function App() {
     };
 
     await saveJobToStorage(newJob);
-    setQueue([newJob]);
+    // A new project goes in beside the others; nothing is deleted until the user deletes it.
+    setQueue((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
   };
 
@@ -2258,10 +2298,25 @@ export default function App() {
     [activeJob, selectedLanguage]
   );
 
-  // Batch Queue Helpers
+  // Projects: only deleting one, or clearing them all, removes a project's files.
+  const handleSelectJob = useCallback(
+    (id: string) => {
+      setActiveJobId(id);
+      pauseAll();
+      seekAll(0);
+    },
+    [pauseAll, seekAll]
+  );
+
+  const handleRenameJob = useCallback((id: string, name: string) => updateJob(id, { name }), [updateJob]);
+
   const handleRemoveJobFromQueue = useCallback(
     async (id: string) => {
       await deleteJobFromStorage(id);
+      if (activeJobId === id) {
+        pauseAll();
+        seekAll(0);
+      }
       setQueue((prev) => {
         const next = prev.filter((j) => j.id !== id);
         if (activeJobId === id) {
@@ -2270,7 +2325,7 @@ export default function App() {
         return next;
       });
     },
-    [activeJobId]
+    [activeJobId, pauseAll, seekAll]
   );
 
   const handleClearAllQueue = useCallback(async () => {
@@ -2291,6 +2346,8 @@ export default function App() {
       for (const file of fileList) {
         const newJob: BatchJob = {
           id: Math.random().toString(36).substring(2, 9),
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
           file,
           status: ProcessingStatus.IDLE,
           script: '',
@@ -2325,7 +2382,7 @@ export default function App() {
         newJobs.push(newJob);
       }
 
-      setQueue((prev) => [...prev, ...newJobs]);
+      setQueue((prev) => [...newJobs, ...prev]);
 
       if (!activeJobId && newJobs.length > 0) {
         setActiveJobId(newJobs[0].id);
@@ -2334,16 +2391,12 @@ export default function App() {
     [selectedLanguage, activeJobId]
   );
 
-  // Reset Session to start with a new audio file
-  const handleResetSession = useCallback(async () => {
-    if (activeJob) {
-      await deleteJobFromStorage(activeJob.id);
-    }
-    setQueue([]);
+  // New dub: back to an empty start, with every project kept in Your projects.
+  const handleResetSession = useCallback(() => {
     setActiveJobId(null);
     pauseAll();
     seekAll(0);
-  }, [activeJob, pauseAll, seekAll]);
+  }, [pauseAll, seekAll]);
 
   // Voice Changer: Replace source audio with transformed speech
   const handleApplyTransformedAudio = useCallback(
@@ -2368,6 +2421,8 @@ export default function App() {
       } else {
         const newJob: BatchJob = {
           id: `job_${Date.now()}`,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
           file: newAudioFile,
           status: ProcessingStatus.READY,
           script: '',
@@ -2396,7 +2451,8 @@ export default function App() {
           newJob.segments = segments;
         } catch {}
         await saveJobToStorage(newJob);
-        setQueue([newJob]);
+        // A new project goes in beside the others; nothing is deleted until the user deletes it.
+        setQueue((prev) => [newJob, ...prev]);
         setActiveJobId(newJob.id);
       }
     },
@@ -2480,7 +2536,7 @@ export default function App() {
       <ProHeader
         activeJob={activeJob}
         activeStep={activeStep}
-        onStepChange={setStepOverride}
+        onStepChange={handleStepChange}
         sourceLanguage={activeJob?.detectedLanguage || activeJob?.sourceLanguage || sourceLanguage}
         targetLanguage={activeJob?.language || selectedLanguage}
         mediaDuration={activeJob?.audioBuffer?.duration}
@@ -2518,7 +2574,10 @@ export default function App() {
         onOpenTextToSpeech={() => setIsTextToSpeechOpen(true)}
         onOpenPauseSensitivity={() => setIsPauseSensitivityOpen(true)}
         pauseSensitivity={activeJob?.analysisSensitivity ?? 50}
-        queueCount={queue.length}
+        projects={queue}
+        onSelectProject={handleSelectJob}
+        onRenameProject={handleRenameJob}
+        onRemoveProject={handleRemoveJobFromQueue}
         onResetSession={handleResetSession}
         themeMode={themeMode}
         onThemeModeChange={setThemeMode}
@@ -2604,7 +2663,7 @@ export default function App() {
       <main className="flex-1 flex flex-col px-4 py-4 sm:px-6 sm:py-6 lg:px-8 2xl:px-10 w-full mx-auto min-w-0">
         <ExpressDubWizard
           activeStep={activeStep}
-          onStepChange={setStepOverride}
+          onStepChange={handleStepChange}
           activeJob={activeJob}
           onFileSelect={handleFilesUpload}
           onLoadSampleSession={handleLoadSampleSession}
@@ -2798,19 +2857,17 @@ export default function App() {
         }
       />
 
-      {/* Batch Queue Manager Pop-up Modal */}
+      {/* Your projects: every dub, kept until the user deletes it */}
       <BatchQueueModal
         isOpen={isQueueModalOpen}
         onClose={() => setIsQueueModalOpen(false)}
         queue={queue}
         activeJobId={activeJobId}
-        onSelectJob={(id) => {
-          setActiveJobId(id);
-          pauseAll();
-          seekAll(0);
-        }}
+        onSelectJob={handleSelectJob}
         onRemoveJob={handleRemoveJobFromQueue}
+        onRenameJob={handleRenameJob}
         onClearQueue={handleClearAllQueue}
+        onNewDub={activeJob ? handleResetSession : undefined}
         onAddFiles={handleAddFilesToQueue}
       />
 

@@ -10,34 +10,15 @@ import {
   Download,
   Loader2,
   Upload,
-  Layers,
+  FolderOpen,
+  Pencil,
 } from 'lucide-react';
-import { BatchJob, ProcessingStatus } from '../types';
+import { BatchJob } from '../types';
+import { jobStage, projectName, projectWhen, StageKind } from '../services/projects';
+import { ProjectNameField } from './ProjectNameField';
 import JSZip from 'jszip';
 import { audioBufferToWav, audioFileExtension } from '../services/audioService';
 import { generateSrtContent, DEFAULT_SRT_OPTIONS } from '../services/srtService';
-
-type StageKind = 'dubbed' | 'review' | 'working' | 'waiting' | 'error';
-
-/** Where a queued job has got to, read from its status and what it already holds. */
-const jobStage = (job: BatchJob): { kind: StageKind; label?: string; dubbing?: boolean } => {
-  switch (job.status) {
-    case ProcessingStatus.ERROR:
-      return { kind: 'error' };
-    case ProcessingStatus.SYNTHESIZING_AUDIO:
-      return { kind: 'working', label: 'Dubbing', dubbing: true };
-    case ProcessingStatus.UPLOADING:
-      return { kind: 'working', label: 'Uploading' };
-    case ProcessingStatus.ANALYZING_AUDIO:
-      return { kind: 'working', label: 'Reading audio' };
-    case ProcessingStatus.GENERATING_XML:
-    case ProcessingStatus.VALIDATING_XML:
-      return { kind: 'working', label: 'Preparing' };
-  }
-  if (job.status === ProcessingStatus.COMPLETED || job.synthesizedAudioUrl || job.syncedAudioUrl) return { kind: 'dubbed' };
-  if (job.segments.length > 0) return { kind: 'review' };
-  return { kind: 'waiting' };
-};
 
 /** 125 -> "2:05", 3725 -> "1:02:05" */
 const formatLength = (seconds: number) => {
@@ -57,7 +38,10 @@ interface BatchQueueModalProps {
   activeJobId: string | null;
   onSelectJob: (id: string) => void;
   onRemoveJob: (id: string) => void;
+  onRenameJob: (id: string, name: string) => void;
   onClearQueue: () => void;
+  /** Starts a new project beside these; shown while one is open. */
+  onNewDub?: () => void;
   onAddFiles: (files: FileList | File[]) => void;
   onProcessJob?: (job: BatchJob) => void;
   isProcessing?: boolean;
@@ -70,7 +54,9 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
   activeJobId,
   onSelectJob,
   onRemoveJob,
+  onRenameJob,
   onClearQueue,
+  onNewDub,
   onAddFiles,
   onProcessJob,
   isProcessing = false,
@@ -79,8 +65,9 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [exportMessage, setExportMessage] = useState<string | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
-  // Removing loses a job's translation and dub, so both removals ask first.
+  // Deleting loses a project's file, translation and dub, so both deletions ask first.
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
 
   const completedJobs = queue.filter((j) => jobStage(j).kind === 'dubbed');
@@ -100,11 +87,14 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         jobs: []
       };
 
+      const usedNames = new Set<string>();
       for (const job of completedJobs) {
         const rawFileName = job.file?.name || `job_${job.id}`;
-        // Clean filename and remove extensions/special characters safely
-        const baseName = rawFileName.substring(0, rawFileName.lastIndexOf('.')) || rawFileName;
-        const safeBaseName = baseName.replace(/[^a-zA-Z0-9_-]/g, '_');
+        // One folder per project, named as the project is; two of the same name get a number.
+        const baseName = projectName(job).replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').trim() || `job_${job.id}`;
+        let safeBaseName = baseName;
+        for (let n = 2; usedNames.has(safeBaseName.toLowerCase()); n++) safeBaseName = `${baseName} (${n})`;
+        usedNames.add(safeBaseName.toLowerCase());
         
         const jobFolder = zip.folder(safeBaseName) || zip;
         
@@ -269,16 +259,16 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         {/* Header */}
         <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
-            <Layers className="w-[18px] h-[18px]" />
+            <FolderOpen className="w-[18px] h-[18px]" />
           </div>
           <div className="min-w-0 flex-1">
             <h2 id="queue-title" className="text-lg font-semibold text-slate-100 leading-tight">
-              Batch queue
+              Your projects
             </h2>
             <p className="text-[12.5px] text-slate-400 mt-0.5">
               {queue.length === 0
-                ? 'Line up several files and dub them one after another.'
-                : `${queue.length} ${queue.length === 1 ? 'file' : 'files'}. Open one to work on it; the rest wait where you left them.`}
+                ? 'Every dub you start is kept here until you delete it.'
+                : `${queue.length} ${queue.length === 1 ? 'project' : 'projects'}. Open one to work on it; the rest wait where you left them.`}
             </p>
           </div>
           <button
@@ -294,9 +284,9 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         {queue.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2.5 px-6 py-12 text-center">
             <span className="w-[52px] h-[52px] rounded-[14px] bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center">
-              <Layers className="w-6 h-6" />
+              <FolderOpen className="w-6 h-6" />
             </span>
-            <h3 className="mt-1 text-base font-semibold text-slate-100">No files in the queue</h3>
+            <h3 className="mt-1 text-base font-semibold text-slate-100">Start your first project</h3>
             <p className="text-[13px] text-slate-400 max-w-[44ch]">
               Add several talks at once. Each becomes its own dub, and you can switch between them from here. You can also drop files onto this window.
             </p>
@@ -333,7 +323,8 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
               {queue.map((job) => {
                 const stage = jobStage(job);
                 const isOpenJob = job.id === activeJobId;
-                const name = job.file?.name || `Job ${job.id}`;
+                const name = projectName(job);
+                const when = projectWhen(job);
                 const length = job.audioMetadata?.duration || job.audioBuffer?.duration || 0;
                 const isVideo = job.file ? job.file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi)$/i.test(job.file.name) : false;
                 const dots: ('done' | 'now' | 'run' | '')[] =
@@ -363,22 +354,35 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                     </span>
 
                     <span className="min-w-0">
-                      <span className="flex items-center gap-2 min-w-0">
-                        <span className="text-[13.5px] font-semibold text-slate-100 truncate" title={name}>
-                          {name}
-                        </span>
-                        {isOpenJob && (
-                          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 rounded-md bg-indigo-500/15 text-indigo-300">
-                            Open
+                      {editingId === job.id ? (
+                        <ProjectNameField
+                          initial={name}
+                          onSave={(next) => {
+                            onRenameJob(job.id, next);
+                            setEditingId(null);
+                          }}
+                          onCancel={() => setEditingId(null)}
+                        />
+                      ) : (
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="text-[13.5px] font-semibold text-slate-100 truncate" title={job.file?.name ? `${name} (${job.file.name})` : name}>
+                            {name}
                           </span>
-                        )}
-                      </span>
+                          {isOpenJob && (
+                            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide px-1.5 rounded-md bg-indigo-500/15 text-indigo-300">
+                              Open
+                            </span>
+                          )}
+                        </span>
+                      )}
                       <span className="flex flex-wrap gap-1.5 mt-0.5 text-[11.5px] text-slate-400">
                         {length > 0 && <span className="font-mono tabular-nums">{formatLength(length)}</span>}
                         {length > 0 && <span className="text-slate-600">·</span>}
                         <span>
                           {job.detectedLanguage || job.sourceLanguage || 'Auto'} → {job.language}
                         </span>
+                        {when && <span className="text-slate-600">·</span>}
+                        {when && <span>{when}</span>}
                       </span>
                     </span>
 
@@ -433,10 +437,25 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                       </button>
                       <button
                         type="button"
-                        onClick={() => setConfirmRemoveId(job.id)}
+                        onClick={() => {
+                          setConfirmRemoveId(null);
+                          setEditingId(job.id);
+                        }}
+                        className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                        aria-label={`Rename ${name}`}
+                        title="Rename"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingId(null);
+                          setConfirmRemoveId(job.id);
+                        }}
                         className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-rose-300 hover:bg-slate-800 cursor-pointer"
-                        aria-label={`Remove ${name}`}
-                        title="Remove from queue"
+                        aria-label={`Delete ${name}`}
+                        title="Delete project"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -446,11 +465,11 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                       <span className="col-start-2 col-span-2 sm:col-span-3 text-[11.5px] text-rose-300 leading-snug">{job.errorMsg}</span>
                     )}
 
-                    {/* Removing loses the job's translation and dub, so it asks first. */}
+                    {/* Deleting loses the project's file, translation and dub, so it asks first. */}
                     {confirmRemoveId === job.id && (
                       <div className="col-span-3 sm:col-span-4 flex flex-wrap items-center gap-2.5 px-2.5 py-2 rounded-[9px] bg-rose-500/10 text-[12.5px] text-slate-200">
                         <span className="min-w-0 flex-1">
-                          Remove <span className="font-semibold">{name}</span> from the queue? Its translation and dub are lost.
+                          Delete <span className="font-semibold">{name}</span>? Its file, translation and dub are gone for good.
                         </span>
                         <button
                           type="button"
@@ -467,7 +486,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                           }}
                           className="h-7 px-2.5 rounded-md bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white cursor-pointer"
                         >
-                          Remove
+                          Delete
                         </button>
                       </div>
                     )}
@@ -487,7 +506,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                 </span>
                 <span>
                   <span className="block text-[13px] font-semibold text-slate-100">Drop more audio or video here</span>
-                  Each file becomes its own dub.
+                  Each file becomes its own project.
                 </span>
               </button>
             </div>
@@ -499,7 +518,9 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
           {queue.length > 0 &&
             (confirmClear ? (
               <span className="flex items-center gap-2 text-[12.5px] text-slate-300">
-                {queue.length === 1 ? 'Remove the file?' : `Remove all ${queue.length} files?`}
+                {queue.length === 1
+                  ? 'Delete the project? Its file and dub are gone for good.'
+                  : `Delete all ${queue.length} projects? Their files and dubs are gone for good.`}
                 <button type="button" onClick={() => setConfirmClear(false)} className="px-2 py-1 text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-pointer">
                   Keep
                 </button>
@@ -511,24 +532,23 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                   }}
                   className="px-2.5 py-1 rounded-md bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white cursor-pointer"
                 >
-                  Clear
+                  Clear all
                 </button>
               </span>
             ) : (
               <button type="button" onClick={() => setConfirmClear(true)} className="text-[12.5px] text-slate-400 hover:text-rose-300 px-1 cursor-pointer">
-                Clear queue
+                Clear all history
               </button>
             ))}
           <span className="flex-1" />
-          {queue.length > 0 && (
-            <span className="text-[11.5px] text-slate-500" role="status" aria-live="polite">
-              {exportMessage || 'One folder per dub: audio .wav, subtitles .srt, script .txt'}
-            </span>
-          )}
+          <span className="text-[11.5px] text-slate-500" role="status" aria-live="polite">
+            {exportMessage}
+          </span>
           {queue.length > 0 && (
             <button
               type="button"
               onClick={handleBatchExportZip}
+              title="One folder per dub: audio .wav, subtitles .srt, script .txt"
               disabled={completedJobs.length === 0 || isExporting}
               className="h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold whitespace-nowrap disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
             >
@@ -536,6 +556,18 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
               {completedJobs.length === 0
                 ? 'No dubs to download yet'
                 : `Download ${completedJobs.length} ${completedJobs.length === 1 ? 'dub' : 'dubs'} as .zip`}
+            </button>
+          )}
+          {onNewDub && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onNewDub();
+              }}
+              className="h-[38px] px-3.5 flex items-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" /> New dub
             </button>
           )}
           <button

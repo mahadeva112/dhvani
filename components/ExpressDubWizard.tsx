@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Loader2,
   RotateCcw,
+  Plus,
   Download,
   FileText,
   Check,
@@ -48,6 +49,7 @@ import {
   X,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
+import { hasTranscript } from '../services/projects';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
 import { SpeakerBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
@@ -249,11 +251,17 @@ const railButton =
   'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
 
 /**
- * The step a job belongs on when nobody has picked one: source until there are
- * cues, review until there is a dub, then the final dub.
+ * The step a job has got to: source until it is transcribed, review until
+ * there is a dub, then the final dub, and Sync once the dub is synced.
  */
 export const stepForJob = (job: BatchJob | null): number =>
-  !job || job.segments.length === 0 ? 1 : job.synthesizedAudioUrl || job.synthAudioBuffer ? 3 : job.syncedAudioUrl ? 4 : 2;
+  !job || !hasTranscript(job.segments)
+    ? 1
+    : job.syncedAudioUrl
+      ? 4
+      : job.synthesizedAudioUrl || job.synthAudioBuffer
+        ? 3
+        : 2;
 
 interface ExpressDubWizardProps {
   /** The step on screen, owned by App so the header can show and change it. */
@@ -696,7 +704,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [speakerByName, speakerSlips.size]);
   const latestSegments = useRef(segments);
   latestSegments.current = segments;
-  const hasTranscript = segments.some((s) => (s.textSource || s.originalText || '').trim());
+  const transcribed = hasTranscript(segments);
   // Transcribed, but translate-or-your-script has not been chosen yet.
   const awaitingScript = activeJob?.targetSource === 'pending';
   const scriptIsCustom = activeJob?.targetSource === 'custom';
@@ -1345,10 +1353,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             file={activeJob?.file ?? null}
             audioBuffer={activeJob?.audioBuffer ?? null}
             onFileSelect={onFileSelect}
-            onLoadSample={(sample) => {
-              onLoadSampleSession(sample);
-              setStepOverride(2);
-            }}
+            onLoadSample={onLoadSampleSession}
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_26rem] gap-4 items-stretch lg:flex-1">
@@ -1588,7 +1593,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onClick={async () => {
                     // Transcribing again replaces the cues, and with them any script on them.
                     if (
-                      hasTranscript &&
+                      transcribed &&
                       !awaitingScript &&
                       !window.confirm(
                         scriptIsCustom
@@ -1612,7 +1617,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   ) : activeJob ? (
                     <>
                       <Mic className="w-4 h-4" />
-                      <span>{hasTranscript ? 'Transcribe again' : 'Transcribe audio'}</span>
+                      <span>{transcribed ? 'Transcribe again' : 'Transcribe audio'}</span>
                       <ArrowRight className="w-4 h-4" />
                     </>
                   ) : (
@@ -3677,7 +3682,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </button>
                 {onResetSession && (
                   <button type="button" onClick={onResetSession} className={`${railButton} h-9`}>
-                    <RotateCcw className="w-3.5 h-3.5" /> Start a new dub
+                    <Plus className="w-3.5 h-3.5" /> Start a new dub
                   </button>
                 )}
                 <p className="text-center text-[11.5px] text-slate-500">

@@ -6,7 +6,7 @@ import {
   KeyRound,
   Mic,
   AlignLeft,
-  Layers,
+  FolderOpen,
   SlidersHorizontal,
   Plus,
   Check,
@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported } from './UpdateControl';
+import { ProjectsMenu } from './ProjectsMenu';
+import { projectName } from '../services/projects';
 
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
@@ -99,8 +101,13 @@ export interface ProHeaderProps {
   onOpenPauseSensitivity?: () => void;
   pauseSensitivity?: number;
   onResetSession?: () => void;
+  /** Opens Your projects, the full list. */
   onOpenQueue?: () => void;
-  queueCount?: number;
+  /** Every saved project, newest first, for the projects menu. */
+  projects?: BatchJob[];
+  onSelectProject?: (id: string) => void;
+  onRenameProject?: (id: string, name: string) => void;
+  onRemoveProject?: (id: string) => void;
   themeMode?: ThemeMode;
   onThemeModeChange?: (mode: ThemeMode) => void;
 }
@@ -194,18 +201,25 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   pauseSensitivity = 50,
   onResetSession,
   onOpenQueue,
-  queueCount = 0,
+  projects = [],
+  onSelectProject,
+  onRenameProject,
+  onRemoveProject,
   themeMode = 'auto',
   onThemeModeChange,
 }) => {
   const [toolsOpen, setToolsOpen] = React.useState(false);
   const [servicesOpen, setServicesOpen] = React.useState(false);
+  const [projectsOpen, setProjectsOpen] = React.useState(false);
   const toolsRef = React.useRef<HTMLDivElement>(null);
   const servicesRef = React.useRef<HTMLDivElement>(null);
+  const projectsRef = React.useRef<HTMLDivElement>(null);
   const closeTools = React.useCallback(() => setToolsOpen(false), []);
   const closeServices = React.useCallback(() => setServicesOpen(false), []);
+  const closeProjects = React.useCallback(() => setProjectsOpen(false), []);
   useDismiss(toolsOpen, closeTools, toolsRef);
   useDismiss(servicesOpen, closeServices, servicesRef);
+  useDismiss(projectsOpen, closeProjects, projectsRef);
 
   const runAndClose = (fn?: () => void) => () => {
     setToolsOpen(false);
@@ -303,7 +317,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                 {isVideo ? <Film className="w-4 h-4" /> : <Music className="w-4 h-4" />}
               </span>
               <span className="min-w-0">
-                <span className="block text-[13px] font-semibold text-slate-100 truncate max-w-[16rem]">{activeJob.file.name}</span>
+                <span className="block text-[13px] font-semibold text-slate-100 truncate max-w-[16rem]">{projectName(activeJob)}</span>
                 <span className="flex items-center gap-1.5 text-[11.5px] text-slate-400 whitespace-nowrap">
                   <span className="hidden sm:inline truncate">
                     {[
@@ -394,6 +408,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               type="button"
               onClick={() => {
                 setToolsOpen(false);
+                setProjectsOpen(false);
                 setServicesOpen((o) => !o);
               }}
               aria-haspopup="dialog"
@@ -493,21 +508,46 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
             )}
           </div>
 
-          {onOpenQueue && (
-            <button
-              type="button"
-              onClick={onOpenQueue}
-              className="relative w-[34px] h-[34px] flex items-center justify-center rounded-[9px] border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 transition-colors cursor-pointer"
-              title="Batch queue"
-              aria-label={queueCount > 0 ? `Batch queue, ${queueCount} files` : 'Batch queue'}
-            >
-              <Layers className="w-4 h-4" />
-              {queueCount > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[17px] h-[17px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-mono font-semibold flex items-center justify-center border-2 border-slate-950">
-                  {queueCount}
-                </span>
+          {onSelectProject && (
+            <div className="relative" ref={projectsRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setToolsOpen(false);
+                  setServicesOpen(false);
+                  setProjectsOpen((o) => !o);
+                }}
+                aria-haspopup="dialog"
+                aria-expanded={projectsOpen}
+                className={`relative h-[34px] px-2.5 flex items-center gap-1.5 rounded-[9px] border text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                  projectsOpen
+                    ? 'bg-slate-800 border-slate-700 text-slate-100'
+                    : 'border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
+                }`}
+                title="Your projects"
+                aria-label={projects.length > 0 ? `Your projects, ${projects.length}` : 'Your projects'}
+              >
+                <FolderOpen className="w-4 h-4" />
+                <span className="hidden lg:inline">Projects</span>
+                {projects.length > 0 && (
+                  <span className="min-w-[17px] h-[17px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-mono font-semibold flex items-center justify-center">
+                    {projects.length}
+                  </span>
+                )}
+              </button>
+              {projectsOpen && (
+                <ProjectsMenu
+                  projects={projects}
+                  activeJobId={activeJob?.id ?? null}
+                  onSelect={onSelectProject}
+                  onRename={(id, name) => onRenameProject?.(id, name)}
+                  onRemove={(id) => onRemoveProject?.(id)}
+                  onNewDub={activeJob ? onResetSession : undefined}
+                  onSeeAll={onOpenQueue}
+                  onClose={closeProjects}
+                />
               )}
-            </button>
+            </div>
           )}
 
           <div className="relative" ref={toolsRef}>
@@ -515,6 +555,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               type="button"
               onClick={() => {
                 setServicesOpen(false);
+                setProjectsOpen(false);
                 setToolsOpen((o) => !o);
               }}
               aria-haspopup="menu"

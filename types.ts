@@ -157,6 +157,13 @@ export type TargetSource = 'pending' | 'translated' | 'custom';
 // New Interface for Batch Processing
 export interface BatchJob {
   id: string;
+  /** The project's name as the user set it. Unset means its file's name. */
+  name?: string;
+  /** When the project was made and last worked on, in ms. Unset on projects saved before these were kept. */
+  createdAt?: number;
+  updatedAt?: number;
+  /** The step the user last picked on this project, so opening it again lands there. */
+  lastStep?: number;
   file: File;
   status: ProcessingStatus;
   
