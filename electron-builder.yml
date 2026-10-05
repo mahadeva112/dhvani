@@ -18,6 +18,7 @@ directories:
 files:
   - desktop/main.cjs
   - desktop/preload.cjs
+  - desktop/loading.html
   - desktop/icons/**
   - server/**
   - prompts/*.txt
@@ -69,7 +70,7 @@ nsis:
   shortcutName: DHVANI
   # API keys saved in the user-data folder must survive an uninstall/reinstall.
   deleteAppDataOnUninstall: false
-  # Shows the "Installing DHVANI" window (desktop/update-splash.ps1) during a
+  # Shows the native "Updating DHVANI" box (desktop/update-splash.cs) during a
   # silent in-app update.
   include: desktop/installer.nsh
 

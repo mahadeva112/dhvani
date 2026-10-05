@@ -1,0 +1,47 @@
+<!doctype html>
+<!--
+  Shown in the DHVANI window while the engine starts (desktop/main.cjs), so the
+  window can open straight away instead of the screen staying blank. The app
+  replaces it as soon as the engine answers.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>DHVANI</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: #020617;
+        color: #f1f5f9;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        user-select: none;
+        cursor: default;
+      }
+      img { width: 64px; height: 64px; border-radius: 15px; }
+      h1 { margin: 6px 0 0; font-size: 17px; font-weight: 600; letter-spacing: 0.01em; }
+      .track { width: 180px; height: 4px; border-radius: 2px; background: #1e293b; overflow: hidden; }
+      .bar { width: 35%; height: 100%; border-radius: 2px; background: #3b82f6; animation: sweep 1.4s ease-in-out infinite; }
+      p { margin: 0; font-size: 12.5px; color: #94a3b8; }
+      @keyframes sweep { from { transform: translateX(-110%); } to { transform: translateX(300%); } }
+      @media (prefers-reduced-motion: reduce) { .bar { animation-duration: 3s; } }
+    </style>
+  </head>
+  <body>
+    <img src="icons/icon.png" alt="" />
+    <h1>Starting DHVANI</h1>
+    <div class="track" role="progressbar" aria-label="Starting DHVANI"><div class="bar"></div></div>
+    <p id="note"></p>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const version = params.get('version') || '';
+      document.getElementById('note').textContent =
+        params.get('updated') === '1' ? `Updated to ${version}` : version ? `Version ${version}` : '';
+    </script>
+  </body>
+</html>

@@ -26,6 +26,7 @@ const APP_ROOT = path.join(__dirname, '..');
 
 let backend = null;
 let mainWindow = null;
+let backendReady = false; // Set once the engine answers; until then the window shows loading.html.
 let isQuitting = false;
 
 /**
@@ -206,7 +207,7 @@ const setupAutoUpdates = () => {
     setUpdateState({ status: 'installing' });
     // Silent reinstall into the same folder, then relaunch. The pause lets the
     // page show that DHVANI is about to close; the installer shows its own
-    // "Installing DHVANI" window until the new version opens (desktop/installer.nsh).
+    // "Updating DHVANI" box until the new version opens (desktop/installer.nsh).
     setTimeout(() => autoUpdater.quitAndInstall(true, true), INSTALL_NOTICE_MS);
   });
   ipcMain.handle('updates:open-releases', () => shell.openExternal(RELEASES_URL));
@@ -447,7 +448,33 @@ const createWindow = () => {
     mainWindow = null;
   });
 
-  mainWindow.loadURL(APP_URL);
+  // Until the engine answers, show a "Starting DHVANI" page so the window can
+  // open at once rather than leaving the screen blank (most noticeable right
+  // after an update, when the installer's box has just closed).
+  if (backendReady) mainWindow.loadURL(APP_URL);
+  else mainWindow.loadFile(path.join(__dirname, 'loading.html'), { query: startupQuery() });
+};
+
+/**
+ * What the loading page says under "Starting DHVANI": "Updated to X" on the
+ * first start after an update, else the version. The last version that ran is
+ * kept in the user-data folder.
+ */
+const startupQuery = () => {
+  const version = app.getVersion();
+  const marker = path.join(app.getPath('userData'), 'last-version');
+  let previous = null;
+  try {
+    previous = fs.readFileSync(marker, 'utf8').trim();
+  } catch {
+    // First run, or the file was removed.
+  }
+  try {
+    if (previous !== version) fs.writeFileSync(marker, version);
+  } catch {
+    // Not worth failing the start over.
+  }
+  return { version, updated: previous && previous !== version ? '1' : '0' };
 };
 
 const buildMenu = () => {
@@ -538,10 +565,12 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     try {
       appendLog(`\n--- DHVANI desktop started ${new Date().toISOString()} ---\n`);
-      await startBackend();
       buildMenu();
-      createWindow();
+      createWindow(); // Shows the loading page while the engine starts.
       setupAutoUpdates();
+      await startBackend();
+      backendReady = true;
+      mainWindow?.loadURL(APP_URL);
     } catch (err) {
       dialog.showErrorBox(
         'DHVANI could not start',
