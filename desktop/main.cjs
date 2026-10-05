@@ -498,8 +498,24 @@ const buildMenu = () => {
           },
           { type: 'separator' },
           {
-            label: 'Documentation',
-            click: () => shell.openExternal('https://github.com/dhvani-studio/dhvani#readme'),
+            label: 'About DHVANI',
+            click: () =>
+              dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'About DHVANI',
+                message: 'Welcome to DHVANI',
+                detail:
+                  'Indian Language Dubbing & Publication Studio\n\n' +
+                  'Dhvani is a dedicated studio for dubbing, subtitling, and publishing ' +
+                  'Sadhguru’s content across Indian languages.\n\n' +
+                  'Designed to make multilingual content creation seamless while preserving ' +
+                  'the original voice, emotion, essence, and flow.\n\n' +
+                  'Empowering high-quality Indian-language publications through intelligent ' +
+                  'technology and an efficient creative workflow.\n\n' +
+                  `Version ${app.getVersion()}`,
+                buttons: ['OK'],
+                noLink: true,
+              }),
           },
         ],
       },
