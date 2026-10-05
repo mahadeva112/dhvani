@@ -128,6 +128,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Review says how a line paces in words, not cps.** The cue list, Cards, Spotlight, the player's
+  caption and the Review panel's "Needs attention" no longer show characters-per-second figures:
+  each line reads **Natural**, **Tight** or **Too fast**, with its pacing bar, and a QA finding says
+  "Cue 2 is too fast for its 3.2s slot". The QA settings still set the limit in cps.
 - **Adding a file no longer starts transcribing it, and a transcription can be cancelled.** A new
   file is only added: its waveform and length show, and nothing goes to ElevenLabs until you press
   **Transcribe audio**, so the language and speakers can be set first. While it runs, **Cancel
