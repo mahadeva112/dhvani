@@ -191,6 +191,13 @@ export const SyncJoinSettingsPanel: React.FC<{
             disabled={disabled}
             onChange={(v) => set('breathClear', v)}
           />
+          <Toggle
+            label="Remove breaths"
+            hint="Silences the breaths the voice takes before, between and after words, so there are none to cut by hand. Words are never touched."
+            checked={join.removeBreaths}
+            disabled={disabled}
+            onChange={(v) => set('removeBreaths', v)}
+          />
         </Group>
 
         <Group

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildSyncUnits, minimumGap, unitGapAfter, HARD_ANCHOR_GAP_SECONDS } from './syncUnits.js';
 import { DEFAULT_JOIN_SETTINGS, resolveJoinSettings, dbToAmplitude } from './syncSettings.js';
 import { pava, placeClips, measureSync } from './syncPlace.js';
-import { prepareClip, shortenPauses, renderTimeline, MIN_INNER_PAUSE_SECONDS } from './syncRender.js';
+import { prepareClip, removeBreaths, shortenPauses, renderTimeline, MIN_INNER_PAUSE_SECONDS } from './syncRender.js';
 import { acceptRewrite } from './syncRewrite.js';
 import { runSync, clearClipCache, clipHash, MAX_RETAKES } from './syncDub.js';
 
@@ -905,4 +905,93 @@ test('a suggestion held back for changing the meaning is counted, and none is sh
   assert.equal(report.units[0].suggestion, null);
   assert.equal(report.summary.meaningRejected, 1);
   assert.equal(report.summary.suggestionError, null);
+});
+
+// Breath removal works on real-rate audio: a voiced vowel is a low tone, a breath and an "s" are noise.
+const BREATH_RATE = 44100;
+const seeded = (seed) => () => ((seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32) * 2 - 1;
+const sound = (parts) => {
+  const total = parts.reduce((sum, part) => sum + Math.round(part.seconds * BREATH_RATE), 0);
+  const out = new Float32Array(total);
+  const noise = seeded(7);
+  let at = 0;
+  for (const { seconds, kind, level = 0 } of parts) {
+    const n = Math.round(seconds * BREATH_RATE);
+    for (let i = 0; i < n; i++) {
+      out[at + i] = kind === 'voice' ? level * Math.sin((2 * Math.PI * 180 * i) / BREATH_RATE) : kind === 'noise' ? level * noise() : 0;
+    }
+    at += n;
+  }
+  return out;
+};
+const levelOf = (samples, from, to) => {
+  let peak = 0;
+  for (let i = Math.round(from * BREATH_RATE); i < Math.round(to * BREATH_RATE); i++) peak = Math.max(peak, Math.abs(samples[i]));
+  return peak;
+};
+
+test('removeBreaths silences a breath before the first word and in a pause, and leaves the words alone', () => {
+  const clip = sound([
+    { seconds: 0.05, kind: 'silence' },
+    { seconds: 0.3, kind: 'noise', level: 0.02 }, // breath in
+    { seconds: 0.1, kind: 'silence' },
+    { seconds: 0.5, kind: 'voice', level: 0.3 },
+    { seconds: 0.15, kind: 'silence' },
+    { seconds: 0.25, kind: 'noise', level: 0.015 }, // breath between words
+    { seconds: 0.1, kind: 'silence' },
+    { seconds: 0.5, kind: 'voice', level: 0.3 },
+    { seconds: 0.1, kind: 'silence' },
+  ]);
+  const { samples, removed } = removeBreaths(clip, BREATH_RATE);
+  assert.equal(removed, 2);
+  assert.equal(levelOf(samples, 0.06, 0.34), 0, 'the breath before the line is gone');
+  assert.equal(levelOf(samples, 1.11, 1.29), 0, 'the breath in the pause is gone');
+  for (const [from, to] of [[0.45, 0.95], [1.4, 1.9]]) {
+    for (let i = Math.round(from * BREATH_RATE); i < Math.round(to * BREATH_RATE); i++) assert.equal(samples[i], clip[i]);
+  }
+  const prepared = prepareClip(samples, BREATH_RATE);
+  assert.ok(prepared.lead < 0.12, `the clip now starts at its first word (lead ${prepared.lead.toFixed(3)} s)`);
+});
+
+test('removeBreaths keeps an "s" that runs into its word, a loud noise, and a quiet voiced word', () => {
+  const clip = sound([
+    { seconds: 0.1, kind: 'silence' },
+    { seconds: 0.15, kind: 'noise', level: 0.03 }, // "s" straight into the vowel
+    { seconds: 0.4, kind: 'voice', level: 0.3 },
+    { seconds: 0.2, kind: 'silence' },
+    { seconds: 0.2, kind: 'noise', level: 0.2 }, // too loud to be a breath
+    { seconds: 0.2, kind: 'silence' },
+    { seconds: 0.3, kind: 'voice', level: 0.01 }, // a soft, voiced word
+    { seconds: 0.1, kind: 'silence' },
+  ]);
+  const { samples, removed } = removeBreaths(clip, BREATH_RATE);
+  assert.equal(removed, 0);
+  assert.equal(samples, clip, 'nothing removed, nothing copied');
+});
+
+test('removeBreaths leaves silence and very short clips as they are', () => {
+  assert.equal(removeBreaths(new Float32Array(1000), BREATH_RATE).removed, 0);
+  assert.equal(removeBreaths(new Float32Array(10), BREATH_RATE).removed, 0);
+});
+
+test('removeBreaths finds a breath on a voice with room noise, and keeps an "s" standing on its own', () => {
+  const clip = sound([
+    { seconds: 0.5, kind: 'voice', level: 0.3 },
+    { seconds: 0.15, kind: 'silence' },
+    { seconds: 0.2, kind: 'noise', level: 0.012 }, // breath, about -28 dB below the speech
+    { seconds: 0.15, kind: 'silence' },
+    { seconds: 0.5, kind: 'voice', level: 0.3 },
+    { seconds: 0.1, kind: 'silence' },
+    { seconds: 0.15, kind: 'noise', level: 0.05 }, // an "s" about -18 dB below, apart from the vowel
+    { seconds: 0.1, kind: 'silence' },
+    { seconds: 0.5, kind: 'voice', level: 0.3 },
+  ]);
+  // Room tone under everything, about -50 dBFS: louder than true silence.
+  const room = seeded(99);
+  for (let i = 0; i < clip.length; i++) clip[i] += 0.003 * room();
+  const { samples, removed } = removeBreaths(clip, BREATH_RATE);
+  assert.equal(removed, 1);
+  assert.ok(levelOf(samples, 0.67, 0.83) < 0.001, 'the breath is gone');
+  const s = Math.round(1.66 * BREATH_RATE);
+  for (let i = s; i < Math.round(1.79 * BREATH_RATE); i++) assert.equal(samples[i], clip[i], 'the "s" is kept');
 });

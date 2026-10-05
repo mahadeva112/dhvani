@@ -40,6 +40,8 @@ export interface SyncJoinSettings {
   gapShare: number;
   /** A line's breath before its first word never plays over the line before. */
   breathClear: boolean;
+  /** Silence the breaths the voice makes before, between and after its words. Changes the audio. */
+  removeBreaths: boolean;
   /** Take silence out of the pauses inside a line that runs long. */
   shortenPauses: boolean;
   /** A pause inside a line is never shortened below this. */
@@ -73,6 +75,7 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     speakerGap: 0.25,
     gapShare: 0.3,
     breathClear: true,
+    removeBreaths: true,
     shortenPauses: true,
     minInnerPause: 0.25,
     maxPauseTake: 0.4,
@@ -90,6 +93,7 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     speakerGap: 0.22,
     gapShare: 0.35,
     breathClear: true,
+    removeBreaths: true,
     shortenPauses: true,
     minInnerPause: 0.2,
     maxPauseTake: 0.6,
@@ -107,6 +111,7 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     speakerGap: 0.18,
     gapShare: 0.3,
     breathClear: true,
+    removeBreaths: true,
     shortenPauses: true,
     minInnerPause: 0.18,
     maxPauseTake: 0.7,
@@ -234,6 +239,8 @@ export interface SyncUnitReport {
   retakes?: number;
   /** The take used still ends before its last word died away: the voice cut it off. */
   cutOff?: boolean;
+  /** Breaths silenced in the line (absent in older reports). */
+  breathsRemoved?: number;
 }
 
 export interface SyncReport {
@@ -270,6 +277,8 @@ export interface SyncReport {
     /** Lines voiced again because the voice cut them off, and lines still cut off after that. */
     retaken?: number;
     cutOff?: number;
+    /** Breaths silenced across the dub. */
+    breathsRemoved?: number;
   };
   units: SyncUnitReport[];
   /** Only for a dub with several speakers: what the mix did, and the overlaps it kept. */

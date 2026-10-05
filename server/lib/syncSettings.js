@@ -5,9 +5,10 @@
  *
  * The defaults are the Natural preset (services/syncService.ts keeps the
  * presets the user picks from): every line gets room to breathe, and a breath
- * before a line never plays over the line before. Only `spliceCrossfade` and
- * `edgeFade` change the audio itself, and both are off unless asked for;
- * every other setting only moves or trims clips inside silence, so the render
+ * before a line never plays over the line before. `removeBreaths` silences
+ * the voice's breaths (on by default, at the user's request); `spliceCrossfade`
+ * and `edgeFade` change the audio too, and are off unless asked for; every
+ * other setting only moves or trims clips inside silence, so the render
  * stays sample for sample what the voice made.
  */
 
@@ -24,6 +25,8 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   gapShare: 0.3,
   /** Space a line's whole pre-roll (breath, room noise) clear of the line before, instead of mixing it over its tail. */
   breathClear: true,
+  /** Silence the breaths the voice makes before, between and after its words. Changes the audio. */
+  removeBreaths: true,
   /** Take silence out of the pauses inside a line that runs long. */
   shortenPauses: true,
   /** A pause inside a line is never shortened below this. */
@@ -78,7 +81,7 @@ export const resolveJoinSettings = (requested) => {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }
-  for (const key of ['breathClear', 'shortenPauses']) {
+  for (const key of ['breathClear', 'removeBreaths', 'shortenPauses']) {
     if (typeof requested[key] === 'boolean') settings[key] = requested[key];
   }
   return settings;

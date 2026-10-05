@@ -24,7 +24,7 @@ import { cancelledError } from './http.js';
 import { buildSyncUnits, unitGapAfter } from './syncUnits.js';
 import { resolveJoinSettings, dbToAmplitude } from './syncSettings.js';
 import { placeClips, measureSync } from './syncPlace.js';
-import { prepareClip, shortenPauses, applyCuts, renderTimeline, startAfterCut } from './syncRender.js';
+import { prepareClip, removeBreaths, shortenPauses, applyCuts, renderTimeline, startAfterCut } from './syncRender.js';
 import { matchingGains } from './loudness.js';
 import { TTS_CONTEXT_CHARS, withSentenceEnd } from './ttsText.js';
 import { mixSpeakers, speakerGains } from './speakerMix.js';
@@ -245,9 +245,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const buffers = new Array(units.length);
   const clips = new Array(units.length);
   const voicedLength = new Array(units.length);
+  const breathsRemoved = units.map(() => 0);
   const fit = async (i) => {
-    const samples = await deps.decode(buffers[i]);
-    voicedLength[i] = samples.length;
+    const decoded = await deps.decode(buffers[i]);
+    voicedLength[i] = decoded.length;
+    const { samples, removed } = join.removeBreaths ? removeBreaths(decoded, sampleRate) : { samples: decoded, removed: 0 };
+    breathsRemoved[i] = removed;
     clips[i] = prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold });
   };
 
@@ -643,6 +646,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       tightJoin: tightJoin[i],
       retakes: retakes[i],
       cutOff: Boolean(clips[i]?.cutOff),
+      breathsRemoved: breathsRemoved[i],
     };
   });
 
@@ -672,6 +676,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         silent: units.length - placedIndex.length,
         retaken: retakes.filter((n) => n > 0).length,
         cutOff: clips.filter((clip) => clip?.cutOff).length,
+        breathsRemoved: breathsRemoved.reduce((sum, n) => sum + n, 0),
       },
       units: unitReports,
       ...(mixed && { mix: { ...mixed.report, overlapsKept, selfOverlaps } }),

@@ -19,6 +19,10 @@
  * Two opt-in settings do change the audio (see syncSettings.js): a crossfade
  * at each pause cut, and a longer fade than the micro-fade for an edge that
  * stops on sound. Both are off unless asked for.
+ *
+ * One setting the user asked to have on by default also changes it:
+ * `removeBreaths` silences the breaths the voice makes around its words (see
+ * removeBreaths). The words themselves are left sample for sample.
  */
 import { matchingGains } from './loudness.js';
 
@@ -71,6 +75,116 @@ const quietBefore = (samples, from, run) => {
     if (count >= run) return i;
   }
   return 0;
+};
+
+/** Breath detection works on frames this long. */
+const BREATH_FRAME_SECONDS = 0.01;
+
+/**
+ * A frame this far below the clip's speech level (dB) is not part of any
+ * sound, nor is one within BREATH_NOISE_MARGIN_DB of the clip's room noise
+ * (its quietest tenth of frames), so a voice cloned from a recording with
+ * room tone still has pauses between its sounds.
+ */
+const BREATH_FLOOR_DB = -45;
+const BREATH_NOISE_MARGIN_DB = 6;
+
+/**
+ * Gaps shorter than this don't split a sound. A breath sits in a pause of its
+ * own; anything closer to a word than this is taken as part of it (a stop
+ * consonant's closure, an "s" running into its vowel).
+ */
+const BREATH_BRIDGE_SECONDS = 0.04;
+
+/**
+ * A voiced frame: at most this many zero crossings a second, and no more than
+ * BREATH_VOICED_DB below the clip's speech level. Words carry voiced frames;
+ * a breath is noise, which crosses zero far more often.
+ */
+const BREATH_VOICED_CROSSINGS = 2500;
+const BREATH_VOICED_DB = -35;
+
+/** A sound with this many seconds of voiced frames is speech and is never touched. */
+const BREATH_MIN_VOICED_SECONDS = 0.03;
+
+/** A sound shorter than this is not taken for a breath. */
+const BREATH_MIN_SECONDS = 0.08;
+
+/**
+ * A sound peaking above this (dB below speech level) is not taken for a
+ * breath. Breaths measured on v4 voices peak near -30; an "s" or "sh" on its
+ * own sits around -18, and must never be taken.
+ */
+const BREATH_MAX_DB = -22;
+
+/**
+ * `samples` with the breaths the voice made silenced: before the first word,
+ * in pauses between words, and after the last one. A breath is a sound of its
+ * own, with near-silence (or room noise) either side, that has no voiced frames and stays well
+ * below the clip's speech level. A sound that runs straight into a word, or
+ * has any voiced frame, is kept, so no part of a word is ever lost. Each
+ * silenced stretch is faded over MICRO_FADE_SECONDS at its edges, inside the
+ * stretch. Returns `{ samples, removed }`, `removed` the breaths silenced;
+ * `samples` is the input itself when there were none.
+ */
+export const removeBreaths = (samples, sampleRate) => {
+  const frame = Math.max(1, Math.round(BREATH_FRAME_SECONDS * sampleRate));
+  const count = Math.floor(samples.length / frame);
+  if (count === 0) return { samples, removed: 0 };
+  const rms = new Float64Array(count);
+  const crossings = new Float64Array(count);
+  for (let f = 0; f < count; f++) {
+    let sum = 0;
+    let crossed = 0;
+    for (let i = f * frame; i < (f + 1) * frame; i++) {
+      sum += samples[i] * samples[i];
+      if (i > 0 && samples[i] >= 0 !== samples[i - 1] >= 0) crossed++;
+    }
+    rms[f] = Math.sqrt(sum / frame);
+    crossings[f] = (crossed * sampleRate) / frame;
+  }
+  const audible = Array.from(rms).filter((level) => level > QUIET).sort((a, b) => a - b);
+  if (audible.length === 0) return { samples, removed: 0 };
+  const speechLevel = audible[Math.floor(audible.length * 0.95)];
+  const level = (db) => speechLevel * 10 ** (db / 20);
+  const roomNoise = Array.from(rms).sort((a, b) => a - b)[Math.floor(count * 0.1)];
+  const floor = Math.max(QUIET, level(BREATH_FLOOR_DB), roomNoise * 10 ** (BREATH_NOISE_MARGIN_DB / 20));
+
+  // Sounds: runs of frames above the floor, bridged across very short gaps.
+  const bridge = Math.round(BREATH_BRIDGE_SECONDS / BREATH_FRAME_SECONDS);
+  const sounds = [];
+  for (let f = 0; f < count; f++) {
+    if (rms[f] <= floor) continue;
+    const last = sounds[sounds.length - 1];
+    if (last && f - last.end <= bridge) last.end = f + 1;
+    else sounds.push({ start: f, end: f + 1 });
+  }
+
+  const voicedNeeded = Math.round(BREATH_MIN_VOICED_SECONDS / BREATH_FRAME_SECONDS);
+  const breaths = sounds.filter(({ start, end }) => {
+    if ((end - start) * BREATH_FRAME_SECONDS < BREATH_MIN_SECONDS) return false;
+    let voiced = 0;
+    let peak = 0;
+    for (let f = start; f < end; f++) {
+      peak = Math.max(peak, rms[f]);
+      if (rms[f] >= level(BREATH_VOICED_DB) && crossings[f] <= BREATH_VOICED_CROSSINGS) voiced++;
+    }
+    return voiced < voicedNeeded && peak <= level(BREATH_MAX_DB);
+  });
+  if (breaths.length === 0) return { samples, removed: 0 };
+
+  const out = Float32Array.from(samples);
+  const fade = Math.max(1, Math.round(MICRO_FADE_SECONDS * sampleRate));
+  for (const { start, end } of breaths) {
+    const from = start * frame;
+    const to = Math.min(samples.length, end * frame);
+    const ramp = Math.min(fade, Math.floor((to - from) / 2));
+    for (let i = from; i < to; i++) {
+      const weight = i - from < ramp ? 1 - fadeWeight(i - from, ramp) : to - 1 - i < ramp ? 1 - fadeWeight(to - 1 - i, ramp) : 0;
+      out[i] = samples[i] * weight;
+    }
+  }
+  return { samples: out, removed: breaths.length };
 };
 
 /**
