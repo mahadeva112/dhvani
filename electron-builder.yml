@@ -69,7 +69,7 @@ nsis:
   shortcutName: DHVANI
   # API keys saved in the user-data folder must survive an uninstall/reinstall.
   deleteAppDataOnUninstall: false
-  # Shows the "Updating DHVANI" window (desktop/update-splash.ps1) during a
+  # Shows the "Installing DHVANI" window (desktop/update-splash.ps1) during a
   # silent in-app update.
   include: desktop/installer.nsh
 
