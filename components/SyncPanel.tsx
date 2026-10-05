@@ -332,6 +332,8 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
 
 export interface SyncResultsPanelProps {
   report: SyncReport | null;
+  /** Lines changed by hand in Edit timing; the report and the dub include them. */
+  handEdits?: number;
   progress: SyncProgress | null;
   isSyncing: boolean;
   isCancelling: boolean;
@@ -370,6 +372,7 @@ export interface SyncResultsPanelProps {
 /** The main column of step 4: what Sync does, its progress, then how every line landed. */
 export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   report,
+  handEdits = 0,
   progress,
   isSyncing,
   isCancelling,
@@ -441,11 +444,17 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           {idle && (
             <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full border border-slate-700 text-slate-400">Not synced</span>
           )}
+          {report && !isSyncing && handEdits > 0 && (
+            <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
+              {handEdits} hand edit{handEdits === 1 ? '' : 's'}
+            </span>
+          )}
           {report && !isSyncing && precisionLabel && <span className="text-xs text-slate-500">{precisionLabel}</span>}
         </div>
         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
           <Lock className="w-3 h-3 shrink-0" />
           Each line is placed to start where the original line starts; a line longer than its original pushes the ones after it later. The voice is never changed: no speed change, no volume change and no fades. Lines are only moved, and the silence inside them shortened.
+          {handEdits > 0 && ' Your hand edits in Edit timing are in this dub: there, only the speed, level and fades you set change a line, and Sync again keeps every locked line where you put it.'}
         </p>
       </div>
 

@@ -182,3 +182,48 @@ test('progress events are emitted in pipeline order', async () => {
   assert.ok(stages.indexOf('srt_generated') < stages.indexOf('translating'));
   assert.equal(stages.at(-1), 'completed');
 });
+
+test('a cancelled transcription stops where it is, and nothing after it runs', async () => {
+  let sawSignal = null;
+  let translated = false;
+  registerProvider('transcription', 'stub-slow', {
+    label: 'Stub slow Scribe',
+    providesWordTimestamps: true,
+    isConfigured: () => true,
+    // Waits as ElevenLabs would, and lets go the moment it is cancelled.
+    transcribe: (_file, { signal }) =>
+      new Promise((resolve, reject) => {
+        sawSignal = signal;
+        signal.addEventListener('abort', () => reject(Object.assign(new Error('The request was cancelled.'), { code: 'cancelled' })), { once: true });
+      }),
+  });
+  registerProvider('translation', 'stub-watch', {
+    label: 'Stub translator',
+    isConfigured: () => true,
+    translate: async () => {
+      translated = true;
+      return { translations: new Map(), modelUsed: 'stub' };
+    },
+  });
+  const controller = new AbortController();
+  const run = runSubtitlePipeline(fakeFile, {
+    targetLanguage: 'Hindi',
+    transcriptionProvider: 'stub-slow',
+    translationProvider: 'stub-watch',
+    signal: controller.signal,
+  });
+  setTimeout(() => controller.abort(), 10);
+  await assert.rejects(run, (err) => err.code === 'cancelled');
+  assert.ok(sawSignal, 'the transcriber is handed the signal');
+  assert.equal(translated, false, 'nothing is translated after a cancel');
+});
+
+test('a transcript that comes back after a cancel is dropped', async () => {
+  registerProvider('transcription', 'stub-late', { ...stubTranscriber(), transcribe: async (file, options) => stubTranscriber().transcribe(file, options) });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    runSubtitlePipeline(fakeFile, { transcriptionProvider: 'stub-late', translate: false, signal: controller.signal }),
+    (err) => err.code === 'cancelled'
+  );
+});

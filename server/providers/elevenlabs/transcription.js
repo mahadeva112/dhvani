@@ -3,7 +3,8 @@ import path from 'node:path';
 import { config } from '../../env.js';
 import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
-import { elevenLabsMultipart } from './client.js';
+import { elevenLabsMultipart, PROVIDER_LABEL } from './client.js';
+import { cancelledError } from '../../lib/http.js';
 import { toIsoCode, toDisplayName } from '../../lib/languages.js';
 import { buildCuesFromWords } from '../../lib/srt.js';
 import { extractAudioTrack, isVideoFile, cleanupFiles, probeDuration } from '../../lib/media.js';
@@ -47,6 +48,7 @@ export const transcribeFile = async (
     cueOptions = {},
     apiKey,
     onStatus,
+    signal,
   } = {}
 ) => {
   let uploadPath = file.path;
@@ -54,7 +56,7 @@ export const transcribeFile = async (
 
   try {
     if (isVideoFile(file.originalname, file.mimetype)) {
-      extractedPath = await extractAudioTrack(file.path, { onStatus });
+      extractedPath = await extractAudioTrack(file.path, { onStatus, signal });
       if (extractedPath) uploadPath = extractedPath;
     }
 
@@ -67,6 +69,8 @@ export const transcribeFile = async (
       throw new ApiError('The uploaded file is empty.', { status: 400, code: 'empty_file' });
     }
 
+    // Cancelled before anything was sent: ElevenLabs never sees the file.
+    if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
     onStatus?.('Uploading audio to ElevenLabs for transcription...');
 
     const form = new FormData();
@@ -91,7 +95,7 @@ export const transcribeFile = async (
     const isoCode = toIsoCode(sourceLanguage);
     if (isoCode) form.append('language_code', isoCode);
 
-    const response = await elevenLabsMultipart('/speech-to-text', form, { apiKey });
+    const response = await elevenLabsMultipart('/speech-to-text', form, { apiKey, signal });
     const data = await response.json();
 
     const words = Array.isArray(data.words) ? data.words : [];

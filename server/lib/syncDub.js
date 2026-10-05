@@ -24,9 +24,10 @@ import { cancelledError } from './http.js';
 import { buildSyncUnits, unitGapAfter } from './syncUnits.js';
 import { resolveJoinSettings, dbToAmplitude } from './syncSettings.js';
 import { placeClips, measureSync } from './syncPlace.js';
-import { prepareClip, shortenPauses, renderTimeline, startAfterCut } from './syncRender.js';
+import { prepareClip, shortenPauses, applyCuts, renderTimeline, startAfterCut } from './syncRender.js';
+import { matchingGains } from './loudness.js';
 import { TTS_CONTEXT_CHARS } from './ttsText.js';
-import { mixSpeakers } from './speakerMix.js';
+import { mixSpeakers, speakerGains } from './speakerMix.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -64,6 +65,23 @@ export const isShortLine = (speech, spoken) => speech < spoken * SHORT_SHARE && 
 
 /** Hard anchors (after long pauses and speaker changes) pull this much harder in the solve. */
 const HARD_ANCHOR_WEIGHT = 3;
+
+/** A line the user locked in Edit timing pulls so hard that the solve leaves it where it is. */
+const LOCK_WEIGHT = 1e6;
+
+/** Names a clip by its samples, so a line can be recognised as the same take in a later sync. */
+export const clipHash = (samples) => createHash('sha1').update(Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)).digest('hex');
+
+/** Cuts sent back from an earlier sync, kept only when they are in order and inside the clip. */
+const validCuts = (cuts, length) => {
+  if (!Array.isArray(cuts)) return null;
+  let last = 0;
+  for (const cut of cuts) {
+    if (!Number.isInteger(cut?.start) || !Number.isInteger(cut?.end) || cut.start < last || cut.end <= cut.start || cut.end > length) return null;
+    last = cut.end;
+  }
+  return cuts.map(({ start, end }) => ({ start, end }));
+};
 
 /** A speaker's line may start this close to the end of their previous one before it counts as talking over themself. */
 const SELF_OVERLAP_SLACK = 0.01;
@@ -122,7 +140,7 @@ const mapLimit = async (items, limit, fn) => {
 /**
  * Runs a sync.
  *
- * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, language, voice, voiceFor, multiSpeaker, peak, lineSeeds, matchLoudness, debug }`,
+ * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, language, voice, voiceFor, multiSpeaker, peak, lineSeeds, matchLoudness, locked, debug }`,
  * where `join` is how lines are joined (gaps, pauses, tails and flags; see syncSettings.js, Natural when left out),
  * where `suggest` asks for shorter wordings of long lines and `suggestLonger` for fuller wordings of short ones (both on by default),
  * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`,
@@ -130,6 +148,14 @@ const mapLimit = async (items, limit, fn) => {
  * `matchLoudness` evens out the lines' loudness (off by default: each line is
  * kept at the level it was voiced at) and `debug` adds `report.audioDebug`,
  * a sample-exact account of every cut, placement, gain and fade.
+ *
+ * `locked` maps a line's key to a line the user placed by hand in Edit timing
+ * and locked: `{ hash, cuts, crossfade, start, end }`, `hash` and `cuts` as
+ * the bank (below) gave them and `start`/`end` the stretch of the timeline the
+ * user's edits of it take. A locked line that comes back as the same take
+ * (same hash) is cut exactly as before and held at `start`, every other line
+ * placed around it; a line voiced differently this time is placed as usual,
+ * and its bank line says it is no longer locked.
  *
  * With `multiSpeaker`, each line is voiced by `voiceFor(speaker)` (`voice`
  * when that returns nothing) and told only the lines either side by the same
@@ -148,8 +174,14 @@ const mapLimit = async (items, limit, fn) => {
  *   when the text model fails (optional);
  * - `lengthen({ text, sourceText, language, targetChars })` → a fuller wording, the same way (optional).
  *
- * Returns `{ buffer, contentType, report }`, plus `stems` (`[{ speaker, buffer, contentType }]`)
- * with `multiSpeaker`.
+ * Returns `{ buffer, contentType, report, bank }`, plus `stems` (`[{ speaker, buffer, contentType }]`)
+ * with `multiSpeaker`. `bank` is every placed line exactly as the render took it, for Edit timing:
+ * `{ sampleRate, samples, lines, speakerGains }`, `samples` holding the lines one after another and
+ * `lines[n]` being `{ key, speaker, bankStart, length, startSample, maxStartShift, lead, speech, gain,
+ * hash, cuts, crossfade, dropped, locked }`: where its samples are in `samples`, where the sync put
+ * its first sample, how far its start edge may move, seconds from that sample to its first word and
+ * of speech, its loudness-matching gain, and what a later sync needs to rebuild it the same way.
+ * Rendering every bank line at its `startSample` with its `gain` (and `speakerGains`) is the dub.
  */
 export const runSync = async (params, deps, { signal, onProgress = () => {} } = {}) => {
   const {
@@ -165,6 +197,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     peak = 'float',
     lineSeeds = {},
     matchLoudness = false,
+    locked = {},
     debug = false,
   } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
@@ -248,6 +281,14 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     clips.push(prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold }));
   }
   checkCancelled();
+  // Each take by its samples before any pause is shortened: a locked line is the same line only if this matches.
+  const hashes = clips.map((clip) => (clip ? clipHash(clip.samples) : null));
+  const lockOf = units.map((unit, i) => {
+    const lock = locked && typeof locked === 'object' ? locked[lineKey(unit)] : null;
+    if (!lock || !clips[i] || lock.hash !== hashes[i] || !(Number.isFinite(lock.start) && Number.isFinite(lock.end) && lock.end > lock.start)) return null;
+    const cuts = validCuts(lock.cuts ?? [], clips[i].samples.length);
+    return cuts ? { start: Math.max(0, lock.start), end: lock.end, cuts, crossfade: Math.max(0, Number(lock.crossfade) || 0) } : null;
+  });
 
   /**
    * The part of clip `i` that is spaced out against its neighbours: from just
@@ -288,6 +329,17 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const pauseTrimmed = new Map();
   const pauseCuts = new Map();
   units.forEach((_, i) => {
+    // A locked line is cut exactly as the sync it was edited on cut it, whatever the settings now say.
+    if (lockOf[i]) {
+      const { cuts, crossfade } = lockOf[i];
+      if (cuts.length === 0) return;
+      const samples = applyCuts(clips[i].samples, cuts, Math.round(crossfade * sampleRate));
+      const removed = (clips[i].samples.length - samples.length) / sampleRate;
+      clips[i] = { ...clips[i], samples, speech: clips[i].speech - removed };
+      pauseTrimmed.set(i, removed);
+      pauseCuts.set(i, cuts);
+      return;
+    }
     const excess = overflow(i);
     if (!join.shortenPauses || !clips[i] || excess <= 0) return;
     const { samples, removed, cuts } = shortenPauses(clips[i].samples, sampleRate, excess, {
@@ -307,6 +359,18 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const positions = placeClips(
     placedIndex.map((i, n) => {
       const unit = units[i];
+      const lock = lockOf[i];
+      // A locked line is one rigid block, the stretch its edits take, held where the user put it.
+      if (lock) {
+        return {
+          want: lock.start,
+          length: lock.end - lock.start,
+          gapAfter: n < placedIndex.length - 1 ? gapAfterUnit(i) : 0,
+          weight: LOCK_WEIGHT,
+          earliest: lock.start,
+          floor: 0,
+        };
+      }
       const want = unit.srcStart - cores[n].lead;
       return {
         want,
@@ -331,7 +395,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const rendered = [];
   const placedClips = placedIndex.map((i, n) => {
     const speaker = speakerOf(units[i]);
-    const start = positions[n] - cores[n].head;
+    // A locked line's position is its first sample's: it has no pre-roll spaced out on its own.
+    const start = positions[n] - (lockOf[i] ? 0 : cores[n].head);
     if (start >= 0) return { samples: clips[i].samples, position: start, speaker };
     const cut = startAfterCut(clips[i].samples, Math.round(-start * sampleRate), Math.round(clips[i].lead * sampleRate), sampleRate);
     dropped[n] = cut.from;
@@ -341,12 +406,19 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     return { samples: clips[i].samples.subarray(cut.from), startSample: 0, maxStartShift: 0, speaker };
   });
   const log = debug ? (entry) => rendered.push(entry) : undefined;
+  // The gains are worked out here rather than inside the render so the bank can
+  // carry them, and an edit render of the same lines comes out the same.
+  const lineGains = !multiSpeaker && matchLoudness ? matchingGains(placedClips.map((clip) => clip.samples), sampleRate) : placedClips.map(() => 1);
+  const voiceGains = multiSpeaker && matchLoudness ? speakerGains(placedClips, sampleRate) : new Map();
   const mixed = multiSpeaker
-    ? mixSpeakers(placedClips, { sampleRate, length: sourceDuration, fadeSeconds: join.edgeFade, peak, matchSpeakers: matchLoudness, log })
+    ? mixSpeakers(placedClips, { sampleRate, length: sourceDuration, fadeSeconds: join.edgeFade, peak, gains: voiceGains, log })
     : null;
   const track = mixed
     ? mixed.mix
-    : renderTimeline(placedClips, { sampleRate, length: sourceDuration, matchLoudness, fadeSeconds: join.edgeFade, log });
+    : renderTimeline(
+        placedClips.map((clip, n) => ({ ...clip, gain: lineGains[n] })),
+        { sampleRate, length: sourceDuration, fadeSeconds: join.edgeFade, log }
+      );
   const float = Boolean(mixed) && mixed.report.peak === 'float';
   const { buffer, contentType } = await deps.encode(track, { float });
   const stems = [];
@@ -354,6 +426,34 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     for (const stem of mixed.stems) stems.push({ speaker: stem.speaker, ...(await deps.encode(stem.samples, { float })) });
   }
   checkCancelled();
+
+  // The bank: every placed line exactly as the render took it, one after another.
+  const bankSamples = new Float32Array(placedClips.reduce((sum, clip) => sum + clip.samples.length, 0));
+  let bankAt = 0;
+  const bankLines = placedIndex.map((i, n) => {
+    const clip = placedClips[n];
+    const bankStart = bankAt;
+    bankSamples.set(clip.samples, bankAt);
+    bankAt += clip.samples.length;
+    return {
+      key: lineKey(units[i]),
+      speaker: clip.speaker,
+      bankStart,
+      length: clip.samples.length,
+      // As renderTimeline rounds it.
+      startSample: Math.max(0, Number.isInteger(clip.startSample) ? clip.startSample : Math.round(clip.position * sampleRate)),
+      ...(clip.maxStartShift !== undefined && { maxStartShift: clip.maxStartShift }),
+      lead: Math.max(0, clips[i].lead - dropped[n] / sampleRate),
+      speech: clips[i].speech,
+      gain: lineGains[n],
+      hash: hashes[i],
+      cuts: pauseCuts.get(i) || [],
+      crossfade: lockOf[i] ? lockOf[i].crossfade : join.spliceCrossfade,
+      dropped: dropped[n],
+      locked: Boolean(lockOf[i]),
+    };
+  });
+  const bank = { sampleRate, samples: bankSamples, lines: bankLines, speakerGains: Object.fromEntries(voiceGains) };
 
   // Where every sample of every line came from and where it went, for tracing an artifact to the step that made it.
   const audioDebug = debug
@@ -509,6 +609,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   return {
     buffer,
     contentType,
+    bank,
     ...(mixed && { stems }),
     report: {
       precision,

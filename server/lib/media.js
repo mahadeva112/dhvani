@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { config } from '../env.js';
 import { logger } from '../logger.js';
 import { ApiError } from '../errors.js';
+import { cancelledError } from './http.js';
 
 /** Container/codec extensions ElevenLabs accepts directly. */
 export const SUPPORTED_AUDIO_EXTENSIONS = new Set([
@@ -59,9 +60,17 @@ const resolveFfmpeg = async () => {
 
 export const ffmpegAvailable = async () => Boolean(await resolveFfmpeg());
 
-const run = (binary, args) =>
+/** Runs ffmpeg; aborting `signal` stops it at once and rejects with a cancelled error. */
+const run = (binary, args, { signal } = {}) =>
   new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(cancelledError('ffmpeg'));
     const child = spawn(binary, args);
+    const onAbort = () => {
+      child.kill('SIGKILL');
+      reject(cancelledError('ffmpeg'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    child.on('close', () => signal?.removeEventListener('abort', onAbort));
     let stderr = '';
     child.stderr.on('data', (chunk) => {
       stderr += chunk.toString();
@@ -191,13 +200,34 @@ export const encodeAudio = async (samples, outputFormat) => {
 };
 
 /**
+ * Plays mono float samples at `rate` times their speed with their pitch kept
+ * (ffmpeg's atempo), for a line the user stretched in Edit timing. Nothing is
+ * resampled: the samples go in and come out at `sampleRate`, as 32-bit float.
+ */
+export const timeStretch = async (samples, sampleRate, rate) => {
+  const binary = await resolveFfmpeg();
+  if (!binary) throw new Error('Stretching a line needs ffmpeg. Install ffmpeg and try again.');
+  const raw = await pipe(
+    binary,
+    [
+      '-hide_banner', '-loglevel', 'error',
+      '-f', 'f32le', '-ar', String(sampleRate), '-ac', '1', '-i', 'pipe:0',
+      '-af', `atempo=${Number(rate).toFixed(6)}`,
+      '-f', 'f32le', '-ar', String(sampleRate), '-ac', '1', 'pipe:1',
+    ],
+    floatBytes(samples)
+  );
+  return new Float32Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength));
+};
+
+/**
  * Extracts a mono 16 kHz WAV track from a video.
  *
  * The source file is opened read-only and never rewritten, so the user's
  * original video is untouched. Returns `null` when ffmpeg is unavailable or
  * extraction fails, letting the caller upload the original container instead.
  */
-export const extractAudioTrack = async (inputPath, { onStatus } = {}) => {
+export const extractAudioTrack = async (inputPath, { onStatus, signal } = {}) => {
   if (!config.extractAudioFromVideo) return null;
 
   const binary = await resolveFfmpeg();
@@ -219,13 +249,18 @@ export const extractAudioTrack = async (inputPath, { onStatus } = {}) => {
       '-ar', '16000',
       '-c:a', 'pcm_s16le',
       '-y', outputPath,
-    ]);
+    ], { signal });
 
     const stats = await fs.promises.stat(outputPath);
     if (stats.size < 1024) throw new Error('extracted audio track is empty');
 
     return outputPath;
   } catch (err) {
+    // A cancelled transcription stops here; it never falls back to uploading the video.
+    if (signal?.aborted) {
+      await fs.promises.rm(outputPath, { force: true }).catch(() => {});
+      throw cancelledError('ffmpeg');
+    }
     logger.warn(`Audio extraction failed (${err.message}); falling back to the original file.`);
     await fs.promises.rm(outputPath, { force: true }).catch(() => {});
     return null;

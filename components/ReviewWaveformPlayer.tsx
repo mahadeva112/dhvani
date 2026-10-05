@@ -46,6 +46,8 @@ export interface ReviewWaveformPlayerProps {
 const RATES = [0.75, 1, 1.25, 1.5];
 const ZOOMS = [1, 2, 4, 8, 16, 32];
 const COMPACT_KEY = 'dhvani_player_compact';
+/** Height of the mini player bar along the bottom of the window. */
+const MINI_BAR_PX = 40;
 
 /** Canvas colours for each theme; the app's light theme is a class on <html>. */
 const PALETTES = {
@@ -184,6 +186,16 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   });
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [showMini, setShowMini] = useState(false);
+  // While the bar shows, the page ends that much further down, so the last cues can still be scrolled clear of it.
+  useEffect(() => {
+    if (!showMini) return;
+    const body = document.body;
+    const before = body.style.paddingBottom;
+    body.style.paddingBottom = `${MINI_BAR_PX}px`;
+    return () => {
+      body.style.paddingBottom = before;
+    };
+  }, [showMini]);
   const [activeIndex, setActiveIndex] = useState(() => cueIndexAt(segments, reportedTime));
   const activeIndexRef = useRef(activeIndex);
 
@@ -570,6 +582,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400 cursor-pointer`;
   const roundBtn = 'w-[34px] h-[34px] rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-pointer';
 
+  const miniBtn =
+    'w-7 h-7 shrink-0 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer';
   const playButton = (size: string) => (
     <button
       type="button"
@@ -820,7 +834,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                       <span className="block text-[11.5px] text-slate-400 truncate">{sourceOf(activeCue)}</span>
                     </span>
                     {targetOf(activeCue) && (
-                      <span className={`shrink-0 font-mono text-[10.5px] px-2 py-0.5 rounded-full ${paceClass}`}>{cps.toFixed(1)} cps</span>
+                      <span className={`shrink-0 text-[10.5px] font-medium px-2 py-0.5 rounded-full ${paceClass}`}>
+                        {cps > 18 ? 'Too fast' : cps > 14 ? 'Tight' : 'Natural'}
+                      </span>
                     )}
                   </>
                 ) : (
@@ -849,41 +865,48 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
         )}
       </section>
 
-      {/* Mini player, once the full one has scrolled out of sight */}
+      {/*
+        Mini player, once the full one has scrolled out of sight: one slim bar
+        along the bottom of the window. The page keeps that much room below its
+        content while it shows (see MINI_BAR_PX), so it never covers a cue.
+      */}
       {showMini && (
-        <div role="region" aria-label="Mini player" className="fixed right-4 sm:right-6 bottom-4 sm:bottom-6 z-40 w-[22.5rem] max-w-[calc(100vw-2rem)] rounded-[14px] bg-slate-900 border border-slate-700 shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2">
-          <div className="flex items-center gap-2.5 px-3 py-2.5">
-            {playButton('w-[38px] h-[38px]')}
-            <span className="min-w-0 flex-1">
-              <span className="block text-[12.5px] font-semibold text-slate-100">
-                <span className="font-mono">{activeCue ? `Cue ${String(activeIndex + 1).padStart(2, '0')}` : 'Playback'}</span>
-                <span className="font-mono font-normal text-slate-400"> · {formatTime(currentTime, false)} / {formatTime(total, false)}</span>
-              </span>
-              {activeCue && <span className="block text-[13px] text-slate-400 truncate">{targetOf(activeCue) || sourceOf(activeCue)}</span>}
-            </span>
-            <button type="button" onClick={prevCue} className={iconBtn()} aria-label="Previous cue">
+        <div
+          role="region"
+          aria-label="Mini player"
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-700 bg-slate-900/95 backdrop-blur-sm animate-in fade-in slide-in-from-bottom-1"
+          style={{ height: MINI_BAR_PX }}
+        >
+          <div className="h-full mx-auto flex items-center gap-2 px-3 sm:px-6">
+            {playButton('w-7 h-7')}
+            <button type="button" onClick={prevCue} className={miniBtn} aria-label="Previous cue" title="Previous cue (,)">
               <SkipBack className="w-3 h-3 fill-current" />
             </button>
-            <button type="button" onClick={nextCue} className={iconBtn()} aria-label="Next cue">
+            <button type="button" onClick={nextCue} className={miniBtn} aria-label="Next cue" title="Next cue (.)">
               <SkipForward className="w-3 h-3 fill-current" />
             </button>
+            <span className="shrink-0 font-mono text-[11.5px] text-slate-100 tabular-nums whitespace-nowrap">
+              {activeCue ? `Cue ${String(activeIndex + 1).padStart(2, '0')}` : 'Playback'}
+              <span className="text-slate-500"> · {formatTime(currentTime, false)} / {formatTime(total, false)}</span>
+            </span>
+            <div
+              className="relative flex-1 min-w-0 h-5 rounded-md bg-slate-950/60 overflow-hidden cursor-pointer"
+              onPointerDown={(e) => seekTo(timeAt(e, e.currentTarget, true))}
+              title={activeCue ? targetOf(activeCue) || sourceOf(activeCue) : undefined}
+            >
+              <canvas ref={miniRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+              <canvas ref={miniPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+              <div ref={miniHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
+            </div>
             <button
               type="button"
               onClick={() => sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-              className={iconBtn()}
+              className={miniBtn}
               aria-label="Back to the full player"
               title="Back to the full player"
             >
               <ChevronUp className="w-3.5 h-3.5" />
             </button>
-          </div>
-          <div
-            className="relative h-[26px] mx-3 mb-2.5 rounded-md bg-slate-950/60 overflow-hidden cursor-pointer"
-            onPointerDown={(e) => seekTo(timeAt(e, e.currentTarget, true))}
-          >
-            <canvas ref={miniRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
-            <canvas ref={miniPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
-            <div ref={miniHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
           </div>
         </div>
       )}

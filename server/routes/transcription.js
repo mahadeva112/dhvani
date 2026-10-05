@@ -22,6 +22,10 @@ transcriptionRouter.post(
 
     const { sourceLanguage = '', modelId, diarize = 'false', tagAudioEvents = 'false' } = req.body || {};
 
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
     const provider = getProvider('transcription', req.body?.provider || activeProviders.transcription);
     const result = await provider.transcribe(req.file, {
       sourceLanguage,
@@ -29,6 +33,7 @@ transcriptionRouter.post(
       diarize: diarize === 'true',
       tagAudioEvents: tagAudioEvents === 'true',
       apiKey: req.get('x-elevenlabs-key') || undefined,
+      signal: controller.signal,
     });
 
     res.json({

@@ -39,7 +39,7 @@
     "start": "npm run build && cross-env NODE_ENV=production node server/index.js",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test server/env.test.js server/lib/srt.test.js server/lib/scriptAlign.test.js server/lib/ttsText.test.js server/lib/audioJoin.test.js server/lib/syncDub.test.js server/lib/speakerMix.test.js server/lib/syncPreview.test.js server/lib/syncRewrite.test.js server/lib/deliveryCues.test.js server/lib/media.test.js server/lib/pipeline.test.js server/providers/gemini/threeStepTranslation.test.js server/providers/elevenlabs/dubProgress.test.js server/providers/cartesia/cartesia.test.js server/providers/llmGateway/client.test.js server/providers/llmGateway/url.test.js server/providers/llmGateway/discovery.test.js",
+    "test": "node --test server/env.test.js server/lib/srt.test.js server/lib/scriptAlign.test.js server/lib/ttsText.test.js server/lib/audioJoin.test.js server/lib/syncDub.test.js server/lib/syncEdit.test.js server/lib/speakerMix.test.js server/lib/syncPreview.test.js server/lib/syncRewrite.test.js server/lib/deliveryCues.test.js server/lib/media.test.js server/lib/pipeline.test.js server/providers/gemini/threeStepTranslation.test.js server/providers/elevenlabs/dubProgress.test.js server/providers/cartesia/cartesia.test.js server/providers/llmGateway/client.test.js server/providers/llmGateway/url.test.js server/providers/llmGateway/discovery.test.js",
     "verify": "npm run typecheck && npm test && npm run build",
     "icon": "node scripts/generate-icon.mjs",
     "desktop": "npm run build && cross-env NODE_ENV=production electron .",

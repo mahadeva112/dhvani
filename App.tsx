@@ -108,13 +108,15 @@ import {
   SyncProgress,
   SyncUnitReport,
 } from './services/syncService';
+import { hasEdits, lockedLines, measureEdits, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
+import type { SyncEditStatus } from './components/SyncEditTimeline';
 import {
   getAllJobsFromStorage,
   saveJobToStorage,
   deleteJobFromStorage,
   clearAllJobsFromStorage,
 } from './services/storageService';
-import { byNewest, hasTranscript } from './services/projects';
+import { byNewest, hasTranscript, openSteps } from './services/projects';
 import {
   BatchJob,
   ProcessingStatus,
@@ -153,6 +155,13 @@ const describePipelineError = (err: unknown): string => {
   }
   return `Transcription failed: ${(err as any)?.message || err}`;
 };
+
+/** How long Edit timing waits after an edit before rendering the dub again, so a run of edits renders once. */
+const SYNC_EDIT_RENDER_DELAY_MS = 600;
+
+/** The source's length, which the synced dub is as long as. */
+const sourceDurationOf = (job: BatchJob) =>
+  job.audioBuffer?.duration || job.audioMetadata?.duration || job.segments[job.segments.length - 1]?.endTime || 0;
 
 export default function App() {
   // --- STATE ---
@@ -364,7 +373,18 @@ export default function App() {
   const syncLineSeedsRef = useRef<Record<string, Record<string, number>>>({});
   /** Lines changed since the last Sync (reworded or retaken), per job: the next Sync re-voices them. */
   const [syncPending, setSyncPending] = useState<Record<string, string[]>>({});
+  /**
+   * Edit timing: whether the synced dub has caught up with the edits. An edit
+   * is shown at once and rendered a moment later, once the user stops editing.
+   */
+  const [syncEditStatus, setSyncEditStatus] = useState<SyncEditStatus>({ state: 'ready' });
+  const syncEditRunRef = useRef<{ timer: number | null; controller: AbortController | null }>({ timer: null, controller: null });
   const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
+  /** The transcription in flight: which project, and what cancelling it needs. */
+  const transcribeRunRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
+  const [transcribingJobId, setTranscribingJobId] = useState<string | null>(null);
+  /** The project whose transcription the user just cancelled, for the note in Source & voice. */
+  const [cancelledTranscriptionJob, setCancelledTranscriptionJob] = useState<string | null>(null);
 
   /** Live stage message from the transcription/translation pipeline. */
   const [pipelineStatus, setPipelineStatus] = useState<string>('');
@@ -506,6 +526,8 @@ export default function App() {
 
   // Active Job helper
   const activeJob = useMemo(() => queue.find((j) => j.id === activeJobId) || null, [queue, activeJobId]);
+  const activeJobIdRef = useRef(activeJobId);
+  activeJobIdRef.current = activeJobId;
 
   // The step on screen. Null follows the job: the step the user last picked on
   // it, else as far as it has got. A pick in the header or wizard is kept on
@@ -517,7 +539,18 @@ export default function App() {
   // A step kept from before only counts once there is a transcript to work on.
   const keptStep = activeJob?.lastStep && (activeJob.lastStep === 1 || hasTranscript(activeJob.segments)) ? activeJob.lastStep : null;
   const requestedStep = stepOverride ?? keptStep ?? stepForJob(activeJob);
-  const activeStep = awaitingScript && requestedStep > 2 ? 2 : requestedStep;
+  // Steps open one at a time: a step is reachable only once the one before it
+  // is done, and while a step's work runs every step after it is locked.
+  const stepGate = useMemo(
+    () =>
+      openSteps(activeJob, {
+        transcribing: Boolean(activeJob && transcribingJobId === activeJob.id),
+        translating: isTranslatingLanguage,
+        dubbing: isBatchProcessing,
+      }),
+    [activeJob, transcribingJobId, isTranslatingLanguage, isBatchProcessing]
+  );
+  const activeStep = Math.max(1, Math.min(awaitingScript && requestedStep > 2 ? 2 : requestedStep, stepGate.upTo));
   useEffect(() => {
     setStepOverride(null);
   }, [activeJob?.id]);
@@ -768,10 +801,12 @@ export default function App() {
 
   const handleStepChange = useCallback(
     (step: number) => {
+      // A locked step can't be opened, from the header or from any button on the page.
+      if (step > stepGate.upTo) return;
       setStepOverride(step);
       if (activeJob && activeJob.lastStep !== step) updateJob(activeJob.id, { lastStep: step });
     },
-    [activeJob, updateJob]
+    [activeJob, updateJob, stepGate.upTo]
   );
 
   // Central Target Language Change Handler with Instant Re-translation
@@ -842,6 +877,10 @@ export default function App() {
               syncedBlob: null,
               syncedAudioBuffer: null,
               syncReport: null,
+              syncBank: null,
+              syncBankBlob: null,
+              syncEdits: null,
+              syncBaseReport: null,
               dubStems: null,
               dubMix: null,
               syncedStems: null,
@@ -924,6 +963,10 @@ export default function App() {
           syncedBlob: null,
           syncedAudioBuffer: null,
           syncReport: null,
+          syncBank: null,
+          syncBankBlob: null,
+          syncEdits: null,
+          syncBaseReport: null,
           dubStems: null,
           dubMix: null,
           syncedStems: null,
@@ -983,17 +1026,51 @@ export default function App() {
     [activeJob, updateJob]
   );
 
+  /**
+   * Transcribes a project's file, which only ever starts when the user asks.
+   * Returns the transcript, or null when the user cancelled it: then the
+   * request is dropped, which stops the server too (ffmpeg, the upload to
+   * ElevenLabs, any retry), and the project is left as it was.
+   */
+  const runTranscription = async (jobId: string, file: File, language: string) => {
+    transcribeRunRef.current?.controller.abort();
+    const controller = new AbortController();
+    transcribeRunRef.current = { jobId, controller };
+    setTranscribingJobId(jobId);
+    setIsTranscribing(true);
+    setCancelledTranscriptionJob(null);
+    setPipelineProgress(0);
+    try {
+      return await transcribeOnly(file, (status) => setPipelineStatus(status), language, { ...speakerOptions, signal: controller.signal });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        setCancelledTranscriptionJob(jobId);
+        return null;
+      }
+      throw err;
+    } finally {
+      if (transcribeRunRef.current?.controller === controller) {
+        transcribeRunRef.current = null;
+        setTranscribingJobId(null);
+        setIsTranscribing(false);
+        setPipelineStatus('');
+      }
+    }
+  };
+
+  /** Stops the transcription in flight, here and on the server. */
+  const handleCancelTranscription = () => transcribeRunRef.current?.controller.abort();
+
   // Transcribe the raw audio again. It stops at the transcript: the user
-  // chooses translate or their own script afterwards.
+  // chooses translate or their own script afterwards. A cancel keeps the transcript there was.
   const handleRetranscribeAudio = useCallback(
     async (overridePrompt?: string) => {
       if (!activeJob || !activeJob.file) return;
       const promptToUse = overridePrompt !== undefined ? overridePrompt : (activeJob.customPrompt || customPrompt);
-      setIsTranscribing(true);
-      setPipelineProgress(0);
       try {
         const targetLang = activeJob.language || selectedLanguage;
-        const result = await transcribeOnly(activeJob.file, (status) => setPipelineStatus(status), sourceLanguage, speakerOptions);
+        const result = await runTranscription(activeJob.id, activeJob.file, sourceLanguage);
+        if (!result) return;
 
         updateJob(activeJob.id, {
           language: targetLang,
@@ -1018,6 +1095,10 @@ export default function App() {
           syncedBlob: null,
           syncedAudioBuffer: null,
           syncReport: null,
+          syncBank: null,
+          syncBankBlob: null,
+          syncEdits: null,
+          syncBaseReport: null,
           dubStems: null,
           dubMix: null,
           syncedStems: null,
@@ -1026,11 +1107,9 @@ export default function App() {
       } catch (err: any) {
         updateJob(activeJob.id, { errorMsg: describePipelineError(err) });
         throw err;
-      } finally {
-        setIsTranscribing(false);
-        setPipelineStatus('');
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeJob, customPrompt, selectedLanguage, sourceLanguage, speakerOptions, updateJob]
   );
 
@@ -1583,38 +1662,8 @@ export default function App() {
     setQueue((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
 
-    /*
-     * Upload runs transcription only:
-     *   ElevenLabs transcription + word timestamps -> original SRT.
-     * Translation waits for the user to choose it (or their own script).
-     */
-    setIsTranscribing(true);
-    setPipelineProgress(0);
-    setPipelineStatus('Uploading media...');
-    try {
-      const result = await transcribeOnly(file, (status) => setPipelineStatus(status), sourceLanguage, speakerOptions);
-
-      updateJob(newJob.id, {
-        script: '',
-        segments: result.segments,
-        language: selectedLanguage,
-        sourceLanguage,
-        detectedLanguage: result.detectedLanguage,
-        originalSrt: result.originalSrt,
-        translatedSrt: '',
-        translationWarning: null,
-        targetSource: 'pending',
-        errorMsg: null,
-        customPrompt,
-        promptPresetId,
-      });
-    } catch (err: any) {
-      console.warn('Auto transcription notice:', err);
-      updateJob(newJob.id, { errorMsg: describePipelineError(err) });
-    } finally {
-      setIsTranscribing(false);
-      setPipelineStatus('');
-    }
+    // Adding a file only adds it: nothing goes to ElevenLabs until the user
+    // presses Transcribe, so the language and speakers can be set first.
   };
 
   // Load sample session
@@ -1786,18 +1835,13 @@ export default function App() {
    * ElevenLabs owns the transcript and every timestamp. The user then chooses
    * automatic translation or their own script; neither runs from here.
    */
-  const handleAutoTranscribe = async () => {
-    if (!activeJob) return;
-    setIsTranscribing(true);
-    setPipelineProgress(0);
+  /** Transcribe, as pressed in Source & voice. True once there is a transcript; false when it failed or was cancelled. */
+  const handleAutoTranscribe = async (): Promise<boolean> => {
+    if (!activeJob) return false;
     try {
       const targetLang = activeJob.language || selectedLanguage;
-      const result = await transcribeOnly(
-        activeJob.file,
-        (status) => setPipelineStatus(status),
-        activeJob.sourceLanguage ?? sourceLanguage,
-        speakerOptions
-      );
+      const result = await runTranscription(activeJob.id, activeJob.file, activeJob.sourceLanguage ?? sourceLanguage);
+      if (!result) return false;
 
       updateJob(activeJob.id, {
         language: targetLang,
@@ -1820,16 +1864,22 @@ export default function App() {
         syncedBlob: null,
         syncedAudioBuffer: null,
         syncReport: null,
+        syncBank: null,
+        syncBankBlob: null,
+        syncEdits: null,
+        syncBaseReport: null,
         dubStems: null,
         dubMix: null,
         syncedStems: null,
         syncMix: null,
+        lastStep: 2,
       });
+      // The transcript is in, so Review is open: go there, if this project is still the one on screen.
+      if (activeJobIdRef.current === activeJob.id) setStepOverride(2);
+      return true;
     } catch (err: any) {
       updateJob(activeJob.id, { errorMsg: describePipelineError(err) });
-    } finally {
-      setIsTranscribing(false);
-      setPipelineStatus('');
+      return false;
     }
   };
 
@@ -2002,6 +2052,94 @@ export default function App() {
    * synced dub, its own file beside the dub (which it leaves alone), and is
    * exactly as long as the source.
    */
+  /** Stops an edit render that is waiting or running; its edits stay, unrendered. */
+  const cancelSyncEditRender = () => {
+    const run = syncEditRunRef.current;
+    if (run.timer !== null) window.clearTimeout(run.timer);
+    run.controller?.abort();
+    syncEditRunRef.current = { timer: null, controller: null };
+  };
+
+  /**
+   * Renders the synced dub again with its edits, `delay` ms from now unless
+   * another edit comes first, and puts it where the synced dub is: the player,
+   * the download and the waveform all follow it.
+   */
+  const scheduleSyncEditRender = (
+    jobId: string,
+    input: { bank: NonNullable<BatchJob['syncBank']>; bankBlob: Blob | null | undefined; baseReport: NonNullable<BatchJob['syncReport']>; edits: SyncEdits | null; sourceDuration: number },
+    delay = SYNC_EDIT_RENDER_DELAY_MS
+  ) => {
+    cancelSyncEditRender();
+    setSyncEditStatus({ state: 'pending' });
+    const timer = window.setTimeout(async () => {
+      const controller = new AbortController();
+      syncEditRunRef.current = { timer: null, controller };
+      setSyncEditStatus({ state: 'rendering' });
+      try {
+        const { blob, stems, mix } = await renderSyncEdits(
+          { bank: input.bank, bankBlob: input.bankBlob, edits: input.edits, report: input.baseReport, sourceDuration: input.sourceDuration },
+          { signal: controller.signal }
+        );
+        if (controller.signal.aborted) return;
+        const url = URL.createObjectURL(blob);
+        const several = Boolean(input.baseReport.mix);
+        const previousUrl = jobId === activeJobId ? currentSyncedUrlRef.current : null;
+        updateJob(jobId, {
+          syncedAudioUrl: url,
+          syncedBlob: blob,
+          syncedStems: several ? stems : null,
+          // The overlaps kept are the sync's; the peak and gains are the edited mix's.
+          syncMix: several ? { ...(input.baseReport.mix as DubMixReport), ...(mix || {}) } : null,
+          syncedAudioBuffer: null,
+        });
+        decodingSynthUrlRef.current = url;
+        decodeAudioBlobUrl(url)
+          .then((buffer) => {
+            if (currentSyncedUrlRef.current === url) updateJob(jobId, { syncedAudioBuffer: buffer });
+          })
+          .catch(console.warn)
+          .finally(() => {
+            if (decodingSynthUrlRef.current === url) decodingSynthUrlRef.current = null;
+          });
+        // The file before this render is kept with the project as a Blob until replaced; its URL can go once the player has moved on.
+        if (previousUrl) window.setTimeout(() => URL.revokeObjectURL(previousUrl), 5000);
+        setSyncEditStatus({ state: 'ready' });
+      } catch (err: any) {
+        if (controller.signal.aborted || err?.name === 'AbortError') return;
+        console.error('Edit render error:', err);
+        setSyncEditStatus({ state: 'error', message: err?.message || 'The edited dub could not be rendered.' });
+      } finally {
+        if (syncEditRunRef.current.controller === controller) syncEditRunRef.current = { timer: null, controller: null };
+      }
+    }, delay);
+    syncEditRunRef.current = { timer, controller: null };
+  };
+
+  /** Edit timing changed a line: the report follows at once, the audio once the user pauses. */
+  const handleSyncEditsChange = (edits: SyncEdits) => {
+    if (!activeJob?.syncBank || !activeJob.syncBaseReport) return;
+    const clean = hasEdits(edits) ? edits : null;
+    updateJob(activeJob.id, { syncEdits: clean, syncReport: measureEdits(activeJob.syncBaseReport, activeJob.syncBank, clean) });
+    scheduleSyncEditRender(activeJob.id, {
+      bank: activeJob.syncBank,
+      bankBlob: activeJob.syncBankBlob,
+      baseReport: activeJob.syncBaseReport,
+      edits: clean,
+      sourceDuration: sourceDurationOf(activeJob),
+    });
+  };
+
+  /** Renders the edits again after a failed render. */
+  const handleRetrySyncEditRender = () => {
+    if (!activeJob?.syncBank || !activeJob.syncBaseReport) return;
+    scheduleSyncEditRender(
+      activeJob.id,
+      { bank: activeJob.syncBank, bankBlob: activeJob.syncBankBlob, baseReport: activeJob.syncBaseReport, edits: activeJob.syncEdits || null, sourceDuration: sourceDurationOf(activeJob) },
+      0
+    );
+  };
+
   const handleSyncDub = async ({ precision, join, suggest, suggestLonger, matchLoudness }: SyncOptions) => {
     if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
     if (activeJob.targetSource === 'pending') return;
@@ -2028,12 +2166,18 @@ export default function App() {
     }, 700);
 
     const seed = (syncSeedRef.current[activeJob.id] ??= Math.floor(Math.random() * 2 ** 31));
-    const sourceDuration =
-      activeJob.audioBuffer?.duration || activeJob.audioMetadata?.duration || activeJob.segments[activeJob.segments.length - 1].endTime;
+    const sourceDuration = sourceDurationOf(activeJob);
+
+    // Locked lines in Edit timing stay where the user put them.
+    const priorBank = activeJob.syncBank || null;
+    const priorEdits = activeJob.syncEdits || null;
+    const locked = lockedLines(priorBank, priorEdits);
+    // An edit render in flight belongs to the dub this sync replaces.
+    cancelSyncEditRender();
 
     try {
       const several = isMultiSpeaker(activeJob.segments);
-      const { blob, stems, report } = await syncDub(
+      const { blob, stems, report, bank, bankBlob } = await syncDub(
         {
           segments: activeJob.segments,
           sourceDuration,
@@ -2052,9 +2196,12 @@ export default function App() {
           debug: audioDebugEnabled(),
           cartesia: cartesiaVoice,
           ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
+          ...(Object.keys(locked).length > 0 && { locked }),
         },
         { apiKey: elApiKey, jobId, signal: controller.signal }
       );
+      const { edits: keptEdits, dropped } = rebaseEdits(priorEdits, priorBank, bank);
+      const edited = hasEdits(keptEdits);
       if (report.audioDebug) {
         const { lines, ...format } = report.audioDebug;
         console.info('[sync audio]', format);
@@ -2067,13 +2214,27 @@ export default function App() {
       updateJob(activeJob.id, {
         syncedAudioUrl: url,
         syncedBlob: blob,
-        syncReport: report,
+        syncReport: edited ? measureEdits(report, bank, keptEdits) : report,
+        syncBaseReport: report,
+        syncBank: bank,
+        syncBankBlob: bankBlob,
+        syncEdits: edited ? keptEdits : null,
         syncedStems: several ? stems : null,
         syncMix: several ? report.mix || null : null,
         // Until the synced dub decodes, no waveform rather than the previous sync's.
         syncedAudioBuffer: null,
         status: ProcessingStatus.COMPLETED,
       });
+      setSyncEditStatus(
+        dropped.length > 0
+          ? {
+              state: 'ready',
+              notice: `${dropped.length === 1 ? 'One line was' : `${dropped.length} lines were`} voiced again, so ${dropped.length === 1 ? 'its' : 'their'} hand edits were dropped.`,
+            }
+          : { state: 'ready' }
+      );
+      // The sync placed the locked lines' blocks; their edits are rendered over them now.
+      if (edited) scheduleSyncEditRender(activeJob.id, { bank, bankBlob, baseReport: report, edits: keptEdits, sourceDuration }, 0);
       decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
         .then((syncedBuffer) => {
@@ -2463,11 +2624,22 @@ export default function App() {
   const handleSetDubbedMaster = useCallback(
     (masterBlob: Blob, masterBuffer: AudioBuffer) => {
       if (!activeJob) return;
+      if (playsSynced) cancelSyncEditRender();
       const masterUrl = URL.createObjectURL(masterBlob);
       updateJob(
         activeJob.id,
         playsSynced
-          ? { syncedAudioBuffer: masterBuffer, syncedAudioUrl: masterUrl, syncedBlob: masterBlob, status: ProcessingStatus.COMPLETED }
+          ? {
+              syncedAudioBuffer: masterBuffer,
+              syncedAudioUrl: masterUrl,
+              syncedBlob: masterBlob,
+              // The bank is the dub before the voice changer: editing it now would undo the change.
+              syncBank: null,
+              syncBankBlob: null,
+              syncEdits: null,
+              syncBaseReport: null,
+              status: ProcessingStatus.COMPLETED,
+            }
           : { synthAudioBuffer: masterBuffer, synthesizedAudioUrl: masterUrl, synthesizedBlob: masterBlob, status: ProcessingStatus.COMPLETED }
       );
       setTrackMode('synth');
@@ -2537,6 +2709,8 @@ export default function App() {
         activeJob={activeJob}
         activeStep={activeStep}
         onStepChange={handleStepChange}
+        openUpTo={stepGate.upTo}
+        lockedWhy={stepGate.why}
         sourceLanguage={activeJob?.detectedLanguage || activeJob?.sourceLanguage || sourceLanguage}
         targetLanguage={activeJob?.language || selectedLanguage}
         mediaDuration={activeJob?.audioBuffer?.duration}
@@ -2684,6 +2858,10 @@ export default function App() {
           }}
           onAutoTranscribe={handleAutoTranscribe}
           isTranscribing={isTranscribing}
+          onCancelTranscription={handleCancelTranscription}
+          openUpTo={stepGate.upTo}
+          lockedWhy={stepGate.why}
+          transcriptionCancelled={Boolean(activeJob && cancelledTranscriptionJob === activeJob.id)}
           onSynthesizeMaster={handleSynthesizeMaster}
           ttsModelName={
             isCartesiaVoice(elVoiceId)
@@ -2701,6 +2879,9 @@ export default function App() {
           isCancellingDub={isCancellingDub}
           onCancelSynthesis={handleCancelSynthesis}
           onSyncDub={handleSyncDub}
+          onSyncEditsChange={handleSyncEditsChange}
+          syncEditStatus={syncEditStatus}
+          onRetrySyncEditRender={handleRetrySyncEditRender}
           isSyncing={isSyncing}
           syncProgress={syncProgress}
           isCancellingSync={isCancellingSync}

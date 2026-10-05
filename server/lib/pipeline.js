@@ -3,6 +3,7 @@ import { logger } from '../logger.js';
 import { ApiError } from '../errors.js';
 import { getProvider, activeProviders } from '../providers/index.js';
 import { serializeSrt, retextCues, assertTimingsPreserved } from './srt.js';
+import { cancelledError } from './http.js';
 
 /**
  * The end-to-end subtitle workflow:
@@ -18,6 +19,10 @@ import { serializeSrt, retextCues, assertTimingsPreserved } from './srt.js';
  * 2. A translation failure never destroys transcription work. The transcript,
  *    the cues and the original SRT are returned regardless, with the
  *    translation problem reported alongside them.
+ *
+ * Aborting `signal` (the user pressed Cancel transcription, or closed the
+ * request) stops the run where it is: ffmpeg is killed, the request to
+ * ElevenLabs is dropped and not retried, and nothing after it runs.
  */
 export const runSubtitlePipeline = async (
   file,
@@ -34,6 +39,7 @@ export const runSubtitlePipeline = async (
     elevenLabsKey,
     geminiKey,
     onProgress = () => {},
+    signal,
   } = {}
 ) => {
   const startedAt = Date.now();
@@ -50,7 +56,10 @@ export const runSubtitlePipeline = async (
     cueOptions,
     apiKey: elevenLabsKey,
     onStatus: (message) => onProgress({ stage: 'transcribing', progress: 0.2, message }),
+    signal,
   });
+  // Cancelled while the transcript came back: nothing after it runs.
+  if (signal?.aborted) throw cancelledError('Transcription');
 
   const sourceCues = transcription.cues;
 

@@ -116,8 +116,12 @@ export const transcribeOnly = async (
   file: File,
   onStatusUpdate?: (status: string) => void,
   sourceLanguage?: string,
-  /** `diarize` labels who says each cue; `numSpeakers`, when known, helps tell alike voices apart. */
-  { diarize = false, numSpeakers }: { diarize?: boolean; numSpeakers?: number } = {}
+  /**
+   * `diarize` labels who says each cue; `numSpeakers`, when known, helps tell
+   * alike voices apart. Aborting `signal` cancels the transcription, on the
+   * server too.
+   */
+  { diarize = false, numSpeakers, signal }: { diarize?: boolean; numSpeakers?: number; signal?: AbortSignal } = {}
 ): Promise<{
   segments: AudioSegment[];
   detectedLanguage: string;
@@ -128,6 +132,7 @@ export const transcribeOnly = async (
     translate: false,
     diarize,
     numSpeakers,
+    signal,
     onProgress: (progress) => onStatusUpdate?.(progress.message),
   });
 

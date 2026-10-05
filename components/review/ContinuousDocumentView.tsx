@@ -84,6 +84,8 @@ interface ContinuousDocumentViewProps {
   activeSegmentId: string | number | null;
   isPlaying: boolean;
   onSeek: (time: number) => void;
+  /** Prose size in px, set by the Review step's text size control. */
+  fontSize?: number;
 }
 
 /**
@@ -103,6 +105,7 @@ export function ContinuousDocumentView({
   isEndingEarly,
   pacingFilter,
   searchQuery,
+  fontSize = 15,
   activeSegmentId,
   isPlaying,
   onSeek,
@@ -417,6 +420,10 @@ export function ContinuousDocumentView({
   const renderColumn = (p: Pane) => {
     const editable = p === 'target';
     const language = editable ? targetLanguage : sourceLanguage;
+    const characters = segments.reduce(
+      (sum, seg) => sum + (editable ? getTargetText(seg) : getSourceText(seg)).length,
+      0
+    );
     return (
       <div
         ref={columnRefs[p]}
@@ -430,6 +437,9 @@ export function ContinuousDocumentView({
           <span className={`font-medium ${editable ? 'text-indigo-300' : 'text-slate-400'}`}>
             {language || (editable ? 'Dub script' : 'Original')}
             <span className="text-slate-500 font-normal"> · {editable ? 'dub script' : 'source'}</span>
+            <span className="ml-2 font-mono text-[10.5px] text-slate-500 font-normal tabular-nums">
+              {characters.toLocaleString()} chars
+            </span>
           </span>
           <span className="flex items-center gap-1 text-slate-500">
             {editable ? <PenLine className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
@@ -444,7 +454,7 @@ export function ContinuousDocumentView({
                   {run[0].speaker}
                 </div>
               )}
-              <p className="text-[15px] leading-[1.9]">
+              <p className="leading-[1.9]" style={{ fontSize: `${fontSize}px` }}>
                 {run.map((seg, i) => (
                   <React.Fragment key={String(seg.id)}>
                     {i > 0 && ' '}

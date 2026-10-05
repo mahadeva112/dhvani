@@ -421,10 +421,10 @@ export function runQa(segments: AudioSegment[], options: RunQaOptions): QaReport
           ...base,
           ruleId: 'reading-speed',
           severity: 'warn',
-          title: `Cue ${cueNumber} reads at ${cps.toFixed(1)} cps`,
+          title: `Cue ${cueNumber} is too fast for its ${duration.toFixed(1)}s slot`,
           detail: `${target.length} characters in ${duration.toFixed(
             2
-          )}s, over the ${config.maxCps} cps limit. Either shorten the line or the dub will race.`,
+          )}s. Either shorten the line or the dub will race.`,
         });
       }
     }

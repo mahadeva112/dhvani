@@ -59,6 +59,12 @@ pipelineRouter.post(
 
     send({ type: 'progress', stage: 'queued', progress: 0.01, message: 'Upload received.' });
 
+    // The app cancels a transcription by closing this request: everything after it stops.
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
+
     try {
       const result = await runSubtitlePipeline(req.file, {
         sourceLanguage,
@@ -70,10 +76,15 @@ pipelineRouter.post(
         cueOptions: parseJsonField(req.body?.cueOptions, {}),
         ...keys(req),
         onProgress: (event) => send({ type: 'progress', ...event }),
+        signal: controller.signal,
       });
 
       send({ type: 'result', ...result });
     } catch (err) {
+      if (controller.signal.aborted) {
+        logger.info(`Transcription of "${req.file?.originalname}" cancelled.`);
+        return;
+      }
       const error =
         err instanceof ApiError
           ? err

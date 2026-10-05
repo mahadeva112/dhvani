@@ -40,6 +40,8 @@ export interface PhoneticSmartTextareaProps {
    * opt-in per quote, so nothing is rewritten unless the reviewer asks for it.
    */
   defaultAiPolish?: boolean;
+  /** Text size in px, for screens that let the reviewer scale the script. */
+  fontSize?: number;
 }
 
 interface UndoEntry {
@@ -61,6 +63,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   showQuickSymbols = true,
   defaultAiPolish = false,
   compactToolbar = false,
+  fontSize,
 }) => {
   // Enabled state for phonetic auto-transliteration (persisted or on by default)
   const [isPhoneticOn, setIsPhoneticOn] = useState<boolean>(true);
@@ -546,6 +549,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
           onKeyDown={handleKeyDown}
           onKeyUp={handleKeyUp}
           rows={rows}
+          style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
           placeholder={
             placeholder ||
             (isPhoneticOn

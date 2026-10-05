@@ -40,8 +40,8 @@ export const elevenLabsJson = async (endpoint, { method = 'GET', body, apiKey, b
   return response.json();
 };
 
-/** Multipart POST; returns the raw Response so callers can stream binary bodies. */
-export const elevenLabsMultipart = async (endpoint, formData, { apiKey, timeoutMs, retries } = {}) =>
+/** Multipart POST; returns the raw Response so callers can stream binary bodies. `signal` lets the caller cancel it. */
+export const elevenLabsMultipart = async (endpoint, formData, { apiKey, timeoutMs, retries, signal } = {}) =>
   requestWithRetry(
     url(endpoint),
     {
@@ -49,7 +49,7 @@ export const elevenLabsMultipart = async (endpoint, formData, { apiKey, timeoutM
       headers: { 'xi-api-key': elevenLabsKey(apiKey) },
       body: formData,
     },
-    { provider: PROVIDER_LABEL, timeoutMs: timeoutMs || 600000, retries: retries ?? 1 }
+    { provider: PROVIDER_LABEL, timeoutMs: timeoutMs || 600000, retries: retries ?? 1, signal }
   );
 
 /** JSON POST that returns binary audio. `signal` lets the caller cancel it. */

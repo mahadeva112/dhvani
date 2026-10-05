@@ -167,6 +167,20 @@ export const apiGetAudio = async (path: string, { keys, signal }: RequestOptions
     return response.blob();
   });
 
+/** PUT of one file as the raw body, returning parsed JSON. */
+export const apiPutBlob = async <T = any>(path: string, blob: Blob, { keys, signal }: RequestOptions = {}): Promise<T> =>
+  withNetworkGuard(async () => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': blob.type || 'application/octet-stream', ...keyHeaders(keys) },
+      body: blob,
+      signal,
+    });
+
+    if (!response.ok) throw await toApiError(response);
+    return response.json() as Promise<T>;
+  });
+
 /** Multipart POST returning binary audio as a Blob. */
 export const apiAudioUpload = async (
   path: string,

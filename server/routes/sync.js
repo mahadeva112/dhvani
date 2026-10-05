@@ -1,12 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../errors.js';
 import { synthesizeLines, cleanTextForNaturalSpeech } from '../providers/elevenlabs/speech.js';
 import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } from '../providers/cartesia/speech.js';
-import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat } from '../lib/media.js';
-import { pcmToWav, floatToWav } from '../lib/wav.js';
+import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch } from '../lib/media.js';
+import { pcmToWav, floatToWav, parseWav } from '../lib/wav.js';
 import { runSync } from '../lib/syncDub.js';
+import { checkParts, lineArrays, renderEdits } from '../lib/syncEdit.js';
 import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
 import { shortenLine, lengthenLine } from '../lib/syncRewrite.js';
@@ -124,6 +125,61 @@ const keepResult = (buffer, contentType) => {
   return id;
 };
 
+/**
+ * Banks for Edit timing, by id: every placed line of a sync, exactly as the
+ * render took it (see runSync). The app keeps its own copy with the project
+ * and sends it again (PUT /api/sync/edit/banks/:bankId) when this one has
+ * gone: dropped after BANK_TTL_MS unused, or the oldest first past
+ * BANK_BYTES_LIMIT, or with the server.
+ */
+const BANK_TTL_MS = 3 * 60 * 60 * 1000;
+const BANK_BYTES_LIMIT = 768 * 1024 * 1024;
+const STRETCH_CACHE_LIMIT = 200;
+const banks = new Map();
+
+const BANK_ID = /^[A-Za-z0-9-]{8,64}$/;
+
+const keepBank = (bankId, { sampleRate, float, samples }) => {
+  banks.delete(bankId);
+  banks.set(bankId, { sampleRate, float, samples, usedAt: Date.now(), arrays: null, arraysKey: '', stretched: new Map() });
+  let bytes = 0;
+  for (const entry of banks.values()) bytes += entry.samples.byteLength;
+  for (const [id, entry] of banks) {
+    if (bytes <= BANK_BYTES_LIMIT || id === bankId) break;
+    bytes -= entry.samples.byteLength;
+    banks.delete(id);
+  }
+};
+
+const bankFor = (bankId) => {
+  const now = Date.now();
+  for (const [id, entry] of banks) if (now - entry.usedAt > BANK_TTL_MS) banks.delete(id);
+  const entry = banks.get(bankId);
+  if (!entry) return null;
+  entry.usedAt = now;
+  banks.delete(bankId);
+  banks.set(bankId, entry);
+  return entry;
+};
+
+/** A sync's locked lines, as the app sends them back: only what runSync reads. */
+const cleanLocked = (value) =>
+  Object.fromEntries(
+    Object.entries(value && typeof value === 'object' ? value : {})
+      .slice(0, 20000)
+      .filter(
+        ([key, lock]) =>
+          key.length <= 128 &&
+          lock &&
+          typeof lock.hash === 'string' &&
+          lock.hash.length <= 64 &&
+          Number.isFinite(lock.start) &&
+          Number.isFinite(lock.end) &&
+          (lock.cuts === undefined || (Array.isArray(lock.cuts) && lock.cuts.length <= 10000))
+      )
+      .map(([key, lock]) => [key, { hash: lock.hash, cuts: lock.cuts || [], crossfade: Number(lock.crossfade) || 0, start: lock.start, end: lock.end }])
+  );
+
 /** Every cut, placement, gain and fade of a sync, one line each, for tracing an artifact to the step that made it. */
 const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output, lines }) => {
   logger.info(
@@ -181,6 +237,7 @@ syncRouter.post(
       multiSpeaker,
       cast,
       peak,
+      locked,
     } = req.body || {};
 
     if (!Array.isArray(segments) || segments.length === 0) {
@@ -235,6 +292,7 @@ syncRouter.post(
           peak: MIX_PEAK_MODES.includes(peak) ? peak : 'float',
           lineSeeds: cleanLineSeeds(lineSeeds),
           matchLoudness: matchLoudness === true,
+          locked: cleanLocked(locked),
           debug: audioDebug,
         },
         {
@@ -253,11 +311,26 @@ syncRouter.post(
       );
       if (job) finishDubJob(jobId, 'done');
       if (result.report.audioDebug) logAudioDebug(result.report.audioDebug);
+      // The bank goes out in the dub's own sample format, and what is kept here
+      // is read back from that same file, so a render from this copy and from
+      // one the app sends again later are the same.
+      const float = Boolean(result.report.mix) && result.report.mix.peak === 'float';
+      const bankFile = await encodeWav(sampleRate)(result.bank.samples, { float });
+      const bankId = randomUUID();
+      keepBank(bankId, parseWav(bankFile.buffer));
       res.json({
         audioId: keepResult(result.buffer, result.contentType),
         contentType: result.contentType,
         stems: (result.stems || []).map((stem) => ({ speaker: stem.speaker, audioId: keepResult(stem.buffer, stem.contentType), contentType: stem.contentType })),
         report: result.report,
+        bank: {
+          bankId,
+          audioId: keepResult(bankFile.buffer, bankFile.contentType),
+          sampleRate,
+          float,
+          lines: result.bank.lines,
+          speakerGains: result.bank.speakerGains,
+        },
       });
     } catch (err) {
       if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
@@ -398,6 +471,118 @@ syncRouter.post(
       { apiKey: req.get('x-gemini-key') || undefined }
     );
     res.json({ line, reason, flagged });
+  })
+);
+
+/**
+ * PUT /api/sync/edit/banks/:bankId — the bank of a sync again, as the app saved
+ * it (the WAV /sync gave it), for when this server no longer has it.
+ */
+syncRouter.put(
+  '/sync/edit/banks/:bankId',
+  express.raw({ type: () => true, limit: '2gb' }),
+  (req, res) => {
+    const { bankId } = req.params;
+    if (!BANK_ID.test(bankId)) throw new ApiError('That is not a bank id.', { status: 400, code: 'bad_bank_id' });
+    let bank;
+    try {
+      bank = parseWav(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0));
+    } catch (err) {
+      throw new ApiError(`The saved lines could not be read: ${err.message}`, { status: 400, code: 'bad_bank' });
+    }
+    keepBank(bankId, bank);
+    res.json({ bankId, samples: bank.samples.length });
+  }
+);
+
+/**
+ * POST /api/sync/edit/render — a synced dub rendered again with the user's
+ * edits (see syncEdit.js). Body: `{ bankId, sampleRate, lines, speakerGains,
+ * parts, sourceDuration, edgeFade, multiSpeaker, peak }`: `lines` as the bank
+ * gave them (only `bankStart`, `length`, `maxStartShift`, `gain` and
+ * `speaker` are read) and `parts` as checkParts takes them. Replies as /sync
+ * does, `{ audioId, contentType, stems, report }`, `report` holding the mix
+ * report with several speakers. A bank this server no longer has is a 404
+ * with code `edit_bank_missing`: send it again and retry.
+ */
+syncRouter.post(
+  '/sync/edit/render',
+  asyncHandler(async (req, res) => {
+    const { bankId, sampleRate, lines, speakerGains, parts, sourceDuration, edgeFade, multiSpeaker, peak } = req.body || {};
+    const entry = typeof bankId === 'string' ? bankFor(bankId) : null;
+    if (!entry) throw new ApiError('The saved lines of this sync are not on the server.', { status: 404, code: 'edit_bank_missing' });
+    if (Number(sampleRate) !== entry.sampleRate) {
+      throw new ApiError('The saved lines are at a different sample rate from this sync.', { status: 400, code: 'bank_sample_rate' });
+    }
+    if (!Array.isArray(lines) || lines.length > 20000) throw new ApiError('The lines of the sync are missing.', { status: 400, code: 'no_lines' });
+
+    const bankLines = lines.map((line, n) => {
+      const bankStart = Number(line?.bankStart);
+      const length = Number(line?.length);
+      if (!Number.isInteger(bankStart) || !Number.isInteger(length) || bankStart < 0 || length < 0 || bankStart + length > entry.samples.length) {
+        throw new ApiError(`Line ${n + 1} is not in the saved lines.`, { status: 400, code: 'bad_bank_line' });
+      }
+      return {
+        bankStart,
+        length,
+        ...(Number.isInteger(line.maxStartShift) && line.maxStartShift >= 0 && { maxStartShift: line.maxStartShift }),
+        gain: Number.isFinite(line.gain) && line.gain > 0 ? line.gain : 1,
+        speaker: typeof line.speaker === 'string' ? line.speaker.slice(0, 128) : 'Speaker',
+      };
+    });
+    const bank = {
+      sampleRate: entry.sampleRate,
+      samples: entry.samples,
+      lines: bankLines,
+      speakerGains: Object.fromEntries(
+        Object.entries(speakerGains && typeof speakerGains === 'object' ? speakerGains : {}).filter(([, gain]) => Number.isFinite(gain) && gain > 0)
+      ),
+    };
+    const linesKey = bankLines.map((line) => `${line.bankStart}:${line.length}`).join(',');
+    if (!entry.arrays || entry.arraysKey !== linesKey) {
+      entry.arrays = lineArrays(bank);
+      entry.arraysKey = linesKey;
+      entry.stretched.clear();
+    }
+
+    let checked;
+    try {
+      checked = checkParts(parts, bank);
+    } catch (err) {
+      throw new ApiError(`These edits can't be rendered: ${err.message}.`, { status: 400, code: 'bad_edit' });
+    }
+    const several = multiSpeaker === true;
+    // A stretched part is the same until its line, its samples or its speed change.
+    const stretch = async (samples, rate, { line, from, to }) => {
+      const key = `${line}:${from}:${to}:${rate}`;
+      const hit = entry.stretched.get(key);
+      if (hit) return hit;
+      const out = await timeStretch(samples, entry.sampleRate, rate);
+      entry.stretched.set(key, out);
+      if (entry.stretched.size > STRETCH_CACHE_LIMIT) entry.stretched.delete(entry.stretched.keys().next().value);
+      return out;
+    };
+    const result = await renderEdits(
+      {
+        bank,
+        arrays: entry.arrays,
+        parts: checked,
+        sourceDuration: Number(sourceDuration) || 0,
+        edgeFade: Math.max(0, Number(edgeFade) || 0),
+        multiSpeaker: several,
+        peak: MIX_PEAK_MODES.includes(peak) ? peak : 'float',
+      },
+      { stretch }
+    );
+    const float = several && result.report.peak === 'float';
+    const encode = encodeWav(entry.sampleRate);
+    const mix = await encode(result.track, { float });
+    const stems = [];
+    for (const stem of result.stems || []) {
+      const encoded = await encode(stem.samples, { float });
+      stems.push({ speaker: stem.speaker, audioId: keepResult(encoded.buffer, encoded.contentType), contentType: encoded.contentType });
+    }
+    res.json({ audioId: keepResult(mix.buffer, mix.contentType), contentType: mix.contentType, stems, report: result.report ? { mix: result.report } : {} });
   })
 );
 

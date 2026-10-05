@@ -89,19 +89,22 @@ export const speakerGains = (clips, sampleRate) => {
 /**
  * Renders placed clips into a mix and one stem per speaker.
  *
- * `clips[i]` is a renderTimeline clip plus `speaker`. Options are those of
- * renderTimeline plus `peak` (see MIX_PEAK_MODES) and `matchSpeakers`. `log`
- * receives what the mix render did to each clip. Returns
+ * `clips[i]` is a renderTimeline clip plus `speaker`; a clip's own `gain`
+ * (one the user set on the line) goes on top of its speaker's. Options are
+ * those of renderTimeline plus `peak` (see MIX_PEAK_MODES), `matchSpeakers`
+ * and `gains`: speaker gains already worked out (a Map, as speakerGains
+ * returns), used as they are, so a re-render of edited lines keeps the gains
+ * the sync chose. `log` receives what the mix render did to each clip. Returns
  * `{ mix, stems: [{ speaker, samples }], report }`, `report` being
  * `{ speakers, peakDb, peakAt, overFullScale, peak, loweredDb, gains }`.
  */
 export const mixSpeakers = (
   clips,
-  { sampleRate, length = 0, runOut = 0.3, fadeSeconds, peak = 'float', matchSpeakers = false, log } = {}
+  { sampleRate, length = 0, runOut = 0.3, fadeSeconds, peak = 'float', matchSpeakers = false, gains: given, log } = {}
 ) => {
   const mode = MIX_PEAK_MODES.includes(peak) ? peak : 'float';
-  const gains = matchSpeakers ? speakerGains(clips, sampleRate) : new Map();
-  const placed = clips.map((clip) => ({ ...clip, gain: gains.get(clip.speaker) ?? 1 }));
+  const gains = given instanceof Map ? given : matchSpeakers ? speakerGains(clips, sampleRate) : new Map();
+  const placed = clips.map((clip) => ({ ...clip, gain: (gains.get(clip.speaker) ?? 1) * (Number.isFinite(clip.gain) ? clip.gain : 1) }));
 
   const mix = renderTimeline(placed, { sampleRate, length, runOut, fadeSeconds, limitPeak: false, log });
 

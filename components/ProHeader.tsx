@@ -14,7 +14,6 @@ import {
   Film,
   Music,
   Speech,
-  Lock,
   Download,
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
@@ -69,9 +68,12 @@ export interface HeaderQuota {
 
 export interface ProHeaderProps {
   activeJob: BatchJob | null;
-  /** The step on screen and how to change it; steps 2 to 4 need cues. */
+  /** The step on screen and how to change it. */
   activeStep: number;
   onStepChange: (step: number) => void;
+  /** The last step that may be opened (services/projects.ts openSteps), and why each later one can't be yet. */
+  openUpTo?: number;
+  lockedWhy?: Record<number, string>;
   /** Spoken language shown next to the file; empty means auto-detect. */
   sourceLanguage?: string;
   targetLanguage?: string;
@@ -178,6 +180,8 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   activeJob,
   activeStep,
   onStepChange,
+  openUpTo = 4,
+  lockedWhy: lockReasons = {},
   sourceLanguage,
   targetLanguage,
   mediaDuration,
@@ -275,20 +279,15 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
     return null;
   })();
 
-  // Sync is open whenever there are cues, as it was inside the dub step: it
-  // can make the dub itself. The header only marks it next once a dub exists.
-  // A transcript waiting for translate-or-your-script has nothing to dub yet.
-  const hasScript = hasCues && activeJob?.targetSource !== 'pending';
+  // Each step opens once the one before it is done, and can't be opened while that one's work runs.
+  const lockedWhy = (n: number) => lockReasons[n] || 'Finish the step before it first';
   const steps = [
     { n: 1, label: 'Source & voice', enabled: true },
-    { n: 2, label: 'Review', enabled: hasCues },
-    { n: 3, label: 'Final dub', enabled: hasScript },
-    { n: 4, label: 'Sync', enabled: hasScript },
+    { n: 2, label: 'Review', enabled: openUpTo >= 2 },
+    { n: 3, label: 'Final dub', enabled: openUpTo >= 3 },
+    { n: 4, label: 'Sync', enabled: openUpTo >= 4 },
   ];
   const stepDone = (n: number) => (n === 1 ? hasCues : n === 2 || n === 3 ? hasDub : hasSync);
-  const lockedWhy = hasCues
-    ? 'Translate the transcript or use your own script first'
-    : 'Add media and transcribe it first';
 
   return (
     <header className="relative z-20 w-full bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md select-none">
@@ -341,6 +340,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
           aria-label="Dubbing steps"
           className="col-span-2 md:col-span-1 row-start-2 md:row-start-auto justify-self-center flex items-center gap-0.5 p-[3px] rounded-full bg-slate-900 border border-slate-800 max-w-full overflow-x-auto [scrollbar-width:none]"
         >
+          {/* Every step shows as it always has; one not reached yet just can't be opened. */}
           {steps.map((s) => {
             const on = activeStep === s.n;
             const done = !on && s.enabled && stepDone(s.n);
@@ -352,8 +352,8 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                 onClick={() => s.enabled && onStepChange(s.n)}
                 disabled={!s.enabled}
                 aria-current={on ? 'step' : undefined}
-                aria-label={s.enabled ? undefined : `${s.label}, locked. ${lockedWhy}.`}
-                title={s.enabled ? (next ? `Next: ${s.label}` : s.label) : lockedWhy}
+                aria-label={s.enabled ? undefined : `${s.label}, not available yet. ${lockedWhy(s.n)}.`}
+                title={s.enabled ? (next ? `Next: ${s.label}` : s.label) : lockedWhy(s.n)}
                 className={`flex items-center gap-2 pl-1 pr-3 lg:pr-3.5 py-1 rounded-full text-[12.5px] font-medium whitespace-nowrap transition-colors ${
                   on
                     ? 'bg-slate-800 text-slate-100 shadow-sm'
@@ -361,7 +361,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                       ? 'text-slate-200 hover:text-white cursor-pointer'
                       : s.enabled
                         ? 'text-slate-400 hover:text-slate-200 cursor-pointer'
-                        : 'text-slate-500 cursor-not-allowed'
+                        : 'text-slate-400 cursor-default'
                 }`}
               >
                 <span
@@ -374,13 +374,13 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                           ? 'border-indigo-500 text-indigo-300'
                           : s.enabled
                             ? 'border-slate-700'
-                            : 'border-dashed border-slate-700 text-slate-500'
+                            : 'border-slate-700'
                   }`}
                 >
-                  {done ? <Check className="w-3 h-3" /> : s.enabled ? s.n : <Lock className="w-2.5 h-2.5" />}
+                  {done ? <Check className="w-3 h-3" /> : s.n}
                 </span>
                 <span className="hidden sm:inline">{s.label}</span>
-                {s.n === 2 && hasCues && (
+                {s.n === 2 && hasCues && s.enabled && (
                   <span className="hidden lg:inline font-mono text-[10px] text-cyan-300 tabular-nums">
                     {activeJob!.segments.length} cues
                   </span>

@@ -47,6 +47,8 @@ import {
   Scissors,
   BookOpen,
   X,
+  Pencil,
+  Minus,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/projects';
@@ -112,6 +114,8 @@ import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
 import { useSignoff } from '../services/signoffService';
 import { ContinuousDocumentView, ContinuousDocumentHandle } from './review/ContinuousDocumentView';
+import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
+import type { SyncEdits } from '../services/syncEditService';
 
 type ReviewMode = 'grid' | 'table' | 'spotlight' | 'script' | 'document' | 'qa';
 
@@ -123,6 +127,19 @@ const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{
   { id: 'document', label: 'Document', Icon: BookOpen },
   { id: 'qa', label: 'QA', Icon: ShieldCheck },
 ];
+
+/** Review text size: the reviewer scales the script with − and +, remembered per machine. */
+const REVIEW_FONT_KEY = 'dhvani_review_font_px';
+const REVIEW_FONT_MIN = 12;
+const REVIEW_FONT_MAX = 22;
+const REVIEW_FONT_DEFAULT = 15;
+
+/** A line's length, counted the way the pacing figures count it. */
+const CharCount: React.FC<{ text: string; className?: string }> = ({ text, className = '' }) => (
+  <span className={`font-mono text-[10.5px] text-slate-500 tabular-nums whitespace-nowrap ${className}`}>
+    {text.length} chars
+  </span>
+);
 
 /**
  * How comfortably a translated line fits its time slot, in characters per
@@ -286,8 +303,16 @@ interface ExpressDubWizardProps {
   voiceEngine?: VoiceEngine;
   onVoiceEngineChange?: (engine: VoiceEngine) => void;
   onOpenPhoneticKeyboard?: (segment?: AudioSegment) => void;
-  onAutoTranscribe: () => Promise<void>;
+  /** Transcribes the file; true once there is a transcript, false when it failed or was cancelled. */
+  onAutoTranscribe: () => Promise<boolean>;
   isTranscribing: boolean;
+  /** Stops the transcription in flight, on the server too. */
+  onCancelTranscription?: () => void;
+  /** The last step that may be opened, and why each later one is locked (services/projects.ts openSteps). */
+  openUpTo?: number;
+  lockedWhy?: Record<number, string>;
+  /** The last transcription of this project was cancelled by the user. */
+  transcriptionCancelled?: boolean;
   onSynthesizeMaster: () => Promise<void>;
   /** Display name of the ElevenLabs model the dub is generated with. */
   ttsModelName?: string;
@@ -313,6 +338,11 @@ interface ExpressDubWizardProps {
   onCancelSynthesis?: () => void;
   /** Sync: a dub voiced line by line and placed on the original's phrases. Omitted hides the panel. */
   onSyncDub?: (options: SyncOptions) => void;
+  /** Edit timing: the synced dub's lines changed by hand, with a name for the change. Omitted hides Edit timing. */
+  onSyncEditsChange?: (edits: SyncEdits, label: string) => void;
+  /** Whether the synced dub has caught up with the edits. */
+  syncEditStatus?: SyncEditStatus;
+  onRetrySyncEditRender?: () => void;
   isSyncing?: boolean;
   syncProgress?: SyncProgress | null;
   isCancellingSync?: boolean;
@@ -400,6 +430,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onOpenPhoneticKeyboard,
   onAutoTranscribe,
   isTranscribing,
+  onCancelTranscription,
+  openUpTo = 4,
+  lockedWhy = {},
+  transcriptionCancelled = false,
   onSynthesizeMaster,
   ttsModelName = 'ElevenLabs',
   elModelId,
@@ -417,6 +451,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   isCancellingDub = false,
   onCancelSynthesis,
   onSyncDub,
+  onSyncEditsChange,
+  syncEditStatus = { state: 'ready' },
+  onRetrySyncEditRender,
   isSyncing = false,
   syncProgress = null,
   isCancellingSync = false,
@@ -487,11 +524,26 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [isVoicePickerOpen, setIsVoicePickerOpen] = useState(false);
   const { favorites: favoriteVoices } = useFavoriteVoices();
   const [spotlightIndex, setSpotlightIndex] = useState<number>(0);
+  const [reviewFontPx, setReviewFontPx] = useState<number>(() => {
+    try {
+      const saved = Number(localStorage.getItem(REVIEW_FONT_KEY));
+      if (saved >= REVIEW_FONT_MIN && saved <= REVIEW_FONT_MAX) return saved;
+    } catch {}
+    return REVIEW_FONT_DEFAULT;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(REVIEW_FONT_KEY, String(reviewFontPx));
+    } catch {}
+  }, [reviewFontPx]);
+  const reviewTextStyle: React.CSSProperties = { fontSize: `${reviewFontPx}px` };
   const [copiedCueId, setCopiedCueId] = useState<string | number | null>(null);
   // The views scroll inside the editor panel, so their own height caps are off.
   const isListExpanded = true;
   const [isSrtModalOpen, setIsSrtModalOpen] = useState<boolean>(false);
   const [isAlignModalOpen, setIsAlignModalOpen] = useState<boolean>(false);
+  /** Sync step: the player's lanes are the Edit timing timeline. */
+  const [editingTiming, setEditingTiming] = useState(false);
   const [srtOptions, setSrtOptions] = useState<SrtOptions>(() => {
     try {
       const saved = localStorage.getItem('dhvani_srt_options');
@@ -592,10 +644,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
   };
 
-  const renderPaginationControls = () => {
+  // Pinned to the bottom of the cue list, so paging is in reach however far down a long page is scrolled.
+  const renderPaginationControls = (inset = '') => {
     if (totalPages <= 1) return null;
     return (
-      <div className="flex items-center justify-between gap-4 py-2 px-3 bg-slate-950/80 rounded-xl border border-slate-800 text-[11px] shadow-md animate-in fade-in duration-150">
+      <div className={`sticky bottom-0 z-20 py-2 bg-slate-900/95 backdrop-blur-sm ${inset}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2 px-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] shadow-md">
         <div className="text-slate-400 font-medium">
           Cues <span className="text-indigo-400 font-bold">{(currentPage - 1) * itemsPerPage + 1} - {Math.min(filteredSegments.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-bold">{filteredSegments.length}</span>
         </div>
@@ -604,7 +658,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           <button
             type="button"
             disabled={currentPage === 1}
-            onClick={() => setCurrentPage(1)}
+            onClick={() => goToPage(1)}
             className="p-1 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
             title="First Page"
           >
@@ -614,11 +668,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           <button
             type="button"
             disabled={currentPage === 1}
-            onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+            onClick={() => goToPage(currentPage - 1)}
             className="px-2 py-1 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-pointer"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
-            <span>Prev</span>
+            <span>Previous</span>
           </button>
           
           <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-slate-900 border border-slate-800 font-medium">
@@ -631,7 +685,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onChange={(e) => {
                 const val = parseInt(e.target.value);
                 if (val >= 1 && val <= totalPages) {
-                  setCurrentPage(val);
+                  goToPage(val);
                 }
               }}
               className="w-8 bg-slate-950 border border-slate-800 text-center rounded text-white font-bold text-xs focus:outline-none focus:border-indigo-500 py-0.5"
@@ -642,7 +696,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           <button
             type="button"
             disabled={currentPage === totalPages}
-            onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+            onClick={() => goToPage(currentPage + 1)}
             className="px-2 py-1 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-pointer"
           >
             <span>Next</span>
@@ -652,13 +706,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           <button
             type="button"
             disabled={currentPage === totalPages}
-            onClick={() => setCurrentPage(totalPages)}
+            onClick={() => goToPage(totalPages)}
             className="p-1 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
             title="Last Page"
           >
             <ChevronsRight className="w-3.5 h-3.5" />
           </button>
         </div>
+      </div>
       </div>
     );
   };
@@ -1000,18 +1055,21 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return segments.find((s) => sourceClockTime >= s.startTime && sourceClockTime <= s.endTime)?.id || null;
   }, [segments, sourceClockTime]);
 
-  // Auto-page progression on playback or segment updates
+  /*
+    Follow the playhead: when it moves into another cue, open that cue's page
+    and spotlight it. Only a change of cue moves the view, so Prev / Next and
+    edits made while the playhead rests inside a cue stay where the reviewer put them.
+  */
+  const followedCueId = useRef<string | number | null>(null);
   useEffect(() => {
-    if (activeSegmentId) {
-      const idx = filteredSegments.findIndex((s) => s.id === activeSegmentId);
-      if (idx !== -1) {
-        const pageOfActiveSegment = Math.floor(idx / itemsPerPage) + 1;
-        if (pageOfActiveSegment !== currentPage) {
-          setCurrentPage(pageOfActiveSegment);
-        }
-      }
-    }
-  }, [activeSegmentId, filteredSegments, currentPage]);
+    if (activeSegmentId === followedCueId.current) return;
+    followedCueId.current = activeSegmentId;
+    if (!activeSegmentId) return;
+    const idx = filteredSegments.findIndex((s) => s.id === activeSegmentId);
+    if (idx === -1) return;
+    setCurrentPage(Math.floor(idx / itemsPerPage) + 1);
+    setSpotlightIndex(idx);
+  }, [activeSegmentId, filteredSegments]);
 
   const riskCuesCount = useMemo(() => {
     return segments.filter((seg) => {
@@ -1118,9 +1176,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return qaReport.findings.filter((f) => f.severity === 'block' && !waived[f.id]).length;
   }, [qaReport.findings, qaSignoff]);
 
-  const handleJumpToCue = (seg: AudioSegment) => {
-    const idx = segments.findIndex((s) => s.id === seg.id);
+  // Spotlight steps through the filtered list, so its index is a position in that list.
+  const spotlightCue = (seg: AudioSegment) => {
+    const idx = filteredSegments.findIndex((s) => s.id === seg.id);
     if (idx !== -1) setSpotlightIndex(idx);
+  };
+
+  const handleJumpToCue = (seg: AudioSegment) => {
+    spotlightCue(seg);
     seekSource(seg.startTime);
     // The document shows every cue, so it opens the cue in place.
     if (reviewMode === 'document') {
@@ -1154,6 +1217,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const totalPages = useMemo(() => {
     return Math.ceil(filteredSegments.length / itemsPerPage);
   }, [filteredSegments.length]);
+
+  // A speaker filter can shrink the list under the page the reviewer is on.
+  useEffect(() => {
+    if (totalPages > 0 && currentPage > totalPages) setCurrentPage(totalPages);
+  }, [totalPages, currentPage]);
+
+  // Paging opens the new page at its first cue, not wherever the last one was scrolled to.
+  const goToPage = (page: number) => {
+    setCurrentPage(Math.min(Math.max(1, page), Math.max(1, totalPages)));
+    scriptScrollRef.current?.scrollTo({ top: 0 });
+  };
 
   const paginatedSegments = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -1227,7 +1301,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     if (cps > 18) {
       return {
         cps: cps.toFixed(1),
-        label: 'Fast (>18 CPS)',
+        label: 'Too fast',
         badgeClass: 'text-amber-300 bg-amber-950/80 border border-amber-800/80',
         barColor: 'bg-amber-500',
         warning: 'High text density: voice may speak quickly to fit time window.',
@@ -1236,7 +1310,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     if (cps > 14) {
       return {
         cps: cps.toFixed(1),
-        label: 'Moderate (14-18 CPS)',
+        label: 'Tight',
         badgeClass: 'text-cyan-300 bg-cyan-950/80 border border-cyan-800/80',
         barColor: 'bg-cyan-500',
         warning: null,
@@ -1244,7 +1318,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
     return {
       cps: cps.toFixed(1),
-      label: 'Optimal (≤14 CPS)',
+      label: 'Natural',
       badgeClass: 'text-emerald-300 bg-emerald-950/80 border border-emerald-800/80',
       barColor: 'bg-emerald-500',
       warning: null,
@@ -1603,8 +1677,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     ) {
                       return;
                     }
+                    // Once transcribed, the app opens Review itself.
                     await onAutoTranscribe();
-                    setStepOverride(2);
                   }}
                   disabled={!activeJob || isTranscribing}
                   className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
@@ -1625,11 +1699,29 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   )}
                 </button>
 
+                {isTranscribing && onCancelTranscription && (
+                  <button
+                    type="button"
+                    onClick={onCancelTranscription}
+                    className="h-9 flex items-center justify-center gap-2 rounded-xl border border-slate-700 text-[13px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 hover:border-rose-500/50 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                    Cancel transcription
+                  </button>
+                )}
                 {isTranscribing && pipelineStatus ? (
                   <div className="flex items-center gap-2 text-xs text-indigo-200 font-mono" role="status" aria-live="polite">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shrink-0" />
                     <span className="truncate">{pipelineStatus}</span>
                   </div>
+                ) : !isTranscribing && transcriptionCancelled ? (
+                  <p className="text-xs text-amber-300" role="status">
+                    Transcription cancelled. {transcribed ? 'The transcript you had is kept.' : 'Press Transcribe audio to start again.'}
+                  </p>
+                ) : !isTranscribing && activeJob && !transcribed ? (
+                  <p className="text-xs text-slate-400">
+                    Nothing is sent to ElevenLabs until you press Transcribe audio: set the language and speakers first.
+                  </p>
                 ) : (
                   <div className="flex justify-between text-[11px] text-slate-500">
                     <span>Transcribe</span>
@@ -1662,8 +1754,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             onTogglePlay={onTogglePlay}
             onSeek={onSeek}
             onSelectSegment={(seg) => {
-              const idx = segments.findIndex((s) => s.id === seg.id);
-              if (idx !== -1) setSpotlightIndex(idx);
+              spotlightCue(seg);
               const cardEl = document.getElementById(`cue-card-${seg.id}`);
               if (cardEl) {
                 cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1834,6 +1925,44 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </>
                 )}
 
+                {reviewMode !== 'qa' && (
+                  <div
+                    role="group"
+                    aria-label="Text size"
+                    className="ml-auto flex items-center h-8 bg-slate-950 border border-slate-800 rounded-xl"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setReviewFontPx((px) => Math.max(REVIEW_FONT_MIN, px - 1))}
+                      disabled={reviewFontPx <= REVIEW_FONT_MIN}
+                      className="w-8 h-full flex items-center justify-center rounded-l-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                      title="Smaller text"
+                      aria-label="Smaller text"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReviewFontPx(REVIEW_FONT_DEFAULT)}
+                      className="min-w-[2.25rem] h-full px-1 font-mono text-[11px] text-slate-300 tabular-nums hover:text-slate-100 cursor-pointer"
+                      title={`Text size ${reviewFontPx}px. Click to reset to ${REVIEW_FONT_DEFAULT}px`}
+                      aria-label={`Text size ${reviewFontPx} pixels, reset`}
+                    >
+                      {reviewFontPx}px
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setReviewFontPx((px) => Math.min(REVIEW_FONT_MAX, px + 1))}
+                      disabled={reviewFontPx >= REVIEW_FONT_MAX}
+                      className="w-8 h-full flex items-center justify-center rounded-r-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                      title="Larger text"
+                      aria-label="Larger text"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
                 {onOpenPhoneticKeyboard && (
                   <button
                     type="button"
@@ -1842,7 +1971,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         reviewMode === 'document' ? documentViewRef.current?.lastFocusedSegment() ?? undefined : undefined
                       )
                     }
-                    className="ml-auto w-8 h-8 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+                    className={`${reviewMode === 'qa' ? 'ml-auto ' : ''}w-8 h-8 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer`}
                     title="Open the Indic phonetic keyboard"
                     aria-label="Open the Indic phonetic keyboard"
                   >
@@ -1891,6 +2020,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               activeSegmentId={activeSegmentId}
               isPlaying={isPlaying}
               onSeek={seekSource}
+              fontSize={reviewFontPx}
             />
           )}
 
@@ -1916,8 +2046,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           {/* ========================================================================= */}
           {reviewMode === 'grid' && filteredSegments.length > 0 && (
             <div className="space-y-4">
-              {renderPaginationControls()}
-              
               <div
                 className={`space-y-3 pr-2 scroll-smooth ${
                   isListExpanded
@@ -2007,10 +2135,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                       {/* Source Audio Transcription */}
                       <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-mono tracking-wider text-slate-500">
-                          Original Audio Transcription:
+                        <label className="text-[10px] uppercase font-mono tracking-wider text-slate-500 flex items-center justify-between">
+                          <span>Original Audio Transcription:</span>
+                          <CharCount text={srcText} className="normal-case tracking-normal" />
                         </label>
-                        <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-xs text-slate-300 leading-relaxed font-sans min-h-[56px]">
+                        <div
+                          className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-slate-300 leading-relaxed font-sans min-h-[56px]"
+                          style={reviewTextStyle}
+                        >
                           {srcText || <span className="text-slate-600 italic">No original transcription available</span>}
                         </div>
                       </div>
@@ -2020,7 +2152,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <label className="text-[10px] uppercase font-mono tracking-wider text-indigo-400 flex items-center justify-between">
                           <span>{targetLanguage} Translation:</span>
                           <span className="text-slate-500 font-sans normal-case text-[10px]">
-                            {charCount} characters ({cpsInfo.cps} chars/s)
+                            {charCount} characters
                           </span>
                         </label>
                         <PhoneticSmartTextarea
@@ -2038,6 +2170,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           }
                           rows={2}
                           placeholder={`Translated text in ${targetLanguage}...`}
+                          fontSize={reviewFontPx}
                         />
                       </div>
                     </div>
@@ -2126,10 +2259,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </button>
 
                     {/* Pacing (right column on desktop, top-right on phones) */}
-                    <div className="md:order-last flex flex-col items-end gap-1.5 md:pt-1">
-                      <span className={`font-mono text-[10.5px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${pace.pillClass}`}>
-                        {pace.cps.toFixed(1)} cps
-                      </span>
+                    <div className="md:order-last flex flex-col items-end gap-1.5 md:pt-2">
                       <span className="w-16 h-1 rounded-full bg-slate-800 overflow-hidden">
                         <span className={`block h-full rounded-full ${pace.barClass}`} style={{ width: `${pace.meter}%` }} />
                       </span>
@@ -2137,7 +2267,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </div>
 
                     {/* Original */}
-                    <div className="col-span-3 md:col-span-1 text-[13px] text-slate-400 leading-relaxed">
+                    <div className="col-span-3 md:col-span-1 text-slate-400 leading-relaxed" style={reviewTextStyle}>
                       {multiSpeaker ? (
                         <span className="block mb-1">
                           <SpeakerPicker
@@ -2154,6 +2284,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         )
                       )}
                       {srcText || <span className="text-slate-600 italic">No original text</span>}
+                      <CharCount text={srcText} className="block mt-1" />
                       {multiSpeaker && (
                         <SpeakerCueNotes
                           current={speakerOf(seg)}
@@ -2186,7 +2317,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         rows={2}
                         placeholder={`${targetLanguage} line`}
                         compactToolbar
+                        fontSize={reviewFontPx}
                       />
+                      <CharCount text={tgtText} className="block mt-1" />
                       {(() => {
                         const { cps: lineCps, ...line } = reviewLineOf(seg, tgtText, srcText);
                         const fix = reviewFixes.controlsFor(line);
@@ -2218,7 +2351,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 );
               })}
 
-              <div className="p-3">{renderPaginationControls()}</div>
+              {renderPaginationControls('px-3')}
             </div>
           )}
 
@@ -2236,8 +2369,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
             return (
               <div className="space-y-3 bg-slate-900/80 border border-slate-800 p-4 sm:p-6 rounded-2xl shadow-sm">
-                {/* Spotlight Navigation Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                {/* Spotlight Navigation Bar: pinned, so Previous / Next stay in reach below a long line */}
+                <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 px-4 sm:px-6 pt-4 sm:pt-6 rounded-t-2xl bg-slate-900 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-1 rounded-xl bg-indigo-100 text-indigo-700 border border-indigo-200 dark:bg-indigo-950 dark:border-indigo-700/60 dark:text-indigo-400 font-mono text-xs font-bold">
                       Cue {safeIndex + 1} of {filteredSegments.length}
@@ -2294,10 +2427,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
                 {/* Original Transcription Display */}
                 <div className="space-y-1.5">
-                  <label className="text-xs uppercase font-mono tracking-wider text-slate-400">
-                    Original Speech (Source Audio):
-                  </label>
-                  <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-sm text-slate-200 leading-relaxed font-sans">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs uppercase font-mono tracking-wider text-slate-400">
+                      Original Speech (Source Audio):
+                    </label>
+                    <span className="text-xs text-slate-400 font-mono">{srcText.length} chars</span>
+                  </div>
+                  <div
+                    className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-slate-200 leading-relaxed font-sans"
+                    style={reviewTextStyle}
+                  >
                     {srcText || <span className="text-slate-500 italic">No audio transcription available</span>}
                   </div>
                 </div>
@@ -2332,6 +2471,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     }
                     rows={3}
                     placeholder={`Type translation in ${targetLanguage}...`}
+                    fontSize={reviewFontPx}
                   />
                 </div>
 
@@ -2388,8 +2528,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           {/* ========================================================================= */}
           {reviewMode === 'script' && filteredSegments.length > 0 && (
             <div className="space-y-4">
-              {renderPaginationControls()}
-              
               <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-4">
                 <div
                   className={`scroll-smooth pr-2 custom-scrollbar ${
@@ -2422,9 +2560,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 {formatSeconds(seg.startTime)} - {formatSeconds(seg.endTime)}
                               </span>
                             </div>
-                            <p className="text-xs text-slate-200 leading-relaxed font-sans">
+                            <p className="text-slate-200 leading-relaxed font-sans" style={reviewTextStyle}>
                               {getSourceText(seg)}
                             </p>
+                            <CharCount text={getSourceText(seg)} className="block text-right" />
                           </div>
                         ))}
                       </div>
@@ -2488,6 +2627,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                               }
                               rows={2}
                               placeholder={`Type translation in ${targetLanguage}...`}
+                              fontSize={reviewFontPx}
                             />
                           </div>
                         ))}
@@ -2784,7 +2924,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     setStepOverride(3);
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                   }}
-                  disabled={activeJob.segments.length === 0}
+                  disabled={activeJob.segments.length === 0 || openUpTo < 3}
+                  title={openUpTo < 3 ? lockedWhy[3] : undefined}
                   className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
                 >
                   {isSynthesizing ? (
@@ -3122,7 +3263,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   setStepOverride(4);
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="h-10 px-4 flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors cursor-pointer active:translate-y-px shrink-0"
+                disabled={openUpTo < 4}
+                title={openUpTo < 4 ? lockedWhy[4] : undefined}
+                className="h-10 px-4 flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors cursor-pointer active:translate-y-px shrink-0 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed"
               >
                 {isSyncing ? 'View sync' : hasSyncReport ? 'Open sync' : 'Continue to sync'} <ArrowRight className="w-4 h-4" />
               </button>
@@ -3755,13 +3898,59 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               ? 'There are no cues to sync yet.'
               : null;
         const runSync = () => onSyncDub?.(syncOptions);
+        const canEditTiming = Boolean(onSyncEditsChange);
+        const editedLineCount = Object.keys(activeJob.syncEdits || {}).length;
+        const hasEditedTiming = editedLineCount > 0;
 
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
           {hasDub && (
             <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
+              {report && canEditTiming && !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Player</span>
+                  {hasEditedTiming && (
+                    <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
+                      {editedLineCount} line{editedLineCount === 1 ? '' : 's'} edited by hand
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setEditingTiming(true)}
+                    disabled={!activeJob.syncBank}
+                    title={activeJob.syncBank ? 'Move, trim, split and stretch the synced lines by hand' : 'Sync again to edit the timing of this dub'}
+                    className="ml-auto h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Edit timing
+                  </button>
+                </div>
+              )}
+              {report && editingTiming && activeJob.syncBank && activeJob.syncBaseReport && onSyncEditsChange && (
+                <SyncEditTimeline
+                  bank={activeJob.syncBank}
+                  bankBlob={activeJob.syncBankBlob}
+                  baseReport={activeJob.syncBaseReport}
+                  edits={activeJob.syncEdits}
+                  onChange={onSyncEditsChange}
+                  status={syncEditStatus}
+                  onRetry={() => onRetrySyncEditRender?.()}
+                  sourceBuffer={activeJob.audioBuffer}
+                  total={sourceLength || syncedLength}
+                  targetLanguage={targetLanguage}
+                  currentTime={currentTime}
+                  isPlaying={isPlaying}
+                  getLiveTime={getLiveTime}
+                  onSeek={onSeek}
+                  onPlayFrom={(t) => {
+                    onSeek(t);
+                    if (!isPlaying) onTogglePlay();
+                  }}
+                  onClose={() => setEditingTiming(false)}
+                />
+              )}
               {report &&
+                !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport && onSyncEditsChange) &&
                 renderTrackLanes(
                   [
                     { label: 'Original', track: 'source', length: sourceLength, buffer: activeJob.audioBuffer, dot: 'bg-cyan-400', color: 'text-slate-400/30', spans: lineLanes.sourceSpans },
@@ -3881,6 +4070,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-start">
             <SyncResultsPanel
               report={report}
+              handEdits={editedLineCount}
               progress={syncProgress}
               isSyncing={isSyncing}
               isCancelling={isCancellingSync}

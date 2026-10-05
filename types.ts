@@ -1,4 +1,5 @@
 import type { SyncReport } from './services/syncService';
+import type { SyncBank, SyncEdits } from './services/syncEditService';
 
 /**
  * One word as measured by ElevenLabs. These are the authoritative timings for
@@ -224,8 +225,18 @@ export interface BatchJob {
   syncedAudioUrl?: string | null;
   syncedBlob?: Blob | null;
   syncedAudioBuffer?: AudioBuffer | null;
-  /** Set with the synced dub: how each line lined up with the source. */
+  /** Set with the synced dub: how each line lined up with the source, with any Edit timing edits measured in. */
   syncReport?: SyncReport | null;
+  /**
+   * Edit timing. The bank is every line as Sync placed it (its samples in
+   * `syncBankBlob`); `syncEdits` is what the user did to them, and
+   * `syncBaseReport` the report as Sync made it, before any edit. The synced
+   * dub above is rendered from the bank with the edits.
+   */
+  syncBank?: SyncBank | null;
+  syncBankBlob?: Blob | null;
+  syncEdits?: SyncEdits | null;
+  syncBaseReport?: SyncReport | null;
 
   /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
   cast?: Record<string, SpeakerVoice>;

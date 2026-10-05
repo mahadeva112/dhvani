@@ -150,9 +150,20 @@ export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INN
   if (cuts.length === 0) return { samples, removed: 0, cuts };
 
   cuts.sort((a, b) => a.start - b.start);
+  const output = applyCuts(samples, cuts, Math.round(Math.max(0, crossfade) * sampleRate));
+  return { samples: output, removed: (samples.length - output.length) / sampleRate, cuts };
+};
+
+/**
+ * Takes `cuts` (sample ranges in order, as shortenPauses returns them) out of
+ * `samples`, blending each join over `blend` samples (0 for a plain cut). The
+ * same cuts and blend on the same samples give the same samples, so a sync can
+ * rebuild a line exactly as an earlier one cut it.
+ */
+export const applyCuts = (samples, cuts, blend = 0) => {
+  if (cuts.length === 0) return samples;
   const removedSamples = cuts.reduce((sum, cut) => sum + cut.end - cut.start, 0);
   const output = new Float32Array(samples.length - removedSamples);
-  const blend = Math.round(Math.max(0, crossfade) * sampleRate);
   let from = 0;
   let to = 0;
   for (const cut of cuts) {
@@ -168,7 +179,7 @@ export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INN
     from = cut.end;
   }
   output.set(samples.subarray(from), to);
-  return { samples: output, removed: removedSamples / sampleRate, cuts };
+  return output;
 };
 
 /**
@@ -226,10 +237,12 @@ export const clipEdges = (samples, { startLimit, endLimit, fadeLength, joinedSta
 
 /**
  * Renders placed clips into one mono track at least `length` seconds long.
- * `clips[i]` is `{ samples, position | startSample, maxStartShift?, gain? }`:
- * where the clip's first sample goes, in seconds or as a whole sample, how
- * many samples its start edge may move (EDGE_SEARCH_SECONDS unless less is
- * allowed) and a gain asked for by the caller (1 unless given).
+ * `clips[i]` is `{ samples, position | startSample, maxStartShift?, gain?,
+ * fadeInSamples?, fadeOutSamples? }`: where the clip's first sample goes, in
+ * seconds or as a whole sample, how many samples its start edge may move
+ * (EDGE_SEARCH_SECONDS unless less is allowed), a gain asked for by the caller
+ * (1 unless given) and fades the user drew on the line in Edit timing (none
+ * unless given), raised-cosine, over the clip as copied.
  *
  * Each clip is copied in sample for sample at a gain of 1, at a whole-sample
  * offset (rounded once from `position`). Moving an edge (see clipEdges) only
@@ -281,10 +294,15 @@ export const renderTimeline = (
     const { from, to, fadeIn, fadeOut, start } = placements[n];
     const gain = gains[n];
     const span = to - from;
+    const half = Math.floor(span / 2);
+    const userIn = Math.min(half, Math.max(0, Math.round(clip.fadeInSamples || 0)));
+    const userOut = Math.min(half, Math.max(0, Math.round(clip.fadeOutSamples || 0)));
     for (let i = 0; i < span; i++) {
       let weight = gain;
       if (i < fadeIn) weight *= fadeWeight(i, fadeIn);
       if (i >= span - fadeOut) weight *= fadeWeight(span - 1 - i, fadeOut);
+      if (i < userIn) weight *= fadeWeight(i, userIn);
+      if (i >= span - userOut) weight *= fadeWeight(span - 1 - i, userOut);
       output[start + i] += samples[from + i] * weight;
     }
   });
@@ -307,6 +325,8 @@ export const renderTimeline = (
         fadeInSamples: fadeIn,
         fadeOutSamples: fadeOut,
         microFade: fadeIn > 0 || fadeOut > 0,
+        userFadeInSamples: Math.max(0, Math.round(clips[n].fadeInSamples || 0)),
+        userFadeOutSamples: Math.max(0, Math.round(clips[n].fadeOutSamples || 0)),
       })
     );
   }

@@ -3,6 +3,7 @@ import { AudioSegment, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '
 import { ElevenLabsVoiceSettings } from './elevenLabsService';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
 import { castPayload, fetchMixed } from './castService';
+import type { lockedLines, SyncBank } from './syncEditService';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
@@ -324,6 +325,8 @@ export interface SyncRequest {
   cast?: Record<string, SpeakerVoice>;
   /** How a mix above full scale is handled, with several speakers. */
   peak?: MixPeakMode;
+  /** Lines locked in Edit timing, by key (syncEditService.lockedLines): held where the user put them. */
+  locked?: ReturnType<typeof lockedLines>;
 }
 
 /** Only what the server reads from each cue; word timings and legacy fields stay behind. */
@@ -336,17 +339,28 @@ const slimSegment = (segment: AudioSegment) => ({
   textSource: segment.textSource || segment.originalText || '',
 });
 
+/**
+ * Syncs a dub. Besides the dub it returns its bank, every placed line as the
+ * render took it, for Edit timing: `bank` describes the lines and `bankBlob`
+ * holds their samples, both kept with the project.
+ */
 export const syncDub = async (
   request: SyncRequest,
   { apiKey, jobId, signal }: { apiKey?: string; jobId?: string; signal?: AbortSignal } = {}
-): Promise<{ blob: Blob; stems: DubStem[]; report: SyncReport }> => {
+): Promise<{ blob: Blob; stems: DubStem[]; report: SyncReport; bank: SyncBank; bankBlob: Blob }> => {
   const { cartesia, cast, multiSpeaker, ...rest } = request;
   // A Cartesia voice gets the same model and delivery as a Cartesia dub.
   const voice =
     cartesia && isCartesiaVoice(request.voiceId)
       ? { modelId: cartesia.modelId || undefined, voiceSettings: cartesiaDelivery(cartesia) }
       : { voiceSettings: request.voiceSettings || undefined };
-  const data = await apiJson<{ audioId: string; contentType: string; stems: { speaker: string; audioId: string; contentType: string }[]; report: SyncReport }>(
+  const data = await apiJson<{
+    audioId: string;
+    contentType: string;
+    stems: { speaker: string; audioId: string; contentType: string }[];
+    report: SyncReport;
+    bank: SyncBank & { audioId: string };
+  }>(
     '/sync',
     {
       body: {
@@ -363,8 +377,11 @@ export const syncDub = async (
       signal,
     }
   );
-  // The dub, and any stems, are fetched on their own: lossless WAV is too big to ride inside JSON.
-  return fetchMixed(data, signal);
+  // The dub, any stems and the bank are fetched on their own: lossless WAV is too big to ride inside JSON.
+  const mixed = await fetchMixed(data, signal);
+  const { audioId, ...bank } = data.bank;
+  const bankBlob = await apiGetAudio(`/sync/audio/${encodeURIComponent(audioId)}`, { signal });
+  return { ...mixed, bank, bankBlob };
 };
 
 export const getSyncProgress = (jobId: string): Promise<SyncProgress> =>

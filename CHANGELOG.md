@@ -9,6 +9,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Review shows each line's length and lets you size the text.** Every Review view (Cues, Cards,
+  Spotlight, Script) now shows the character count under both the original line and the
+  translation, and the translation's count updates as you type. Document shows each column's total.
+  **−** and **+** in the Review toolbar make the script smaller or larger (12 to 22 px), and clicking
+  the size between them resets it. The size is remembered, and text now starts at 15 px instead of
+  12 to 13 px.
+- **Edit timing: fix a synced dub's lines by hand.** After Sync, **Edit timing** in the Sync step's
+  player turns its lanes into an editor under the original. As in REAPER and DaVinci Resolve, no
+  tool has to be picked: where a drag starts on a line says what it does, and the cursor and a hint
+  show it first. Drag the middle to move a line (Shift: push the lines after it along), an edge to
+  trim it, Alt + an edge to stretch it (pitch kept), Alt + the middle to slip the audio inside, a
+  top corner to fade it and the top edge up or down to turn it up or down. **Snap** (N) catches the
+  original's lines, other lines and the playhead (a moved line's first word snaps to its original
+  line's start); **Ripple** pushes later lines along on every move; **Blade** (B) cuts where you
+  click. **Split** (S) at the pointer or the playhead, **Join** (G), **Align to original** (A),
+  **Mute** (M), **Lock** (L), nudges of 10 ms or 100 ms (`,` `.`), Undo / Redo and a history to
+  step back to.
+  An overview of the whole dub, sync links, the script under each line and a start-drift lane show
+  how every line lands as you edit; the report, the download and the player follow once the edit is
+  rendered. Every line you edit is locked: **Sync again** places the others around it and leaves it
+  where you put it, as long as it comes back as the same take. A line you leave alone is copied in
+  exactly as Sync placed it, so **Reset all edits** is the synced dub again, sample for sample; speed,
+  level and fades change only on the lines you set them on. The lines are kept with the project, so
+  edits work after a restart. Dubs synced before this release need **Sync again** to be edited.
 - **Your projects: every dub is kept until you delete it.** **New dub** no longer deletes the dub
   you were on; it starts a new project beside it. A **Projects** menu in the header lists your recent
   projects to switch between, rename or delete, and **See all projects** opens the full list (what
@@ -104,6 +128,24 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Adding a file no longer starts transcribing it, and a transcription can be cancelled.** A new
+  file is only added: its waveform and length show, and nothing goes to ElevenLabs until you press
+  **Transcribe audio**, so the language and speakers can be set first. While it runs, **Cancel
+  transcription** stops it at once, in the app and on the server: ffmpeg is stopped, the request to
+  ElevenLabs is dropped and never retried, nothing after it (translation) runs, and the uploaded
+  file is deleted. The project stays as it was; a cancelled **Transcribe again** keeps the
+  transcript you had. Once the audio has reached ElevenLabs, ElevenLabs may still count it.
+- **Steps open one at a time.** All four steps stay in the header as they look today, and a step
+  not reached yet can't be opened (hover it to see why): **Review** opens once the audio is
+  transcribed, **Final dub** once there is a script (translated or your own), and **Sync** once
+  there is a dub. While a step's work runs (transcribing, translating, dubbing), the steps after it
+  can't be opened until it finishes. The buttons on each page that lead on follow the same rule, and a project reopens on
+  the furthest step it has reached.
+- **Review's mini player is a slim bar that never covers a cue.** Once the full player scrolls out
+  of sight, play, previous / next cue, the cue and time, the waveform and a way back to the full
+  player sit in one 40 px bar along the bottom of the window, in place of the card in the corner
+  that hid the cue text under it. The page keeps that much room below its end, so the last cues
+  scroll clear of the bar.
 - **Each line keeps one colour, and the waveforms are no longer covered.** In Final dub, the Sync
   preview and the **Sync to the original** report, every line has its own colour, the same in the
   Original and dub lanes, the line lists and the links between them, so a line can be followed from
@@ -182,6 +224,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Review's Previous / Next buttons work, and stay in reach.** While the playhead rested inside a
+  cue, the list snapped straight back to that cue's page, so Next and Previous looked dead. Now the
+  list moves only when playback reaches a new cue. The paging bar stays pinned to the bottom of the
+  list, and Spotlight's Previous / Next bar stays pinned to the top, so neither scrolls away on a
+  long page. A new page opens at its first cue, and clicking a cue in the player spotlights the right
+  cue when a filter is on.
 - **Sync no longer replaces the dub.** Syncing used to overwrite the Final dub, so the unsynced dub
   was gone. Now the synced dub is its own file: the Final dub step keeps playing the dub, and the
   Sync step plays the synced dub. Its player shows the whole original with the whole synced dub
