@@ -9,6 +9,18 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **An Expert estimate in the Sync preview, beside the Quick one.** A **Quick | Expert** switch on
+  the Sync preview (Final dub and Sync) picks how long each dub line is expected to take. Quick is
+  the estimate as before: characters at the voice's rate. Expert counts syllables, which suits
+  Indian scripts, where one syllable can be several characters and a word's last "a" is often not
+  said; adds the pauses its commas and full stops ask for; and shows a fast-to-slow range under each
+  line. It also marks where the lips close (p, b, m, and प फ ब भ म in Indian scripts): ▼ on the
+  original, from its word timings, and ▲ on the dub, with a count of how many match. In Expert the
+  dub lane can also be a **Rythmo** band: the dub's words on the timeline, each squeezed or stretched
+  to the time it takes, red once past its slot. A picked line shows its syllables word by word, how
+  many to cut or how much room is left, and its own band. The syllable rate comes from the same
+  measured rate, so over the whole dub both estimates agree; only how the time is shared between
+  lines differs. The pick, and Bars or Rythmo, are remembered.
 - **Three suggestions for a line, read in context.** In Review and the Final dub, suggesting a
   shorter or fuller wording for one line now offers three of different kinds (closest to the dub,
   most natural spoken, a different sentence shape), each checked against the original line's

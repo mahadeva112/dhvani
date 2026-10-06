@@ -96,6 +96,7 @@ import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsPanel, SyncVerdictBadge, useSyncOptions } from './SyncPanel';
 import {
   distributeLineText,
+  expertPreview,
   measureSpeechSeconds,
   scriptCharacterCount,
   speakingRate,
@@ -105,8 +106,9 @@ import {
   TYPICAL_CHARS_PER_SECOND,
   withLineTargets,
 } from '../services/syncService';
-import type { LineContext, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
-import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort } from './SyncPreviewPanel';
+import type { EstimateMethod, LineContext, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
+import { syllableRate } from '../services/speechTiming';
+import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis } from './SyncPreviewPanel';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, needsFix } from './FinalScriptFit';
 import { hueOf, lineIndexByCue, withAlpha } from './lineColors';
@@ -132,6 +134,8 @@ const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{
 
 /** Review text size: the reviewer scales the script with − and +, remembered per machine. */
 const REVIEW_FONT_KEY = 'dhvani_review_font_px';
+/** Quick or Expert: how the Sync preview times the dub lines. */
+const ESTIMATE_METHOD_KEY = 'dhvani_estimate_method';
 const REVIEW_FONT_MIN = 12;
 const REVIEW_FONT_MAX = 22;
 const REVIEW_FONT_DEFAULT = 15;
@@ -978,7 +982,28 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** The Review step's rewording, one cue at a time. */
   const reviewFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
   /** The preview with the lengths the user trimmed lines to on the timeline; both steps use it. */
-  const linePreview = useMemo(() => withLineTargets(syncPreview.preview, segments), [syncPreview.preview, segments]);
+  /** Quick or Expert, the user's pick, kept across restarts; both steps' previews follow it. */
+  const [estimateMethod, setEstimateMethod] = useState<EstimateMethod>(() => {
+    try {
+      return localStorage.getItem(ESTIMATE_METHOD_KEY) === 'expert' ? 'expert' : 'quick';
+    } catch {
+      return 'quick';
+    }
+  });
+  const changeEstimateMethod = (method: EstimateMethod) => {
+    setEstimateMethod(method);
+    try {
+      localStorage.setItem(ESTIMATE_METHOD_KEY, method);
+    } catch {
+      /* Storage off: the pick lasts until the app closes. */
+    }
+  };
+  // The voice's rate in syllables, from the same measured (or typical) rate in characters.
+  const syllablesPerSecond = useMemo(() => syllableRate(segments.map(getTargetText), previewRate), [segments, previewRate]);
+  const linePreview = useMemo(() => {
+    const base = syncPreview.preview;
+    return withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond) : base, segments);
+  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond]);
   /** The dub bar picked on the Final dub timeline, for trimming. */
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   const selectedLine = linePreview?.units.find((u) => u.key === selectedLineKey) || null;
@@ -3344,11 +3369,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             <section aria-label="Sync preview" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h2 className="text-[15px] font-semibold text-slate-100">Sync preview</h2>
-                  <p className="text-xs text-slate-400">
-                    {measuredRate !== null ? 'An estimate' : 'A rough estimate'} from the text length, at {linePreview.charsPerSecond.toFixed(1)} chars/s{' '}
-                    {measuredRate !== null ? 'from this dub' : '(a typical rate)'}. Click a dub bar, then drag its end to the length you want; that
-                    line's suggestion aims for it.
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <h2 className="text-[15px] font-semibold text-slate-100">Sync preview</h2>
+                    <EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {estimateMethod === 'expert'
+                      ? `Counted in syllables at your voice's rate (${estimateBasis(linePreview, measuredRate !== null)}), with pauses at commas and full stops, a fast to slow range, and where the lips close. Sync still measures the real clips.`
+                      : `${measuredRate !== null ? 'An estimate' : 'A rough estimate'} from the text length, at ${linePreview.charsPerSecond.toFixed(1)} chars/s ${
+                          measuredRate !== null ? 'from this dub' : '(a typical rate)'
+                        }.`}{' '}
+                    Click a dub bar, then drag its end to the length you want; that line's suggestion aims for it.
                   </p>
                 </div>
                 {syncPreview.loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
@@ -3398,6 +3429,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       </div>
                       <p className="mt-1.5 text-[14px] text-slate-100 leading-snug">{unit.text}</p>
                       {unit.sourceText && <p className="text-xs text-slate-500 mt-0.5">{unit.sourceText}</p>}
+                      <ExpertLineDetail unit={unit} />
                       <p className={`text-[11.5px] mt-1.5 ${fixing ? (fix.direction === 'longer' ? 'text-sky-300' : 'text-amber-300') : 'text-slate-400'}`}>
                         {note || 'Fits its slot. Drag the end of its bar to set a length of your own.'}
                       </p>
@@ -4171,6 +4203,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onUseLine={applyPreviewLine}
                   onRestore={restoreCueTexts}
                   sourceBuffer={activeJob.audioBuffer}
+                  onMethodChange={changeEstimateMethod}
                 />
               }
               currentTime={sourceClockTime}

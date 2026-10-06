@@ -4,6 +4,7 @@ import { ElevenLabsVoiceSettings } from './elevenLabsService';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
 import { castPayload, fetchMixed } from './castService';
 import type { lockedLines, SyncBank } from './syncEditService';
+import { matchedLips, READ_SPREAD, sourceLipTimes, timeLine, type TimedWord } from './speechTiming';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
@@ -499,6 +500,26 @@ export interface SyncPreviewUnit {
   targetChars: number;
   /** Seconds the user trimmed the line to on the timeline; set only client-side, by withLineTargets. */
   wantSeconds?: number;
+  /** Set by the Expert estimate (expertPreview): the line timed in syllables, and its lip closures. */
+  expert?: ExpertLine;
+}
+
+/** A line as the Expert estimate times it. Seconds in `words` and `dubLips` are from the line's start. */
+export interface ExpertLine {
+  /** Syllables a second the line was timed at. */
+  rate: number;
+  syllables: number;
+  /** A fast and a slow read of the line, in seconds. */
+  low: number;
+  high: number;
+  words: TimedWord[];
+  dubLips: number[];
+  /** Where the original speaker's lips close, on the original's clock; empty without word timings. */
+  sourceLips: number[];
+  lipsMatched: number;
+  /** Syllables to take out for the line to fit its slot, or that it has room for; 0 when neither. */
+  cut: number;
+  room: number;
 }
 
 /** A trimmed line within this many seconds of its trim already matches it. */
@@ -523,7 +544,9 @@ export const withLineTargets = (preview: SyncPreview | null, segments: AudioSegm
     units: preview.units.map((unit) => {
       const seconds = want.get(unit.key);
       if (!seconds) return unit;
-      return { ...unit, wantSeconds: seconds, targetChars: Math.max(1, Math.round(seconds * preview.charsPerSecond)) };
+      // The Expert estimate times each line on its own, so a trim converts at the line's own rate.
+      const cps = unit.expert ? unit.text.length / Math.max(0.1, unit.estimate) : preview.charsPerSecond;
+      return { ...unit, wantSeconds: seconds, targetChars: Math.max(1, Math.round(seconds * cps)) };
     }),
   };
 };
@@ -537,8 +560,112 @@ export interface SyncPreview {
   charsPerSecond: number;
   units: SyncPreviewUnit[];
   /** `fits` includes the short lines, which fit their slot; `short` counts them on their own. */
-  summary: { lines: number; fits: number; tight: number; long: number; short: number; maxOverflow: number };
+  summary: {
+    lines: number;
+    fits: number;
+    tight: number;
+    long: number;
+    short: number;
+    maxOverflow: number;
+    /** Expert only: the original's lip closures, and how many have one in the dub near them. */
+    lips?: { matched: number; total: number };
+  };
+  /** 'quick' (characters at a rate, from the server) unless expertPreview has re-timed it. */
+  method?: EstimateMethod;
+  /** Expert only: the rate its lines were timed at. */
+  syllablesPerSecond?: number;
 }
+
+/**
+ * How the preview times a dub line. Quick: its characters at the voice's
+ * rate. Expert: its syllables at the voice's rate, with pauses, a fast-to-slow
+ * range and lip closures.
+ */
+export type EstimateMethod = 'quick' | 'expert';
+
+/*
+ * The thresholds the server's preview uses (server/lib/syncPreview.js and
+ * syncDub.js), so an Expert line is called long, tight or short exactly as a
+ * Quick one would be at the same length.
+ */
+const ALLOWED_OVERFLOW: Record<SyncPrecision, number> = { lipsync: 0.15, phrase: 0.3, loose: 0.6 };
+const TIGHT_SHARE = 0.9;
+const SUGGESTION_MARGIN = 0.92;
+const LENGTHEN_FILL = 0.95;
+const SHORT_SHARE = 0.6;
+const MIN_SHORT_GAP = 1;
+/** True when `seconds` of dub leave too much of `spoken` seconds of original unsaid. */
+export const isShortSpeech = (seconds: number, spoken: number) => seconds < spoken * SHORT_SHARE && spoken - seconds >= MIN_SHORT_GAP;
+
+/**
+ * The server's preview re-timed by the Expert estimate: every line in
+ * syllables at `syllablesPerSecond`, its status, overrun and target length
+ * worked out again from that, and the lip closures of the original (from the
+ * cues' word timings) set against the dub's. Slots stay as the server set them.
+ */
+export const expertPreview = (preview: SyncPreview, segments: AudioSegment[], syllablesPerSecond: number): SyncPreview => {
+  const rate = syllablesPerSecond;
+  const cueById = new Map(segments.map((seg) => [String(seg.id), seg]));
+  const allowed = ALLOWED_OVERFLOW[preview.precision] ?? ALLOWED_OVERFLOW.phrase;
+  const units = preview.units.map((unit): SyncPreviewUnit => {
+    const timing = timeLine(unit.text, rate);
+    const estimate = timing.seconds;
+    const overflow = estimate - unit.slot;
+    const short = isShortSpeech(estimate, unit.spoken);
+    const status = overflow > allowed ? 'long' : estimate > unit.slot * TIGHT_SHARE ? 'tight' : short ? 'short' : 'fits';
+    const chars = unit.text.length;
+    const targetChars =
+      status === 'short'
+        ? Math.max(chars + 1, Math.floor((chars / Math.max(0.1, estimate)) * Math.min(unit.spoken * LENGTHEN_FILL, unit.slot * SUGGESTION_MARGIN)))
+        : Math.max(1, Math.floor(chars * Math.min(1, unit.slot / Math.max(0.1, estimate)) * SUGGESTION_MARGIN));
+    const sourceLips = unit.cueIds
+      .flatMap((id) => sourceLipTimes(cueById.get(String(id))?.words))
+      .filter((t) => t >= unit.srcStart - 0.05 && t <= unit.srcStart + unit.slot);
+    const dubLips = timing.lips;
+    // The syllables the slot holds at this rate, once the line's pauses are taken out.
+    const pauses = estimate - timing.syllables / rate;
+    const holds = Math.floor(Math.max(0, unit.slot * SUGGESTION_MARGIN - pauses) * rate);
+    return {
+      ...unit,
+      estimate,
+      overflow: Math.max(0, overflow),
+      underflow: status === 'short' ? Math.max(0, unit.spoken - estimate) : 0,
+      status,
+      targetChars,
+      expert: {
+        rate,
+        syllables: timing.syllables,
+        low: estimate * (1 - READ_SPREAD),
+        high: estimate * (1 + READ_SPREAD),
+        words: timing.words,
+        dubLips,
+        sourceLips,
+        lipsMatched: matchedLips(sourceLips, dubLips.map((t) => unit.srcStart + t)),
+        cut: status === 'long' || status === 'tight' ? Math.max(status === 'tight' ? 1 : 0, timing.syllables - holds) : 0,
+        room: status === 'long' ? 0 : Math.max(0, holds - timing.syllables),
+      },
+    };
+  });
+  const count = (status: SyncPreviewUnit['status']) => units.filter((u) => u.status === status).length;
+  return {
+    ...preview,
+    method: 'expert',
+    syllablesPerSecond: rate,
+    units,
+    summary: {
+      lines: units.length,
+      fits: count('fits') + count('short'),
+      tight: count('tight'),
+      long: count('long'),
+      short: count('short'),
+      maxOverflow: units.reduce((max, u) => (u.status === 'long' ? Math.max(max, u.overflow) : max), 0),
+      lips: {
+        matched: units.reduce((sum, u) => sum + (u.expert?.lipsMatched ?? 0), 0),
+        total: units.reduce((sum, u) => sum + (u.expert?.sourceLips.length ?? 0), 0),
+      },
+    },
+  };
+};
 
 /** Which lines are likely to fit, before anything is voiced. No voice or text model is called. */
 export const previewSync = (

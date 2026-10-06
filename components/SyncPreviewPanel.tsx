@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, ChevronDown, Loader2, Pencil, Play, RotateCcw, X } from 'lucide-react';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
@@ -14,8 +14,11 @@ import {
   SyncPreview,
   SyncPreviewUnit,
   TRIM_TOLERANCE,
+  isShortSpeech,
   wantsChange,
 } from '../services/syncService';
+import type { EstimateMethod } from '../services/syncService';
+import { timeLine } from '../services/speechTiming';
 
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
@@ -48,14 +51,63 @@ const TRIM_BOX = 'border-2 border-dashed border-indigo-300/90';
 const SELECTED_RING = '0 0 0 2px rgba(165,180,252,0.95)';
 /** The line under the playhead. */
 const NOW_RING = '0 0 0 2px rgba(255,255,255,0.8)';
+/** How a line is likely to fit, as the colour of its Expert range. */
+const STATUS_HEX: Record<SyncPreviewUnit['status'], string> = { fits: '#34d399', tight: '#fcd34d', long: '#fbbf24', short: '#38bdf8' };
+/** Bars or Rythmo, for the Expert estimate's dub lane. */
+const PREVIEW_VIEW_KEY = 'dhvani_preview_view';
+/**
+ * A word on a Rythmo band, squeezed or stretched to the time it takes, as a
+ * dubbing studio's band writes it: a squeezed word has to be said fast, a
+ * stretched one has room. Never clipped, so a word stays readable.
+ */
+const RythmoWord: React.FC<{ text: string; left: string; width: string; late: boolean; className?: string }> = ({ text, left, width, late, className = '' }) => {
+  const box = useRef<HTMLSpanElement>(null);
+  const inner = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const fit = () => {
+      if (!box.current || !inner.current) return;
+      inner.current.style.transform = '';
+      const room = box.current.clientWidth;
+      const need = inner.current.scrollWidth;
+      if (room > 0 && need > 0) inner.current.style.transform = `scaleX(${Math.min(1.8, room / need)})`;
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    if (box.current) observer.observe(box.current);
+    return () => observer.disconnect();
+  }, [text]);
+  return (
+    <span
+      ref={box}
+      aria-hidden="true"
+      className={`absolute top-1/2 -translate-y-1/2 flex justify-center whitespace-nowrap pointer-events-none border-l border-slate-700/60 leading-none ${
+        late ? 'text-rose-300' : 'text-slate-100'
+      } ${className}`}
+      style={{ left, width }}
+    >
+      <span ref={inner} className="inline-block origin-center">
+        {text}
+      </span>
+    </span>
+  );
+};
+
+/** Where the lips close: ▼ on the original, ▲ on the dub. */
+const LipMark: React.FC<{ left: string; up?: boolean }> = ({ left, up }) => (
+  <span
+    aria-hidden="true"
+    className={`absolute z-10 w-0 h-0 -ml-[4px] pointer-events-none border-x-[4px] border-x-transparent ${
+      up ? 'bottom-0 border-b-[6px] border-b-amber-300' : 'top-0 border-t-[6px] border-t-amber-300'
+    }`}
+    style={{ left }}
+  />
+);
 
 /**
  * When a line is short, as server/lib/syncDub.js decides it (isShortLine), so a
  * wording typed here is judged the way the preview and the sync judge it.
  */
-const SHORT_SHARE = 0.6;
-const MIN_SHORT_GAP = 1;
-export const isShort = (seconds: number, spoken: number) => seconds < spoken * SHORT_SHARE && spoken - seconds >= MIN_SHORT_GAP;
+export const isShort = isShortSpeech;
 
 /** Which way a line's wording has to change: fewer words to fit its slot, or more to fill the original speech. */
 export type RewriteDirection = 'shorter' | 'longer';
@@ -272,6 +324,8 @@ export interface SyncPreviewPanelProps {
   offClockNote?: React.ReactNode;
   /** The original, for the timeline's waveform. */
   sourceBuffer?: AudioBuffer | null;
+  /** Switches between the Quick and the Expert estimate. */
+  onMethodChange?: (method: EstimateMethod) => void;
 }
 
 export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
@@ -290,6 +344,7 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
   onRestore,
   offClockNote,
   sourceBuffer,
+  onMethodChange,
 }) => {
   const [showTight, setShowTight] = useState(false);
   const fixes = useLineFixes({ onSuggest, onUseLine, onRestore });
@@ -329,18 +384,15 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-dashed border-slate-700 bg-slate-950/60 px-3.5 py-2.5">
         <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-300">Preview</span>
         <span className="flex-1 min-w-[16rem] text-[12.5px] text-slate-300">
-          {rateMeasured ? 'An estimate' : 'A rough estimate'} from the text length. Nothing is voiced and no ElevenLabs characters are used until
-          you press Sync.
+          {rateMeasured ? 'An estimate' : 'A rough estimate'} from the text {preview.method === 'expert' ? 'in syllables' : 'length'}. Nothing is voiced and
+          no ElevenLabs characters are used until you press Sync.
         </span>
+        {onMethodChange && <EstimateSwitch method={preview.method ?? 'quick'} onChange={onMethodChange} />}
         <span
           className="font-mono text-[11.5px] text-slate-400 tabular-nums"
-          title={
-            rateMeasured
-              ? 'Characters a second, measured from your Final dub'
-              : 'A typical rate. Make the Final dub first for an estimate from your own voice.'
-          }
+          title={rateMeasured ? 'Measured from your Final dub' : 'A typical rate. Make the Final dub first for an estimate from your own voice.'}
         >
-          {preview.charsPerSecond.toFixed(1)} chars/s · {rateMeasured ? 'from Final dub' : 'typical rate'}
+          {estimateBasis(preview, rateMeasured)}
         </span>
         {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
       </div>
@@ -454,9 +506,110 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
   );
 };
 
+/** Quick or Expert: how the preview times the dub lines. */
+export const EstimateSwitch: React.FC<{ method: EstimateMethod; onChange: (method: EstimateMethod) => void }> = ({ method, onChange }) => (
+  <div role="group" aria-label="Estimate" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+    {[
+      { id: 'quick' as const, label: 'Quick', hint: 'Characters at the voice’s rate: the estimate as it has always been' },
+      { id: 'expert' as const, label: 'Expert', hint: 'Syllables at the voice’s rate, with pauses, a fast to slow range and where the lips close' },
+    ].map((m) => (
+      <button
+        key={m.id}
+        type="button"
+        title={m.hint}
+        aria-pressed={method === m.id}
+        onClick={() => onChange(m.id)}
+        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+          method === m.id ? (m.id === 'expert' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-100') : 'text-slate-400 hover:text-slate-200'
+        }`}
+      >
+        {m.label}
+      </button>
+    ))}
+  </div>
+);
+
+/** What the preview's figures are worked out from, in a few words. */
+export const estimateBasis = (preview: SyncPreview, rateMeasured: boolean) =>
+  preview.method === 'expert' && preview.syllablesPerSecond
+    ? `${preview.syllablesPerSecond.toFixed(1)} syllables/s · ${rateMeasured ? 'from this dub' : 'typical rate'}`
+    : `${preview.charsPerSecond.toFixed(1)} chars/s · ${rateMeasured ? 'from this dub' : 'typical rate'}`;
+
+/**
+ * An Expert line up close: its words with their syllables, what to cut or
+ * the room left, the lip closures, and its Rythmo band against its slot.
+ */
+export const ExpertLineDetail: React.FC<{ unit: SyncPreviewUnit }> = ({ unit }) => {
+  const x = unit.expert;
+  if (!x) return null;
+  const span = Math.max(unit.slot, x.high) * 1.04;
+  const pct = (t: number) => (t / span) * 100;
+  const lipsMissed = x.sourceLips.length - x.lipsMatched;
+  return (
+    <div className="mt-2.5 flex flex-col gap-2">
+      <div className="flex flex-wrap gap-1">
+        {x.words.map((w, n) => (
+          <span key={n} className="text-[13px] text-slate-200 bg-slate-900 border border-slate-800 rounded-md px-1.5 py-0.5">
+            {w.text}
+            <sup className="ml-0.5 font-mono text-[9.5px] text-indigo-300">{w.syllables}</sup>
+          </span>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11.5px] tabular-nums text-slate-400">
+        <span>
+          {x.syllables} syllables at {x.rate.toFixed(1)}/s
+        </span>
+        <span>
+          {x.low.toFixed(1)} to {x.high.toFixed(1)} s, fast to slow
+        </span>
+        {x.cut > 0 ? (
+          <span className="text-amber-300">cut about {x.cut} syllable{x.cut === 1 ? '' : 's'}</span>
+        ) : (
+          <span className="text-emerald-300/90">room for about {x.room} more</span>
+        )}
+        {x.sourceLips.length > 0 ? (
+          <span className={lipsMissed > 0 ? 'text-amber-300' : ''}>
+            lips close {x.lipsMatched} of {x.sourceLips.length}
+            {lipsMissed > 0 ? ': a word with p, b or m there would match the mouth' : ''}
+          </span>
+        ) : (
+          <span>no word timings for the lips</span>
+        )}
+      </div>
+      {/* The line's Rythmo band, against its slot */}
+      <div className="relative h-12 rounded-lg bg-indigo-950/30 border border-slate-800 overflow-hidden" aria-hidden="true">
+        <span className="absolute top-1 bottom-1 left-0 rounded border border-dashed border-slate-600" style={{ width: `${pct(unit.slot)}%` }} />
+        {unit.estimate > unit.slot && (
+          <span
+            className="absolute top-2 bottom-2 bg-rose-400/15 border-t-2 border-rose-400"
+            style={{ left: `${pct(unit.slot)}%`, width: `${pct(unit.estimate - unit.slot)}%` }}
+          />
+        )}
+        {x.sourceLips.map((t, n) => (
+          <LipMark key={`s${n}`} left={`${pct(t - unit.srcStart)}%`} />
+        ))}
+        {x.words.map((w, n) => (
+          <RythmoWord
+            key={n}
+            text={w.text}
+            late={w.end > unit.slot + 0.02}
+            className="text-[14px]"
+            left={`${pct(w.start)}%`}
+            width={`${Math.max(0.5, pct(w.end - w.start))}%`}
+          />
+        ))}
+        {x.dubLips.map((t, n) => (
+          <LipMark key={`d${n}`} up left={`${pct(t)}%`} />
+        ))}
+        <span className="absolute right-1.5 bottom-0.5 font-mono text-[9.5px] text-slate-500">slot {unit.slot.toFixed(1)} s</span>
+      </div>
+    </div>
+  );
+};
+
 /** The preview's five counts, as the Sync step and the Final dub both show them. */
 export const PreviewCards: React.FC<{ preview: SyncPreview }> = ({ preview: { summary } }) => (
-  <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
+  <div className={`grid grid-cols-2 sm:grid-cols-3 ${summary.lips ? 'xl:grid-cols-6' : 'xl:grid-cols-5'} gap-3`}>
     {[
       { label: 'Likely to fit', value: `${summary.fits} / ${summary.lines}` },
       { label: 'Tight, likely fit', value: String(summary.tight) },
@@ -467,6 +620,17 @@ export const PreviewCards: React.FC<{ preview: SyncPreview }> = ({ preview: { su
         value: summary.long > 0 ? `+${summary.maxOverflow.toFixed(1)} s` : 'none',
         tone: summary.long > 0 ? 'text-amber-300' : 'text-slate-100',
       },
+      ...(summary.lips
+        ? [
+            summary.lips.total > 0
+              ? {
+                  label: 'Lip closures matched',
+                  value: `${summary.lips.matched} / ${summary.lips.total}`,
+                  tone: summary.lips.matched < summary.lips.total ? 'text-amber-300' : 'text-emerald-300',
+                }
+              : { label: 'Lip closures', value: 'no timings', tone: 'text-slate-500' },
+          ]
+        : []),
     ].map((m) => (
       <div key={m.label} className="rounded-xl bg-slate-950/60 border border-slate-800 px-3.5 py-2.5">
         <span className="block text-[11.5px] text-slate-400">{m.label}</span>
@@ -481,7 +645,8 @@ export const PreviewCards: React.FC<{ preview: SyncPreview }> = ({ preview: { su
  * original speech, which a fuller wording has to fill without running past.
  */
 export const fitOf = (text: string, unit: SyncPreviewUnit, cps: number) => {
-  const seconds = text.trim().length / cps;
+  // A line the Expert estimate timed is judged by it too, so a suggestion reads the same as the line.
+  const seconds = unit.expert ? timeLine(text, unit.expert.rate).seconds : text.trim().length / cps;
   const over = seconds - unit.slot;
   const short = isShort(seconds, unit.spoken);
   return { seconds, over, fits: over <= 0, short, fills: over <= 0 && !short };
@@ -838,6 +1003,24 @@ export const PreviewTimeline: React.FC<{
   sourceBuffer?: AudioBuffer | null;
 }> = ({ units, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay, selectedKey, onSelect, onTrim, charsPerSecond, offClockNote, onCurrentLine, sourceBuffer }) => {
   const [drag, setDrag] = useState<{ key: string; seconds: number } | null>(null);
+  // Expert lines can also be drawn as a Rythmo band: their words, each as wide as the time it takes.
+  const expert = units.some((u) => u.expert);
+  const [view, setView] = useState<'bars' | 'rythmo'>(() => {
+    try {
+      return localStorage.getItem(PREVIEW_VIEW_KEY) === 'rythmo' ? 'rythmo' : 'bars';
+    } catch {
+      return 'bars';
+    }
+  });
+  const changeView = (next: 'bars' | 'rythmo') => {
+    setView(next);
+    try {
+      localStorage.setItem(PREVIEW_VIEW_KEY, next);
+    } catch {
+      /* Storage off: the view lasts until the app closes. */
+    }
+  };
+  const rythmo = expert && view === 'rythmo';
   // The clocks show tenths; the playheads move every frame through playheadRef.
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
   const total = Math.max(0, ...units.map((u) => Math.max(u.srcEnd, u.srcStart + u.estimate)));
@@ -922,7 +1105,32 @@ export const PreviewTimeline: React.FC<{
 
   return (
     <div className="flex flex-col gap-1.5">
-      <TimelineZoomControls zoom={zoom} />
+      <div className="flex flex-wrap items-center gap-2">
+        {expert && (
+          <div role="group" aria-label="Dub lane" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+            {[
+              { id: 'bars' as const, label: 'Bars', hint: 'Each line as a bar, with a fast to slow read under it' },
+              { id: 'rythmo' as const, label: 'Rythmo', hint: 'The dub text on the timeline, each word as wide as the time it takes. Zoom in to read short lines.' },
+            ].map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                title={v.hint}
+                aria-pressed={view === v.id}
+                onClick={() => changeView(v.id)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                  view === v.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <TimelineZoomControls zoom={zoom} />
+        </div>
+      </div>
       <div ref={zoom.lanesRef} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
         <span />
         <TimelineRuler zoom={zoom} />
@@ -942,10 +1150,14 @@ export const PreviewTimeline: React.FC<{
           ))}
           {/* Over the lines, in each line's colour */}
           <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS} spans={sourceSpans} className="text-slate-400/30" />
+          {expert &&
+            visible.flatMap((u) =>
+              (u.expert?.sourceLips || []).filter((t) => t >= windowStart && t <= end).map((t, n) => <LipMark key={`${u.key}-${n}`} left={`${pct(t)}%`} />)
+            )}
           {playhead(0)}
         </div>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-          <span className="w-2 h-2 rounded-sm border border-dashed border-indigo-300" /> Dub, est.
+          <span className="w-2 h-2 rounded-sm border border-dashed border-indigo-300" /> {rythmo ? 'Rythmo' : 'Dub, est.'}
         </span>
         <div className="relative h-11 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
           {visible.map((u) => {
@@ -954,9 +1166,12 @@ export const PreviewTimeline: React.FC<{
             const selected = u.key === selectedKey;
             const trim = drag?.key === u.key ? drag.seconds : u.wantSeconds;
             const handleAt = trim ?? Math.min(u.estimate, u.slot);
-            const title = `${u.text}\nAbout ${u.estimate.toFixed(1)} s · slot ${u.slot.toFixed(1)} s${over > 0 ? ` · +${over.toFixed(1)} s` : ''}${
+            const title = `${u.text}\nAbout ${u.estimate.toFixed(1)} s${
+              u.expert ? ` (${u.expert.low.toFixed(1)} to ${u.expert.high.toFixed(1)} s, ${u.expert.syllables} syllables)` : ''
+            } · slot ${u.slot.toFixed(1)} s${over > 0 ? ` · +${over.toFixed(1)} s` : ''}${
               u.wantSeconds !== undefined ? ` · your trim ${u.wantSeconds.toFixed(1)} s` : ''
             }${onSelect ? '\nClick to pick this line' : ''}`;
+            const words = rythmo ? u.expert?.words : undefined;
             const pick = onSelect
               ? (e: React.MouseEvent) => {
                   e.stopPropagation();
@@ -972,18 +1187,43 @@ export const PreviewTimeline: React.FC<{
                   style={{
                     left: `${pct(u.srcStart)}%`,
                     width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart))}%`,
-                    background: withAlpha(hue, 0.14),
+                    background: withAlpha(hue, words ? 0.06 : 0.14),
                     borderColor: withAlpha(hue, 0.75),
                     boxShadow: selected ? SELECTED_RING : u.key === current?.key ? NOW_RING : undefined,
                   }}
                 >
-                  {lineNumber(u, u.estimate, STATUS_DOT[u.status])}
-                  {pct(u.srcStart + u.estimate) - pct(u.srcStart) > 9 && (
+                  {!words && lineNumber(u, u.estimate, STATUS_DOT[u.status])}
+                  {!words && pct(u.srcStart + u.estimate) - pct(u.srcStart) > 9 && (
                     <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
-                      ≈{u.estimate.toFixed(1)} s
+                      {u.expert ? '' : '≈'}
+                      {u.estimate.toFixed(1)} s
                     </span>
                   )}
                 </span>
+                {/* Rythmo: each word where it is likely said, red once past the line's slot */}
+                {words?.map((w, n) => (
+                  <RythmoWord
+                    key={n}
+                    text={w.text}
+                    late={w.end > u.slot + 0.02}
+                    className="text-[12px]"
+                    left={`${pct(u.srcStart + w.start)}%`}
+                    width={`${Math.max(0.2, pct(u.srcStart + w.end) - pct(u.srcStart + w.start))}%`}
+                  />
+                ))}
+                {/* Expert: a fast to a slow read, in the colour of how it fits */}
+                {u.expert && !words && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute bottom-[7px] h-[2px] rounded-full pointer-events-none"
+                    style={{
+                      left: `${pct(u.srcStart + u.expert.low)}%`,
+                      width: `${Math.max(0.2, pct(u.srcStart + u.expert.high) - pct(u.srcStart + u.expert.low))}%`,
+                      background: STATUS_HEX[u.status],
+                    }}
+                  />
+                )}
+                {u.expert?.dubLips.map((t, n) => <LipMark key={`lip-${n}`} up left={`${pct(u.srcStart + t)}%`} />)}
                 {over > 0 && (
                   <span
                     title={title}
@@ -1062,7 +1302,12 @@ export const PreviewTimeline: React.FC<{
             <span />
             <p role="status" className="font-mono text-[11.5px] text-indigo-200 tabular-nums">
               Trim out: {drag.seconds.toFixed(1)} s
-              {charsPerSecond ? ` ≈ ${Math.round(drag.seconds * charsPerSecond)} characters` : ''} · now about {dragged.estimate.toFixed(1)} s
+              {dragged.expert
+                ? ` ≈ ${Math.round(drag.seconds * dragged.expert.rate)} syllables`
+                : charsPerSecond
+                  ? ` ≈ ${Math.round(drag.seconds * charsPerSecond)} characters`
+                  : ''}{' '}
+              · now about {dragged.estimate.toFixed(1)} s
               {Math.abs(drag.seconds - dragged.spoken) < 0.01 ? ' · matches the original speech' : ''}
             </p>
           </>
@@ -1116,6 +1361,18 @@ export const PreviewTimeline: React.FC<{
         <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded-full bg-amber-400" /> Runs past its slot</span>
         <span className="flex items-center gap-1.5"><span className={`w-3 h-2.5 rounded-sm ${QUIET_BOX}`} /> Speaker still talking, dub quiet</span>
         <span className="flex items-center gap-1.5"><span className="w-px h-3 bg-slate-500" /> Next line starts</span>
+        {expert && !rythmo && (
+          <span className="flex items-center gap-1.5"><span className="w-3 h-[2px] rounded-full bg-emerald-400" /> Fast to slow read</span>
+        )}
+        {rythmo && (
+          <span className="flex items-center gap-1.5"><span className="text-rose-300 text-[11px] leading-none">अ</span> Words past the slot</span>
+        )}
+        {expert && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-0 h-0 border-x-[4px] border-x-transparent border-t-[6px] border-t-amber-300" />
+            <span className="w-0 h-0 border-x-[4px] border-x-transparent border-b-[6px] border-b-amber-300" /> Lips close (p, b, m): original, dub
+          </span>
+        )}
         {onTrim && (
           <span className="flex items-center gap-1.5"><span className={`w-3 h-2.5 rounded-sm ${TRIM_BOX}`} /> Your trim</span>
         )}

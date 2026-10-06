@@ -50,7 +50,9 @@ export const fitAdvice = (unit: SyncPreviewUnit) =>
         wantsChange(unit) ? '' : ' Matches your trim.'
       }`
     : unit.status === 'long'
-    ? `Runs about ${unit.overflow.toFixed(1)} s into the next line. Aim for about ${unit.targetChars} characters (now ${unit.text.length}).`
+    ? `Runs about ${unit.overflow.toFixed(1)} s into the next line. Aim for about ${unit.targetChars} characters (now ${unit.text.length})${
+        unit.expert && unit.expert.cut > 0 ? `, about ${unit.expert.cut} syllable${unit.expert.cut === 1 ? '' : 's'} fewer` : ''
+      }.`
     : unit.status === 'short'
       ? `Ends about ${unit.underflow.toFixed(1)} s before the original speaker stops. Aim for about ${unit.targetChars} characters (now ${unit.text.length}).`
       : unit.status === 'tight'
@@ -142,7 +144,10 @@ export const ScriptFitStrip: React.FC<{
             : 'A typical rate. Make the dub first for an estimate from your own voice.'
         }
       >
-        est. at {preview.charsPerSecond.toFixed(1)} chars/s · {rateMeasured ? 'from this dub' : 'typical rate, rough'}
+        {preview.method === 'expert' && preview.syllablesPerSecond
+          ? `Expert · ${preview.syllablesPerSecond.toFixed(1)} syllables/s`
+          : `est. at ${preview.charsPerSecond.toFixed(1)} chars/s`}{' '}
+        · {rateMeasured ? 'from this dub' : 'typical rate, rough'}
       </span>
       {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
       <span className="ml-auto flex flex-wrap items-center gap-2">
