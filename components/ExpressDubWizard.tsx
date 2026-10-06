@@ -49,13 +49,15 @@ import {
   X,
   Pencil,
   Minus,
+  Combine,
+  SeparatorVertical,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/projects';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
 import { SpeakerBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
-import type { RetranslateProgress } from '../services/subtitleService';
+import { retranslateCues, type RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import {
   Voice,
@@ -124,6 +126,7 @@ import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
 import { useSignoff } from '../services/signoffService';
 import { ContinuousDocumentView, ContinuousDocumentHandle } from './review/ContinuousDocumentView';
+import { CueEditBar, PickableWords, useCueEditing } from './review/CueEditBar';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
 import type { SyncEdits } from '../services/syncEditService';
 
@@ -854,6 +857,21 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** Seeks to a time on the original's clock, wherever that is on the heard track. */
   const seekSource = useCallback((t: number) => onSeek(toHeardClock(t)), [onSeek, toHeardClock]);
   const heardCues = hearingDub ? dubCues : segments;
+
+  // Split and join by hand, on the original's clock.
+  const cueEditing = useCueEditing({
+    enabled: activeStep === 2 && Boolean(activeJob) && !awaitingScript,
+    segments,
+    onReplaceSegments,
+    getPlayhead: () => getSourceLiveTime?.() ?? sourceClockTime,
+    onHear: (start, end) => onPlaySegmentSolo({ id: 'cut', startTime: start, endTime: end, duration: end - start }),
+    retranslate: (cues) =>
+      retranslateCues(cues, {
+        sourceLanguage: activeJob?.detectedLanguage || sourceLanguage || '',
+        targetLanguage,
+        customPrompt: activeJob?.customPrompt || customPrompt || '',
+      }),
+  });
   const heardBuffer = hearingDub ? dubBuffer : activeJob?.audioBuffer ?? null;
   const heardDuration = hearingDub ? dubBuffer?.duration || 0 : duration || activeJob?.audioBuffer?.duration || 0;
 
@@ -1909,6 +1927,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             onSensitivityChange={onSensitivityChange}
           />
 
+          {!awaitingScript && (
+            <CueEditBar
+              editing={cueEditing}
+              segments={segments}
+              cueNumber={(id) => (cueIndexById.get(String(id)) ?? 0) + 1}
+            />
+          )}
+
           {multiSpeaker && (
             <SpeakerBar
               speakers={speakers}
@@ -2355,7 +2381,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <div
                     key={seg.id}
                     id={`cue-card-${seg.id}`}
-                    className={`relative grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-x-4 gap-y-2 px-4 py-3 border-b border-slate-800 transition-colors ${
+                    className={`group relative grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-x-4 gap-y-2 px-4 py-3 border-b transition-colors ${
+                      String(cueEditing.boundaryId) === String(seg.id) ? 'border-b-indigo-400' : 'border-slate-800'
+                    } ${
                       isCueActive ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'
                     }`}
                   >
@@ -2402,6 +2430,41 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <span className={`block h-full rounded-full ${pace.barClass}`} style={{ width: `${pace.meter}%` }} />
                       </span>
                       <span className="text-[10.5px] text-slate-500">{pace.label}</span>
+                      <span className="flex gap-1 mt-1 opacity-40 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          onClick={() => cueEditing.splitCueHere(seg.id)}
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                          title="Split this cue before the picked word, or at the playhead (S)"
+                          aria-label={`Split cue ${cueNumber}`}
+                        >
+                          <Scissors className="w-3.5 h-3.5" />
+                        </button>
+                        {cueIndexById.get(String(seg.id))! < segments.length - 1 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => cueEditing.selectBoundary(seg.id)}
+                              className={`w-6 h-6 flex items-center justify-center rounded-md hover:bg-slate-800 cursor-pointer ${
+                                String(cueEditing.boundaryId) === String(seg.id) ? 'text-indigo-300' : 'text-slate-400 hover:text-slate-100'
+                              }`}
+                              title="Adjust the cut between this cue and the next"
+                              aria-label={`Adjust the cut after cue ${cueNumber}`}
+                            >
+                              <SeparatorVertical className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => cueEditing.join(seg.id)}
+                              className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                              title="Join with the next cue (M)"
+                              aria-label={`Join cue ${cueNumber} with the next`}
+                            >
+                              <Combine className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </span>
                     </div>
 
                     {/* Original */}
@@ -2421,7 +2484,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           </span>
                         )
                       )}
-                      {srcText || <span className="text-slate-600 italic">No original text</span>}
+                      {srcText ? (
+                        <PickableWords
+                          segment={seg}
+                          text={srcText}
+                          caretK={cueEditing.caret && String(cueEditing.caret.id) === String(seg.id) ? cueEditing.caret.k : null}
+                          onPick={(k, start) => {
+                            cueEditing.pickWord(seg.id, k);
+                            seekSource(start);
+                          }}
+                        />
+                      ) : (
+                        <span className="text-slate-600 italic">No original text</span>
+                      )}
                       <CharCount text={srcText} className="block mt-1" />
                       {multiSpeaker && (
                         <SpeakerCueNotes
