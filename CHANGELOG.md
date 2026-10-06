@@ -162,6 +162,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **One Export subtitles button on Sync.** The .vtt and Subtitle settings buttons under the
+  subtitle card are now one **Export subtitles** button, which opens the settings (now titled
+  Export subtitles) to check the subtitles and then download the .srt or .vtt. The subtitle card
+  still downloads in one click. Export subtitles now remembers its **Language** and **Timed to**
+  choices as well as the style, and the card downloads with all of them: its name and line show the
+  language and timing it will use.
 - **Translation uses Natural Conversational by default.** It now heads the style list as the
   recommended style, in place of Sadhguru 3-Step Dubbing. A style you picked yourself in the
   Translation style dialog is kept.

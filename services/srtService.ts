@@ -623,3 +623,78 @@ export const adjustSegmentsForDubbedTimeline = (
 };
 
 
+
+/* ------------------------------------------------------------------ */
+/* Saved export choice: which language and which timing               */
+/* ------------------------------------------------------------------ */
+
+/** What the cues are timed to: Sync's placement, the whole dub stretched, or the original speech. */
+export type SubtitleTiming = 'synced' | 'dubbed' | 'original';
+/** Which text the cues carry: the dub's language or the transcribed source. */
+export type SubtitleTrack = 'target' | 'source';
+
+export interface SubtitleExportChoice {
+  track: SubtitleTrack;
+  timing: SubtitleTiming;
+}
+
+export const DEFAULT_SUBTITLE_EXPORT_CHOICE: SubtitleExportChoice = { track: 'target', timing: 'synced' };
+
+const EXPORT_CHOICE_KEY = 'dhvani_srt_export_choice';
+
+export const loadSubtitleExportChoice = (): SubtitleExportChoice => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(EXPORT_CHOICE_KEY) || 'null');
+    if (saved && ['target', 'source'].includes(saved.track) && ['synced', 'dubbed', 'original'].includes(saved.timing)) {
+      return { track: saved.track, timing: saved.timing };
+    }
+  } catch {}
+  return DEFAULT_SUBTITLE_EXPORT_CHOICE;
+};
+
+export const saveSubtitleExportChoice = (choice: SubtitleExportChoice) => {
+  try {
+    localStorage.setItem(EXPORT_CHOICE_KEY, JSON.stringify(choice));
+  } catch {}
+};
+
+/** The saved timing when this project has it, else the most exact one it does have. */
+export const resolveSubtitleTiming = (timing: SubtitleTiming, hasSynced: boolean, hasDub: boolean): SubtitleTiming => {
+  if (timing === 'synced' && !hasSynced) return hasDub ? 'dubbed' : 'original';
+  if (timing === 'dubbed' && !hasDub) return hasSynced ? 'synced' : 'original';
+  return timing;
+};
+
+/**
+ * The cues an export writes: the chosen language's text at the chosen timing.
+ * The Export subtitles modal and the one-click subtitle card both use it, so they give the same file.
+ */
+export const buildSubtitleSegments = ({
+  segments,
+  syncedSegments,
+  timing,
+  track,
+  synthAudioDuration = 0,
+  options,
+}: {
+  segments: AudioSegment[];
+  syncedSegments?: AudioSegment[];
+  timing: SubtitleTiming;
+  track: SubtitleTrack;
+  synthAudioDuration?: number;
+  options: SrtOptions;
+}): AudioSegment[] => {
+  // The synced cues carry every cue's own fields, source text included, at their placed times.
+  const base = timing === 'synced' && syncedSegments ? syncedSegments : segments;
+  const withText =
+    track === 'target'
+      ? base
+      : base.map((segment) => ({ ...segment, textTarget: segment.textSource || '', targetText: segment.textSource || '' }));
+  return timing === 'dubbed' && synthAudioDuration > 0
+    ? adjustSegmentsForDubbedTimeline(withText, synthAudioDuration, options)
+    : withText;
+};
+
+/** "hindi_synced": names the file after the language and timing actually exported. */
+export const subtitleFileLabel = (language: string, timing: SubtitleTiming) =>
+  `${(language || 'captions').toLowerCase().replace(/\s+/g, '_')}${timing === 'synced' ? '_synced' : ''}`;

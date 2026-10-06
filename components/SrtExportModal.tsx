@@ -9,7 +9,13 @@ import {
   generateVttContent,
   downloadFile,
   SubtitleCasing,
-  adjustSegmentsForDubbedTimeline,
+  SubtitleExportChoice,
+  SubtitleTiming,
+  SubtitleTrack,
+  DEFAULT_SUBTITLE_EXPORT_CHOICE,
+  resolveSubtitleTiming,
+  buildSubtitleSegments,
+  subtitleFileLabel,
 } from '../services/srtService';
 
 /** Short names for the presets, which carry long ones for elsewhere. */
@@ -64,6 +70,9 @@ interface SrtExportModalProps {
   hasSynthAudio?: boolean;
   /** The cues where Sync placed them, once the dub is synced: timing that matches the synced dub exactly. */
   syncedSegments?: AudioSegment[];
+  /** The saved language and timing, shared with the one-click subtitle card. */
+  exportChoice?: SubtitleExportChoice;
+  onExportChoiceChange?: (choice: SubtitleExportChoice) => void;
 }
 
 export const SrtExportModal: React.FC<SrtExportModalProps> = ({
@@ -77,6 +86,8 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   synthAudioDuration = 0,
   hasSynthAudio = false,
   syncedSegments,
+  exportChoice = DEFAULT_SUBTITLE_EXPORT_CHOICE,
+  onExportChoiceChange,
 }) => {
   const [options, setOptions] = useState<SrtOptions>(() => {
     try {
@@ -90,21 +101,16 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'srt' | 'vtt'>('srt');
-  const [syncMode, setSyncMode] = useState<'synced' | 'dubbed' | 'original'>('original');
-
-  /**
-   * Which language track to export. Both share the same ElevenLabs timestamps;
-   * only the text differs.
+  /*
+   * Which language track to export and what it is timed to. Both are saved, so
+   * the subtitle card downloads exactly what this modal last showed. A saved
+   * timing this project lacks falls back to the most exact one it has.
    */
-  const [scriptTrack, setScriptTrack] = useState<'target' | 'source'>('target');
-
-  // Opens on the most exact timing there is: the synced dub, else the dub, else the original speech.
   const hasSynced = Boolean(syncedSegments && syncedSegments.length > 0);
-  useEffect(() => {
-    if (isOpen) {
-      setSyncMode(hasSynced ? 'synced' : hasSynthAudio ? 'dubbed' : 'original');
-    }
-  }, [hasSynced, hasSynthAudio, isOpen]);
+  const scriptTrack = exportChoice.track;
+  const syncMode = resolveSubtitleTiming(exportChoice.timing, hasSynced, hasSynthAudio);
+  const setScriptTrack = (track: SubtitleTrack) => onExportChoiceChange?.({ track, timing: exportChoice.timing });
+  const setSyncMode = (timing: SubtitleTiming) => onExportChoiceChange?.({ track: scriptTrack, timing });
 
   // Sync state if initialOptions changes
   useEffect(() => {
@@ -136,29 +142,18 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
     handleUpdateOptions({ ...DEFAULT_SRT_OPTIONS }, 'shorts_viral');
   };
 
-  /*
-   * Pick the language track first. Exporting the source track keeps each
-   * segment's ElevenLabs word timings aligned with its text, which lets
-   * generateSrtContent cut cues on exact measured word boundaries.
-   */
-  const trackSegments = useMemo(() => {
-    // The synced cues carry every cue's own fields, source text included, at their placed times.
-    const base = syncMode === 'synced' && syncedSegments ? syncedSegments : segments;
-    if (scriptTrack === 'target') return base;
-    return base.map((segment) => ({
-      ...segment,
-      textTarget: segment.textSource || '',
-      targetText: segment.textSource || '',
-    }));
-  }, [segments, syncedSegments, syncMode, scriptTrack]);
-
-  // Align segments to the continuous dubbed audio timeline if selected
-  const processedSegments = useMemo(() => {
-    if (syncMode === 'dubbed' && hasSynthAudio && synthAudioDuration > 0) {
-      return adjustSegmentsForDubbedTimeline(trackSegments, synthAudioDuration, options);
-    }
-    return trackSegments;
-  }, [trackSegments, syncMode, hasSynthAudio, synthAudioDuration, options]);
+  const processedSegments = useMemo(
+    () =>
+      buildSubtitleSegments({
+        segments,
+        syncedSegments,
+        timing: syncMode,
+        track: scriptTrack,
+        synthAudioDuration: hasSynthAudio ? synthAudioDuration : 0,
+        options,
+      }),
+    [segments, syncedSegments, syncMode, scriptTrack, hasSynthAudio, synthAudioDuration, options]
+  );
 
   /** True when every exported cue boundary is a measured ElevenLabs word. */
   const hasExactTimings = useMemo(
@@ -210,10 +205,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   };
 
   /** Names the file after the track actually being exported. */
-  const exportLabel = useMemo(() => {
-    const base = scriptTrack === 'source' ? sourceLanguage || 'original' : targetLanguage || 'captions';
-    return `${base.toLowerCase().replace(/\s+/g, '_')}${syncMode === 'synced' ? '_synced' : ''}`;
-  }, [scriptTrack, sourceLanguage, targetLanguage, syncMode]);
+  const exportLabel = subtitleFileLabel(scriptTrack === 'source' ? sourceLanguage || 'original' : targetLanguage, syncMode);
 
   const handleDownloadSrt = () => {
     if (!previewSrt) return;
@@ -264,7 +256,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
           </div>
           <div className="min-w-0 flex-1">
             <h2 id="srt-title" className="text-lg font-semibold text-slate-100 leading-tight">
-              Subtitle settings
+              Export subtitles
             </h2>
             <p className="text-[12.5px] text-slate-400 mt-0.5">
               How the {trackName} breaks into subtitles. Cuts land between measured words.
