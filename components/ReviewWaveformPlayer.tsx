@@ -41,7 +41,19 @@ export interface ReviewWaveformPlayerProps {
   /** Pause detection now lives in the review panel; kept so callers need not change. */
   sensitivity?: number;
   onSensitivityChange?: (sensitivity: number) => void;
+  /**
+   * Lets the cut between two touching cues be dragged, called with the left
+   * cue's id and the time under the pointer. Omitted, cuts can't be dragged.
+   */
+  onDragCut?: (leftId: string | number, time: number, phase: 'start' | 'move' | 'end') => void;
+  /** The cue left of the cut being edited, whose cut is drawn as a handle. */
+  selectedCutId?: string | number | null;
 }
+
+/** Cues closer than this share a cut that can be dragged. */
+const CUT_GAP_SECONDS = 0.8;
+/** How near the pointer must be to a cut to grab it, in pixels. */
+const CUT_GRAB_PX = 6;
 
 const RATES = [0.75, 1, 1.25, 1.5];
 const ZOOMS = [1, 2, 4, 8, 16, 32];
@@ -159,6 +171,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   trackMode = 'source',
   onTrackModeChange,
   hasSynthesizedAudio = false,
+  onDragCut,
+  selectedCutId = null,
 }) => {
   /*
    * Two clocks for two jobs. Playheads and the played colour move every frame
@@ -212,7 +226,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const miniRef = useRef<HTMLCanvasElement>(null);
   const miniPlayedRef = useRef<HTMLCanvasElement>(null);
   const miniHeadRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<'wave' | 'overview' | null>(null);
+  const dragRef = useRef<'wave' | 'overview' | 'cut' | null>(null);
+  /** The left cue of the cut being dragged. */
+  const cutDragRef = useRef<string | number | null>(null);
   const [redrawTick, setRedrawTick] = useState(0);
 
   useEffect(() => {
@@ -459,8 +475,16 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x(cue.startTime), 0.75, x(cue.endTime) - x(cue.startTime), h - 1.5);
     }
+    // The cut being edited: a bar with a grip, to show it can be dragged.
+    const left = selectedCutId === null ? -1 : segments.findIndex((seg) => String(seg.id) === String(selectedCutId));
+    if (left >= 0 && segments[left + 1]) {
+      const cx = x((segments[left].endTime + segments[left + 1].startTime) / 2);
+      ctx.fillStyle = palette.view;
+      ctx.fillRect(cx - 1, 0, 2.5, h);
+      ctx.fillRect(cx - 4, h / 2 - 10, 8.5, 20);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick]);
+  }, [compact, peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId]);
 
   useEffect(() => {
     if (compact) return;
@@ -500,9 +524,41 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     return whole ? f * total : (zoom === 1 ? 0 : viewStart) + f * span;
   };
 
+  /** The left cue of the cut under the pointer, when cuts can be dragged. */
+  const cutUnder = (e: React.PointerEvent, el: HTMLElement): string | number | null => {
+    if (!onDragCut) return null;
+    const r = el.getBoundingClientRect();
+    const vs = zoom === 1 ? 0 : viewStart;
+    for (let i = 0; i < segments.length - 1; i++) {
+      const a = segments[i];
+      const b = segments[i + 1];
+      if (b.startTime - a.endTime >= CUT_GAP_SECONDS) continue;
+      const cx = r.left + (((a.endTime + b.startTime) / 2 - vs) / span) * r.width;
+      if (Math.abs(e.clientX - cx) <= CUT_GRAB_PX) return a.id;
+    }
+    return null;
+  };
+
   const onWavePointer = (e: React.PointerEvent<HTMLDivElement>, kind: 'down' | 'move' | 'up') => {
     const el = e.currentTarget;
     const t = timeAt(e, el, false);
+    if (dragRef.current === 'cut' && cutDragRef.current !== null) {
+      if (kind === 'up') {
+        dragRef.current = null;
+        onDragCut?.(cutDragRef.current, t, 'end');
+        cutDragRef.current = null;
+      } else if (kind === 'move') onDragCut?.(cutDragRef.current, t, 'move');
+      return;
+    }
+    const cut = kind === 'up' ? null : cutUnder(e, el);
+    el.style.cursor = cut !== null ? 'ew-resize' : '';
+    if (kind === 'down' && cut !== null) {
+      dragRef.current = 'cut';
+      cutDragRef.current = cut;
+      el.setPointerCapture(e.pointerId);
+      onDragCut?.(cut, t, 'start');
+      return;
+    }
     if (kind === 'down') {
       dragRef.current = 'wave';
       el.setPointerCapture(e.pointerId);
@@ -742,7 +798,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-2 rounded-sm bg-rose-400/30" /> Too fast
               </span>
-              <span className="ml-auto hidden md:inline">Click to jump · drag to scrub · Ctrl+scroll to zoom</span>
+              <span className="ml-auto hidden md:inline">
+                Click to jump · drag to scrub{onDragCut ? ' · drag a cut between cues to move it' : ''} · Ctrl+scroll to zoom
+              </span>
             </div>
 
             <div className="px-3.5">

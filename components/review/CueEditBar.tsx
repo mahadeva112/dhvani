@@ -50,6 +50,8 @@ export interface CueEditing {
   splitCueHere: (id: string | number) => void;
   join: (id: string | number) => void;
   nudge: (direction: -1 | 1) => void;
+  /** Drags the cut after a cue to the word gap nearest `time`; one undo step per drag. */
+  dragCut: (leftId: string | number, time: number, phase: 'start' | 'move' | 'end') => void;
   setDubBreak: (k: number) => void;
   retranslateHalves: () => void;
   canRetranslate: boolean;
@@ -157,6 +159,40 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
     setNotice(`Cut moved one word ${direction < 0 ? 'left' : 'right'}. Each cue kept its dub text.`);
   };
 
+  const dragStart = useRef<AudioSegment[] | null>(null);
+  const dragCut = (leftId: string | number, time: number, phase: 'start' | 'move' | 'end') => {
+    if (phase === 'start') {
+      dragStart.current = latest.current;
+      setBoundaryId(leftId);
+      setCaret(null);
+      setNotice(null);
+      return;
+    }
+    const before = dragStart.current;
+    if (!before) return;
+    const current = latest.current;
+    const i = current.findIndex((seg) => String(seg.id) === String(leftId));
+    if (phase === 'move' && i >= 0 && i < current.length - 1) {
+      const a = current[i];
+      const b = current[i + 1];
+      const moved = moveCut(a, b, nearestCut([...cueTokens(a).tokens, ...cueTokens(b).tokens], time));
+      if (!moved) return;
+      const next = [...current];
+      next.splice(i, 2, ...moved);
+      // Read by the next move before the new cues come back as props.
+      latest.current = next;
+      onReplaceSegments(next);
+      return;
+    }
+    if (phase === 'end') {
+      dragStart.current = null;
+      if (current === before) return;
+      history.current.push({ before, after: current, boundary: leftId });
+      if (history.current.length > UNDO_LIMIT) history.current.shift();
+      setNotice('Cut moved. Each cue kept its dub text; move the dub break below if it should follow.');
+    }
+  };
+
   const setDubBreak = (k: number) => {
     if (!hasBoundary) return;
     const next = [...segments];
@@ -235,6 +271,7 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
     splitCueHere,
     join,
     nudge,
+    dragCut,
     setDubBreak,
     retranslateHalves,
     canRetranslate: Boolean(retranslate),

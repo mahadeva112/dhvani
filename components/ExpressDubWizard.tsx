@@ -1925,6 +1925,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             hasSynthesizedAudio={Boolean(activeJob.synthesizedAudioUrl)}
             sensitivity={analysisSensitivity}
             onSensitivityChange={onSensitivityChange}
+            onDragCut={!hearingDub && !awaitingScript ? cueEditing.dragCut : undefined}
+            selectedCutId={hearingDub ? null : cueEditing.boundaryId}
           />
 
           {!awaitingScript && (

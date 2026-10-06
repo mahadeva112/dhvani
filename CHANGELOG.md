@@ -12,7 +12,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Split and join cues on the Review step.** Play to where a cue should end and press **S**, or
   click a word in the Original column and press **S** (or Ctrl+Enter): the cut lands on the
   measured word gap, and the dub text breaks at the nearest comma or full stop. A bar under the
-  waveform then shows the cut: **Alt+← / →** moves it one word, **H** plays the original either
+  waveform then shows the cut: drag it on the waveform (it snaps to word gaps), or **Alt+← / →**
+  moves it one word, **H** plays the original either
   side of it, clicking between two dub words moves where the dub text breaks, and **Re-translate
   halves** translates each half on its own. **M** joins a cue with the next, and **Ctrl+Z** undoes
   a split or join. A cut with no pause in it is still voiced as one line by Sync.
