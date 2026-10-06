@@ -517,7 +517,8 @@ trying a personal key from the UI. A configured key always takes precedence.
 
 **"The local DHVANI backend is not running."**
 Start it with `npm run dev`. Check whether something else holds port 8787 and change `PORT` if so.
-In the desktop app, use Help → Open Engine Log to see why the engine stopped.
+In the desktop app, the engine writes why it stopped to `backend.log` in `%APPDATA%\DHVANI` (Windows)
+or `~/Library/Application Support/DHVANI` (macOS); a portable copy keeps it in `dhvani-data` beside the app.
 
 **"ElevenLabs API key is not configured."**
 Open **API Settings** in the header and paste your key there — it saves immediately, no restart. If

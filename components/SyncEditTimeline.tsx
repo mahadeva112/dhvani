@@ -46,9 +46,7 @@ import {
  * move, trim, split, stretch, slip, fade, turn up or down and mute by hand
  * after Sync has placed them.
  *
- *   overview   the whole dub, each line coloured by how it lands; the frame is
- *              the stretch on screen, and dragging it scrolls
- *   ruler      time; drag across it to zoom to that stretch
+ *   ruler     time; drag across it to zoom to that stretch
  *   Original   the original's waveform, each line in its colour (locked)
  *   links      from each original line's start to where its dub line's first
  *              word now lands: upright is in sync
@@ -57,6 +55,9 @@ import {
  *              it does (see zoneAt), with no tool to pick first
  *   script     what each line says, under where it plays
  *   drift      each line's start error against the tolerance band
+ *   overview   under the lanes, like a scrollbar: the whole dub, each line
+ *              coloured by how it lands; the frame is the stretch on screen,
+ *              and dragging it scrolls
  *
  * Edits are drawn while dragging and handed up (onChange) when the pointer
  * lets go, with a name for the history. Every edited line is locked: Sync
@@ -1108,16 +1109,6 @@ export const SyncEditTimeline: React.FC<{
         </div>
       </div>
 
-      <Overview
-        total={total}
-        chunks={chunks}
-        statusOf={statusColor}
-        windowStart={windowStart}
-        windowSeconds={windowSeconds}
-        currentTime={currentTime}
-        onScroll={(start) => zoom.scrollTo(start)}
-      />
-
       {/* The lanes */}
       <div className={`grid ${renderTrackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-slate-800 overflow-hidden bg-slate-900/50`}>
         <div className="flex flex-col text-[11px] text-slate-400 border-r border-slate-800">
@@ -1326,6 +1317,17 @@ export const SyncEditTimeline: React.FC<{
           )}
         </div>
       </div>
+
+      {/* Under the lanes, where a scrollbar sits */}
+      <Overview
+        total={total}
+        chunks={chunks}
+        statusOf={statusColor}
+        windowStart={windowStart}
+        windowSeconds={windowSeconds}
+        currentTime={currentTime}
+        onScroll={(start) => zoom.scrollTo(start)}
+      />
 
       {/* Actions on the picked line */}
       <div className="flex flex-wrap items-center gap-1">

@@ -19,6 +19,7 @@ files:
   - desktop/main.cjs
   - desktop/preload.cjs
   - desktop/loading.html
+  - desktop/about.html
   - desktop/icons/**
   - server/**
   - prompts/*.txt

@@ -1,0 +1,73 @@
+<!doctype html>
+<!--
+  Help → About DHVANI (desktop/main.cjs). A window of our own rather than the
+  system message box, so it wears the app's dark slate instead of white.
+  The version arrives in the query string.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'" />
+    <title>About DHVANI</title>
+    <style>
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: #0f172a;
+        color: #cbd5e1;
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        font-size: 13px;
+        line-height: 1.6;
+        padding: 22px 24px 18px;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        user-select: none;
+        cursor: default;
+      }
+      header { display: flex; align-items: center; gap: 14px; margin-bottom: 14px; }
+      img { width: 48px; height: 48px; border-radius: 12px; }
+      h1 { margin: 0; font-size: 17px; font-weight: 600; color: #f1f5f9; }
+      .tag { color: #818cf8; font-size: 12.5px; }
+      p { margin: 0 0 10px; }
+      p.muted { color: #94a3b8; }
+      footer { margin-top: auto; display: flex; align-items: center; padding-top: 14px; border-top: 1px solid #1e293b; }
+      #version { font-family: Consolas, ui-monospace, monospace; font-size: 12px; color: #64748b; }
+      button {
+        margin-left: auto;
+        background: #4f46e5;
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        padding: 7px 22px;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover { background: #6366f1; }
+      button:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon.png" alt="" />
+      <div>
+        <h1>Welcome to DHVANI</h1>
+        <div class="tag">Indian Language Dubbing &amp; Publication Studio</div>
+      </div>
+    </header>
+    <p>Dhvani is a dedicated studio for dubbing, subtitling, and publishing Sadhguru’s content across Indian languages.</p>
+    <p class="muted">Designed to make multilingual content creation seamless while preserving the original voice, emotion, essence, and flow.</p>
+    <p class="muted">Empowering high-quality Indian-language publications through intelligent technology and an efficient creative workflow.</p>
+    <footer>
+      <span id="version"></span>
+      <button id="ok" type="button" autofocus>OK</button>
+    </footer>
+    <script>
+      const version = new URLSearchParams(location.search).get('version');
+      if (version) document.getElementById('version').textContent = `Version ${version}`;
+      document.getElementById('ok').addEventListener('click', () => window.close());
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') window.close();
+      });
+    </script>
+  </body>
+</html>

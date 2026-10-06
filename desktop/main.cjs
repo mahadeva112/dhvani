@@ -477,6 +477,37 @@ const startupQuery = () => {
   return { version, updated: previous && previous !== version ? '1' : '0' };
 };
 
+// The system message box is white whatever the app looks like, so About is a
+// small window of our own (about.html) in the app's colours.
+let aboutWindow = null;
+const showAbout = () => {
+  if (aboutWindow) {
+    aboutWindow.focus();
+    return;
+  }
+  aboutWindow = new BrowserWindow({
+    parent: mainWindow || undefined,
+    modal: Boolean(mainWindow),
+    width: 460,
+    height: 340,
+    useContentSize: true,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#0f172a',
+    show: false,
+    title: 'About DHVANI',
+    icon: path.join(__dirname, 'icons', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+  });
+  aboutWindow.setMenu(null);
+  aboutWindow.once('ready-to-show', () => aboutWindow.show());
+  aboutWindow.on('closed', () => (aboutWindow = null));
+  aboutWindow.loadFile(path.join(__dirname, 'about.html'), { query: { version: app.getVersion() } });
+};
+
 const buildMenu = () => {
   const isMac = process.platform === 'darwin';
 
@@ -507,15 +538,6 @@ const buildMenu = () => {
         role: 'help',
         submenu: [
           {
-            label: 'Open Engine Log',
-            click: () => shell.openPath(logFile),
-          },
-          {
-            label: 'Open Settings Folder',
-            click: () => shell.openPath(app.getPath('userData')),
-          },
-          { type: 'separator' },
-          {
             label: 'Check for Updates…',
             click: checkForUpdatesFromMenu,
           },
@@ -526,23 +548,7 @@ const buildMenu = () => {
           { type: 'separator' },
           {
             label: 'About DHVANI',
-            click: () =>
-              dialog.showMessageBox(mainWindow, {
-                type: 'info',
-                title: 'About DHVANI',
-                message: 'Welcome to DHVANI',
-                detail:
-                  'Indian Language Dubbing & Publication Studio\n\n' +
-                  'Dhvani is a dedicated studio for dubbing, subtitling, and publishing ' +
-                  'Sadhguru’s content across Indian languages.\n\n' +
-                  'Designed to make multilingual content creation seamless while preserving ' +
-                  'the original voice, emotion, essence, and flow.\n\n' +
-                  'Empowering high-quality Indian-language publications through intelligent ' +
-                  'technology and an efficient creative workflow.\n\n' +
-                  `Version ${app.getVersion()}`,
-                buttons: ['OK'],
-                noLink: true,
-              }),
+            click: showAbout,
           },
         ],
       },

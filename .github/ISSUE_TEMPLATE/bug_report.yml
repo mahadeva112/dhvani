@@ -80,5 +80,5 @@ body:
     id: logs
     attributes:
       label: Server log
-      description: Output from the terminal, or Help -> Open Engine Log in the desktop app. Check it for keys before pasting.
+      description: Output from the terminal, or backend.log in %APPDATA%\DHVANI for the desktop app. Check it for keys before pasting.
       render: shell
