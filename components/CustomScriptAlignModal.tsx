@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, Check, AlertCircle, RefreshCw, ClipboardPaste, ArrowUp, ArrowDown, Info } from 'lucide-react';
+import { X, Check, AlertCircle, RefreshCw, ClipboardPaste, ArrowUp, ArrowDown, Info, FileText, FolderOpen } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { alignCustomScriptWithGemini, ScriptFit } from '../services/geminiService';
+import { readDhvaniScript, mapScriptToCues, DhvaniScript } from '../services/scriptShare';
 import {
   cleanPastedScript,
   splitByLines,
@@ -19,8 +20,12 @@ interface CustomScriptAlignModalProps {
   onClose: () => void;
   segments: AudioSegment[];
   targetLanguage: string;
+  /** Seconds of this project's audio, to tell when a script file was timed on other audio. */
+  audioDuration?: number;
   onApplyAlignedScript: (alignedSegments: { id: string | number; textTarget: string }[]) => void;
 }
+
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
 
 interface DraftRow {
   id: string | number;
@@ -64,9 +69,13 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
   onClose,
   segments,
   targetLanguage,
+  audioDuration,
   onApplyAlignedScript,
 }) => {
   const [pastedText, setPastedText] = useState<string>('');
+  // A script file opened from disk; it stands in for the paste box.
+  const [opened, setOpened] = useState<{ name: string; script: DhvaniScript } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [strategy, setStrategy] = useState<AlignmentStrategy>('ai');
   const [draft, setDraft] = useState<DraftRow[]>([]);
   // The cleaned script the current draft was fitted from; null until fitted.
@@ -79,7 +88,16 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
   const autoFitPending = useRef(false);
 
   const isAligning = progress !== null;
-  const cleaned = useMemo(() => cleanPastedScript(pastedText), [pastedText]);
+  // A script Dhvani saved or exported: placed by its times, or one line per cue.
+  const dhvani = useMemo(() => opened?.script ?? readDhvaniScript(pastedText), [opened, pastedText]);
+  const timed = dhvani?.kind === 'cues' ? dhvani : null;
+  const cleaned = useMemo(() => {
+    if (dhvani?.kind === 'lines') return { text: dhvani.lines.join('\n'), subtitleBlocks: null };
+    if (dhvani?.kind === 'cues') return { text: dhvani.file.cues.map((c) => c.target).filter(Boolean).join('\n'), subtitleBlocks: null };
+    return cleanPastedScript(pastedText);
+  }, [dhvani, pastedText]);
+  const exportLines = dhvani?.kind === 'lines' ? dhvani.lines.length : null;
+  const timedMismatch = timed ? mapScriptToCues(timed.file, [], { audioDuration }).audioMismatch : null;
   const hasAligned = fittedScript !== null;
 
   // Start from the cues' current lines each time the dialog opens. Only on
@@ -117,6 +135,26 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
 
     let way = strategy;
     const notes: string[] = [];
+    if (timed) {
+      const fileLanguage = timed.file.targetLanguage.trim();
+      if (fileLanguage && fileLanguage.toLowerCase() !== targetLanguage.trim().toLowerCase()) {
+        notes.push(`This script is in ${fileLanguage}, and the dub language is ${targetLanguage}.`);
+      }
+      if (!timedMismatch) return fitByTime(timed, notes);
+      way = 'ai';
+      notes.push(
+        `This script was timed on audio ${clock(timedMismatch.file)} long, and this audio is ${clock(timedMismatch.here)}, so its times don't apply here. It was matched to the English instead.`
+      );
+    }
+    if (exportLines !== null) {
+      if (auto && exportLines === segments.length) {
+        way = 'line';
+        setStrategy('line');
+        notes.push(`Your paste is a Dhvani script with ${exportLines} lines, one per cue, so each line went to its cue.`);
+      } else {
+        notes.push(`The Dhvani header and speaker names were removed from your paste (${exportLines} lines for ${segments.length} cues).`);
+      }
+    }
     if (cleaned.subtitleBlocks !== null) {
       if (auto && cleaned.subtitleBlocks === segments.length) {
         way = 'line';
@@ -186,13 +224,99 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     }
   };
 
-  // A paste into the box fits the script straight away.
+  /**
+   * Places a script Dhvani saved by its times: each line goes to the cue at
+   * its time, and only lines that run over several cues here are placed by
+   * meaning, each over just those cues, so a line can't drift off its time.
+   */
+  const fitByTime = async (script: Extract<DhvaniScript, { kind: 'cues' }>, notes: string[]) => {
+    const map = mapScriptToCues(script.file, segments, { audioDuration, coarse: script.coarse });
+    let rows: DraftRow[] = rowsFrom(segments, map.texts).map((row, i) => ({
+      ...row,
+      estimated: map.estimated[i],
+      // In a placement by time, a cue no line falls on said nothing in the script.
+      fit: map.match === 'timed' && !map.texts[i].trim() && row.englishText.trim() ? 'none' : undefined,
+    }));
+    setDraft(rows);
+    setFittedScript(cleaned.text);
+    setOnlyToCheck(false);
+    const lineCount = script.file.cues.filter((c) => c.target.trim()).length;
+    if (map.match === 'same') {
+      notes.push('The script has these very cues, so each line went back to its cue.');
+      setNotice(notes.join(' '));
+      return;
+    }
+    notes.push(`The script's ${lineCount} lines were cut differently from these ${segments.length} cues, so each line went to the cue at its time.`);
+    if (script.coarse) notes.push('Its times are to the second, so check where lines meet.');
+
+    if (map.windows.length > 0) {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      let failed = 0;
+      try {
+        for (const [w, window] of map.windows.entries()) {
+          if (controller.signal.aborted) break;
+          setProgress({ done: w, total: map.windows.length, message: `Placing lines that run over several cues (${w + 1} of ${map.windows.length})` });
+          try {
+            const { cues } = await alignCustomScriptWithGemini(
+              window.cues.map((i) => segments[i]),
+              window.text,
+              targetLanguage,
+              { signal: controller.signal }
+            );
+            rows = rows.map((row, i) => {
+              const at = window.cues.indexOf(i);
+              return at < 0 ? row : { ...row, targetText: cues[at].targetText, fit: cues[at].fit, estimated: cues[at].estimated };
+            });
+            setDraft(rows);
+          } catch (err) {
+            if (controller.signal.aborted) break;
+            console.warn('Placing a line by meaning failed; it stays split by length:', err);
+            failed += 1;
+          }
+        }
+      } finally {
+        abortRef.current = null;
+        setProgress(null);
+      }
+      if (controller.signal.aborted) notes.push('Stopped: lines not yet placed by meaning are split by length.');
+      else if (failed) setErrorMsg(`${failed} of ${map.windows.length} lines that run over several cues could not be placed by meaning, so they are split by length. Check the cues marked Estimated.`);
+    }
+    const flagged = rows.filter(needsCheck).length;
+    notes.push(
+      flagged
+        ? `${flagged} ${flagged === 1 ? 'cue needs' : 'cues need'} a look. Use "Only cues to check" to go through them.`
+        : 'Every line found its cue.'
+    );
+    setNotice(notes.join(' '));
+  };
+
+  // A paste into the box, or an opened file, fits the script straight away.
   useEffect(() => {
     if (!autoFitPending.current) return;
     autoFitPending.current = false;
     if (cleaned.text) void fit({ auto: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pastedText]);
+  }, [pastedText, opened]);
+
+  const openFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const script = readDhvaniScript(text);
+      if (script) {
+        autoFitPending.current = true;
+        setOpened({ name: file.name, script });
+        resetFit();
+      } else if (/\.json$/i.test(file.name)) {
+        setErrorMsg(`${file.name} is not a script Dhvani saved.`);
+      } else {
+        setOpened(null);
+        acceptPaste(text);
+      }
+    } catch {
+      setErrorMsg(`${file.name} could not be read.`);
+    }
+  };
 
   const acceptPaste = (text: string) => {
     autoFitPending.current = true;
@@ -304,41 +428,84 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
         <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[20.5rem_minmax(0,1fr)]">
           {/* Paste and choose */}
           <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col gap-3.5 min-w-0">
-            <div className="flex items-center justify-between gap-2">
-              <label htmlFor="align-paste" className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
-                Your script
-              </label>
-              <span className="flex items-center gap-1">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between gap-2 min-h-[20px]">
+                <label htmlFor="align-paste" className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                  Your script
+                </label>
+                {(pastedText || opened) && !isAligning && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPastedText('');
+                      setOpened(null);
+                      resetFit();
+                    }}
+                    className="text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json,.txt,.srt,.vtt,application/json,text/plain"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void openFile(file);
+                }}
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={isAligning}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Open a script file saved with Save script, or a .txt or .srt script"
+                  className="h-9 px-3 flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-600 text-[12.5px] font-medium text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  <FolderOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  Open file
+                </button>
                 <button
                   type="button"
                   disabled={isAligning}
                   onClick={async () => {
                     try {
                       const text = await navigator.clipboard.readText();
-                      if (text.trim()) acceptPaste(text);
-                      else setErrorMsg('The clipboard is empty.');
+                      if (text.trim()) {
+                        setOpened(null);
+                        acceptPaste(text);
+                      } else setErrorMsg('The clipboard is empty.');
                     } catch {
                       setErrorMsg('The clipboard could not be read here. Paste into the box with Ctrl+V instead.');
                     }
                   }}
-                  className="h-[30px] px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 cursor-pointer"
+                  title="Paste from the clipboard"
+                  className="h-9 px-3 flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-600 text-[12.5px] font-medium text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
-                  Paste from clipboard
+                  <ClipboardPaste className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                  Paste
                 </button>
-                {pastedText && !isAligning && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPastedText('');
-                      resetFit();
-                    }}
-                    className="h-[30px] px-2 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
-                  >
-                    Clear
-                  </button>
-                )}
-              </span>
+              </div>
             </div>
+            {opened ? (
+              <div className="flex items-start gap-2.5 p-3 rounded-xl border border-slate-700 bg-slate-950/60">
+                <FileText className="w-4 h-4 mt-0.5 text-slate-400 shrink-0" />
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-semibold text-slate-100 truncate" title={opened.name}>
+                    {opened.name}
+                  </span>
+                  <span className="block text-[11.5px] text-slate-400">
+                    {opened.script.kind === 'cues'
+                      ? `${opened.script.file.cues.length} lines with their times${opened.script.file.targetLanguage ? ` · ${opened.script.file.targetLanguage}` : ''}`
+                      : `${opened.script.lines.length} lines`}
+                  </span>
+                </span>
+              </div>
+            ) : (
             <textarea
               id="align-paste"
               value={pastedText}
@@ -360,13 +527,25 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
               rows={7}
               className="w-full min-h-[10.5rem] resize-y bg-slate-950/60 border border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 rounded-xl px-3 py-2.5 text-[14px] leading-relaxed text-slate-100 placeholder-slate-500 focus:outline-none read-only:opacity-70"
             />
+            )}
             {cleaned.text && (
               <span className="text-[11.5px] text-slate-500 tabular-nums">
                 {countWords(cleaned.text).toLocaleString()} words · {cleaned.text.split('\n').filter((l) => l.trim()).length} lines
                 {cleaned.subtitleBlocks !== null && ' · subtitle file'}
+                {dhvani && ' · Dhvani script'}
               </span>
             )}
 
+            {timed && !timedMismatch ? (
+              <p className="flex items-start gap-2 p-2.5 rounded-[11px] border border-slate-800 text-[11.5px] text-slate-300">
+                <Info className="w-3.5 h-3.5 shrink-0 mt-px text-slate-400" />
+                <span>
+                  This script keeps each line's time, so each line goes to the cue at that time. A line that runs over several cues here is split
+                  between them by meaning.
+                </span>
+              </p>
+            ) : (
+            <>
             <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">How to split it</span>
             <div role="radiogroup" aria-label="How to split" className="flex flex-col gap-1.5">
               {WAYS.map((w) => {
@@ -400,6 +579,8 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                 );
               })}
             </div>
+            </>
+            )}
 
             {isAligning ? (
               <div className="flex flex-col gap-2" role="status" aria-live="polite">
@@ -426,7 +607,15 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                 disabled={!cleaned.text}
                 className="h-[38px] flex items-center justify-center gap-2 rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-semibold text-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               >
-                {hasAligned ? 'Split it again' : strategy === 'ai' ? 'Match it to the English' : 'Split it into the cues'}
+                {timed && !timedMismatch
+                  ? hasAligned
+                    ? 'Place it again'
+                    : 'Place it by time'
+                  : hasAligned
+                    ? 'Split it again'
+                    : strategy === 'ai'
+                      ? 'Match it to the English'
+                      : 'Split it into the cues'}
               </button>
             )}
 

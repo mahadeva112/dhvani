@@ -1,4 +1,5 @@
 import { AudioSegment, SubtitleConfiguration, WordTimestamp } from "../types";
+import { buildScriptFile } from "./scriptShare";
 
 /* ------------------------------------------------------------------ */
 /* Types & Defaults                                                    */
@@ -455,7 +456,9 @@ export const generateTargetLanguageScript = (
   segments: AudioSegment[],
   targetLanguage: string = 'Target Language',
   format: TargetScriptFormat = 'dialogue',
-  title?: string
+  title?: string,
+  /** For the JSON script file: what lets another computer put the lines back on its cues. */
+  share: { sourceLanguage?: string; fileName?: string; audioDuration?: number } = {}
 ): string => {
   if (!segments || segments.length === 0) {
     return `--- ${targetLanguage.toUpperCase()} SCRIPT ---\nNo dialogue cues found.`;
@@ -512,27 +515,9 @@ export const generateTargetLanguageScript = (
       return header + pairs;
     }
 
-    case 'json': {
-      const data = {
-        title: docTitle,
-        language: targetLanguage,
-        cueCount: segments.length,
-        totalDurationSeconds,
-        exportedAt: new Date().toISOString(),
-        segments: segments.map((seg, idx) => ({
-          cueNumber: idx + 1,
-          id: seg.id,
-          startTime: seg.startTime,
-          endTime: seg.endTime,
-          duration: Number((seg.endTime - seg.startTime).toFixed(3)),
-          speaker: seg.speaker || 'Speaker',
-          sourceText: seg.textSource || seg.text || '',
-          targetText: seg.textTarget || seg.targetText || '',
-          targetLanguage,
-        })),
-      };
-      return JSON.stringify(data, null, 2);
-    }
+    case 'json':
+      // The script file "Paste script" opens on another computer.
+      return JSON.stringify(buildScriptFile(segments, { targetLanguage, title: docTitle, ...share }), null, 2);
 
     case 'csv': {
       const escapeCsv = (str: string) => `"${(str || '').replace(/"/g, '""')}"`;

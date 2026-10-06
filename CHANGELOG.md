@@ -9,6 +9,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Take a script to another computer.** The script's row under Downloads in the Final dub saves
+  it with every line's time, speaker and original; its arrow offers the dialogue, timecoded,
+  bilingual and spreadsheet versions too, so every script format is saved from one place. On the
+  other computer, **Paste script → Open file** (or pasting the file's text) puts each line back on
+  the cue at its time. If that computer's transcript cut the audio into the same cues, each line
+  goes back to its cue. If the cues differ, lines that fall inside a cue join it whole, and only a
+  line that runs over several cues is split between them by meaning. Audio of another length is
+  reported, and the script is then matched to the English as before. Dhvani's text exports
+  (dialogue, timecoded, bilingual) can be pasted back too: their header, cue numbers, timings and
+  speaker names no longer end up in the script.
 - **An Expert estimate in the Sync preview, beside the Quick one.** A **Quick | Expert** switch on
   the Sync preview (Final dub and Sync) picks how long each dub line is expected to take. Quick is
   the estimate as before: characters at the voice's rate. Expert counts syllables, which suits

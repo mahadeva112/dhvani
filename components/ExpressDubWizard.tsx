@@ -111,6 +111,7 @@ import { syllableRate } from '../services/speechTiming';
 import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis } from './SyncPreviewPanel';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, needsFix } from './FinalScriptFit';
+import { SaveScriptMenu } from './SaveScriptMenu';
 import { hueOf, lineIndexByCue, withAlpha } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
@@ -1322,7 +1323,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       segments,
       targetLanguage,
       format,
-      activeJob.file?.name ? `Dhvani Studio - ${activeJob.file.name}` : undefined
+      activeJob.file?.name ? `Dhvani Studio - ${activeJob.file.name}` : undefined,
+      {
+        sourceLanguage: activeJob.detectedLanguage || sourceLanguage || undefined,
+        fileName: activeJob.file?.name,
+        audioDuration: activeJob.audioBuffer?.duration,
+      }
     );
     const cleanLang = (targetLanguage || 'script').toLowerCase().replace(/\s+/g, '_');
     const extension = format === 'json' ? 'json' : format === 'csv' ? 'csv' : 'txt';
@@ -1332,7 +1338,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         : format === 'csv'
         ? 'text/csv'
         : 'text/plain;charset=utf-8';
-    const fileName = `dhvani_${cleanLang}_script_${format}.${extension}`;
+    const fileName = format === 'json' ? `dhvani_${cleanLang}_script.json` : `dhvani_${cleanLang}_script_${format}.${extension}`;
 
     downloadFile(scriptContent, fileName, mimeType);
     setExportSuccessMessage(`Saved the ${targetLanguage} script`);
@@ -3855,14 +3861,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     disabled: !hasDub || !onDownloadWav,
                     hero: hasDub,
                   },
-                  {
-                    tag: 'TXT',
-                    tone: 'bg-cyan-500/15 text-cyan-300',
-                    title: `${targetLanguage} script`,
-                    detail: `${finalScriptLayout.charAt(0).toUpperCase()}${finalScriptLayout.slice(1)} layout`,
-                    onClick: () => handleExportTargetScript(finalScriptLayout),
-                    disabled: segments.length === 0,
-                  },
                 ].filter((d) => !!d).map((d) => (
                   <button
                     key={d.tag}
@@ -3883,6 +3881,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <Download className="w-4 h-4 text-slate-500 shrink-0" />
                   </button>
                 ))}
+                <SaveScriptMenu title={`${targetLanguage} script`} onSave={handleExportTargetScript} disabled={segments.length === 0} />
                 {hasDub && multiSpeaker && activeJob.dubStems && activeJob.dubStems.length > 0 && onDownloadStem && (
                   <StemDownloads stems={activeJob.dubStems} speakers={speakers} onDownload={onDownloadStem} />
                 )}
@@ -4329,6 +4328,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         onClose={() => setIsAlignModalOpen(false)}
         segments={segments}
         targetLanguage={targetLanguage}
+        audioDuration={activeJob?.audioBuffer?.duration}
         onApplyAlignedScript={handleApplyAlignedSegments}
       />
 

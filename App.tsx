@@ -2462,16 +2462,20 @@ export default function App() {
         activeJob.segments,
         targetLang,
         format,
-        activeJob.file?.name ? `Dhvani Dub - ${activeJob.file.name}` : undefined
+        activeJob.file?.name ? `Dhvani Dub - ${activeJob.file.name}` : undefined,
+        {
+          sourceLanguage: activeJob.detectedLanguage || activeJob.sourceLanguage || undefined,
+          fileName: activeJob.file?.name,
+          audioDuration: activeJob.audioBuffer?.duration,
+        }
       );
       const cleanLang = targetLang.toLowerCase().replace(/\s+/g, '_');
-      const ext = format === 'json' ? 'json' : format === 'csv' ? 'csv' : 'txt';
-      const mime =
-        format === 'json'
-          ? 'application/json'
-          : format === 'csv'
-          ? 'text/csv'
-          : 'text/plain;charset=utf-8';
+      if (format === 'json') {
+        downloadFile(scriptContent, `dhvani_${cleanLang}_script.json`, 'application/json');
+        return;
+      }
+      const ext = format === 'csv' ? 'csv' : 'txt';
+      const mime = format === 'csv' ? 'text/csv' : 'text/plain;charset=utf-8';
       downloadFile(scriptContent, `dhvani_${cleanLang}_script_${format}.${ext}`, mime);
     },
     [activeJob, selectedLanguage]
