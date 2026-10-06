@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Three suggestions for a line, read in context.** In Review and the Final dub, suggesting a
+  shorter or fuller wording for one line now offers three of different kinds (closest to the dub,
+  most natural spoken, a different sentence shape), each checked against the original line's
+  meaning; pick one, then edit it. The text model now works out what the original line means first,
+  and reads it with the two dub lines either side and its speaker. **Suggest for all** still gives
+  each line one wording.
 - **Each track has its own level in the Final dub and Sync players.** Beside each lane, and beside
   the lanes in Edit timing, a strip gives the original and the dub a **M**ute, a **S**olo, a fader
   from −∞ to +6 dB (double-click for 0 dB) and a level meter. Solo replaces the Original / Dub / Both

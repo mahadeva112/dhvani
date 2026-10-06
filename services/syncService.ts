@@ -547,7 +547,23 @@ export const previewSync = (
 ): Promise<SyncPreview> =>
   apiJson<SyncPreview>('/sync/preview', { body: { ...request, segments: request.segments.map(slimSegment) }, signal });
 
-type LineRequest = { text: string; sourceText?: string; language?: string; targetChars: number; avoid?: string[] };
+/** The lines either side of one being reworded, and who says it, so the text model reads it in context. */
+export interface LineContext {
+  before: string[];
+  after: string[];
+  speaker?: string;
+}
+
+type LineRequest = {
+  text: string;
+  sourceText?: string;
+  language?: string;
+  targetChars: number;
+  avoid?: string[];
+  /** How many wordings to ask for, 1 to 3; each of a different kind. */
+  count?: number;
+  context?: LineContext;
+};
 
 /**
  * A new wording of a line. `issues` is set when the meaning check did not
@@ -559,29 +575,33 @@ export interface LineSuggestion {
 }
 
 /**
- * A new wording from the server, which has checked it means what the source
- * line means. When every wording failed that check, the closest one still
- * comes back, with `issues`, so pressing the button always gives the user
- * something to judge and edit. Null when nothing usable came back.
+ * New wordings from the server, which has checked each means what the source
+ * line means; those that passed come first. A wording that failed the check
+ * still comes back, with `issues`, so pressing the button always gives the
+ * user something to judge and edit. Empty when nothing usable came back.
  */
-const askForLine = async (path: string, request: LineRequest, signal?: AbortSignal): Promise<LineSuggestion | null> => {
-  const { line, flagged } = await apiJson<{
+const askForLines = async (path: string, request: LineRequest, signal?: AbortSignal): Promise<LineSuggestion[]> => {
+  const { options, line, flagged } = await apiJson<{
+    options?: { line: string; issues?: string[] }[];
     line: string | null;
     reason?: 'unusable' | 'meaning' | null;
     flagged?: { line: string; issues: string[] } | null;
   }>(path, { body: request, signal });
-  if (line) return { text: line };
-  if (flagged?.line) return { text: flagged.line, issues: flagged.issues?.length ? flagged.issues : ['The meaning may differ from the original line.'] };
-  return null;
+  const list = Array.isArray(options) ? options : line ? [{ line }] : flagged?.line ? [flagged] : [];
+  return list
+    .filter((o) => typeof o?.line === 'string' && o.line.trim())
+    .map((o) =>
+      o.issues ? { text: o.line, issues: o.issues.length ? o.issues : ['The meaning may differ from the original line.'] } : { text: o.line }
+    );
 };
 
-/** A shorter wording of one line from the text model, or null when it had nothing usable. */
-export const suggestShorterLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<LineSuggestion | null> =>
-  askForLine('/sync/shorten', request, signal);
+/** Shorter wordings of one line from the text model; empty when it had nothing usable. */
+export const suggestShorterLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<LineSuggestion[]> =>
+  askForLines('/sync/shorten', request, signal);
 
-/** A fuller wording of one line that ends too early, or null when it had nothing usable. */
-export const suggestLongerLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<LineSuggestion | null> =>
-  askForLine('/sync/lengthen', request, signal);
+/** Fuller wordings of one line that ends too early; empty when it had nothing usable. */
+export const suggestLongerLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<LineSuggestion[]> =>
+  askForLines('/sync/lengthen', request, signal);
 
 /** A typical dub speaking rate, used when there is no dub to measure one from. */
 export const TYPICAL_CHARS_PER_SECOND = 14;

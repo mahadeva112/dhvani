@@ -60,6 +60,11 @@ export const isShort = (seconds: number, spoken: number) => seconds < spoken * S
 /** Which way a line's wording has to change: fewer words to fit its slot, or more to fill the original speech. */
 export type RewriteDirection = 'shorter' | 'longer';
 
+/** Wordings a line is offered when the user asks for that line; Suggest for all asks for one each. */
+export const LINE_OPTIONS = 3;
+/** Earlier wordings sent back with a new request, so new ones read differently. */
+const MAX_TRIED = 6;
+
 /** Fetches the preview again whenever the script, the precision or the rate change. */
 export const useSyncPreview = ({
   enabled,
@@ -110,9 +115,14 @@ export const useSyncPreview = ({
 /** What the user has done with one line that is likely too long, or likely to end early. */
 export type LineFixState =
   | { kind: 'idle' }
-  | { kind: 'working'; tried: string[] }
-  /** `issues`: what the meaning check found in a suggestion it did not pass. */
-  | { kind: 'draft'; text: string; suggested: boolean; tried: string[]; issues?: string[] }
+  /** `count`: how many wordings were asked for. */
+  | { kind: 'working'; tried: string[]; count: number }
+  /**
+   * `issues`: what the meaning check found in the wording being edited, when
+   * it is a suggestion the check did not pass. `options`: the wordings the
+   * last request brought, to pick between; the text is the one picked, as edited.
+   */
+  | { kind: 'draft'; text: string; suggested: boolean; tried: string[]; issues?: string[]; options?: LineSuggestion[] }
   | { kind: 'error'; message: string; tried: string[] }
   | { kind: 'used'; text: string; before: Record<string, string> }
   | { kind: 'kept' };
@@ -140,7 +150,7 @@ export const useLineFixes = ({
   onUseLine,
   onRestore,
 }: {
-  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) => Promise<LineSuggestion | null>;
+  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection, count: number) => Promise<LineSuggestion[]>;
   onUseLine: (unit: SyncPreviewUnit, text: string) => Record<string, string>;
   onRestore: (before: Record<string, string>) => void;
 }) => {
@@ -161,17 +171,27 @@ export const useLineFixes = ({
   const open = (u: SyncPreviewUnit) => stateOf(u).kind !== 'kept' && stateOf(u).kind !== 'used';
   const notStarted = (u: SyncPreviewUnit) => stateOf(u).kind === 'idle' || stateOf(u).kind === 'error';
 
-  const suggest = async (unit: SyncPreviewUnit) => {
+  /** Asks for `count` wordings of a line: several when the user asks for that line, one each from Suggest for all. */
+  const suggest = async (unit: SyncPreviewUnit, count = LINE_OPTIONS) => {
     const current = rows[unit.key];
     const tried = current && 'tried' in current ? current.tried : [];
     const direction = directionOf(unit);
     const id = (requests.current[unit.key] || 0) + 1;
     requests.current[unit.key] = id;
-    setRow(unit, { kind: 'working', tried });
+    setRow(unit, { kind: 'working', tried, count });
     try {
-      const line = await onSuggest(unit, tried, direction);
+      const options = await onSuggest(unit, tried, direction, count);
       if (requests.current[unit.key] !== id) return;
-      if (line) setRow(unit, { kind: 'draft', text: line.text, suggested: true, tried: [...tried, line.text], issues: line.issues });
+      const [first] = options;
+      if (first)
+        setRow(unit, {
+          kind: 'draft',
+          text: first.text,
+          suggested: true,
+          tried: [...tried, ...options.map((o) => o.text)].slice(-MAX_TRIED),
+          issues: first.issues,
+          options,
+        });
       else
         setRow(unit, {
           kind: 'error',
@@ -183,7 +203,7 @@ export const useLineFixes = ({
       setRow(unit, { kind: 'error', message: err?.message || 'The text model did not answer.', tried });
     }
   };
-  const suggestAll = (list: SyncPreviewUnit[]) => list.filter(notStarted).forEach(suggest);
+  const suggestAll = (list: SyncPreviewUnit[]) => list.filter(notStarted).forEach((unit) => suggest(unit, 1));
   /** Forgets the work on a line, so its direction is decided again: after a new trim, say. */
   const reset = (unit: SyncPreviewUnit) => {
     requests.current[unit.key] = (requests.current[unit.key] || 0) + 1;
@@ -202,7 +222,19 @@ export const useLineFixes = ({
     onEdit: () => setRow(unit, { kind: 'draft', text: unit.text, suggested: false, tried: [] }),
     onDraft: (text: string) => {
       const current = rows[unit.key];
-      setRow(unit, { kind: 'draft', text, suggested: false, tried: current && 'tried' in current ? current.tried : [] });
+      setRow(unit, {
+        kind: 'draft',
+        text,
+        suggested: false,
+        tried: current && 'tried' in current ? current.tried : [],
+        options: current?.kind === 'draft' ? current.options : undefined,
+      });
+    },
+    /** Takes one of the wordings offered into the draft, in place of what is there. */
+    onPick: (option: LineSuggestion) => {
+      const current = rows[unit.key];
+      if (current?.kind !== 'draft') return;
+      setRow(unit, { ...current, text: option.text, suggested: true, issues: option.issues });
     },
     onUse: (text: string) => setRow(unit, { kind: 'used', text, before: onUseLine(unit, text) }),
     onKeep: () => setRow(unit, { kind: 'kept' }),
@@ -230,8 +262,8 @@ export interface SyncPreviewPanelProps {
   onSeek: (time: number) => void;
   /** Plays the original from `time`. */
   onListenOriginal: (time: number) => void;
-  /** A shorter (or, for a line that ends early, fuller) wording of a line, from the text model. */
-  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) => Promise<LineSuggestion | null>;
+  /** Shorter (or, for a line that ends early, fuller) wordings of a line, from the text model. */
+  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection, count: number) => Promise<LineSuggestion[]>;
   /** Puts a wording into the script; returns the cues' texts before, for Undo. */
   onUseLine: (unit: SyncPreviewUnit, text: string) => Record<string, string>;
   /** Puts cue texts back, for Undo. */
@@ -376,7 +408,15 @@ export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
             )}
             {showTight &&
               tight.map((unit) => (
-                <PreviewRow key={unit.key} {...rowProps(unit)} state={{ kind: 'idle' }} onDraft={() => {}} onUse={() => {}} onUndo={() => {}} />
+                <PreviewRow
+                  key={unit.key}
+                  {...rowProps(unit)}
+                  state={{ kind: 'idle' }}
+                  onDraft={() => {}}
+                  onPick={() => {}}
+                  onUse={() => {}}
+                  onUndo={() => {}}
+                />
               ))}
           </ul>
         )}
@@ -513,15 +553,17 @@ export interface LineFixControlsProps {
   onStop: () => void;
   onEdit: () => void;
   onDraft: (text: string) => void;
+  onPick: (option: LineSuggestion) => void;
   onUse: (text: string) => void;
   onKeep: () => void;
   onUndo: () => void;
 }
 
 /**
- * How a line can be reworded, with its draft, Use, Keep and Undo. The one
- * suggestion is a shorter line or a fuller one, never both: the direction is
- * decided from the line's source sentence.
+ * How a line can be reworded, with its draft, Use, Keep and Undo. Asked for
+ * one line, the text model offers several wordings to pick from; the one
+ * picked goes into the draft to edit. They are all shorter or all fuller,
+ * never both: the direction is decided from the line's source sentence.
  */
 export const LineFixControls: React.FC<LineFixControlsProps> = ({
   unit,
@@ -532,6 +574,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
   onStop,
   onEdit,
   onDraft,
+  onPick,
   onUse,
   onKeep,
   onUndo,
@@ -569,10 +612,10 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
             {state.kind === 'error'
               ? 'Try again'
               : want !== undefined
-                ? `Suggest a ${want.toFixed(1)} s line`
+                ? `Suggest ${want.toFixed(1)} s lines`
                 : longer
-                  ? 'Suggest a fuller line'
-                  : 'Suggest a shorter line'}
+                  ? 'Suggest fuller lines'
+                  : 'Suggest shorter lines'}
           </button>
           <button
             type="button"
@@ -592,7 +635,8 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
 
       {state.kind === 'working' && (
         <div role="status" className="mt-2 flex items-center gap-2 h-7 text-xs text-slate-300">
-          <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin" /> Asking the text model for a {longer ? 'fuller' : 'shorter'} wording…
+          <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin" /> Asking the text model for{' '}
+          {state.count > 1 ? `${state.count} ${longer ? 'fuller' : 'shorter'} wordings` : `a ${longer ? 'fuller' : 'shorter'} wording`}…
           <button type="button" onClick={onStop} className="ml-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-400 cursor-pointer">
             Stop
           </button>
@@ -601,8 +645,61 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
 
       {state.kind === 'draft' && draftBadge && (
         <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
+          {state.options && state.options.length > 1 && (
+            <div className="mb-2">
+              <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1">
+                {state.options.length} {longer ? 'fuller' : 'shorter'} wordings · pick one, then edit it if you like
+              </span>
+              <div role="radiogroup" aria-label="Suggested wordings" className="flex flex-col gap-1">
+                {state.options.map((option, i) => {
+                  const picked = option.text === state.text;
+                  const fit = fitOf(option.text, unit, cps);
+                  const good = want !== undefined ? fit.fits && Math.abs(fit.seconds - want) <= TRIM_TOLERANCE : longer ? fit.fills : fit.fits;
+                  return (
+                    <button
+                      key={option.text}
+                      type="button"
+                      role="radio"
+                      aria-checked={picked}
+                      onClick={() => onPick(option)}
+                      className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-pointer ${
+                        picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/70'
+                      }`}
+                    >
+                      <span
+                        className={`shrink-0 mt-0.5 w-4 h-4 rounded-full border text-[9.5px] font-semibold flex items-center justify-center tabular-nums ${
+                          picked ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-slate-600 text-slate-400'
+                        }`}
+                      >
+                        {i + 1}
+                      </span>
+                      <span className="flex-1 min-w-0 text-[13px] text-slate-100 leading-snug">{option.text}</span>
+                      <span className="shrink-0 flex flex-col items-end gap-0.5">
+                        <span
+                          className={`text-[10.5px] font-semibold px-1.5 rounded tabular-nums ${
+                            good ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+                          }`}
+                        >
+                          ≈{fit.seconds.toFixed(1)} s
+                        </span>
+                        {option.issues && <span className="text-[10.5px] text-amber-300">check meaning</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <label className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1" htmlFor={`preview-line-${unit.key}`}>
-            {state.suggested ? (longer ? 'Suggested fuller line' : 'Suggested shorter line') : 'Your wording'}
+            {state.options && state.options.length > 1
+              ? state.suggested
+                ? 'Picked wording'
+                : 'Your wording'
+              : state.suggested
+                ? longer
+                  ? 'Suggested fuller line'
+                  : 'Suggested shorter line'
+                : 'Your wording'}
           </label>
           {state.suggested && state.issues && <MeaningWarning issues={state.issues} />}
           <textarea
@@ -627,7 +724,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
               onClick={onSuggest}
               className="h-7 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
             >
-              {state.suggested ? 'Try another' : 'Suggest one'}
+              {state.options && state.options.length > 0 ? `${LINE_OPTIONS} more` : `Suggest ${LINE_OPTIONS}`}
             </button>
             <button
               type="button"

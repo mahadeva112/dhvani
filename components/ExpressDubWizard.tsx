@@ -105,7 +105,7 @@ import {
   TYPICAL_CHARS_PER_SECOND,
   withLineTargets,
 } from '../services/syncService';
-import type { SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
+import type { LineContext, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort } from './SyncPreviewPanel';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, needsFix } from './FinalScriptFit';
@@ -172,6 +172,8 @@ const REVIEW_FAST_CPS = 18;
 /** A new wording aims a little under its time, and a fuller one close to all of it, as Sync's suggestions do (server/lib/syncDub.js). */
 const REVIEW_SHORTER_MARGIN = 0.92;
 const REVIEW_FULLER_FILL = 0.95;
+/** Dub lines either side of one being reworded that the text model reads it with. */
+const LINE_CONTEXT = 2;
 
 /**
  * One cue as a line to reword on the Review step, in the shape the Final
@@ -942,14 +944,34 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         return text === undefined ? seg : { ...seg, textTarget: text, targetText: text };
       })
     );
-  /** A shorter or a fuller wording of a line, from the text model; the line's status decides which. */
-  const suggestLine = (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection) =>
+  /**
+   * The dub lines either side of a line's cues, and who says it, so the text
+   * model reads the line in context: what it answers, what "he" or "this"
+   * points to, a sentence that runs on.
+   */
+  const lineContextOf = (cueIds: (string | number)[], speaker?: string | null): LineContext | undefined => {
+    const ids = new Set(cueIds.map(String));
+    const first = segments.findIndex((seg) => ids.has(String(seg.id)));
+    if (first < 0) return undefined;
+    let last = first;
+    while (last + 1 < segments.length && ids.has(String(segments[last + 1].id))) last++;
+    const textsOf = (list: AudioSegment[]) => list.map((seg) => getTargetText(seg).trim()).filter(Boolean);
+    return {
+      before: textsOf(segments.slice(Math.max(0, first - LINE_CONTEXT), first)),
+      after: textsOf(segments.slice(last + 1, last + 1 + LINE_CONTEXT)),
+      speaker: (speaker ?? segments[first].speaker) || undefined,
+    };
+  };
+  /** Shorter or fuller wordings of a line, from the text model; the line's status decides which. */
+  const suggestLine = (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection, count: number) =>
     (direction === 'longer' ? suggestLongerLine : suggestShorterLine)({
       text: unit.text,
       sourceText: unit.sourceText,
       language: targetLanguage,
       targetChars: unit.targetChars,
       avoid,
+      count,
+      context: lineContextOf(unit.cueIds),
     });
   /** Step 3's rewording, kept apart from step 4's so each step's rows are its own. */
   const finalFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
@@ -4171,7 +4193,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       language: targetLanguage,
                       targetChars: unit.targetChars,
                       avoid,
-                    })
+                      context: lineContextOf(unit.cueIds, unit.speaker),
+                    }).then((options) => options[0] ?? null)
               }
             />
             <SyncSettingsPanel

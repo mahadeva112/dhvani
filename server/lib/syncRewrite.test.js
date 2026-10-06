@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { suggestLine, checkMeaning, buildMeaningCheckPrompt, buildRewritePrompt } from './syncRewrite.js';
+import { suggestLine, suggestLines, checkMeaning, contextNote, buildMeaningCheckPrompt, buildRewritePrompt, buildOptionsPrompt } from './syncRewrite.js';
 
 /**
  * A fake text model: rewrites come from `lines` in order, meaning checks from
@@ -121,4 +121,76 @@ test("the check judges only what a suggestion changes, not the dub line's own wo
   assert.match(prompt, /If you are not sure, it does not keep the meaning/);
   const noSource = buildMeaningCheckPrompt({ text: 'dub line', sourceText: '', candidate: 'new', direction: 'shorter' });
   assert.doesNotMatch(noSource, /accepted translation/);
+});
+
+/**
+ * A fake text model for several wordings at once: each request for wordings
+ * gets the next of `rounds` (a list of lines), each meaning check the verdict
+ * `verdict(line)` gives that line.
+ */
+const optionsModel = ({ rounds = [], verdict = () => ({ sameMeaning: true, issues: [] }) }) => {
+  const prompts = { options: [], check: [] };
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    if (prompt.includes('strict reviewer')) {
+      prompts.check.push(prompt);
+      const candidate = prompt.split('Suggested wording:\n')[1].split('\n')[0];
+      return { response: { text: JSON.stringify(verdict(candidate)) } };
+    }
+    prompts.options.push(prompt);
+    return { response: { text: JSON.stringify({ meaning: 'He will not go.', options: rounds.shift() ?? [] }) } };
+  };
+  return { generate, prompts };
+};
+
+test('three wordings come back from one request, each checked on its own', async () => {
+  const lines = ['कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी', 'बारिश होगी, कल दस बजे बाज़ार नहीं जाऊँगा', 'कल सुबह दस बजे नहीं जाऊँगा, बारिश है'];
+  const { generate, prompts } = optionsModel({ rounds: [lines] });
+  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 3 }, { generate });
+  assert.deepEqual(options.map((o) => o.line), lines);
+  assert.ok(options.every((o) => !o.issues));
+  assert.equal(prompts.options.length, 1);
+  assert.equal(prompts.check.length, 3);
+  // The model works the meaning out first, and is asked for wordings of different kinds.
+  assert.match(prompts.options[0], /First, understand the line/);
+  assert.match(prompts.options[0], /"meaning"/);
+  assert.match(prompts.options[0], /1\. Closest[\s\S]*2\. Natural[\s\S]*3\. Recast/);
+});
+
+test('a wording that changed the meaning is asked for again, and still offered last, flagged, if no other comes', async () => {
+  const good = 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
+  const bad = 'कल दस बजे बाज़ार जाऊँगा, बारिश होगी';
+  const third = 'बारिश होगी, कल दस बजे नहीं जाऊँगा';
+  const { generate, prompts } = optionsModel({
+    rounds: [[good, bad, good], [third]],
+    verdict: (line) => (line === bad ? { sameMeaning: false, issues: ['negation dropped'] } : { sameMeaning: true, issues: [] }),
+  });
+  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 3 }, { generate });
+  assert.deepEqual(options, [{ line: good }, { line: third }, { line: bad, issues: ['negation dropped'] }]);
+  // The second round asks only for what is missing, told what went wrong.
+  assert.equal(prompts.options.length, 2);
+  assert.match(prompts.options[1], /Write 2 shorter wordings/);
+  assert.match(prompts.options[1], /What was wrong: negation dropped/);
+});
+
+test('wordings of the wrong length, or repeats of earlier ones, are not offered', async () => {
+  const offered = 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
+  const { generate } = optionsModel({ rounds: [[request.text, offered, 'नहीं'], []] });
+  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 3, avoid: [offered] }, { generate });
+  assert.deepEqual(options, []);
+});
+
+test('the lines around a line and its speaker go into the prompt, as context only', () => {
+  const context = { before: ['तुम कल बाज़ार चलोगे?'], after: ['ठीक है, परसों चलेंगे।'], speaker: 'Ravi' };
+  for (const prompt of [
+    buildRewritePrompt({ ...request, context }),
+    buildOptionsPrompt({ ...request, direction: 'longer', count: 3, context }),
+  ]) {
+    assert.match(prompt, /Speaker: Ravi/);
+    assert.match(prompt, /Line before: तुम कल बाज़ार चलोगे\?/);
+    assert.match(prompt, /Line after: ठीक है, परसों चलेंगे।/);
+    assert.match(prompt, /do not move anything from them into this one/);
+  }
+  assert.equal(contextNote({ before: [], after: [''] }), '');
+  assert.doesNotMatch(buildRewritePrompt(request), /Context, only/);
 });

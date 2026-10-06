@@ -25,6 +25,11 @@
  * never offered unasked. When the user asked for one line, though, the last
  * wording comes back as `flagged`, with what the check found, so the user
  * gets a wording to judge and edit rather than an empty answer.
+ *
+ * Asked for one line, Review and the Final dub offer several wordings at once
+ * (`suggestLines`), each of a different kind and each checked the same way.
+ * Every prompt can carry the lines around the one being reworded, and who
+ * says it, so the model reads the line in context before rewording it.
  */
 import { logger } from '../logger.js';
 import { generateText } from '../providers/textModel.js';
@@ -50,7 +55,24 @@ const fixNote = (fix) =>
         .join('\n')}\nWrite a new wording that fixes this and says exactly what the original line says.\n`
     : '';
 
-export const buildRewritePrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
+/**
+ * The lines either side of this one, and who says it, so the model reads the
+ * line as part of the conversation: what "he", "this" or "it" points to, a
+ * sentence that runs on from the line before, a question being answered.
+ * Context only: the model is told not to rewrite those lines or borrow from them.
+ */
+export const contextNote = (context) => {
+  const lines = (list) => (Array.isArray(list) ? list.filter((line) => typeof line === 'string' && line.trim()) : []);
+  const before = lines(context?.before);
+  const after = lines(context?.after);
+  const speaker = typeof context?.speaker === 'string' ? context.speaker.trim() : '';
+  if (before.length === 0 && after.length === 0 && !speaker) return '';
+  return `\nContext, only to understand the line. Do not rewrite these lines, and do not move anything from them into this one:\n${
+    speaker ? `Speaker: ${speaker}\n` : ''
+  }${before.map((line) => `Line before: ${line}\n`).join('')}${after.map((line) => `Line after: ${line}\n`).join('')}`;
+};
+
+export const buildRewritePrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
 This dub line takes too long to say in the time the original speaker took. Rewrite it so it is at most ${targetChars} characters long (it is now ${text.length}).
 
@@ -61,9 +83,9 @@ Rules:
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
 - Do not add anything that is not in the original line.
-${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${
+${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
   avoid.length > 0
-    ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(0, MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
+    ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(-MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
     : ''
 }${fixNote(fix)}
 Dub line to shorten:
@@ -77,7 +99,7 @@ Reply with only the rewritten line, nothing else.`;
  */
 const MAX_TARGET_SHARE = 1.25;
 
-export const buildLengthenPrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
+export const buildLengthenPrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
 This dub line is much shorter than what the original speaker says, so the dub goes silent while the speaker is still talking. Rewrite it so it is about ${targetChars} characters long (it is now ${text.length}), and no longer than that.
 
@@ -86,9 +108,9 @@ Rules:
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
 - Do not add any idea, fact or example that is not in the original line. Do not pad with filler sounds, repetition or empty phrases.
-${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${
+${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
   avoid.length > 0
-    ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(0, MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
+    ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(-MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
     : ''
 }${fixNote(fix)}
 Dub line to make fuller:
@@ -189,7 +211,7 @@ export const checkMeaning = async ({ text, sourceText, candidate, language, dire
  * refuses, so the caller can say why.
  */
 export const suggestLine = async (
-  { text, sourceText, language, targetChars, avoid = [], direction },
+  { text, sourceText, language, targetChars, avoid = [], direction, context = null },
   { apiKey, generate = generateText } = {}
 ) => {
   const longer = direction === 'longer';
@@ -201,7 +223,7 @@ export const suggestLine = async (
   let retried = false;
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     const { response } = await generate({
-      contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, fix }) }] },
+      contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, fix, context }) }] },
       // A second try at the same line is asked to differ, and given more room to.
       generationConfig: { temperature: avoid.length > 0 || fix || retried ? 0.7 : 0.3 },
       apiKey,
@@ -219,6 +241,150 @@ export const suggestLine = async (
   }
   if (!flagged) logger.info(`A suggested ${kind} dub line was not usable; none is shown for that line.`);
   return { line: null, reason: flagged ? 'meaning' : 'unusable', flagged };
+};
+
+/** Most wordings one line is offered at once. */
+export const MAX_OPTIONS = 3;
+
+/**
+ * What each of several wordings is asked to be, so they differ in kind and the
+ * user has a real choice rather than three near-copies.
+ */
+const OPTION_STYLES = [
+  "Closest: keep the dub line's own words and order, and change as little as you can.",
+  'Natural: how a native speaker would actually say it aloud in this moment, in everyday spoken words.',
+  'Recast: a different sentence shape or word order from the first two, still natural and spoken.',
+];
+
+/** Earlier wordings a request for several shows the model, so new ones read differently. */
+const MAX_AVOID_OPTIONS = 6;
+
+/**
+ * The prompt for several wordings of one line at once, as JSON. Before the
+ * wordings the model writes down what the original line means, in one English
+ * sentence, with the lines around it in view: working the meaning out first is
+ * what keeps every wording on it. `fixes` are earlier wordings the meaning
+ * check rejected, with what it found.
+ */
+export const buildOptionsPrompt = ({ text, sourceText, language, targetChars, direction, count, avoid = [], fixes = [], context = null }) => {
+  const longer = direction === 'longer';
+  const lang = language || 'the dub language';
+  const styles = OPTION_STYLES.slice(0, count);
+  return `You are a dubbing adaptation writer for ${language || 'a dub'}. The dub must stay in sync with the original video.
+
+${
+  longer
+    ? `This dub line is much shorter than what the original speaker says, so the dub goes silent while the speaker is still talking. Write ${count} fuller wordings of it, each about ${targetChars} characters long (it is now ${text.length}), and no longer than that.`
+    : `This dub line takes too long to say in the time the original speaker took. Write ${count} shorter wordings of it, each at most ${targetChars} characters long (it is now ${text.length}).`
+}
+
+First, understand the line. Read the ${sourceText ? 'original line' : 'dub line'}${contextNote(context) ? ' and the context below it' : ''}, and work out exactly what it says: who does what to whom, what any "he", "she", "this" or "it" refers to, every negation, condition, number and emphasis, and the speaker's intent (a question, a request, a joke, a warning). Write that down in one plain English sentence as "meaning".
+
+Then write the wordings. Each one must:
+- say exactly what the ${sourceText ? 'original' : 'dub'} line says: no idea, fact or example left out or added${
+    longer
+      ? '. If the dub line left out a nuance, a qualifier or an emphasis that is in the original line, put it back first. No filler sounds, repetition or empty phrases'
+      : '. Drop only filler and repetition, then use shorter words or phrasing for the same ideas'
+  };
+- sound like natural spoken ${lang}, as this speaker would say it, fitting the lines around it;
+- keep names, numbers and key terms exactly;
+- differ clearly from the others${avoid.length > 0 ? ' and from the wordings listed below' : ''}.
+
+Make them different in kind:
+${styles.map((style, i) => `${i + 1}. ${style}`).join('\n')}
+${sourceText ? `\nOriginal line (the authority on meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
+    avoid.length > 0
+      ? `\nThese wordings were already offered and not taken. Do not repeat them:\n${avoid.slice(-MAX_AVOID_OPTIONS).map((line) => `- ${line}`).join('\n')}\n`
+      : ''
+  }${
+    fixes.length > 0
+      ? `\nThese earlier wordings changed the meaning, so they were rejected. Do not make the same mistakes:\n${fixes
+          .map((fix) => `- ${fix.line}\n  What was wrong: ${fix.issues.slice(0, 3).join('; ')}`)
+          .join('\n')}\n`
+      : ''
+  }
+Dub line to ${longer ? 'make fuller' : 'shorten'}:
+${text}
+
+Respond with ONLY this JSON:
+{"meaning":"<what the original line says, in one English sentence>","options":[${styles.map(() => '"<wording>"').join(',')}]}`;
+};
+
+/**
+ * Up to `count` new wordings of one line, `direction` 'shorter' or 'longer',
+ * from one call to the text model, each checked against the source line
+ * (checkMeaning) on its own. Wordings that failed the check get one more round:
+ * the model is told what each changed and asked for the ones still missing.
+ * Returns `{ options }`, wordings that passed first, then any that did not,
+ * with the check's `issues`, so the user always has something to judge when
+ * the model offered anything at all. Throws when the text model can't be reached.
+ */
+export const suggestLines = async (
+  { text, sourceText, language, targetChars, avoid = [], direction, context = null, count = MAX_OPTIONS },
+  { apiKey, generate = generateText } = {}
+) => {
+  const longer = direction === 'longer';
+  const accept = longer ? acceptLengthen : acceptRewrite;
+  const want = Math.max(1, Math.min(MAX_OPTIONS, Math.floor(count) || 1));
+  const passed = [];
+  const flagged = [];
+  const seen = new Set([cleanLine(text), ...avoid.map(cleanLine)]);
+  let fixes = [];
+  for (let attempt = 0; attempt <= MAX_REPAIRS && passed.length < want; attempt++) {
+    const { response } = await generate({
+      contents: {
+        role: 'user',
+        parts: [
+          {
+            text: buildOptionsPrompt({
+              text,
+              sourceText,
+              language,
+              targetChars,
+              direction,
+              count: want - passed.length,
+              avoid: [...avoid, ...passed.map((o) => o.line)],
+              fixes,
+              context,
+            }),
+          },
+        ],
+      },
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.7 },
+      apiKey,
+    });
+    let parsed = null;
+    try {
+      parsed = parseJsonResponse(response?.text, 'Line wordings');
+    } catch {
+      // Unreadable: counts as a round with nothing usable.
+    }
+    const candidates = [];
+    for (const raw of Array.isArray(parsed?.options) ? parsed.options : []) {
+      const line = accept(text, String(raw ?? ''), targetChars);
+      if (line && !seen.has(line)) {
+        seen.add(line);
+        candidates.push(line);
+      }
+    }
+    const checks = await Promise.all(
+      candidates.map((candidate) => checkMeaning({ text, sourceText, candidate, language, direction }, { apiKey, generate }))
+    );
+    fixes = [];
+    candidates.forEach((line, i) => {
+      if (checks[i].ok) passed.push({ line });
+      else {
+        const issues = checks[i].issues.length > 0 ? checks[i].issues : ['The meaning is not the same as the original line.'];
+        flagged.push({ line, issues });
+        fixes.push({ line, issues });
+      }
+    });
+  }
+  const options = [...passed, ...flagged].slice(0, want);
+  logger.info(
+    `Suggested ${options.length} ${longer ? 'fuller' : 'shorter'} wording(s) of a dub line: ${Math.min(passed.length, want)} kept the meaning.`
+  );
+  return { options };
 };
 
 /** A shorter wording of `text`, no longer than `targetChars`, that keeps its meaning. See suggestLine. */

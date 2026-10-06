@@ -10,7 +10,7 @@ import { runSync } from '../lib/syncDub.js';
 import { checkParts, lineArrays, renderEdits } from '../lib/syncEdit.js';
 import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
-import { shortenLine, lengthenLine } from '../lib/syncRewrite.js';
+import { shortenLine, lengthenLine, suggestLine, suggestLines, MAX_OPTIONS } from '../lib/syncRewrite.js';
 import { previewSync } from '../lib/syncPreview.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
 import { logger } from '../logger.js';
@@ -426,53 +426,87 @@ syncRouter.post('/sync/preview', (req, res) => {
   res.json(previewSync({ segments, precision, charsPerSecond, sourceDuration, join }));
 });
 
-/**
- * POST /api/sync/shorten — a shorter wording for one line, from the text
- * model. Body: `{ text, sourceText, language, targetChars, avoid }`, `avoid`
- * being earlier suggestions to differ from. Replies `{ line, reason }`: `line`
- * is null when no wording passed, `reason` then being 'unusable' or 'meaning'
- * (every wording changed what the source line says). Every `line` returned has
- * passed the meaning check (syncRewrite.js); with 'meaning', `flagged` is the
- * closest wording and what the check found, `{ line, issues }`, for the user
- * to judge. The script is never changed here.
- */
-syncRouter.post(
-  '/sync/shorten',
-  asyncHandler(async (req, res) => {
-    const { text, sourceText, language, targetChars, avoid } = req.body || {};
-    if (typeof text !== 'string' || !text.trim()) throw new ApiError('There is no line to shorten.', { status: 400, code: 'no_text' });
-    const target = Math.max(1, Math.min(text.length, Math.floor(Number(targetChars) || text.length * 0.8)));
-    const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(0, 3) : [];
-    const { line, reason, flagged } = await shortenLine(
-      { text, sourceText: typeof sourceText === 'string' ? sourceText : '', language, targetChars: target, avoid: earlier },
-      { apiKey: req.get('x-gemini-key') || undefined }
-    );
-    res.json({ line, reason, flagged });
-  })
-);
+/** Most earlier wordings a rewording request may list, to be told apart from. */
+const MAX_AVOID_LINES = 6;
+/** Lines of context either side, and the longest one kept. */
+const MAX_CONTEXT_LINES = 2;
+const MAX_CONTEXT_CHARS = 500;
+
+/** The request's lines around the one being reworded, and its speaker, held to what a prompt needs. */
+const lineContextOf = (context) => {
+  const lines = (list) =>
+    Array.isArray(list) ? list.filter((line) => typeof line === 'string' && line.trim()).map((line) => line.slice(0, MAX_CONTEXT_CHARS)) : [];
+  return {
+    before: lines(context?.before).slice(-MAX_CONTEXT_LINES),
+    after: lines(context?.after).slice(0, MAX_CONTEXT_LINES),
+    speaker: typeof context?.speaker === 'string' ? context.speaker.slice(0, 80) : '',
+  };
+};
 
 /**
- * POST /api/sync/lengthen — a fuller wording for one line that ends well
- * before the original speaker does, from the text model. Body as for
- * /sync/shorten; `targetChars` is the length to aim for, more than the line
- * has now. Replies `{ line, reason, flagged }` as /sync/shorten does, every
- * `line` returned having passed the meaning check. The script is never changed here.
+ * One rewording request: `count` 1 asks for the single best wording
+ * (suggestLine), more asks for that many wordings of different kinds at once
+ * (suggestLines). Replies `{ options, line, reason, flagged }`: `options` the
+ * wordings, those that passed the meaning check first and any that did not
+ * with their `issues`; `line`, `reason` and `flagged` as suggestLine gives them,
+ * for one wording.
  */
-syncRouter.post(
-  '/sync/lengthen',
+const rewordRoute = (direction) =>
   asyncHandler(async (req, res) => {
-    const { text, sourceText, language, targetChars, avoid } = req.body || {};
-    if (typeof text !== 'string' || !text.trim()) throw new ApiError('There is no line to make fuller.', { status: 400, code: 'no_text' });
-    // At most three times the line: past that it is a new line, not a fuller one.
-    const target = Math.max(text.length + 1, Math.min(text.length * 3, Math.floor(Number(targetChars) || text.length * 1.5)));
-    const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(0, 3) : [];
-    const { line, reason, flagged } = await lengthenLine(
-      { text, sourceText: typeof sourceText === 'string' ? sourceText : '', language, targetChars: target, avoid: earlier },
-      { apiKey: req.get('x-gemini-key') || undefined }
-    );
-    res.json({ line, reason, flagged });
-  })
-);
+    const { text, sourceText, language, targetChars, avoid, count, context } = req.body || {};
+    const longer = direction === 'longer';
+    if (typeof text !== 'string' || !text.trim()) {
+      throw new ApiError(longer ? 'There is no line to make fuller.' : 'There is no line to shorten.', { status: 400, code: 'no_text' });
+    }
+    const target = longer
+      ? // At most three times the line: past that it is a new line, not a fuller one.
+        Math.max(text.length + 1, Math.min(text.length * 3, Math.floor(Number(targetChars) || text.length * 1.5)))
+      : Math.max(1, Math.min(text.length, Math.floor(Number(targetChars) || text.length * 0.8)));
+    const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(-MAX_AVOID_LINES) : [];
+    const request = {
+      text,
+      sourceText: typeof sourceText === 'string' ? sourceText : '',
+      language,
+      targetChars: target,
+      avoid: earlier,
+      direction,
+      context: lineContextOf(context),
+    };
+    const options = { apiKey: req.get('x-gemini-key') || undefined };
+    const wanted = Math.max(1, Math.min(MAX_OPTIONS, Math.floor(Number(count)) || 1));
+    if (wanted > 1) {
+      const result = await suggestLines({ ...request, count: wanted }, options);
+      const first = result.options[0];
+      res.json({
+        options: result.options,
+        line: first && !first.issues ? first.line : null,
+        reason: result.options.length === 0 ? 'unusable' : first.issues ? 'meaning' : null,
+        flagged: first?.issues ? first : null,
+      });
+      return;
+    }
+    const { line, reason, flagged } = await suggestLine(request, options);
+    res.json({ options: line ? [{ line }] : flagged ? [flagged] : [], line, reason, flagged });
+  });
+
+/**
+ * POST /api/sync/shorten — shorter wordings for one line, from the text
+ * model. Body: `{ text, sourceText, language, targetChars, avoid, count,
+ * context }`: `avoid` earlier suggestions to differ from, `count` how many
+ * wordings (1 to 3), `context` `{ before, after, speaker }`, the lines around
+ * it for the model to read it in. Replies as rewordRoute says. Every wording
+ * without `issues` has passed the meaning check (syncRewrite.js). The script
+ * is never changed here.
+ */
+syncRouter.post('/sync/shorten', rewordRoute('shorter'));
+
+/**
+ * POST /api/sync/lengthen — fuller wordings for one line that ends well
+ * before the original speaker does. Body and reply as for /sync/shorten;
+ * `targetChars` is the length to aim for, more than the line has now. The
+ * script is never changed here.
+ */
+syncRouter.post('/sync/lengthen', rewordRoute('longer'));
 
 /**
  * PUT /api/sync/edit/banks/:bankId — the bank of a sync again, as the app saved
