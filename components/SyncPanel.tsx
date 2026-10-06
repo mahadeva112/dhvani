@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, Scissors, X } from 'lucide-react';
+import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, Scissors, TriangleAlert, X } from 'lucide-react';
 import {
   LineSuggestion,
   SYNC_JOIN_PRESETS,
@@ -94,6 +94,30 @@ export const syncFraction = (progress: SyncProgress | null) =>
     : progress.step === 2 && progress.unitsToVoice > 0
       ? (1 + progress.unitsVoiced / progress.unitsToVoice) / SYNC_STEPS.length
       : (progress.step - 1) / SYNC_STEPS.length;
+
+/**
+ * The sync's result in one badge: green only when every line is in sync,
+ * amber with what is off otherwise, so "Synced" never reads as "in sync".
+ */
+export const SyncVerdictBadge: React.FC<{ report: SyncReport }> = ({ report }) => {
+  const { inSync, lines, exceeded, maxError } = report.summary;
+  if (inSync === lines) {
+    return (
+      <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
+        <Check className="w-3 h-3" /> Synced · all {lines} lines in sync
+      </span>
+    );
+  }
+  const off = [
+    exceeded > 0 ? `${exceeded} line${exceeded === 1 ? '' : 's'} too long` : `${inSync} of ${lines} in sync`,
+    `worst line off by ${maxError.toFixed(1)} s`,
+  ];
+  return (
+    <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
+      <TriangleAlert className="w-3 h-3" /> Synced · {off.join(' · ')}
+    </span>
+  );
+};
 
 /** Why a line is worth a listen, or null when it landed cleanly. */
 const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null => {
@@ -433,11 +457,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
       <div>
         <div className="flex flex-wrap items-center gap-2.5">
           <h2 className="text-[15px] font-semibold text-slate-100">Sync to the original</h2>
-          {report && !isSyncing && (
-            <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
-              <Check className="w-3 h-3" /> Synced
-            </span>
-          )}
+          {report && !isSyncing && <SyncVerdictBadge report={report} />}
           {isSyncing && (
             <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">
               {isCancelling ? 'Cancelling…' : 'In progress'}

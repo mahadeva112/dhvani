@@ -9,6 +9,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Each track has its own level in the Final dub and Sync players.** Beside each lane, and beside
+  the lanes in Edit timing, a strip gives the original and the dub a **M**ute, a **S**olo, a fader
+  from −∞ to +6 dB (double-click for 0 dB) and a level meter. Solo replaces the Original / Dub / Both
+  buttons: solo one track to hear only it, press again to hear both. The levels are for listening
+  only; the dub files, renders and downloads are unchanged. Levels, mutes and the solo are
+  remembered across restarts.
 - **Review shows each line's length and lets you size the text.** Every Review view (Cues, Cards,
   Spotlight, Script) now shows the character count under both the original line and the
   translation, and the translation's count updates as you type. Document shows each column's total.
@@ -231,6 +237,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **The players no longer make an out-of-sync dub look synced.** The Final dub and Sync players
+  drew each lane over its own length, so a 0:59 dub and a 0:47 original both filled the width and an
+  11 s drift looked like none. Both lanes now share one timeline as long as the longer track: the
+  shorter one ends early with "Original ends 0:47", and the links between the lanes slant as far
+  as each line moved. In Both, the clock's total is the longer track.
+- **"Synced" no longer reads as "in sync".** The Sync badge is green only when every line is in
+  sync; otherwise it is amber and says what is off, such as "Synced · 9 lines too long · worst line
+  off by 11.4 s". The Sync step's player shows the same badge.
 - **Sync no longer cuts off the end of a line, or clicks there.** A line the voice stopped
   mid-word, still loud, used to go into the dub as it was, ending on an audible click. Sync now
   spots such a take and voices the line again with another seed, up to two more times, and uses the

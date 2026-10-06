@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback, useMemo, startTransiti
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, ThemeMode, HeaderQuota } from './components/ProHeader';
 import { ExpressDubWizard, stepForJob } from './components/ExpressDubWizard';
+import { useTrackMixer } from './components/useTrackMixer';
 import { syncFraction } from './components/SyncPanel';
 import { VoiceSettingsModal } from './components/VoiceSettingsModal';
 import { BatchQueueModal } from './components/BatchQueueModal';
@@ -170,7 +171,22 @@ export default function App() {
   // Audio Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<number>(0);
-  const [trackMode, setTrackMode] = useState<AudioTrackMode>('synth');
+  // What the player plays (and so which track is soloed), kept across restarts.
+  const [trackMode, setTrackMode] = useState<AudioTrackMode>(() => {
+    try {
+      const saved = localStorage.getItem('dhvani_track_mode');
+      return saved === 'source' || saved === 'both' ? saved : 'synth';
+    } catch {
+      return 'synth';
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('dhvani_track_mode', trackMode);
+    } catch {
+      /* Storage off: the mode lasts until the app closes. */
+    }
+  }, [trackMode]);
 
   // Modals & Settings
   const [isVoiceSettingsOpen, setIsVoiceSettingsOpen] = useState<boolean>(false);
@@ -1127,6 +1143,9 @@ export default function App() {
   const synthBufferField = playsSynced ? 'syncedAudioBuffer' : 'synthAudioBuffer';
   // Until there is a dub the original is the only thing to hear, whatever mode was last picked.
   const playMode: AudioTrackMode = synthAudioUrl ? trackMode : 'source';
+  // The listening faders of Final dub and Sync; every other step hears both tracks at full level.
+  const mixerElements = useMemo(() => ({ source: sourceAudioRef, synth: synthAudioRef }), []);
+  const mixer = useTrackMixer(mixerElements, activeStep === 3 || activeStep === 4);
 
   // Sync playback rate to audio elements, including ones mounted after the rate was set
   const playbackRateRef = useRef(playbackRate);
@@ -1239,6 +1258,7 @@ export default function App() {
       if (els.length === 0) return;
       seekAll(at);
       setPlaying(true);
+      mixer.prepare(els);
       els.forEach((el) => {
         el.playbackRate = playbackRateRef.current;
         el.play().catch((e) => {
@@ -1249,7 +1269,7 @@ export default function App() {
         });
       });
     },
-    [elementsFor, seekAll, setPlaying, pauseAll]
+    [elementsFor, seekAll, setPlaying, pauseAll, mixer.prepare]
   );
 
   const syncPlayback = useCallback(
@@ -2898,6 +2918,9 @@ export default function App() {
           onSeek={handleSeek}
           trackMode={playMode}
           onTrackModeChange={changeTrackMode}
+          mixerLevels={mixer.levels}
+          onMixerLevelChange={mixer.setLevel}
+          getTrackPeak={mixer.peakOf}
           getLiveTime={getLiveTime}
           emotionEnhance={emotionEnhance}
           onEmotionEnhanceChange={handleEmotionEnhanceChange}

@@ -84,6 +84,8 @@ import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip, MiniWaveform } from './MediaStrip';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
+import { TrackStrip } from './TrackStrip';
+import type { MixerLevels, MixerTrack, TrackLevel } from './useTrackMixer';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { PhoneticSmartTextarea } from './PhoneticSmartTextarea';
 import { SrtExportModal } from './SrtExportModal';
@@ -91,7 +93,7 @@ import { CustomScriptAlignModal } from './CustomScriptAlignModal';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
-import { SyncResultsPanel, SyncSettingsPanel, useSyncOptions } from './SyncPanel';
+import { SyncResultsPanel, SyncSettingsPanel, SyncVerdictBadge, useSyncOptions } from './SyncPanel';
 import {
   distributeLineText,
   measureSpeechSeconds,
@@ -367,6 +369,11 @@ interface ExpressDubWizardProps {
   trackMode: 'source' | 'synth' | 'both';
   /** Switches what is heard as one action; see TrackSwitchOptions. */
   onTrackModeChange: (mode: 'source' | 'synth' | 'both', options?: TrackSwitchOptions) => void;
+  /** The listening level of each track in the Final dub and Sync players; solo is `trackMode`. */
+  mixerLevels?: MixerLevels;
+  onMixerLevelChange?: (track: MixerTrack, patch: Partial<TrackLevel>) => void;
+  /** A track's peak level right now, 0 to 1, for its meter. */
+  getTrackPeak?: (track: MixerTrack) => number;
   playbackRate?: number;
   onPlaybackRateChange?: (rate: number) => void;
   onResetSession?: () => void;
@@ -473,6 +480,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onSeek,
   trackMode,
   onTrackModeChange,
+  mixerLevels,
+  onMixerLevelChange,
+  getTrackPeak,
   playbackRate = 1.0,
   onPlaybackRateChange,
   onResetSession,
@@ -992,6 +1002,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     });
     return { cueColors, sourceSpans, dubSpans, lineStarts };
   }, [segments, dubCues, cueColor, cueLines]);
+  /** Each track's meter reading, kept between renders so the meters don't restart. */
+  const trackPeaks = useMemo(
+    () => ({
+      source: getTrackPeak ? () => getTrackPeak('source') : undefined,
+      synth: getTrackPeak ? () => getTrackPeak('synth') : undefined,
+    }),
+    [getTrackPeak]
+  );
   /**
    * Saves a line's trimmed length on its first cue, or clears it with null.
    * The line's work starts over, so its direction is decided from the new length.
@@ -1325,65 +1343,108 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     };
   };
 
+  /** A lane's header: the track's name, and its mute, solo, fader and meter when the player has a mixer. */
+  const renderTrackHead = (track: MixerTrack, label: string, dot: string, badge?: React.ReactNode) => {
+    if (!mixerLevels || !onMixerLevelChange || !hasDubAudio) {
+      return (
+        <span className="flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
+          <span className={`w-2 h-2 rounded-sm shrink-0 ${dot}`} />
+          {label}
+          {badge}
+        </span>
+      );
+    }
+    const level = mixerLevels[track];
+    const soloed = trackMode === track;
+    return (
+      <TrackStrip
+        label={label}
+        dot={dot}
+        level={level}
+        soloed={soloed}
+        heard={!level.muted && (trackMode === 'both' || soloed)}
+        onLevelChange={(patch) => onMixerLevelChange(track, patch)}
+        // Two tracks: soloing one plays only it, and a second press plays both again.
+        onSolo={() => switchTrack(soloed ? 'both' : track)}
+        getPeak={trackPeaks[track]}
+        isPlaying={isPlaying}
+        badge={badge}
+      />
+    );
+  };
+
   /*
    * The original and a dub, one lane each, as the Final dub step and the Sync
-   * step show them; click a lane to jump there. The lane not being heard is
-   * dimmed, and a click on it starts it at that point.
+   * step show them, on one shared timeline of `span` seconds: a line that
+   * starts later in the dub is drawn later, and the shorter track ends early.
+   * Click a lane to jump there. A lane the track mode leaves out is dimmed,
+   * and a click on it starts it at that point.
    */
-  const renderTrackLanes = (lanes: TrackLane[], rulerLength: number, links?: LaneLink[]) => (
-    <div className="grid grid-cols-1 sm:grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
+  const renderTrackLanes = (lanes: TrackLane[], span: number, links?: LaneLink[]) => (
+    <div className={`grid grid-cols-1 ${mixerLevels && hasDubAudio ? 'sm:grid-cols-[12.5rem_minmax(0,1fr)]' : 'sm:grid-cols-[5rem_minmax(0,1fr)]'} gap-x-3 gap-y-1.5 items-center`}>
       {lanes.map((lane, laneIndex) => {
-        const muted = lane.track === 'source' ? trackMode === 'synth' : trackMode === 'source';
+        const excluded = lane.track === 'source' ? trackMode === 'synth' : trackMode === 'source';
+        const silent = excluded || Boolean(mixerLevels?.[lane.track].muted);
+        const share = span > 0 ? Math.min(1, lane.length / span) : 1;
         return (
           <React.Fragment key={lane.label}>
-            <span className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 truncate">
-              <span className={`w-2 h-2 rounded-sm shrink-0 ${lane.dot}`} />
-              {lane.label}
-            </span>
+            <div className={mixerLevels && hasDubAudio ? 'flex' : 'hidden sm:flex'}>{renderTrackHead(lane.track, lane.label, lane.dot)}</div>
             <div
               role="slider"
               tabIndex={0}
               aria-label={`${lane.label} position`}
               aria-valuemin={0}
               aria-valuemax={Math.round(lane.length)}
-              aria-valuenow={Math.round(muted ? 0 : currentTime)}
+              aria-valuenow={Math.round(excluded ? 0 : currentTime)}
               onClick={(e) => {
-                if (lane.length <= 0) return;
+                if (lane.length <= 0 || span <= 0) return;
                 const r = e.currentTarget.getBoundingClientRect();
-                const t = ((e.clientX - r.left) / r.width) * lane.length;
-                // A time on this lane's own track: a muted lane starts being heard there.
-                if (muted) switchTrack(lane.track, { seek: t });
+                const t = Math.min(lane.length, ((e.clientX - r.left) / r.width) * span);
+                // A time on this lane's own track: a lane left out starts being heard there.
+                if (excluded) switchTrack(lane.track, { seek: t });
                 else onSeek(t);
               }}
               onKeyDown={(e) => {
-                if (muted) return;
+                if (excluded) return;
                 if (e.key === 'ArrowRight') onSeek(Math.min(lane.length, currentTime + 5));
                 if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
               }}
-              className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer transition-opacity ${muted ? 'opacity-40' : ''}`}
+              className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer transition-opacity ${silent ? 'opacity-40' : ''}`}
             >
-              {lane.spans &&
-                lane.length > 0 &&
-                lane.spans.map((span, n) => (
-                  <span
-                    key={n}
-                    aria-hidden="true"
-                    className="absolute top-1.5 bottom-1.5 rounded pointer-events-none"
-                    style={{
-                      left: `${(span.from / lane.length) * 100}%`,
-                      width: `${Math.max(0.2, ((span.to - span.from) / lane.length) * 100)}%`,
-                      background: withAlpha(span.color, 0.12),
-                    }}
-                  />
-                ))}
-              {lane.buffer ? (
-                <MiniWaveform buffer={lane.buffer} className={`relative ${lane.color}`} spans={lane.spans} />
-              ) : (
-                <span className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-500">Waveform not available</span>
+              {/* The track itself, as wide as its share of the timeline */}
+              <div className="absolute inset-y-0 left-0" style={{ width: `${share * 100}%` }}>
+                {lane.spans &&
+                  lane.length > 0 &&
+                  lane.spans.map((s, n) => (
+                    <span
+                      key={n}
+                      aria-hidden="true"
+                      className="absolute top-1.5 bottom-1.5 rounded pointer-events-none"
+                      style={{
+                        left: `${(s.from / lane.length) * 100}%`,
+                        width: `${Math.max(0.2, ((s.to - s.from) / lane.length) * 100)}%`,
+                        background: withAlpha(s.color, 0.12),
+                      }}
+                    />
+                  ))}
+                {lane.buffer ? (
+                  <MiniWaveform buffer={lane.buffer} className={`relative ${lane.color}`} spans={lane.spans} />
+                ) : (
+                  <span className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-500">Waveform not available</span>
+                )}
+              </div>
+              {share < 0.995 && lane.length > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute top-1.5 bottom-1.5 right-1.5 rounded border border-dashed border-slate-700 flex items-center justify-center overflow-hidden whitespace-nowrap text-[10.5px] text-slate-500 pointer-events-none"
+                  style={{ left: `calc(${share * 100}% + 4px)` }}
+                >
+                  {lane.track === 'source' ? 'Original' : 'Dub'} ends {formatClock(lane.length)}
+                </span>
               )}
-              {/* Only on lanes being heard, at the heard position over that lane's own length. */}
-              {!muted && lane.length > 0 && (
-                <LanePlayhead currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} totalLength={lane.length} />
+              {/* Only on lanes being heard, at the heard position on the shared timeline. */}
+              {!excluded && span > 0 && (
+                <LanePlayhead currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} totalLength={span} />
               )}
             </div>
             {/* Each line's start on this lane joined to its start on the next */}
@@ -1410,7 +1471,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       })}
       <div className="sm:col-start-2 flex justify-between font-mono text-[10px] text-slate-500 tabular-nums">
         {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-          <span key={f}>{formatClock(rulerLength * f)}</span>
+          <span key={f}>{formatClock(span * f)}</span>
         ))}
       </div>
     </div>
@@ -2971,16 +3032,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const hasDub = Boolean(activeJob.synthesizedAudioUrl);
         const sourceBuffer = activeJob.audioBuffer;
         const totalLength = duration || dubBuffer?.duration || sourceBuffer?.duration || 0;
-        // Each lane is drawn on its own track's length; the two differ until the dub is synced.
+        // Both lanes share one timeline, as long as the longer track, so a dub that runs long shows it.
         const sourceLength = duration || sourceBuffer?.duration || 0;
         const dubLength = dubBuffer?.duration || 0;
+        const laneSpan = Math.max(sourceLength, dubLength);
         const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
         const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
         const openIssues = openFindings.length;
         const { cueColors, sourceSpans, dubSpans, lineStarts } = lineLanes;
         const laneLinks =
-          sourceLength > 0 && dubLength > 0
-            ? lineStarts.map((start) => ({ from: start.source / sourceLength, to: start.dub / dubLength, color: start.color }))
+          laneSpan > 0 && dubLength > 0
+            ? lineStarts.map((start) => ({ from: start.source / laneSpan, to: start.dub / laneSpan, color: start.color }))
             : undefined;
 
         return (
@@ -3123,26 +3185,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <span className="text-xs text-slate-400">
                     {[voiceShortName, ttsModelName].filter(Boolean).join(' · ')}
                   </span>
-                  <div role="group" aria-label="Listen to" className="ml-auto flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
-                    {[
-                      { id: 'source' as const, label: 'Original', dot: 'bg-cyan-400' },
-                      { id: 'synth' as const, label: 'Dub', dot: 'bg-indigo-400' },
-                      { id: 'both' as const, label: 'Both', dot: '' },
-                    ].map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        aria-pressed={trackMode === m.id}
-                        onClick={() => switchTrack(m.id)}
-                        className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                          trackMode === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {m.dot && <span className={`w-2 h-2 rounded-sm ${m.dot}`} />}
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
+                  <span className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <Headphones className="w-3.5 h-3.5" /> Levels are for listening; the dub file is unchanged
+                  </span>
                 </div>
 
                 {renderTrackLanes(
@@ -3150,7 +3195,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     { label: 'Original', track: 'source', length: sourceLength, buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-slate-400/30', spans: sourceSpans },
                     { label: `${targetLanguage} dub`, track: 'synth', length: dubLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-slate-400/30', spans: dubSpans },
                   ],
-                  heardDuration,
+                  laneSpan || heardDuration,
                   laneLinks
                 )}
 
@@ -3191,7 +3236,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </button>
                   <span className="font-mono text-sm text-slate-100 tabular-nums">
                     <LiveClock currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} />{' '}
-                    <span className="text-slate-500">/ {formatClock(heardDuration || totalLength)}</span>
+                    <span className="text-slate-500">/ {formatClock((trackMode === 'both' && laneSpan) || heardDuration || totalLength)}</span>
                   </span>
 
                   <div
@@ -3888,6 +3933,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const totalLength = duration || dubBuffer?.duration || activeJob.audioBuffer?.duration || 0;
         const sourceLength = duration || activeJob.audioBuffer?.duration || 0;
         const syncedLength = dubBuffer?.duration || sourceLength;
+        const laneSpan = Math.max(sourceLength, syncedLength);
         const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
         const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
         const blockedReason = !onSyncDub
@@ -3910,11 +3956,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               {report && canEditTiming && !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport) && (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Player</span>
+                  <SyncVerdictBadge report={report} />
                   {hasEditedTiming && (
                     <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
                       {editedLineCount} line{editedLineCount === 1 ? '' : 's'} edited by hand
                     </span>
                   )}
+                  <span className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-500">
+                    <Headphones className="w-3.5 h-3.5" /> Levels are for listening; the dub file is unchanged
+                  </span>
                   <button
                     type="button"
                     onClick={() => setEditingTiming(true)}
@@ -3947,6 +3997,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     if (!isPlaying) onTogglePlay();
                   }}
                   onClose={() => setEditingTiming(false)}
+                  renderTrackHead={mixerLevels ? renderTrackHead : undefined}
                 />
               )}
               {report &&
@@ -3956,10 +4007,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     { label: 'Original', track: 'source', length: sourceLength, buffer: activeJob.audioBuffer, dot: 'bg-cyan-400', color: 'text-slate-400/30', spans: lineLanes.sourceSpans },
                     { label: 'Synced', track: 'synth', length: syncedLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-slate-400/30', spans: lineLanes.dubSpans },
                   ],
-                  heardDuration || totalLength,
-                  // Each lane is drawn on its own track's length, so the links show where a line moved to.
-                  sourceLength > 0 && syncedLength > 0
-                    ? lineLanes.lineStarts.map((start) => ({ from: start.source / sourceLength, to: start.dub / syncedLength, color: start.color }))
+                  laneSpan || heardDuration || totalLength,
+                  // One timeline for both lanes, so a link's slant is how far the line moved.
+                  laneSpan > 0
+                    ? lineLanes.lineStarts.map((start) => ({ from: start.source / laneSpan, to: start.dub / laneSpan, color: start.color }))
                     : undefined
                 )}
               <div className="flex flex-wrap items-center gap-3">
@@ -3992,31 +4043,34 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </button>
               <span className="font-mono text-sm text-slate-100 tabular-nums">
                 <LiveClock currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} />{' '}
-                <span className="text-slate-500">/ {formatClock(heardDuration || totalLength)}</span>
+                <span className="text-slate-500">/ {formatClock((trackMode === 'both' && laneSpan) || heardDuration || totalLength)}</span>
               </span>
               <span aria-live="polite" className="flex-1 min-w-[12rem] truncate text-[13px] text-slate-300">
                 {activeCue ? getTargetText(activeCue) : <span className="text-xs text-slate-500">Press play, or Listen on a line below.</span>}
               </span>
-              <div role="group" aria-label="Listen to" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
-                {[
-                  { id: 'source' as const, label: 'Original', dot: 'bg-cyan-400' },
-                  { id: 'synth' as const, label: 'Dub', dot: 'bg-indigo-400' },
-                  { id: 'both' as const, label: 'Both', dot: '' },
-                ].map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    aria-pressed={trackMode === m.id}
-                    onClick={() => switchTrack(m.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                      trackMode === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {m.dot && <span className={`w-2 h-2 rounded-sm ${m.dot}`} />}
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+              {!report && (
+                // Before the first sync there are no lanes, so no track strips: pick the track here.
+                <div role="group" aria-label="Listen to" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+                  {[
+                    { id: 'source' as const, label: 'Original', dot: 'bg-cyan-400' },
+                    { id: 'synth' as const, label: 'Dub', dot: 'bg-indigo-400' },
+                    { id: 'both' as const, label: 'Both', dot: '' },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      aria-pressed={trackMode === m.id}
+                      onClick={() => switchTrack(m.id)}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                        trackMode === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {m.dot && <span className={`w-2 h-2 rounded-sm ${m.dot}`} />}
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <select
                 value={playbackRate}
                 onChange={(e) => onPlaybackRateChange(Number(e.target.value))}

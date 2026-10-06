@@ -387,6 +387,8 @@ export const SyncEditTimeline: React.FC<{
   onSeek: (time: number) => void;
   onPlayFrom: (time: number) => void;
   onClose: () => void;
+  /** A lane's header with its mute, solo, fader and meter; without it the lanes show their names. */
+  renderTrackHead?: (track: 'source' | 'synth', label: string, dot: string, badge?: React.ReactNode) => React.ReactNode;
 }> = ({
   bank,
   bankBlob,
@@ -404,6 +406,7 @@ export const SyncEditTimeline: React.FC<{
   onSeek,
   onPlayFrom,
   onClose,
+  renderTrackHead,
 }) => {
   const rate = bank.sampleRate;
   const committed = edits ?? {};
@@ -1116,16 +1119,26 @@ export const SyncEditTimeline: React.FC<{
       />
 
       {/* The lanes */}
-      <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] rounded-xl border border-slate-800 overflow-hidden bg-slate-900/50">
+      <div className={`grid ${renderTrackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-slate-800 overflow-hidden bg-slate-900/50`}>
         <div className="flex flex-col text-[11px] text-slate-400 border-r border-slate-800">
           <div className="h-6 px-2 flex items-center font-mono text-[11px] font-semibold text-slate-200 tabular-nums border-b border-slate-800">{formatTime(currentTime)}</div>
-          <div className="h-14 px-2 flex items-center gap-1.5 border-b border-slate-800">
-            <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original <Lock className="w-3 h-3 text-slate-600 ml-auto" aria-label="Locked" />
-          </div>
+          {renderTrackHead ? (
+            <div className="h-14 px-2 flex items-center border-b border-slate-800">
+              {renderTrackHead('source', 'Original', 'bg-cyan-400', <Lock className="w-3 h-3 text-slate-600" aria-label="Locked" />)}
+            </div>
+          ) : (
+            <div className="h-14 px-2 flex items-center gap-1.5 border-b border-slate-800">
+              <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original <Lock className="w-3 h-3 text-slate-600 ml-auto" aria-label="Locked" />
+            </div>
+          )}
           <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-slate-800">Sync links</div>
-          <div className="h-[4.5rem] px-2 flex items-center gap-1.5 border-b border-slate-800">
-            <span className="w-2 h-2 rounded-sm bg-indigo-400" /> <span className="truncate">{targetLanguage} dub</span>
-          </div>
+          {renderTrackHead ? (
+            <div className="h-[4.5rem] px-2 flex items-center border-b border-slate-800">{renderTrackHead('synth', `${targetLanguage} dub`, 'bg-indigo-400')}</div>
+          ) : (
+            <div className="h-[4.5rem] px-2 flex items-center gap-1.5 border-b border-slate-800">
+              <span className="w-2 h-2 rounded-sm bg-indigo-400" /> <span className="truncate">{targetLanguage} dub</span>
+            </div>
+          )}
           <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-slate-800">Script</div>
           <div className="h-10 px-2 flex items-center text-[10.5px] text-slate-500">Start drift</div>
         </div>
