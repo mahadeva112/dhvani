@@ -2893,87 +2893,39 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-                {/* Pacing health */}
-                <div className="px-4 sm:px-5 py-4 flex flex-col gap-2.5">
-                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Pacing health</span>
-                  <div className="flex h-2 rounded-full overflow-hidden gap-0.5 bg-slate-800">
-                    {segments.length > 0 && (
+                {/* Pacing: one line and a way to the cues that need work */}
+                <div className="px-4 sm:px-5 py-4 flex flex-col gap-1.5">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Pacing</span>
+                  <p className="text-[13px] text-slate-200">
+                    {pacingCounts.fast > 0 ? (
                       <>
-                        <span className="bg-emerald-400" style={{ width: `${(pacingCounts.natural / segments.length) * 100}%` }} />
-                        <span className="bg-amber-400" style={{ width: `${(pacingCounts.tight / segments.length) * 100}%` }} />
-                        <span className="bg-rose-400" style={{ width: `${(pacingCounts.fast / segments.length) * 100}%` }} />
+                        <span className="font-semibold text-slate-100 tabular-nums">
+                          {pacingCounts.fast} of {segments.length}
+                        </span>{' '}
+                        {pacingCounts.fast === 1 ? 'cue is' : 'cues are'} too fast
                       </>
+                    ) : pacingCounts.tight > 0 ? (
+                      'No cue is too fast'
+                    ) : (
+                      'Every cue fits its slot'
                     )}
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { label: 'Natural', value: pacingCounts.natural, dot: 'bg-emerald-400', filter: 'all' as const },
-                      { label: 'Tight', value: pacingCounts.tight, dot: 'bg-amber-400', filter: 'tight' as const },
-                      { label: 'Too fast', value: pacingCounts.fast, dot: 'bg-rose-400', filter: 'risk' as const },
-                    ].map((s) => (
-                      <button
-                        key={s.label}
-                        type="button"
-                        onClick={() => {
-                          setReviewMode(reviewMode === 'qa' ? 'table' : reviewMode);
-                          setPacingFilter(s.filter);
-                        }}
-                        className="text-left rounded-lg -m-1 p-1 hover:bg-slate-800/60 cursor-pointer"
-                        title={s.filter === 'all' ? 'Show all cues' : `Show ${s.label.toLowerCase()} cues`}
-                      >
-                        <span className="block text-lg font-semibold text-slate-100 tabular-nums leading-tight">{s.value}</span>
-                        <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                          <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-                          {s.label}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Needs attention */}
-                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Needs attention</span>
-                    {openFindings.length > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => setReviewMode('qa')}
-                        className="text-[11px] text-indigo-400 hover:text-indigo-300 cursor-pointer"
-                      >
-                        All {openFindings.length} →
-                      </button>
-                    )}
-                  </div>
-                  {openFindings.length === 0 ? (
-                    <p className="flex items-center gap-2 text-xs text-emerald-300">
-                      <CheckCircle2 className="w-4 h-4" /> No QA issues found
-                    </p>
-                  ) : (
-                    openFindings.slice(0, 3).map((f) => (
-                      <button
-                        key={f.id}
-                        type="button"
-                        onClick={() => {
-                          const seg = segments.find((s) => s.id === f.segmentId);
-                          if (seg) handleJumpToCue(seg);
-                        }}
-                        className="w-full flex items-start gap-2.5 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left transition-colors cursor-pointer"
-                      >
-                        <span
-                          className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ${
-                            f.severity === 'block' ? 'bg-rose-500/15 text-rose-300' : 'bg-amber-500/15 text-amber-300'
-                          }`}
-                        >
-                          <AlertTriangle className="w-3 h-3" />
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[12.5px] font-semibold text-slate-100 truncate">{f.title}</span>
-                          <span className="block text-[11.5px] text-slate-400 line-clamp-2">{f.detail}</span>
-                        </span>
-                        <span className="font-mono text-[10.5px] text-slate-500 shrink-0">#{f.cueNumber}</span>
-                      </button>
-                    ))
+                  </p>
+                  <p className="text-[11.5px] text-slate-500 tabular-nums">
+                    {pacingCounts.tight} tight · {pacingCounts.natural} natural
+                  </p>
+                  {(pacingCounts.fast > 0 || pacingCounts.tight > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReviewMode(reviewMode === 'qa' ? 'table' : reviewMode);
+                        setPacingFilter(pacingCounts.fast > 0 ? 'risk' : 'tight');
+                      }}
+                      className="mt-1.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer transition-colors"
+                    >
+                      Show {pacingCounts.fast > 0 ? pacingCounts.fast : pacingCounts.tight}{' '}
+                      {pacingCounts.fast > 0 ? 'too fast' : 'tight'} {(pacingCounts.fast || pacingCounts.tight) === 1 ? 'cue' : 'cues'}
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
                   )}
                 </div>
 

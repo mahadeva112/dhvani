@@ -685,7 +685,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             )}
           </div>
 
-          {onTrackModeChange && (
+          {/* Until there's a dub the original is the only track, so there's nothing to pick. */}
+          {onTrackModeChange && hasSynthesizedAudio && (
             <div role="group" aria-label="Listen to" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950/60 border border-slate-800">
               {([
                 ['source', 'Original', 'bg-cyan-400'],
@@ -696,9 +697,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                   key={mode}
                   type="button"
                   aria-pressed={trackMode === mode}
-                  disabled={mode !== 'source' && !hasSynthesizedAudio}
                   onClick={() => onTrackModeChange(mode)}
-                  title={mode !== 'source' && !hasSynthesizedAudio ? 'Available once there is a dub' : undefined}
                   className={segBtn(trackMode === mode)}
                 >
                   {dot && <span className={`w-[7px] h-[7px] rounded-sm ${dot}`} />}

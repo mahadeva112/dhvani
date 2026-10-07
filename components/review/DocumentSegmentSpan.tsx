@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react';
+import { usePhoneticSpan } from './usePhoneticSpan';
 
 /** How long typing has to pause before an edited sentence is saved. */
 const COMMIT_DELAY_MS = 400;
@@ -11,6 +12,8 @@ interface DocumentSegmentSpanProps {
   className?: string;
   placeholder?: string;
   title?: string;
+  /** Language to write Roman typing in, or null to type as is. */
+  phoneticLanguage?: string | null;
   /*
    * Handlers take the segment's id so the parent can pass the same functions
    * to every span, and a span only re-renders when its own text or look changes.
@@ -34,8 +37,18 @@ const caretOffset = (el: HTMLElement): number | null => {
   return before.toString().length;
 };
 
+/**
+ * Only the sentence being typed into is editable. The rest are plain text, so a
+ * drag can select across sentences to copy them, which an editable span would
+ * hold inside itself.
+ */
+const startEditing = (el: HTMLElement) => {
+  if (el.contentEditable !== 'plaintext-only') el.contentEditable = 'plaintext-only';
+};
+
 /** Focuses a sentence and puts the caret at its start or end. */
 export const placeCaret = (el: HTMLElement, at: 'start' | 'end') => {
+  startEditing(el);
   el.focus({ preventScroll: true });
   const range = document.createRange();
   range.selectNodeContents(el);
@@ -49,6 +62,9 @@ export const placeCaret = (el: HTMLElement, at: 'start' | 'end') => {
  * One segment's text as an inline span, so sentences flow on as prose while
  * each stays its own editable unit.
  *
+ * A click with no text selected opens the sentence for typing; a drag selects
+ * text to copy, across sentences.
+ *
  * The span is uncontrolled while it has focus: React writing textContent on
  * every keystroke would throw the caret to the start. The text from props is
  * applied whenever the span isn't being typed into, and typing is saved after
@@ -61,6 +77,7 @@ export const DocumentSegmentSpan = React.memo(function DocumentSegmentSpan({
   className = '',
   placeholder,
   title,
+  phoneticLanguage = null,
   onCommit,
   onNavigate,
   onFocusChange,
@@ -72,6 +89,7 @@ export const DocumentSegmentSpan = React.memo(function DocumentSegmentSpan({
   const dirty = useRef(false);
   const latest = useRef({ value, onCommit });
   latest.current = { value, onCommit };
+  const phonetic = usePhoneticSpan(ref, editable ? phoneticLanguage : null);
 
   /** Saves typed text; false when there was nothing to save. */
   const commit = () => {
@@ -117,7 +135,7 @@ export const DocumentSegmentSpan = React.memo(function DocumentSegmentSpan({
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLSpanElement>) => {
     const el = ref.current;
-    if (!el) return;
+    if (!el || phonetic.onKeyDown(e)) return;
     // A line break would split the document, so Enter moves on to the next sentence instead.
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -147,6 +165,21 @@ export const DocumentSegmentSpan = React.memo(function DocumentSegmentSpan({
     }
   };
 
+  // A click puts the caret where it landed; a drag that selected text is left alone.
+  const handleMouseUp = () => {
+    const el = ref.current;
+    const sel = window.getSelection();
+    if (!el || document.activeElement === el || !sel || sel.rangeCount === 0 || !sel.isCollapsed) return;
+    const range = sel.getRangeAt(0);
+    const at = el.contains(range.startContainer) ? range.cloneRange() : null;
+    startEditing(el);
+    el.focus({ preventScroll: true });
+    if (at) {
+      sel.removeAllRanges();
+      sel.addRange(at);
+    } else placeCaret(el, 'end');
+  };
+
   // Pasted text joins the sentence: its line breaks become spaces.
   const handlePaste = (e: React.ClipboardEvent<HTMLSpanElement>) => {
     e.preventDefault();
@@ -156,33 +189,40 @@ export const DocumentSegmentSpan = React.memo(function DocumentSegmentSpan({
   };
 
   return (
-    <span
-      ref={ref}
-      data-seg-id={String(segmentId)}
-      data-placeholder={placeholder}
-      contentEditable="plaintext-only"
-      spellCheck={false}
-      role="textbox"
-      aria-multiline={false}
-      aria-label={title}
-      title={title}
-      className={className}
-      onClick={onClick ? (e) => onClick(segmentId, e) : undefined}
-      onKeyDown={handleKeyDown}
-      onPaste={handlePaste}
-      onDrop={(e) => e.preventDefault()}
-      onInput={() => {
-        dirty.current = true;
-        if (timer.current) clearTimeout(timer.current);
-        timer.current = setTimeout(commit, COMMIT_DELAY_MS);
-      }}
-      onFocus={() => onFocusChange?.(segmentId, true)}
-      onBlur={() => {
-        // Unsaved typing wins; otherwise text that changed elsewhere while this had focus shows now.
-        const el = ref.current;
-        if (!commit() && el && el.textContent !== latest.current.value) el.textContent = latest.current.value;
-        onFocusChange?.(segmentId, false);
-      }}
-    />
+    <>
+      <span
+        ref={ref}
+        data-seg-id={String(segmentId)}
+        data-placeholder={placeholder}
+        contentEditable={false}
+        spellCheck={false}
+        role="textbox"
+        aria-multiline={false}
+        aria-label={title}
+        title={title}
+        className={className}
+        onClick={onClick ? (e) => onClick(segmentId, e) : undefined}
+        onMouseUp={handleMouseUp}
+        onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
+        onDrop={(e) => e.preventDefault()}
+        onInput={() => {
+          phonetic.onInput();
+          dirty.current = true;
+          if (timer.current) clearTimeout(timer.current);
+          timer.current = setTimeout(commit, COMMIT_DELAY_MS);
+        }}
+        onFocus={() => onFocusChange?.(segmentId, true)}
+        onBlur={() => {
+          // Unsaved typing wins; otherwise text that changed elsewhere while this had focus shows now.
+          const el = ref.current;
+          if (!commit() && el && el.textContent !== latest.current.value) el.textContent = latest.current.value;
+          if (el) el.contentEditable = 'false';
+          phonetic.onBlur();
+          onFocusChange?.(segmentId, false);
+        }}
+      />
+      {phonetic.strip}
+    </>
   );
 });

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Lock, PenLine } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Copy, Lock, PenLine } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import { DocumentSegmentSpan, placeCaret } from './DocumentSegmentSpan';
 
@@ -9,7 +9,8 @@ type PaceLevel = 'natural' | 'tight' | 'fast';
 
 interface DocumentSettings {
   markers: MarkerStyle;
-  pacing: boolean;
+  /** Roman typing turns into the dub language's script. */
+  phonetic: boolean;
   linkedScroll: boolean;
   followPlayback: boolean;
   speakerParagraphs: boolean;
@@ -18,7 +19,7 @@ interface DocumentSettings {
 const SETTINGS_KEY = 'dhvani_document_view';
 const DEFAULT_SETTINGS: DocumentSettings = {
   markers: 'dots',
-  pacing: true,
+  phonetic: true,
   linkedScroll: true,
   followPlayback: true,
   speakerParagraphs: false,
@@ -389,11 +390,6 @@ export function ContinuousDocumentView({
     const classes = ['doc-seg rounded-[3px] transition-colors outline-none [box-decoration-break:clone]'];
     classes.push(editable ? 'cursor-text text-slate-100' : 'cursor-pointer text-slate-300');
     if (seg.id === activeSegmentId) classes.push('doc-seg-active');
-    if (editable && settings.pacing) {
-      const level = getPaceLevel(seg);
-      if (level === 'fast') classes.push('underline decoration-wavy decoration-rose-400/80 underline-offset-[5px]');
-      else if (level === 'tight') classes.push('underline decoration-dotted decoration-amber-400/80 underline-offset-[5px]');
-    }
     if (isDimmed(seg)) classes.push('opacity-35');
     return classes.join(' ');
   };
@@ -415,6 +411,41 @@ export function ContinuousDocumentView({
         {settings.markers === 'numbers' ? number : '·'}
       </button>
     );
+  };
+
+  // Copies a whole column as plain text, one paragraph per speaker run when those are shown.
+  const [copied, setCopied] = useState<Pane | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+  }, []);
+  const copyColumn = async (p: Pane) => {
+    const text = paragraphs
+      .map((run) =>
+        run
+          .map((seg) => (p === 'target' ? getTargetText(seg) : getSourceText(seg)).trim())
+          .filter(Boolean)
+          .join(' ')
+      )
+      .filter(Boolean)
+      .join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Where the async clipboard is refused (an embedded browser, a page without focus), copy through a selection.
+      const area = document.createElement('textarea');
+      area.value = text;
+      area.setAttribute('readonly', '');
+      area.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand('copy');
+      area.remove();
+      if (!ok) return;
+    }
+    setCopied(p);
+    if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    copiedTimer.current = setTimeout(() => setCopied(null), 1500);
   };
 
   const renderColumn = (p: Pane) => {
@@ -441,9 +472,20 @@ export function ContinuousDocumentView({
               {characters.toLocaleString()} chars
             </span>
           </span>
-          <span className="flex items-center gap-1 text-slate-500">
-            {editable ? <PenLine className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-            {editable ? 'Click any sentence to edit' : 'Read only'}
+          <span className="flex items-center gap-3 text-slate-500">
+            <span className="hidden xl:flex items-center gap-1 whitespace-nowrap">
+              {editable ? <PenLine className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+              {editable ? 'Click any sentence to edit' : 'Read only'}
+            </span>
+            <button
+              type="button"
+              onClick={() => copyColumn(p)}
+              className="flex items-center gap-1 px-1.5 py-0.5 -my-0.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer transition-colors"
+              title={`Copy the whole ${editable ? 'dub script' : 'source'}. To copy part of it, select the text and press Ctrl+C.`}
+            >
+              {copied === p ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+              {copied === p ? 'Copied' : 'Copy'}
+            </button>
           </span>
         </div>
         <div lang={language || undefined} className="px-5 sm:px-7 pt-4 pb-16 max-w-[68ch] space-y-5">
@@ -466,6 +508,7 @@ export function ContinuousDocumentView({
                       className={spanClass(seg, editable)}
                       placeholder={editable ? `Cue ${(indexById.get(String(seg.id)) ?? 0) + 1} is empty` : undefined}
                       title={editable ? `Cue ${(indexById.get(String(seg.id)) ?? 0) + 1}, ${targetLanguage}` : undefined}
+                      phoneticLanguage={editable && settings.phonetic ? targetLanguage : null}
                       onCommit={editable ? handleCommit : undefined}
                       onNavigate={editable ? handleNavigate : undefined}
                       onFocusChange={editable ? handleFocusChange : undefined}
@@ -481,8 +524,8 @@ export function ContinuousDocumentView({
     );
   };
 
-  const toggles: { key: 'pacing' | 'linkedScroll' | 'followPlayback' | 'speakerParagraphs'; label: string }[] = [
-    { key: 'pacing', label: 'Pacing' },
+  const toggles: { key: 'phonetic' | 'linkedScroll' | 'followPlayback' | 'speakerParagraphs'; label: string; title?: string }[] = [
+    { key: 'phonetic', label: 'Phonetic typing', title: `Type Roman letters and get ${targetLanguage || 'the dub language'} as you go` },
     { key: 'linkedScroll', label: 'Linked scroll' },
     { key: 'followPlayback', label: 'Follow playback' },
     { key: 'speakerParagraphs', label: 'Paragraph per speaker' },
@@ -518,8 +561,8 @@ export function ContinuousDocumentView({
             ))}
           </div>
         </div>
-        {toggles.map(({ key, label }) => (
-          <label key={key} className="flex items-center gap-1.5 cursor-pointer hover:text-slate-200">
+        {toggles.map(({ key, label, title }) => (
+          <label key={key} title={title} className="flex items-center gap-1.5 cursor-pointer hover:text-slate-200">
             <input
               type="checkbox"
               checked={settings[key]}
