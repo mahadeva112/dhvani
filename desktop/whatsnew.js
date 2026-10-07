@@ -5,6 +5,10 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.22',
+    changes: ['Match the original pace is gone from Sync settings: Eleven v3 and v4 pace themselves, so it never changed a line.'],
+  },
+  {
     version: '1.3.21',
     changes: [
       'The status pill now reads Online; click it to see what ElevenLabs, Cartesia and your LLM gateway have left.',
