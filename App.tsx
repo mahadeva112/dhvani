@@ -3091,6 +3091,7 @@ export default function App() {
           onDubMatchLoudnessChange={handleDubMatchLoudnessChange}
           playbackRate={playbackRate}
           onPlaybackRateChange={setPlaybackRate}
+          onVideoFileChange={activeJob ? (file) => updateJob(activeJob.id, { videoFile: file }) : undefined}
           onResetSession={handleResetSession}
           onDownloadWav={handleDownloadMasterWav}
           multiSpeakerInput={multiSpeakerInput}

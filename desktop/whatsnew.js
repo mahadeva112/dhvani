@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.25',
+    changes: [
+      'Sync shows your video above the player, muted and in step with the dub; add one there if your source is audio only.',
+      'While you edit timing, the video moves to a small window you can drag, resize or hide.',
+    ],
+  },
+  {
     version: '1.3.24',
     changes: [
       'Sync now cuts each line out of your Final dub, so the synced dub sounds exactly like the dub; only lines you changed are voiced again.',

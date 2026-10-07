@@ -176,6 +176,8 @@ export interface BatchJob {
   /** The step the user last picked on this project, so opening it again lands there. */
   lastStep?: number;
   file: File;
+  /** A video added in Sync to watch the dub against, when the source is audio only or its video won't play. */
+  videoFile?: File | null;
   status: ProcessingStatus;
   
   // Inputs
