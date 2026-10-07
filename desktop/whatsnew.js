@@ -5,11 +5,8 @@
  */
 window.WHATS_NEW = [
   {
-    version: '1.3.25',
-    changes: [
-      'Sync shows your video above the player, muted and in step with the dub; add one there if your source is audio only.',
-      'While you edit timing, the video moves to a small window you can drag, resize or hide.',
-    ],
+    version: '1.3.26',
+    changes: ['The video panel in Sync is removed; the Sync player is back to the original and the dub.'],
   },
   {
     version: '1.3.24',

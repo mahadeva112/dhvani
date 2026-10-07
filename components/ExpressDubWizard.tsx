@@ -128,7 +128,6 @@ import { useSignoff } from '../services/signoffService';
 import { ContinuousDocumentView, ContinuousDocumentHandle } from './review/ContinuousDocumentView';
 import { CueEditBar, PickableWords, useCueEditing } from './review/CueEditBar';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
-import { SyncVideoPanel, isVideoFile } from './SyncVideoPanel';
 import type { SyncEdits } from '../services/syncEditService';
 
 type ReviewMode = 'grid' | 'table' | 'spotlight' | 'script' | 'document' | 'qa';
@@ -397,8 +396,6 @@ interface ExpressDubWizardProps {
   getTrackPeak?: (track: MixerTrack) => number;
   playbackRate?: number;
   onPlaybackRateChange?: (rate: number) => void;
-  /** Adds, replaces or (with null) removes the video watched in Sync. */
-  onVideoFileChange?: (file: File | null) => void;
   onResetSession?: () => void;
   onDownloadWav: () => void;
   onDownloadSrt: () => void;
@@ -511,7 +508,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   getTrackPeak,
   playbackRate = 1.0,
   onPlaybackRateChange,
-  onVideoFileChange,
   onResetSession,
   onDownloadWav,
   onDownloadSrt,
@@ -4092,40 +4088,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const canEditTiming = Boolean(onSyncEditsChange);
         const editedLineCount = Object.keys(activeJob.syncEdits || {}).length;
         const hasEditedTiming = editedLineCount > 0;
-        const watchVideo = activeJob.videoFile ?? (isVideoFile(activeJob.file) ? activeJob.file : null);
-        const timelineOpen = Boolean(report && editingTiming && activeJob.syncBank && activeJob.syncBaseReport && onSyncEditsChange);
 
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
           {hasDub && (
             <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
-              {onVideoFileChange && (
-                <SyncVideoPanel
-                  video={watchVideo}
-                  removable={Boolean(activeJob.videoFile)}
-                  onPick={(file) => onVideoFileChange(file)}
-                  onRemove={() => onVideoFileChange(null)}
-                  floating={timelineOpen}
-                  currentTime={sourceClockTime}
-                  isPlaying={isPlaying}
-                  getLiveTime={getSourceLiveTime}
-                  playbackRate={playbackRate}
-                  onSeek={seekSource}
-                  caption={
-                    activeCue
-                      ? {
-                          index: activeCueIndex,
-                          count: segments.length,
-                          source: activeCue.textSource || '',
-                          target: getTargetText(activeCue),
-                          start: activeCue.startTime,
-                          end: activeCue.endTime,
-                        }
-                      : null
-                  }
-                />
-              )}
               {report && canEditTiming && !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport) && (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Player</span>
