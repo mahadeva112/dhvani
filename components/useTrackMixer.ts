@@ -63,6 +63,13 @@ export const useTrackMixer = (
   levelsRef.current = levels;
   const activeRef = useRef(active);
   activeRef.current = active;
+  /*
+   * Edit timing plays the dub live from its lines (liveDubEngine.ts) rather
+   * than from the synced dub's file. That dub comes in here, through the dub's
+   * own fader and meter. The original stays the clock even with the dub
+   * soloed, so it then plays silenced (`silenceSource`).
+   */
+  const live = useRef<{ route: Route | null; active: boolean; silenceSource: () => boolean }>({ route: null, active: false, silenceSource: () => false });
 
   useEffect(() => {
     try {
@@ -73,24 +80,32 @@ export const useTrackMixer = (
   }, [levels]);
 
   const apply = useCallback(() => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    const levelOf = (track: MixerTrack) => (activeRef.current ? gainOf(levelsRef.current[track]) : 1);
+    // A short ramp, so a fader moved during playback doesn't click.
     (Object.keys(elements) as MixerTrack[]).forEach((track) => {
       const el = elements[track].current;
       const route = el && routes.current.get(el);
-      if (!route || !ctxRef.current) return;
-      const gain = activeRef.current ? gainOf(levelsRef.current[track]) : 1;
-      // A short ramp, so a fader moved during playback doesn't click.
-      route.gain.gain.setTargetAtTime(gain, ctxRef.current.currentTime, 0.015);
+      if (!route) return;
+      const silenced = track === 'source' && live.current.active && live.current.silenceSource();
+      route.gain.gain.setTargetAtTime(silenced ? 0 : levelOf(track), ctx.currentTime, 0.015);
     });
+    live.current.route?.gain.gain.setTargetAtTime(levelOf('synth'), ctx.currentTime, 0.015);
   }, [elements]);
 
   useEffect(apply, [levels, active, apply]);
+
+  const contextOf = () => {
+    if (!ctxRef.current) ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    return ctxRef.current;
+  };
 
   /** Routes the elements about to play and wakes the audio context. Call from the play. */
   const prepare = useCallback(
     (els: HTMLAudioElement[]) => {
       try {
-        if (!ctxRef.current) ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const ctx = ctxRef.current;
+        const ctx = contextOf();
         // Elements replaced by a new file leave the graph.
         routes.current.forEach((route, el) => {
           if (el.isConnected) return;
@@ -117,12 +132,46 @@ export const useTrackMixer = (
     [apply]
   );
 
+  /**
+   * Turns the live dub on or off. While it is on, the synced dub's element is
+   * not played, and `silenceSource` says when the original is only the clock.
+   */
+  const setLive = useCallback(
+    (active: boolean, silenceSource: () => boolean) => {
+      live.current.active = active;
+      live.current.silenceSource = silenceSource;
+      apply();
+    },
+    [apply]
+  );
+
+  /** Where the live dub plays into, through the dub's fader and meter; null without Web Audio. */
+  const liveOutput = useCallback((): { ctx: AudioContext; input: AudioNode } | null => {
+    try {
+      const ctx = contextOf();
+      if (!live.current.route) {
+        const gain = ctx.createGain();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 1024;
+        gain.connect(analyser);
+        analyser.connect(ctx.destination);
+        live.current.route = { gain, analyser };
+        apply();
+      }
+      return { ctx, input: live.current.route.gain };
+    } catch (e) {
+      console.warn('Live dub unavailable:', e);
+      return null;
+    }
+  }, [apply]);
+
   /** The track's peak level right now, 0 to 1 after its fader; 0 when it is not playing. */
   const peakOf = useCallback(
     (track: MixerTrack): number => {
       const el = elements[track].current;
-      const route = el && routes.current.get(el);
-      if (!route || el.paused) return 0;
+      const liveRoute = track === 'synth' && live.current.active ? live.current.route : null;
+      const route = liveRoute || (el && routes.current.get(el));
+      if (!route || (!liveRoute && el?.paused)) return 0;
       const size = route.analyser.fftSize;
       if (!buffers.current || buffers.current.length !== size) buffers.current = new Float32Array(size);
       route.analyser.getFloatTimeDomainData(buffers.current);
@@ -137,5 +186,5 @@ export const useTrackMixer = (
     setLevels((prev) => ({ ...prev, [track]: { ...prev[track], ...patch } }));
   }, []);
 
-  return { levels, setLevel, prepare, peakOf };
+  return { levels, setLevel, prepare, peakOf, setLive, liveOutput };
 };

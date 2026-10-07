@@ -364,6 +364,12 @@ interface ExpressDubWizardProps {
   onSyncEditsChange?: (edits: SyncEdits, label: string) => void;
   /** Whether the synced dub has caught up with the edits. */
   syncEditStatus?: SyncEditStatus;
+  /** Edit timing's dub is playing live from its lines, so edits are heard at once. */
+  syncEditLive?: boolean;
+  /** Edit timing's lines, decoded, while it is open; null once it closes. */
+  onEditTimingAudio?: (buffer: AudioBuffer | null) => void;
+  /** Edit timing's edits while a drag lasts, for the live dub; null when it ends with nothing changed. */
+  onSyncEditDraft?: (edits: SyncEdits | null) => void;
   onRetrySyncEditRender?: () => void;
   isSyncing?: boolean;
   syncProgress?: SyncProgress | null;
@@ -483,6 +489,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onSyncDub,
   onSyncEditsChange,
   syncEditStatus = { state: 'ready' },
+  syncEditLive = false,
+  onEditTimingAudio,
+  onSyncEditDraft,
   onRetrySyncEditRender,
   isSyncing = false,
   syncProgress = null,
@@ -4125,6 +4134,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   edits={activeJob.syncEdits}
                   onChange={onSyncEditsChange}
                   status={syncEditStatus}
+                  live={syncEditLive}
+                  onBankAudio={onEditTimingAudio}
+                  onDraft={onSyncEditDraft}
                   onRetry={() => onRetrySyncEditRender?.()}
                   sourceBuffer={activeJob.audioBuffer}
                   total={sourceLength || syncedLength}

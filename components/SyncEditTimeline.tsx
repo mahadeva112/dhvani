@@ -305,6 +305,108 @@ const NumberField: React.FC<{
   );
 };
 
+/**
+ * The inspector with several lines picked: one gain and one pair of fades for
+ * all of them. A field shows its value when every picked part has the same
+ * one, and is empty when they differ; whatever is typed goes to all of them.
+ */
+const GroupInspector: React.FC<{
+  group: Chunk[];
+  onGain: (db: number) => void;
+  onFadeIn: (ms: number) => void;
+  onFadeOut: (ms: number) => void;
+  onMute: () => void;
+  onLock: () => void;
+  onReset: () => void;
+  onRemove: () => void;
+  onClear: () => void;
+}> = ({ group, onGain, onFadeIn, onFadeOut, onMute, onLock, onReset, onRemove, onClear }) => {
+  const same = (pick: (part: SyncEditPart) => number) => {
+    const first = pick(group[0].part);
+    return group.every((c) => Math.abs(pick(c.part) - first) < 1e-6) ? first : null;
+  };
+  const allMuted = group.every((c) => c.part.muted);
+  const button = 'h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5';
+  return (
+    <>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[13px] font-semibold text-slate-100">{group.length} lines picked</span>
+        <span className="font-mono text-[11.5px] text-slate-400 truncate">{group.map((c) => c.label).join(', ')}</span>
+        <button type="button" onClick={onClear} className="ml-auto text-[11px] text-slate-500 hover:text-slate-300 cursor-pointer">
+          Clear <kbd className="font-mono">Esc</kbd>
+        </button>
+      </div>
+      <p className="mt-1 text-[11.5px] text-slate-500">Drag any of them to move them all. What you set here goes to every picked line.</p>
+      <div className="mt-2.5 grid grid-cols-3 gap-2">
+        <GroupField label="Gain (dB)" value={same((p) => p.gainDb)} step={0.5} digits={1} onCommit={onGain} />
+        <GroupField label="Fade in (ms)" value={same((p) => p.fadeIn * 1000)} step={10} digits={0} onCommit={onFadeIn} />
+        <GroupField label="Fade out (ms)" value={same((p) => p.fadeOut * 1000)} step={10} digits={0} onCommit={onFadeOut} />
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <button type="button" onClick={onMute} className={button}>
+          <VolumeX className="w-3.5 h-3.5" /> {allMuted ? 'Unmute all' : 'Mute all'}
+        </button>
+        <button type="button" onClick={onLock} className={button}>
+          <Lock className="w-3.5 h-3.5" /> Lock or unlock
+        </button>
+        <button type="button" onClick={onReset} className={button}>
+          <RotateCcw className="w-3.5 h-3.5" /> Reset lines
+        </button>
+        <button type="button" onClick={onRemove} className={button}>
+          Remove <kbd className="font-mono text-[10px] text-slate-500">Del</kbd>
+        </button>
+      </div>
+    </>
+  );
+};
+
+/** A number for several picked lines: empty, with "mixed" as its hint, when they differ. */
+const GroupField: React.FC<{ label: string; value: number | null; step: number; digits: number; onCommit: (value: number) => void }> = ({
+  label,
+  value,
+  step,
+  digits,
+  onCommit,
+}) => {
+  const shown = value === null ? '' : value.toFixed(digits);
+  const [text, setText] = useState(shown);
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused) setText(shown);
+  }, [shown, focused]);
+  const commit = (typed: string) => {
+    const v = parseFloat(typed.replace(',', '.'));
+    if (Number.isFinite(v) && (value === null || Math.abs(v - value) > 10 ** -(digits + 1))) onCommit(v);
+    else setText(shown);
+  };
+  return (
+    <label className="flex flex-col gap-1 text-[11px] text-slate-500 min-w-0">
+      {label}
+      <input
+        type="number"
+        step={step}
+        value={text}
+        placeholder="mixed"
+        onChange={(e) => setText(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={(e) => {
+          setFocused(false);
+          commit(e.currentTarget.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+          if (e.key === 'Escape') {
+            setText(shown);
+            (e.target as HTMLInputElement).blur();
+          }
+          e.stopPropagation();
+        }}
+        className="h-8 w-full min-w-0 rounded-lg border border-slate-800 bg-slate-950 px-2 font-mono text-[12.5px] text-slate-100 tabular-nums placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
+      />
+    </label>
+  );
+};
+
 /** The whole dub at a glance, and the stretch of it on screen, which can be dragged. */
 const Overview: React.FC<{
   total: number;
@@ -377,6 +479,15 @@ export const SyncEditTimeline: React.FC<{
   edits: SyncEdits | null | undefined;
   onChange: (edits: SyncEdits, label: string) => void;
   status: SyncEditStatus;
+  /** The dub plays live from its lines: edits are heard at once while the file renders behind. */
+  live?: boolean;
+  /** The lines, decoded, for live playback; null when they go (a new sync, or the editor closing). */
+  onBankAudio?: (buffer: AudioBuffer | null) => void;
+  /**
+   * The edits as a drag has them, while it lasts, so the live dub plays them
+   * as the line moves; null when a drag ends without changing anything.
+   */
+  onDraft?: (edits: SyncEdits | null) => void;
   onRetry: () => void;
   sourceBuffer: AudioBuffer | null | undefined;
   /** The source's length, which the dub is as long as. */
@@ -397,6 +508,9 @@ export const SyncEditTimeline: React.FC<{
   edits,
   onChange,
   status,
+  live = false,
+  onBankAudio,
+  onDraft,
   onRetry,
   sourceBuffer,
   total: sourceTotal,
@@ -444,6 +558,12 @@ export const SyncEditTimeline: React.FC<{
 
   // The bank's own waveform, decoded once per bank.
   const [bankBuffer, setBankBuffer] = useState<AudioBuffer | null>(null);
+  const onBankAudioRef = useRef(onBankAudio);
+  onBankAudioRef.current = onBankAudio;
+  useEffect(() => {
+    onBankAudioRef.current?.(bankBuffer);
+  }, [bankBuffer]);
+  useEffect(() => () => onBankAudioRef.current?.(null), []);
   useEffect(() => {
     setBankBuffer(null);
     if (!bankBlob) return;
@@ -511,7 +631,17 @@ export const SyncEditTimeline: React.FC<{
   const [blade, setBlade] = useState(false);
   const [snap, setSnap] = useState(true);
   const [ripple, setRipple] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
+  /*
+   * The picked parts, as in a DAW: a click picks one, Ctrl + click adds or
+   * drops one, a drag across empty lane picks every part it touches, Ctrl + A
+   * picks all. The last one picked is the one the inspector and the one-line
+   * actions (split, join, align) work on; moves, nudges, gain, fades, mute,
+   * lock, reset and remove work on all of them.
+   */
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selected = selectedIds.length > 0 ? selectedIds[selectedIds.length - 1] : null;
+  const setSelected = (id: string | null) => setSelectedIds(id ? [id] : []);
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
   const say = (text: string) => {
@@ -523,12 +653,17 @@ export const SyncEditTimeline: React.FC<{
 
   const chunkOf = (id: string | null) => (id ? chunks.find((c) => c.part.id === id) ?? null : null);
   const current = chunkOf(selected);
+  /** Every picked part, in timeline order. */
+  const group = chunks.filter((c) => selectedSet.has(c.part.id));
   const lineOf = (chunk: Chunk) => bank.lines[chunk.line];
   const lineSeconds = (chunk: Chunk) => lineOf(chunk).length / rate;
-  // A selected part that went away (undo, reset) is no longer selected.
+  // A picked part that went away (undo, reset) is no longer picked.
   useEffect(() => {
-    if (selected && !current) setSelected(null);
-  }, [selected, current]);
+    const still = selectedIds.filter((id) => chunks.some((c) => c.part.id === id));
+    if (still.length !== selectedIds.length) setSelectedIds(still);
+  }, [selectedIds, chunks]);
+  /** How the picked parts are named in the history: "line 4", or "3 lines". */
+  const groupName = (list: Chunk[]) => (list.length === 1 ? `line ${list[0].label}` : `${list.length} lines`);
 
   /** The room a part has: from the end of the part before it to the start of the one after, ignoring parts it already overlaps. */
   const roomOf = (id: string, among: Chunk[] = chunks) => {
@@ -565,13 +700,13 @@ export const SyncEditTimeline: React.FC<{
    * it meets, and the first time that meets one wins, so a moved line's first
    * word lands on an original line's start before its edges are tried.
    */
-  const snapNear = (times: { t: number; kinds: SnapKind[] }[], skip: string): { delta: number; at: number; label: string } | null => {
+  const snapNear = (times: { t: number; kinds: SnapKind[] }[], skip: string | Set<string>): { delta: number; at: number; label: string } | null => {
     if (!snap) return null;
     const width = laneRef.current?.getBoundingClientRect().width || 1;
     const reach = (SNAP_PX / width) * windowSeconds;
     const targets: SnapTarget[] = [...snapTargets, { t: currentTime, kind: 'playhead', label: 'playhead' }];
     for (const c of chunks) {
-      if (c.part.id === skip || c.part.muted) continue;
+      if ((typeof skip === 'string' ? c.part.id === skip : skip.has(c.part.id)) || c.part.muted) continue;
       targets.push({ t: c.part.start, kind: 'edge', label: `line ${c.label} start` }, { t: partEnd(c.part), kind: 'edge', label: `line ${c.label} end` });
     }
     for (const time of times) {
@@ -612,6 +747,34 @@ export const SyncEditTimeline: React.FC<{
     }
     return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6 };
   };
+
+  /**
+   * Moves several parts by the same `delta`, as far as the parts that stay
+   * allow; with `rippled`, every part after the first of them goes too.
+   */
+  const shiftedMany = (base: SyncEdits, movers: Chunk[], delta: number, rippled: boolean, among: Chunk[]) => {
+    if (movers.length === 1) return shifted(base, movers[0], delta, rippled, among);
+    const first = Math.min(...movers.map((c) => c.part.start));
+    const ids = new Set(movers.map((c) => c.part.id));
+    const moving = rippled ? among.filter((c) => ids.has(c.part.id) || c.part.start > first + 1e-9) : movers;
+    const movingIds = new Set(moving.map((c) => c.part.id));
+    const staying = among.filter((c) => !movingIds.has(c.part.id));
+    let low = -Infinity;
+    let high = Infinity;
+    for (const m of moving) {
+      const { lo, hi } = roomOf(m.part.id, [...staying, m]);
+      low = Math.max(low, lo - m.part.start);
+      high = Math.min(high, hi - partEnd(m.part));
+    }
+    const d = clamp(delta, low, Math.max(low, high));
+    let next = base;
+    for (const m of moving) next = replacePart(next, m, { ...m.part, start: Math.max(0, m.part.start + d) });
+    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6 };
+  };
+
+  /** `change` applied to every part in `list`, one after another, so two parts of one line both change. */
+  const changeAll = (base: SyncEdits, list: Chunk[], change: (part: SyncEditPart) => SyncEditPart | null) =>
+    list.reduce((next, c) => replacePart(next, c, change(c.part)), base);
 
   const splitAt = (base: SyncEdits, chunk: Chunk, t: number): SyncEdits | null => {
     const part = chunk.part;
@@ -684,12 +847,45 @@ export const SyncEditTimeline: React.FC<{
     t0: number;
     y0: number;
     rippled: boolean;
+    /** The parts a move, gain or fade drag takes along: the dragged one alone unless it is one of several picked. */
+    group: Chunk[];
     moved: boolean;
     label: string;
     /** The edits as this drag has them now. */
     next: SyncEdits | null;
   };
   const drag = useRef<Drag | null>(null);
+  /** A drag across empty lane: the parts it touches are picked. `keep` is what was picked before, with Ctrl. */
+  const marquee = useRef<{ t0: number; keep: string[]; moved: boolean } | null>(null);
+  const [band, setBand] = useState<{ from: number; to: number } | null>(null);
+
+  /*
+   * The edits a drag has, sent on to the live dub while it lasts, at most
+   * every 60 ms: often enough to hear the line where it is, not so often
+   * that every pixel starts it again.
+   */
+  const onDraftRef = useRef(onDraft);
+  onDraftRef.current = onDraft;
+  const draftTimer = useRef<number | null>(null);
+  const pendingDraft = useRef<SyncEdits | null>(null);
+  const flushDraft = () => {
+    draftTimer.current = null;
+    const next = pendingDraft.current;
+    pendingDraft.current = null;
+    if (!next) return;
+    onDraftRef.current?.(next);
+    draftTimer.current = window.setTimeout(flushDraft, 60);
+  };
+  const sendDraft = (next: SyncEdits) => {
+    pendingDraft.current = next;
+    if (draftTimer.current === null) flushDraft();
+  };
+  const stopDraft = () => {
+    if (draftTimer.current !== null) window.clearTimeout(draftTimer.current);
+    draftTimer.current = null;
+    pendingDraft.current = null;
+  };
+  useEffect(() => stopDraft, []);
   const [hud, setHud] = useState<{ x: number; text: string } | null>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
   /** The line under the pointer and what a drag there would do; `at` is the time under it, for S. */
@@ -707,14 +903,24 @@ export const SyncEditTimeline: React.FC<{
     rootRef.current?.focus({ preventScroll: true });
     const t = timeAt(e.clientX);
     const under = partUnder(e.target);
+    const additive = e.ctrlKey || e.metaKey;
     if (!under) {
-      setSelected(null);
-      zoom.setFollow(true);
-      onSeek(clamp(t, 0, total));
+      // A click seeks; a drag picks the parts it crosses (see onLanePointerMove).
+      marquee.current = { t0: t, keep: additive ? selectedIds : [], moved: false };
+      capture(e);
       return;
     }
     const { el, chunk } = under;
-    setSelected(chunk.part.id);
+    if (additive && !blade) {
+      // Ctrl + click adds the part, or drops it when it is already picked.
+      const id = chunk.part.id;
+      setSelectedIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+      return;
+    }
+    // Clicking one of several picked parts keeps them all, so they can be dragged together.
+    const keepGroup = selectedSet.has(chunk.part.id) && selectedIds.length > 1;
+    if (keepGroup) setSelectedIds((ids) => [...ids.filter((x) => x !== chunk.part.id), chunk.part.id]);
+    else setSelected(chunk.part.id);
     if (blade) {
       const next = splitAt(committed, chunk, t);
       if (next) commit(next, `Split line ${chunk.label}`);
@@ -722,11 +928,36 @@ export const SyncEditTimeline: React.FC<{
       return;
     }
     const zone = zoneAt(el, chunk, e.clientX, e.clientY, e.altKey);
-    drag.current = { zone, chunk, among: chunks, base: committed, t0: t, y0: e.clientY, rippled: ripple || e.shiftKey, moved: false, label: '', next: null };
+    drag.current = {
+      zone,
+      chunk,
+      among: chunks,
+      base: committed,
+      t0: t,
+      y0: e.clientY,
+      rippled: ripple || e.shiftKey,
+      group: keepGroup ? group : [chunk],
+      moved: false,
+      label: '',
+      next: null,
+    };
     capture(e);
   };
 
   const onLanePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const m = marquee.current;
+    if (m) {
+      const t = timeAt(e.clientX);
+      const width = laneRef.current?.getBoundingClientRect().width || 1;
+      if (!m.moved && (Math.abs(t - m.t0) / windowSeconds) * width < 4) return;
+      m.moved = true;
+      const from = Math.min(m.t0, t);
+      const to = Math.max(m.t0, t);
+      setBand({ from, to });
+      const touched = chunks.filter((c) => c.part.start < to && partEnd(c.part) > from).map((c) => c.part.id);
+      setSelectedIds([...m.keep.filter((id) => !touched.includes(id)), ...touched]);
+      return;
+    }
     const d = drag.current;
     if (!d) {
       // Not dragging: show what a drag here would do.
@@ -752,18 +983,22 @@ export const SyncEditTimeline: React.FC<{
     let text = '';
     let snapped: { at: number; label: string } | null = null;
 
+    const several = d.group.length > 1 ? ` · ${d.group.length} lines` : '';
     if (zone === 'fadeIn' || zone === 'fadeOut') {
       const length = partLength(part);
       const value = zone === 'fadeIn' ? t - part.start : partEnd(part) - t;
       const fade = Math.round(clamp(value, 0, length / 2) * 100) / 100;
-      next = replacePart(base, chunk, { ...part, [zone]: fade });
-      d.label = `${zone === 'fadeIn' ? 'Fade in' : 'Fade out'} line ${chunk.label}`;
-      text = `${zone === 'fadeIn' ? 'fade in' : 'fade out'} ${Math.round(fade * 1000)} ms`;
+      // Every picked part gets the same fade, as far as its own length allows.
+      next = changeAll(base, d.group, (p) => ({ ...p, [zone]: Math.min(fade, partLength(p) / 2) }));
+      d.label = `${zone === 'fadeIn' ? 'Fade in' : 'Fade out'} ${groupName(d.group)}`;
+      text = `${zone === 'fadeIn' ? 'fade in' : 'fade out'} ${Math.round(fade * 1000)} ms${several}`;
     } else if (zone === 'gain') {
       const gainDb = clamp(Math.round((part.gainDb - dy * DB_PER_PX) * 2) / 2, MIN_GAIN_DB, MAX_GAIN_DB);
-      next = replacePart(base, chunk, { ...part, gainDb });
-      d.label = `Set the gain of line ${chunk.label}`;
-      text = `gain ${gainDb > 0 ? '+' : ''}${gainDb.toFixed(1)} dB`;
+      // The picked parts move by the same dB, so their levels keep their balance.
+      const change = gainDb - part.gainDb;
+      next = changeAll(base, d.group, (p) => ({ ...p, gainDb: clamp(p.gainDb + change, MIN_GAIN_DB, MAX_GAIN_DB) }));
+      d.label = `Set the gain of ${groupName(d.group)}`;
+      text = d.group.length > 1 ? `gain ${change > 0 ? '+' : ''}${change.toFixed(1)} dB${several}` : `gain ${gainDb > 0 ? '+' : ''}${gainDb.toFixed(1)} dB`;
     } else if (zone === 'move') {
       const onset = line.lead > part.from && line.lead < part.to ? partTime(part, line.lead) - part.start : 0;
       const hit = snapNear(
@@ -772,17 +1007,17 @@ export const SyncEditTimeline: React.FC<{
           { t: part.start + dt, kinds: ['edge', 'playhead'] },
           { t: partEnd(part) + dt, kinds: ['edge', 'end'] },
         ],
-        part.id
+        new Set(d.group.map((c) => c.part.id))
       );
       const delta = dt + (hit?.delta ?? 0);
-      const result = shifted(base, chunk, delta, d.rippled, d.among);
+      const result = shiftedMany(base, d.group, delta, d.rippled, d.among);
       next = result.edits;
       if (hit && !result.blocked) snapped = hit;
       const unit = baseReport.units[chunk.unitIndex];
       const newPart = partsOf(next, line, rate).find((p) => p.id === part.id) ?? part;
       const onsetNow = line.lead > newPart.from && line.lead < newPart.to ? partTime(newPart, line.lead) : newPart.start;
-      d.label = `${d.rippled ? 'Ripple move' : 'Move'} line ${chunk.label}`;
-      text = `Δ ${formatShift(result.moved)}${unit ? ` · vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}${result.blocked && !d.rippled ? ' · hold Shift to push the lines after it' : ''}`;
+      d.label = `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}`;
+      text = `Δ ${formatShift(result.moved)}${several}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}${result.blocked && !d.rippled ? ' · hold Shift to push the lines after it' : ''}`;
     } else if (zone === 'slip') {
       const span = part.to - part.from;
       const from = clamp(part.from - dt * part.rate, 0, lineSeconds(chunk) - span);
@@ -826,13 +1061,28 @@ export const SyncEditTimeline: React.FC<{
 
     d.next = next;
     setDraft(next);
+    // A stretch is heard once dropped: working out a new speed on every move would hold up the drag.
+    if (zone !== 'stretchLeft' && zone !== 'stretchRight') sendDraft(next);
     setSnapLine(snapped ? snapped.at : null);
     setHud({ x: clamp(e.clientX - laneBox.left + 12, 0, Math.max(0, laneBox.width - 260)), text });
   };
 
   const endDrag = () => {
+    const m = marquee.current;
+    if (m) {
+      marquee.current = null;
+      setBand(null);
+      if (!m.moved) {
+        // A click on empty lane: the playhead goes there, and nothing stays picked unless Ctrl was held.
+        if (m.keep.length === 0) setSelectedIds([]);
+        zoom.setFollow(true);
+        onSeek(clamp(m.t0, 0, total));
+      }
+      return;
+    }
     const d = drag.current;
     drag.current = null;
+    stopDraft();
     setHud(null);
     setSnapLine(null);
     // A drag that changed nothing (a slip with nothing to slip, a move against a wall) leaves no step.
@@ -840,6 +1090,8 @@ export const SyncEditTimeline: React.FC<{
       d?.next &&
       bank.lines.some((line) => JSON.stringify(partsOf(d.next, line, rate)) !== JSON.stringify(partsOf(d.base, line, rate)));
     if (d?.moved && d.next && changed) commit(d.next, d.label || `Edit line ${d.chunk.label}`);
+    // Committed edits reach the live dub with the job's; a drag that changed nothing puts it back.
+    else if (d?.moved) onDraftRef.current?.(null);
     setDraft(null);
   };
 
@@ -900,27 +1152,45 @@ export const SyncEditTimeline: React.FC<{
       commit(next, `Align line ${current.label} to the original`);
     },
     mute: () => {
-      if (!current) return say('Pick a line to mute.');
-      commit(replacePart(committed, current, { ...current.part, muted: !current.part.muted }), `${current.part.muted ? 'Unmute' : 'Mute'} line ${current.label}`);
+      if (group.length === 0) return say('Pick a line to mute.');
+      // Any picked part still playing: mute them all. All muted: unmute them all.
+      const muted = group.some((c) => !c.part.muted);
+      commit(
+        changeAll(committed, group, (p) => ({ ...p, muted })),
+        `${muted ? 'Mute' : 'Unmute'} ${groupName(group)}`
+      );
     },
     lock: () => {
-      if (!current) return say('Pick a line to lock or unlock.');
-      const entry = committed[current.key];
-      const parts = entry?.parts ?? [basePart(lineOf(current), rate)];
-      const locked = !(entry?.locked ?? false);
-      commit({ ...committed, [current.key]: { parts, locked } }, `${locked ? 'Lock' : 'Unlock'} line ${current.label}`);
-      say(locked ? 'Locked: Sync again leaves this line where it is.' : 'Unlocked: Sync again places this line itself, and its edits go.');
+      if (group.length === 0) return say('Pick a line to lock or unlock.');
+      const keys = [...new Set(group.map((c) => c.key))];
+      const locked = keys.some((key) => !(committed[key]?.locked ?? false));
+      const next = { ...committed };
+      for (const c of group) next[c.key] = { parts: committed[c.key]?.parts ?? [basePart(lineOf(c), rate)], locked };
+      const one = keys.length === 1;
+      commit(next, `${locked ? 'Lock' : 'Unlock'} ${one ? `line ${group[0].label}` : `${keys.length} lines`}`);
+      say(
+        locked
+          ? `Locked: Sync again leaves ${one ? 'this line where it is' : 'these lines where they are'}.`
+          : `Unlocked: Sync again places ${one ? 'this line itself, and its' : 'these lines itself, and their'} edits go.`
+      );
     },
     remove: () => {
-      if (!current) return;
-      commit(replacePart(committed, current, null), `Remove line ${current.label}`);
+      if (group.length === 0) return;
+      commit(changeAll(committed, group, () => null), `Remove ${groupName(group)}`);
       setSelected(null);
       say('Removed. Undo brings it back.');
     },
     reset: () => {
-      if (!current || !committed[current.key]) return say('This line is as Sync placed it.');
-      const { [current.key]: _gone, ...rest } = committed;
-      commit(rest, `Reset line ${current.label}`);
+      const keys = [...new Set(group.map((c) => c.key))].filter((key) => committed[key]);
+      if (keys.length === 0) return say(group.length > 1 ? 'These lines are as Sync placed them.' : 'This line is as Sync placed it.');
+      const rest = { ...committed };
+      for (const key of keys) delete rest[key];
+      const first = group.find((c) => c.key === keys[0]);
+      commit(rest, `Reset ${keys.length === 1 && first ? `line ${first.label}` : `${keys.length} lines`}`);
+    },
+    selectAll: () => {
+      setSelectedIds(chunks.map((c) => c.part.id));
+      say(`${chunks.length} lines picked. Drag one to move them all; gain, fades and mute go to all of them.`);
     },
     resetAll: () => {
       if (!hasEdits(committed)) return;
@@ -928,10 +1198,10 @@ export const SyncEditTimeline: React.FC<{
       setSelected(null);
     },
     nudge: (seconds: number) => {
-      if (!current) return;
-      const result = shifted(committed, current, seconds, ripple, chunks);
-      if (Math.abs(result.moved) < 1e-6) return say('No room to move it further that way.');
-      commit(result.edits, `Nudge line ${current.label} ${formatShift(result.moved)}`);
+      if (group.length === 0) return;
+      const result = shiftedMany(committed, group, seconds, ripple, chunks);
+      if (Math.abs(result.moved) < 1e-6) return say(`No room to move ${group.length > 1 ? 'them' : 'it'} further that way.`);
+      commit(result.edits, `Nudge ${groupName(group)} ${formatShift(result.moved)}`);
     },
     undo: () => goTo(history.at - 1),
     redo: () => goTo(history.at + 1),
@@ -958,6 +1228,23 @@ export const SyncEditTimeline: React.FC<{
     commit(replacePart(committed, current, part), `${label} line ${current.label}`);
   };
 
+  /** Sets gain or fades on every picked part: the same value on each, fades held to half of each part. */
+  const setGroupField = (patch: Partial<Pick<SyncEditPart, 'gainDb' | 'fadeIn' | 'fadeOut'>>, label: string) => {
+    if (group.length === 0) return;
+    commit(
+      changeAll(committed, group, (p) => {
+        const half = partLength(p) / 2;
+        return {
+          ...p,
+          ...(patch.gainDb !== undefined && { gainDb: patch.gainDb }),
+          ...(patch.fadeIn !== undefined && { fadeIn: clamp(patch.fadeIn, 0, half) }),
+          ...(patch.fadeOut !== undefined && { fadeOut: clamp(patch.fadeOut, 0, half) }),
+        };
+      }),
+      `${label} ${groupName(group)}`
+    );
+  };
+
   // ---- Keys ----
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -970,6 +1257,7 @@ export const SyncEditTimeline: React.FC<{
     let done = true;
     if (mod && lower === 'z') (e.shiftKey ? act.redo : act.undo)();
     else if (mod && lower === 'y') act.redo();
+    else if (mod && lower === 'a') act.selectAll();
     else if (mod || e.altKey) done = false;
     else if (key === ',' || key === '<') act.nudge(e.shiftKey ? -0.1 : -0.01);
     else if (key === '.' || key === '>') act.nudge(e.shiftKey ? 0.1 : 0.01);
@@ -1042,7 +1330,7 @@ export const SyncEditTimeline: React.FC<{
         <span aria-live="polite" className="flex items-center gap-1.5 text-[11.5px] text-slate-400">
           {status.state === 'pending' || status.state === 'rendering' ? (
             <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Updating the audio…
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> {live ? 'Playing your edits live · saving the file…' : 'Updating the audio…'}
             </>
           ) : status.state === 'error' ? (
             <span className="flex items-center gap-1.5 text-rose-300">
@@ -1206,6 +1494,7 @@ export const SyncEditTimeline: React.FC<{
             {visible.map((chunk) => {
               const { part } = chunk;
               const chosen = chunk.part.id === selected;
+              const picked = selectedSet.has(chunk.part.id);
               const hue = hueOf(chunk.unitIndex);
               const { color } = landing(chunk.unit, tolerance);
               const length = partLength(part);
@@ -1215,7 +1504,7 @@ export const SyncEditTimeline: React.FC<{
                 <div
                   key={part.id}
                   data-part={part.id}
-                  className={`absolute top-1.5 bottom-1.5 rounded-md border overflow-hidden ${part.muted ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : ''}`}
+                  className={`absolute top-1.5 bottom-1.5 rounded-md border overflow-hidden ${part.muted ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
                   style={{
                     left: `${pct(part.start)}%`,
                     width: `${Math.max(0.15, (length / windowSeconds) * 100)}%`,
@@ -1238,7 +1527,7 @@ export const SyncEditTimeline: React.FC<{
                   {/* What a drag here does: shown where the pointer is, and on the picked line */}
                   {(() => {
                     const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;
-                    const lit = chosen || zone !== null;
+                    const lit = picked || zone !== null;
                     if (!lit || blade) return null;
                     const edgeClass = (on: boolean, stretch: boolean) =>
                       `absolute top-0 bottom-0 w-[3px] pointer-events-none ${on ? (stretch ? 'bg-indigo-300' : 'bg-slate-100') : 'bg-slate-100/25'}`;
@@ -1263,6 +1552,13 @@ export const SyncEditTimeline: React.FC<{
                 </div>
               );
             })}
+            {band && (
+              <span
+                aria-hidden="true"
+                className="absolute top-0 bottom-0 border border-dashed border-indigo-300/80 bg-indigo-400/10 pointer-events-none z-20"
+                style={{ left: `${pct(band.from)}%`, width: `${((band.to - band.from) / windowSeconds) * 100}%` }}
+              />
+            )}
             {/* Where the picked line's original starts */}
             {currentUnit && onScreen(currentUnit.srcStart, currentUnit.srcStart) && (
               <span aria-hidden="true" className="absolute top-0 bottom-0 border-l border-dashed border-amber-300/80 pointer-events-none" style={{ left: `${pct(currentUnit.srcStart)}%` }} />
@@ -1341,7 +1637,7 @@ export const SyncEditTimeline: React.FC<{
           <ActionButton label="Align" shortcut="A" onClick={act.align} title="Move the line so its first word starts with the original's">
             <AlignStartVertical className="w-4 h-4" />
           </ActionButton>
-          <ActionButton label={current?.part.muted ? 'Unmute' : 'Mute'} shortcut="M" onClick={act.mute}>
+          <ActionButton label={group.length > 0 && group.every((c) => c.part.muted) ? 'Unmute' : 'Mute'} shortcut="M" onClick={act.mute}>
             <VolumeX className="w-4 h-4" />
           </ActionButton>
           <ActionButton label={currentLocked ? 'Unlock' : 'Lock'} shortcut="L" onClick={act.lock} title="A locked line stays where it is when Sync runs again">
@@ -1361,7 +1657,9 @@ export const SyncEditTimeline: React.FC<{
             <span aria-live="polite" className="text-[12px] text-amber-300">{toast}</span>
           ) : (
             <span className="truncate text-[11.5px] text-slate-500">
-              {blade ? 'Blade is on: click a line to cut it there · B turns it off' : hover ? ZONE_HINT[hover.zone] : 'Point at a line: its middle moves it, its edges trim it, its top corners fade it, its top edge sets its gain'}
+              {blade ? 'Blade is on: click a line to cut it there · B turns it off' : hover ? ZONE_HINT[hover.zone] : group.length > 1
+                    ? `${group.length} lines picked: drag one to move them all · its top edge or corners set gain and fades on all · Ctrl + click adds or drops a line`
+                    : 'Point at a line: its middle moves it, its edges trim it, its top corners fade it, its top edge sets its gain · Ctrl + click or drag across empty lane picks several'}
             </span>
           )}
         </span>
@@ -1370,7 +1668,19 @@ export const SyncEditTimeline: React.FC<{
       {/* Inspector and history */}
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_17rem]">
         <section aria-label="Picked line" className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 min-w-0">
-          {current ? (
+          {group.length > 1 ? (
+            <GroupInspector
+              group={group}
+              onGain={(v) => setGroupField({ gainDb: clamp(Math.round(v * 2) / 2, MIN_GAIN_DB, MAX_GAIN_DB) }, 'Set the gain of')}
+              onFadeIn={(v) => setGroupField({ fadeIn: Math.max(0, v) / 1000 }, 'Fade in')}
+              onFadeOut={(v) => setGroupField({ fadeOut: Math.max(0, v) / 1000 }, 'Fade out')}
+              onMute={act.mute}
+              onLock={act.lock}
+              onReset={act.reset}
+              onRemove={act.remove}
+              onClear={() => setSelectedIds([])}
+            />
+          ) : current ? (
             <>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[13px] font-semibold text-slate-100">Line {current.label}</span>
@@ -1446,6 +1756,7 @@ export const SyncEditTimeline: React.FC<{
           <p className="mt-2 border-t border-slate-800 pt-2 text-[10.5px] leading-relaxed text-slate-500">
             <kbd className="font-mono text-slate-400">Space</kbd> play · <kbd className="font-mono text-slate-400">/</kbd> play from the line ·{' '}
             <kbd className="font-mono text-slate-400">Del</kbd> remove · <kbd className="font-mono text-slate-400">Esc</kbd> deselect ·{' '}
+            <kbd className="font-mono text-slate-400">Ctrl + A</kbd> pick all · <kbd className="font-mono text-slate-400">Ctrl</kbd> + click add ·{' '}
             <kbd className="font-mono text-slate-400">= −</kbd> zoom · <kbd className="font-mono text-slate-400">Ctrl</kbd> + scroll to zoom
           </p>
         </section>

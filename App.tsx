@@ -128,6 +128,7 @@ import {
   SyncUnitReport,
 } from './services/syncService';
 import { hasEdits, lockedLines, measureEdits, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
+import { LiveDubEngine, liveClips } from './services/liveDubEngine';
 import type { SyncEditStatus } from './components/SyncEditTimeline';
 import {
   getAllJobsFromStorage,
@@ -1215,6 +1216,34 @@ export default function App() {
   const mixerElements = useMemo(() => ({ source: sourceAudioRef, synth: synthAudioRef }), []);
   const mixer = useTrackMixer(mixerElements, activeStep === 3 || activeStep === 4);
 
+  /*
+   * While Edit timing is open, the dub is played live from the sync's lines
+   * (liveDubEngine.ts), as a DAW plays its clips: an edit is heard at once and
+   * playback never stops for the render, which carries on in the background
+   * for the file. The original stays the clock. At a speed other than 1x the
+   * synced dub's file plays as before, since the live dub would change pitch.
+   */
+  const [editTimingAudio, setEditTimingAudio] = useState<AudioBuffer | null>(null);
+  const liveDub = playsSynced && Boolean(editTimingAudio && activeJob?.syncBank) && playbackRate === 1;
+  const liveDubRef = useRef(liveDub);
+  liveDubRef.current = liveDub;
+  const liveDubClips = useMemo(
+    () => (liveDub && activeJob?.syncBank ? liveClips(activeJob.syncBank, activeJob.syncEdits, Boolean(activeJob.syncBaseReport?.mix)) : []),
+    [liveDub, activeJob?.syncBank, activeJob?.syncEdits, activeJob?.syncBaseReport]
+  );
+  const liveDubClipsRef = useRef(liveDubClips);
+  liveDubClipsRef.current = liveDubClips;
+  const liveEngineRef = useRef<LiveDubEngine | null>(null);
+  const liveDubInputRef = useRef<{ bank: NonNullable<BatchJob['syncBank']>; multiSpeaker: boolean } | null>(null);
+  liveDubInputRef.current = activeJob?.syncBank ? { bank: activeJob.syncBank, multiSpeaker: Boolean(activeJob.syncBaseReport?.mix) } : null;
+  /** A drag in Edit timing, heard while it lasts; null puts the committed edits back. Nothing re-renders for it. */
+  const handleSyncEditDraft = useCallback((edits: SyncEdits | null) => {
+    const engine = liveEngineRef.current;
+    const input = liveDubInputRef.current;
+    if (!engine || !input) return;
+    engine.setClips(edits ? liveClips(input.bank, edits, input.multiSpeaker) : liveDubClipsRef.current);
+  }, []);
+
   // Sync playback rate to audio elements, including ones mounted after the rate was set
   const playbackRateRef = useRef(playbackRate);
   playbackRateRef.current = playbackRate;
@@ -1288,14 +1317,16 @@ export default function App() {
 
   const elementsFor = useCallback((mode: AudioTrackMode) => {
     const source = sourceAudioRef.current;
-    const synth = synthAudioRef.current?.src ? synthAudioRef.current : null;
-    const els = mode === 'source' ? [source] : mode === 'synth' ? [synth] : [source, synth];
+    // The live dub plays in place of the synced dub's element, on the original's clock.
+    const synth = liveDubRef.current ? null : synthAudioRef.current?.src ? synthAudioRef.current : null;
+    const els = mode === 'source' ? [source] : mode === 'synth' ? [liveDubRef.current ? source : synth] : [source, synth];
     return els.filter((el): el is HTMLAudioElement => Boolean(el));
   }, []);
 
   const heardElement = useCallback((mode: AudioTrackMode = playModeRef.current) => {
     const source = sourceAudioRef.current;
     const synth = synthAudioRef.current;
+    if (liveDubRef.current) return source;
     if (mode === 'synth') return synth;
     if (mode === 'both' && source?.ended && synth && !synth.ended) return synth;
     return source;
@@ -1492,7 +1523,8 @@ export default function App() {
     const sourceChanged = last.source !== sourceAudioUrl;
     const synthChanged = last.synth !== synthAudioUrl;
     if (!sourceChanged && !synthChanged) return;
-    if (isPlayingRef.current && (sourceChanged || playModeRef.current !== 'source')) pauseAll();
+    // The live dub plays on through a new render of the synced dub: that file isn't what is heard.
+    if (isPlayingRef.current && (sourceChanged || (playModeRef.current !== 'source' && !liveDubRef.current))) pauseAll();
     if (sourceChanged) return; // A new job starts from zero; its loaders reset the position.
     const el = synthAudioRef.current;
     if (!el) return;
@@ -1523,7 +1555,7 @@ export default function App() {
       }
       const source = sourceAudioRef.current;
       const synth = synthAudioRef.current;
-      if (playModeRef.current === 'both' && source && synth && now - lastLock > 100) {
+      if (playModeRef.current === 'both' && !liveDubRef.current && source && synth && now - lastLock > 100) {
         lastLock = now;
         const rate = playbackRateRef.current;
         if (source.paused || synth.paused || source.seeking || synth.seeking) {
@@ -1548,6 +1580,54 @@ export default function App() {
       if (synthAudioRef.current) synthAudioRef.current.playbackRate = playbackRateRef.current;
     };
   }, [isPlaying, heardElement, pauseAll]);
+
+  /*
+   * The live dub: turned on or off while playing, playback carries on from
+   * the same place on the other player. While on, it follows the original's
+   * clock every few frames, and edits reach it the moment they are made.
+   */
+  const lastLiveRef = useRef(liveDub);
+  useEffect(() => {
+    mixer.setLive(liveDub, () => playModeRef.current === 'synth');
+    if (lastLiveRef.current === liveDub) return;
+    lastLiveRef.current = liveDub;
+    if (!isPlayingRef.current) return;
+    const at = sourceAudioRef.current?.currentTime ?? currentTimeRef.current;
+    pauseAll();
+    startPlayback(playModeRef.current, at);
+  }, [liveDub, mixer.setLive, pauseAll, startPlayback]);
+
+  useEffect(() => {
+    if (!liveDub || !editTimingAudio) return;
+    let engine: LiveDubEngine | null = null;
+    const tick = () => {
+      const el = sourceAudioRef.current;
+      const on = isPlayingRef.current && playModeRef.current !== 'source' && el && !el.paused && !el.seeking && el.readyState >= 3;
+      if (!on || !el) {
+        engine?.stop();
+        return;
+      }
+      if (!engine) {
+        const out = mixer.liveOutput();
+        if (!out) return;
+        engine = new LiveDubEngine(out.ctx, out.input, editTimingAudio);
+        engine.setClips(liveDubClipsRef.current);
+        liveEngineRef.current = engine;
+      }
+      engine.follow(el.currentTime);
+    };
+    tick();
+    const timer = window.setInterval(tick, 40);
+    return () => {
+      window.clearInterval(timer);
+      engine?.dispose();
+      liveEngineRef.current = null;
+    };
+  }, [liveDub, editTimingAudio, mixer.liveOutput]);
+
+  useEffect(() => {
+    liveEngineRef.current?.setClips(liveDubClips);
+  }, [liveDubClips]);
 
   // Spacebar shortcuts for play/pause
   useEffect(() => {
@@ -3060,6 +3140,9 @@ export default function App() {
           onSyncDub={handleSyncDub}
           onSyncEditsChange={handleSyncEditsChange}
           syncEditStatus={syncEditStatus}
+          syncEditLive={liveDub}
+          onEditTimingAudio={setEditTimingAudio}
+          onSyncEditDraft={handleSyncEditDraft}
           onRetrySyncEditRender={handleRetrySyncEditRender}
           isSyncing={isSyncing}
           syncProgress={syncProgress}
