@@ -116,6 +116,7 @@ export const synthesizeSpeech = async (
   {
     expressive = false,
     audioTags = false,
+    performanceTags = false,
     language,
     seed,
     matchLoudness = false,
@@ -129,6 +130,11 @@ export const synthesizeSpeech = async (
      * The backend removes anything that is not a known tag.
      */
     audioTags?: boolean;
+    /**
+     * The script carries tags matched to the source audio ([explaining, calm, slow],
+     * [sentence-build pause]; see sourceCueService). They are kept and no other cues are added.
+     */
+    performanceTags?: boolean;
     language?: string;
     /** Same seed, text and settings gives the same take. */
     seed?: number;
@@ -171,6 +177,7 @@ export const synthesizeSpeech = async (
       voiceSettings: voiceSettings || undefined,
       expressive,
       audioTags,
+      performanceTags,
       language,
       seed,
       matchLoudness,
@@ -182,7 +189,8 @@ export const synthesizeSpeech = async (
 
 /** How far a dub started with a `jobId` has got. */
 export interface DubProgress {
-  phase: 'preparing' | 'voicing' | 'joining' | 'done' | 'cancelled' | 'failed';
+  /** `listening`: the source audio is being heard to match its delivery (set by the app, before voicing). */
+  phase: 'listening' | 'preparing' | 'voicing' | 'joining' | 'done' | 'cancelled' | 'failed';
   passageCount: number;
   passagesDone: number;
   /** Characters of the script, and those in passages already voiced. */

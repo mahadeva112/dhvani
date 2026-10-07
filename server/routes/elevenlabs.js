@@ -99,7 +99,7 @@ elevenLabsRouter.get(
 elevenLabsRouter.post(
   '/elevenlabs/tts',
   asyncHandler(async (req, res) => {
-    const { voiceId, text, modelId, outputFormat, voiceSettings, expressive, audioTags, language, seed, matchLoudness, jobId } =
+    const { voiceId, text, modelId, outputFormat, voiceSettings, expressive, audioTags, performanceTags, language, seed, matchLoudness, jobId } =
       req.body || {};
     const job = startDubJob(jobId);
     const controller = job?.controller || new AbortController();
@@ -118,6 +118,7 @@ elevenLabsRouter.post(
           voiceSettings: voiceSettings || undefined,
           expressive: expressive === true,
           audioTags: audioTags === true,
+          performanceTags: performanceTags === true,
           language,
           seed: Number.isInteger(seed) ? seed : undefined,
           matchLoudness: matchLoudness === true,

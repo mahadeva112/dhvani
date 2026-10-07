@@ -6,6 +6,7 @@ import { logger } from '../../logger.js';
 import { splitPassages, contextAround, MAX_TTS_CHUNK_CHARS, PASSAGE_PAUSE_SECONDS } from '../../lib/ttsText.js';
 import { joinPassages } from '../../lib/audioJoin.js';
 import { AUDIO_TAGS, addDeliveryCuesToPassages } from '../../lib/deliveryCues.js';
+import { performanceTag } from '../../lib/sourceCues.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
 import { pcmToWav } from '../../lib/wav.js';
 import { cancelledError } from '../../lib/http.js';
@@ -32,17 +33,23 @@ export const DEFAULT_VOICE_SETTINGS = {
  * Strips SSML tags, speaker labels and bracketed stage directions so the voice
  * model receives plain spoken text. With `keepAudioTags`, the audio tags in
  * AUDIO_TAGS ([curious], [sighs], ...) stay: Eleven v3 and v4 perform them.
+ * With `keepPerformanceTags`, so do the source-matched performance tags
+ * ([explaining, calm, slow], [sentence-build pause]; see sourceCues.js).
  */
-export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false } = {}) => {
+export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false, keepPerformanceTags = false } = {}) => {
   if (!rawText) return '';
   return String(rawText)
     .replace(/<[^>]+>/g, ' ')
     .replace(/^\[[^\]]+\]:\s*/gm, '')
     .replace(/^\([^)]+\):\s*/gm, '')
-    // Closing tags such as [/fast] go too; otherwise the slash and word are read aloud.
-    .replace(/\[(\/?)([a-zA-Z0-9_\-\s]+)\]/g, (tag, slash, name) =>
-      keepAudioTags && !slash && AUDIO_TAGS.includes(name.trim().toLowerCase()) ? tag : ''
-    )
+    .replace(/\[(\/?)([^\]\n]{1,120})\]/g, (tag, slash, name) => {
+      const performance = keepPerformanceTags && !slash ? performanceTag(name) : null;
+      if (performance) return performance;
+      // Other brackets (not a tag-like word) are left as they were.
+      if (!/^[a-zA-Z0-9_\-\s]+$/.test(name)) return tag;
+      // Closing tags such as [/fast] go too; otherwise the slash and word are read aloud.
+      return keepAudioTags && !slash && AUDIO_TAGS.includes(name.trim().toLowerCase()) ? tag : '';
+    })
     // Collapse runs of spaces/tabs but keep line breaks: ElevenLabs uses them
     // as breathing points, and flattening a multi-cue script onto one line is
     // what makes the read sound rushed.
@@ -315,7 +322,9 @@ const joinAudio = async (parts, passages, outputFormat, { matchLoudness = false 
  *
  * With `expressive`, a v3 or v4 dub gets delivery cues first (see deliveryCues.js)
  * so it is performed rather than read. With `audioTags`, audio tags the
- * author wrote themselves are kept rather than stripped. A `seed` makes a take
+ * author wrote themselves are kept rather than stripped. With
+ * `performanceTags`, the script already carries tags matched to the source
+ * audio (see sourceCues.js); they are kept and no further cues are added. A `seed` makes a take
  * reproducible; without one each dub is sampled afresh.
  * Returns `{ contentType, buffer }`.
  */
@@ -328,6 +337,7 @@ export const synthesizeScript = async (
     voiceSettings,
     expressive = false,
     audioTags = false,
+    performanceTags = false,
     language,
     seed,
     matchLoudness = false,
@@ -336,7 +346,11 @@ export const synthesizeScript = async (
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
   const resolvedModel = modelId || config.elevenlabs.ttsModel;
-  const cleanText = cleanTextForNaturalSpeech(text, { keepAudioTags: audioTags && performsTags(resolvedModel) });
+  const tagged = performanceTags && performsTags(resolvedModel);
+  const cleanText = cleanTextForNaturalSpeech(text, {
+    keepAudioTags: audioTags && performsTags(resolvedModel),
+    keepPerformanceTags: tagged,
+  });
   if (!cleanText) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
@@ -350,7 +364,7 @@ export const synthesizeScript = async (
   const totalChars = passageChars.reduce((sum, n) => sum + n, 0);
   onProgress({ phase: 'preparing', passageCount: chunks.length, passagesDone: 0, totalChars, charsDone: 0, secondsGenerated: 0 });
 
-  if (expressive && performsTags(resolvedModel)) {
+  if (expressive && !tagged && performsTags(resolvedModel)) {
     // Cued as one script, not passage by passage, so every passage gets the same direction.
     chunks = await addDeliveryCuesToPassages(chunks, { language, apiKey: textModelKey });
   }

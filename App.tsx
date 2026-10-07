@@ -52,8 +52,10 @@ import {
   ALL_ELEVENLABS_MODELS,
   DEFAULT_ELEVENLABS_MODEL,
   getModels,
+  performsAudioTags,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
+import { matchSourceDelivery } from './services/sourceCueService';
 import { conversationTurns, isMultiSpeaker, renameCast, renameSpeaker } from './services/speakers';
 import { dubConversation } from './services/castService';
 import {
@@ -296,6 +298,25 @@ export default function App() {
       // ignore storage errors
     }
   }, []);
+
+  // With Enhance emotion: tag the dub from the source audio (on), or guess the tone from the script (off).
+  const [emotionMatchSource, setEmotionMatchSource] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('dhvani_emotion_match_source') !== 'false';
+    } catch {
+      return true;
+    }
+  });
+
+  const handleEmotionMatchSourceChange = useCallback((enabled: boolean) => {
+    setEmotionMatchSource(enabled);
+    try {
+      localStorage.setItem('dhvani_emotion_match_source', String(enabled));
+    } catch {}
+  }, []);
+
+  // The last source-matched script per project, so a re-dub of an unchanged script doesn't listen again.
+  const sourceCueCacheRef = useRef<Record<string, { key: string; segments: AudioSegment[] }>>({});
 
   // Whether Roman-to-Indic conversion is on as you type across the app.
   const [isGlobalPhoneticEnabled, setIsGlobalPhoneticEnabled] = useState<boolean>(() => {
@@ -758,6 +779,7 @@ export default function App() {
     if (isBatchProcessing) {
       const p = dubProgress;
       const sourceLength = activeJob?.audioBuffer?.duration || 0;
+      if (p?.phase === 'listening') return { label: 'Listening to source', fraction: null };
       if (!p || p.phase === 'preparing') return { label: 'Dubbing', fraction: null };
       if (p.phase === 'joining') return { label: 'Finishing dub', fraction: null };
       const byChars = p.totalChars > 0 ? p.charsDone / p.totalChars : 0;
@@ -2030,15 +2052,43 @@ export default function App() {
         dubStems = result.stems;
         dubMix = result.report;
       } else {
+        const language = activeJob.language || selectedLanguage;
+        // Match source audio: tag the script from the original speaker's delivery before voicing it.
+        const matchSource =
+          emotionEnhance &&
+          emotionMatchSource &&
+          performsAudioTags(elModelId) &&
+          !isCartesiaVoice(elVoiceId) &&
+          activeJob.segments.length > 0;
+        let script = textToSynthesize;
+        if (matchSource) {
+          if (!activeJob.audioBuffer) {
+            throw new Error('The source audio is not loaded, so it cannot be matched. Reopen the project, or turn off Match source audio.');
+          }
+          const key = JSON.stringify([language, activeJob.segments.map((s) => [s.startTime, s.endTime, s.textTarget || s.targetText || ''])]);
+          let tagged = sourceCueCacheRef.current[activeJob.id]?.key === key ? sourceCueCacheRef.current[activeJob.id].segments : null;
+          if (!tagged) {
+            setDubProgress({ phase: 'listening', passageCount: 0, passagesDone: 0, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true });
+            const result = await matchSourceDelivery(activeJob.audioBuffer, activeJob.segments, language, {
+              signal: controller.signal,
+            });
+            tagged = result.segments;
+            if (result.taggedSections === 0) console.warn('Match source audio added no tags; the script is voiced as written.');
+            sourceCueCacheRef.current[activeJob.id] = { key, segments: tagged };
+          }
+          script = buildSpeechScript(tagged);
+        }
         blob = await synthesizeSpeech(
           elApiKey,
           elVoiceId,
-          textToSynthesize,
+          script,
           elModelId,
           elOutputFormat,
           elVoiceSettings,
           {
-            expressive: emotionEnhance,
+            expressive: emotionEnhance && !matchSource,
+            audioTags: matchSource,
+            performanceTags: matchSource,
             matchLoudness: dubMatchLoudness,
             cartesia: cartesiaVoice,
             language: activeJob.language || selectedLanguage,
@@ -2999,6 +3049,8 @@ export default function App() {
           getLiveTime={getLiveTime}
           emotionEnhance={emotionEnhance}
           onEmotionEnhanceChange={handleEmotionEnhanceChange}
+          emotionMatchSource={emotionMatchSource}
+          onEmotionMatchSourceChange={handleEmotionMatchSourceChange}
           dubMatchLoudness={dubMatchLoudness}
           onDubMatchLoudnessChange={handleDubMatchLoudnessChange}
           playbackRate={playbackRate}

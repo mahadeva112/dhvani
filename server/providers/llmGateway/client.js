@@ -56,17 +56,23 @@ const authHeaders = (gateway) =>
       : { Authorization: `Bearer ${gateway.apiKey}` }
     : {};
 
+/** The OpenAI `input_audio` format for an audio MIME type, or null if it has none. */
+const AUDIO_FORMATS = { 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3' };
+
 /**
- * Flattens the Gemini-SDK `contents` shape into a plain prompt string.
+ * Flattens the Gemini-SDK `contents` shape into a plain prompt string, plus the
+ * OpenAI content parts for any inline audio or images.
  *
- * Translation only ever sends text, so this is lossless for that path. A part
- * carrying media is reported rather than silently dropped — see
- * `gatewaySupportsMedia`.
+ * Text-only requests (translation) stay a plain string. Inline WAV/MP3 audio is
+ * sent as `input_audio` and images as data URLs, which LiteLLM-style gateways
+ * pass on to Gemini. Anything else (a file reference, another audio codec) is
+ * reported as `unsupported` rather than silently dropped.
  */
 const extractParts = (contents) => {
   const list = Array.isArray(contents) ? contents : [contents];
   const texts = [];
-  let hasMedia = false;
+  const media = [];
+  let unsupported = false;
 
   for (const entry of list) {
     if (!entry) continue;
@@ -77,11 +83,17 @@ const extractParts = (contents) => {
     const parts = entry.parts || (entry.text !== undefined ? [entry] : []);
     for (const part of parts) {
       if (part?.text) texts.push(part.text);
-      else if (part?.inlineData || part?.fileData) hasMedia = true;
+      else if (part?.inlineData) {
+        const { data, mimeType = '' } = part.inlineData;
+        const type = mimeType.toLowerCase();
+        if (AUDIO_FORMATS[type]) media.push({ type: 'input_audio', input_audio: { data, format: AUDIO_FORMATS[type] } });
+        else if (type.startsWith('image/')) media.push({ type: 'image_url', image_url: { url: `data:${type};base64,${data}` } });
+        else unsupported = true;
+      } else if (part?.fileData) unsupported = true;
     }
   }
 
-  return { prompt: texts.join('\n\n').trim(), hasMedia };
+  return { prompt: texts.join('\n\n').trim(), media, unsupported };
 };
 
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
@@ -90,10 +102,11 @@ const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 /* OpenAI Chat Completions                                             */
 /* ------------------------------------------------------------------ */
 
-const callOpenAiCompatible = async ({ model, prompt, generationConfig, gateway }) => {
+const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfig, gateway }) => {
   const body = {
     model,
-    messages: [{ role: 'user', content: prompt }],
+    // Media goes first, as in the Gemini request, so the instructions read after the audio.
+    messages: [{ role: 'user', content: media.length ? [...media, { type: 'text', text: prompt }] : prompt }],
   };
 
   if (typeof generationConfig.temperature === 'number') {
@@ -221,8 +234,8 @@ const callGeminiRest = async ({ model, contents, generationConfig, gateway }) =>
 
 /* ------------------------------------------------------------------ */
 
-/** True when the configured protocol can carry audio or image parts. */
-export const gatewaySupportsMedia = () => config.llmGateway.protocol === 'gemini';
+/** True when the configured protocol can carry audio or image parts (WAV/MP3 audio only, on the OpenAI protocol). */
+export const gatewaySupportsMedia = () => true;
 
 /**
  * Runs a generation against the gateway, trying each candidate model in turn.
@@ -244,11 +257,11 @@ export const generateContent = async (
     })
   );
   const candidates = gateway.models;
-  const { prompt, hasMedia } = extractParts(contents);
+  const { prompt, media, unsupported } = extractParts(contents);
 
-  if (hasMedia && gateway.protocol !== 'gemini') {
+  if (unsupported && gateway.protocol !== 'gemini') {
     throw new ApiError(
-      'This feature sends audio to the model, which an OpenAI-compatible gateway cannot carry. ' +
+      'This feature sends media an OpenAI-compatible gateway cannot carry (only inline WAV or MP3 audio and images). ' +
         'Set a direct GEMINI_API_KEY to enable it, or switch LLM_GATEWAY_PROTOCOL to "gemini". ' +
         'Transcription, translation and subtitles are unaffected.',
       { status: 501, code: 'media_unsupported', provider: 'llm-gateway' }
@@ -265,7 +278,7 @@ export const generateContent = async (
         const text =
           gateway.protocol === 'gemini'
             ? await callGeminiRest({ model, contents, generationConfig, gateway })
-            : await callOpenAiCompatible({ model, prompt, generationConfig, gateway });
+            : await callOpenAiCompatible({ model, prompt, media, generationConfig, gateway });
 
         return { response: { text }, modelUsed: model };
       } catch (err) {

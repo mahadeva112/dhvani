@@ -267,6 +267,39 @@ export const extractAudioTrack = async (inputPath, { onStatus, signal } = {}) =>
   }
 };
 
+/**
+ * The stretch of `inputPath` from `start` to `end` seconds as a small mono MP3,
+ * for a model to listen to. It is only heard, never played or kept.
+ */
+export const cutAudioClip = async (inputPath, start, end, { signal } = {}) => {
+  const binary = await resolveFfmpeg();
+  if (!binary) {
+    throw new ApiError('ffmpeg is needed to cut the source audio and was not found.', {
+      status: 501,
+      code: 'ffmpeg_missing',
+    });
+  }
+
+  const outputPath = path.join(os.tmpdir(), `dhvani-clip-${randomUUID()}.mp3`);
+  try {
+    await run(binary, [
+      '-hide_banner',
+      '-loglevel', 'error',
+      '-ss', String(Math.max(0, start)),
+      '-t', String(Math.max(0.1, end - start)),
+      '-i', inputPath,
+      '-vn',
+      '-ac', '1',
+      '-ar', '16000',
+      '-b:a', '64k',
+      '-y', outputPath,
+    ], { signal });
+    return await fs.promises.readFile(outputPath);
+  } finally {
+    await fs.promises.rm(outputPath, { force: true }).catch(() => {});
+  }
+};
+
 /** Reads the media duration in seconds, or null when ffmpeg cannot report it. */
 export const probeDuration = async (inputPath) => {
   const binary = await resolveFfmpeg();

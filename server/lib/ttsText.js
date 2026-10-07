@@ -52,17 +52,23 @@ const lastBoundary = (window, pattern) => {
  * Picks where to end a passage inside `window`, preferring (in order) a
  * paragraph break, a sentence end, a line break, then a word gap. Cuts too
  * close to the start are skipped so passages don't become tiny fragments.
+ * Never cuts inside an audio tag ("[explaining, calm]") or between a tag and
+ * the words it directs.
  */
-const findCut = (window) => {
-  const floor = Math.floor(window.length * 0.4);
+const findCut = (full) => {
+  const floor = Math.floor(full.length * 0.4);
+  // A tag still open at the end of the window is left whole for the next passage.
+  const open = full.lastIndexOf('[');
+  const window = open > full.lastIndexOf(']') && open > floor ? full.slice(0, open) : full;
   const candidates = [
     lastBoundary(window, /\n\s*\n/g),
     lastBoundary(window, SENTENCE_END),
     lastBoundary(window, /\n/g),
     lastBoundary(window, / /g),
   ];
+  const endsOnTag = (cut) => /\]\s*$/.test(window.slice(0, cut));
   for (const cut of candidates) {
-    if (cut > floor) return cut;
+    if (cut > floor && !endsOnTag(cut)) return cut;
   }
   return window.length;
 };

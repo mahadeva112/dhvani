@@ -174,12 +174,34 @@ test('a rejected bearer key fails immediately instead of trying every model', as
   }
 });
 
-test('audio is refused on an OpenAI-compatible gateway with an actionable message', async () => {
+test('OpenAI-compatible: inline MP3 audio is sent as input_audio ahead of the prompt', async () => {
+  const stub = await startStub((req, res) => json(res, 200, { choices: [{ message: { content: 'heard it' } }] }));
+
+  try {
+    const { response } = await generateContent({
+      contents: {
+        role: 'user',
+        parts: [{ inlineData: { data: 'AAAA', mimeType: 'audio/mpeg' } }, { text: 'describe' }],
+      },
+      gateway: { url: stub.url, apiKey: 'sk-x', protocol: 'openai', models: ['m'] },
+    });
+
+    assert.equal(response.text, 'heard it');
+    assert.deepEqual(stub.seen[0].body.messages[0].content, [
+      { type: 'input_audio', input_audio: { data: 'AAAA', format: 'mp3' } },
+      { type: 'text', text: 'describe' },
+    ]);
+  } finally {
+    await stub.close();
+  }
+});
+
+test('audio an OpenAI-compatible gateway cannot carry is refused with an actionable message', async () => {
   await assert.rejects(
     generateContent({
       contents: {
         role: 'user',
-        parts: [{ inlineData: { data: 'AAAA', mimeType: 'audio/mpeg' } }, { text: 'describe' }],
+        parts: [{ inlineData: { data: 'AAAA', mimeType: 'audio/ogg' } }, { text: 'describe' }],
       },
       gateway: { url: 'http://127.0.0.1:1/v1', apiKey: 'sk-x', protocol: 'openai', models: ['m'] },
     }),

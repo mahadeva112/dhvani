@@ -9,6 +9,16 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Match source audio, under Enhance emotion.** A new sub-option, on by default, for Eleven v3
+  and v4 dubs in one voice. Before voicing, the model listens to the original speaker and tags
+  the dub where their delivery shifts: "[explaining, calm, slow]", "[sentence-build pause]",
+  "[concluding, firm, falling pitch]". The tags come from the performance score in
+  `prompts/Performance_Tags_Prompt.txt`. It tags only what the speaker actually did, with no added
+  drama. Every word stays as written, and a line whose tags would change a word is voiced as
+  written. Pauses the speaker took are kept, so the dub can run a little longer. Turn the
+  sub-option off to go back to cues guessed from the script alone. The LLM gateway can now send
+  audio to the model over the OpenAI protocol too.
+
 - **Fit to this video, in Sync settings.** Under Line joins, **Measure the original** reads the
   original speaker's pauses from the word timings: inside a phrase, between lines and at a
   speaker change. It also works out how much longer the dub runs. From these it proposes the

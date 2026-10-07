@@ -342,6 +342,9 @@ interface ExpressDubWizardProps {
   /** Adds emotion cues to an Eleven v3/v4 dub before it is voiced; off means the script is spoken as written. */
   emotionEnhance?: boolean;
   onEmotionEnhanceChange?: (enabled: boolean) => void;
+  /** With Enhance emotion: tag the dub from the source audio's delivery instead of guessing from the script. */
+  emotionMatchSource?: boolean;
+  onEmotionMatchSourceChange?: (enabled: boolean) => void;
   /** Brings a dub's passages to one loudness; off keeps each at the level it was voiced at. */
   dubMatchLoudness?: boolean;
   onDubMatchLoudnessChange?: (enabled: boolean) => void;
@@ -464,6 +467,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   elModelId,
   emotionEnhance = false,
   onEmotionEnhanceChange,
+  emotionMatchSource = true,
+  onEmotionMatchSourceChange,
   dubMatchLoudness = false,
   onDubMatchLoudnessChange,
   onElModelIdChange,
@@ -3181,7 +3186,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </div>
 
                 <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                  {dubRun.phase === 'preparing' ? (
+                  {dubRun.phase === 'preparing' || dubRun.phase === 'listening' ? (
                     <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
                   ) : (
                     <div
@@ -3218,6 +3223,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
                 <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[12.5px] text-slate-400" role="status" aria-live="polite">
                   <span className="min-w-0">
+                    {dubRun.phase === 'listening' && 'Listening to the source audio to match its delivery…'}
                     {dubRun.phase === 'preparing' && 'Preparing the script for the voice…'}
                     {dubRun.phase === 'joining' && 'All cues voiced. Putting the passages together…'}
                     {dubRun.phase === 'voicing' &&
@@ -3772,6 +3778,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   // A dub with several voices is read as written: delivery cues are written for one continuous read.
                   const takesCues = Boolean(elModelId && performsAudioTags(elModelId)) && !multiSpeaker;
                   return (
+                    <>
                     <label
                       className={`flex items-start gap-2.5 text-xs ${takesCues ? 'cursor-pointer' : 'opacity-60 cursor-default'}`}
                       title={hasDub ? 'Applies the next time you dub.' : undefined}
@@ -3787,13 +3794,36 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <span className="text-slate-200 font-medium">Enhance emotion</span>
                         <span className="text-[11px] text-slate-500 leading-snug">
                           {takesCues
-                            ? 'Adds cues like [calm] and [sighs] before voicing. Off: the script is spoken exactly as written.'
+                            ? 'Adds delivery tags before voicing. Off: the script is spoken exactly as written.'
                             : multiSpeaker
                               ? 'For a dub in one voice. With several speakers, each reads the script as written.'
                               : 'Eleven v3 and v4 only.'}
                         </span>
                       </span>
                     </label>
+                    {takesCues && onEmotionMatchSourceChange && (
+                      <label
+                        className={`ml-6 pl-3 border-l border-slate-700 flex items-start gap-2.5 text-xs ${emotionEnhance ? 'cursor-pointer' : 'opacity-50 cursor-default'}`}
+                        title={hasDub ? 'Applies the next time you dub.' : undefined}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={emotionMatchSource && emotionEnhance}
+                          onChange={(e) => onEmotionMatchSourceChange(e.target.checked)}
+                          disabled={isSynthesizing || !emotionEnhance}
+                          className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                        />
+                        <span className="flex flex-col gap-0.5">
+                          <span className="text-slate-200 font-medium">Match source audio</span>
+                          <span className="text-[11px] text-slate-500 leading-snug">
+                            {emotionMatchSource
+                              ? 'Listens to the original speaker and tags only what they did, like [explaining, calm, slow]. No extra drama.'
+                              : 'Off: tags like [calm] and [sighs] are guessed from the script alone.'}
+                          </span>
+                        </span>
+                      </label>
+                    )}
+                    </>
                   );
                 })()}
                 {onDubMatchLoudnessChange && (
