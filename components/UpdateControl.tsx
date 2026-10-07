@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { Download, RotateCw, X, Check, CheckCircle2, AlertCircle, ExternalLink, Circle } from 'lucide-react';
+import { Download, RotateCw, X, Check, CheckCircle2, AlertCircle, FolderOpen, Circle } from 'lucide-react';
 
 /** The updater's state as desktop/main.cjs pushes it. */
 export interface AppUpdateState {
@@ -24,7 +24,7 @@ interface DesktopUpdates {
   check: () => Promise<void>;
   download: () => Promise<void>;
   install: () => Promise<void>;
-  openReleases: () => Promise<void>;
+  showDownload: () => Promise<void>;
   onState: (cb: (state: AppUpdateState) => void) => () => void;
   onOpenRequest: (cb: () => void) => () => void;
 }
@@ -67,7 +67,19 @@ const writeKey = (key: string, value: string) => {
   }
 };
 
+/** The offered version's notes, kept so "See what's new" can show them after the update. */
+const NOTES_KEY = 'dhvani_update_notes';
+
 const readNoticeSeen = () => readKey(NOTICE_KEY);
+
+const readSavedNotes = (version: string) => {
+  try {
+    const saved = JSON.parse(readKey(NOTES_KEY) || 'null');
+    return saved?.version === version && typeof saved.notes === 'string' ? saved.notes : '';
+  } catch {
+    return '';
+  }
+};
 
 /** Read once per page load: the version that ran before this launch. */
 const previousVersion = readKey(LAST_VERSION_KEY);
@@ -92,6 +104,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
   const [open, setOpen] = React.useState(false);
   const [noticeSeen, setNoticeSeen] = React.useState(readNoticeSeen);
   const [updatedSeen, setUpdatedSeen] = React.useState(() => readKey(UPDATED_KEY));
+  const [showNewNotes, setShowNewNotes] = React.useState(false);
 
   React.useEffect(() => {
     if (!api) return;
@@ -134,6 +147,12 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
     if (state?.currentVersion) writeKey(LAST_VERSION_KEY, state.currentVersion);
   }, [state?.currentVersion]);
 
+  React.useEffect(() => {
+    if (state?.version && state.releaseNotes) {
+      writeKey(NOTES_KEY, JSON.stringify({ version: state.version, notes: state.releaseNotes }));
+    }
+  }, [state?.version, state?.releaseNotes]);
+
   // Opening the window counts as seeing the notice.
   React.useEffect(() => {
     if (open && state?.version && (state.status === 'available' || state.status === 'downloading' || state.status === 'downloaded')) {
@@ -153,6 +172,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
   // covers an update installed by hand.
   const updated = state.justUpdated || (previousVersion !== null && previousVersion !== currentVersion);
   const showUpdated = updated && !installing && updatedSeen !== currentVersion;
+  const newNotes = showUpdated ? readSavedNotes(currentVersion) : '';
 
   const showNotice = status === 'available' && !open && !showUpdated && Boolean(version) && noticeSeen !== version;
 
@@ -160,7 +180,9 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
     status === 'downloading'
       ? `Downloading ${percent}%`
       : status === 'downloaded'
-        ? 'Restart to update'
+        ? canInstall
+          ? 'Restart to update'
+          : 'Update downloaded'
         : installing
           ? 'Installing…'
           : `Update to ${version}`;
@@ -175,7 +197,9 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
           : status === 'downloading'
             ? `Downloading ${version}…`
             : status === 'downloaded'
-              ? 'Ready to install'
+              ? canInstall
+                ? 'Ready to install'
+                : 'Download complete'
               : offered
                 ? 'Update available'
                 : 'Updates';
@@ -261,17 +285,21 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
             <div className="min-w-0 flex-1">
               <p className="text-[13.5px] font-semibold leading-snug">Updated to DHVANI {currentVersion}</p>
               <p className="text-[12px] text-slate-400 mt-0.5">Your keys, settings and projects are where you left them.</p>
+              {showNewNotes && newNotes && (
+                <div className="mt-2.5 max-h-48 overflow-y-auto custom-scrollbar whitespace-pre-line text-[12.5px] leading-relaxed text-slate-300 rounded-[10px] bg-slate-950/60 border border-slate-800 px-3 py-2.5 select-text">
+                  {newNotes}
+                </div>
+              )}
               <div className="flex gap-2 mt-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    markUpdatedSeen(currentVersion);
-                    api.openReleases();
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> See what’s new
-                </button>
+                {newNotes && !showNewNotes && (
+                  <button
+                    type="button"
+                    onClick={() => setShowNewNotes(true)}
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                  >
+                    See what’s new
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => markUpdatedSeen(currentVersion)}
@@ -305,7 +333,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
             <div className="min-w-0 flex-1">
               <p className="text-[13.5px] font-semibold leading-snug">DHVANI {version} is available</p>
               <p className="text-[12px] text-slate-400 mt-0.5">
-                {canInstall ? 'Download it when it suits you. Your keys and settings are kept.' : 'Get it from the Releases page.'}
+                Download it when it suits you. Your keys and settings are kept.
               </p>
               <div className="flex gap-2 mt-3">
                 <button
@@ -375,7 +403,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
             <div className="px-5 py-4 flex flex-col gap-3.5" aria-live="polite">
               {status === 'checking' && (
                 <p className="flex items-center gap-2 text-[13px] text-slate-400">
-                  <PillSpinner /> Looking for a newer version on GitHub.
+                  <PillSpinner /> Looking for a newer version.
                 </p>
               )}
 
@@ -423,9 +451,11 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
 
               {offered && (
                 <p className="text-[12px] text-slate-500">
-                  {!canInstall
-                    ? 'This portable copy can’t update itself. Download the new version from the Releases page.'
-                    : status === 'downloaded' && busy
+                  {!canInstall && status === 'downloaded'
+                    ? 'The new version is saved. Close DHVANI and open the new one; for the zip, unpack it over your DHVANI folder so your keys come along.'
+                    : !canInstall
+                      ? 'This copy can’t replace itself, so DHVANI downloads the new version for you to open.'
+                      : status === 'downloaded' && busy
                       ? 'Wait for the current dub or sync to finish, then restart.'
                       : status === 'downloaded'
                         ? 'DHVANI closes, installs the update and opens again. Your keys and settings are kept.'
@@ -454,14 +484,6 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                     Check again
                   </button>
                 </>
-              ) : !canInstall && status === 'available' ? (
-                <button
-                  type="button"
-                  onClick={() => api.openReleases()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
-                >
-                  <ExternalLink className="w-3.5 h-3.5" /> Open Releases page
-                </button>
               ) : status === 'available' ? (
                 <>
                   <button
@@ -476,7 +498,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                     onClick={() => api.download()}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
                   >
-                    <Download className="w-3.5 h-3.5" /> {state.error ? 'Retry download' : 'Download and install'}
+                    <Download className="w-3.5 h-3.5" /> {state.error ? 'Retry download' : canInstall ? 'Download and install' : 'Download'}
                   </button>
                 </>
               ) : status === 'downloading' ? (
@@ -487,6 +509,23 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 >
                   Hide
                 </button>
+              ) : status === 'downloaded' && !canInstall ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => api.showDownload()}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" /> Show in folder
+                  </button>
+                </>
               ) : status === 'downloaded' ? (
                 <>
                   <button

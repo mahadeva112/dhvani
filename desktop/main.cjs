@@ -14,7 +14,7 @@ const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session } = require('e
 
 const PORT = Number(process.env.PORT) || 8788; // Offset from the dev default.
 const APP_URL = `http://127.0.0.1:${PORT}`;
-const RELEASES_URL = 'https://github.com/mahadeva112/dhvani/releases/latest';
+const RELEASES_API = 'https://api.github.com/repos/mahadeva112/dhvani/releases/latest';
 
 /**
  * The app root, holding `server/`, `dist/` and `node_modules/`.
@@ -89,8 +89,9 @@ const appendLog = (line) => {
  * Only the Windows installer and the Linux AppImage can replace themselves.
  * The zip and the single-file portable cannot be swapped in place (the updater
  * would install a second, separate copy), and unsigned macOS builds are
- * refused by Squirrel. Those builds still learn about a new version, from the
- * GitHub API, and are pointed at the Releases page instead.
+ * refused by Squirrel. Those builds still learn about a new version from the
+ * releases API, and download the matching file into Downloads from inside the
+ * app. Nothing the user sees names or links to where releases are hosted.
  */
 const canSelfUpdate = () => {
   if (process.env.DHVANI_UPDATE_FEED_URL) return true; // Local update testing; see setupAutoUpdates.
@@ -129,9 +130,13 @@ const setUpdateState = (patch) => {
   else mainWindow?.setProgressBar(-1);
 };
 
-/** Release notes arrive as GitHub's HTML or Markdown; the page shows plain text. */
+/**
+ * Release notes arrive as HTML or Markdown; the page shows plain text, without
+ * the links, contributor handles and changelog footer the release host adds.
+ */
 const plainNotes = (notes) =>
   (Array.isArray(notes) ? notes.map((n) => n.note || '').join('\n') : notes || '')
+    .replace(/<a\b[^>]*>(.*?)<\/a>/gi, '$1')
     .replace(/<\/(p|li|h\d)>|<br\s*\/?>/gi, '\n')
     .replace(/<li>/gi, '• ')
     .replace(/<[^>]+>/g, '')
@@ -140,12 +145,44 @@ const plainNotes = (notes) =>
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/^.*(full changelog|new contributors|made their first contribution).*$/gim, '')
+    .replace(/\s+by @[\w-]+/g, '')
+    .replace(/\s+in\s+https?:\/\/\S+/g, '')
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\bgithub\b/gi, '')
     .replace(/^#+\s*/gm, '')
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/^\s*[-*]\s+/gm, '• ')
     .replace(/\n{3,}/g, '\n\n')
     .trim()
     .slice(0, 4000);
+
+/** Updater errors can quote the release host's URLs; the page gets a short plain message. */
+const plainError = (err) => {
+  appendLog(`[updater] ${err?.stack || err}\n`);
+  const text = String(err?.message || err || '')
+    .split('\n')[0]
+    .replace(/https?:\/\/\S+/g, '')
+    .replace(/\bgithub\b/gi, 'the update server')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return text.slice(0, 160) || 'Unknown error';
+};
+
+/** The file in a release that replaces this build, for builds that cannot install. */
+const pickAsset = (assets) => {
+  const files = (assets || []).filter((a) => a?.name && a?.browser_download_url);
+  const find = (re) => files.find((a) => re.test(a.name));
+  if (process.platform === 'win32') {
+    return process.env.PORTABLE_EXECUTABLE_DIR ? find(/-Portable-x64\.exe$/i) : find(/-Portable-x64\.zip$/i);
+  }
+  if (process.platform === 'darwin') return find(process.arch === 'arm64' ? /-arm64\.dmg$/i : /-x64\.dmg$/i);
+  if (process.platform === 'linux') return find(/\.AppImage$/i);
+  return null;
+};
+
+let releaseAsset = null; // { name, url, size } of the newer release's file, from the API check.
+let downloadedFile = null; // Where that file was saved.
 
 /** 1.2.10 is newer than 1.2.9. Pre-release suffixes are ignored. */
 const isNewer = (candidate, current) => {
@@ -159,16 +196,18 @@ const isNewer = (candidate, current) => {
 const checkReleasesApi = async () => {
   setUpdateState({ status: 'checking', error: null });
   try {
-    const response = await fetch('https://api.github.com/repos/mahadeva112/dhvani/releases/latest', {
+    const response = await fetch(RELEASES_API, {
       headers: { Accept: 'application/vnd.github+json' },
     });
     if (response.status === 404) {
       setUpdateState({ status: 'not-available' }); // Nothing published yet.
       return;
     }
-    if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+    if (!response.ok) throw new Error(`The update server answered ${response.status}`);
     const release = await response.json();
     if (isNewer(release.tag_name, app.getVersion())) {
+      const asset = pickAsset(release.assets);
+      releaseAsset = asset ? { name: asset.name, url: asset.browser_download_url, size: asset.size || 0 } : null;
       setUpdateState({
         status: 'available',
         version: String(release.tag_name).replace(/^v/, ''),
@@ -179,7 +218,57 @@ const checkReleasesApi = async () => {
       setUpdateState({ status: 'not-available' });
     }
   } catch (err) {
-    setUpdateState({ status: 'error', error: err?.message || String(err) });
+    setUpdateState({ status: 'error', error: plainError(err) });
+  }
+};
+
+/** Saves the newer release's file into Downloads, with progress, for builds that cannot install. */
+const downloadReleaseAsset = async () => {
+  if (!releaseAsset) {
+    setUpdateState({ error: 'This version has no download for this computer yet.' });
+    return;
+  }
+  setUpdateState({ status: 'downloading', percent: 0, transferred: 0, total: releaseAsset.size, error: null });
+  // The single-file portable goes beside the old one, so it finds the same
+  // dhvani-data folder and keeps the keys; anything else goes to Downloads.
+  const besideOld = process.env.PORTABLE_EXECUTABLE_DIR;
+  let folder = app.getPath('downloads');
+  try {
+    if (besideOld) {
+      fs.accessSync(besideOld, fs.constants.W_OK);
+      folder = besideOld;
+    }
+  } catch {
+    // Read-only location: Downloads it is.
+  }
+  const target = path.join(folder, releaseAsset.name);
+  const partial = `${target}.part`;
+  try {
+    const response = await fetch(releaseAsset.url);
+    if (!response.ok || !response.body) throw new Error(`The download answered ${response.status}`);
+    const total = Number(response.headers.get('content-length')) || releaseAsset.size || 0;
+    const out = fs.createWriteStream(partial);
+    let transferred = 0;
+    let lastPush = 0;
+    for await (const chunk of response.body) {
+      if (!out.write(chunk)) await new Promise((resolve) => out.once('drain', resolve));
+      transferred += chunk.length;
+      if (Date.now() - lastPush > 200) {
+        lastPush = Date.now();
+        setUpdateState({ transferred, total, percent: total ? (transferred / total) * 100 : 0 });
+      }
+    }
+    await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
+    fs.renameSync(partial, target);
+    downloadedFile = target;
+    setUpdateState({ status: 'downloaded', percent: 100, transferred, total });
+  } catch (err) {
+    try {
+      fs.rmSync(partial, { force: true });
+    } catch {
+      // A stray .part file is harmless.
+    }
+    setUpdateState({ status: 'available', error: plainError(err) });
   }
 };
 
@@ -197,7 +286,11 @@ const setupAutoUpdates = () => {
   ipcMain.handle('updates:get-state', () => updateState);
   ipcMain.handle('updates:check', () => checkForUpdates());
   ipcMain.handle('updates:download', () => {
-    if (!autoUpdater || updateState.status !== 'available') return;
+    if (updateState.status !== 'available') return;
+    if (!autoUpdater) {
+      downloadReleaseAsset();
+      return;
+    }
     setUpdateState({ status: 'downloading', percent: 0, transferred: 0, error: null });
     autoUpdater.downloadUpdate().catch(() => {}); // Reported through 'error'.
   });
@@ -210,7 +303,7 @@ const setupAutoUpdates = () => {
     // "Updating DHVANI" box until the new version opens (desktop/installer.nsh).
     setTimeout(() => autoUpdater.quitAndInstall(true, true), INSTALL_NOTICE_MS);
   });
-  ipcMain.handle('updates:open-releases', () => shell.openExternal(RELEASES_URL));
+  ipcMain.handle('updates:show-download', () => downloadedFile && shell.showItemInFolder(downloadedFile));
 
   if (canSelfUpdate()) {
     try {
@@ -260,7 +353,7 @@ const setupAutoUpdates = () => {
       const wasDownloading = updateState.status === 'downloading';
       setUpdateState({
         status: wasDownloading ? 'available' : 'error',
-        error: err?.message || String(err),
+        error: plainError(err),
       });
     });
   }
@@ -508,6 +601,36 @@ const showAbout = () => {
   aboutWindow.loadFile(path.join(__dirname, 'about.html'), { query: { version: app.getVersion() } });
 };
 
+// Each version's changes in short lines (whatsnew.html), inside the app.
+let whatsNewWindow = null;
+const showWhatsNew = () => {
+  if (whatsNewWindow) {
+    whatsNewWindow.focus();
+    return;
+  }
+  whatsNewWindow = new BrowserWindow({
+    parent: mainWindow || undefined,
+    width: 520,
+    height: 560,
+    useContentSize: true,
+    minWidth: 420,
+    minHeight: 360,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#0f172a',
+    show: false,
+    title: 'What’s New in DHVANI',
+    icon: path.join(__dirname, 'icons', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true },
+  });
+  whatsNewWindow.setMenu(null);
+  whatsNewWindow.once('ready-to-show', () => whatsNewWindow.show());
+  whatsNewWindow.on('closed', () => (whatsNewWindow = null));
+  whatsNewWindow.loadFile(path.join(__dirname, 'whatsnew.html'), { query: { version: app.getVersion() } });
+};
+
 const buildMenu = () => {
   const isMac = process.platform === 'darwin';
 
@@ -537,6 +660,10 @@ const buildMenu = () => {
       {
         role: 'help',
         submenu: [
+          {
+            label: 'What’s New',
+            click: showWhatsNew,
+          },
           {
             label: 'Check for Updates…',
             click: checkForUpdatesFromMenu,

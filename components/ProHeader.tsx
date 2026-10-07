@@ -657,7 +657,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                     <MenuItem
                       icon={<Download className="w-4 h-4" />}
                       label="Check for updates"
-                      hint="New versions from GitHub"
+                      hint="Get the latest version"
                       onClick={runAndClose(openUpdates)}
                     />
                   </>

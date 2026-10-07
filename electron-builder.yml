@@ -20,6 +20,8 @@ files:
   - desktop/preload.cjs
   - desktop/loading.html
   - desktop/about.html
+  - desktop/whatsnew.html
+  - desktop/whatsnew.js
   - desktop/icons/**
   - server/**
   - prompts/*.txt

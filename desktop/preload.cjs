@@ -13,7 +13,8 @@ contextBridge.exposeInMainWorld('dhvaniUpdates', {
   check: () => ipcRenderer.invoke('updates:check'),
   download: () => ipcRenderer.invoke('updates:download'),
   install: () => ipcRenderer.invoke('updates:install'),
-  openReleases: () => ipcRenderer.invoke('updates:open-releases'),
+  /** Builds that cannot install: show the downloaded new version in its folder. */
+  showDownload: () => ipcRenderer.invoke('updates:show-download'),
   /** Calls back with every state change; returns the unsubscribe. */
   onState: (callback) => {
     const listener = (_event, state) => callback(state);
