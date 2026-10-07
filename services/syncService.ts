@@ -686,6 +686,36 @@ export const previewSync = (
 ): Promise<SyncPreview> =>
   apiJson<SyncPreview>('/sync/preview', { body: { ...request, segments: request.segments.map(slimSegment) }, signal });
 
+/** One join setting Fit to this video would change, and what in the video says so. */
+export interface SyncFitChange {
+  key: keyof SyncJoinSettings;
+  from: number | boolean;
+  to: number | boolean;
+  reason: string;
+}
+
+export interface SyncFit {
+  /** The settings sent, with the changes in them. */
+  join: SyncJoinSettings;
+  changes: SyncFitChange[];
+  measured: { lines: number; speakers: number; pauses: number; handovers: number; wordPauses: number; lengthRatio: number | null };
+  /** Why nothing could be measured, or null. */
+  note: string | null;
+}
+
+/**
+ * Join settings measured from this video: the speaker's pauses (from the
+ * cues' word timings) and how much longer the dub runs. Nothing is applied.
+ */
+export const fitJoinSettings = (
+  request: { segments: AudioSegment[]; join: SyncJoinSettings; charsPerSecond: number; rateMeasured: boolean },
+  { signal }: { signal?: AbortSignal } = {}
+): Promise<SyncFit> =>
+  apiJson<SyncFit>('/sync/fit', {
+    body: { ...request, segments: request.segments.map((segment) => ({ ...slimSegment(segment), words: segment.words })) },
+    signal,
+  });
+
 /** The lines either side of one being reworded, and who says it, so the text model reads it in context. */
 export interface LineContext {
   before: string[];

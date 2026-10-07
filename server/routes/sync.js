@@ -13,6 +13,7 @@ import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
 import { shortenLine, lengthenLine, suggestLine, suggestLines, MAX_OPTIONS } from '../lib/syncRewrite.js';
 import { previewSync } from '../lib/syncPreview.js';
+import { fitJoinSettings } from '../lib/syncFit.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
 import { logger } from '../logger.js';
 
@@ -437,6 +438,18 @@ syncRouter.post('/sync/preview', (req, res) => {
   const { segments, precision, charsPerSecond, sourceDuration, join } = req.body || {};
   if (!Array.isArray(segments)) throw new ApiError('There are no cues to preview.', { status: 400, code: 'no_segments' });
   res.json(previewSync({ segments, precision, charsPerSecond, sourceDuration, join }));
+});
+
+/**
+ * POST /api/sync/fit — join settings measured from this video: the speaker's
+ * pauses and how much longer the dub runs. Body: `{ segments, join,
+ * charsPerSecond, rateMeasured }`. Pure arithmetic on the cues; nothing is
+ * applied, the app shows the changes for the user to apply.
+ */
+syncRouter.post('/sync/fit', (req, res) => {
+  const { segments, join, charsPerSecond, rateMeasured } = req.body || {};
+  if (!Array.isArray(segments)) throw new ApiError('There are no cues to measure.', { status: 400, code: 'no_segments' });
+  res.json(fitJoinSettings({ segments, join, charsPerSecond, rateMeasured: rateMeasured === true }));
 });
 
 /** Most earlier wordings a rewording request may list, to be told apart from. */

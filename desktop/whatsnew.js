@@ -5,6 +5,10 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.20',
+    changes: ['Fit to this video in Sync settings: measures the original’s pauses and suggests the gaps, nothing changes until you apply.'],
+  },
+  {
     version: '1.3.19',
     changes: [
       'What’s New in the Help menu: every version’s changes, inside the app.',

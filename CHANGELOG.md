@@ -9,6 +9,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Fit to this video, in Sync settings.** Under Line joins, **Measure the original** reads the
+  original speaker's pauses from the word timings: inside a phrase, between lines and at a
+  speaker change. It also works out how much longer the dub runs. From these it proposes the
+  grouping, the gaps, how far a long line's pauses may be shortened, and the review flag, each
+  with the reason, e.g. "At a speaker change the original leaves about 420 ms." Nothing changes
+  until you press **Apply**, and the groups it set are marked *measured*. Line edges, breaths and
+  the settings that change the audio are never touched.
+
 - **Match the original pace, in Sync.** An opt-in setting in Sync settings, off by default. Sync
   measures how long each dub line takes against how long the original speaker took. It then
   voices that line again at the speed that makes the two match, so a fast speaker's lines are

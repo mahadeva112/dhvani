@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
-import { SYNC_JOIN_PRESETS, SYNC_JOIN_PRESET_OPTIONS, SyncJoinPreset, SyncJoinSettings, SyncOptions } from '../services/syncService';
+import { Check, ChevronDown, Loader2, Ruler, X } from 'lucide-react';
+import {
+  fitJoinSettings,
+  SYNC_JOIN_PRESETS,
+  SYNC_JOIN_PRESET_OPTIONS,
+  SyncFit,
+  SyncJoinPreset,
+  SyncJoinSettings,
+  SyncOptions,
+} from '../services/syncService';
+import { AudioSegment } from '../types';
 
 /**
  * How Sync joins its lines: a preset, and under it every setting the preset
@@ -88,7 +97,7 @@ const Toggle: React.FC<{ label: string; hint?: string; checked: boolean; disable
   </label>
 );
 
-const Group: React.FC<{ title: string; summary: string; children: React.ReactNode }> = ({ title, summary, children }) => {
+const Group: React.FC<{ title: string; summary: string; measured?: boolean; children: React.ReactNode }> = ({ title, summary, measured, children }) => {
   const [open, setOpen] = useState(false);
   return (
     <div className="border-t border-slate-800">
@@ -99,7 +108,17 @@ const Group: React.FC<{ title: string; summary: string; children: React.ReactNod
         className="w-full flex items-center gap-2 py-2.5 text-left cursor-pointer"
       >
         <span className="flex-1 min-w-0">
-          <span className="block text-[13px] font-medium text-slate-200">{title}</span>
+          <span className="block text-[13px] font-medium text-slate-200">
+            {title}
+            {measured && (
+              <span
+                title="Set by Fit to this video"
+                className="ml-1.5 px-1.5 py-px rounded-md bg-indigo-500/15 text-indigo-300 text-[10.5px] font-medium align-middle"
+              >
+                measured
+              </span>
+            )}
+          </span>
           {!open && <span className="block text-[11.5px] text-slate-500 truncate">{summary}</span>}
         </span>
         <ChevronDown className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -109,13 +128,163 @@ const Group: React.FC<{ title: string; summary: string; children: React.ReactNod
   );
 };
 
+/** What Fit to this video measures from: the cues, and the dub's speaking rate. */
+export interface SyncFitSource {
+  segments: AudioSegment[];
+  charsPerSecond: number;
+  /** True when the rate was measured from this dub, not a typical one. */
+  rateMeasured: boolean;
+}
+
+const FIT_LABELS: Partial<Record<keyof SyncJoinSettings, string>> = {
+  unitGap: 'Join cues closer than',
+  minGap: 'Minimum gap',
+  speakerGap: 'Gap at a speaker change',
+  gapShare: 'Keep of the original pause',
+  shortenPauses: 'Shorten pauses',
+  maxPauseTake: 'Most taken from one pause',
+  flagJoin: 'Flag joins tighter than',
+};
+
+const fitValue = (key: keyof SyncJoinSettings, value: number | boolean) =>
+  typeof value === 'boolean' ? (value ? 'On' : 'Off') : key === 'gapShare' || key === 'maxPauseTake' ? percent(value) : ms(value);
+
+/** The join settings each group holds, to mark a group whose settings Fit to this video set. */
+const GROUP_KEYS: Record<'gaps' | 'pauses' | 'grouping' | 'review', (keyof SyncJoinSettings)[]> = {
+  gaps: ['minGap', 'speakerGap', 'gapShare'],
+  pauses: ['shortenPauses', 'maxPauseTake'],
+  grouping: ['unitGap'],
+  review: ['flagJoin'],
+};
+
+/**
+ * Fit to this video: measures the speaker's pauses and the dub's length, and
+ * lists what it would change, each with its reason. Nothing changes until
+ * Apply.
+ */
+const FitCard: React.FC<{
+  source: SyncFitSource;
+  join: SyncJoinSettings;
+  disabled?: boolean;
+  onApply: (changes: Partial<SyncJoinSettings>) => void;
+}> = ({ source, join, disabled, onApply }) => {
+  const [fit, setFit] = useState<SyncFit | null>(null);
+  const [measuring, setMeasuring] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const measure = async () => {
+    setMeasuring(true);
+    setError(null);
+    try {
+      setFit(await fitJoinSettings({ ...source, join }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't measure this video.");
+    } finally {
+      setMeasuring(false);
+    }
+  };
+
+  if (!fit) {
+    return (
+      <div className="flex flex-col gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-2.5">
+        <div className="flex items-start gap-2">
+          <Ruler className="w-4 h-4 mt-0.5 shrink-0 text-indigo-300" />
+          <span>
+            <span className="block text-[13px] font-medium text-slate-200">Fit to this video</span>
+            <span className="block text-[11.5px] text-slate-400 mt-0.5">
+              Measures the original speaker's pauses and how much longer the dub runs, and sets the gaps, grouping and pauses to match. Nothing changes
+              until you apply.
+            </span>
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={measure}
+          disabled={disabled || measuring || source.segments.length === 0}
+          className="self-start flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+        >
+          {measuring ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ruler className="w-3.5 h-3.5" />}
+          {measuring ? 'Measuring…' : 'Measure the original'}
+        </button>
+        {error && <span className="text-[11.5px] text-rose-300">{error}</span>}
+      </div>
+    );
+  }
+
+  const { changes, measured, note } = fit;
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[13px] font-medium text-slate-200">
+          {changes.length === 0 ? 'Nothing to change' : `Measured: ${changes.length} ${changes.length === 1 ? 'change' : 'changes'}`}
+        </span>
+        <span className="text-[11.5px] text-slate-500 shrink-0">
+          {measured.lines} lines · {measured.speakers} {measured.speakers === 1 ? 'speaker' : 'speakers'}
+        </span>
+      </div>
+      {note && <span className="text-[11.5px] text-slate-400">{note}</span>}
+      {!note && changes.length === 0 && <span className="text-[11.5px] text-slate-400">Your settings already match how this video is spoken.</span>}
+      {changes.length > 0 && (
+        <ul className="flex flex-col">
+          {changes.map((change) => (
+            <li key={change.key} className="flex items-start justify-between gap-2 py-1.5 border-t border-slate-800">
+              <span className="min-w-0">
+                <span className="block text-[12.5px] text-slate-200">{FIT_LABELS[change.key] ?? change.key}</span>
+                <span className="block text-[11.5px] text-slate-400">{change.reason}</span>
+              </span>
+              <span className="shrink-0 tabular-nums text-[12px] text-indigo-300">
+                {fitValue(change.key, change.from)} → {fitValue(change.key, change.to)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <span className="text-[11px] text-slate-500">Line edges, breaths and the settings that change the audio stay as they are.</span>
+      <div className="flex gap-2">
+        {changes.length > 0 && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              onApply(Object.fromEntries(changes.map((c) => [c.key, c.to])) as Partial<SyncJoinSettings>);
+              setFit(null);
+            }}
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <Check className="w-3.5 h-3.5" /> Apply
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setFit(null)}
+          className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 transition-colors cursor-pointer"
+        >
+          <X className="w-3.5 h-3.5" /> {changes.length > 0 ? 'Keep current' : 'Close'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 /** The preset picker and the join settings under it, for the Sync settings rail. */
 export const SyncJoinSettingsPanel: React.FC<{
   options: SyncOptions;
   onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
   disabled?: boolean;
-}> = ({ options, onOptionsChange, disabled }) => {
+  /** What Fit to this video measures from; no card without it. */
+  fitSource?: SyncFitSource;
+}> = ({ options, onOptionsChange, disabled, fitSource }) => {
   const { join } = options;
+  /** The values Fit to this video set; a group is marked while any of its settings still holds one. */
+  const [fitted, setFitted] = useState<Partial<SyncJoinSettings>>({});
+  const measured = (group: keyof typeof GROUP_KEYS) => GROUP_KEYS[group].some((key) => key in fitted && fitted[key] === join[key]);
+  const applyFit = (changes: Partial<SyncJoinSettings>) => {
+    setFitted(changes);
+    onOptionsChange((o) => {
+      const next = { ...o.join, ...changes };
+      return { ...o, join: next, preset: joinPresetOf(next) };
+    });
+  };
   const set = <K extends keyof SyncJoinSettings>(key: K, value: SyncJoinSettings[K]) =>
     onOptionsChange((o) => {
       const next = { ...o.join, [key]: value };
@@ -147,8 +316,10 @@ export const SyncJoinSettingsPanel: React.FC<{
         {hint && <span className="text-[11.5px] text-slate-400">{hint}</span>}
       </div>
 
+      {fitSource && <FitCard source={fitSource} join={join} disabled={disabled} onApply={applyFit} />}
+
       <div className="flex flex-col">
-        <Group title="Gaps between lines" summary={`${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`}>
+        <Group title="Gaps between lines" measured={measured('gaps')} summary={`${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`}>
           <Slider
             id="sync-min-gap"
             label="Minimum gap"
@@ -202,6 +373,7 @@ export const SyncJoinSettingsPanel: React.FC<{
 
         <Group
           title="Pauses inside a line"
+          measured={measured('pauses')}
           summary={join.shortenPauses ? `Shortened to ${ms(join.minInnerPause)} at least, ${percent(join.maxPauseTake)} at most` : 'Never shortened'}
         >
           <Toggle
@@ -337,7 +509,7 @@ export const SyncJoinSettingsPanel: React.FC<{
           />
         </Group>
 
-        <Group title="Grouping" summary={`Cues under ${ms(join.unitGap)} apart are one line, ${join.maxUnit} s at most`}>
+        <Group title="Grouping" measured={measured('grouping')} summary={`Cues under ${ms(join.unitGap)} apart are one line, ${join.maxUnit} s at most`}>
           <Slider
             id="sync-unit-gap"
             label="Join cues closer than"
@@ -363,7 +535,7 @@ export const SyncJoinSettingsPanel: React.FC<{
           />
         </Group>
 
-        <Group title="Review" summary={`Flags joins under ${ms(join.flagJoin)}`}>
+        <Group title="Review" measured={measured('review')} summary={`Flags joins under ${ms(join.flagJoin)}`}>
           <Slider
             id="sync-flag-join"
             label="Flag joins tighter than"

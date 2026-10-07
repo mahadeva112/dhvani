@@ -13,7 +13,7 @@ import {
 } from '../services/syncService';
 import { isShort, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
-import { joinPresetOf, readJoinSettings, SyncJoinSettingsPanel } from './SyncJoinSettings';
+import { joinPresetOf, readJoinSettings, SyncFitSource, SyncJoinSettingsPanel } from './SyncJoinSettings';
 
 /**
  * Sync, step 4: makes a dub that plays in step with the original, line by
@@ -216,6 +216,8 @@ export interface SyncSettingsPanelProps {
   subtitles?: React.ReactNode;
   /** Why matching the original pace won't work with the voice picked, or null when it will. */
   paceNote?: string | null;
+  /** What Fit to this video measures from; the card is left out without it. */
+  fitSource?: SyncFitSource;
 }
 
 /** The right-hand rail of step 4: what to sync with, the Sync button, and the synced files. */
@@ -239,6 +241,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   onOpenVoiceChanger,
   subtitles,
   paceNote,
+  fitSource,
 }) => (
   <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
@@ -268,7 +271,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         </select>
         {previewShown && <span className="text-[11.5px] text-slate-400">The preview updates when you change this.</span>}
       </div>
-      <SyncJoinSettingsPanel options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />
+      <SyncJoinSettingsPanel options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} fitSource={fitSource} />
       <label className="flex items-start gap-2.5 cursor-pointer">
         <input
           type="checkbox"
