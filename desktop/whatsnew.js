@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.24',
+    changes: [
+      'Sync now cuts each line out of your Final dub, so the synced dub sounds exactly like the dub; only lines you changed are voiced again.',
+      'Lines Sync does voice again keep Enhance emotion and Match source audio.',
+    ],
+  },
+  {
     version: '1.3.23',
     changes: ['Match source audio, under Enhance emotion: the dub is tagged from how the original speaker actually spoke, with no added drama.'],
   },

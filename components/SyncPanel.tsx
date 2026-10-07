@@ -584,6 +584,15 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             dubBuffer={dubBuffer}
           />
 
+          {(report.summary.fromDub ?? 0) > 0 && (
+            <p className="text-xs text-slate-400">
+              {report.summary.fromDub === report.summary.lines
+                ? `All ${report.summary.lines} lines were taken from your Final dub, so they sound exactly as the dub does.`
+                : `${report.summary.fromDub} of ${report.summary.lines} lines were taken from your Final dub, so they sound exactly as the dub does. The other ${
+                    report.summary.lines - (report.summary.fromDub ?? 0)
+                  } were voiced again: their words changed after the dub, or you asked for a retake.`}
+            </p>
+          )}
           {(report.summary.meaningRejected ?? 0) > 0 && (
             <p className="text-xs text-slate-400">
               {report.summary.meaningRejected === 1 ? '1 suggestion was' : `${report.summary.meaningRejected} suggestions were`} held back: every

@@ -1,5 +1,5 @@
-import { apiGet, apiGetAudio, apiJson } from './apiClient';
-import { AudioSegment, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
+import { apiGet, apiGetAudio, apiJson, apiPutBlob, DhvaniApiError } from './apiClient';
+import { AudioSegment, DubLines, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
 import { ElevenLabsVoiceSettings } from './elevenLabsService';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
 import { castPayload, fetchMixed } from './castService';
@@ -238,6 +238,8 @@ export interface SyncUnitReport {
   tightJoin: boolean;
   /** Times the line was voiced again because the voice cut it off mid-word (absent in older reports). */
   retakes?: number;
+  /** The line was cut from the Final dub, not voiced again (absent in older reports). */
+  fromDub?: boolean;
   /** The take used still ends before its last word died away: the voice cut it off. */
   cutOff?: boolean;
   /** Breaths silenced in the line (absent in older reports). */
@@ -278,6 +280,8 @@ export interface SyncReport {
     /** Lines voiced again because the voice cut them off, and lines still cut off after that. */
     retaken?: number;
     cutOff?: number;
+    /** Lines cut from the Final dub rather than voiced again. */
+    fromDub?: number;
     /** Breaths silenced across the dub. */
     breathsRemoved?: number;
   };
@@ -344,16 +348,26 @@ export interface SyncRequest {
   peak?: MixPeakMode;
   /** Lines locked in Edit timing, by key (syncEditService.lockedLines): held where the user put them. */
   locked?: ReturnType<typeof lockedLines>;
+  /** Match source audio: each cue's text tagged from the source, by cue id; the cues are voiced from these. */
+  voiceTexts?: Record<string, string>;
+  /** Enhance emotion: delivery cues are added to the lines before they are voiced, as in a dub. */
+  expressive?: boolean;
+  /**
+   * The Final dub (mono WAV) and what it says: every line that still reads the
+   * same is cut from it rather than voiced again, so the sync sounds as the dub did.
+   */
+  dub?: { blob: Blob; lines: DubLines };
 }
 
 /** Only what the server reads from each cue; word timings and legacy fields stay behind. */
-const slimSegment = (segment: AudioSegment) => ({
+const slimSegment = (segment: AudioSegment, voiceTexts?: Record<string, string>) => ({
   id: segment.id,
   startTime: segment.startTime,
   endTime: segment.endTime,
   speaker: segment.speaker,
   textTarget: segment.textTarget || segment.targetText || '',
   textSource: segment.textSource || segment.originalText || '',
+  ...(voiceTexts?.[segment.id] && { voiceText: voiceTexts[segment.id] }),
 });
 
 /**
@@ -365,25 +379,27 @@ export const syncDub = async (
   request: SyncRequest,
   { apiKey, jobId, signal }: { apiKey?: string; jobId?: string; signal?: AbortSignal } = {}
 ): Promise<{ blob: Blob; stems: DubStem[]; report: SyncReport; bank: SyncBank; bankBlob: Blob }> => {
-  const { cartesia, cast, multiSpeaker, ...rest } = request;
+  const { cartesia, cast, multiSpeaker, voiceTexts, dub, ...rest } = request;
   // A Cartesia voice gets the same model and delivery as a Cartesia dub.
   const voice =
     cartesia && isCartesiaVoice(request.voiceId)
       ? { modelId: cartesia.modelId || undefined, voiceSettings: cartesiaDelivery(cartesia) }
       : { voiceSettings: request.voiceSettings || undefined };
-  const data = await apiJson<{
+  type Synced = {
     audioId: string;
     contentType: string;
     stems: { speaker: string; audioId: string; contentType: string }[];
     report: SyncReport;
     bank: SyncBank & { audioId: string };
-  }>(
-    '/sync',
-    {
+  };
+  const send = (withDub: boolean) =>
+    apiJson<Synced>('/sync', {
       body: {
         ...rest,
         ...voice,
-        segments: request.segments.map(slimSegment),
+        segments: request.segments.map((segment) => slimSegment(segment, voiceTexts)),
+        ...(voiceTexts && { performanceTags: true }),
+        ...(withDub && dub && { dub: { dubId: dub.lines.dubId, cues: dub.lines.cues } }),
         ...(multiSpeaker && {
           multiSpeaker: true,
           cast: castPayload(cast, { modelId: request.modelId, voiceSettings: request.voiceSettings, cartesia }),
@@ -392,8 +408,24 @@ export const syncDub = async (
       },
       keys: { elevenLabsKey: apiKey },
       signal,
+    });
+  let data: Synced;
+  try {
+    data = await send(Boolean(dub));
+  } catch (err) {
+    if (!dub || !(err instanceof DhvaniApiError) || err.code !== 'sync_dub_missing') throw err;
+    // The server keeps a dub a few hours, and not across a restart: send it again.
+    let sent = true;
+    try {
+      await apiPutBlob(`/sync/dubs/${encodeURIComponent(dub.lines.dubId)}`, dub.blob, { signal });
+    } catch (putErr) {
+      if (signal?.aborted) throw putErr;
+      // A dub the server can't read (not mono WAV) is no reason to fail: every line is voiced instead.
+      console.warn('The dub could not be sent for Sync; every line is voiced again.', putErr);
+      sent = false;
     }
-  );
+    data = await send(sent);
+  }
   // The dub, any stems and the bank are fetched on their own: lossless WAV is too big to ride inside JSON.
   const mixed = await fetchMixed(data, signal);
   const { audioId, ...bank } = data.bank;
@@ -672,7 +704,7 @@ export const previewSync = (
   request: { segments: AudioSegment[]; precision: SyncPrecision; charsPerSecond: number; sourceDuration?: number; join?: SyncJoinSettings },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncPreview> =>
-  apiJson<SyncPreview>('/sync/preview', { body: { ...request, segments: request.segments.map(slimSegment) }, signal });
+  apiJson<SyncPreview>('/sync/preview', { body: { ...request, segments: request.segments.map((segment) => slimSegment(segment)) }, signal });
 
 /** One join setting Fit to this video would change, and what in the video says so. */
 export interface SyncFitChange {

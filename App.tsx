@@ -1988,6 +1988,25 @@ export default function App() {
     }
   };
 
+  /**
+   * Match source audio: the job's cues tagged from the original speaker's
+   * delivery. Heard once per wording and kept, so a dub and a sync of the same
+   * script share the same tags. `onListen` is called when the source must be heard.
+   */
+  const sourceTaggedSegments = async (job: BatchJob, language: string, signal: AbortSignal, onListen?: () => void) => {
+    if (!job.audioBuffer) {
+      throw new Error('The source audio is not loaded, so it cannot be matched. Reopen the project, or turn off Match source audio.');
+    }
+    const key = JSON.stringify([language, job.segments.map((s) => [s.startTime, s.endTime, s.textTarget || s.targetText || ''])]);
+    const cached = sourceCueCacheRef.current[job.id];
+    if (cached?.key === key) return cached.segments;
+    onListen?.();
+    const result = await matchSourceDelivery(job.audioBuffer, job.segments, language, { signal });
+    if (result.taggedSections === 0) console.warn('Match source audio added no tags; the script is voiced as written.');
+    sourceCueCacheRef.current[job.id] = { key, segments: result.segments };
+    return result.segments;
+  };
+
   // Master Speech Synthesis (ElevenLabs or Gemini 3.5 Flash)
   const handleSynthesizeMaster = async () => {
     if (!activeJob || isSyncing) return;
@@ -2062,20 +2081,9 @@ export default function App() {
           activeJob.segments.length > 0;
         let script = textToSynthesize;
         if (matchSource) {
-          if (!activeJob.audioBuffer) {
-            throw new Error('The source audio is not loaded, so it cannot be matched. Reopen the project, or turn off Match source audio.');
-          }
-          const key = JSON.stringify([language, activeJob.segments.map((s) => [s.startTime, s.endTime, s.textTarget || s.targetText || ''])]);
-          let tagged = sourceCueCacheRef.current[activeJob.id]?.key === key ? sourceCueCacheRef.current[activeJob.id].segments : null;
-          if (!tagged) {
-            setDubProgress({ phase: 'listening', passageCount: 0, passagesDone: 0, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true });
-            const result = await matchSourceDelivery(activeJob.audioBuffer, activeJob.segments, language, {
-              signal: controller.signal,
-            });
-            tagged = result.segments;
-            if (result.taggedSections === 0) console.warn('Match source audio added no tags; the script is voiced as written.');
-            sourceCueCacheRef.current[activeJob.id] = { key, segments: tagged };
-          }
+          const tagged = await sourceTaggedSegments(activeJob, language, controller.signal, () =>
+            setDubProgress({ phase: 'listening', passageCount: 0, passagesDone: 0, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true })
+          );
           script = buildSpeechScript(tagged);
         }
         blob = await synthesizeSpeech(
@@ -2135,6 +2143,18 @@ export default function App() {
         // Until the new dub decodes, no waveform rather than the previous dub's.
         synthAudioBuffer: null,
         dubScriptCharacters: scriptCharacterCount(activeJob.segments),
+        // What this dub says, so Sync can cut its lines from it (one voice only).
+        dubLines:
+          !several && activeJob.segments.length > 0
+            ? {
+                dubId: jobId,
+                voiceId: elVoiceId,
+                modelId: elModelId,
+                cues: activeJob.segments
+                  .map((segment) => ({ id: String(segment.id), text: (segment.textTarget || segment.targetText || '').trim() }))
+                  .filter((cue) => cue.text),
+              }
+            : null,
         srtUrl,
         srtBlob,
         dubStems,
@@ -2310,6 +2330,20 @@ export default function App() {
 
     try {
       const several = isMultiSpeaker(activeJob.segments);
+      const language = activeJob.language || selectedLanguage;
+      // Emotion as in the dub: one voice on a model that performs tags (see handleSynthesizeMaster).
+      const tagsEmotion = emotionEnhance && !several && performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
+      let voiceTexts: Record<string, string> | undefined;
+      if (tagsEmotion && emotionMatchSource) {
+        const tagged = await sourceTaggedSegments(activeJob, language, controller.signal);
+        voiceTexts = Object.fromEntries(tagged.map((segment) => [String(segment.id), segment.textTarget || segment.targetText || '']));
+      }
+      // The Final dub, where it was voiced by this voice: its lines are cut from it rather than voiced again.
+      const dubLines = activeJob.dubLines;
+      const dub =
+        !several && dubLines && activeJob.synthesizedBlob && dubLines.voiceId === elVoiceId && dubLines.modelId === elModelId
+          ? { blob: activeJob.synthesizedBlob, lines: dubLines }
+          : undefined;
       const { blob, stems, report, bank, bankBlob } = await syncDub(
         {
           segments: activeJob.segments,
@@ -2318,7 +2352,7 @@ export default function App() {
           modelId: elModelId,
           outputFormat: elOutputFormat,
           voiceSettings: elVoiceSettings,
-          language: activeJob.language || selectedLanguage,
+          language,
           seed,
           precision,
           join,
@@ -2328,6 +2362,8 @@ export default function App() {
           lineSeeds: syncLineSeedsRef.current[activeJob.id],
           debug: audioDebugEnabled(),
           cartesia: cartesiaVoice,
+          ...(voiceTexts ? { voiceTexts } : tagsEmotion && { expressive: true }),
+          ...(dub && { dub }),
           ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
           ...(Object.keys(locked).length > 0 && { locked }),
         },

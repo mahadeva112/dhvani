@@ -551,6 +551,33 @@ test('a dub whose lines fit is placed exactly on the source phrases', async () =
   assert.ok(Math.abs(report.duration - 10) < 0.01, 'the dub is as long as the source');
 });
 
+test('lines are voiced from their tagged text, while the report keeps the words as written', async () => {
+  clearClipCache();
+  const segments = [
+    cue(1, 1, 2, 'aaaaaaaaaa', { voiceText: '[calm] aaaaaaaaaa' }),
+    cue(2, 2.1, 3, 'bbbbbbbbbb.', { voiceText: '[warm] bbbbbbbbbb.' }),
+    cue(3, 5, 6, 'cccccccccc'),
+  ];
+  const { deps, voiced } = fakeDeps();
+  const { report } = await runSync({ segments, sourceDuration: 8, sampleRate: RATE, voice }, deps);
+  assert.deepEqual(voiced, ['[calm] aaaaaaaaaa [warm] bbbbbbbbbb.', 'cccccccccc.']);
+  assert.equal(report.units[0].text, 'aaaaaaaaaa bbbbbbbbbb.');
+});
+
+test('Enhance emotion cues every line of one speaker together, before any is voiced', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa.'), cue(2, 4, 5, 'bbbbbbbbbb.'), cue(3, 7, 8, 'cccccccccc.', { speaker: 'B' })];
+  const asked = [];
+  const { deps, voiced } = fakeDeps();
+  deps.cue = async (texts) => {
+    asked.push(texts);
+    return texts.map((text, i) => (i === 0 ? `[curious] ${text}` : text));
+  };
+  await runSync({ segments, sourceDuration: 10, sampleRate: RATE, voice }, deps);
+  assert.deepEqual(asked, [['aaaaaaaaaa.', 'bbbbbbbbbb.', 'cccccccccc.']], 'one voice: one script');
+  assert.deepEqual(voiced, ['[curious] aaaaaaaaaa.', 'bbbbbbbbbb.', 'cccccccccc.']);
+});
+
 test('a line that starts at 0:00 still starts on time', async () => {
   clearClipCache();
   const { deps } = fakeDeps();

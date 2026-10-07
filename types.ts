@@ -155,6 +155,16 @@ export interface JobHistory {
  */
 export type TargetSource = 'pending' | 'translated' | 'custom';
 
+/** The script a dub was voiced from, for a sync to cut its lines from that dub (see BatchJob.dubLines). */
+export interface DubLines {
+  /** Names the dub on the server, which the app sends it to before a sync. */
+  dubId: string;
+  voiceId: string;
+  modelId: string;
+  /** The cues as the dub says them, in spoken order. */
+  cues: { id: string; text: string }[];
+}
+
 // New Interface for Batch Processing
 export interface BatchJob {
   id: string;
@@ -206,6 +216,12 @@ export interface BatchJob {
    * afterwards doesn't shift the rate every estimate is made at.
    */
   dubScriptCharacters?: number;
+  /**
+   * What the dub above says, cue by cue, and with which voice: a sync with the
+   * same voice cuts every line that still reads the same out of the dub
+   * instead of voicing it again. Unset for a dub with several voices.
+   */
+  dubLines?: DubLines | null;
   
   srtUrl: string | null; // New field for SRT download
   srtBlob: Blob | null; // Added for IndexedDB persistence

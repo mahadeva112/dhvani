@@ -36,6 +36,8 @@ export const MAX_UNIT_SECONDS = DEFAULT_JOIN_SETTINGS.maxUnit;
 export const MAX_SENTENCE_UNIT_SECONDS = 30;
 
 const cueText = (segment) => String(segment?.textTarget || segment?.targetText || '').trim();
+/** What a cue is voiced from: its text with delivery tags (Match source audio), or its text. */
+const cueVoiceText = (segment) => String(segment?.voiceText || '').trim() || cueText(segment);
 const cueSourceText = (segment) => String(segment?.textSource || segment?.originalText || '').trim();
 
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
@@ -43,7 +45,9 @@ const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 /**
  * Groups cues into sync units. Cues with no translated text are skipped: they
  * have nothing to voice. Returns units in source order, each with
- * `{ index, cueIds, text, sourceText, srcStart, srcEnd, speaker, gapBefore, gapAfter, nextStart, speakerChangeAfter, hardAnchor }`.
+ * `{ index, cueIds, text, voiceText, sourceText, srcStart, srcEnd, speaker, gapBefore, gapAfter, nextStart, speakerChangeAfter, hardAnchor }`.
+ * `voiceText` is `text` with the delivery tags a cue's `voiceText` carries;
+ * `text` stays plain, for timing, suggestions and the report.
  * `nextStart` is null for the last unit; `gapBefore` is null for the first.
  * `unitGap` and `maxUnit` (seconds) decide which cues are joined; a sentence
  * left open is finished in the same unit (see MAX_SENTENCE_UNIT_SECONDS),
@@ -71,12 +75,14 @@ export const buildSyncUnits = (segments = [], { unitGap = UNIT_GAP_SECONDS, maxU
     if (joins) {
       current.cueIds.push(cue.id);
       current.text += ` ${cueText(cue)}`;
+      current.voiceText += ` ${cueVoiceText(cue)}`;
       current.sourceText = [current.sourceText, cueSourceText(cue)].filter(Boolean).join(' ');
       current.srcEnd = Math.max(current.srcEnd, cue.endTime);
     } else {
       current = {
         cueIds: [cue.id],
         text: cueText(cue),
+        voiceText: cueVoiceText(cue),
         sourceText: cueSourceText(cue),
         srcStart: cue.startTime,
         srcEnd: cue.endTime,

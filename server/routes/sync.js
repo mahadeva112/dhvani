@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import express, { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../errors.js';
-import { synthesizeLines, cleanTextForNaturalSpeech } from '../providers/elevenlabs/speech.js';
+import { synthesizeLines, cleanTextForNaturalSpeech, performsTags } from '../providers/elevenlabs/speech.js';
 import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } from '../providers/cartesia/speech.js';
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch } from '../lib/media.js';
 import { pcmToWav, floatToWav, parseWav } from '../lib/wav.js';
@@ -15,6 +15,10 @@ import { previewSync } from '../lib/syncPreview.js';
 import { fitJoinSettings } from '../lib/syncFit.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
 import { logger } from '../logger.js';
+import { config } from '../env.js';
+import { addDeliveryCuesToPassages } from '../lib/deliveryCues.js';
+import { alignmentText, cueSpans, cutDubTakes } from '../lib/dubTakes.js';
+import { forceAlign } from '../providers/elevenlabs/alignment.js';
 
 export const syncRouter = Router();
 
@@ -99,6 +103,25 @@ const castVoices = (cast, main, { requested, seed }) => {
   return (speaker) => voices.get(speaker) || main;
 };
 
+/**
+ * Delivery cues already added to a set of lines, by language and text. The
+ * text model words its cues a little differently each time, so a second Sync
+ * reuses the first one's cues and finds its takes in the clip cache.
+ */
+const CUE_CACHE_LIMIT = 50;
+const cueCache = new Map();
+
+/** Enhance emotion for a sync: `texts` with delivery cues, cued as one script as a dub is (see deliveryCues.js). */
+const cueLinesWith = ({ language, apiKey }) => async (texts) => {
+  const key = createHash('sha256').update(JSON.stringify([language || '', texts])).digest('hex');
+  if (cueCache.has(key)) return cueCache.get(key);
+  const cued = await addDeliveryCuesToPassages(texts, { language, apiKey });
+  // Lines left as written (the text model failed or added nothing) are asked again next time.
+  if (cued.some((text, i) => text !== texts[i])) cueCache.set(key, cued);
+  if (cueCache.size > CUE_CACHE_LIMIT) cueCache.delete(cueCache.keys().next().value);
+  return cued;
+};
+
 /** Voices lines with whichever engine `voice` belongs to. */
 const voiceLinesWith = ({ apiKey, cartesiaKey, language, signal }) => async (lines, { voice, onLine }) =>
   voice.cartesia
@@ -163,6 +186,87 @@ const bankFor = (bankId) => {
   return entry;
 };
 
+/**
+ * Final dubs a sync may cut its lines from (see dubTakes.js), by id. The app
+ * sends its dub (PUT /api/sync/dubs/:dubId) when the server doesn't have it;
+ * each is kept with the word times forced alignment found in it, so the
+ * alignment is paid for once per script.
+ */
+const DUB_TTL_MS = 3 * 60 * 60 * 1000;
+const DUB_BYTES_LIMIT = 768 * 1024 * 1024;
+const dubs = new Map();
+
+const dubBytes = (entry) => entry.buffer.byteLength + entry.samples.byteLength;
+
+const keepDub = (dubId, buffer, { sampleRate, samples }) => {
+  dubs.delete(dubId);
+  dubs.set(dubId, { buffer, sampleRate, samples, usedAt: Date.now(), spans: new Map() });
+  let bytes = 0;
+  for (const entry of dubs.values()) bytes += dubBytes(entry);
+  for (const [id, entry] of dubs) {
+    if (bytes <= DUB_BYTES_LIMIT || id === dubId) break;
+    bytes -= dubBytes(entry);
+    dubs.delete(id);
+  }
+};
+
+const dubFor = (dubId) => {
+  const now = Date.now();
+  for (const [id, entry] of dubs) if (now - entry.usedAt > DUB_TTL_MS) dubs.delete(id);
+  const entry = dubs.get(dubId);
+  if (entry) entry.usedAt = now;
+  return entry || null;
+};
+
+/** The dub a sync was asked to cut from: `{ dubId, cues: [{ id, text }] }`, the cues as the dub said them, in order. */
+const cleanDub = (value) => {
+  if (!value || typeof value !== 'object' || !BANK_ID.test(String(value.dubId || '')) || !Array.isArray(value.cues)) return null;
+  const cues = value.cues
+    .filter((cue) => cue && (typeof cue.id === 'string' || typeof cue.id === 'number') && typeof cue.text === 'string')
+    .map((cue) => ({ id: String(cue.id), text: cue.text }));
+  return cues.length ? { dubId: value.dubId, cues } : null;
+};
+
+/**
+ * `dubTakes` for runSync: each unit cut from dub `dub`, where every cue in it
+ * still reads as the dub said it. Any failure (another sample rate, words the
+ * alignment can't place) leaves every line to be voiced, as before.
+ */
+const dubTakesWith = ({ dub, segments, sampleRate, apiKey, signal }) => async (units) => {
+  const entry = dubFor(dub.dubId);
+  if (!entry) return [];
+  if (entry.sampleRate !== sampleRate) {
+    logger.info(`The dub is at ${entry.sampleRate} Hz and the sync at ${sampleRate} Hz; every line is voiced again.`);
+    return [];
+  }
+  const key = createHash('sha256').update(JSON.stringify(dub.cues)).digest('hex');
+  if (!entry.spans.has(key)) {
+    try {
+      const { words } = await forceAlign({ buffer: entry.buffer, text: alignmentText(dub.cues) }, { apiKey, signal });
+      const spans = cueSpans(words, dub.cues);
+      if (!spans) logger.info('The dub could not be lined up with its script; every line is voiced again.');
+      entry.spans.set(key, spans);
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      logger.warn(`Could not align the dub with its script (${err.message}); every line is voiced again.`);
+      return [];
+    }
+  }
+  const spans = entry.spans.get(key);
+  if (!spans) return [];
+  const dubbed = new Map(dub.cues.map((cue) => [cue.id, cue.text.trim()]));
+  const current = new Map(
+    segments.map((segment) => [String(segment?.id), String(segment?.textTarget || segment?.targetText || '').trim()])
+  );
+  return cutDubTakes({
+    units,
+    spans,
+    usable: (id) => dubbed.has(id) && current.get(id) === dubbed.get(id),
+    samples: entry.samples,
+    sampleRate,
+  });
+};
+
 /** A sync's locked lines, as the app sends them back: only what runSync reads. */
 const cleanLocked = (value) =>
   Object.fromEntries(
@@ -205,7 +309,14 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  *
  * Body: `{ segments, sourceDuration, voiceId, modelId, outputFormat,
  * voiceSettings, language, seed, lineSeeds, precision, join, suggest,
- * suggestLonger, matchLoudness, debug, jobId }`. `suggest` and `suggestLonger`
+ * suggestLonger, matchLoudness, expressive, performanceTags, debug, jobId }`.
+ * As in a dub, `performanceTags` voices each cue's `voiceText` (its text
+ * tagged by Match source audio) and `expressive` (Enhance emotion) adds
+ * delivery cues first; both only on a model that performs tags, and the
+ * words are never changed. With `dub` (`{ dubId, cues }`, one voice only) every
+ * line that still reads as the Final dub said it is cut from that dub rather
+ * than voiced again (see dubTakes.js); a 409 `sync_dub_missing` asks for the
+ * dub at PUT /api/sync/dubs/:dubId first. `suggest` and `suggestLonger`
  * (both on unless false) ask for shorter wordings of long lines and fuller
  * wordings of lines that end early. `lineSeeds` maps a line's key to the seed
  * of a retake of it; `matchLoudness` evens out the lines' loudness (off
@@ -239,6 +350,9 @@ syncRouter.post(
       cast,
       peak,
       locked,
+      expressive,
+      performanceTags,
+      dub,
     } = req.body || {};
 
     if (!Array.isArray(segments) || segments.length === 0) {
@@ -258,6 +372,12 @@ syncRouter.post(
       });
     }
 
+    // The Final dub to cut lines from, with one voice only; the app sends it again when this server lost it.
+    const fromDub = multiSpeaker === true ? null : cleanDub(dub);
+    if (fromDub && !dubFor(fromDub.dubId)) {
+      throw new ApiError('The server no longer has the dub to sync from.', { status: 409, code: 'sync_dub_missing' });
+    }
+
     const job = startDubJob(jobId, { phase: 'units', step: 1, unitCount: 0, unitsVoiced: 0, unitsToVoice: 0, suggestionsTotal: 0, suggestionsDone: 0 });
     const controller = job?.controller || new AbortController();
     res.on('close', () => {
@@ -273,13 +393,19 @@ syncRouter.post(
       : { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed }), modelId, outputFormat: format };
     const several = multiSpeaker === true;
     const voiceFor = several ? castVoices(cast, voice, { requested, seed }) : undefined;
+    // Emotion follows the dub: one voice on a model that performs tags.
+    const tags = !cartesia && !several && performsTags(voice.modelId || config.elevenlabs.ttsModel);
+    const sourceTagged = tags && performanceTags === true;
+    if (sourceTagged) voice.performanceTags = true;
+    const lineSegments = sourceTagged ? segments : segments.map((segment) => (segment && typeof segment === 'object' ? { ...segment, voiceText: undefined } : segment));
+    const cueLines = tags && !sourceTagged && expressive === true ? cueLinesWith({ language, apiKey: textModelKey }) : undefined;
     const voiceWith = voiceLinesWith({ apiKey, cartesiaKey, language, signal: controller.signal });
     const voiceLines = (lines, { voice: lineVoice, onLine }) => voiceWith(lines, { voice: lineVoice || voice, onLine });
 
     try {
       const result = await runSync(
         {
-          segments,
+          segments: lineSegments,
           sourceDuration: Number(sourceDuration) || 0,
           sampleRate,
           precision,
@@ -298,6 +424,10 @@ syncRouter.post(
         },
         {
           voiceLines,
+          cue: cueLines,
+          dubTakes: fromDub
+            ? dubTakesWith({ dub: fromDub, segments, sampleRate, apiKey, signal: controller.signal })
+            : undefined,
           decode: (buffer) => decodeAudio(buffer, format),
           // One write at the end, lossless and at the clips' own rate: encoding to
           // MP3 again would be a second lossy generation of every line.
@@ -520,6 +650,28 @@ syncRouter.post('/sync/shorten', rewordRoute('shorter'));
  * script is never changed here.
  */
 syncRouter.post('/sync/lengthen', rewordRoute('longer'));
+
+/**
+ * PUT /api/sync/dubs/:dubId — the Final dub (mono WAV, as the dub gave it),
+ * for a sync to cut its lines from.
+ */
+syncRouter.put(
+  '/sync/dubs/:dubId',
+  express.raw({ type: () => true, limit: '2gb' }),
+  (req, res) => {
+    const { dubId } = req.params;
+    if (!BANK_ID.test(dubId)) throw new ApiError('That is not a dub id.', { status: 400, code: 'bad_dub_id' });
+    const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    let wav;
+    try {
+      wav = parseWav(buffer);
+    } catch (err) {
+      throw new ApiError(`The dub could not be read: ${err.message}`, { status: 400, code: 'bad_dub' });
+    }
+    keepDub(dubId, buffer, wav);
+    res.json({ dubId, samples: wav.samples.length });
+  }
+);
 
 /**
  * PUT /api/sync/edit/banks/:bankId — the bank of a sync again, as the app saved

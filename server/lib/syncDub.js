@@ -176,6 +176,9 @@ const mapLimit = async (items, limit, fn) => {
  *
  * `deps`:
  * - `voiceLines(lines, { voice, onLine })` → `[Buffer]`, voicing `[{ text, previousText, nextText, seed }]` in order with `voice`;
+ * - `cue(texts)` → the same texts with delivery cues (Enhance emotion), every word kept (optional);
+ * - `dubTakes(units)` → for each unit, its take cut from the Final dub (mono Float32Array at
+ *   `sampleRate`) or null to voice it (optional; see dubTakes.js);
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
  * - `encode(samples, { float })` → `{ buffer, contentType }`, `float` asking for 32-bit float;
  * - `shorten({ text, sourceText, language, targetChars })` → a shorter wording, or null, or
@@ -243,14 +246,41 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
     return null;
   };
-  // What each line is voiced from: its text, ending a sentence so the voice finishes the last word.
-  const spoken = units.map((unit) => withSentenceEnd(unit.text));
+  // Takes cut from the Final dub (see dubTakes.js), used as they are. A line
+  // the user asked to retake is voiced again even when the dub has it.
+  const fromDub = deps.dubTakes ? await deps.dubTakes(units) : [];
+  checkCancelled();
+  const taken = units.map((unit, i) =>
+    !Number.isInteger(lineSeeds[lineKey(unit)]) && fromDub?.[i] instanceof Float32Array && fromDub[i].length > 0 ? fromDub[i] : null
+  );
+  // What each line is voiced from: its text with any delivery tags, ending a
+  // sentence so the voice finishes the last word.
+  const voiceTexts = units.map((unit) => unit.voiceText || unit.text);
+  if (deps.cue && taken.some((take) => !take)) {
+    // Enhance emotion: each speaker's lines are cued together as one script, so the tone holds from line to line.
+    const bySpeaker = new Map();
+    units.forEach((unit, i) => {
+      const key = multiSpeaker ? speakerOf(unit) : '';
+      if (!bySpeaker.has(key)) bySpeaker.set(key, []);
+      bySpeaker.get(key).push(i);
+    });
+    for (const indexes of bySpeaker.values()) {
+      checkCancelled();
+      const cued = await deps.cue(indexes.map((i) => voiceTexts[i]));
+      if (Array.isArray(cued) && cued.length === indexes.length) {
+        indexes.forEach((i, k) => {
+          if (typeof cued[k] === 'string' && cued[k].trim()) voiceTexts[i] = cued[k];
+        });
+      }
+    }
+  }
+  const spoken = voiceTexts.map(withSentenceEnd);
   const buffers = new Array(units.length);
   const clips = new Array(units.length);
   const voicedLength = new Array(units.length);
   const breathsRemoved = units.map(() => 0);
   const fit = async (i) => {
-    const decoded = await deps.decode(buffers[i]);
+    const decoded = taken[i] || (await deps.decode(buffers[i]));
     voicedLength[i] = decoded.length;
     const { samples, removed } = join.removeBreaths ? removeBreaths(decoded, sampleRate) : { samples: decoded, removed: 0 };
     breathsRemoved[i] = removed;
@@ -303,13 +333,14 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   };
 
   await voiceAndFit(
-    units.map((_, i) => i),
+    units.map((_, i) => i).filter((i) => !taken[i]),
     seedOf
   );
+  for (let i = 0; i < units.length; i++) if (taken[i]) await fit(i);
 
   // A take the voice cut off before its last word died away is voiced again
   // with another seed, up to MAX_RETAKES times. A take the user locked in
-  // Edit timing is theirs and is kept. Retake seeds follow from the line's own
+  // Edit timing is theirs and is kept, and so is a take from the dub. Retake seeds follow from the line's own
   // seed, so a later sync finds the same takes in the cache.
   const retakes = units.map(() => 0);
   const heldByLock = (i) => {
@@ -317,7 +348,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     return Boolean(lock) && lock.hash === clipHash(clips[i].samples);
   };
   for (let attempt = 1; attempt <= MAX_RETAKES; attempt++) {
-    const cut = units.map((_, i) => i).filter((i) => clips[i]?.cutOff && !heldByLock(i));
+    const cut = units.map((_, i) => i).filter((i) => clips[i]?.cutOff && !heldByLock(i) && !taken[i]);
     if (cut.length === 0) break;
     await voiceAndFit(cut, (unit) => retakeSeed(seedOf(unit), attempt));
     for (const i of cut) retakes[i] = attempt;
@@ -650,6 +681,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       joinAfter: joinAfter.has(i) ? joinAfter.get(i) : null,
       tightJoin: tightJoin[i],
       retakes: retakes[i],
+      fromDub: Boolean(taken[i]),
       cutOff: Boolean(clips[i]?.cutOff),
       breathsRemoved: breathsRemoved[i],
     };
@@ -680,6 +712,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         tightJoins: tightJoin.filter(Boolean).length,
         silent: units.length - placedIndex.length,
         retaken: retakes.filter((n) => n > 0).length,
+        fromDub: taken.filter(Boolean).length,
         cutOff: clips.filter((clip) => clip?.cutOff).length,
         breathsRemoved: breathsRemoved.reduce((sum, n) => sum + n, 0),
       },

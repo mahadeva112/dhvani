@@ -105,7 +105,7 @@ const isV3 = (modelId) => /^eleven_v3/.test(modelId);
 const isV4 = (modelId) => /^eleven_v4/.test(modelId);
 
 /** Models that perform audio tags ([sighs], [whispers]) and so take delivery cues. */
-const performsTags = (modelId) => isV3(modelId) || isV4(modelId);
+export const performsTags = (modelId) => isV3(modelId) || isV4(modelId);
 
 /** eleven_v3 does not take previous_text / next_text. */
 const supportsContext = (modelId) => !isV3(modelId);
@@ -210,13 +210,17 @@ export const synthesizeSpeech = async (
     nextText,
     previousRequestIds,
     seed,
+    performanceTags = false,
   },
   { apiKey, signal, stream = false } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
 
   const resolvedModel = modelId || config.elevenlabs.ttsModel;
-  const cleanText = cleanTextForNaturalSpeech(text, { keepAudioTags: performsTags(resolvedModel) });
+  const cleanText = cleanTextForNaturalSpeech(text, {
+    keepAudioTags: performsTags(resolvedModel),
+    keepPerformanceTags: performanceTags && performsTags(resolvedModel),
+  });
   if (!cleanText) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
@@ -472,11 +476,12 @@ export const synthesizeScript = async (
  *
  * `lines[i]` is `{ text, previousText?, nextText?, seed?, pace? }`; a line's own
  * `seed` asks for a different take of that line alone, and its `pace`
- * multiplies the voice's speed for it. `onLine(done)` reports
+ * multiplies the voice's speed for it. With `performanceTags`, the
+ * source-matched tags in the lines are kept (see sourceCues.js). `onLine(done)` reports
  * each finished line. Returns `[{ buffer, requestId }]` in the same order.
  */
 export const synthesizeLines = async (
-  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', voiceSettings, seed },
+  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', voiceSettings, seed, performanceTags = false },
   { apiKey, signal, onLine = () => {} } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
@@ -502,6 +507,7 @@ export const synthesizeLines = async (
       outputFormat,
       voiceSettings: settings,
       seed: Number.isInteger(line.seed) && line.seed >= 0 && line.seed < 2 ** 32 ? line.seed : takeSeed,
+      performanceTags,
     };
     const withContext = () =>
       contextState.enabled
