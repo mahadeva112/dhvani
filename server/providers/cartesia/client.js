@@ -81,3 +81,21 @@ export const cartesiaFetch = async (absoluteUrl, { apiKey, timeoutMs } = {}) =>
     { method: 'GET', headers: headers(apiKey) },
     { provider: PROVIDER_LABEL, timeoutMs: timeoutMs || 30000, retries: 1 }
   );
+
+/**
+ * Credits used since `since`, summed over Cartesia's usage buckets.
+ *
+ * The usage route is an admin route: Cartesia refuses a standard sk_car_ key
+ * there, so this takes the separate admin key and never falls back to the
+ * voice key. It reports spend only; Cartesia's API has no balance or plan size.
+ */
+export const getCreditsUsed = async ({ adminKey, since, baseUrl } = {}) => {
+  if (!adminKey) throw missingKey('cartesia');
+  const response = await requestWithRetry(
+    url(`/usage/credits?start_ts=${encodeURIComponent(since.toISOString())}`, baseUrl),
+    { method: 'GET', headers: { Authorization: `Bearer ${adminKey}`, 'Cartesia-Version': config.cartesia.apiVersion } },
+    { provider: PROVIDER_LABEL, timeoutMs: 15000, retries: 0 }
+  );
+  const data = await response.json();
+  return (data?.data || []).reduce((sum, bucket) => sum + (Number(bucket.credits) || 0), 0);
+};

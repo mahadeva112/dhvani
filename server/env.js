@@ -224,6 +224,13 @@ export const config = {
     get apiKey() {
       return setting('cartesiaApiKey', 'CARTESIA_API_KEY');
     },
+    /**
+     * Optional. Cartesia serves usage only on admin routes, which refuse the
+     * voice key above; this one is used for nothing but the credits readout.
+     */
+    get adminKey() {
+      return setting('cartesiaAdminKey', 'CARTESIA_ADMIN_KEY');
+    },
     get baseUrl() {
       return normalizeBaseUrl(setting('cartesiaBaseUrl', 'CARTESIA_BASE_URL', 'https://api.cartesia.ai'));
     },
@@ -320,6 +327,7 @@ export const keySource = () => ({
   gemini: savedStr('geminiApiKey') ? 'saved' : str('GEMINI_API_KEY') ? 'env' : 'none',
   gateway: !gatewayEnabled() ? 'none' : savedStr('llmGatewayUrl') ? 'saved' : 'env',
   cartesia: savedStr('cartesiaApiKey') ? 'saved' : str('CARTESIA_API_KEY') ? 'env' : 'none',
+  cartesiaAdmin: savedStr('cartesiaAdminKey') ? 'saved' : str('CARTESIA_ADMIN_KEY') ? 'env' : 'none',
 });
 
 /**
@@ -380,7 +388,7 @@ export const translationSetup = () => ({
  * wiped the token. Every other field is shown pre-filled with its live value,
  * so emptying one is a deliberate reset and does clear it.
  */
-const SECRET_FIELDS = new Set(['elevenLabsApiKey', 'geminiApiKey', 'llmGatewayKey', 'cartesiaApiKey']);
+const SECRET_FIELDS = new Set(['elevenLabsApiKey', 'geminiApiKey', 'llmGatewayKey', 'cartesiaApiKey', 'cartesiaAdminKey']);
 
 const TEXT_FIELDS = [
   'elevenLabsApiKey',
@@ -394,6 +402,7 @@ const TEXT_FIELDS = [
   'llmGatewayUrl',
   'llmGatewayProtocol',
   'cartesiaApiKey',
+  'cartesiaAdminKey',
   'cartesiaBaseUrl',
   'cartesiaApiVersion',
   'cartesiaTtsModel',

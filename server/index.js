@@ -20,6 +20,7 @@ import { geminiRouter } from './routes/gemini.js';
 import { cartesiaRouter } from './routes/cartesia.js';
 import { transliterateRouter } from './routes/transliterate.js';
 import { syncRouter } from './routes/sync.js';
+import { usageRouter } from './routes/usage.js';
 import { ffmpegAvailable } from './lib/media.js';
 
 const app = express();
@@ -172,6 +173,7 @@ app.use('/api', geminiRouter);
 app.use('/api', cartesiaRouter);
 app.use('/api', transliterateRouter);
 app.use('/api', syncRouter);
+app.use('/api', usageRouter);
 
 /*
  * In production the same process serves the built frontend, so the whole app is

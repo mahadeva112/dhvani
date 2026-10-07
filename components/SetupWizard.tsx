@@ -116,6 +116,9 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [cartesiaKey, setCartesiaKey] = useState('');
   const [replacingCartesia, setReplacingCartesia] = useState(false);
   const [showCartesiaKey, setShowCartesiaKey] = useState(false);
+  // Optional: Cartesia shares credits used only with an admin key.
+  const [cartesiaAdminKey, setCartesiaAdminKey] = useState('');
+  const [cartesiaAdminState, setCartesiaAdminState] = useState<FieldState>(null);
 
   // Endpoints and model names, pre-filled with the running configuration.
   const [serverValues, setServerValues] = useState<ServerValues>(() => seedServerValues(server));
@@ -203,6 +206,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     !isSaving &&
     ((needsElevenLabs && elevenLabsKey.trim().length > 0) ||
       cartesiaKey.trim().length > 0 ||
+      cartesiaAdminKey.trim().length > 0 ||
       engineChanged ||
       translationReady ||
       serverValuesChanged);
@@ -287,6 +291,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     setGeminiState(null);
     setTranslationState(null);
     setCartesiaState(null);
+    setCartesiaAdminState(null);
 
     try {
       const payload: SaveKeysPayload = {};
@@ -294,6 +299,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
       if (geminiKey.trim()) payload.geminiApiKey = geminiKey.trim();
       if (cartesiaKey.trim()) payload.cartesiaApiKey = cartesiaKey.trim();
+      if (cartesiaAdminKey.trim()) payload.cartesiaAdminKey = cartesiaAdminKey.trim();
 
       /*
        * Endpoints and models go up only when edited. An empty field is a
@@ -381,6 +387,15 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             ? `Connected${typeof check.voiceCount === 'number' ? ` — ${check.voiceCount.toLocaleString()} voices` : ''}`
             : check.error || 'This key was rejected by Cartesia.',
         });
+      }
+
+      if (result.validation.cartesiaAdmin) {
+        const check = result.validation.cartesiaAdmin;
+        setCartesiaAdminState({
+          valid: check.valid,
+          message: check.valid ? 'Saved. Credits used now show in the balance popover.' : check.error || 'Cartesia rejected this admin key.',
+        });
+        if (check.valid) setCartesiaAdminKey('');
       }
 
       const gatewayCheck = result.validation.gateway;
@@ -803,6 +818,27 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       </button>
                     </div>
                   )}
+
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="setup-cartesia-admin-key" className="text-xs text-slate-400">
+                      Admin key <span className="text-slate-500">(optional, only to show credits used)</span>
+                    </label>
+                    <input
+                      id="setup-cartesia-admin-key"
+                      type="password"
+                      value={cartesiaAdminKey}
+                      onChange={(e) => setCartesiaAdminKey(e.target.value)}
+                      placeholder={
+                        keySource.cartesiaAdmin && keySource.cartesiaAdmin !== 'none'
+                          ? 'Admin key saved. Paste a new one to replace it.'
+                          : 'Create one in the Cartesia Playground under Keys, Admin'
+                      }
+                      autoComplete="off"
+                      spellCheck={false}
+                      className={fieldClasses(cartesiaAdminState)}
+                    />
+                    {renderState(cartesiaAdminState)}
+                  </div>
 
                   <ServerSettingsFields
                     title="Endpoint and models"

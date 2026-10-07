@@ -15,11 +15,13 @@ import {
   Music,
   Speech,
   Download,
+  RefreshCw,
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported } from './UpdateControl';
 import { ProjectsMenu } from './ProjectsMenu';
 import { projectName } from '../services/projects';
+import type { CartesiaUsage, GatewayUsage } from '../services/usageService';
 
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
@@ -82,6 +84,14 @@ export interface ProHeaderProps {
   /** Lines reworded or retaken since the last sync: Sync shows how many. */
   syncPendingCount?: number;
   quota?: HeaderQuota | null;
+  /** Cartesia credits used this month, and the LLM gateway's budget, for the balance popover. */
+  cartesiaUsage?: CartesiaUsage | null;
+  gatewayUsage?: GatewayUsage | null;
+  /** When the balances were last fetched, and whether a fetch is running. */
+  usageUpdatedAt?: number | null;
+  usageLoading?: boolean;
+  /** Fetches every balance again; also called when the popover opens. */
+  onRefreshUsage?: () => void;
   /** The engine speaking the dub. ElevenLabs always transcribes. */
   voiceEngine?: 'elevenlabs' | 'cartesia';
   /** True when a Cartesia key is set up; shows Cartesia in the services panel. */
@@ -125,6 +135,78 @@ const formatClock = (seconds: number) => {
 /** 61840 -> "62k", 5895000 -> "5.9M" */
 const compact = (n: number) =>
   n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+
+/** Colour for a share left: red under 10%, amber under 25%. */
+const shareTone = (share: number | null) =>
+  share === null
+    ? { bar: 'bg-slate-600', text: 'text-slate-100', border: 'border-slate-800' }
+    : share < 0.1
+      ? { bar: 'bg-rose-400', text: 'text-rose-300', border: 'border-rose-900/60' }
+      : share < 0.25
+        ? { bar: 'bg-amber-400', text: 'text-amber-300', border: 'border-amber-900/60' }
+        : { bar: 'bg-emerald-400', text: 'text-slate-100', border: 'border-slate-800' };
+
+const shortDate = (when: number | string) =>
+  new Date(when).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+const money = (n: number) => `$${Math.max(0, n).toFixed(2)}`;
+
+const gatewayReset = (usage: GatewayUsage) =>
+  usage.resetAt ? `Resets ${shortDate(usage.resetAt)}` : usage.resetPeriod ? `Resets ${usage.resetPeriod}` : undefined;
+
+/** "Updated just now", "Updated 4 min ago". */
+const updatedLabel = (at: number | null | undefined) => {
+  if (!at) return '';
+  const minutes = Math.floor((Date.now() - at) / 60000);
+  return minutes < 1 ? 'Updated just now' : minutes < 60 ? `Updated ${minutes} min ago` : `Updated ${shortDate(at)}`;
+};
+
+/** One service in the balance popover. The border turns amber or red as its balance runs low. */
+const UsageCard: React.FC<{
+  name: string;
+  role: string;
+  chip?: string;
+  ok: boolean;
+  share: number | null;
+  children: React.ReactNode;
+}> = ({ name, role, chip, ok, share, children }) => (
+  <div className={`p-3 rounded-xl border bg-slate-950/50 ${shareTone(share).border}`}>
+    <div className="flex items-center gap-2 min-w-0">
+      <span className={`w-2 h-2 rounded-full shrink-0 ${ok ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+      <span className="text-[13px] font-semibold text-slate-100 flex-1 truncate">{name}</span>
+      {chip && (
+        <span className="max-w-[9rem] truncate text-[10.5px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-400">
+          {chip}
+        </span>
+      )}
+    </div>
+    <p className="text-[11px] text-slate-500 ml-4 mb-2 truncate">{role}</p>
+    {children}
+  </div>
+);
+
+/** A big remaining figure over a bar, with the exact numbers and the reset date beneath. */
+const Balance: React.FC<{ value: string; unit: string; share: number; left: string; right?: string }> = ({
+  value,
+  unit,
+  share,
+  left,
+  right,
+}) => (
+  <>
+    <div className="flex items-baseline gap-1.5">
+      <span className={`font-mono tabular-nums text-xl font-semibold ${shareTone(share).text}`}>{value}</span>
+      <span className="text-xs text-slate-400">{unit}</span>
+    </div>
+    <div className="h-1.5 my-1.5 rounded-full bg-slate-800 overflow-hidden">
+      <div className={`h-full rounded-full ${shareTone(share).bar}`} style={{ width: `${Math.min(1, share) * 100}%` }} />
+    </div>
+    <div className="flex justify-between gap-2 text-[11px] text-slate-500">
+      <span className="font-mono tabular-nums">{left}</span>
+      {right && <span className="whitespace-nowrap">{right}</span>}
+    </div>
+  </>
+);
 
 /** Closes a popover on an outside click or Escape. */
 const useDismiss = (open: boolean, close: () => void, ref: React.RefObject<HTMLElement>) => {
@@ -188,6 +270,11 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   activity = null,
   syncPendingCount = 0,
   quota = null,
+  cartesiaUsage = null,
+  gatewayUsage = null,
+  usageUpdatedAt = null,
+  usageLoading = false,
+  onRefreshUsage,
   voiceEngine = 'elevenlabs',
   cartesiaReady = false,
   elevenLabsReady = true,
@@ -234,7 +321,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const hasDub = Boolean(activeJob?.synthesizedAudioUrl);
   const hasSync = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   const servicesOk = elevenLabsReady && translationReady;
-  const voiceEngineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   /** What an engine is doing right now, e.g. "Transcription and voice", or "Off". */
   const roleOf = (engine: 'elevenlabs' | 'cartesia') => {
     // ElevenLabs always transcribes; the voice engine is the user's choice.
@@ -245,6 +331,21 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   };
   const quotaLeft = quota ? Math.max(0, quota.limit - quota.used) : null;
   const quotaShare = quota && quota.limit > 0 ? quotaLeft! / quota.limit : null;
+  const gatewayShare =
+    gatewayUsage && typeof gatewayUsage.spent === 'number' && gatewayUsage.limit && gatewayUsage.limit > 0
+      ? Math.max(0, gatewayUsage.limit - gatewayUsage.spent) / gatewayUsage.limit
+      : null;
+  // One small bar per service that reports a balance, so a low one shows without opening the popover.
+  const pillBars = [
+    elevenLabsReady && quotaShare !== null && { key: 'elevenlabs', share: quotaShare },
+    gatewayShare !== null && { key: 'gateway', share: gatewayShare },
+  ].filter(Boolean) as { key: string; share: number }[];
+
+  // Balances go stale between dubs; opening the popover fetches them again.
+  React.useEffect(() => {
+    if (servicesOpen) onRefreshUsage?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [servicesOpen]);
   const isVideo = activeJob?.file
     ? activeJob.file.type.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi)$/i.test(activeJob.file.name)
     : false;
@@ -414,23 +515,19 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               aria-haspopup="dialog"
               aria-expanded={servicesOpen}
               className="flex items-center gap-2 h-[34px] px-2.5 rounded-full border border-slate-800 hover:bg-slate-800/60 text-xs text-slate-400 whitespace-nowrap transition-colors cursor-pointer"
-              title={servicesOk ? 'Services connected' : 'Something needs setting up'}
+              title={servicesOk ? 'Services connected. Open to see what each has left.' : 'Something needs setting up'}
             >
               <span
                 className={`w-[7px] h-[7px] rounded-full ${
                   servicesOk ? 'bg-emerald-400 shadow-[0_0_0_3px_rgba(52,211,153,0.2)]' : 'bg-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.2)]'
                 }`}
               />
-              <span className="hidden md:inline">{voiceEngineName}</span>
-              {quotaShare !== null && (
-                <span className="hidden xl:flex items-center gap-1.5">
-                  <span className="w-11 h-1 rounded-full bg-slate-800 overflow-hidden">
-                    <span
-                      className={`block h-full rounded-full ${quotaShare < 0.1 ? 'bg-rose-400' : quotaShare < 0.25 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                      style={{ width: `${quotaShare * 100}%` }}
-                    />
-                  </span>
-                  <span className="font-mono tabular-nums">{compact(quotaLeft!)} left</span>
+              <span className="hidden md:inline text-slate-200">{servicesOk ? 'Online' : 'Needs setup'}</span>
+              {pillBars.length > 0 && (
+                <span className="hidden xl:flex items-center gap-[3px]" aria-hidden="true">
+                  {pillBars.map((bar) => (
+                    <span key={bar.key} className={`w-3.5 h-1 rounded-full ${shareTone(bar.share).bar}`} />
+                  ))}
                 </span>
               )}
             </button>
@@ -438,72 +535,126 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
             {servicesOpen && (
               <div
                 role="dialog"
-                aria-label="Services"
-                className="fixed sm:absolute left-4 right-4 sm:left-auto sm:right-0 top-28 sm:top-auto sm:mt-2 sm:w-[19rem] p-3.5 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl z-50 flex flex-col gap-3 animate-in fade-in zoom-in-95"
+                aria-label="Balance and connections"
+                className="fixed sm:absolute left-4 right-4 sm:left-auto sm:right-0 top-28 sm:top-auto sm:mt-2 sm:w-[21rem] p-3.5 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl z-50 flex flex-col gap-2.5 animate-in fade-in zoom-in-95"
               >
-                <div className="flex items-center gap-2.5">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${elevenLabsReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-semibold text-slate-100">ElevenLabs</span>
-                    <span className="block text-[11.5px] text-slate-400">{roleOf('elevenlabs')}</span>
-                  </span>
-                  <span className="text-[11.5px] text-slate-400 capitalize">
-                    {elevenLabsReady ? quota?.tier || 'Connected' : 'Not set'}
-                  </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[13.5px] font-semibold text-slate-100">Balance and connections</span>
+                  <span className="text-[11px] text-slate-500">{usageLoading ? 'Checking…' : updatedLabel(usageUpdatedAt)}</span>
                 </div>
+
+                <UsageCard
+                  name="ElevenLabs"
+                  role={roleOf('elevenlabs')}
+                  chip={elevenLabsReady && quota?.tier ? quota.tier.charAt(0).toUpperCase() + quota.tier.slice(1) : undefined}
+                  ok={elevenLabsReady}
+                  share={quotaShare}
+                >
+                  {!elevenLabsReady ? (
+                    <p className="text-[11.5px] text-amber-300">No key set up yet</p>
+                  ) : quota && quotaShare !== null ? (
+                    <Balance
+                      value={compact(quotaLeft!)}
+                      unit="characters left"
+                      share={quotaShare}
+                      left={`${quotaLeft!.toLocaleString()} of ${quota.limit.toLocaleString()}`}
+                      right={quota.resetUnix ? `Resets ${shortDate(quota.resetUnix * 1000)}` : undefined}
+                    />
+                  ) : (
+                    <p className="text-[11.5px] text-slate-400">{usageLoading ? 'Checking…' : 'Connected'}</p>
+                  )}
+                </UsageCard>
+
                 {cartesiaReady && (
-                  <div className="flex items-center gap-2.5">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${roleOf('cartesia') === 'Off' ? 'bg-slate-600' : 'bg-emerald-400'}`} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-semibold text-slate-100">Cartesia</span>
-                      <span className="block text-[11.5px] text-slate-400">{roleOf('cartesia')}</span>
-                    </span>
-                    <span className="text-[11.5px] text-slate-400">Connected</span>
-                  </div>
+                  <UsageCard name="Cartesia" role={roleOf('cartesia')} ok={roleOf('cartesia') !== 'Off'} share={null}>
+                    {cartesiaUsage?.creditsUsed !== undefined ? (
+                      <>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="font-mono tabular-nums text-xl font-semibold text-slate-100">
+                            {compact(cartesiaUsage.creditsUsed)}
+                          </span>
+                          <span className="text-xs text-slate-400">credits used this month</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1">
+                          {cartesiaUsage.creditsUsed.toLocaleString()} since{' '}
+                          {cartesiaUsage.since ? shortDate(cartesiaUsage.since) : 'the 1st'}. Cartesia doesn't share the balance.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-[11.5px] text-slate-400">
+                        {cartesiaUsage?.needsAdminKey
+                          ? 'Connected. Add a Cartesia admin key in API settings to see credits used.'
+                          : cartesiaUsage?.error || (usageLoading ? 'Checking…' : 'Connected')}
+                      </p>
+                    )}
+                  </UsageCard>
                 )}
-                {quota && quotaShare !== null && (
-                  <div>
-                    <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${quotaShare < 0.1 ? 'bg-rose-400' : quotaShare < 0.25 ? 'bg-amber-400' : 'bg-emerald-400'}`}
-                        style={{ width: `${quotaShare * 100}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between gap-2 mt-1.5 text-[11.5px] text-slate-400">
-                      <span className="font-mono tabular-nums">
-                        {quotaLeft!.toLocaleString()} of {quota.limit.toLocaleString()} characters left
-                      </span>
-                      {quota.resetUnix && (
-                        <span className="whitespace-nowrap">
-                          Resets{' '}
-                          {new Date(quota.resetUnix * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-2.5">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${translationReady ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-semibold text-slate-100">Translation</span>
-                    <span className="block text-[11.5px] text-slate-400 truncate">
-                      {translationReady ? translationSummary || 'Ready' : 'No engine set up yet'}
-                    </span>
-                  </span>
-                  <span className="text-[11.5px] text-slate-400">{translationReady ? 'Working' : 'Not set'}</span>
-                </div>
-                {onOpenApiSettings && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setServicesOpen(false);
-                      onOpenApiSettings();
-                    }}
-                    className="self-start px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+
+                {gatewayUsage?.configured ? (
+                  <UsageCard
+                    name="Your LLM gateway"
+                    role="Translation"
+                    chip={gatewayUsage.model || undefined}
+                    ok={translationReady}
+                    share={gatewayShare}
                   >
-                    API settings
-                  </button>
+                    {typeof gatewayUsage.spent === 'number' ? (
+                      gatewayShare !== null ? (
+                        <Balance
+                          value={money(gatewayUsage.limit! - gatewayUsage.spent)}
+                          unit={`of ${money(gatewayUsage.limit!)} budget left`}
+                          share={gatewayShare}
+                          left={`${money(gatewayUsage.spent)} spent`}
+                          right={gatewayReset(gatewayUsage)}
+                        />
+                      ) : (
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="font-mono tabular-nums text-xl font-semibold text-slate-100">
+                            {money(gatewayUsage.spent)}
+                          </span>
+                          <span className="text-xs text-slate-400">spent, no budget limit</span>
+                        </div>
+                      )
+                    ) : (
+                      <p className="text-[11.5px] text-slate-400">Connected. Your gateway doesn't share a budget.</p>
+                    )}
+                  </UsageCard>
+                ) : (
+                  <UsageCard
+                    name="Translation"
+                    role={translationReady ? translationSummary || 'Ready' : 'No engine set up yet'}
+                    ok={translationReady}
+                    share={null}
+                  >
+                    <p className="text-[11.5px] text-slate-400">{translationReady ? 'Working' : 'Not set'}</p>
+                  </UsageCard>
                 )}
+
+                <div className="flex items-center gap-2">
+                  {onRefreshUsage && (
+                    <button
+                      type="button"
+                      onClick={onRefreshUsage}
+                      disabled={usageLoading}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer disabled:opacity-60 disabled:cursor-default"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${usageLoading ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </button>
+                  )}
+                  {onOpenApiSettings && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setServicesOpen(false);
+                        onOpenApiSettings();
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+                    >
+                      API settings
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>

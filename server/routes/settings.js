@@ -13,6 +13,7 @@ import {
 } from '../env.js';
 import { getUser } from '../providers/elevenlabs/speech.js';
 import { checkKey as checkCartesiaKey } from '../providers/cartesia/speech.js';
+import { getCreditsUsed } from '../providers/cartesia/client.js';
 import { generateContent } from '../providers/gemini/client.js';
 import { discoverGateway, listGatewayModels } from '../providers/llmGateway/client.js';
 import { detectAll } from '../lib/detect.js';
@@ -107,6 +108,7 @@ settingsRouter.post(
       llmGatewayProtocol,
       llmGatewayModels,
       cartesiaApiKey,
+      cartesiaAdminKey,
       cartesiaBaseUrl,
       cartesiaApiVersion,
       cartesiaTtsModel,
@@ -147,11 +149,13 @@ settingsRouter.post(
       cartesiaTtsModel,
     ].some((value) => value !== undefined);
 
-    if (!elevenLabsTouched && !geminiTouched && !gatewayTouched && !cartesiaTouched) {
+    const cartesiaAdminTouched = cartesiaAdminKey !== undefined;
+
+    if (!elevenLabsTouched && !geminiTouched && !gatewayTouched && !cartesiaTouched && !cartesiaAdminTouched) {
       throw new ApiError('No settings were supplied.', { status: 400, code: 'no_keys' });
     }
 
-    const results = { elevenLabs: null, gemini: null, gateway: null, cartesia: null };
+    const results = { elevenLabs: null, gemini: null, gateway: null, cartesia: null, cartesiaAdmin: null };
 
     /*
      * A blank key field means "keep the stored one", so checks run against the
@@ -195,6 +199,21 @@ settingsRouter.post(
         results.cartesia = { valid: true, voiceCount: null };
       } catch (err) {
         results.cartesia = { valid: false, error: err?.message || 'Validation failed.' };
+      }
+    }
+
+    // The admin key only reads usage, so reading usage is the check.
+    if (validate && cartesiaAdminTouched && (cartesiaAdminKey || '').trim()) {
+      try {
+        const now = new Date();
+        await getCreditsUsed({
+          adminKey: cartesiaAdminKey.trim(),
+          since: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
+          baseUrl: cartesiaBaseUrl,
+        });
+        results.cartesiaAdmin = { valid: true };
+      } catch (err) {
+        results.cartesiaAdmin = { valid: false, error: err?.message || 'Validation failed.' };
       }
     }
 
@@ -263,6 +282,10 @@ settingsRouter.post(
       if (cartesiaBaseUrl !== undefined) toSave.cartesiaBaseUrl = cartesiaBaseUrl;
       if (cartesiaApiVersion !== undefined) toSave.cartesiaApiVersion = cartesiaApiVersion;
       if (cartesiaTtsModel !== undefined) toSave.cartesiaTtsModel = cartesiaTtsModel;
+    }
+
+    if (results.cartesiaAdmin?.valid !== false && cartesiaAdminKey !== undefined) {
+      toSave.cartesiaAdminKey = cartesiaAdminKey;
     }
 
     if (results.gemini?.valid !== false) {

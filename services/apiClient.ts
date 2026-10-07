@@ -314,6 +314,8 @@ export interface KeyOrigins {
   gateway: KeyOrigin;
   /** Absent on an older backend. */
   cartesia?: KeyOrigin;
+  /** The optional Cartesia admin key, used only to read credits used. */
+  cartesiaAdmin?: KeyOrigin;
 }
 
 /** Where translation runs, and through which models. */
@@ -363,6 +365,7 @@ export interface SaveKeysResult {
     gemini: { valid: boolean; model?: string; error?: string } | null;
     gateway: { valid: boolean; model?: string; latencyMs?: number; error?: string } | null;
     cartesia?: { valid: boolean; voiceCount?: number | null; error?: string } | null;
+    cartesiaAdmin?: { valid: boolean; error?: string } | null;
   };
   saved: boolean;
   translation: TranslationSetup;
@@ -446,6 +449,8 @@ export interface SaveKeysPayload {
   llmGatewayProtocol?: string;
   llmGatewayModels?: string;
   cartesiaApiKey?: string;
+  /** Optional; Cartesia shares usage only with an admin key. */
+  cartesiaAdminKey?: string;
   cartesiaBaseUrl?: string;
   cartesiaApiVersion?: string;
   cartesiaTtsModel?: string;

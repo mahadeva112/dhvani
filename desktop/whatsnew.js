@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.21',
+    changes: [
+      'The status pill now reads Online; click it to see what ElevenLabs, Cartesia and your LLM gateway have left.',
+      'The voice list opens full instead of filling in after a few seconds.',
+    ],
+  },
+  {
     version: '1.3.20',
     changes: ['Fit to this video in Sync settings: measures the original’s pauses and suggests the gaps, nothing changes until you apply.'],
   },

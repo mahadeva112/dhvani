@@ -183,6 +183,11 @@ interface VoiceSelectorCardProps {
    */
   voiceEngine?: VoiceEngine;
   onVoiceEngineChange?: (engine: VoiceEngine) => void;
+  /**
+   * The library is still on its way. With no voices yet, the grid shows
+   * placeholder cards instead of the built-in list, so it fills once, not twice.
+   */
+  loading?: boolean;
 }
 
 /** A voice plus the precomputed fields the search ranks against. */
@@ -348,6 +353,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   className = '',
   voiceEngine = 'elevenlabs',
   onVoiceEngineChange,
+  loading = false,
 }) => {
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -432,7 +438,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             };
           })
         : // The built-in list is ElevenLabs voices; it must not stand in for Cartesia's.
-          voiceEngine === 'cartesia'
+          voiceEngine === 'cartesia' || loading
           ? []
           : POPULAR_ELEVENLABS_VOICES;
 
@@ -454,7 +460,8 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         languageFit: raw.fit || 0,
       };
     });
-  }, [availableVoices, targetLanguage, voiceEngine]);
+  }, [availableVoices, targetLanguage, voiceEngine, loading]);
+  const awaitingLibrary = loading && allVoices.length === 0;
 
   const indianCount = useMemo(() => allVoices.filter((v) => v.indian).length, [allVoices]);
   // With no Indian voices in the library (or only the built-in list), the filter would empty the list.
@@ -711,7 +718,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             </div>
           )}
           <span className="text-[11px] font-mono uppercase tracking-wider text-slate-500 tabular-nums pt-0.5">
-            {allVoices.length.toLocaleString()} voices
+            {awaitingLibrary ? 'Loading' : `${allVoices.length.toLocaleString()} voices`}
           </span>
         </div>
       </div>
@@ -888,7 +895,24 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         onScroll={handleListScroll}
         className="flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar px-4 py-2.5 snap-y snap-mandatory scroll-pt-2.5"
       >
-        {filteredVoices.length === 0 ? (
+        {awaitingLibrary ? (
+          <div
+            aria-busy="true"
+            aria-label="Loading voices"
+            className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5"
+          >
+            {Array.from({ length: 20 }, (_, i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/60 h-[88px]">
+                <div className="w-10 h-10 rounded-full bg-slate-800 animate-pulse shrink-0" />
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div className="h-3 w-24 rounded bg-slate-800 animate-pulse" />
+                  <div className="h-2.5 w-40 max-w-full rounded bg-slate-800/70 animate-pulse" />
+                  <div className="h-2.5 w-20 rounded bg-slate-800/70 animate-pulse" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : filteredVoices.length === 0 ? (
           <div className="p-8 text-center rounded-xl border border-dashed border-slate-800 space-y-2">
             <Search className="w-5 h-5 text-slate-600 mx-auto" />
             <p className="text-xs text-slate-400">
@@ -1053,9 +1077,11 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       {/* Footer */}
       <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-2.5 border-t border-slate-800 text-[11px] text-slate-500">
         <span className="tabular-nums">
+          {awaitingLibrary ? 'Loading your voice library…' : <>
           Showing {Math.min(visibleCount, filteredVoices.length).toLocaleString()} of{' '}
           {filteredVoices.length.toLocaleString()} {filteredVoices.length === 1 ? 'voice' : 'voices'}
           {tokens.length > 0 ? ' · best match first' : ''}
+          </>}
         </span>
         {(activeFilterCount > 0 || searchQuery) && (
           <button

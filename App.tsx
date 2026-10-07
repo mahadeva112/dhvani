@@ -12,6 +12,7 @@ import { VoiceChangerModal } from './components/VoiceChangerModal';
 import { TextToSpeechModal } from './components/TextToSpeechModal';
 import { PauseSensitivityModal } from './components/PauseSensitivityModal';
 import type { VoiceEngine } from './components/VoiceSelectorCard';
+import { getCartesiaUsage, getGatewayUsage, type CartesiaUsage, type GatewayUsage } from './services/usageService';
 import { languageFit } from './services/indianVoices';
 import {
   TRANSLATION_PRESETS,
@@ -69,6 +70,22 @@ const VOICE_SETTINGS_STORAGE_KEY = 'elVoiceSettingsV2';
 /** Which engine speaks the dub, and the last voice picked on each one. */
 const VOICE_ENGINE_STORAGE_KEY = 'dhvani_voice_engine';
 const LAST_VOICE_STORAGE_KEY = 'dhvani_voice_by_engine';
+// The last voice library fetched, so the picker opens full instead of filling in later.
+const VOICE_LIBRARY_CACHE_KEY = 'dhvani_voice_library';
+// The API sends far more per voice than the picker reads (a full library runs to
+// tens of MB); the cache keeps only what the picker and voice summaries use.
+const slimVoice = (v: Voice): Voice => ({
+  voice_id: v.voice_id,
+  name: v.name,
+  category: v.category,
+  labels: v.labels,
+  preview_url: v.preview_url,
+  provider: v.provider,
+  // Only the language code is read, and the API repeats it once per model.
+  verified_languages: v.verified_languages && [
+    ...new Set(v.verified_languages.map((l) => l.language).filter(Boolean)),
+  ].map((language) => ({ language })),
+});
 /** The project that was open, so a restart comes back to it. */
 const OPEN_PROJECT_STORAGE_KEY = 'dhvani_open_project';
 /**
@@ -366,8 +383,16 @@ export default function App() {
     } catch {}
     return null;
   });
-  const [availableVoices, setAvailableVoices] = useState<Voice[]>([]);
+  const [availableVoices, setAvailableVoices] = useState<Voice[]>(() => {
+    try {
+      const cached = JSON.parse(localStorage.getItem(VOICE_LIBRARY_CACHE_KEY) || '[]');
+      if (Array.isArray(cached)) return cached;
+    } catch {}
+    return [];
+  });
   const [isLoadingVoices, setIsLoadingVoices] = useState<boolean>(false);
+  // False until the first library fetch has finished, or there is nothing to fetch.
+  const [voicesSettled, setVoicesSettled] = useState<boolean>(false);
 
   // Processing Flags
   const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
@@ -572,7 +597,7 @@ export default function App() {
   // ElevenLabs character allowance for the header, refreshed after each dub.
   const [elevenLabsQuota, setElevenLabsQuota] = useState<HeaderQuota | null>(null);
   const refreshQuota = useCallback(() => {
-    validateApiKey(elApiKey)
+    return validateApiKey(elApiKey)
       .then((res) => {
         const sub = res.isValid ? res.user?.subscription : undefined;
         setElevenLabsQuota(
@@ -588,6 +613,27 @@ export default function App() {
       })
       .catch(() => setElevenLabsQuota(null));
   }, [elApiKey]);
+
+  // Cartesia credits used and the gateway budget, fetched when the balance popover opens.
+  const [cartesiaUsage, setCartesiaUsage] = useState<CartesiaUsage | null>(null);
+  const [gatewayUsage, setGatewayUsage] = useState<GatewayUsage | null>(null);
+  const [usageUpdatedAt, setUsageUpdatedAt] = useState<number | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const refreshUsage = useCallback(async () => {
+    setUsageLoading(true);
+    try {
+      const [cartesia, gateway] = await Promise.all([
+        getCartesiaUsage(),
+        getGatewayUsage(),
+        backendHealth?.elevenLabsConfigured ? refreshQuota() : null,
+      ]);
+      setCartesiaUsage(cartesia);
+      setGatewayUsage(gateway);
+      setUsageUpdatedAt(Date.now());
+    } finally {
+      setUsageLoading(false);
+    }
+  }, [refreshQuota, backendHealth?.elevenLabsConfigured]);
 
   /** One line describing where translation runs, for the API Settings button. */
   const translationSummary = useMemo(() => {
@@ -1507,19 +1553,38 @@ export default function App() {
   const cartesiaConfigured = Boolean(backendHealth?.cartesiaConfigured);
   const fetchVoices = useCallback(async () => {
     const useElevenLabs = Boolean(elApiKey) && elApiKey.length > 10;
-    if (!useElevenLabs && !cartesiaConfigured) return;
+    if (!useElevenLabs && !cartesiaConfigured) {
+      if (backendChecked) setVoicesSettled(true);
+      return;
+    }
     setIsLoadingVoices(true);
+    // One library for both engines; Cartesia voice IDs carry a cartesia: prefix.
+    // Each engine's voices land as soon as they arrive, so a slow Cartesia call
+    // never holds back the ElevenLabs grid. An empty answer is a failed call
+    // (every account has premade voices), so it keeps what is already shown.
+    const land = (engine: VoiceEngine, voices: Voice[]) => {
+      setAvailableVoices((prev) => {
+        if (!voices.length) return prev;
+        const next =
+          engine === 'elevenlabs'
+            ? [...voices, ...prev.filter((v) => engineOfVoice(v.voice_id) === 'cartesia')]
+            : [...prev.filter((v) => engineOfVoice(v.voice_id) === 'elevenlabs'), ...voices];
+        try {
+          localStorage.setItem(VOICE_LIBRARY_CACHE_KEY, JSON.stringify(next.map(slimVoice)));
+        } catch {}
+        return next;
+      });
+    };
     try {
-      // One library for both engines; Cartesia voice IDs carry a cartesia: prefix.
-      const [elevenLabsVoices, cartesiaVoices] = await Promise.all([
-        useElevenLabs ? getVoices(elApiKey) : Promise.resolve([]),
-        cartesiaConfigured ? getCartesiaVoices() : Promise.resolve([]),
+      await Promise.all([
+        useElevenLabs ? getVoices(elApiKey).then((v) => land('elevenlabs', v)) : null,
+        cartesiaConfigured ? getCartesiaVoices().then((v) => land('cartesia', v)) : null,
       ]);
-      setAvailableVoices([...elevenLabsVoices, ...cartesiaVoices]);
     } finally {
       setIsLoadingVoices(false);
+      setVoicesSettled(true);
     }
-  }, [elApiKey, cartesiaConfigured]);
+  }, [elApiKey, cartesiaConfigured, backendChecked]);
 
   useEffect(() => {
     void fetchVoices();
@@ -2739,8 +2804,13 @@ export default function App() {
         mediaDuration={activeJob?.audioBuffer?.duration}
         activity={headerActivity}
         syncPendingCount={activeJob ? (syncPending[activeJob.id] || []).length : 0}
-        // The ElevenLabs allowance only matters while ElevenLabs is the voice engine.
-        quota={activeVoiceEngine === 'elevenlabs' ? elevenLabsQuota : null}
+        // ElevenLabs always transcribes, so its allowance matters whichever engine voices the dub.
+        quota={elevenLabsQuota}
+        cartesiaUsage={cartesiaUsage}
+        gatewayUsage={gatewayUsage}
+        usageUpdatedAt={usageUpdatedAt}
+        usageLoading={usageLoading}
+        onRefreshUsage={refreshUsage}
         voiceEngine={activeVoiceEngine}
         cartesiaReady={cartesiaConfigured}
         elevenLabsReady={Boolean(backendHealth?.elevenLabsConfigured)}
@@ -2873,6 +2943,7 @@ export default function App() {
           elVoiceId={elVoiceId}
           onElVoiceIdChange={handleElVoiceIdChange}
           availableVoices={engineVoices}
+          voicesLoading={!voicesSettled}
           voiceEngine={activeVoiceEngine}
           onVoiceEngineChange={cartesiaConfigured || backendSettings?.canSaveKeys ? requestVoiceEngine : undefined}
           onOpenPhoneticKeyboard={(segment) => {

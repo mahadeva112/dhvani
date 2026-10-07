@@ -317,6 +317,8 @@ interface ExpressDubWizardProps {
   onElVoiceIdChange: (v: string) => void;
   /** Voices of the engine that is on; the other engine's voices are not offered. */
   availableVoices: Voice[];
+  /** The voice library has not arrived yet; the picker shows placeholders. */
+  voicesLoading?: boolean;
   /** Which engine speaks the dub. Omitting the change handler hides the switch (no Cartesia key). */
   voiceEngine?: VoiceEngine;
   onVoiceEngineChange?: (engine: VoiceEngine) => void;
@@ -448,6 +450,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   elVoiceId,
   onElVoiceIdChange,
   availableVoices,
+  voicesLoading = false,
   voiceEngine = 'elevenlabs',
   onVoiceEngineChange,
   onOpenPhoneticKeyboard,
@@ -1593,6 +1596,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               elVoiceId={elVoiceId}
               onElVoiceIdChange={onElVoiceIdChange}
               availableVoices={availableVoices}
+              loading={voicesLoading}
               targetLanguage={targetLanguage}
               voiceEngine={voiceEngine}
               onVoiceEngineChange={onVoiceEngineChange}
@@ -4018,6 +4022,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   elVoiceId={castPickFor ? activeJob.cast?.[castPickFor]?.voiceId || elVoiceId : elVoiceId}
                   onElVoiceIdChange={castPickFor && onCastChange ? (id) => onCastChange(castPickFor, id) : onElVoiceIdChange}
                   availableVoices={availableVoices}
+                  loading={voicesLoading}
                   targetLanguage={targetLanguage}
                   voiceEngine={voiceEngine}
                   onVoiceEngineChange={onVoiceEngineChange}
