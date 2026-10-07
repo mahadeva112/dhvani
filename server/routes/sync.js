@@ -2,9 +2,8 @@ import { randomUUID } from 'node:crypto';
 import express, { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../errors.js';
-import { synthesizeLines, cleanTextForNaturalSpeech, takesSpeed } from '../providers/elevenlabs/speech.js';
-import { config } from '../env.js';
-import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat, takesSpeed as cartesiaTakesSpeed } from '../providers/cartesia/speech.js';
+import { synthesizeLines, cleanTextForNaturalSpeech } from '../providers/elevenlabs/speech.js';
+import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } from '../providers/cartesia/speech.js';
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch } from '../lib/media.js';
 import { pcmToWav, floatToWav, parseWav } from '../lib/wav.js';
 import { runSync } from '../lib/syncDub.js';
@@ -99,13 +98,6 @@ const castVoices = (cast, main, { requested, seed }) => {
   }
   return (speaker) => voices.get(speaker) || main;
 };
-
-/** Whether a voice's pace follows its speed, so Sync can match the original pace with it. */
-const canPace = (voice) => (voice.cartesia ? cartesiaTakesSpeed(voice.modelId) : takesSpeed(voice.modelId || config.elevenlabs.ttsModel));
-
-/** Matching the original pace, as the app asks for it: `{ follow }` (0-1), or null when off. */
-const cleanPaceMatch = (value) =>
-  value && typeof value === 'object' && Number.isFinite(value.follow) ? { follow: Math.min(1, Math.max(0, value.follow)) } : null;
 
 /** Voices lines with whichever engine `voice` belongs to. */
 const voiceLinesWith = ({ apiKey, cartesiaKey, language, signal }) => async (lines, { voice, onLine }) =>
@@ -213,13 +205,11 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  *
  * Body: `{ segments, sourceDuration, voiceId, modelId, outputFormat,
  * voiceSettings, language, seed, lineSeeds, precision, join, suggest,
- * suggestLonger, matchLoudness, paceMatch, debug, jobId }`. `suggest` and `suggestLonger`
+ * suggestLonger, matchLoudness, debug, jobId }`. `suggest` and `suggestLonger`
  * (both on unless false) ask for shorter wordings of long lines and fuller
  * wordings of lines that end early. `lineSeeds` maps a line's key to the seed
  * of a retake of it; `matchLoudness` evens out the lines' loudness (off
- * unless asked for); `paceMatch` (`{ follow }`, off unless asked for) voices
- * each line again at the speed that makes it last as long as the original
- * speaker took; `debug`, or DHVANI_AUDIO_DEBUG=1, adds
+ * unless asked for); `debug`, or DHVANI_AUDIO_DEBUG=1, adds
  * `report.audioDebug` and logs it. Replies with `{ audioId, contentType,
  * report }`; the dub itself, lossless WAV, is fetched from
  * /api/sync/audio/:audioId. A `jobId` makes the run pollable at
@@ -249,7 +239,6 @@ syncRouter.post(
       cast,
       peak,
       locked,
-      paceMatch,
     } = req.body || {};
 
     if (!Array.isArray(segments) || segments.length === 0) {
@@ -306,11 +295,9 @@ syncRouter.post(
           matchLoudness: matchLoudness === true,
           locked: cleanLocked(locked),
           debug: audioDebug,
-          paceMatch: cleanPaceMatch(paceMatch),
         },
         {
           voiceLines,
-          canPace,
           decode: (buffer) => decodeAudio(buffer, format),
           // One write at the end, lossless and at the clips' own rate: encoding to
           // MP3 again would be a second lossy generation of every line.

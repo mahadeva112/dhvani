@@ -5,7 +5,7 @@ import { DEFAULT_JOIN_SETTINGS, resolveJoinSettings, dbToAmplitude } from './syn
 import { pava, placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, removeBreaths, shortenPauses, renderTimeline, MIN_INNER_PAUSE_SECONDS } from './syncRender.js';
 import { acceptRewrite } from './syncRewrite.js';
-import { runSync, clearClipCache, clipHash, MAX_RETAKES, matchPaces } from './syncDub.js';
+import { runSync, clearClipCache, clipHash, MAX_RETAKES } from './syncDub.js';
 
 const RATE = 8000;
 
@@ -518,22 +518,17 @@ test('a text model that fails leaves the sync finished, with the reason reported
 
 /** A fake voice: every character takes 0.08 s to say (the closing mark the sync adds takes none), with 0.15 s of silence either side. */
 const SECONDS_PER_CHAR = 0.08;
-const fakeDeps = ({ shorten, lengthen, canPace } = {}) => {
+const fakeDeps = ({ shorten, lengthen } = {}) => {
   const voiced = [];
-  const paces = [];
   return {
     voiced,
-    paces,
     deps: {
-      // A line's pace speeds it up or slows it down exactly.
       voiceLines: async (lines, { onLine }) =>
         lines.map((line, n) => {
           voiced.push(line.text);
-          paces.push(line.pace ?? 1);
           onLine(n + 1);
-          return clip({ lead: 0.15, tone: (line.text.replace(/[.।]$/u, '').length * SECONDS_PER_CHAR) / (line.pace ?? 1), tail: 0.15 });
+          return clip({ lead: 0.15, tone: line.text.replace(/[.।]$/u, '').length * SECONDS_PER_CHAR, tail: 0.15 });
         }),
-      canPace,
       decode: async (samples) => samples,
       encode: async (samples) => ({ buffer: Buffer.from(new Uint8Array(samples.buffer)), contentType: 'audio/test' }),
       shorten,
@@ -999,43 +994,4 @@ test('removeBreaths finds a breath on a voice with room noise, and keeps an "s" 
   assert.ok(levelOf(samples, 0.67, 0.83) < 0.001, 'the breath is gone');
   const s = Math.round(1.66 * BREATH_RATE);
   for (let i = s; i < Math.round(1.79 * BREATH_RATE); i++) assert.equal(samples[i], clip[i], 'the "s" is kept');
-});
-
-test('paces follow each speaker, then each line as far as asked, and stay in range', () => {
-  const speakers = ['A', 'A', 'A', 'B'];
-  const ratios = [1.1, 1.2, 1.3, 0.8];
-  assert.deepEqual(matchPaces(ratios, speakers, 0).paces, [1.2, 1.2, 1.2, 0.8], "nothing followed: every line at its speaker's median");
-  assert.deepEqual(matchPaces(ratios, speakers, 1).paces, [1.1, 1.2, 1.3, 0.8], 'all followed: every line at its own');
-  assert.deepEqual(matchPaces(ratios, speakers, 0).speakers, { A: 1.2, B: 0.8 });
-  assert.deepEqual(matchPaces([3, 0.1, 1.01, 0], ['A', 'B', 'C', 'D'], 1).paces, [1.5, 0.6, 1, 1], 'held in range; too close to 1 or unmeasured is left alone');
-});
-
-test('matching the original pace voices each line again at the speed of the original speaker', async () => {
-  clearClipCache();
-  // Each line takes 1.2 s to say where the original speaker took 1 s.
-  const segments = [cue(1, 1, 2, 'a'.repeat(15)), cue(2, 4, 5, 'b'.repeat(15))];
-  const { deps, paces } = fakeDeps({ canPace: () => true });
-  const { report } = await runSync({ segments, sourceDuration: 7, sampleRate: RATE, voice, paceMatch: { follow: 1 } }, deps);
-  assert.deepEqual(paces.slice(2), [1.2, 1.2], 'voiced again, faster');
-  for (const unit of report.units) {
-    assert.equal(unit.pace, 1.2);
-    assert.ok(Math.abs(unit.speech - 1) < 0.05, `speech ${unit.speech}`);
-  }
-  assert.equal(report.summary.paced, 2);
-  assert.deepEqual(Object.keys(report.pace.speakers), ['Speaker']);
-});
-
-test('without pace matching, or with a voice that takes no speed, every line is voiced once as it is', async () => {
-  const segments = [cue(1, 1, 2, 'a'.repeat(15)), cue(2, 4, 5, 'b'.repeat(15))];
-  for (const [params, canPace] of [
-    [{}, () => true],
-    [{ paceMatch: { follow: 1 } }, () => false],
-  ]) {
-    clearClipCache();
-    const { deps, paces } = fakeDeps({ canPace });
-    const { report } = await runSync({ segments, sourceDuration: 7, sampleRate: RATE, voice, ...params }, deps);
-    assert.deepEqual(paces, [1, 1]);
-    assert.equal(report.summary.paced, 0);
-    assert.ok(report.units.every((unit) => unit.pace === 1));
-  }
 });

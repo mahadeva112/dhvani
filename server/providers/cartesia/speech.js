@@ -84,9 +84,6 @@ const generationConfig = (settings = {}, modelId) => {
   return Object.keys(out).length ? out : undefined;
 };
 
-/** Whether a model takes a speed: only the sonic-3 family has generation_config. */
-export const takesSpeed = (modelId) => /^sonic-3/.test(modelId || config.cartesia.ttsModel || '');
-
 /** One text-to-speech request. Returns the raw Response. */
 export const synthesizeSpeech = async (
   { voiceId, text, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings },
@@ -209,8 +206,7 @@ export const synthesizeScript = async (
  * synthesizeLines. Cartesia takes no neighbouring text or seed, so each line
  * is voiced on its own with the same voice, model and settings.
  *
- * `lines[i]` is `{ text, pace? }`, `pace` multiplying the speed for that line
- * (sonic-3 only; generationConfig clamps it); `outputFormat` should already be one Cartesia
+ * `lines[i]` is `{ text }`; `outputFormat` should already be one Cartesia
  * produces (see toCartesiaOutputFormat). `onLine(done)` reports each finished
  * line. Returns `[{ buffer }]` in the same order.
  */
@@ -226,13 +222,8 @@ export const synthesizeLines = async (
     while (next < lines.length) {
       if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
       const index = next++;
-      const { pace } = lines[index];
-      const paced =
-        Number.isFinite(pace) && pace > 0 && pace !== 1
-          ? { ...voiceSettings, speed: (Number.isFinite(voiceSettings?.speed) ? voiceSettings.speed : 1) * pace }
-          : voiceSettings;
       const response = await synthesizeSpeech(
-        { voiceId, text: lines[index].text, modelId, outputFormat, language, voiceSettings: paced },
+        { voiceId, text: lines[index].text, modelId, outputFormat, language, voiceSettings },
         { apiKey, signal }
       );
       results[index] = { buffer: Buffer.from(await response.arrayBuffer()) };

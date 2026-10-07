@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { synthesizeScript, secondsOfAudio, speechToSpeech, withPace, takesSpeed } from './speech.js';
+import { synthesizeScript, secondsOfAudio, speechToSpeech } from './speech.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../../lib/dubJobs.js';
 
 const SETTINGS = { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true, speed: 1 };
@@ -237,15 +237,4 @@ test('a long read on the voice’s saved settings is held steady; explicit setti
     { apiKey: 'test-key' }
   );
   assert.ok(bodies.every((body) => body.voice_settings.stability === 0.3));
-});
-
-test("a paced line multiplies the voice's speed, held to what ElevenLabs accepts", () => {
-  assert.equal(withPace(SETTINGS, 1), SETTINGS, 'no pace leaves the settings as they are');
-  assert.deepEqual(withPace({ ...SETTINGS, speed: 0.9 }, 1.2), { ...SETTINGS, speed: 0.9 * 1.2 });
-  assert.equal(withPace(SETTINGS, 2).speed, 1.2);
-  assert.equal(withPace({ stability: 0.4 }, 0.5).speed, 0.7, "a voice saved without a speed is paced from 1");
-  assert.equal(takesSpeed('eleven_multilingual_v2'), true);
-  assert.equal(takesSpeed('eleven_v3'), false);
-  assert.equal(takesSpeed('eleven_v4'), false);
-  assert.equal(takesSpeed('eleven_monolingual_v1'), false);
 });

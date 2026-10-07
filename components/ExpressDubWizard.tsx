@@ -67,7 +67,6 @@ import {
   DEFAULT_VOICE_SETTINGS,
   getVoiceSettings,
   performsAudioTags,
-  modelTakesSpeed,
   isElevenLabsDefault,
 } from '../services/elevenLabsService';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
@@ -4310,11 +4309,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onDownloadWav={report ? onDownloadWav : undefined}
               onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
               fitSource={{ segments, charsPerSecond: previewRate, rateMeasured: measuredRate !== null }}
-              paceNote={
-                voiceEngine === 'elevenlabs' && elModelId && !modelTakesSpeed(elModelId)
-                  ? "This model doesn't follow the speed setting, so no line would change speed. Pick Multilingual v2, Turbo or Flash to match the pace."
-                  : null
-              }
               subtitles={
                 report && syncedCues && syncedCues.length > 0 && (
                   <>

@@ -92,17 +92,6 @@ export const getVoiceSettings = ({ voiceId, apiKey } = {}) =>
 /** The legacy v1 models predate the `speed` control and reject it. */
 const supportsSpeed = (modelId) => !/_v1$/.test(modelId);
 
-/**
- * Settings with their speed multiplied by `pace`, for one line voiced faster
- * or slower than the rest; normalizeSettings then holds it to what ElevenLabs
- * accepts.
- */
-export const withPace = (settings, pace) => {
-  if (!(Number.isFinite(pace) && pace > 0 && pace !== 1)) return settings;
-  const speed = typeof settings?.speed === 'number' && Number.isFinite(settings.speed) ? settings.speed : DEFAULT_VOICE_SETTINGS.speed;
-  return { ...settings, speed: clampSpeed(speed * pace) };
-};
-
 const isV3 = (modelId) => /^eleven_v3/.test(modelId);
 
 /** Eleven v4 and v4 Turbo: they perform audio tags like v3 and stitch like v2. */
@@ -110,9 +99,6 @@ const isV4 = (modelId) => /^eleven_v4/.test(modelId);
 
 /** Models that perform audio tags ([sighs], [whispers]) and so take delivery cues. */
 const performsTags = (modelId) => isV3(modelId) || isV4(modelId);
-
-/** Whether a model's pace follows the speed setting: v3 ignores it and v4 takes its pace from audio tags. */
-export const takesSpeed = (modelId) => supportsSpeed(modelId) && !performsTags(modelId);
 
 /** eleven_v3 does not take previous_text / next_text. */
 const supportsContext = (modelId) => !isV3(modelId);
@@ -500,7 +486,7 @@ export const synthesizeLines = async (
       text: line.text,
       modelId: resolvedModel,
       outputFormat,
-      voiceSettings: withPace(settings, line.pace),
+      voiceSettings: settings,
       seed: Number.isInteger(line.seed) && line.seed >= 0 && line.seed < 2 ** 32 ? line.seed : takeSeed,
     };
     const withContext = () =>
