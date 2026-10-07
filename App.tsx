@@ -203,12 +203,12 @@ export default function App() {
     }
   });
 
-  // Whether a dub's passages are brought to one loudness. Off by default: each keeps the level it was voiced at.
+  // Whether a dub's passages are brought to one loudness. On by default; off keeps each at the level it was voiced at.
   const [dubMatchLoudness, setDubMatchLoudness] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('dhvani_dub_match_loudness') === 'true';
+      return localStorage.getItem('dhvani_dub_match_loudness') !== 'false';
     } catch {
-      return false;
+      return true;
     }
   });
 
