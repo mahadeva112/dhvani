@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.27',
+    changes: [
+      'Edit timing plays your edits live: move, trim, fade or turn a line up while it plays and you hear it at once, without the player stopping.',
+      'Pick several lines with Ctrl + click, a drag across empty lane or Ctrl + A, then move them, or set gain, fades and mute, all together.',
+    ],
+  },
+  {
     version: '1.3.26',
     changes: ['The video panel in Sync is removed; the Sync player is back to the original and the dub.'],
   },
