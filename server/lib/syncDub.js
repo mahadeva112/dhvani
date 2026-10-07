@@ -96,6 +96,51 @@ const retakeSeed = (seed, attempt) => ((Number.isInteger(seed) ? seed : 0) + att
 const SUGGESTION_CONCURRENCY = 4;
 
 /**
+ * Matching the original pace (opt-in): a line shorter than this in the
+ * original says too little about how fast its speaker talks to set its speed.
+ */
+const MIN_PACE_SPOKEN_SECONDS = 0.8;
+
+/** A pace this close to 1 isn't worth voicing the line again for. */
+const MIN_PACE_CHANGE = 0.03;
+
+/** Paces asked of the voice stay inside this; each engine then holds its speed to what it accepts. */
+const PACE_LIMITS = [0.6, 1.5];
+
+const median = (values) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+
+/**
+ * The pace each line is voiced again at so its words take as long as the
+ * original speaker's did: `ratios[i]` is the line's speech as voiced over the
+ * original's (above 1 means the dub is slower). Each speaker's lines share
+ * their median, and `follow` (0-1) moves each line from that toward its own
+ * ratio. Returns `{ paces, speakers }`, a pace of 1 where nothing changes and
+ * `speakers` mapping a speaker to their median.
+ */
+export const matchPaces = (ratios, speakers, follow) => {
+  const share = Math.min(1, Math.max(0, Number.isFinite(follow) ? follow : 0));
+  const bySpeaker = new Map();
+  ratios.forEach((ratio, i) => {
+    if (!(ratio > 0)) return;
+    if (!bySpeaker.has(speakers[i])) bySpeaker.set(speakers[i], []);
+    bySpeaker.get(speakers[i]).push(ratio);
+  });
+  const medians = new Map([...bySpeaker].map(([speaker, list]) => [speaker, median(list)]));
+  const paces = ratios.map((ratio, i) => {
+    if (!(ratio > 0)) return 1;
+    // Blended on a log scale, so twice as fast and half as fast pull equally hard.
+    const pace = Math.exp((1 - share) * Math.log(medians.get(speakers[i])) + share * Math.log(ratio));
+    const held = Math.round(Math.min(PACE_LIMITS[1], Math.max(PACE_LIMITS[0], pace)) * 100) / 100;
+    return Math.abs(held - 1) < MIN_PACE_CHANGE ? 1 : held;
+  });
+  return { paces, speakers: Object.fromEntries([...medians].map(([speaker, value]) => [speaker, Math.round(value * 100) / 100])) };
+};
+
+/**
  * A clip often opens with a soft breath or room noise before its first word
  * (below speech level, above silence). All of it is kept, but only this much
  * before the first word counts when clips are spaced out: the rest may overlap
@@ -116,7 +161,9 @@ const CLIP_CACHE_LIMIT = 2000;
 const clipCache = new Map();
 
 const cacheKey = (voice, text) =>
-  createHash('sha256').update(JSON.stringify([voice.voiceId, voice.modelId, voice.outputFormat, voice.voiceSettings ?? null, voice.seed ?? null, text])).digest('hex');
+  createHash('sha256')
+    .update(JSON.stringify([voice.voiceId, voice.modelId, voice.outputFormat, voice.voiceSettings ?? null, voice.seed ?? null, text, ...(voice.pace ? [voice.pace] : [])]))
+    .digest('hex');
 
 const remember = (key, buffer) => {
   clipCache.delete(key);
@@ -151,6 +198,9 @@ const mapLimit = async (items, limit, fn) => {
  * where `suggest` asks for shorter wordings of long lines and `suggestLonger` for fuller wordings of short ones (both on by default),
  * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`,
  * `lineSeeds` maps a line's key (see lineKey) to the seed of a retake of it,
+ * `paceMatch` (`{ follow }`, off when left out) voices each line again at the
+ * speed that makes it last as long as the original speaker took (see
+ * matchPaces), on voices `deps.canPace(voice)` says take a speed,
  * `matchLoudness` evens out the lines' loudness (off by default: each line is
  * kept at the level it was voiced at) and `debug` adds `report.audioDebug`,
  * a sample-exact account of every cut, placement, gain and fade.
@@ -172,7 +222,9 @@ const mapLimit = async (items, limit, fn) => {
  * one gain per speaker instead of one per line.
  *
  * `deps`:
- * - `voiceLines(lines, { voice, onLine })` → `[Buffer]`, voicing `[{ text, previousText, nextText }]` in order with `voice`;
+ * - `voiceLines(lines, { voice, onLine })` → `[Buffer]`, voicing `[{ text, previousText, nextText, seed, pace }]` in order with `voice`,
+ *   `pace` (when set) multiplying the voice's own speed for that line;
+ * - `canPace(voice)` → whether a voice takes a speed (optional; without it no line is paced);
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
  * - `encode(samples, { float })` → `{ buffer, contentType }`, `float` asking for 32-bit float;
  * - `shorten({ text, sourceText, language, targetChars })` → a shorter wording, or null, or
@@ -205,6 +257,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     matchLoudness = false,
     locked = {},
     debug = false,
+    paceMatch = null,
   } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
@@ -260,8 +313,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
    * lines are read as one, and fits each take.
    */
   let voicedSoFar = 0;
+  // The pace each line is voiced at, times the voice's own speed: 1 unless the original pace is matched.
+  const paces = units.map(() => 1);
   const voiceAndFit = async (indexes, seedFor) => {
-    const voiceWith = (i) => ({ ...baseVoiceOf(units[i]), seed: seedFor(units[i]) });
+    const voiceWith = (i) => ({ ...baseVoiceOf(units[i]), seed: seedFor(units[i]), ...(paces[i] !== 1 && { pace: paces[i] }) });
     const missing = [];
     for (const i of indexes) {
       const cached = clipCache.get(cacheKey(voiceWith(i), spoken[i]));
@@ -282,6 +337,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS),
         nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS),
         seed: seedFor(units[i]),
+        ...(paces[i] !== 1 && { pace: paces[i] }),
       }));
       const before = voicedSoFar;
       const voiced = await deps.voiceLines(lines, {
@@ -318,6 +374,38 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     if (cut.length === 0) break;
     await voiceAndFit(cut, (unit) => retakeSeed(seedOf(unit), attempt));
     for (const i of cut) retakes[i] = attempt;
+  }
+
+  // Matching the original pace: each line's words, as voiced, against how long
+  // the original speaker took over theirs. A line whose pace changes is voiced
+  // again with the seed of the take it replaces, and a new take the voice cut
+  // off is dropped for the one before.
+  const spokenOf = (i) => Math.max(0, units[i].srcEnd - units[i].srcStart);
+  let paceSpeakers = null;
+  if (paceMatch && deps.canPace) {
+    const ratios = units.map((unit, i) =>
+      clips[i] && !clips[i].cutOff && !heldByLock(i) && spokenOf(i) >= MIN_PACE_SPOKEN_SECONDS && deps.canPace(baseVoiceOf(unit))
+        ? clips[i].speech / spokenOf(i)
+        : 0
+    );
+    const matched = matchPaces(ratios, units.map(speakerOf), Number(paceMatch.follow));
+    paceSpeakers = matched.speakers;
+    const repaced = units.map((_, i) => i).filter((i) => matched.paces[i] !== 1);
+    if (repaced.length > 0) {
+      const before = new Map(repaced.map((i) => [i, { buffer: buffers[i], clip: clips[i], length: voicedLength[i], breaths: breathsRemoved[i] }]));
+      for (const i of repaced) paces[i] = matched.paces[i];
+      const keptSeeds = new Map(units.map((unit, i) => [unit, retakes[i] ? retakeSeed(seedOf(unit), retakes[i]) : seedOf(unit)]));
+      await voiceAndFit(repaced, (unit) => keptSeeds.get(unit));
+      for (const i of repaced) {
+        if (!clips[i]?.cutOff) continue;
+        const kept = before.get(i);
+        buffers[i] = kept.buffer;
+        clips[i] = kept.clip;
+        voicedLength[i] = kept.length;
+        breathsRemoved[i] = kept.breaths;
+        paces[i] = 1;
+      }
+    }
   }
 
   // 3. Fitting
@@ -567,7 +655,6 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   }
 
   // A line ends early when its words, as voiced, leave much of the original speech unsaid.
-  const spokenOf = (i) => Math.max(0, units[i].srcEnd - units[i].srcStart);
   const shortBy = units.map((_, i) => (lineFor.get(i) && !exceeded[i] && isShortLine(clips[i].speech, spokenOf(i)) ? spokenOf(i) - clips[i].speech : 0));
 
   /** Seconds the words of line `i` may take: its slot, less the silence around them. */
@@ -647,6 +734,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       retakes: retakes[i],
       cutOff: Boolean(clips[i]?.cutOff),
       breathsRemoved: breathsRemoved[i],
+      pace: paces[i],
     };
   });
 
@@ -677,8 +765,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         retaken: retakes.filter((n) => n > 0).length,
         cutOff: clips.filter((clip) => clip?.cutOff).length,
         breathsRemoved: breathsRemoved.reduce((sum, n) => sum + n, 0),
+        paced: paces.filter((pace) => pace !== 1).length,
       },
       units: unitReports,
+      ...(paceSpeakers && { pace: { follow: Math.min(1, Math.max(0, Number(paceMatch.follow) || 0)), speakers: paceSpeakers } }),
       ...(mixed && { mix: { ...mixed.report, overlapsKept, selfOverlaps } }),
       ...(audioDebug && { audioDebug }),
     },

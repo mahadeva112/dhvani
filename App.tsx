@@ -2158,7 +2158,7 @@ export default function App() {
     );
   };
 
-  const handleSyncDub = async ({ precision, join, suggest, suggestLonger, matchLoudness }: SyncOptions) => {
+  const handleSyncDub = async ({ precision, join, suggest, suggestLonger, matchLoudness, paceMatch, paceFollow }: SyncOptions) => {
     if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
     if (activeJob.targetSource === 'pending') return;
 
@@ -2210,6 +2210,7 @@ export default function App() {
           suggest,
           suggestLonger,
           matchLoudness,
+          ...(paceMatch && { paceMatch: { follow: paceFollow } }),
           lineSeeds: syncLineSeedsRef.current[activeJob.id],
           debug: audioDebugEnabled(),
           cartesia: cartesiaVoice,

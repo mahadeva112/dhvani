@@ -34,6 +34,9 @@ const formatClock = (seconds: number) => {
 
 const formatOffset = (seconds: number) => `${seconds > 0 ? '+' : seconds < 0 ? '−' : '±'}${Math.abs(seconds).toFixed(2)} s`;
 
+/** How far each line follows its own original pace by default: most of the way, so lines still sound like one read. */
+const DEFAULT_PACE_FOLLOW = 0.7;
+
 /** The settings Sync starts with: phrase precision, Natural joins, no suggestions, loudness as voiced. */
 export const defaultSyncOptions = (): SyncOptions => ({
   precision: 'phrase',
@@ -42,6 +45,8 @@ export const defaultSyncOptions = (): SyncOptions => ({
   suggest: false,
   suggestLonger: false,
   matchLoudness: false,
+  paceMatch: false,
+  paceFollow: DEFAULT_PACE_FOLLOW,
 });
 
 const isDefaultOptions = (options: SyncOptions) => {
@@ -52,6 +57,8 @@ const isDefaultOptions = (options: SyncOptions) => {
     options.suggest === defaults.suggest &&
     options.suggestLonger === defaults.suggestLonger &&
     options.matchLoudness === defaults.matchLoudness &&
+    options.paceMatch === defaults.paceMatch &&
+    options.paceFollow === defaults.paceFollow &&
     joinPresetOf(options.join) === 'natural'
   );
 };
@@ -70,6 +77,9 @@ const readOptions = (): SyncOptions => {
       suggest: saved.suggest === true,
       suggestLonger: saved.suggestLonger === true,
       matchLoudness: saved.matchLoudness === true,
+      paceMatch: saved.paceMatch === true,
+      paceFollow:
+        typeof saved.paceFollow === 'number' && Number.isFinite(saved.paceFollow) ? Math.min(1, Math.max(0, saved.paceFollow)) : DEFAULT_PACE_FOLLOW,
     };
   } catch {
     return defaultSyncOptions();
@@ -135,6 +145,34 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
   return null;
 };
 
+/** A pace multiplier as the report shows it: ×1.12. */
+const formatPace = (pace: number) => `×${pace.toFixed(2)}`;
+
+/** What matching the original pace did: how many lines changed speed, and each speaker's usual pace. */
+const PaceNote: React.FC<{ pace: NonNullable<SyncReport['pace']>; paced: number; lines: number }> = ({ pace, paced, lines }) => {
+  const speakers = Object.entries(pace.speakers);
+  if (speakers.length === 0) {
+    return (
+      <p className="text-xs text-amber-300">
+        Matching the original pace changed nothing: this voice's model doesn't take a speed (Eleven v3 and v4 pace themselves; Cartesia needs Sonic 3).
+      </p>
+    );
+  }
+  return (
+    <p className="text-xs text-slate-400">
+      <span className="text-slate-200 font-medium">Original pace matched:</span> {paced} of {lines} lines voiced faster or slower. Speaker speed{' '}
+      {speakers.map(([speaker, value], n) => (
+        <span key={speaker}>
+          {n > 0 && ', '}
+          {speakers.length > 1 && `${speaker} `}
+          <span className="tabular-nums text-slate-200">{formatPace(value)}</span>
+        </span>
+      ))}
+      , each line following its own {Math.round(pace.follow * 100)}% of the way.
+    </p>
+  );
+};
+
 /** What the preview still expects, under the Sync button: lines likely too long, and lines likely to end early. */
 const previewNote = (long: number, short: number) => {
   const lines = (n: number) => (n === 1 ? '1 line is' : `${n} lines are`);
@@ -176,6 +214,8 @@ export interface SyncSettingsPanelProps {
   onOpenVoiceChanger?: () => void;
   /** The subtitles section: downloads and settings, built by the step. */
   subtitles?: React.ReactNode;
+  /** Why matching the original pace won't work with the voice picked, or null when it will. */
+  paceNote?: string | null;
 }
 
 /** The right-hand rail of step 4: what to sync with, the Sync button, and the synced files. */
@@ -198,6 +238,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   onDownloadWav,
   onOpenVoiceChanger,
   subtitles,
+  paceNote,
 }) => (
   <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
@@ -269,6 +310,51 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           <span className="block text-[11.5px] text-slate-400 mt-0.5">Off, each line keeps exactly the level it was voiced at.</span>
         </span>
       </label>
+      <div className="flex flex-col gap-2">
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={options.paceMatch}
+            disabled={isSyncing}
+            onChange={(e) => onOptionsChange((o) => ({ ...o, paceMatch: e.target.checked }))}
+            className="mt-0.5 accent-indigo-500"
+          />
+          <span>
+            <span className="block text-[13px] text-slate-200">Match the original pace</span>
+            <span className="block text-[11.5px] text-slate-400 mt-0.5">
+              Each line is voiced again at the speed that makes it last as long as the speaker took in the original. Lines whose speed changes are
+              voiced twice.
+            </span>
+            {paceNote && <span className="block text-[11.5px] text-amber-300 mt-0.5">{paceNote}</span>}
+          </span>
+        </label>
+        {options.paceMatch && (
+          <div className="pl-6 flex flex-col gap-1">
+            <div className="flex items-center justify-between gap-2">
+              <label htmlFor="sync-pace-follow" className="text-[12px] text-slate-300">
+                Follow each line
+              </label>
+              <span className="text-[12px] font-medium text-slate-200 tabular-nums">
+                {options.paceFollow === 0 ? "Speaker's pace only" : `${Math.round(options.paceFollow * 100)}%`}
+              </span>
+            </div>
+            <input
+              id="sync-pace-follow"
+              type="range"
+              min={0}
+              max={1}
+              step={0.1}
+              value={options.paceFollow}
+              disabled={isSyncing}
+              onChange={(e) => onOptionsChange((o) => ({ ...o, paceFollow: Number(e.target.value) }))}
+              className="w-full accent-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+            />
+            <span className="text-[11.5px] text-slate-400">
+              0% keeps every line at its speaker's usual pace; 100% follows each line's own. In between sounds most natural.
+            </span>
+          </div>
+        )}
+      </div>
       <button
         type="button"
         onClick={() => onOptionsChange(defaultSyncOptions())}
@@ -475,7 +561,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
         </div>
         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
           <Lock className="w-3 h-3 shrink-0" />
-          Each line is placed to start where the original line starts; a line longer than its original pushes the ones after it later. The voice is never changed: no speed change, no volume change and no fades. Lines are only moved, and the silence inside them shortened.
+          Each line is placed to start where the original line starts; a line longer than its original pushes the ones after it later. The audio is never stretched: no time-stretch, no volume change and no fades. Lines are only moved and the silence inside them shortened, and with Match the original pace on, a line is voiced again at another speed.
           {handEdits > 0 && ' Your hand edits in Edit timing are in this dub: there, only the speed, level and fades you set change a line, and Sync again keeps every locked line where you put it.'}
         </p>
       </div>
@@ -581,6 +667,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             dubBuffer={dubBuffer}
           />
 
+          {report.pace && <PaceNote pace={report.pace} paced={report.summary.paced ?? 0} lines={report.summary.lines} />}
           {(report.summary.meaningRejected ?? 0) > 0 && (
             <p className="text-xs text-slate-400">
               {report.summary.meaningRejected === 1 ? '1 suggestion was' : `${report.summary.meaningRejected} suggestions were`} held back: every
@@ -725,6 +812,9 @@ const ReviewRow: React.FC<{
         <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
         {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
         <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : unit.short ? 'text-sky-300' : 'text-slate-400'}`}>{reason}</p>
+        {unit.pace !== undefined && unit.pace !== 1 && (
+          <p className="text-[11.5px] mt-0.5 text-slate-500">Voiced at {formatPace(unit.pace)} the voice's speed to match the original pace</p>
+        )}
 
         {pending ? (
           <p className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300">

@@ -141,3 +141,17 @@ test('the voice library is paged through and reshaped like the ElevenLabs list',
   assert.equal(bela.preview_url, '/api/cartesia/voices/b/preview');
   assert.equal(voices[0].category, 'cloned', "the account's own voices count as cloned");
 });
+
+test("a paced line multiplies the voice's speed, held to what Cartesia accepts", async () => {
+  const calls = mockFetch(() => audio());
+  const lines = [{ text: 'One.', pace: 1.2 }, { text: 'Two.' }, { text: 'Three.', pace: 2 }];
+  await synthesizeLines(
+    { voiceId: 'cartesia:voice-1', lines, modelId: 'sonic-3.6', outputFormat: 'pcm_24000', voiceSettings: { speed: 1.1, emotion: 'calm' } },
+    { apiKey: 'sk_car_test' }
+  );
+  const speeds = calls.map((call) => JSON.parse(call.init.body).generation_config.speed);
+  assert.ok(Math.abs(speeds[0] - 1.32) < 1e-9);
+  assert.equal(speeds[1], 1.1);
+  assert.equal(speeds[2], 1.5);
+  assert.equal(JSON.parse(calls[0].init.body).generation_config.emotion, 'calm', 'the rest of the delivery is kept');
+});

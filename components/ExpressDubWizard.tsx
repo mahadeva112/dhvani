@@ -67,6 +67,7 @@ import {
   DEFAULT_VOICE_SETTINGS,
   getVoiceSettings,
   performsAudioTags,
+  modelTakesSpeed,
   isElevenLabsDefault,
 } from '../services/elevenLabsService';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
@@ -3405,7 +3406,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       ? `${syncPendingLines.length === 1 ? '1 line has' : `${syncPendingLines.length} lines have`} changed since. Sync again to hear ${syncPendingLines.length === 1 ? 'it' : 'them'}.`
                       : hasSyncReport
                         ? 'Every line starts where the original line starts. The synced dub is in step 4; the dub here stays as it was.'
-                        : 'Each line is moved to start where the original line starts. The voice itself is not changed.'}
+                        : 'Each line is moved to start where the original line starts. The audio is never stretched.'}
                 </p>
               </div>
               <button
@@ -4303,6 +4304,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               }}
               onDownloadWav={report ? onDownloadWav : undefined}
               onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
+              paceNote={
+                voiceEngine === 'elevenlabs' && elModelId && !modelTakesSpeed(elModelId)
+                  ? "This model doesn't follow the speed setting, so no line would change speed. Pick Multilingual v2, Turbo or Flash to match the pace."
+                  : null
+              }
               subtitles={
                 report && syncedCues && syncedCues.length > 0 && (
                   <>

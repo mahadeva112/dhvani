@@ -428,7 +428,7 @@ export const MixChecks: React.FC<{ mix: DubMixReport; synced?: boolean }> = ({ m
       tone: ok,
       text: gains.length
         ? `Every line as voiced, with one gain per speaker: ${gains.map(([s, db]) => `${s} ${db > 0 ? '+' : ''}${db.toFixed(1)} dB`).join(', ')}.`
-        : 'Every line exactly as voiced: no speed change, no gain and no fades.',
+        : 'Every line exactly as voiced: no stretching, no gain and no fades.',
     },
     { tone: ok, text: `${mix.speakers.length} speakers, one track each in Stems.` },
   ];

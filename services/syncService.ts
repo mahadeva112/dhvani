@@ -146,6 +146,10 @@ export interface SyncOptions {
   suggestLonger: boolean;
   /** Bring every line to the same loudness. Off: each line keeps the level it was voiced at. */
   matchLoudness: boolean;
+  /** Voice each line again at the speed that makes it last as long as the original speaker took. Off unless chosen. */
+  paceMatch: boolean;
+  /** 0–1: how far each line follows its own original pace rather than its speaker's usual pace. */
+  paceFollow: number;
 }
 
 /**
@@ -242,6 +246,8 @@ export interface SyncUnitReport {
   cutOff?: boolean;
   /** Breaths silenced in the line (absent in older reports). */
   breathsRemoved?: number;
+  /** The voice's speed for this line was multiplied by this to match the original pace; 1 when it wasn't (absent in older reports). */
+  pace?: number;
 }
 
 export interface SyncReport {
@@ -280,8 +286,12 @@ export interface SyncReport {
     cutOff?: number;
     /** Breaths silenced across the dub. */
     breathsRemoved?: number;
+    /** Lines voiced faster or slower to match the original pace. */
+    paced?: number;
   };
   units: SyncUnitReport[];
+  /** Only when the original pace was matched: how far lines followed their own pace, and each speaker's usual pace. */
+  pace?: { follow: number; speakers: Record<string, number> };
   /** Only for a dub with several speakers: what the mix did, and the overlaps it kept. */
   mix?: DubMixReport;
   /** Only when the sync ran in audio debug mode. */
@@ -327,6 +337,8 @@ export interface SyncRequest {
   /** Ask the text model for fuller wordings of lines that end early. */
   suggestLonger?: boolean;
   matchLoudness?: boolean;
+  /** Match the original speaker's pace line by line (SyncOptions.paceMatch); off when left out. */
+  paceMatch?: { follow: number };
   /** Retaken lines, by key: each is voiced again with its own seed. */
   lineSeeds?: Record<string, number>;
   /** Report what the render did to every line (SyncReport.audioDebug). */

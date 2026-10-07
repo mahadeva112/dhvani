@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Match the original pace, in Sync.** An opt-in setting in Sync settings, off by default. Sync
+  measures how long each dub line takes against how long the original speaker took. It then
+  voices that line again at the speed that makes the two match, so a fast speaker's lines are
+  dubbed fast and a slow speaker's slowly. Each speaker gets their usual speed, and **Follow each
+  line** sets how far a line moves from that toward its own pace (70% by default). Only lines
+  whose speed changes are voiced again, never stretched. The report shows each speaker's speed
+  and the speed of every line worth a listen. This needs a model that follows the speed setting:
+  Multilingual v2, Turbo or Flash on ElevenLabs, or Sonic 3 on Cartesia.
+
 - **Split and join cues on the Review step.** Play to where a cue should end and press **S**, or
   click a word in the Original column and press **S** (or Ctrl+Enter): the cut lands on the
   measured word gap, and the dub text breaks at the nearest comma or full stop. A bar under the
