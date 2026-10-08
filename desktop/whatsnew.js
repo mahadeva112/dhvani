@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.30',
+    changes: [
+      'After Sync, Show all lines lists every line with Listen and Retake, so you can retake any line, not only the flagged ones.',
+      'Splitting a line in Review now counts as one changed line, not two.',
+    ],
+  },
+  {
     version: '1.3.29',
     changes: [
       'In Review, any line can get other wordings: hover a line that fits and click Suggest other wordings. Suggestions keep names, numbers and glossary terms exactly, and read the lines around them.',
