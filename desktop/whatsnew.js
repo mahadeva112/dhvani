@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.28',
+    changes: [
+      'Dub and Sync are now one step: Dub voices your script and syncs it to the original in one go.',
+      'Fill a gap in the dub with the original voice: in Edit timing, drag across the Original lane, then drag it down onto the dub (or Ctrl + C, Ctrl + V at the playhead).',
+      'Scrolling up or down over Edit timing moves the timeline when zoomed in.',
+    ],
+  },
+  {
     version: '1.3.27',
     changes: [
       'Edit timing plays your edits live: move, trim, fade or turn a line up while it plays and you hear it at once, without the player stopping.',
