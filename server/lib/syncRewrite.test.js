@@ -330,3 +330,16 @@ test('a back-translation that fails leaves the meaning check to run without it',
   assert.equal(result.backTranslation, null);
   assert.equal(checked, 1);
 });
+
+test("the user's earlier choices go into every prompt as a guide to style, never to content", () => {
+  const examples = [{ from: 'आपको इस बात का ध्यान रखना होगा', to: 'ध्यान रखिए' }];
+  for (const prompt of [
+    buildRewritePrompt({ ...request, examples }),
+    buildOptionsPrompt({ ...request, direction: 'same', count: 3, examples }),
+  ]) {
+    assert.match(prompt, /How this user reworded other lines of this script before/);
+    assert.match(prompt, /- "आपको इस बात का ध्यान रखना होगा" became "ध्यान रखिए"/);
+    assert.match(prompt, /never take words, ideas or facts from them/);
+  }
+  assert.doesNotMatch(buildRewritePrompt(request), /How this user reworded/);
+});

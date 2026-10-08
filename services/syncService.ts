@@ -769,6 +769,8 @@ type LineRequest = {
   /** How many wordings to ask for, 1 to 3; each of a different kind. */
   count?: number;
   context?: LineContext;
+  /** Lines this user reworded before in the project, and how: a guide to their style, never to content. */
+  examples?: { from: string; to: string }[];
 };
 
 /**
