@@ -237,6 +237,8 @@ export interface SyncUnitReport {
   targetChars: number | null;
   /** A shorter (or, for a short line, fuller) wording to use instead, or null. Never applied automatically. */
   suggestion: string | null;
+  /** Too long by more than a third: no shorter wording was asked for, since it would lose meaning; its timing should change. */
+  deepCut?: boolean;
   /** Seconds taken out of the pauses inside the line. */
   pauseTrimmed: number;
   /** The line's first word landed later after its source line than the join settings allow. */
@@ -278,6 +280,8 @@ export interface SyncReport {
     suggested: number;
     /** Suggestions held back because every wording the text model offered changed the meaning. */
     meaningRejected: number;
+    /** Long lines given no suggestion because fitting them would cut more than a third of them. */
+    deepCuts?: number;
     /** Why some or all suggestions are missing: the text model's error, or null. */
     suggestionError: string | null;
     pauseTrimmed: number;

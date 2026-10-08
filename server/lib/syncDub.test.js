@@ -503,7 +503,7 @@ test('acceptRewrite rejects lines that are not shorter or that lost most of the 
 
 test('a text model that fails leaves the sync finished, with the reason reported', async () => {
   clearClipCache();
-  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 2.6, 3.5, 'yyyyyyyyyy')];
+  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 3.2, 3.9, 'yyyyyyyyyy')];
   const { deps } = fakeDeps({
     shorten: async () => {
       throw new Error('Budget has been exceeded');
@@ -654,8 +654,8 @@ test('measureSync counts clips that overlap', () => {
 
 test('a line too long for its slot is voiced as written, flagged, and given a suggestion', async () => {
   clearClipCache();
-  // 30 characters take 2.4 s, but the slot is 1.5 s.
-  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 2.6, 3.5, 'yyyyyyyyyy'), cue(3, 6, 7, 'zzzzzzzzzz')];
+  // 30 characters take 2.4 s, but the slot is about 2 s: under a third of the line has to go.
+  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 3.2, 3.9, 'yyyyyyyyyy'), cue(3, 6, 7, 'zzzzzzzzzz')];
   const requests = [];
   const { deps, voiced } = fakeDeps({
     shorten: async (req) => {
@@ -686,9 +686,23 @@ test('a line too long for its slot is voiced as written, flagged, and given a su
   assert.deepEqual([...new Set(progress.map((p) => p.step))], [1, 2, 3, 4, 5, 6, 7]);
 });
 
+test('a line that would lose over a third of itself to fit gets no suggestion, only a note to change its timing', async () => {
+  clearClipCache();
+  // 30 characters take 2.4 s, but the slot is 1.5 s: fitting it would cut close to half of it.
+  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 2.6, 3.5, 'yyyyyyyyyy')];
+  const { deps } = fakeDeps({ shorten: async () => assert.fail('no shorter wording is asked for') });
+  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice }, deps);
+  assert.equal(report.units[0].exceeded, true);
+  assert.equal(report.units[0].deepCut, true);
+  assert.equal(report.units[0].suggestion, null);
+  assert.equal(report.units[1].deepCut, false);
+  assert.equal(report.summary.deepCuts, 1);
+  assert.equal(report.summary.suggestionsAsked, 0);
+});
+
 test('with suggestions off, a long line is still placed without overlapping and is flagged', async () => {
   clearClipCache();
-  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 2.6, 3.5, 'yyyyyyyyyy')];
+  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 3.2, 3.9, 'yyyyyyyyyy')];
   const { deps } = fakeDeps({ shorten: async () => assert.fail('should not ask for suggestions') });
   const { report } = await runSync({ segments, sourceDuration: 6, sampleRate: RATE, suggest: false, voice }, deps);
   assert.equal(report.summary.overlaps, 0);

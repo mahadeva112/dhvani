@@ -132,6 +132,8 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
   if (unit.silent) return 'The voice returned no audio for this line';
   if (unit.cutOff)
     return `The voice stops before the last word is finished${unit.retakes ? `, in all ${unit.retakes + 1} takes` : ''}: retake it or reword the line`;
+  if (unit.exceeded && unit.deepCut)
+    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Fewer words would cut over a third of it and lose what it says: give it more time in Edit timing, or join it with the line beside it`;
   if (unit.exceeded) return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had`;
   if (unit.short)
     return `Ends ${unit.shortBy.toFixed(1)} s before the original speaker stops: ${unit.speech.toFixed(1)} s said, ${(unit.srcEnd - unit.srcStart).toFixed(1)} s spoken`;

@@ -46,6 +46,17 @@ import { parseJsonResponse } from '../providers/gemini/client.js';
 const MIN_TARGET_SHARE = 0.5;
 
 /**
+ * The most of a line a shorter wording may cut. Past a third, a line can only
+ * fit by losing what it says: its timing has to change instead (a longer
+ * slot, or one line with the line beside it), so no wording is offered unasked.
+ */
+export const MAX_CUT_SHARE = 0.35;
+
+/** True when fitting `text` into `targetChars` would cut more of it than MAX_CUT_SHARE. */
+export const tooDeepCut = (text, targetChars) =>
+  Number.isFinite(Number(targetChars)) && Number(targetChars) < String(text).trim().length * (1 - MAX_CUT_SHARE);
+
+/**
  * Earlier suggestions for a line, shown to the model so a new try reads
  * differently. Every earlier one is still kept out in code, however many.
  */

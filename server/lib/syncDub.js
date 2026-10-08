@@ -28,6 +28,7 @@ import { prepareClip, removeBreaths, shortenPauses, applyCuts, renderTimeline, s
 import { matchingGains } from './loudness.js';
 import { TTS_CONTEXT_CHARS, withSentenceEnd } from './ttsText.js';
 import { mixSpeakers, speakerGains } from './speakerMix.js';
+import { tooDeepCut } from './syncRewrite.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -634,8 +635,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   let meaningRejected = 0;
   const tooLong = units.map((_, i) => i).filter((i) => exceeded[i]);
   const tooShort = units.map((_, i) => i).filter((i) => shortBy[i] > 0);
+  // A line that would lose more than a third of itself to fit needs its timing changed, not fewer words.
+  const deepCut = units.map((unit, i) => exceeded[i] && tooDeepCut(unit.text, targetChars[i]));
   const asks = [
-    ...(suggest && deps.shorten ? tooLong.map((i) => ({ i, ask: deps.shorten })) : []),
+    ...(suggest && deps.shorten ? tooLong.filter((i) => !deepCut[i]).map((i) => ({ i, ask: deps.shorten })) : []),
     ...(suggestLonger && deps.lengthen ? tooShort.map((i) => ({ i, ask: deps.lengthen })) : []),
   ];
   // The lines either side and the speaker, so a line is reworded as part of the conversation.
@@ -693,6 +696,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       speech: clips[i] ? clips[i].speech : 0,
       targetChars: targetChars[i],
       suggestion: suggestions.get(i) || null,
+      deepCut: deepCut[i],
       pauseTrimmed: pauseTrimmed.get(i) || 0,
       late: late[i],
       joinAfter: joinAfter.has(i) ? joinAfter.get(i) : null,
@@ -723,6 +727,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         suggestionsAsked: asks.length,
         suggested: suggestions.size,
         meaningRejected,
+        deepCuts: deepCut.filter(Boolean).length,
         suggestionError,
         pauseTrimmed: pauseTrimmed.size,
         late: late.filter(Boolean).length,

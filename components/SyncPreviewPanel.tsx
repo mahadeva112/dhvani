@@ -115,6 +115,16 @@ export type RewriteDirection = 'shorter' | 'longer' | 'same';
 /** What a wording of each direction is called. */
 export const wordingKind = (direction: RewriteDirection) => (direction === 'longer' ? 'fuller' : direction === 'same' ? 'other' : 'shorter');
 
+/** The most of a line a shorter wording should cut (server/lib/syncRewrite.js MAX_CUT_SHARE). */
+const MAX_CUT_SHARE = 0.35;
+
+/**
+ * True when a long line would lose more than a third of itself to fit: fewer
+ * words would change what it says, so its timing should change instead.
+ */
+export const deepCut = (unit: SyncPreviewUnit) =>
+  directionFor(unit) === 'shorter' && unit.wantSeconds === undefined && unit.targetChars < unit.text.trim().length * (1 - MAX_CUT_SHARE);
+
 /** Wordings a line is offered when the user asks for that line; Suggest for all asks for one each. */
 export const LINE_OPTIONS = 3;
 /**
@@ -267,7 +277,8 @@ export const useLineFixes = ({
       setRow(unit, { kind: 'error', message: err?.message || 'The text model did not answer.', tried });
     }
   };
-  const suggestAll = (list: SyncPreviewUnit[]) => list.filter(notStarted).forEach((unit) => suggest(unit, 1));
+  // A line too long to shorten without losing meaning is left for the user to ask for on its own.
+  const suggestAll = (list: SyncPreviewUnit[]) => list.filter((unit) => notStarted(unit) && !deepCut(unit)).forEach((unit) => suggest(unit, 1));
   /** Forgets the work on a line, so its direction is decided again: after a new trim, say. */
   const reset = (unit: SyncPreviewUnit) => {
     requests.current[unit.key] = (requests.current[unit.key] || 0) + 1;
@@ -609,6 +620,12 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
 
   return (
     <>
+      {(state.kind === 'idle' || state.kind === 'error') && direction === 'shorter' && deepCut(unit) && (
+        <p className="mt-2 text-[11.5px] text-amber-300 leading-snug">
+          To fit, this line would lose more than a third of its words, and with them some of what it says. Give it more time instead: drag
+          the end of its bar on the timeline, or join it with the line beside it.
+        </p>
+      )}
       {(state.kind === 'idle' || state.kind === 'error') && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
@@ -620,7 +637,9 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
               ? 'Try again'
               : want !== undefined
                 ? `Suggest ${want.toFixed(1)} s lines`
-                : `Suggest ${kind} wordings`}
+                : direction === 'shorter' && deepCut(unit)
+                  ? 'Suggest shorter anyway'
+                  : `Suggest ${kind} wordings`}
           </button>
           <button
             type="button"
