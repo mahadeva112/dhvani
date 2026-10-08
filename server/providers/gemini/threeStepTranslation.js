@@ -219,7 +219,7 @@ const runStage = async ({ prompt, apiKey, models, label }) => {
  * The Step prompts mark lines that had to be compressed with [fast]…[/fast].
  * The compression is kept but the tags are not: they would show in the cue
  * editor and ElevenLabs does not treat them as pacing. Emotion is added only
- * at dub time, when "Enhance emotion" is on.
+ * at dub time, when voice expression is "Expressive".
  */
 export const stripPaceTags = (text) =>
   String(text || '')

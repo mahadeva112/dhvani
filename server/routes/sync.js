@@ -55,7 +55,7 @@ export const cartesiaSettings = (settings) => {
  * returns. An ElevenLabs model name on a Cartesia voice (or the other way
  * round) means no model was picked for that engine, so its default is used.
  */
-const makeVoice = ({ voiceId, modelId, voiceSettings }, { requested, seed }) => {
+const makeVoice = ({ voiceId, modelId, voiceSettings }, { requested, seed, steady = false }) => {
   const cleanSeed = Number.isInteger(seed) ? seed : undefined;
   if (isCartesiaVoice(voiceId)) {
     return {
@@ -75,6 +75,8 @@ const makeVoice = ({ voiceId, modelId, voiceSettings }, { requested, seed }) => 
     outputFormat: requested,
     voiceSettings: voiceSettings && typeof voiceSettings === 'object' ? voiceSettings : undefined,
     seed: cleanSeed,
+    // Voice expression Neutral: a calm, even read (see NEUTRAL_VOICE in speech.js).
+    ...(steady && { steady: true }),
   };
 };
 
@@ -87,11 +89,11 @@ const MAX_CAST = 32;
  * voice, is voiced by `main`. Every voice must decode at one sample rate,
  * since nothing is resampled.
  */
-const castVoices = (cast, main, { requested, seed }) => {
+const castVoices = (cast, main, { requested, seed, steady }) => {
   const voices = new Map();
   for (const [speaker, entry] of Object.entries(cast && typeof cast === 'object' ? cast : {}).slice(0, MAX_CAST)) {
     if (typeof speaker !== 'string' || speaker.length > 128 || !entry || typeof entry.voiceId !== 'string' || !entry.voiceId.trim()) continue;
-    voices.set(speaker, makeVoice(entry, { requested, seed }));
+    voices.set(speaker, makeVoice(entry, { requested, seed, steady }));
   }
   const rates = new Set([main, ...voices.values()].map((voice) => parseOutputFormat(voice.outputFormat)?.sampleRate));
   if (rates.size > 1) {
@@ -111,7 +113,7 @@ const castVoices = (cast, main, { requested, seed }) => {
 const CUE_CACHE_LIMIT = 50;
 const cueCache = new Map();
 
-/** Enhance emotion for a sync: `texts` with delivery cues, cued as one script as a dub is (see deliveryCues.js). */
+/** Voice expression Expressive for a sync: `texts` with delivery cues, cued as one script as a dub is (see deliveryCues.js). */
 const cueLinesWith = ({ language, apiKey }) => async (texts) => {
   const key = createHash('sha256').update(JSON.stringify([language || '', texts])).digest('hex');
   if (cueCache.has(key)) return cueCache.get(key);
@@ -309,11 +311,12 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  *
  * Body: `{ segments, sourceDuration, voiceId, modelId, outputFormat,
  * voiceSettings, language, seed, lineSeeds, precision, join, suggest,
- * suggestLonger, keep, matchLoudness, expressive, performanceTags, debug, jobId }`.
+ * suggestLonger, keep, matchLoudness, expressive, performanceTags, steady, debug, jobId }`.
  * As in a dub, `performanceTags` voices each cue's `voiceText` (its text
- * tagged by Match source audio) and `expressive` (Enhance emotion) adds
+ * tagged for voice expression Natural) and `expressive` (Expressive) adds
  * delivery cues first; both only on a model that performs tags, and the
- * words are never changed. With `dub` (`{ dubId, cues }`, one voice only) every
+ * words are never changed. `steady` (voice expression Neutral) holds every
+ * ElevenLabs voice calm and even. With `dub` (`{ dubId, cues }`, one voice only) every
  * line that still reads as the Final dub said it is cut from that dub rather
  * than voiced again (see dubTakes.js); a 409 `sync_dub_missing` asks for the
  * dub at PUT /api/sync/dubs/:dubId first. `suggest` and `suggestLonger`
@@ -354,6 +357,7 @@ syncRouter.post(
       locked,
       expressive,
       performanceTags,
+      steady,
       dub,
     } = req.body || {};
 
@@ -392,9 +396,9 @@ syncRouter.post(
     const cartesiaKey = req.get('x-cartesia-key') || undefined;
     const voice = cartesia
       ? { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed }), outputFormat: format }
-      : { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed }), modelId, outputFormat: format };
+      : { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed, steady: steady === true }), modelId, outputFormat: format };
     const several = multiSpeaker === true;
-    const voiceFor = several ? castVoices(cast, voice, { requested, seed }) : undefined;
+    const voiceFor = several ? castVoices(cast, voice, { requested, seed, steady: steady === true }) : undefined;
     // Emotion follows the dub: one voice on a model that performs tags.
     const tags = !cartesia && !several && performsTags(voice.modelId || config.elevenlabs.ttsModel);
     const sourceTagged = tags && performanceTags === true;
@@ -477,7 +481,7 @@ syncRouter.post(
  * POST /api/dub/conversation — a dub with one voice per speaker, not synced:
  * the script read turn by turn, the pause between turns following the
  * original. Body: `{ turns, cast, voiceId, modelId, outputFormat,
- * voiceSettings, language, seed, matchSpeakers, peak, jobId }`, `turns` being
+ * voiceSettings, language, seed, matchSpeakers, peak, steady, jobId }`, `turns` being
  * `[{ speaker, text, gapAfter }]` in spoken order and `cast` as for /sync.
  * Replies `{ audioId, contentType, stems, report }` as /sync does; progress is
  * polled like a one-voice dub, at /api/elevenlabs/tts/jobs/:jobId.
@@ -485,14 +489,14 @@ syncRouter.post(
 syncRouter.post(
   '/dub/conversation',
   asyncHandler(async (req, res) => {
-    const { turns, cast, voiceId, modelId, outputFormat, voiceSettings, language, seed, matchSpeakers, peak, jobId } = req.body || {};
+    const { turns, cast, voiceId, modelId, outputFormat, voiceSettings, language, seed, matchSpeakers, peak, steady, jobId } = req.body || {};
     if (!Array.isArray(turns) || turns.length === 0) {
       throw new ApiError('There is no dialogue to dub.', { status: 400, code: 'no_turns' });
     }
 
     const requested = parseOutputFormat(outputFormat) ? outputFormat : FALLBACK_FORMAT;
-    const main = makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed });
-    const voiceFor = castVoices(cast, main, { requested, seed });
+    const main = makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed, steady: steady === true });
+    const voiceFor = castVoices(cast, main, { requested, seed, steady: steady === true });
     const { codec, sampleRate } = parseOutputFormat(main.outputFormat);
     if (codec !== 'pcm' && !(await ffmpegAvailable())) {
       throw new ApiError("A dub with several voices needs ffmpeg to join the voices' MP3 passages. Install ffmpeg and try again.", {

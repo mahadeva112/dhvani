@@ -129,7 +129,7 @@ const clipCache = new Map();
 
 const cacheKey = (voice, text) =>
   createHash('sha256')
-    .update(JSON.stringify([voice.voiceId, voice.modelId, voice.outputFormat, voice.voiceSettings ?? null, voice.seed ?? null, text]))
+    .update(JSON.stringify([voice.voiceId, voice.modelId, voice.outputFormat, voice.voiceSettings ?? null, voice.steady === true, voice.seed ?? null, text]))
     .digest('hex');
 
 const remember = (key, buffer) => {
@@ -188,7 +188,7 @@ const mapLimit = async (items, limit, fn) => {
  *
  * `deps`:
  * - `voiceLines(lines, { voice, onLine })` → `[Buffer]`, voicing `[{ text, previousText, nextText, seed }]` in order with `voice`;
- * - `cue(texts)` → the same texts with delivery cues (Enhance emotion), every word kept (optional);
+ * - `cue(texts)` → the same texts with delivery cues (voice expression Expressive), every word kept (optional);
  * - `dubTakes(units)` → for each unit, its take cut from the Final dub (mono Float32Array at
  *   `sampleRate`) or null to voice it (optional; see dubTakes.js);
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
@@ -270,7 +270,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // sentence so the voice finishes the last word.
   const voiceTexts = units.map((unit) => unit.voiceText || unit.text);
   if (deps.cue && taken.some((take) => !take)) {
-    // Enhance emotion: each speaker's lines are cued together as one script, so the tone holds from line to line.
+    // Expressive: each speaker's lines are cued together as one script, so the tone holds from line to line.
     const bySpeaker = new Map();
     units.forEach((unit, i) => {
       const key = multiSpeaker ? speakerOf(unit) : '';

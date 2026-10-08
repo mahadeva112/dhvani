@@ -76,6 +76,13 @@ export const DEFAULT_ELEVENLABS_MODEL = 'eleven_v4';
 /** Eleven v3 and v4 perform audio tags ([sighs], [whispers]) and take delivery cues. */
 export const performsAudioTags = (modelId: string) => /^eleven_v[34]/.test(modelId);
 
+/**
+ * How much expression a dub is voiced with. Neutral: no tags, the voice held calm and even. Natural:
+ * tagged from how the original speaker spoke. Expressive: tags guessed from the script. Natural and
+ * Expressive need one voice on a model that performs tags; anything else is voiced as Neutral.
+ */
+export type VoiceExpression = 'neutral' | 'natural' | 'expressive';
+
 /** v3 ignores speed and v4 sets its pace from audio tags; the v1 models reject it. */
 export const modelTakesSpeed = (modelId: string) => !performsAudioTags(modelId) && !/_v1$/.test(modelId);
 
@@ -120,6 +127,7 @@ export const synthesizeSpeech = async (
     language,
     seed,
     matchLoudness = false,
+    steady = false,
     cartesia,
     jobId,
     signal,
@@ -140,6 +148,8 @@ export const synthesizeSpeech = async (
     seed?: number;
     /** Bring every passage of a long script to the same loudness. Off: each keeps the level it was voiced at. */
     matchLoudness?: boolean;
+    /** Voice expression Neutral: the ElevenLabs voice is held calm and even. */
+    steady?: boolean;
     /** How a Cartesia voice is voiced; the ElevenLabs settings don't apply to one. */
     cartesia?: CartesiaVoicePrefs;
     /** Names the dub so its progress can be polled and it can be cancelled. */
@@ -181,6 +191,7 @@ export const synthesizeSpeech = async (
       language,
       seed,
       matchLoudness,
+      ...(steady && { steady: true }),
       jobId,
     },
     { ...keys(apiKey), signal }

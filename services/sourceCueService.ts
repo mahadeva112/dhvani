@@ -3,7 +3,7 @@ import { apiUpload } from './apiClient';
 import { audioBufferToWav } from './audioService';
 
 /**
- * "Match source audio": the dub script tagged where the original speaker's
+ * Voice expression "Natural": the dub script tagged where the original speaker's
  * delivery shifts ([explaining, calm, slow], [sentence-build pause], ...), so
  * Eleven v3/v4 speaks it as the source was spoken. The backend listens to the
  * source audio cue by cue (server/lib/sourceCues.js); every word stays as

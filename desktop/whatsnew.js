@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.32',
+    changes: [
+      'Dub has a new Expression setting: Neutral (calm and steady in the speaker’s own voice, the new default), Natural (follows how the original speaker spoke) or Expressive (adds emotion from the script).',
+      'Natural no longer adds dramatic pauses or playful, emphatic tags.',
+    ],
+  },
+  {
     version: '1.3.31',
     changes: [
       'Ask for a line’s wordings as often as you like: after you use one, Suggest again offers new ones, and Undo still goes back to the line as it was. Each suggestion shows what it says in English.',

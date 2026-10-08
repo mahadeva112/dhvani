@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { acceptSourceCues, performanceTag, groupSections, buildSourceCuePrompt, SECTION_SECONDS } from './sourceCues.js';
-import { cleanTextForNaturalSpeech } from '../providers/elevenlabs/speech.js';
+import { cleanTextForNaturalSpeech, readSettings, NEUTRAL_VOICE } from '../providers/elevenlabs/speech.js';
 import { splitPassages } from './ttsText.js';
 
 const line = 'उससे मुक्त होना या उससे अलग होना योग अभ्यास का एक बहुत महत्वपूर्ण पहलू है।';
@@ -54,12 +54,23 @@ test('the prompt carries the framework, the line count and the script', () => {
 });
 
 test('performance tags reach the voice only when asked for', () => {
-  const text = '[narrating, calm, normal pace] नमस्ते ... [dramatic pause] [intense] दोस्तों।';
+  const text = '[narrating, calm, normal pace] नमस्ते ... [sentence-build pause] [intense] दोस्तों।';
   assert.equal(
     cleanTextForNaturalSpeech(text, { keepPerformanceTags: true }),
-    '[narrating, calm, normal pace] नमस्ते ... [dramatic pause] दोस्तों।'
+    '[narrating, calm, normal pace] नमस्ते ... [sentence-build pause] दोस्तों।'
   );
   assert.equal(cleanTextForNaturalSpeech('[dramatic pause] [calm] नमस्ते।'), 'नमस्ते।');
+});
+
+test('tags that push a read towards performance never reach the voice', () => {
+  for (const tag of ['dramatic pause', 'jovial', 'playful', 'emphasize', 'word-stretch']) {
+    assert.equal(performanceTag(tag), null, tag);
+  }
+  assert.equal(performanceTag('explaining, playful, calm'), '[explaining, calm]');
+  assert.equal(
+    cleanTextForNaturalSpeech('[calm] नमस्ते ... [dramatic pause] दोस्तों।', { keepPerformanceTags: true }),
+    '[calm] नमस्ते ... दोस्तों।'
+  );
 });
 
 test('a long script is never cut inside a tag or just after one', () => {
@@ -71,4 +82,23 @@ test('a long script is never cut inside a tag or just after one', () => {
     assert.equal(passage.split('[').length, passage.split(']').length, 'brackets balanced');
     assert.doesNotMatch(passage, /\]\s*$/);
   }
+});
+
+test('voice expression Neutral holds every read calm and even, without slowing it', () => {
+  const lively = { stability: 0.3, similarity_boost: 0.6, style: 0.4, use_speaker_boost: true, speed: 1.05 };
+  for (const modelId of ['eleven_v3', 'eleven_v4', 'eleven_multilingual_v2']) {
+    for (const explicit of [true, false]) {
+      const settings = readSettings(lively, modelId, { explicit, count: 3, steady: true });
+      assert.equal(settings.stability, NEUTRAL_VOICE.stability);
+      assert.equal(settings.similarity_boost, NEUTRAL_VOICE.similarity_boost);
+      assert.equal(settings.style, 0);
+      assert.equal(settings.speed, 1.05);
+    }
+  }
+  // A voice already steadier than the floor stays as it is.
+  const even = readSettings({ stability: 0.9, similarity_boost: 0.95, style: 0 }, 'eleven_v4', { explicit: false, count: 1, steady: true });
+  assert.equal(even.stability, 0.9);
+  assert.equal(even.similarity_boost, 0.95);
+  // Without Neutral, settings the user chose are kept.
+  assert.deepEqual(readSettings(lively, 'eleven_v3', { explicit: true, count: 3 }), lively);
 });

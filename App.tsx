@@ -53,6 +53,7 @@ import {
   DEFAULT_ELEVENLABS_MODEL,
   getModels,
   performsAudioTags,
+  VoiceExpression,
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
 import { matchSourceDelivery } from './services/sourceCueService';
@@ -214,13 +215,21 @@ export default function App() {
   const [isPhoneticKeyboardOpen, setIsPhoneticKeyboardOpen] = useState<boolean>(false);
   const [keyboardActiveSegment, setKeyboardActiveSegment] = useState<AudioSegment | null>(null);
 
-  // Whether an Eleven v3/v4 dub gets added emotion cues. Off by default: v4 already performs a plain script.
-  const [emotionEnhance, setEmotionEnhance] = useState<boolean>(() => {
+  /*
+   * How much expression a dub is voiced with: Neutral (calm and even, no tags), Natural (tagged from the
+   * source audio) or Expressive (tags guessed from the script). Neutral by default. A choice saved before
+   * this was one setting carries over: Enhance emotion off was Neutral, on was Natural with Match source
+   * audio and Expressive without.
+   */
+  const [voiceExpression, setVoiceExpression] = useState<VoiceExpression>(() => {
     try {
-      return localStorage.getItem('dhvani_emotion_enhance') === 'true';
-    } catch {
-      return false;
-    }
+      const saved = localStorage.getItem('dhvani_voice_expression');
+      if (saved === 'neutral' || saved === 'natural' || saved === 'expressive') return saved;
+      if (localStorage.getItem('dhvani_emotion_enhance') === 'true') {
+        return localStorage.getItem('dhvani_emotion_match_source') === 'false' ? 'expressive' : 'natural';
+      }
+    } catch {}
+    return 'neutral';
   });
 
   // Whether a dub's passages are brought to one loudness. On by default; off keeps each at the level it was voiced at.
@@ -291,28 +300,10 @@ export default function App() {
     } catch {}
   }, []);
 
-  const handleEmotionEnhanceChange = useCallback((enabled: boolean) => {
-    setEmotionEnhance(enabled);
+  const handleVoiceExpressionChange = useCallback((expression: VoiceExpression) => {
+    setVoiceExpression(expression);
     try {
-      localStorage.setItem('dhvani_emotion_enhance', String(enabled));
-    } catch {
-      // ignore storage errors
-    }
-  }, []);
-
-  // With Enhance emotion: tag the dub from the source audio (on), or guess the tone from the script (off).
-  const [emotionMatchSource, setEmotionMatchSource] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('dhvani_emotion_match_source') !== 'false';
-    } catch {
-      return true;
-    }
-  });
-
-  const handleEmotionMatchSourceChange = useCallback((enabled: boolean) => {
-    setEmotionMatchSource(enabled);
-    try {
-      localStorage.setItem('dhvani_emotion_match_source', String(enabled));
+      localStorage.setItem('dhvani_voice_expression', expression);
     } catch {}
   }, []);
 
@@ -2061,20 +2052,20 @@ export default function App() {
   };
 
   /**
-   * Match source audio: the job's cues tagged from the original speaker's
+   * Voice expression Natural: the job's cues tagged from the original speaker's
    * delivery. Heard once per wording and kept, so a dub and a sync of the same
    * script share the same tags. `onListen` is called when the source must be heard.
    */
   const sourceTaggedSegments = async (job: BatchJob, language: string, signal: AbortSignal, onListen?: () => void) => {
     if (!job.audioBuffer) {
-      throw new Error('The source audio is not loaded, so it cannot be matched. Reopen the project, or turn off Match source audio.');
+      throw new Error('The source audio is not loaded, so it cannot be matched. Reopen the project, or set Expression to Neutral.');
     }
     const key = JSON.stringify([language, job.segments.map((s) => [s.startTime, s.endTime, s.textTarget || s.targetText || ''])]);
     const cached = sourceCueCacheRef.current[job.id];
     if (cached?.key === key) return cached.segments;
     onListen?.();
     const result = await matchSourceDelivery(job.audioBuffer, job.segments, language, { signal });
-    if (result.taggedSections === 0) console.warn('Match source audio added no tags; the script is voiced as written.');
+    if (result.taggedSections === 0) console.warn('Natural added no tags; the script is voiced as written.');
     sourceCueCacheRef.current[job.id] = { key, segments: result.segments };
     return result.segments;
   };
@@ -2196,8 +2187,9 @@ export default function App() {
         .catch(() => {});
     }, 700);
     try {
-      // Match source audio: tag the script from the original speaker's delivery before voicing it.
-      const matchSource = emotionEnhance && emotionMatchSource && performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
+      // Natural: tag the script from the original speaker's delivery before voicing it.
+      const tags = performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
+      const matchSource = voiceExpression === 'natural' && tags;
       let script = buildSpeechScript(job.segments);
       if (matchSource) {
         const tagged = await sourceTaggedSegments(job, language, signal, () =>
@@ -2206,9 +2198,10 @@ export default function App() {
         script = buildSpeechScript(tagged);
       }
       const blob = await synthesizeSpeech(elApiKey, elVoiceId, script, elModelId, elOutputFormat, elVoiceSettings, {
-        expressive: emotionEnhance && !matchSource,
+        expressive: voiceExpression === 'expressive' && tags,
         audioTags: matchSource,
         performanceTags: matchSource,
+        steady: voiceExpression === 'neutral',
         matchLoudness,
         cartesia: cartesiaVoice,
         language,
@@ -2279,10 +2272,11 @@ export default function App() {
     try {
       const several = isMultiSpeaker(activeJob.segments);
       const language = activeJob.language || selectedLanguage;
-      // Emotion tags need one voice on a model that performs them.
-      const tagsEmotion = emotionEnhance && !several && performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
+      // Tags need one voice on a model that performs them; otherwise the dub is voiced as Neutral.
+      const tags = !several && performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
+      const expression: VoiceExpression = tags ? voiceExpression : 'neutral';
       let voiceTexts: Record<string, string> | undefined;
-      if (tagsEmotion && emotionMatchSource) {
+      if (expression === 'natural') {
         const tagged = await sourceTaggedSegments(activeJob, language, controller.signal);
         voiceTexts = Object.fromEntries(tagged.map((segment) => [String(segment.id), segment.textTarget || segment.targetText || '']));
       }
@@ -2294,7 +2288,7 @@ export default function App() {
        */
       let dub: { blob: Blob; lines: DubLines } | undefined;
       if (voicing === 'continuous' && !several) {
-        const readKey = JSON.stringify([elVoiceId, elModelId, elVoiceSettings ?? null, emotionEnhance, emotionMatchSource, matchLoudness, cartesiaVoice]);
+        const readKey = JSON.stringify([elVoiceId, elModelId, elVoiceSettings ?? null, expression, matchLoudness, cartesiaVoice]);
         const last = activeJob.dubLines;
         const lastFits =
           activeJob.synthesizedBlob && last && last.voiceId === elVoiceId && last.modelId === elModelId && (last.readKey ?? readKey) === readKey;
@@ -2321,7 +2315,9 @@ export default function App() {
           lineSeeds: activeJob.syncLineSeeds || undefined,
           debug: audioDebugEnabled(),
           cartesia: cartesiaVoice,
-          ...(voiceTexts ? { voiceTexts } : tagsEmotion && { expressive: true }),
+          ...(voiceTexts && { voiceTexts }),
+          ...(expression === 'expressive' && { expressive: true }),
+          ...(expression === 'neutral' && { steady: true }),
           ...(dub && { dub }),
           ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
           ...(Object.keys(locked).length > 0 && { locked }),
@@ -3038,10 +3034,8 @@ export default function App() {
           onMixerLevelChange={mixer.setLevel}
           getTrackPeak={mixer.peakOf}
           getLiveTime={getLiveTime}
-          emotionEnhance={emotionEnhance}
-          onEmotionEnhanceChange={handleEmotionEnhanceChange}
-          emotionMatchSource={emotionMatchSource}
-          onEmotionMatchSourceChange={handleEmotionMatchSourceChange}
+          voiceExpression={voiceExpression}
+          onVoiceExpressionChange={handleVoiceExpressionChange}
           dubMatchLoudness={dubMatchLoudness}
           onDubMatchLoudnessChange={handleDubMatchLoudnessChange}
           playbackRate={playbackRate}

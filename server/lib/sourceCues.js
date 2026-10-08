@@ -1,7 +1,7 @@
 /**
- * Delivery cues matched to the source audio ("Match source audio").
+ * Delivery cues matched to the source audio (voice expression "Natural").
  *
- * Enhance emotion on its own (deliveryCues.js) reads only the script, so the
+ * Voice expression "Expressive" (deliveryCues.js) reads only the script, so the
  * model guesses a tone and can add drama the speaker never had. Here the model
  * hears the original speaker instead: each section of the dub script is sent
  * with the stretch of source audio it was translated from, and the model tags
@@ -22,20 +22,23 @@ import { cutAudioClip } from './media.js';
 import { cancelledError } from './http.js';
 
 /**
- * The performance score's vocabulary. Theatrical tags the prompt warns against
- * ([intense], [authoritative]) and its "[return to anchor]" placeholder are
- * not in it, so they never reach the voice.
+ * The performance score's vocabulary, kept to a mild, natural delivery (voice
+ * expression "Natural"). Theatrical tags the prompt warns against ([intense],
+ * [authoritative]), its "[return to anchor]" placeholder, and the score's
+ * own tags that push a read towards performance ([playful], [jovial],
+ * [emphasize], [word-stretch], [dramatic pause]) are not in it, so they never
+ * reach the voice.
  */
 export const PERFORMANCE_TAGS = [
   // Thought function
   'reasoning', 'explaining', 'narrating', 'questioning', 'concluding', 'contrasting', 'illustrating',
   // Delivery
-  'calm', 'serious', 'playful', 'meditative', 'jovial', 'focused', 'matter of fact', 'firm', 'clear',
+  'calm', 'serious', 'meditative', 'focused', 'matter of fact', 'firm', 'clear',
   // Pacing and prosody
   'slow', 'fast', 'normal pace', 'accelerating', 'decelerating', 'rising pitch', 'falling pitch',
-  'emphasize', 'word-stretch', 'clipped', 'rhythmic', 'flowing',
+  'clipped', 'rhythmic', 'flowing',
   // Pauses
-  'sentence-build pause', 'audience-think pause', 'dramatic pause', 'sharp pause',
+  'sentence-build pause', 'audience-think pause', 'sharp pause',
 ];
 
 const TAG = /\[([^\]\n]{1,120})\]/g;
@@ -91,6 +94,7 @@ export const buildSourceCuePrompt = (lines, language) => `${loadFramework()}
 **Output Instructions:**
 The audio is the original speaker. The text below is the ${language ? `${language} ` : ''}dub script of the same passage, already translated, one line per subtitle cue in spoken order. Align each line with the matching moment in the audio and insert the performance tags exactly where the speaker's real delivery shifts.
 Tag only what you actually hear. If the speaker is even and calm, use few tags. Never add intensity, emotion or pauses that are not in the audio.
+The dub must sound calm, grounded and consistent, in the speaker's own natural voice: no dramatic expression, exaggerated emotion, theatrical intonation or sudden changes in pitch, loudness or energy. Use only these tags: ${PERFORMANCE_TAGS.map((t) => `[${t}]`).join(' ')}.
 You may add "..." where the speaker actually pauses. You must NOT add, remove, reorder, translate or respell any word.
 Return exactly ${lines.length} line${lines.length === 1 ? '' : 's'}, one for each line below, in the same order. Output ONLY the tagged lines, with no numbering or commentary.
 

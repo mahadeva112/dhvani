@@ -363,10 +363,12 @@ export interface SyncRequest {
   peak?: MixPeakMode;
   /** Lines locked in Edit timing, by key (syncEditService.lockedLines): held where the user put them. */
   locked?: ReturnType<typeof lockedLines>;
-  /** Match source audio: each cue's text tagged from the source, by cue id; the cues are voiced from these. */
+  /** Voice expression Natural: each cue's text tagged from the source, by cue id; the cues are voiced from these. */
   voiceTexts?: Record<string, string>;
-  /** Enhance emotion: delivery cues are added to the lines before they are voiced, as in a dub. */
+  /** Voice expression Expressive: delivery cues are added to the lines before they are voiced, as in a dub. */
   expressive?: boolean;
+  /** Voice expression Neutral: every ElevenLabs voice is held calm and even. */
+  steady?: boolean;
   /**
    * A dub made before Dub and Sync were one step (mono WAV) and what it says: every line that still reads the
    * same is cut from it rather than voiced again, so the sync sounds as the dub did.

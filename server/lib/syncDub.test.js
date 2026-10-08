@@ -564,7 +564,7 @@ test('lines are voiced from their tagged text, while the report keeps the words 
   assert.equal(report.units[0].text, 'aaaaaaaaaa bbbbbbbbbb.');
 });
 
-test('Enhance emotion cues every line of one speaker together, before any is voiced', async () => {
+test('Expressive cues every line of one speaker together, before any is voiced', async () => {
   clearClipCache();
   const segments = [cue(1, 1, 2, 'aaaaaaaaaa.'), cue(2, 4, 5, 'bbbbbbbbbb.'), cue(3, 7, 8, 'cccccccccc.', { speaker: 'B' })];
   const asked = [];

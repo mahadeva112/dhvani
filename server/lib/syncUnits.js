@@ -36,7 +36,7 @@ export const MAX_UNIT_SECONDS = DEFAULT_JOIN_SETTINGS.maxUnit;
 export const MAX_SENTENCE_UNIT_SECONDS = 30;
 
 const cueText = (segment) => String(segment?.textTarget || segment?.targetText || '').trim();
-/** What a cue is voiced from: its text with delivery tags (Match source audio), or its text. */
+/** What a cue is voiced from: its text with delivery tags (voice expression Natural), or its text. */
 const cueVoiceText = (segment) => String(segment?.voiceText || '').trim() || cueText(segment);
 const cueSourceText = (segment) => String(segment?.textSource || segment?.originalText || '').trim();
 

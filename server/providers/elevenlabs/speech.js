@@ -155,12 +155,30 @@ const passageLimit = (modelId) => {
 };
 
 /**
- * The settings a read of `count` passages or lines is voiced with. With the
- * voice's saved settings (no `voiceSettings` from the caller), v3 is held at
+ * Voice expression "Neutral": a calm, even read in the speaker's own voice.
+ * Stability is raised to Robust on v3 (steady on v2/v4), similarity is raised
+ * so the voice stays close to the original, and style exaggeration is off.
+ * These are floors, applied over saved and explicit settings alike: they only
+ * ever make a read steadier, and speed is left as it was.
+ */
+export const NEUTRAL_VOICE = { stability: 0.75, similarity_boost: 0.85, style: 0 };
+
+const neutralSettings = (settings) => ({
+  ...settings,
+  stability: Math.max(settings.stability ?? DEFAULT_VOICE_SETTINGS.stability, NEUTRAL_VOICE.stability),
+  similarity_boost: Math.max(settings.similarity_boost ?? DEFAULT_VOICE_SETTINGS.similarity_boost, NEUTRAL_VOICE.similarity_boost),
+  style: NEUTRAL_VOICE.style,
+});
+
+/**
+ * The settings a read of `count` passages or lines is voiced with. With
+ * `steady` (Neutral) the read is held calm and even (see NEUTRAL_VOICE). With
+ * the voice's saved settings (no `voiceSettings` from the caller), v3 is held at
  * Natural, and a multi-passage read on a stitched model is kept at least at
  * STEADY_SCRIPT_STABILITY so the passages share one tone.
  */
-const readSettings = (settings, modelId, { explicit, count }) => {
+export const readSettings = (settings, modelId, { explicit, count, steady = false }) => {
+  if (steady) return neutralSettings(settings);
   if (explicit) return settings;
   const stability = settings.stability ?? DEFAULT_VOICE_SETTINGS.stability;
   if (isV3(modelId)) {
@@ -328,7 +346,9 @@ const joinAudio = async (parts, passages, outputFormat, { matchLoudness = false 
  * so it is performed rather than read. With `audioTags`, audio tags the
  * author wrote themselves are kept rather than stripped. With
  * `performanceTags`, the script already carries tags matched to the source
- * audio (see sourceCues.js); they are kept and no further cues are added. A `seed` makes a take
+ * audio (see sourceCues.js); they are kept and no further cues are added.
+ * With `steady` (voice expression Neutral) the read is held calm and even
+ * (see NEUTRAL_VOICE). A `seed` makes a take
  * reproducible; without one each dub is sampled afresh.
  * Returns `{ contentType, buffer }`.
  */
@@ -345,6 +365,7 @@ export const synthesizeScript = async (
     language,
     seed,
     matchLoudness = false,
+    steady = false,
   },
   { apiKey, textModelKey, signal, onProgress = () => {} } = {}
 ) => {
@@ -378,6 +399,7 @@ export const synthesizeScript = async (
   const settings = readSettings(await resolveSettings(cleanVoiceId, voiceSettings, apiKey), resolvedModel, {
     explicit: Boolean(voiceSettings),
     count: chunks.length,
+    steady,
   });
   const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
 
@@ -477,11 +499,12 @@ export const synthesizeScript = async (
  * `lines[i]` is `{ text, previousText?, nextText?, seed?, pace? }`; a line's own
  * `seed` asks for a different take of that line alone, and its `pace`
  * multiplies the voice's speed for it. With `performanceTags`, the
- * source-matched tags in the lines are kept (see sourceCues.js). `onLine(done)` reports
+ * source-matched tags in the lines are kept (see sourceCues.js); with `steady`
+ * the lines are held calm and even (see NEUTRAL_VOICE). `onLine(done)` reports
  * each finished line. Returns `[{ buffer, requestId }]` in the same order.
  */
 export const synthesizeLines = async (
-  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', voiceSettings, seed, performanceTags = false },
+  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', voiceSettings, seed, performanceTags = false, steady = false },
   { apiKey, signal, onLine = () => {} } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
@@ -490,6 +513,7 @@ export const synthesizeLines = async (
   const settings = readSettings(await resolveSettings(cleanVoiceId, voiceSettings, apiKey), resolvedModel, {
     explicit: Boolean(voiceSettings),
     count: lines.length,
+    steady,
   });
   const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
 
