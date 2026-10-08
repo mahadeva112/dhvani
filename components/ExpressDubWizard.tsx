@@ -569,6 +569,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // The views scroll inside the editor panel, so their own height caps are off.
   const isListExpanded = true;
   const [isSrtModalOpen, setIsSrtModalOpen] = useState<boolean>(false);
+  // The subtitle preview plays its own audio; the project's playback stops so the two never overlap.
+  useEffect(() => {
+    if (isSrtModalOpen && isPlaying) onTogglePlay();
+  }, [isSrtModalOpen]);
   const [isAlignModalOpen, setIsAlignModalOpen] = useState<boolean>(false);
   /** Dub step: the player's lanes are the Edit timing timeline. */
   const [editingTiming, setEditingTiming] = useState(false);
@@ -1019,9 +1023,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** Quick or Expert, the user's pick, kept across restarts; both steps' previews follow it. */
   const [estimateMethod, setEstimateMethod] = useState<EstimateMethod>(() => {
     try {
-      return localStorage.getItem(ESTIMATE_METHOD_KEY) === 'expert' ? 'expert' : 'quick';
+      // Expert unless the user picked Quick: syllables time Indic lines far closer than characters do.
+      return localStorage.getItem(ESTIMATE_METHOD_KEY) === 'quick' ? 'quick' : 'expert';
     } catch {
-      return 'quick';
+      return 'expert';
     }
   });
   const changeEstimateMethod = (method: EstimateMethod) => {
@@ -4117,6 +4122,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         synthAudioDuration={activeJob?.synthAudioBuffer?.duration}
         hasSynthAudio={!!activeJob?.synthesizedAudioUrl}
         syncedSegments={syncedCues}
+        audio={{ original: activeJob?.file, synced: activeJob?.syncedAudioUrl, dubbed: activeJob?.synthesizedAudioUrl }}
+        syncStale={syncPendingLines.length > 0}
         exportChoice={subtitleChoice}
         onExportChoiceChange={(choice) => {
           setSubtitleChoice(choice);

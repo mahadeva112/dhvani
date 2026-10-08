@@ -125,6 +125,7 @@ import {
   SyncProgress,
   SyncUnitReport,
 } from './services/syncService';
+import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
 import { LiveDubEngine, liveClips } from './services/liveDubEngine';
 import type { SyncEditStatus } from './components/SyncEditTimeline';
@@ -426,10 +427,6 @@ export default function App() {
   const [readProgress, setReadProgress] = useState<DubProgress | null>(null);
   /** One seed per dub session, so a second Sync reuses the lines the first one voiced. */
   const syncSeedRef = useRef<Record<string, number>>({});
-  /** Retaken lines per job, by line key: each gets its own seed, so the next Sync voices it again. */
-  const syncLineSeedsRef = useRef<Record<string, Record<string, number>>>({});
-  /** Lines changed since the last Sync (reworded or retaken), per job: the next Sync re-voices them. */
-  const [syncPending, setSyncPending] = useState<Record<string, string[]>>({});
   /**
    * Edit timing: whether the synced dub has caught up with the edits. An edit
    * is shown at once and rendered a moment later, once the user stops editing.
@@ -2321,7 +2318,7 @@ export default function App() {
           suggest,
           suggestLonger,
           matchLoudness,
-          lineSeeds: syncLineSeedsRef.current[activeJob.id],
+          lineSeeds: activeJob.syncLineSeeds || undefined,
           debug: audioDebugEnabled(),
           cartesia: cartesiaVoice,
           ...(voiceTexts ? { voiceTexts } : tagsEmotion && { expressive: true }),
@@ -2338,7 +2335,6 @@ export default function App() {
         console.info('[sync audio]', format);
         console.table(lines.map(({ pauseCuts, ...line }) => ({ ...line, pauseCuts: pauseCuts.length })));
       }
-      setSyncPending((pending) => ({ ...pending, [activeJob.id]: [] }));
 
       const url = URL.createObjectURL(blob);
       // A dub made before Dub and Sync were one step stays as it was, beside the synced dub.
@@ -2350,6 +2346,7 @@ export default function App() {
         syncBank: bank,
         syncBankBlob: bankBlob,
         syncEdits: edited ? keptEdits : null,
+        syncPendingLines: [],
         syncedStems: several ? stems : null,
         syncMix: several ? report.mix || null : null,
         // Until the synced dub decodes, no waveform rather than the previous sync's.
@@ -2395,12 +2392,6 @@ export default function App() {
     }
   };
 
-  const markSyncPending = (jobId: string, key: string) =>
-    setSyncPending((pending) => {
-      const keys = pending[jobId] || [];
-      return keys.includes(key) ? pending : { ...pending, [jobId]: [...keys, key] };
-    });
-
   /** Puts a new wording of a synced line into the script. The next Sync voices it. */
   const handleApplySyncLine = (unit: SyncUnitReport, text: string) => {
     if (!activeJob || !text.trim()) return;
@@ -2412,16 +2403,17 @@ export default function App() {
       segments: activeJob.segments.map((s) =>
         byId.has(String(s.id)) ? { ...s, textTarget: byId.get(String(s.id)), targetText: byId.get(String(s.id)) } : s
       ),
+      syncPendingLines: withPendingLines(activeJob.syncPendingLines, [unit.key]),
     });
-    markSyncPending(activeJob.id, unit.key);
   };
 
   /** Asks for a new take of a synced line: the next Sync voices it again with its own seed. */
   const handleRetakeSyncLine = (unit: SyncUnitReport) => {
     if (!activeJob) return;
-    const seeds = (syncLineSeedsRef.current[activeJob.id] ??= {});
-    seeds[unit.key] = Math.floor(Math.random() * 2 ** 31);
-    markSyncPending(activeJob.id, unit.key);
+    updateJob(activeJob.id, {
+      syncLineSeeds: { ...activeJob.syncLineSeeds, [unit.key]: Math.floor(Math.random() * 2 ** 31) },
+      syncPendingLines: withPendingLines(activeJob.syncPendingLines, [unit.key]),
+    });
   };
 
   const handleCancelSync = () => {
@@ -2439,7 +2431,7 @@ export default function App() {
     (id: string | number, updates: Partial<AudioSegment>) => {
       if (!activeJob) return;
       const updated = activeJob.segments.map((s) => (s.id === id ? { ...s, ...updates } : s));
-      updateJob(activeJob.id, { segments: updated });
+      updateJob(activeJob.id, { segments: updated, ...syncPendingAfter(activeJob, updated) });
     },
     [activeJob, updateJob]
   );
@@ -2467,7 +2459,8 @@ export default function App() {
   const handleReplaceSegments = useCallback(
     (segments: AudioSegment[]) => {
       if (!activeJob) return;
-      updateJob(activeJob.id, { segments });
+      // A cut, join or moved cut changes the synced lines it touches: Sync again places them anew.
+      updateJob(activeJob.id, { segments, ...syncPendingAfter(activeJob, segments) });
     },
     [activeJob, updateJob]
   );
@@ -2851,7 +2844,7 @@ export default function App() {
         targetLanguage={activeJob?.language || selectedLanguage}
         mediaDuration={activeJob?.audioBuffer?.duration}
         activity={headerActivity}
-        syncPendingCount={activeJob ? (syncPending[activeJob.id] || []).length : 0}
+        syncPendingCount={activeJob?.syncPendingLines?.length ?? 0}
         // ElevenLabs always transcribes, so its allowance matters whichever engine voices the dub.
         quota={elevenLabsQuota}
         cartesiaUsage={cartesiaUsage}
@@ -3028,7 +3021,7 @@ export default function App() {
           isCancellingSync={isCancellingSync}
           onCancelSync={handleCancelSync}
           syncError={syncError}
-          syncPendingLines={activeJob ? syncPending[activeJob.id] || [] : []}
+          syncPendingLines={activeJob?.syncPendingLines || []}
           onApplySyncLine={handleApplySyncLine}
           onRetakeSyncLine={handleRetakeSyncLine}
           onUpdateSegment={handleUpdateSegment}

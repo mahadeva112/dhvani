@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { X, Download, Copy, Check, Captions } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { X, Download, Copy, Check, Captions, Play, Pause } from 'lucide-react';
 import { AudioSegment } from '../types';
 import {
   SrtOptions,
@@ -73,6 +73,10 @@ interface SrtExportModalProps {
   /** The saved language and timing, shared with the one-click subtitle card. */
   exportChoice?: SubtitleExportChoice;
   onExportChoiceChange?: (choice: SubtitleExportChoice) => void;
+  /** What each timing is heard against: the original, the synced dub, the dub. Missing ones can't be played. */
+  audio?: { original?: Blob | null; synced?: string | null; dubbed?: string | null };
+  /** True when the script changed since the last Sync: the synced timing is out of date until Sync runs again. */
+  syncStale?: boolean;
 }
 
 export const SrtExportModal: React.FC<SrtExportModalProps> = ({
@@ -88,6 +92,8 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   syncedSegments,
   exportChoice = DEFAULT_SUBTITLE_EXPORT_CHOICE,
   onExportChoiceChange,
+  audio,
+  syncStale = false,
 }) => {
   const [options, setOptions] = useState<SrtOptions>(() => {
     try {
@@ -111,6 +117,76 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const syncMode = resolveSubtitleTiming(exportChoice.timing, hasSynced, hasSynthAudio);
   const setScriptTrack = (track: SubtitleTrack) => onExportChoiceChange?.({ track, timing: exportChoice.timing });
   const setSyncMode = (timing: SubtitleTiming) => onExportChoiceChange?.({ track: scriptTrack, timing });
+
+  /*
+   * The player: the subtitles are heard against what they are timed to, so
+   * the frame shows each one as it is said. Its own audio, paused on close.
+   */
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [originalUrl, setOriginalUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isOpen || !audio?.original) return setOriginalUrl(null);
+    const url = URL.createObjectURL(audio.original);
+    setOriginalUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [isOpen, audio?.original]);
+  const playUrl = (syncMode === 'synced' ? audio?.synced : syncMode === 'dubbed' ? audio?.dubbed : originalUrl) || null;
+  const listRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [playTime, setPlayTime] = useState(0);
+  const [playDuration, setPlayDuration] = useState(0);
+  useEffect(() => {
+    setPlaying(false);
+    setPlayTime(0);
+  }, [playUrl]);
+  useEffect(() => {
+    if (!playing) return;
+    let frame = 0;
+    let heard: Element | null = null;
+    const tick = () => {
+      const time = audioRef.current?.currentTime ?? 0;
+      setPlayTime(time);
+      // Keeps the subtitle being said in view in the list.
+      const row = [...(listRef.current?.querySelectorAll<HTMLElement>('[data-start]') ?? [])].find(
+        (el) => time >= Number(el.dataset.start) && time < Number(el.dataset.end)
+      );
+      // Scrolls whichever holds the list (the list itself, or the dialog on a
+      // wide screen) and leaves the frame where it is, over the list.
+      const list = listRef.current;
+      if (list && row && row !== heard) {
+        const scroller = list.scrollHeight > list.clientHeight + 1 ? list : list.closest<HTMLElement>('[data-scroller]');
+        const frameBox = scroller === list ? null : frameRef.current;
+        if (scroller) {
+          const box = scroller.getBoundingClientRect();
+          const top = frameBox && getComputedStyle(frameBox).position === 'sticky' ? frameBox.getBoundingClientRect().bottom : box.top;
+          const at = row.getBoundingClientRect();
+          if (at.top < top || at.bottom > box.bottom) scroller.scrollTop += at.top - (top + (box.bottom - top - at.height) / 2);
+        }
+      }
+      heard = row ?? heard;
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [playing]);
+  // Closing the modal, or changing what it plays, stops the old audio.
+  useEffect(() => {
+    const el = audioRef.current;
+    return () => el?.pause();
+  }, [playUrl, isOpen]);
+  const togglePlay = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) el.play().catch(console.warn);
+    else el.pause();
+  };
+  const seekTo = (seconds: number) => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.currentTime = Math.max(0, seconds);
+    setPlayTime(el.currentTime);
+  };
 
   // Sync state if initialOptions changes
   useEffect(() => {
@@ -221,9 +297,16 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
 
   if (!isOpen) return null;
 
+  const playLabel = syncMode === 'synced' ? 'synced dub' : syncMode === 'dubbed' ? 'dub' : 'original';
+
   const setOpt = (patch: Partial<SrtOptions>) => handleUpdateOptions({ ...options, ...patch });
   const cues = parseSrt(previewSrt);
-  const shown = cues[Math.min(previewIndex, Math.max(0, cues.length - 1))];
+  // While playing, the frame shows what is said now, and nothing between subtitles.
+  const heardIndex = playing || playTime > 0 ? cues.findIndex((c) => playTime >= c.start && playTime < c.end) : -1;
+  const following = playing || playTime > 0;
+  const shown = following ? cues[heardIndex] : cues[Math.min(previewIndex, Math.max(0, cues.length - 1))];
+  const activeRow = following ? heardIndex : previewIndex;
+
   const longest = cues.reduce((m, c) => Math.max(m, c.end - c.start), 0);
   const widest = cues.reduce((m, c) => Math.max(m, ...c.lines.map((l) => l.length)), 0);
   const trackName = scriptTrack === 'source' ? sourceLanguage || 'Original' : targetLanguage;
@@ -272,7 +355,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[21.25rem_minmax(0,1fr)]">
+        <div data-scroller className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[21.25rem_minmax(0,1fr)]">
           {/* Controls */}
           <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col gap-4 min-w-0">
             <div className="flex flex-col gap-1.5">
@@ -466,21 +549,67 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
           <div className="px-5 py-4 flex flex-col gap-3 min-w-0 bg-slate-950/40">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Preview</span>
-              <span className="text-[11.5px] text-slate-400">Click a subtitle to see it on the frame</span>
+              <span className="text-[11.5px] text-slate-400">{playUrl ? 'Click a subtitle to play from it' : 'Click a subtitle to see it on the frame'}</span>
             </div>
 
-            <div className="relative aspect-video max-w-full rounded-xl overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]" aria-hidden="true">
-              <span className="absolute top-2.5 left-3 font-mono text-[11px] text-white/75">{shown ? srtStamp(shown.start) : '00:00:00,000'}</span>
-              <span className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]" />
-              <span className="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]" />
-              {shown && (
-                <span className="absolute left-1/2 bottom-[9%] -translate-x-1/2 max-w-[86%] text-center text-[clamp(15px,2.2vw,22px)] leading-snug text-white bg-black/55 px-3 py-1 rounded-md">
-                  {shown.lines.map((l, i) => (
-                    <span key={i} className="block">
-                      {l}
-                    </span>
-                  ))}
-                </span>
+            {/* The frame and its player stay in view while the subtitles below scroll. */}
+            <div ref={frameRef} className="md:sticky md:-top-4 z-10 -mx-5 -mt-4 px-5 pt-4 pb-1 flex flex-col gap-3 bg-[#0f1524]">
+              <div className="relative aspect-video max-w-full rounded-xl overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]" aria-hidden="true">
+                <span className="absolute top-2.5 left-3 font-mono text-[11px] text-white/75">{following ? srtStamp(playTime) : shown ? srtStamp(shown.start) : '00:00:00,000'}</span>
+                <span className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]" />
+                <span className="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]" />
+                {shown && (
+                  <span className="absolute left-1/2 bottom-[9%] -translate-x-1/2 max-w-[86%] text-center text-[clamp(15px,2.2vw,22px)] leading-snug text-white bg-black/55 px-3 py-1 rounded-md">
+                    {shown.lines.map((l, i) => (
+                      <span key={i} className="block">
+                        {l}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </div>
+
+              {playUrl ? (
+                <div className="flex items-center gap-2.5">
+                  <audio
+                    key={playUrl}
+                    ref={audioRef}
+                    src={playUrl}
+                    preload="metadata"
+                    onPlay={() => setPlaying(true)}
+                    onPause={() => setPlaying(false)}
+                    onEnded={() => setPlaying(false)}
+                    onLoadedMetadata={(e) => setPlayDuration(e.currentTarget.duration || 0)}
+                    onTimeUpdate={(e) => !playing && setPlayTime(e.currentTarget.currentTime)}
+                  />
+                  <button
+                    type="button"
+                    onClick={togglePlay}
+                    aria-label={playing ? 'Pause' : `Play the ${playLabel}`}
+                    title={playing ? 'Pause' : `Play the ${playLabel} with these subtitles`}
+                    className="w-9 h-9 flex items-center justify-center rounded-full bg-slate-100 text-slate-950 hover:bg-white shrink-0 cursor-pointer"
+                  >
+                    {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
+                  </button>
+                  <input
+                    type="range"
+                    min={0}
+                    max={playDuration || 0}
+                    step={0.01}
+                    value={Math.min(playTime, playDuration || 0)}
+                    onChange={(e) => seekTo(Number(e.target.value))}
+                    aria-label={`Position in the ${playLabel}`}
+                    className="flex-1 min-w-0 accent-indigo-500 cursor-pointer"
+                  />
+                  <span className="font-mono text-[11px] text-slate-400 tabular-nums shrink-0">
+                    {srtStamp(playTime).slice(3, 8)} / {srtStamp(playDuration).slice(3, 8)}
+                  </span>
+                </div>
+              ) : (
+                <p className="text-[11.5px] text-slate-500">Nothing to play for this timing yet.</p>
+              )}
+              {syncMode === 'synced' && syncStale && (
+                <p className="text-[11.5px] text-amber-300">The script changed since the last Sync. Sync again for subtitles that match it.</p>
               )}
             </div>
 
@@ -498,7 +627,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
               {hasExactTimings && <span className="text-emerald-300">Every cut on a measured word</span>}
             </div>
 
-            <div className="flex-1 min-h-[12rem] max-h-[18rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-slate-800 bg-slate-900">
+            <div ref={listRef} className="relative flex-1 min-h-[12rem] max-h-[18rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-slate-800 bg-slate-900">
               {cues.length === 0 ? (
                 <p className="p-6 text-center text-xs text-slate-500">No cues to show yet.</p>
               ) : (
@@ -506,9 +635,14 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                   <button
                     key={c.index}
                     type="button"
-                    onClick={() => setPreviewIndex(i)}
+                    data-start={c.start}
+                    data-end={c.end}
+                    onClick={() => {
+                      setPreviewIndex(i);
+                      if (playUrl) seekTo(c.start);
+                    }}
                     className={`w-full text-left grid grid-cols-[2.25rem_minmax(0,1fr)] sm:grid-cols-[2.25rem_11.5rem_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 px-3 py-2 border-t border-slate-800 first:border-t-0 items-baseline cursor-pointer ${
-                      i === previewIndex ? 'bg-indigo-500/15' : 'hover:bg-slate-800/40'
+                      i === activeRow ? 'bg-indigo-500/15' : 'hover:bg-slate-800/40'
                     }`}
                   >
                     <span className="font-mono text-[11px] text-slate-500 tabular-nums">{c.index}</span>

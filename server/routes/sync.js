@@ -309,7 +309,7 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  *
  * Body: `{ segments, sourceDuration, voiceId, modelId, outputFormat,
  * voiceSettings, language, seed, lineSeeds, precision, join, suggest,
- * suggestLonger, matchLoudness, expressive, performanceTags, debug, jobId }`.
+ * suggestLonger, keep, matchLoudness, expressive, performanceTags, debug, jobId }`.
  * As in a dub, `performanceTags` voices each cue's `voiceText` (its text
  * tagged by Match source audio) and `expressive` (Enhance emotion) adds
  * delivery cues first; both only on a model that performs tags, and the
@@ -318,7 +318,8 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  * than voiced again (see dubTakes.js); a 409 `sync_dub_missing` asks for the
  * dub at PUT /api/sync/dubs/:dubId first. `suggest` and `suggestLonger`
  * (both on unless false) ask for shorter wordings of long lines and fuller
- * wordings of lines that end early. `lineSeeds` maps a line's key to the seed
+ * wordings of lines that end early, keeping every term in `keep` (the
+ * glossary) exactly. `lineSeeds` maps a line's key to the seed
  * of a retake of it; `matchLoudness` evens out the lines' loudness (off
  * unless asked for); `debug`, or DHVANI_AUDIO_DEBUG=1, adds
  * `report.audioDebug` and logs it. Replies with `{ audioId, contentType,
@@ -343,6 +344,7 @@ syncRouter.post(
       join,
       suggest,
       suggestLonger,
+      keep,
       matchLoudness,
       debug,
       jobId,
@@ -412,6 +414,7 @@ syncRouter.post(
           join,
           suggest: suggest !== false,
           suggestLonger: suggestLonger !== false,
+          keep: keepTermsOf(keep),
           language,
           voice,
           voiceFor,
@@ -586,6 +589,19 @@ const lineContextOf = (context) => {
   };
 };
 
+/** Most glossary terms a request may name, and the longest one kept. */
+const MAX_KEEP_TERMS = 200;
+const MAX_KEEP_CHARS = 120;
+
+/** The glossary terms a wording must keep, as the request names them, held to plain short strings. */
+const keepTermsOf = (keep) =>
+  Array.isArray(keep)
+    ? keep
+        .filter((term) => typeof term === 'string' && term.trim() && term.length <= MAX_KEEP_CHARS)
+        .map((term) => term.trim())
+        .slice(0, MAX_KEEP_TERMS)
+    : [];
+
 /**
  * One rewording request: `count` 1 asks for the single best wording
  * (suggestLine), more asks for that many wordings of different kinds at once
@@ -596,7 +612,7 @@ const lineContextOf = (context) => {
  */
 const rewordRoute = (direction) =>
   asyncHandler(async (req, res) => {
-    const { text, sourceText, language, targetChars, avoid, count, context } = req.body || {};
+    const { text, sourceText, language, targetChars, avoid, count, context, keep } = req.body || {};
     const longer = direction === 'longer';
     if (typeof text !== 'string' || !text.trim()) {
       throw new ApiError(longer ? 'There is no line to make fuller.' : 'There is no line to shorten.', { status: 400, code: 'no_text' });
@@ -614,6 +630,7 @@ const rewordRoute = (direction) =>
       avoid: earlier,
       direction,
       context: lineContextOf(context),
+      keep: keepTermsOf(keep),
     };
     const options = { apiKey: req.get('x-gemini-key') || undefined };
     const wanted = Math.max(1, Math.min(MAX_OPTIONS, Math.floor(Number(count)) || 1));

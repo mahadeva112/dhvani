@@ -3,6 +3,7 @@ import { AudioSegment, DubLines, DubMixReport, DubStem, MixPeakMode, SpeakerVoic
 import { ElevenLabsVoiceSettings } from './elevenLabsService';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
 import { castPayload, fetchMixed } from './castService';
+import { keepTermsFor } from './glossaryService';
 import type { lockedLines, SyncBank } from './syncEditService';
 import { matchedLips, READ_SPREAD, sourceLipTimes, timeLine, type TimedWord } from './speechTiming';
 
@@ -406,6 +407,7 @@ export const syncDub = async (
         ...rest,
         ...voice,
         segments: request.segments.map((segment) => slimSegment(segment, voiceTexts)),
+        keep: keepTermsFor(request.language || ''),
         ...(voiceTexts && { performanceTags: true }),
         ...(withDub && dub && { dub: { dubId: dub.lines.dubId, cues: dub.lines.cues } }),
         ...(multiSpeaker && {
@@ -480,12 +482,13 @@ export const distributeLineText = (text: string, cueTexts: string[]): string[] =
  * they belong to the source audio.
  */
 export const syncedSegments = (segments: AudioSegment[], report: SyncReport): AudioSegment[] => {
-  const byId = new Map(segments.map((segment) => [segment.id, segment]));
+  // The report names cues as strings; a transcript may number them.
+  const byId = new Map(segments.map((segment) => [String(segment.id), segment]));
   const out: AudioSegment[] = [];
   for (const unit of report.units) {
     if (unit.placedStart === null || unit.placedEnd === null) continue;
     const span = Math.max(0.01, unit.placedEnd - unit.placedStart);
-    const cues = unit.cueIds.map((id) => byId.get(id)).filter((cue): cue is AudioSegment => Boolean(cue));
+    const cues = unit.cueIds.map((id) => byId.get(String(id))).filter((cue): cue is AudioSegment => Boolean(cue));
     if (cues.length === 0) {
       out.push({
         id: cues[0]?.id ?? `sync-${unit.index}`,
@@ -773,7 +776,7 @@ export interface LineSuggestion {
 
 /**
  * New wordings from the server, which has checked each means what the source
- * line means; those that passed come first. A wording that failed the check
+ * line means, and keeps every glossary term the line uses; those that passed come first. A wording that failed the check
  * still comes back, with `issues`, so pressing the button always gives the
  * user something to judge and edit. Empty when nothing usable came back.
  */
@@ -783,7 +786,7 @@ const askForLines = async (path: string, request: LineRequest, signal?: AbortSig
     line: string | null;
     reason?: 'unusable' | 'meaning' | null;
     flagged?: { line: string; issues: string[] } | null;
-  }>(path, { body: request, signal });
+  }>(path, { body: { ...request, keep: keepTermsFor(request.language || '') }, signal });
   const list = Array.isArray(options) ? options : line ? [{ line }] : flagged?.line ? [flagged] : [];
   return list
     .filter((o) => typeof o?.line === 'string' && o.line.trim())

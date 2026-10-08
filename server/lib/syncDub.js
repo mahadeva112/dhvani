@@ -94,6 +94,8 @@ const retakeSeed = (seed, attempt) => ((Number.isInteger(seed) ? seed : 0) + att
 
 /** Suggestions asked for at once. */
 const SUGGESTION_CONCURRENCY = 4;
+/** Lines either side of one being reworded that its prompt reads it with, as Review's do. */
+const SUGGESTION_CONTEXT = 2;
 
 
 /**
@@ -149,9 +151,10 @@ const mapLimit = async (items, limit, fn) => {
 /**
  * Runs a sync.
  *
- * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, language, voice, voiceFor, multiSpeaker, peak, lineSeeds, matchLoudness, locked, debug }`,
+ * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, keep, language, voice, voiceFor, multiSpeaker, peak, lineSeeds, matchLoudness, locked, debug }`,
  * where `join` is how lines are joined (gaps, pauses, tails and flags; see syncSettings.js, Natural when left out),
  * where `suggest` asks for shorter wordings of long lines and `suggestLonger` for fuller wordings of short ones (both on by default),
+ * `keep` the glossary terms a wording must keep exactly,
  * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`,
  * `lineSeeds` maps a line's key (see lineKey) to the seed of a retake of it,
  * `matchLoudness` evens out the lines' loudness (off by default: each line is
@@ -181,10 +184,10 @@ const mapLimit = async (items, limit, fn) => {
  *   `sampleRate`) or null to voice it (optional; see dubTakes.js);
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
  * - `encode(samples, { float })` → `{ buffer, contentType }`, `float` asking for 32-bit float;
- * - `shorten({ text, sourceText, language, targetChars })` → a shorter wording, or null, or
+ * - `shorten({ text, sourceText, language, targetChars, context, keep })` → a shorter wording, or null, or
  *   `{ line, reason }` with `reason` 'meaning' when every wording changed the meaning; throwing
  *   when the text model fails (optional);
- * - `lengthen({ text, sourceText, language, targetChars })` → a fuller wording, the same way (optional).
+ * - `lengthen({ text, sourceText, language, targetChars, context, keep })` → a fuller wording, the same way (optional).
  *
  * Returns `{ buffer, contentType, report, bank }`, plus `stems` (`[{ speaker, buffer, contentType }]`)
  * with `multiSpeaker`. `bank` is every placed line exactly as the render took it, for Edit timing:
@@ -202,6 +205,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     sampleRate,
     suggest = true,
     suggestLonger = true,
+    keep = [],
     language,
     voice,
     voiceFor,
@@ -634,13 +638,26 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     ...(suggest && deps.shorten ? tooLong.map((i) => ({ i, ask: deps.shorten })) : []),
     ...(suggestLonger && deps.lengthen ? tooShort.map((i) => ({ i, ask: deps.lengthen })) : []),
   ];
+  // The lines either side and the speaker, so a line is reworded as part of the conversation.
+  const contextOf = (i) => ({
+    before: units.slice(Math.max(0, i - SUGGESTION_CONTEXT), i).map((unit) => unit.text),
+    after: units.slice(i + 1, i + 1 + SUGGESTION_CONTEXT).map((unit) => unit.text),
+    speaker: units[i].speaker || '',
+  });
   if (asks.length > 0) {
     report({ suggestionsTotal: asks.length });
     let done = 0;
     await mapLimit(asks, SUGGESTION_CONCURRENCY, async ({ i, ask }) => {
       checkCancelled();
       try {
-        const answer = await ask({ text: units[i].text, sourceText: units[i].sourceText, language, targetChars: targetChars[i] });
+        const answer = await ask({
+          text: units[i].text,
+          sourceText: units[i].sourceText,
+          language,
+          targetChars: targetChars[i],
+          context: contextOf(i),
+          keep,
+        });
         const line = typeof answer === 'string' || answer === null ? answer : answer?.line;
         if (line && line !== units[i].text) suggestions.set(i, line);
         else if (answer?.reason === 'meaning') meaningRejected++;

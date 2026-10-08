@@ -259,6 +259,10 @@ export interface BatchJob {
   syncBankBlob?: Blob | null;
   syncEdits?: SyncEdits | null;
   syncBaseReport?: SyncReport | null;
+  /** Retaken lines, by line key: each keeps its own seed, so its new take survives later Syncs and reloads. */
+  syncLineSeeds?: Record<string, number> | null;
+  /** Lines changed since the last Sync (reworded, cut, joined or retaken), by line key: the next Sync re-voices them. */
+  syncPendingLines?: string[] | null;
 
   /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
   cast?: Record<string, SpeakerVoice>;
