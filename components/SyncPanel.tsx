@@ -13,7 +13,7 @@ import {
   SyncVoicing,
 } from '../services/syncService';
 import type { DubProgress } from '../services/elevenLabsService';
-import { isShort, MeaningWarning } from './SyncPreviewPanel';
+import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import { joinPresetOf, readJoinSettings, SyncFitSource, SyncJoinSettingsPanel } from './SyncJoinSettings';
 
@@ -496,6 +496,15 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           Math.abs(b.unit.offset ?? 99) - Math.abs(a.unit.offset ?? 99)
       );
   }, [report]);
+  /** Every line, in order, instead of only those worth a listen: any line can be retaken. */
+  const [showAll, setShowAll] = useState(false);
+  const rows = useMemo(
+    () =>
+      showAll && report
+        ? report.units.map((unit) => ({ unit, reason: reviewReason(unit, report.tolerance) ?? 'In sync' }))
+        : review,
+    [showAll, report, review]
+  );
 
   const step = progress?.step ?? 1;
   const stepDetail = (phase: string) => {
@@ -692,7 +701,17 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
 
           <div>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-[13.5px] font-semibold text-slate-100">Worth a listen</h3>
+              <h3 className="text-[13.5px] font-semibold text-slate-100">{showAll ? 'Every line' : 'Worth a listen'}</h3>
+              <button
+                type="button"
+                onClick={() => setShowAll((on) => !on)}
+                aria-pressed={showAll}
+                className="text-xs text-indigo-300 hover:text-indigo-200 cursor-pointer"
+                title={showAll ? 'Show only the lines worth a listen' : 'List every line, to listen to or retake any of them'}
+              >
+                {showAll ? 'Only lines worth a listen' : `Show all ${report.units.length} lines`}
+              </button>
+              <span className="flex-1" />
               <span className="text-xs text-slate-500">
                 {review.length === 0
                   ? 'Every line landed within tolerance.'
@@ -719,9 +738,9 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                 </button>
               </div>
             )}
-            {review.length > 0 && (
+            {rows.length > 0 && (
               <ul className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
-                {review.map(({ unit, reason }) => (
+                {rows.map(({ unit, reason }) => (
                   <ReviewRow
                     key={unit.index}
                     unit={unit}
@@ -786,7 +805,7 @@ const ReviewRow: React.FC<{
     try {
       const line = await onSuggest(unit, tried.current);
       if (line) {
-        tried.current = [...tried.current, line.text].slice(-3);
+        tried.current = [...tried.current, line.text].slice(-MAX_TRIED);
         setDraft(line.text);
         setSuggested(true);
         setIssues(line.issues ?? null);

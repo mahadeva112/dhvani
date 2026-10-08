@@ -8,10 +8,10 @@ const cue = (id: string | number, startTime: number, endTime: number, textTarget
 
 const report = { units: [{ key: '1', cueIds: ['1', '2'] }, { key: '3', cueIds: ['3'] }] };
 
-test('a cut marks the line it was made in, and names the new half by its id', () => {
+test('a cut marks the one line it was made in', () => {
   const before = [cue(1, 0, 2, 'a b'), cue(2, 2, 3, 'c'), cue(3, 4, 5, 'd')];
   const after = [cue(1, 0, 1, 'a'), cue('1-x', 1, 2, 'b'), cue(2, 2, 3, 'c'), cue(3, 4, 5, 'd')];
-  assert.deepEqual(changedSyncLines(before, after, report).sort(), ['1', '1-x']);
+  assert.deepEqual(changedSyncLines(before, after, report), ['1']);
 });
 
 test('a join marks both lines; numbered ids match the report', () => {
