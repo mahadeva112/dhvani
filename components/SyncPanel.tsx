@@ -13,7 +13,7 @@ import {
   SyncVoicing,
 } from '../services/syncService';
 import type { DubProgress } from '../services/elevenLabsService';
-import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
+import { isShort, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import { joinPresetOf, readJoinSettings, SyncFitSource, SyncJoinSettingsPanel } from './SyncJoinSettings';
 
@@ -805,7 +805,7 @@ const ReviewRow: React.FC<{
     try {
       const line = await onSuggest(unit, tried.current);
       if (line) {
-        tried.current = [...tried.current, line.text].slice(-MAX_TRIED);
+        tried.current = [...tried.current, line.text].slice(-3);
         setDraft(line.text);
         setSuggested(true);
         setIssues(line.issues ?? null);
