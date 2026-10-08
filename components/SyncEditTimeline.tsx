@@ -335,12 +335,16 @@ const GroupInspector: React.FC<{
   onGain: (db: number) => void;
   onFadeIn: (ms: number) => void;
   onFadeOut: (ms: number) => void;
+  onSpeed: (percent: number) => void;
   onMute: () => void;
   onLock: () => void;
   onReset: () => void;
   onRemove: () => void;
   onClear: () => void;
-}> = ({ group, onGain, onFadeIn, onFadeOut, onMute, onLock, onReset, onRemove, onClear }) => {
+}> = ({ group, onGain, onFadeIn, onFadeOut, onSpeed, onMute, onLock, onReset, onRemove, onClear }) => {
+  const lines = group.filter((c) => !c.original);
+  const firstRate = lines[0]?.part.rate;
+  const sameRate = firstRate !== undefined && lines.every((c) => Math.abs(c.part.rate - firstRate) < 1e-6) ? firstRate * 100 : null;
   const same = (pick: (part: SyncEditPart) => number) => {
     const first = pick(group[0].part);
     return group.every((c) => Math.abs(pick(c.part) - first) < 1e-6) ? first : null;
@@ -357,7 +361,8 @@ const GroupInspector: React.FC<{
         </button>
       </div>
       <p className="mt-1 text-[11.5px] text-slate-500">Drag any of them to move them all. What you set here goes to every picked line.</p>
-      <div className="mt-2.5 grid grid-cols-3 gap-2">
+      <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <GroupField label="Speed (%)" value={sameRate} step={1} digits={0} onCommit={onSpeed} />
         <GroupField label="Gain (dB)" value={same((p) => p.gainDb)} step={0.5} digits={1} onCommit={onGain} />
         <GroupField label="Fade in (ms)" value={same((p) => p.fadeIn * 1000)} step={10} digits={0} onCommit={onFadeIn} />
         <GroupField label="Fade out (ms)" value={same((p) => p.fadeOut * 1000)} step={10} digits={0} onCommit={onFadeOut} />
@@ -1278,6 +1283,29 @@ export const SyncEditTimeline: React.FC<{
     );
   };
 
+  /**
+   * One speed on every picked dub line, pitch kept. Each line keeps its start,
+   * so it stays with the original; a line with no room to slow that far before
+   * the next one starts slows only as far as it fits. Clips of the original
+   * voice keep their own speed.
+   */
+  const setGroupRate = (wanted: number) => {
+    const dubbed = group.filter((c) => !c.original);
+    if (dubbed.length === 0) return say('Only clips of the original are picked: they keep their own speed.');
+    const target = clamp(wanted, MIN_EDIT_RATE, MAX_EDIT_RATE);
+    let held = 0;
+    const next = changeAll(committed, dubbed, (p) => {
+      const { hi } = roomOf(p.id);
+      const fits = (p.to - p.from) / Math.max(MIN_PART_SECONDS, hi - p.start);
+      const rate = Math.round(Math.min(MAX_EDIT_RATE, Math.max(target, fits)) * 1000) / 1000;
+      if (rate > target + 1e-3) held += 1;
+      const half = (p.to - p.from) / rate / 2;
+      return { ...p, rate, fadeIn: Math.min(p.fadeIn, half), fadeOut: Math.min(p.fadeOut, half) };
+    });
+    commit(next, `Set the speed of ${groupName(dubbed)} to ${Math.round(target * 100)}%`);
+    if (held > 0) say(`${held} ${held === 1 ? 'line has' : 'lines have'} no room that slow: ${held === 1 ? 'it slows' : 'they slow'} only as far as the next line allows.`);
+  };
+
   // ---- Clips of the original ----
 
   /*
@@ -1881,6 +1909,7 @@ export const SyncEditTimeline: React.FC<{
               onGain={(v) => setGroupField({ gainDb: clamp(Math.round(v * 2) / 2, MIN_GAIN_DB, MAX_GAIN_DB) }, 'Set the gain of')}
               onFadeIn={(v) => setGroupField({ fadeIn: Math.max(0, v) / 1000 }, 'Fade in')}
               onFadeOut={(v) => setGroupField({ fadeOut: Math.max(0, v) / 1000 }, 'Fade out')}
+              onSpeed={(v) => setGroupRate(v / 100)}
               onMute={act.mute}
               onLock={act.lock}
               onReset={act.reset}
