@@ -16,8 +16,10 @@
  * never new content. `acceptLengthen` rejects anything not actually longer or
  * so long it would run past the line's slot.
  *
- * Neither kind of suggestion may change what the source line says. Every
- * wording that passes the length checks then goes to a second, independent
+ * Neither kind of suggestion may change what the source line says. A wording
+ * that drops a number, a glossary term or a name the line keeps in Latin
+ * letters (`missingTerms`) fails in code, without asking any model. Every
+ * other wording that passes the length checks then goes to a second, independent
  * call (`checkMeaning`) that compares it against the source line, strictly and
  * at temperature 0. A wording that fails gets one repair: the model is told
  * exactly what changed and tries again, and that wording is checked too. If
@@ -72,7 +74,68 @@ export const contextNote = (context) => {
   }${before.map((line) => `Line before: ${line}\n`).join('')}${after.map((line) => `Line after: ${line}\n`).join('')}`;
 };
 
-export const buildRewritePrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
+/** Digits of every script, as ASCII, so "১২" in one wording and "12" in another are the same number. */
+const asciiDigits = (text) =>
+  String(text).replace(/\p{Nd}/gu, (d) => {
+    const code = d.codePointAt(0);
+    const zero = DIGIT_ZEROS.find((z) => code >= z && code < z + 10);
+    return zero === undefined ? d : String(code - zero);
+  });
+
+/** The zero of each digit set a dub line may use: Arabic-Indic, then the Indic scripts. */
+const DIGIT_ZEROS = [0x30, 0x660, 0x6f0, 0x966, 0x9e6, 0xa66, 0xae6, 0xb66, 0xbe6, 0xc66, 0xce6, 0xd66, 0xde6];
+
+/** The numbers in a text, as plain digits: "1,000" and "1000" are one number. */
+const numbersIn = (text) => (asciiDigits(text).match(/\d[\d,.]*\d|\d/g) || []).map((n) => n.replace(/,/g, ''));
+
+const LATIN_WORD = /[A-Za-z][A-Za-z'’-]*[A-Za-z]/g;
+
+/** A text compared for a term: same Unicode form, case and spacing. */
+const normal = (text) => String(text).normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+
+/**
+ * What a new wording of `text` must keep word for word: every number, every
+ * term from `keep` (the glossary) that the line uses, and, in a line written in
+ * another script, every word left in Latin letters, which is a name or a term
+ * the translation kept as it is. These are checked in code, not by the text
+ * model, so a wording that drops one is never offered as keeping the meaning.
+ */
+export const keptTerms = (text, keep = []) => {
+  const terms = [];
+  const add = (term) => {
+    if (term && !terms.some((t) => normal(t) === normal(term))) terms.push(term);
+  };
+  numbersIn(text).forEach(add);
+  const line = normal(text);
+  for (const term of Array.isArray(keep) ? keep : []) {
+    if (typeof term === 'string' && term.trim() && line.includes(normal(term.trim()))) add(term.trim());
+  }
+  // Latin words in a line that is also written in another script; a word a glossary term already covers is not named twice.
+  if (/[^\P{L}\p{Script=Latin}]/u.test(String(text))) {
+    for (const word of String(text).match(LATIN_WORD) || []) {
+      if (!terms.some((t) => normal(t).split(/[^\p{L}\p{N}'’-]+/u).includes(normal(word)))) add(word);
+    }
+  }
+  return terms;
+};
+
+/** The terms of `keptTerms(text, keep)` that `candidate` leaves out. */
+export const missingTerms = (text, candidate, keep = []) => {
+  const numbers = new Set(numbersIn(candidate));
+  const line = normal(asciiDigits(candidate));
+  return keptTerms(text, keep).filter((term) => (/^\d/.test(term) ? !numbers.has(term) : !line.includes(normal(term))));
+};
+
+/** The prompt line naming what must stay exactly as it is. */
+const keepNote = (text, keep) => {
+  const terms = keptTerms(text, keep);
+  return terms.length > 0 ? `- Keep these exactly as they are: ${terms.map((t) => `"${t}"`).join(', ')}.\n` : '';
+};
+
+/** The check's issues for a wording that dropped a kept term. */
+const droppedIssues = (missing) => missing.map((term) => `leaves out "${term}"`);
+
+export const buildRewritePrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null, keep = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
 This dub line takes too long to say in the time the original speaker took. Rewrite it so it is at most ${targetChars} characters long (it is now ${text.length}).
 
@@ -82,7 +145,7 @@ Rules:
 - Shorten the dub line as it is written: keep its own word for each idea rather than translating the original again.
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
-- Do not add anything that is not in the original line.
+${keepNote(text, keep)}- Do not add anything that is not in the original line.
 ${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
   avoid.length > 0
     ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(-MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
@@ -99,7 +162,7 @@ Reply with only the rewritten line, nothing else.`;
  */
 const MAX_TARGET_SHARE = 1.25;
 
-export const buildLengthenPrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
+export const buildLengthenPrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null, keep = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
 This dub line is much shorter than what the original speaker says, so the dub goes silent while the speaker is still talking. Rewrite it so it is about ${targetChars} characters long (it is now ${text.length}), and no longer than that.
 
@@ -107,7 +170,7 @@ Rules:
 - The meaning must not change. Say exactly what the original line says, in a fuller, more natural spoken way. If the dub line left out a nuance, a qualifier or an emphasis that is in the original line, put it back first.
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
-- Do not add any idea, fact or example that is not in the original line. Do not pad with filler sounds, repetition or empty phrases.
+${keepNote(text, keep)}- Do not add any idea, fact or example that is not in the original line. Do not pad with filler sounds, repetition or empty phrases.
 ${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
   avoid.length > 0
     ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(-MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
@@ -211,7 +274,7 @@ export const checkMeaning = async ({ text, sourceText, candidate, language, dire
  * refuses, so the caller can say why.
  */
 export const suggestLine = async (
-  { text, sourceText, language, targetChars, avoid = [], direction, context = null },
+  { text, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [] },
   { apiKey, generate = generateText } = {}
 ) => {
   const longer = direction === 'longer';
@@ -223,7 +286,7 @@ export const suggestLine = async (
   let retried = false;
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     const { response } = await generate({
-      contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, fix, context }) }] },
+      contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, fix, context, keep }) }] },
       // A second try at the same line is asked to differ, and given more room to.
       generationConfig: { temperature: avoid.length > 0 || fix || retried ? 0.7 : 0.3 },
       apiKey,
@@ -232,7 +295,12 @@ export const suggestLine = async (
     retried = true;
     // An answer of the wrong length gets the same second try as one that changed the meaning.
     if (!line) continue;
-    const check = await checkMeaning({ text, sourceText, candidate: line, language, direction }, { apiKey, generate });
+    // A dropped name, number or term fails in code, before any model is asked.
+    const missing = missingTerms(text, line, keep);
+    const check =
+      missing.length > 0
+        ? { ok: false, issues: droppedIssues(missing) }
+        : await checkMeaning({ text, sourceText, candidate: line, language, direction }, { apiKey, generate });
     if (check.ok) return { line, reason: null, flagged: null };
     const issues = check.issues.length > 0 ? check.issues : ['The meaning is not the same as the original line.'];
     logger.info(`A suggested ${kind} dub line changed the meaning (${issues.join('; ')}); ${attempt < MAX_REPAIRS ? 'asking again' : 'it is only offered flagged'}.`);
@@ -266,7 +334,7 @@ const MAX_AVOID_OPTIONS = 6;
  * what keeps every wording on it. `fixes` are earlier wordings the meaning
  * check rejected, with what it found.
  */
-export const buildOptionsPrompt = ({ text, sourceText, language, targetChars, direction, count, avoid = [], fixes = [], context = null }) => {
+export const buildOptionsPrompt = ({ text, sourceText, language, targetChars, direction, count, avoid = [], fixes = [], context = null, keep = [] }) => {
   const longer = direction === 'longer';
   const lang = language || 'the dub language';
   const styles = OPTION_STYLES.slice(0, count);
@@ -288,7 +356,7 @@ Then write the wordings. Each one must:
   };
 - sound like natural spoken ${lang}, as this speaker would say it, fitting the lines around it;
 - keep names, numbers and key terms exactly;
-- differ clearly from the others${avoid.length > 0 ? ' and from the wordings listed below' : ''}.
+${keepNote(text, keep)}- differ clearly from the others${avoid.length > 0 ? ' and from the wordings listed below' : ''}.
 
 Make them different in kind:
 ${styles.map((style, i) => `${i + 1}. ${style}`).join('\n')}
@@ -320,7 +388,7 @@ Respond with ONLY this JSON:
  * the model offered anything at all. Throws when the text model can't be reached.
  */
 export const suggestLines = async (
-  { text, sourceText, language, targetChars, avoid = [], direction, context = null, count = MAX_OPTIONS },
+  { text, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [], count = MAX_OPTIONS },
   { apiKey, generate = generateText } = {}
 ) => {
   const longer = direction === 'longer';
@@ -346,6 +414,7 @@ export const suggestLines = async (
               avoid: [...avoid, ...passed.map((o) => o.line)],
               fixes,
               context,
+              keep,
             }),
           },
         ],
@@ -368,7 +437,12 @@ export const suggestLines = async (
       }
     }
     const checks = await Promise.all(
-      candidates.map((candidate) => checkMeaning({ text, sourceText, candidate, language, direction }, { apiKey, generate }))
+      candidates.map((candidate) => {
+        const missing = missingTerms(text, candidate, keep);
+        return missing.length > 0
+          ? { ok: false, issues: droppedIssues(missing) }
+          : checkMeaning({ text, sourceText, candidate, language, direction }, { apiKey, generate });
+      })
     );
     fixes = [];
     candidates.forEach((line, i) => {

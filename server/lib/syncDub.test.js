@@ -664,7 +664,9 @@ test('a line too long for its slot is voiced as written, flagged, and given a su
     },
   });
   const progress = [];
-  const { report } = await runSync({ segments, sourceDuration: 8, sampleRate: RATE, voice }, deps, { onProgress: (p) => progress.push(p) });
+  const { report } = await runSync({ segments, sourceDuration: 8, sampleRate: RATE, voice, keep: ['Isha'] }, deps, {
+    onProgress: (p) => progress.push(p),
+  });
 
   assert.deepEqual(voiced, ['x'.repeat(30) + '.', 'yyyyyyyyyy.', 'zzzzzzzzzz.'], 'each line voiced once, as written and ending a sentence');
   assert.equal(report.units[0].text, 'x'.repeat(30));
@@ -673,6 +675,9 @@ test('a line too long for its slot is voiced as written, flagged, and given a su
   assert.equal(requests.length, 1);
   assert.equal(requests[0].sourceText, 'src 1');
   assert.ok(requests[0].targetChars < 30);
+  // Reworded in context, as Review rewords a line, and told the glossary terms to keep.
+  assert.deepEqual(requests[0].context, { before: [], after: ['yyyyyyyyyy', 'zzzzzzzzzz'], speaker: '' });
+  assert.deepEqual(requests[0].keep, ['Isha']);
   assert.equal(report.units[0].suggestion, 'x'.repeat(requests[0].targetChars));
   assert.equal(report.units[2].exceeded, false);
   assert.equal(report.units[2].suggestion, null);

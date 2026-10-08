@@ -1023,9 +1023,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** Quick or Expert, the user's pick, kept across restarts; both steps' previews follow it. */
   const [estimateMethod, setEstimateMethod] = useState<EstimateMethod>(() => {
     try {
-      return localStorage.getItem(ESTIMATE_METHOD_KEY) === 'expert' ? 'expert' : 'quick';
+      // Expert unless the user picked Quick: syllables time Indic lines far closer than characters do.
+      return localStorage.getItem(ESTIMATE_METHOD_KEY) === 'quick' ? 'quick' : 'expert';
     } catch {
-      return 'quick';
+      return 'expert';
     }
   });
   const changeEstimateMethod = (method: EstimateMethod) => {

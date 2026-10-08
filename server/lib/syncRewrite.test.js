@@ -1,6 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { suggestLine, suggestLines, checkMeaning, contextNote, buildMeaningCheckPrompt, buildRewritePrompt, buildOptionsPrompt } from './syncRewrite.js';
+import {
+  suggestLine,
+  suggestLines,
+  checkMeaning,
+  contextNote,
+  buildMeaningCheckPrompt,
+  buildRewritePrompt,
+  buildOptionsPrompt,
+  keptTerms,
+  missingTerms,
+} from './syncRewrite.js';
 
 /**
  * A fake text model: rewrites come from `lines` in order, meaning checks from
@@ -193,4 +203,40 @@ test('the lines around a line and its speaker go into the prompt, as context onl
   }
   assert.equal(contextNote({ before: [], after: [''] }), '');
   assert.doesNotMatch(buildRewritePrompt(request), /Context, only/);
+});
+
+test('numbers, glossary terms and words kept in Latin letters are what a wording must keep', () => {
+  const line = 'Sadhguru ने कहा कि 2,500 लोग Isha Yoga Center में आएँगे';
+  assert.deepEqual(keptTerms(line, ['Isha Yoga Center', 'Mahashivratri']), ['2500', 'Isha Yoga Center', 'Sadhguru']);
+  // The same number in another script's digits, or without its comma, is kept.
+  assert.deepEqual(missingTerms('৩০০ জন এসেছিলেন', '300 জন এলেন'), []);
+  assert.deepEqual(missingTerms(line, 'Sadhguru: 2500 लोग Isha Yoga Center आएँगे', ['Isha Yoga Center']), []);
+  assert.deepEqual(missingTerms(line, 'Sadhguru ने कहा कि बहुत लोग Isha Yoga Center आएँगे', ['Isha Yoga Center']), ['2500']);
+  assert.deepEqual(missingTerms(line, '2500 लोग Isha Yoga Center आएँगे', ['Isha Yoga Center']), ['Sadhguru']);
+  // A line written in Latin letters keeps only its numbers and glossary terms.
+  assert.deepEqual(keptTerms('We will meet at the Center at 10'), ['10']);
+  assert.deepEqual(keptTerms('Nous irons à Paris à 10 h'), ['10']);
+});
+
+test('a wording that drops a kept term fails in code, without a meaning check, and is repaired', async () => {
+  const line = { ...request, text: 'Sadhguru कल सुबह 10 बजे बाज़ार नहीं जाएँगे, क्योंकि बारिश होगी', targetChars: 45 };
+  const { generate, prompts } = fakeModel({
+    lines: ['कल 10 बजे बाज़ार नहीं जाएँगे, बारिश होगी', 'Sadhguru कल 10 बजे नहीं जाएँगे, बारिश होगी'],
+    checks: [{ sameMeaning: true, issues: [] }],
+  });
+  const result = await suggestLine({ ...line, direction: 'shorter' }, { generate });
+  assert.equal(result.line, 'Sadhguru कल 10 बजे नहीं जाएँगे, बारिश होगी');
+  assert.equal(prompts.check.length, 1, 'only the wording that kept every term was sent to the check');
+  assert.match(prompts.rewrite[0], /Keep these exactly as they are: "10", "Sadhguru"/);
+  assert.match(prompts.rewrite[1], /- leaves out "Sadhguru"/);
+});
+
+test('among several wordings, one that drops a glossary term comes back flagged with what it left out', async () => {
+  const line = { ...request, text: 'वे Isha Yoga Center में कल सुबह नहीं आएँगे, क्योंकि बारिश होगी', targetChars: 50 };
+  const kept = 'वे Isha Yoga Center कल नहीं आएँगे, बारिश होगी';
+  const dropped = 'वे आश्रम में कल नहीं आएँगे, बारिश होगी';
+  const { generate, prompts } = optionsModel({ rounds: [[kept, dropped], []] });
+  const { options } = await suggestLines({ ...line, direction: 'shorter', count: 2, keep: ['Isha Yoga Center'] }, { generate });
+  assert.deepEqual(options, [{ line: kept }, { line: dropped, issues: ['leaves out "Isha Yoga Center"'] }]);
+  assert.equal(prompts.check.length, 1);
 });

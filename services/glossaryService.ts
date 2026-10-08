@@ -82,6 +82,17 @@ export function getTermsForLanguage(language: string): GlossaryTerm[] {
   });
 }
 
+/**
+ * The words a reworded dub line in `language` must keep exactly, as the dub
+ * writes them: a `keep` term's target (or the source term itself), and a
+ * `prefer` term's approved rendering.
+ */
+export function keepTermsFor(language: string): string[] {
+  return getTermsForLanguage(language)
+    .map((t) => (t.target || '').trim() || (t.policy === 'keep' ? t.source.trim() : ''))
+    .filter(Boolean);
+}
+
 export function addGlossaryTerm(term: Omit<GlossaryTerm, 'id'>): GlossaryTerm {
   const created: GlossaryTerm = {
     ...term,
