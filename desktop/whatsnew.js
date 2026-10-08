@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.31',
+    changes: [
+      'Ask for a line’s wordings as often as you like: after you use one, Suggest again offers new ones, and Undo still goes back to the line as it was. Each suggestion shows what it says in English.',
+      'A line that would lose more than a third of its words to fit is no longer shortened for you: give it more time, or join it with the line beside it.',
+      'Retake voices the line three times and keeps the take that fits best. Suggestions also follow the wordings you chose before in the project.',
+    ],
+  },
+  {
     version: '1.3.30',
     changes: [
       'After Sync, Show all lines lists every line with Listen and Retake, so you can retake any line, not only the flagged ones.',
