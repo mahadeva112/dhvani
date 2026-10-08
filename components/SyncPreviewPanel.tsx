@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, Loader2, Pencil, RotateCcw, X } from 'lucide-react';
+import { Check, Loader2, Pencil, RefreshCw, RotateCcw, X } from 'lucide-react';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { hueOf, withAlpha } from './lineColors';
@@ -117,8 +117,11 @@ export const wordingKind = (direction: RewriteDirection) => (direction === 'long
 
 /** Wordings a line is offered when the user asks for that line; Suggest for all asks for one each. */
 export const LINE_OPTIONS = 3;
-/** Earlier wordings sent back with a new request, so new ones read differently. */
-const MAX_TRIED = 6;
+/**
+ * Earlier wordings sent back with a new request, so new ones read differently
+ * and none comes back twice: a user may ask for a line as often as they like.
+ */
+export const MAX_TRIED = 30;
 
 /** Fetches the preview again whenever the script, the precision or the rate change. */
 export const useSyncPreview = ({
@@ -179,8 +182,8 @@ export type LineFixState =
    */
   | { kind: 'draft'; text: string; suggested: boolean; tried: string[]; issues?: string[]; options?: LineSuggestion[] }
   | { kind: 'error'; message: string; tried: string[] }
-  | { kind: 'used'; text: string; before: Record<string, string> }
-  | { kind: 'kept' };
+  | { kind: 'used'; text: string; before: Record<string, string>; tried: string[] }
+  | { kind: 'kept'; tried: string[] };
 
 /**
  * A line's way of being reworded: fewer words for a long line, more for one
@@ -217,6 +220,8 @@ export const useLineFixes = ({
   // A suggestion that comes back after its row changed is dropped.
   const requests = useRef<Record<string, number>>({});
   const directions = useRef<Record<string, RewriteDirection>>({});
+  // A used line asked for again keeps what Undo goes back to: the script as it was before the first wording.
+  const undoTo = useRef<Record<string, Record<string, string>>>({});
   const directionOf = (unit: SyncPreviewUnit): RewriteDirection => directions.current[unit.key] ?? directionFor(unit);
   const setRow = (unit: SyncPreviewUnit, state: LineFixState) => {
     if (state.kind === 'idle') delete directions.current[unit.key];
@@ -266,7 +271,19 @@ export const useLineFixes = ({
   /** Forgets the work on a line, so its direction is decided again: after a new trim, say. */
   const reset = (unit: SyncPreviewUnit) => {
     requests.current[unit.key] = (requests.current[unit.key] || 0) + 1;
+    delete undoTo.current[unit.key];
     setRow(unit, { kind: 'idle' });
+  };
+  /**
+   * Leaves the wordings being asked for or edited: back to the wording used
+   * before, when the line was asked for again after one, otherwise to nothing.
+   */
+  const leave = (unit: SyncPreviewUnit) => {
+    requests.current[unit.key] = (requests.current[unit.key] || 0) + 1;
+    const before = undoTo.current[unit.key];
+    const current = rows[unit.key];
+    if (before) setRow(unit, { kind: 'used', text: unit.text, before, tried: current && 'tried' in current ? current.tried : [] });
+    else setRow(unit, { kind: 'idle' });
   };
 
   /** What a line's controls need; its direction decides how they read. */
@@ -274,10 +291,17 @@ export const useLineFixes = ({
     direction: directionOf(unit),
     state: stateOf(unit),
     onSuggest: () => suggest(unit),
-    onStop: () => {
-      requests.current[unit.key] = (requests.current[unit.key] || 0) + 1;
-      setRow(unit, { kind: 'idle' });
+    /**
+     * New wordings for a line already settled, from the words it has now. Its
+     * direction is worked out again: a long line made to fit is now reworded.
+     */
+    onSuggestAgain: () => {
+      const current = rows[unit.key];
+      if (current?.kind === 'used') undoTo.current[unit.key] = current.before;
+      delete directions.current[unit.key];
+      suggest(unit);
     },
+    onStop: () => leave(unit),
     onEdit: () => setRow(unit, { kind: 'draft', text: unit.text, suggested: false, tried: [] }),
     onDraft: (text: string) => {
       const current = rows[unit.key];
@@ -295,11 +319,23 @@ export const useLineFixes = ({
       if (current?.kind !== 'draft') return;
       setRow(unit, { ...current, text: option.text, suggested: true, issues: option.issues });
     },
-    onUse: (text: string) => setRow(unit, { kind: 'used', text, before: onUseLine(unit, text) }),
-    onKeep: () => setRow(unit, { kind: 'kept' }),
+    onUse: (text: string) => {
+      const current = rows[unit.key];
+      const before = onUseLine(unit, text);
+      // The first wording's script wins, so Undo goes back to the line as it was before any of them.
+      const first = undoTo.current[unit.key];
+      delete undoTo.current[unit.key];
+      setRow(unit, { kind: 'used', text, before: first ? { ...before, ...first } : before, tried: current && 'tried' in current ? current.tried : [] });
+    },
+    onKeep: () => {
+      const current = rows[unit.key];
+      setRow(unit, { kind: 'kept', tried: current && 'tried' in current ? current.tried : [] });
+    },
     onUndo: () => {
       const current = rows[unit.key];
-      if (current?.kind === 'used') onRestore(current.before);
+      const before = current?.kind === 'used' ? current.before : undoTo.current[unit.key];
+      if (before) onRestore(before);
+      delete undoTo.current[unit.key];
       setRow(unit, { kind: 'idle' });
     },
   });
@@ -516,6 +552,8 @@ export interface LineFixControlsProps {
   direction: RewriteDirection;
   state: LineFixState;
   onSuggest: () => void;
+  /** New wordings for a line whose wording was used or kept. */
+  onSuggestAgain: () => void;
   onStop: () => void;
   onEdit: () => void;
   onDraft: (text: string) => void;
@@ -538,6 +576,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
   direction,
   state,
   onSuggest,
+  onSuggestAgain,
   onStop,
   onEdit,
   onDraft,
@@ -724,6 +763,14 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                 : `About ${fitOf(state.text, unit, cps).seconds.toFixed(1)} s for a ${unit.slot.toFixed(1)} s slot`
               : 'Kept'}
           </span>
+          <button
+            type="button"
+            onClick={onSuggestAgain}
+            className="h-6 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+            title="Ask for new wordings of this line as it reads now. Undo still goes back to the line as it was."
+          >
+            <RefreshCw className="w-3 h-3" /> Suggest again
+          </button>
           <button
             type="button"
             onClick={onUndo}
