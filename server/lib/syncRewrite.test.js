@@ -269,3 +269,13 @@ test('several rewordings of a line that fits are asked for as other wordings', a
   assert.match(prompts.options[0], /Write 2 new wordings of it that read naturally/);
   assert.match(prompts.options[0], /Dub line to reword:/);
 });
+
+test('a wording offered before is never offered again, however many were', async () => {
+  const offered = Array.from({ length: 20 }, (_, i) => `पहले की ${i} वाली पंक्ति, बारिश होगी तो नहीं जाऊँगा`);
+  const fresh = 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
+  const { generate, prompts } = fakeModel({ lines: [offered[2], fresh], checks: [{ sameMeaning: true, issues: [] }] });
+  const { line } = await suggestLine({ ...request, direction: 'shorter', avoid: offered }, { generate });
+  assert.equal(line, fresh, 'the repeat of an early wording was asked for again');
+  assert.equal(prompts.check.length, 1);
+  assert.match(prompts.rewrite[0], new RegExp(offered[19]));
+});

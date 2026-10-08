@@ -573,7 +573,7 @@ syncRouter.post('/sync/fit', (req, res) => {
 });
 
 /** Most earlier wordings a rewording request may list, to be told apart from. */
-const MAX_AVOID_LINES = 6;
+const MAX_AVOID_LINES = 30;
 /** Lines of context either side, and the longest one kept. */
 const MAX_CONTEXT_LINES = 2;
 const MAX_CONTEXT_CHARS = 500;

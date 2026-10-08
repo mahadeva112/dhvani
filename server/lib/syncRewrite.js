@@ -45,8 +45,11 @@ import { parseJsonResponse } from '../providers/gemini/client.js';
  */
 const MIN_TARGET_SHARE = 0.5;
 
-/** Earlier suggestions for a line, shown to the model so a new try reads differently. */
-const MAX_AVOID = 3;
+/**
+ * Earlier suggestions for a line, shown to the model so a new try reads
+ * differently. Every earlier one is still kept out in code, however many.
+ */
+const MAX_AVOID = 12;
 
 /** What a repair try is told: the wording that changed the meaning, and how it did. */
 const fixNote = (fix) =>
@@ -339,9 +342,11 @@ export const suggestLine = async (
       generationConfig: { temperature: avoid.length > 0 || fix || retried ? 0.7 : 0.3 },
       apiKey,
     });
-    const line = accept(text, String(response?.text || ''), targetChars);
+    const answer = accept(text, String(response?.text || ''), targetChars);
+    // A wording already offered is no new one, however many were.
+    const line = answer && !avoid.some((earlier) => cleanLine(earlier) === answer) ? answer : null;
     retried = true;
-    // An answer of the wrong length gets the same second try as one that changed the meaning.
+    // An answer of the wrong length, or one offered before, gets the same second try as one that changed the meaning.
     if (!line) continue;
     // A dropped name, number or term fails in code, before any model is asked.
     const missing = missingTerms(text, line, keep);
@@ -373,7 +378,7 @@ const OPTION_STYLES = [
 ];
 
 /** Earlier wordings a request for several shows the model, so new ones read differently. */
-const MAX_AVOID_OPTIONS = 6;
+const MAX_AVOID_OPTIONS = 12;
 
 /**
  * The prompt for several wordings of one line at once, as JSON. Before the
