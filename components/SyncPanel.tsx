@@ -944,7 +944,7 @@ const ReviewRow: React.FC<{
             onClick={() => onRetake(unit)}
             disabled={pending}
             className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            title="Voice this line again for a new take. Sync again to hear it."
+            title="Voices this line three times and keeps the take that fits its slot best (three voicings of the line). Sync again to hear it."
           >
             <Mic className="w-3 h-3" /> Retake
           </button>

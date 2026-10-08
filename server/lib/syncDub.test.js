@@ -5,7 +5,7 @@ import { DEFAULT_JOIN_SETTINGS, resolveJoinSettings, dbToAmplitude } from './syn
 import { pava, placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, removeBreaths, shortenPauses, renderTimeline, MIN_INNER_PAUSE_SECONDS } from './syncRender.js';
 import { acceptRewrite } from './syncRewrite.js';
-import { runSync, clearClipCache, clipHash, MAX_RETAKES } from './syncDub.js';
+import { runSync, clearClipCache, clipHash, MAX_RETAKES, RETAKE_TAKES } from './syncDub.js';
 
 const RATE = 8000;
 
@@ -727,7 +727,7 @@ test('a resync after a retake or a changed line voices only that line', async ()
   const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 4, 5, 'bbbbbbbbbb'), cue(3, 7, 8, 'cccccccccc')];
   await runSync({ segments, sourceDuration: 9, sampleRate: RATE, voice }, fakeDeps().deps);
 
-  // A retake of line 1: a new seed for it alone.
+  // A retake of line 1: new seeds for it alone, RETAKE_TAKES takes of it to keep the best fitting one.
   const lines = [];
   const retake = fakeDeps();
   const voiceLines = retake.deps.voiceLines;
@@ -736,9 +736,12 @@ test('a resync after a retake or a changed line voices only that line', async ()
     return voiceLines(batch, options);
   };
   const { report } = await runSync({ segments, sourceDuration: 9, sampleRate: RATE, voice, lineSeeds: { 1: 99 } }, retake.deps);
-  assert.deepEqual(retake.voiced, ['aaaaaaaaaa.']);
+  assert.deepEqual(retake.voiced, Array(RETAKE_TAKES).fill('aaaaaaaaaa.'));
   assert.equal(lines[0].seed, 99);
+  assert.equal(new Set(lines.map((line) => line.seed)).size, RETAKE_TAKES);
   assert.equal(report.units[0].key, '1');
+  assert.equal(report.units[0].takesCompared, RETAKE_TAKES);
+  assert.equal(report.units[1].takesCompared, 0);
 
   // The same retake again is already voiced; a changed line 3 is the only new take.
   const changed = fakeDeps();
@@ -767,8 +770,9 @@ test('a take the voice cut off mid-word is voiced again with another seed, and t
   const { deps, requests } = cuttingDeps([-1]);
   // Line 2 has its own seed, which the voice doesn't cut off.
   const { report } = await runSync({ segments, sourceDuration: 7, sampleRate: RATE, voice, lineSeeds: { 2: 5 } }, deps);
-  assert.deepEqual(requests.map((r) => r.text), ['aaaaaaaaaa.', 'bbbbbbbbbb.', 'aaaaaaaaaa.']);
-  assert.ok(Number.isInteger(requests[2].seed) && requests[2].seed !== 5);
+  // Line 2 is a retake, so it gets RETAKE_TAKES takes; line 1 is voiced again because it was cut off.
+  assert.deepEqual(requests.map((r) => r.text), ['aaaaaaaaaa.', 'bbbbbbbbbb.', ...Array(RETAKE_TAKES - 1).fill('bbbbbbbbbb.'), 'aaaaaaaaaa.']);
+  assert.ok(Number.isInteger(requests.at(-1).seed) && requests.at(-1).seed !== 5);
   assert.equal(report.units[0].retakes, 1);
   assert.equal(report.units[0].cutOff, false);
   assert.equal(report.units[1].retakes, 0);
@@ -780,6 +784,27 @@ test('a take the voice cut off mid-word is voiced again with another seed, and t
   const second = await runSync({ segments, sourceDuration: 7, sampleRate: RATE, voice, lineSeeds: { 2: 5 } }, again.deps);
   assert.equal(again.requests.length, 0);
   assert.equal(second.report.units[0].cutOff, false);
+});
+
+test('of the takes of a retaken line, the one that fits its slot is kept', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 2.6, 3.5, 'bbbbbbbbbb')];
+  const { deps } = fakeDeps();
+  // The user's own seed and the third take read the line slowly, past its slot; the second take reads it in time.
+  const slow = 40;
+  const seeds = [];
+  deps.voiceLines = async (lines, { onLine }) =>
+    lines.map((line, n) => {
+      seeds.push(line.seed);
+      onLine(n + 1);
+      // Line 1 and 2 go first (pushes 1 and 2); push 3 is line 1's second take, the only one in time.
+      const perChar = line.text.startsWith('a') && seeds.length !== 3 ? SECONDS_PER_CHAR * 2.2 : SECONDS_PER_CHAR * 0.9;
+      return clip({ lead: 0.15, tone: line.text.replace(/[.।]$/u, '').length * perChar, tail: 0.15 });
+    });
+  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice, lineSeeds: { 1: slow } }, deps);
+  assert.equal(report.units[0].takesCompared, RETAKE_TAKES);
+  assert.equal(report.units[0].exceeded, false, 'the take that fits was kept');
+  assert.ok(Math.abs(report.units[0].speech - 10 * SECONDS_PER_CHAR * 0.9) < 0.05, `speech ${report.units[0].speech}`);
 });
 
 test('a line cut off in every take is retaken MAX_RETAKES times, then reported', async () => {

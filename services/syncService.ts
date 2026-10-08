@@ -249,6 +249,8 @@ export interface SyncUnitReport {
   tightJoin: boolean;
   /** Times the line was voiced again because the voice cut it off mid-word (absent in older reports). */
   retakes?: number;
+  /** A line the user retook: how many takes were voiced, the one that fits its slot best kept; 0 otherwise. */
+  takesCompared?: number;
   /** The line was cut from an earlier dub, not voiced again (absent in older reports). */
   fromDub?: boolean;
   /** The take used still ends before its last word died away: the voice cut it off. */
