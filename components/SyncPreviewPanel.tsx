@@ -697,7 +697,14 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                       >
                         {i + 1}
                       </span>
-                      <span className="flex-1 min-w-0 text-[13px] text-slate-100 leading-snug">{option.text}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-[13px] text-slate-100 leading-snug">{option.text}</span>
+                        {option.backTranslation && (
+                          <span className="block mt-0.5 text-[11.5px] text-slate-500 leading-snug" title="This wording translated back into English, without the original line in view">
+                            Says: {option.backTranslation}
+                          </span>
+                        )}
+                      </span>
                       <span className="shrink-0 flex flex-col items-end gap-0.5">
                         <span
                           className={`text-[10.5px] font-semibold px-1.5 rounded tabular-nums ${
@@ -724,6 +731,11 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                 : 'Your wording'}
           </label>
           {state.suggested && state.issues && <MeaningWarning issues={state.issues} />}
+          {state.suggested && (!state.options || state.options.length < 2) && state.options?.find((o) => o.text === state.text)?.backTranslation && (
+            <p className="mb-1 text-[11.5px] text-slate-500 leading-snug" title="This wording translated back into English, without the original line in view">
+              Says: {state.options.find((o) => o.text === state.text)?.backTranslation}
+            </p>
+          )}
           <textarea
             id={`preview-line-${unit.key}`}
             value={state.text}

@@ -275,7 +275,35 @@ const directionOf = (direction) => DIRECTIONS[direction] || DIRECTIONS.shorter;
  * drop filler and repetition, 'longer' may restore what the source says,
  * 'same' (reworded) may change only the words and their order.
  */
-export const buildMeaningCheckPrompt = ({ text, sourceText, candidate, language, direction }) => `You are a strict reviewer checking a ${language || 'dubbing'} dub script against its source. A wording was ${
+/**
+ * The prompt for a back-translation: the suggested wording put into English,
+ * literally, by a call that never sees the original line, so it can only say
+ * what the wording itself says. The meaning check then sets it against the
+ * original, which catches a change a reviewer reading both lines can miss.
+ */
+export const buildBackTranslationPrompt = ({ candidate, language }) => `Translate this ${language || ''} line into English, literally: what it says, word for word in meaning, keeping every negation, condition, number, name and emphasis, and its tone (a question stays a question). Do not improve it, explain it or fix it.
+
+${candidate}
+
+Reply with only the English translation.`;
+
+/** The English of `candidate` (see buildBackTranslationPrompt), or null when the text model gave none. */
+export const backTranslate = async ({ candidate, language }, { apiKey, generate = generateText } = {}) => {
+  try {
+    const { response } = await generate({
+      contents: { role: 'user', parts: [{ text: buildBackTranslationPrompt({ candidate, language }) }] },
+      generationConfig: { temperature: 0 },
+      apiKey,
+    });
+    return cleanLine(response?.text) || null;
+  } catch (err) {
+    // The check still runs without it; only a failure of the check itself withholds a wording.
+    logger.info(`A back-translation was not available (${err?.message || 'no answer'}); the meaning is checked without it.`);
+    return null;
+  }
+};
+
+export const buildMeaningCheckPrompt = ({ text, sourceText, candidate, language, direction, backTranslation = null }) => `You are a strict reviewer checking a ${language || 'dubbing'} dub script against its source. A wording was ${
   direction === 'longer' ? 'made fuller' : direction === 'same' ? 'reworded' : 'shortened'
 } so the dub fits the video's timing. Decide whether it still means exactly what the ${sourceText ? 'original line' : 'current dub line'} means.
 
@@ -284,7 +312,16 @@ ${text}
 
 Suggested wording:
 ${candidate}
+${
+  backTranslation
+    ? `
+The suggested wording, translated literally into English by someone who never saw the original line:
+${backTranslation}
 
+Set this English against the original line too: it shows what the suggested wording actually says.
+`
+    : ''
+}
 It does NOT keep the meaning if, compared with the ${sourceText ? 'original line' : 'current dub line'}, it:
 - leaves out any idea, fact, condition, qualifier or emphasis${direction === 'longer' || direction === 'same' ? '' : ' (dropping only filler words and repetition is fine)'};
 - adds any idea, fact, example or opinion that is not there${direction === 'longer' ? ' (saying what is there more fully is fine)' : ''};
@@ -308,13 +345,17 @@ Respond with ONLY this JSON:
 const MAX_REPAIRS = 1;
 
 /**
- * Checks that `candidate` means what the source line means. Returns
- * `{ ok, issues }`. An answer that can't be read counts as a failure: a
- * suggestion is only shown when the check positively passed.
+ * Checks that `candidate` means what the source line means. With a source
+ * line, the wording is first translated back into English on its own
+ * (backTranslate), and the check reads that too. Returns `{ ok, issues,
+ * backTranslation }`, `backTranslation` the English or null, for the user to
+ * read beside the wording. An answer that can't be read counts as a failure:
+ * a suggestion is only shown when the check positively passed.
  */
 export const checkMeaning = async ({ text, sourceText, candidate, language, direction }, { apiKey, generate = generateText } = {}) => {
+  const backTranslation = sourceText ? await backTranslate({ candidate, language }, { apiKey, generate }) : null;
   const { response } = await generate({
-    contents: { role: 'user', parts: [{ text: buildMeaningCheckPrompt({ text, sourceText, candidate, language, direction }) }] },
+    contents: { role: 'user', parts: [{ text: buildMeaningCheckPrompt({ text, sourceText, candidate, language, direction, backTranslation }) }] },
     generationConfig: { responseMimeType: 'application/json', temperature: 0 },
     apiKey,
   });
@@ -322,19 +363,19 @@ export const checkMeaning = async ({ text, sourceText, candidate, language, dire
   try {
     parsed = parseJsonResponse(response?.text, 'Meaning check');
   } catch {
-    return { ok: false, issues: ['The meaning check gave no readable answer.'] };
+    return { ok: false, issues: ['The meaning check gave no readable answer.'], backTranslation };
   }
   const issues = Array.isArray(parsed?.issues) ? parsed.issues.filter((i) => typeof i === 'string' && i.trim()).map((i) => i.trim()) : [];
-  return { ok: parsed?.sameMeaning === true, issues };
+  return { ok: parsed?.sameMeaning === true, issues, backTranslation };
 };
 
 /**
  * Writes a new wording of a line, `direction` 'shorter', 'longer' or 'same', and only
  * returns it as `line` once the meaning check passed. Returns
- * `{ line, reason, flagged }`: the line, or null with `reason` 'unusable' (no
+ * `{ line, reason, flagged, backTranslation }`: the line (and its English), or null with `reason` 'unusable' (no
  * answer passed the length checks) or 'meaning' (every wording changed what
  * the source line says). With 'meaning', `flagged` is the last wording and the
- * check's issues, `{ line, issues }`, for a caller that shows it marked as
+ * check's issues, `{ line, issues, backTranslation }`, for a caller that shows it marked as
  * such; null otherwise. Throws when the text model can't be reached or
  * refuses, so the caller can say why.
  */
@@ -365,10 +406,11 @@ export const suggestLine = async (
       missing.length > 0
         ? { ok: false, issues: droppedIssues(missing) }
         : await checkMeaning({ text, sourceText, candidate: line, language, direction }, { apiKey, generate });
-    if (check.ok) return { line, reason: null, flagged: null };
+    const backTranslation = check.backTranslation ?? null;
+    if (check.ok) return { line, reason: null, flagged: null, backTranslation };
     const issues = check.issues.length > 0 ? check.issues : ['The meaning is not the same as the original line.'];
     logger.info(`A suggested ${kind} dub line changed the meaning (${issues.join('; ')}); ${attempt < MAX_REPAIRS ? 'asking again' : 'it is only offered flagged'}.`);
-    flagged = { line, issues };
+    flagged = { line, issues, backTranslation };
     fix = flagged;
   }
   if (!flagged) logger.info(`A suggested ${kind} dub line was not usable; none is shown for that line.`);
@@ -514,10 +556,11 @@ export const suggestLines = async (
     );
     fixes = [];
     candidates.forEach((line, i) => {
-      if (checks[i].ok) passed.push({ line });
+      const backTranslation = checks[i].backTranslation ?? null;
+      if (checks[i].ok) passed.push(backTranslation ? { line, backTranslation } : { line });
       else {
         const issues = checks[i].issues.length > 0 ? checks[i].issues : ['The meaning is not the same as the original line.'];
-        flagged.push({ line, issues });
+        flagged.push(backTranslation ? { line, issues, backTranslation } : { line, issues });
         fixes.push({ line, issues });
       }
     });

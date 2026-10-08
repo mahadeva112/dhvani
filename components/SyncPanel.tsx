@@ -787,12 +787,15 @@ const ReviewRow: React.FC<{
   const [askError, setAskError] = useState<string | null>(null);
   // What the meaning check found in the shown suggestion, when it did not pass it.
   const [issues, setIssues] = useState<string[] | null>(null);
+  // The shown suggestion translated back into English, without the original line in view.
+  const [says, setSays] = useState<string | null>(null);
   // Wordings already offered for this line, so another try reads differently.
   const tried = useRef<string[]>([]);
   useEffect(() => {
     setDraft(unit.suggestion || unit.text);
     setSuggested(Boolean(unit.suggestion));
     setIssues(null);
+    setSays(null);
     tried.current = unit.suggestion ? [unit.suggestion] : [];
   }, [unit.suggestion, unit.text]);
   const changed = draft.trim() !== '' && draft.trim() !== unit.text.trim();
@@ -811,6 +814,7 @@ const ReviewRow: React.FC<{
         setDraft(line.text);
         setSuggested(true);
         setIssues(line.issues ?? null);
+        setSays(line.backTranslation ?? null);
       } else setAskError(`No usable ${fuller ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`);
     } catch (err: any) {
       setAskError(err?.message || 'The text model did not answer.');
@@ -862,6 +866,11 @@ const ReviewRow: React.FC<{
                       : 'Shorten this line'}
               </label>
               {suggested && issues && <MeaningWarning issues={issues} />}
+              {suggested && says && (
+                <p className="mb-1 text-[11.5px] text-slate-500 leading-snug" title="This wording translated back into English, without the original line in view">
+                  Says: {says}
+                </p>
+              )}
               <textarea
                 id={`sync-line-${unit.key}`}
                 value={draft}

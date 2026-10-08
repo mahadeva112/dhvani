@@ -776,6 +776,8 @@ type LineRequest = {
 export interface LineSuggestion {
   text: string;
   issues?: string[];
+  /** The wording translated literally back into English, without the original line in view: what it actually says. */
+  backTranslation?: string;
 }
 
 /**
@@ -786,17 +788,19 @@ export interface LineSuggestion {
  */
 const askForLines = async (path: string, request: LineRequest, signal?: AbortSignal): Promise<LineSuggestion[]> => {
   const { options, line, flagged } = await apiJson<{
-    options?: { line: string; issues?: string[] }[];
+    options?: { line: string; issues?: string[]; backTranslation?: string }[];
     line: string | null;
     reason?: 'unusable' | 'meaning' | null;
-    flagged?: { line: string; issues: string[] } | null;
+    flagged?: { line: string; issues: string[]; backTranslation?: string } | null;
   }>(path, { body: { ...request, keep: keepTermsFor(request.language || '') }, signal });
   const list = Array.isArray(options) ? options : line ? [{ line }] : flagged?.line ? [flagged] : [];
   return list
     .filter((o) => typeof o?.line === 'string' && o.line.trim())
-    .map((o) =>
-      o.issues ? { text: o.line, issues: o.issues.length ? o.issues : ['The meaning may differ from the original line.'] } : { text: o.line }
-    );
+    .map((o) => ({
+      text: o.line,
+      ...(o.issues && { issues: o.issues.length ? o.issues : ['The meaning may differ from the original line.'] }),
+      ...(typeof o.backTranslation === 'string' && o.backTranslation.trim() && { backTranslation: o.backTranslation.trim() }),
+    }));
 };
 
 /** Shorter wordings of one line from the text model; empty when it had nothing usable. */

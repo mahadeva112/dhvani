@@ -652,8 +652,8 @@ const rewordRoute = (direction) =>
       });
       return;
     }
-    const { line, reason, flagged } = await suggestLine(request, options);
-    res.json({ options: line ? [{ line }] : flagged ? [flagged] : [], line, reason, flagged });
+    const { line, reason, flagged, backTranslation } = await suggestLine(request, options);
+    res.json({ options: line ? [backTranslation ? { line, backTranslation } : { line }] : flagged ? [flagged] : [], line, reason, flagged });
   });
 
 /**
