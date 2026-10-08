@@ -30,6 +30,8 @@ export interface LiveClip {
   /** The part starts or ends inside its line, so its edge gets a short fade, as the render's micro-fade. */
   cutIn: boolean;
   cutOut: boolean;
+  /** A clip of the original: `bankFrom` and `bankTo` are seconds of the original, not of the bank. */
+  original?: boolean;
 }
 
 const EDGE_FADE = 0.003;
@@ -43,9 +45,31 @@ const START_LEAD = 0.02;
 const clipLength = (clip: LiveClip) => (clip.bankTo - clip.bankFrom) / clip.rate;
 
 /** The parts that play, as the server would render them (renderPayload, renderEdits). */
-export const liveClips = (bank: SyncBank, edits: SyncEdits | null | undefined, multiSpeaker: boolean): LiveClip[] => {
+export const liveClips = (
+  bank: SyncBank,
+  edits: SyncEdits | null | undefined,
+  multiSpeaker: boolean,
+  /** The clips of the original that play (syncEditService's originalParts), from the original's own buffer. */
+  originals: SyncEditPart[] = []
+): LiveClip[] => {
   const rate = bank.sampleRate;
   const out: LiveClip[] = [];
+  for (const part of originals) {
+    out.push({
+      id: ['original', part.id, part.start, part.from, part.to, part.rate, part.gainDb, part.fadeIn, part.fadeOut].join(':'),
+      stretchKey: `original:${part.from.toFixed(5)}:${part.to.toFixed(5)}:${part.rate}`,
+      bankFrom: part.from,
+      bankTo: part.to,
+      start: Math.max(0, part.start),
+      rate: part.rate,
+      gain: 10 ** (part.gainDb / 20),
+      fadeIn: part.fadeIn,
+      fadeOut: part.fadeOut,
+      cutIn: true,
+      cutOut: true,
+      original: true,
+    });
+  }
   for (const line of bank.lines) {
     const lineGain = Number.isFinite(line.gain) ? line.gain : 1;
     const speakerGain = multiSpeaker ? (Number.isFinite(bank.speakerGains?.[line.speaker]) ? bank.speakerGains[line.speaker] : 1) : 1;
@@ -151,11 +175,20 @@ export class LiveDubEngine {
   private ctx: AudioContext;
   private output: AudioNode;
   private bank: AudioBuffer;
+  /** The original, for the clips of it on the dub; they stay silent without it. */
+  private original: AudioBuffer | null = null;
 
   constructor(ctx: AudioContext, output: AudioNode, bank: AudioBuffer) {
     this.ctx = ctx;
     this.output = output;
     this.bank = bank;
+  }
+
+  setOriginal(original: AudioBuffer | null) {
+    if (original === this.original) return;
+    this.original = original;
+    for (const key of this.stretched.keys()) if (key.startsWith('original:')) this.stretched.delete(key);
+    this.schedule();
   }
 
   get running() {
@@ -243,14 +276,16 @@ export class LiveDubEngine {
     });
   }
 
-  private bufferFor(clip: LiveClip): { buffer: AudioBuffer; offset: number } {
-    if (Math.abs(clip.rate - 1) < 1e-6) return { buffer: this.bank, offset: clip.bankFrom };
+  private bufferFor(clip: LiveClip): { buffer: AudioBuffer; offset: number } | null {
+    const audio = clip.original ? this.original : this.bank;
+    if (!audio) return null;
+    if (Math.abs(clip.rate - 1) < 1e-6) return { buffer: audio, offset: clip.bankFrom };
     let buffer = this.stretched.get(clip.stretchKey);
     if (!buffer) {
-      const sr = this.bank.sampleRate;
+      const sr = audio.sampleRate;
       const from = Math.round(clip.bankFrom * sr);
-      const to = Math.min(this.bank.length, Math.round(clip.bankTo * sr));
-      const channels = Array.from({ length: this.bank.numberOfChannels }, (_, ch) => this.bank.getChannelData(ch).subarray(from, to));
+      const to = Math.min(audio.length, Math.round(clip.bankTo * sr));
+      const channels = Array.from({ length: audio.numberOfChannels }, (_, ch) => audio.getChannelData(ch).subarray(from, to));
       const out = stretchSamples(channels, sr, clip.rate);
       buffer = this.ctx.createBuffer(out.length, out[0].length, sr);
       out.forEach((data, ch) => buffer!.copyToChannel(data, ch));
@@ -266,7 +301,9 @@ export class LiveDubEngine {
     const left = length - into;
     if (left <= 0.001) return;
     const when = Math.max(this.ctx.currentTime, clock.ctx0 + (from - clock.t0));
-    const { buffer, offset } = this.bufferFor(clip);
+    const audio = this.bufferFor(clip);
+    if (!audio) return;
+    const { buffer, offset } = audio;
     const source = this.ctx.createBufferSource();
     source.buffer = buffer;
     const gain = this.ctx.createGain();

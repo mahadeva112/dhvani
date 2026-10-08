@@ -40,6 +40,8 @@ export interface SyncBankLine {
   dropped: number;
   /** The sync held this line where an earlier edit locked it. */
   locked: boolean;
+  /** Not a bank line: the original, for a clip of it on the dub (see originalLine). */
+  original?: boolean;
 }
 
 /** A bank: the lines' samples live in a WAV kept with the project (`syncBankBlob`). */
@@ -78,6 +80,43 @@ export interface SyncLineEdit {
 
 /** Edits by line key. A line not in it is as Sync placed it. */
 export type SyncEdits = Record<string, SyncLineEdit>;
+
+/**
+ * Clips of the original on the dub: a stretch of the original's own voice
+ * the user cut from its lane and put on the dub, to fill a gap. Each is kept
+ * in the edits under a key starting with this, its parts' `from` and `to`
+ * being seconds of the original; it plays and renders as it is, at the dub's
+ * sample rate, with whatever gain, fades or speed the user gives it.
+ */
+export const ORIGINAL_CLIP_PREFIX = 'original:';
+/** The speaker an original clip renders as, so a dub with several voices gives it a stem of its own. */
+export const ORIGINAL_SPEAKER = 'Original audio';
+
+export const isOriginalClip = (key: string) => key.startsWith(ORIGINAL_CLIP_PREFIX);
+
+/** The original as a line, for the clip `key`: what its parts are cut from. */
+export const originalLine = (key: string, sourceDuration: number, sampleRate: number): SyncBankLine => ({
+  key,
+  speaker: ORIGINAL_SPEAKER,
+  bankStart: 0,
+  length: Math.max(1, Math.round(sourceDuration * sampleRate)),
+  startSample: 0,
+  lead: 0,
+  speech: 0,
+  gain: 1,
+  hash: '',
+  cuts: [],
+  crossfade: 0,
+  dropped: 0,
+  locked: false,
+  original: true,
+});
+
+/** The clips of the original in `edits`, each as its line, in the order they were made. */
+export const originalLines = (edits: SyncEdits | null | undefined, sourceDuration: number, sampleRate: number): SyncBankLine[] =>
+  Object.keys(edits ?? {})
+    .filter(isOriginalClip)
+    .map((key) => originalLine(key, sourceDuration, sampleRate));
 
 /** Speeds a part may be stretched to in Edit timing. */
 export const MIN_EDIT_RATE = 0.7;
@@ -249,6 +288,11 @@ export const rebaseEdits = (
   const newLines = new Map(newBank.lines.map((line) => [line.key, line]));
   const rate = newBank.sampleRate;
   for (const [key, edit] of Object.entries(edits)) {
+    // A clip of the original is cut from the original, which a new sync doesn't change.
+    if (isOriginalClip(key)) {
+      out[key] = edit;
+      continue;
+    }
     if (!edit.locked) continue;
     const before = oldLines.get(key);
     const now = newLines.get(key);
@@ -298,6 +342,108 @@ export const renderPayload = (bank: SyncBank, edits: SyncEdits | null | undefine
   );
 };
 
+const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
+
+/** The parts of the clips of the original that play, in seconds of the original. */
+export const originalParts = (edits: SyncEdits | null | undefined, sourceDuration: number) =>
+  Object.entries(edits ?? {})
+    .filter(([key]) => isOriginalClip(key))
+    .flatMap(([, edit]) => edit.parts)
+    .filter((part) => !part.muted)
+    .map((part) => {
+      const from = clamp(part.from, 0, sourceDuration);
+      return { ...part, from, to: clamp(part.to, from, sourceDuration) };
+    })
+    .filter((part) => part.to - part.from > 0);
+
+/** `from` to `to` seconds of `source` as one channel at `sampleRate`: the dub's own rate and channels. */
+const originalSamples = async (source: AudioBuffer, from: number, to: number, sampleRate: number) => {
+  const length = Math.max(1, Math.round((to - from) * sampleRate));
+  if (source.sampleRate === sampleRate && source.numberOfChannels === 1) {
+    const at = Math.round(from * sampleRate);
+    return source.getChannelData(0).slice(at, at + length);
+  }
+  // Another rate or more channels: the browser resamples it and folds it to one channel, as the dub is.
+  const ctx = new OfflineAudioContext(1, length, sampleRate);
+  const node = ctx.createBufferSource();
+  node.buffer = source;
+  node.connect(ctx.destination);
+  node.start(0, from, to - from);
+  return (await ctx.startRendering()).getChannelData(0);
+};
+
+/** One channel of 32-bit float samples as a WAV, as the server reads a bank. */
+const floatWav = (samples: Float32Array, sampleRate: number) => {
+  const view = new DataView(new ArrayBuffer(44 + samples.length * 4));
+  const text = (at: number, value: string) => [...value].forEach((ch, i) => view.setUint8(at + i, ch.charCodeAt(0)));
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + samples.length * 4, true);
+  text(8, 'WAVE');
+  text(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 3, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 4, true);
+  view.setUint16(32, 4, true);
+  view.setUint16(34, 32, true);
+  text(36, 'data');
+  view.setUint32(40, samples.length * 4, true);
+  for (let i = 0; i < samples.length; i++) view.setFloat32(44 + i * 4, samples[i], true);
+  return new Blob([view], { type: 'audio/wav' });
+};
+
+/** A name for these samples, so the server keeps one copy of them however often they render. */
+const samplesId = (samples: Float32Array) => {
+  const words = new Uint32Array(samples.buffer, samples.byteOffset, samples.length);
+  let a = 0x811c9dc5;
+  let b = 0x9747b28c ^ samples.length;
+  for (let i = 0; i < words.length; i++) {
+    a = Math.imul(a ^ words[i], 0x01000193);
+    b = Math.imul(b ^ words[i], 0x5bd1e995) ^ (b >>> 13);
+  }
+  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
+  return `original-${hex(a)}${hex(b)}-${samples.length.toString(36)}`;
+};
+
+/**
+ * The clips of the original as the server renders them: each part's stretch
+ * of the original, one after another as a bank of their own, and the parts
+ * to play from it, numbered after the bank's lines.
+ */
+const originalRender = async (bank: SyncBank, edits: SyncEdits | null | undefined, source: AudioBuffer | null | undefined) => {
+  const rate = bank.sampleRate;
+  const parts = originalParts(edits, source?.duration ?? Infinity);
+  if (parts.length === 0) return null;
+  if (!source) throw new DhvaniApiError('The original audio is still loading. Try again in a moment.', { code: 'original_not_loaded' });
+  const lines: { bankStart: number; length: number }[] = [];
+  const pieces: Float32Array[] = [];
+  let at = 0;
+  for (const part of parts) {
+    const piece = await originalSamples(source, part.from, part.to, rate);
+    pieces.push(piece);
+    lines.push({ bankStart: at, length: piece.length });
+    at += piece.length;
+  }
+  const samples = new Float32Array(at);
+  pieces.forEach((piece, n) => samples.set(piece, lines[n].bankStart));
+  return {
+    bankId: samplesId(samples),
+    blob: () => floatWav(samples, rate),
+    lines,
+    parts: parts.map((part, n) => ({
+      line: bank.lines.length + n,
+      from: 0,
+      to: lines[n].length,
+      startSample: Math.max(0, Math.round(part.start * rate)),
+      rate: part.rate,
+      gainDb: part.gainDb,
+      fadeIn: part.fadeIn,
+      fadeOut: part.fadeOut,
+    })),
+  };
+};
+
 export interface SyncEditRender {
   blob: Blob;
   stems: DubStem[];
@@ -316,29 +462,46 @@ export const renderSyncEdits = async (
     edits,
     report,
     sourceDuration,
-  }: { bank: SyncBank; bankBlob: Blob | null | undefined; edits: SyncEdits | null | undefined; report: SyncReport; sourceDuration: number },
+    source,
+  }: {
+    bank: SyncBank;
+    bankBlob: Blob | null | undefined;
+    edits: SyncEdits | null | undefined;
+    report: SyncReport;
+    sourceDuration: number;
+    /** The original, for the clips of it on the dub. */
+    source?: AudioBuffer | null;
+  },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncEditRender> => {
+  const original = await originalRender(bank, edits, source);
   const body = {
     bankId: bank.bankId,
     sampleRate: bank.sampleRate,
     lines: bank.lines.map(({ bankStart, length, maxStartShift, gain, speaker }) => ({ bankStart, length, maxStartShift, gain, speaker })),
     speakerGains: bank.speakerGains,
-    parts: renderPayload(bank, edits),
+    parts: [...renderPayload(bank, edits), ...(original?.parts ?? [])],
+    ...(original && { original: { bankId: original.bankId, lines: original.lines } }),
     sourceDuration,
     edgeFade: report.join?.edgeFade ?? 0,
     multiSpeaker: Boolean(report.mix),
     peak: report.mix?.peak,
   };
   type Rendered = { audioId: string; contentType: string; stems: { speaker: string; audioId: string; contentType: string }[]; report: { mix?: DubMixReport } };
-  let data: Rendered;
-  try {
-    data = await apiJson<Rendered>('/sync/edit/render', { body, signal });
-  } catch (err) {
-    if (!(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
-    if (!bankBlob) throw new DhvaniApiError('The lines of this sync were not saved with the project. Sync again to edit its timing.', { code: 'edit_bank_lost' });
-    await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
-    data = await apiJson<Rendered>('/sync/edit/render', { body, signal });
+  let data: Rendered | null = null;
+  // A bank the server doesn't have (it went, or the clips of the original are new) is sent, and the render tried again.
+  for (let attempt = 0; !data; attempt++) {
+    try {
+      data = await apiJson<Rendered>('/sync/edit/render', { body, signal });
+    } catch (err) {
+      if (!(err instanceof DhvaniApiError) || attempt >= 2) throw err;
+      if (err.code === 'edit_bank_missing') {
+        if (!bankBlob) throw new DhvaniApiError('The lines of this sync were not saved with the project. Sync again to edit its timing.', { code: 'edit_bank_lost' });
+        await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+      } else if (err.code === 'edit_original_missing' && original) {
+        await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(original.bankId)}`, original.blob(), { signal });
+      } else throw err;
+    }
   }
   const { blob, stems, report: rendered } = await fetchMixed(data, signal);
   return { blob, stems, mix: rendered?.mix ?? null };

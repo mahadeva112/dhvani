@@ -28,10 +28,13 @@ import {
   basePart,
   hasEdits,
   isEdited,
+  isOriginalClip,
   MAX_EDIT_RATE,
   measureEdits,
   MIN_EDIT_RATE,
   MIN_PART_SECONDS,
+  ORIGINAL_CLIP_PREFIX,
+  originalLines,
   partEnd,
   partLength,
   partsOf,
@@ -47,7 +50,10 @@ import {
  * after Sync has placed them.
  *
  *   ruler     time; drag across it to zoom to that stretch
- *   Original   the original's waveform, each line in its colour (locked)
+ *   Original   the original's waveform, each line in its colour (locked);
+ *              drag across it to pick a stretch, then drag the stretch down
+ *              onto the dub (or Ctrl + C, Ctrl + V at the playhead) to fill a
+ *              gap with the original's own voice: a clip of the original
  *   links      from each original line's start to where its dub line's first
  *              word now lands: upright is in sync
  *   dub        the lines as they will play, each part with its waveform as
@@ -120,10 +126,15 @@ const capture = (e: React.PointerEvent<HTMLElement>) => {
 let partCounter = 0;
 const newPartId = (key: string) => `${key}#${Date.now().toString(36)}${(partCounter++).toString(36)}`;
 
+/** The colour of a clip of the original on the dub: the Original lane's. */
+const ORIGINAL_HUE = '#22d3ee';
+
 /** One part on the dub lane, with the line it belongs to. */
 type Chunk = {
   key: string;
   line: number;
+  /** A clip of the original rather than a line of the dub. */
+  original: boolean;
   unit: SyncUnitReport | undefined;
   unitIndex: number;
   part: SyncEditPart;
@@ -131,8 +142,17 @@ type Chunk = {
   label: string;
 };
 
-/** A line's edits replaced by `parts`. Anything edited is locked. */
-const withParts = (edits: SyncEdits, key: string, parts: SyncEditPart[]): SyncEdits => ({ ...edits, [key]: { parts, locked: true } });
+/** A line's edits replaced by `parts`. Anything edited is locked. A clip of the original with no parts left is gone. */
+const withParts = (edits: SyncEdits, key: string, parts: SyncEditPart[]): SyncEdits => {
+  if (parts.length === 0 && isOriginalClip(key)) {
+    const { [key]: _gone, ...rest } = edits;
+    return rest;
+  }
+  return { ...edits, [key]: { parts, locked: true } };
+};
+
+/** The clips of the original in `edits`, to tell whether a drag changed any. */
+const originalsOf = (edits: SyncEdits | null | undefined) => JSON.stringify(Object.entries(edits ?? {}).filter(([key]) => isOriginalClip(key)));
 
 const sameEdits = (a: SyncEdits | null | undefined, b: SyncEdits | null | undefined) => a === b || (!hasEdits(a) && !hasEdits(b));
 
@@ -585,27 +605,36 @@ export const SyncEditTimeline: React.FC<{
   const unitByKey = useMemo(() => new Map(measured.units.map((unit) => [unit.key, unit])), [measured]);
   const tolerance = baseReport.tolerance;
 
+  // The bank's lines, then the original once for each clip of it on the dub.
+  const sourceSeconds = sourceBuffer?.duration || sourceTotal;
+  const lines = useMemo(() => [...bank.lines, ...originalLines(view, sourceSeconds, rate)], [bank, view, sourceSeconds, rate]);
+
   const chunks: Chunk[] = useMemo(() => {
     const out: Chunk[] = [];
-    bank.lines.forEach((line, n) => {
+    let clips = 0;
+    lines.forEach((line, n) => {
       const parts = [...partsOf(view, line, rate)].sort((a, b) => a.start - b.start);
-      const unitIndex = unitIndexByKey.get(line.key) ?? n;
+      const original = Boolean(line.original);
+      const unitIndex = original ? -1 : unitIndexByKey.get(line.key) ?? n;
+      // A clip of the original is O1, O2… in the order they were made.
+      const name = original ? `O${++clips}` : `${unitIndex + 1}`;
       parts.forEach((part, k) =>
         out.push({
           key: line.key,
           line: n,
-          unit: unitByKey.get(line.key),
+          original,
+          unit: original ? undefined : unitByKey.get(line.key),
           unitIndex,
           part,
-          label: `${unitIndex + 1}${parts.length > 1 ? 'abcdefghijklmnopqrstuvwxyz'[k] ?? `.${k + 1}` : ''}`,
+          label: `${name}${parts.length > 1 ? 'abcdefghijklmnopqrstuvwxyz'[k] ?? `.${k + 1}` : ''}`,
         })
       );
     });
     return out.sort((a, b) => a.part.start - b.part.start);
-  }, [bank, view, rate, unitIndexByKey, unitByKey]);
+  }, [lines, view, rate, unitIndexByKey, unitByKey]);
 
   const total = useMemo(() => Math.max(sourceTotal, ...chunks.map((c) => partEnd(c.part)), 1), [sourceTotal, chunks]);
-  const zoom = useTimelineZoom(total, currentTime);
+  const zoom = useTimelineZoom(total, currentTime, { wheelScrollsTime: true });
   const { windowStart, windowSeconds } = zoom;
   const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
   const playheadRef = useWindowPlayheads({
@@ -655,15 +684,15 @@ export const SyncEditTimeline: React.FC<{
   const current = chunkOf(selected);
   /** Every picked part, in timeline order. */
   const group = chunks.filter((c) => selectedSet.has(c.part.id));
-  const lineOf = (chunk: Chunk) => bank.lines[chunk.line];
+  const lineOf = (chunk: Chunk) => lines[chunk.line];
   const lineSeconds = (chunk: Chunk) => lineOf(chunk).length / rate;
   // A picked part that went away (undo, reset) is no longer picked.
   useEffect(() => {
     const still = selectedIds.filter((id) => chunks.some((c) => c.part.id === id));
     if (still.length !== selectedIds.length) setSelectedIds(still);
   }, [selectedIds, chunks]);
-  /** How the picked parts are named in the history: "line 4", or "3 lines". */
-  const groupName = (list: Chunk[]) => (list.length === 1 ? `line ${list[0].label}` : `${list.length} lines`);
+  /** How the picked parts are named in the history: "line 4", "clip O1", or "3 lines". */
+  const groupName = (list: Chunk[]) => (list.length === 1 ? `${list[0].original ? 'clip' : 'line'} ${list[0].label}` : `${list.length} lines`);
 
   /** The room a part has: from the end of the part before it to the start of the one after, ignoring parts it already overlaps. */
   const roomOf = (id: string, among: Chunk[] = chunks) => {
@@ -1088,7 +1117,8 @@ export const SyncEditTimeline: React.FC<{
     // A drag that changed nothing (a slip with nothing to slip, a move against a wall) leaves no step.
     const changed =
       d?.next &&
-      bank.lines.some((line) => JSON.stringify(partsOf(d.next, line, rate)) !== JSON.stringify(partsOf(d.base, line, rate)));
+      (bank.lines.some((line) => JSON.stringify(partsOf(d.next, line, rate)) !== JSON.stringify(partsOf(d.base, line, rate))) ||
+        originalsOf(d.next) !== originalsOf(d.base));
     if (d?.moved && d.next && changed) commit(d.next, d.label || `Edit line ${d.chunk.label}`);
     // Committed edits reach the live dub with the job's; a drag that changed nothing puts it back.
     else if (d?.moved) onDraftRef.current?.(null);
@@ -1126,6 +1156,7 @@ export const SyncEditTimeline: React.FC<{
     },
     align: () => {
       if (!current) return say('Pick a line to align.');
+      if (current.original) return say('A clip of the original has no line of the script to align to.');
       const unit = baseReport.units[current.unitIndex];
       const line = lineOf(current);
       const parts = partsOf(committed, line, rate);
@@ -1162,10 +1193,11 @@ export const SyncEditTimeline: React.FC<{
     },
     lock: () => {
       if (group.length === 0) return say('Pick a line to lock or unlock.');
-      const keys = [...new Set(group.map((c) => c.key))];
+      const keys = [...new Set(group.filter((c) => !c.original).map((c) => c.key))];
+      if (keys.length === 0) return say('A clip of the original always stays where you put it.');
       const locked = keys.some((key) => !(committed[key]?.locked ?? false));
       const next = { ...committed };
-      for (const c of group) next[c.key] = { parts: committed[c.key]?.parts ?? [basePart(lineOf(c), rate)], locked };
+      for (const c of group) if (!c.original) next[c.key] = { parts: committed[c.key]?.parts ?? [basePart(lineOf(c), rate)], locked };
       const one = keys.length === 1;
       commit(next, `${locked ? 'Lock' : 'Unlock'} ${one ? `line ${group[0].label}` : `${keys.length} lines`}`);
       say(
@@ -1186,7 +1218,8 @@ export const SyncEditTimeline: React.FC<{
       const rest = { ...committed };
       for (const key of keys) delete rest[key];
       const first = group.find((c) => c.key === keys[0]);
-      commit(rest, `Reset ${keys.length === 1 && first ? `line ${first.label}` : `${keys.length} lines`}`);
+      // Resetting a clip of the original takes it off the dub, as there is nothing Sync placed to go back to.
+      commit(rest, `Reset ${keys.length === 1 && first ? groupName([first]) : `${keys.length} lines`}`);
     },
     selectAll: () => {
       setSelectedIds(chunks.map((c) => c.part.id));
@@ -1245,6 +1278,141 @@ export const SyncEditTimeline: React.FC<{
     );
   };
 
+  // ---- Clips of the original ----
+
+  /*
+   * A drag across the Original lane picks a stretch of it; a drag starting
+   * on the picked stretch carries it down, and letting go over the dub puts
+   * it there as a clip of the original, where it was dropped. Ctrl + C copies
+   * the picked stretch and Ctrl + V puts it at the playhead.
+   */
+  const [pick, setPick] = useState<{ from: number; to: number } | null>(null);
+  const clipboard = useRef<{ from: number; to: number } | null>(null);
+  const originalDrag = useRef<{ kind: 'pick' | 'carry'; t0: number; grab: number; moved: boolean } | null>(null);
+  /** Where a carried stretch would land, while it is over the dub lane. */
+  const [carry, setCarry] = useState<{ start: number; length: number; fits: boolean } | null>(null);
+
+  /**
+   * Where a stretch `length` long dropped at `at` goes on the dub: there, as
+   * long as the gap it lands in allows, its end trimmed to fit before the
+   * next line. Null when it lands on a line.
+   */
+  const placeOriginal = (at: number, length: number) => {
+    const start = clamp(at, 0, total);
+    const playing = chunks.filter((c) => !c.part.muted);
+    if (playing.some((c) => c.part.start <= start + 1e-6 && partEnd(c.part) > start + 1e-6)) return null;
+    const next = Math.min(Infinity, ...playing.filter((c) => c.part.start > start + 1e-6).map((c) => c.part.start));
+    const fit = Math.min(length, next - start);
+    return fit >= MIN_PART_SECONDS ? { start, length: fit, trimmed: fit < length - 1e-6 } : null;
+  };
+
+  /** Puts `length` seconds of the original from `from` on the dub at `start`, as a clip of its own. */
+  const putOriginal = (from: number, length: number, start: number, trimmed: boolean) => {
+    const key = `${ORIGINAL_CLIP_PREFIX}${Date.now().toString(36)}${(partCounter++).toString(36)}`;
+    const part: SyncEditPart = { id: newPartId(key), start, from, to: from + length, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false };
+    commit(withParts(committed, key, [part]), `Put the original ${formatTime(from)} on the dub at ${formatTime(start)}`);
+    setSelected(part.id);
+    say(trimmed ? 'Put on the dub, its end trimmed to fit before the next line.' : 'Put on the dub. Drag its edges to trim it, or Del to take it off.');
+  };
+
+  const copyPick = () => {
+    if (!pick) return false;
+    clipboard.current = pick;
+    say(`Copied ${(pick.to - pick.from).toFixed(2)} s of the original. Ctrl + V puts it on the dub at the playhead.`);
+    return true;
+  };
+  const pasteOriginal = () => {
+    const copied = clipboard.current;
+    if (!copied) return say('Drag across the original to pick a stretch, then Ctrl + C to copy it.');
+    const place = placeOriginal(currentTime, copied.to - copied.from);
+    if (!place) return say('The playhead is on a line. Put it in a gap of the dub, then Ctrl + V.');
+    putOriginal(copied.from, place.length, place.start, place.trimmed);
+  };
+
+  /** Where a stretch carried from the original lands: snapped to an edge or the playhead, as a move does. */
+  const carryAt = (clientX: number, length: number) => {
+    const raw = timeAt(clientX) - (originalDrag.current?.grab ?? 0);
+    const hit = snapNear(
+      [
+        { t: raw, kinds: ['edge', 'playhead'] },
+        { t: raw + length, kinds: ['edge', 'playhead'] },
+      ],
+      new Set()
+    );
+    return { start: raw + (hit?.delta ?? 0), snapped: hit };
+  };
+  const overDub = (clientY: number) => {
+    const box = laneRef.current?.getBoundingClientRect();
+    return Boolean(box && clientY >= box.top && clientY <= box.bottom);
+  };
+
+  const onOriginalPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    rootRef.current?.focus({ preventScroll: true });
+    const t = clamp(timeAt(e.clientX), 0, sourceSeconds);
+    const onPick = pick && t >= pick.from && t <= pick.to;
+    originalDrag.current = { kind: onPick ? 'carry' : 'pick', t0: t, grab: onPick && pick ? t - pick.from : 0, moved: false };
+    capture(e);
+  };
+  const onOriginalPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = originalDrag.current;
+    if (!d) return;
+    const width = laneRef.current?.getBoundingClientRect().width || 1;
+    const t = clamp(timeAt(e.clientX), 0, sourceSeconds);
+    if (!d.moved && (Math.abs(t - d.t0) / windowSeconds) * width < 4 && !(d.kind === 'carry' && overDub(e.clientY))) return;
+    d.moved = true;
+    if (d.kind === 'pick') {
+      setPick({ from: Math.min(d.t0, t), to: Math.max(d.t0, t) });
+      return;
+    }
+    if (!pick) return;
+    const length = pick.to - pick.from;
+    const laneBox = laneRef.current!.getBoundingClientRect();
+    const hudX = clamp(e.clientX - laneBox.left + 12, 0, Math.max(0, laneBox.width - 260));
+    if (!overDub(e.clientY)) {
+      setCarry(null);
+      setSnapLine(null);
+      setHud({ x: hudX, text: `${length.toFixed(2)} s of the original · drop it on the dub lane` });
+      return;
+    }
+    const { start, snapped } = carryAt(e.clientX, length);
+    const place = placeOriginal(start, length);
+    setCarry(place ? { start: place.start, length: place.length, fits: true } : { start: Math.max(0, start), length, fits: false });
+    setSnapLine(place && snapped ? snapped.at : null);
+    setHud({
+      x: hudX,
+      text: place
+        ? `drop at ${formatTime(place.start)}${place.trimmed ? ` · trimmed to ${place.length.toFixed(2)} s to fit` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}`
+        : 'on a line: drop it in a gap',
+    });
+  };
+  const onOriginalPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = originalDrag.current;
+    originalDrag.current = null;
+    setCarry(null);
+    setHud(null);
+    setSnapLine(null);
+    if (!d) return;
+    if (!d.moved) {
+      // A click seeks, and lets go of a stretch picked elsewhere.
+      if (d.kind === 'pick') setPick(null);
+      zoom.setFollow(true);
+      onSeek(clamp(d.t0, 0, total));
+      return;
+    }
+    if (d.kind !== 'carry' || !pick || !overDub(e.clientY)) return;
+    const length = pick.to - pick.from;
+    const place = placeOriginal(carryAt(e.clientX, length).start, length);
+    if (!place) return say('That is on a line of the dub. Drop the original in a gap.');
+    putOriginal(pick.from, place.length, place.start, place.trimmed);
+  };
+  const onOriginalPointerCancel = () => {
+    originalDrag.current = null;
+    setCarry(null);
+    setHud(null);
+    setSnapLine(null);
+  };
+
   // ---- Keys ----
 
   const rootRef = useRef<HTMLDivElement>(null);
@@ -1255,7 +1423,9 @@ export const SyncEditTimeline: React.FC<{
     const lower = key.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     let done = true;
-    if (mod && lower === 'z') (e.shiftKey ? act.redo : act.undo)();
+    if (mod && lower === 'c') done = copyPick();
+    else if (mod && lower === 'v') pasteOriginal();
+    else if (mod && lower === 'z') (e.shiftKey ? act.redo : act.undo)();
     else if (mod && lower === 'y') act.redo();
     else if (mod && lower === 'a') act.selectAll();
     else if (mod || e.altKey) done = false;
@@ -1282,7 +1452,10 @@ export const SyncEditTimeline: React.FC<{
     else if (lower === 'l') act.lock();
     else if (lower === 'n') setSnap((v) => !v);
     else if (key === 'Delete' || key === 'Backspace') act.remove();
-    else if (key === 'Escape') setSelected(null);
+    else if (key === 'Escape') {
+      setSelected(null);
+      setPick(null);
+    }
     else if (lower === 'b') setBlade((v) => !v);
     else done = false;
     if (done) {
@@ -1296,14 +1469,15 @@ export const SyncEditTimeline: React.FC<{
   const onScreen = (start: number, end: number) => end >= windowStart - 1 && start <= windowStart + windowSeconds + 1;
   const visible = chunks.filter((c) => onScreen(c.part.start, partEnd(c.part)));
   const spoken = measured.units.filter((u) => u.placedStart !== null && onScreen(Math.min(u.srcStart, u.placedStart as number), Math.max(u.srcEnd, u.placedEnd as number)));
-  const editedCount = Object.keys(committed).length;
+  const editedCount = Object.keys(committed).filter((key) => !isOriginalClip(key)).length;
+  const originalCount = Object.keys(committed).length - editedCount;
   const inSync = measured.summary.inSync;
   const lineCount = measured.units.filter((u) => !u.silent || isEdited(committed, u.key)).length;
   const originalSpans = useMemo(
     () => baseReport.units.map((unit, n) => ({ from: unit.srcStart, to: unit.srcEnd, color: withAlpha(hueOf(n), 0.75) })),
     [baseReport]
   );
-  const statusColor = (chunk: Chunk) => landing(chunk.unit, tolerance).color;
+  const statusColor = (chunk: Chunk) => (chunk.original ? ORIGINAL_HUE : landing(chunk.unit, tolerance).color);
   const driftY = (offset: number) => 50 - clamp(offset / 0.6, -1, 1) * 40;
   const laneCursor = blade ? 'crosshair' : drag.current ? ZONE_CURSOR[drag.current.zone].replace('grab', 'grabbing') : hover ? ZONE_CURSOR[hover.zone] : 'default';
   const currentUnit = current ? unitByKey.get(current.key) : undefined;
@@ -1324,6 +1498,11 @@ export const SyncEditTimeline: React.FC<{
         <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
           {editedCount === 0 ? 'No hand edits' : `${editedCount} line${editedCount === 1 ? '' : 's'} edited by hand`}
         </span>
+        {originalCount > 0 && (
+          <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-cyan-400/12 text-cyan-300">
+            {originalCount} clip{originalCount === 1 ? '' : 's'} of the original
+          </span>
+        )}
         <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
           {inSync} of {lineCount} in sync
         </span>
@@ -1431,16 +1610,26 @@ export const SyncEditTimeline: React.FC<{
             <TimelineRuler zoom={zoom} />
           </div>
 
-          {/* Original */}
+          {/* Original: a click seeks, a drag picks a stretch to put on the dub */}
           <div
-            className="relative h-14 border-b border-slate-800 bg-slate-950/50 overflow-hidden cursor-pointer"
-            onPointerDown={(e) => {
-              if (e.button !== 0) return;
-              zoom.setFollow(true);
-              onSeek(clamp(timeAt(e.clientX), 0, total));
-            }}
+            className="relative h-14 border-b border-slate-800 bg-slate-950/50 overflow-hidden cursor-text touch-none"
+            title="Drag across the original to pick a stretch, then drag it down onto the dub"
+            onPointerDown={onOriginalPointerDown}
+            onPointerMove={onOriginalPointerMove}
+            onPointerUp={onOriginalPointerUp}
+            onPointerCancel={onOriginalPointerCancel}
           >
             <WindowWaveform data={sourcePeaks} from={windowStart} span={windowSeconds} spans={originalSpans} className="text-slate-600/40" />
+            {pick && onScreen(pick.from, pick.to) && (
+              <span
+                className="absolute top-0 bottom-0 z-10 border-x-2 border-cyan-300 bg-cyan-300/15 cursor-grab active:cursor-grabbing"
+                style={{ left: `${pct(pick.from)}%`, width: `${((pick.to - pick.from) / windowSeconds) * 100}%` }}
+              >
+                <span className="absolute left-1 bottom-0.5 whitespace-nowrap rounded bg-slate-950/80 px-1 font-mono text-[10px] text-cyan-200 pointer-events-none">
+                  {(pick.to - pick.from).toFixed(2)} s · drag onto the dub
+                </span>
+              </span>
+            )}
             {baseReport.units.map((unit, n) =>
               onScreen(unit.srcStart, unit.srcEnd) ? (
                 <span
@@ -1495,8 +1684,8 @@ export const SyncEditTimeline: React.FC<{
               const { part } = chunk;
               const chosen = chunk.part.id === selected;
               const picked = selectedSet.has(chunk.part.id);
-              const hue = hueOf(chunk.unitIndex);
-              const { color } = landing(chunk.unit, tolerance);
+              const hue = chunk.original ? ORIGINAL_HUE : hueOf(chunk.unitIndex);
+              const color = statusColor(chunk);
               const length = partLength(part);
               const showOffset = chunk.unit && chunk.unit.offset !== null && part.from <= lineOf(chunk).lead + 1e-6;
               const tags = [part.rate !== 1 && `${Math.round(part.rate * 100)}%`, part.gainDb !== 0 && `${part.gainDb > 0 ? '+' : ''}${part.gainDb.toFixed(1)} dB`].filter(Boolean).join(' · ');
@@ -1504,7 +1693,7 @@ export const SyncEditTimeline: React.FC<{
                 <div
                   key={part.id}
                   data-part={part.id}
-                  className={`absolute top-1.5 bottom-1.5 rounded-md border overflow-hidden ${part.muted ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
+                  className={`absolute top-1.5 bottom-1.5 rounded-md border overflow-hidden ${chunk.original ? 'border-dashed' : ''} ${part.muted ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
                   style={{
                     left: `${pct(part.start)}%`,
                     width: `${Math.max(0.15, (length / windowSeconds) * 100)}%`,
@@ -1512,18 +1701,27 @@ export const SyncEditTimeline: React.FC<{
                     borderColor: withAlpha(hue, 0.9),
                     backgroundImage: part.muted ? 'repeating-linear-gradient(135deg, rgba(148,163,184,0.18) 0 4px, transparent 4px 8px)' : undefined,
                   }}
-                  title={`Line ${chunk.label}${chunk.unit?.text ? `: ${chunk.unit.text}` : ''}`}
+                  title={
+                    chunk.original
+                      ? `Clip ${chunk.label}: the original from ${formatTime(part.from)} to ${formatTime(part.to)}`
+                      : `Line ${chunk.label}${chunk.unit?.text ? `: ${chunk.unit.text}` : ''}`
+                  }
                 >
-                  <PartWave data={bankPeaks} bankOffset={lineOf(chunk).bankStart / rate} part={part} color={withAlpha(hue, 0.95)} />
+                  <PartWave
+                    data={chunk.original ? sourcePeaks : bankPeaks}
+                    bankOffset={chunk.original ? 0 : lineOf(chunk).bankStart / rate}
+                    part={part}
+                    color={withAlpha(hue, 0.95)}
+                  />
                   <span className="absolute left-1 top-0.5 flex items-center gap-1 whitespace-nowrap text-[10.5px] font-semibold text-slate-100 pointer-events-none drop-shadow">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
                     {chunk.label}
                     {showOffset && <span className="font-mono font-normal text-slate-300">{formatShift(chunk.unit!.offset as number)}</span>}
                     {tags && <span className="font-normal text-slate-300">· {tags}</span>}
-                    {committed[chunk.key]?.locked && <Lock className="w-2.5 h-2.5 text-slate-300" aria-label="Locked" />}
+                    {!chunk.original && committed[chunk.key]?.locked && <Lock className="w-2.5 h-2.5 text-slate-300" aria-label="Locked" />}
                     {part.muted && <VolumeX className="w-3 h-3 text-slate-300" aria-label="Muted" />}
                   </span>
-                  {isEdited(committed, chunk.key) && <span className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />}
+                  {!chunk.original && isEdited(committed, chunk.key) && <span className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />}
                   {/* What a drag here does: shown where the pointer is, and on the picked line */}
                   {(() => {
                     const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;
@@ -1552,6 +1750,13 @@ export const SyncEditTimeline: React.FC<{
                 </div>
               );
             })}
+            {carry && (
+              <span
+                aria-hidden="true"
+                className={`absolute top-1.5 bottom-1.5 rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.fits ? 'border-cyan-300 bg-cyan-300/15' : 'border-rose-400 bg-rose-400/10'}`}
+                style={{ left: `${pct(carry.start)}%`, width: `${Math.max(0.15, (carry.length / windowSeconds) * 100)}%` }}
+              />
+            )}
             {band && (
               <span
                 aria-hidden="true"
@@ -1659,7 +1864,9 @@ export const SyncEditTimeline: React.FC<{
             <span className="truncate text-[11.5px] text-slate-500">
               {blade ? 'Blade is on: click a line to cut it there · B turns it off' : hover ? ZONE_HINT[hover.zone] : group.length > 1
                     ? `${group.length} lines picked: drag one to move them all · its top edge or corners set gain and fades on all · Ctrl + click adds or drops a line`
-                    : 'Point at a line: its middle moves it, its edges trim it, its top corners fade it, its top edge sets its gain · Ctrl + click or drag across empty lane picks several'}
+                    : pick
+                      ? 'Drag the picked stretch of the original down onto a gap in the dub · Ctrl + C copies it, Ctrl + V puts it at the playhead · Esc lets go'
+                      : 'Point at a line: its middle moves it, its edges trim it, its top corners fade it, its top edge sets its gain · Ctrl + click or drag across empty lane picks several · drag across the original to fill a gap with it'}
             </span>
           )}
         </span>
@@ -1683,13 +1890,19 @@ export const SyncEditTimeline: React.FC<{
           ) : current ? (
             <>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[13px] font-semibold text-slate-100">Line {current.label}</span>
-                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${currentLanding.chip}`}>{currentLanding.label}</span>
+                <span className="text-[13px] font-semibold text-slate-100">{current.original ? `Clip ${current.label}` : `Line ${current.label}`}</span>
+                {current.original ? (
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-cyan-400/12 text-cyan-300">original voice</span>
+                ) : (
+                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${currentLanding.chip}`}>{currentLanding.label}</span>
+                )}
                 {currentUnit?.offset !== null && currentUnit?.offset !== undefined && (
                   <span className="font-mono text-[11.5px] text-slate-400">{formatShift(currentUnit.offset)} vs original</span>
                 )}
                 <span className="ml-auto flex items-center gap-1 text-[11px] text-slate-500">
-                  {currentLocked ? (
+                  {current.original ? (
+                    'Stays where you put it'
+                  ) : currentLocked ? (
                     <>
                       <Lock className="w-3 h-3" /> Locked: Sync again leaves it
                     </>
@@ -1700,6 +1913,12 @@ export const SyncEditTimeline: React.FC<{
                   )}
                 </span>
               </div>
+              {current.original && (
+                <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-300">
+                  The original from <span className="font-mono">{formatTime(current.part.from)}</span> to <span className="font-mono">{formatTime(current.part.to)}</span>, on the dub
+                  to fill a gap. Its edges trim it into more of the original; Alt + drag slips which stretch it plays.
+                </p>
+              )}
               {current.unit && (
                 <>
                   <p className="mt-1.5 text-[13px] leading-relaxed text-slate-200">{current.unit.text}</p>
@@ -1714,12 +1933,20 @@ export const SyncEditTimeline: React.FC<{
                 <NumberField label="Fade out (ms)" value={current.part.fadeOut * 1000} step={10} digits={0} onCommit={(v) => setField({ fadeOut: Math.max(0, v) / 1000 }, 'Fade out')} />
               </div>
               <div className="mt-2.5 flex flex-wrap gap-1.5">
-                <button type="button" onClick={act.align} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5">
-                  <AlignStartVertical className="w-3.5 h-3.5" /> Align to original
-                </button>
-                <button type="button" onClick={act.reset} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5">
-                  <RotateCcw className="w-3.5 h-3.5" /> Reset line
-                </button>
+                {current.original ? (
+                  <button type="button" onClick={act.remove} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5">
+                    Take off the dub <kbd className="font-mono text-[10px] text-slate-500">Del</kbd>
+                  </button>
+                ) : (
+                  <>
+                    <button type="button" onClick={act.align} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5">
+                      <AlignStartVertical className="w-3.5 h-3.5" /> Align to original
+                    </button>
+                    <button type="button" onClick={act.reset} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5" /> Reset line
+                    </button>
+                  </>
+                )}
                 <button type="button" onClick={() => onPlayFrom(Math.max(0, current.part.start - 0.3))} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer">
                   Play from here <kbd className="ml-1 font-mono text-[10px] text-slate-500">/</kbd>
                 </button>
@@ -1728,7 +1955,9 @@ export const SyncEditTimeline: React.FC<{
           ) : (
             <p className="text-[12.5px] text-slate-400">
               Click a line on the dub lane to pick it. Drag its middle to move it, an edge to trim it (Alt: stretch), a top corner to fade it, its top edge up or down for gain; Alt + drag the middle slips the audio inside. The arrow keys go from line to line, and{' '}
-              <kbd className="font-mono text-slate-300">,</kbd> <kbd className="font-mono text-slate-300">.</kbd> nudge it by 10 ms (100 ms with Shift).
+              <kbd className="font-mono text-slate-300">,</kbd> <kbd className="font-mono text-slate-300">.</kbd> nudge it by 10 ms (100 ms with Shift). To fill a gap with the original's own voice, drag across the
+              Original lane to pick a stretch and drag it down onto the dub, or copy it with <kbd className="font-mono text-slate-300">Ctrl + C</kbd> and put it at the playhead with{' '}
+              <kbd className="font-mono text-slate-300">Ctrl + V</kbd>.
             </p>
           )}
         </section>
@@ -1757,7 +1986,8 @@ export const SyncEditTimeline: React.FC<{
             <kbd className="font-mono text-slate-400">Space</kbd> play · <kbd className="font-mono text-slate-400">/</kbd> play from the line ·{' '}
             <kbd className="font-mono text-slate-400">Del</kbd> remove · <kbd className="font-mono text-slate-400">Esc</kbd> deselect ·{' '}
             <kbd className="font-mono text-slate-400">Ctrl + A</kbd> pick all · <kbd className="font-mono text-slate-400">Ctrl</kbd> + click add ·{' '}
-            <kbd className="font-mono text-slate-400">= −</kbd> zoom · <kbd className="font-mono text-slate-400">Ctrl</kbd> + scroll to zoom
+            <kbd className="font-mono text-slate-400">Ctrl + C / V</kbd> copy the original onto the dub ·{' '}
+            <kbd className="font-mono text-slate-400">= −</kbd> zoom · scroll to move · <kbd className="font-mono text-slate-400">Ctrl</kbd> + scroll to zoom
           </p>
         </section>
       </div>

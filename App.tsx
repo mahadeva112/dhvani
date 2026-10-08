@@ -125,7 +125,7 @@ import {
   SyncProgress,
   SyncUnitReport,
 } from './services/syncService';
-import { hasEdits, lockedLines, measureEdits, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
+import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
 import { LiveDubEngine, liveClips } from './services/liveDubEngine';
 import type { SyncEditStatus } from './components/SyncEditTimeline';
 import {
@@ -1212,20 +1212,29 @@ export default function App() {
   const liveDubRef = useRef(liveDub);
   liveDubRef.current = liveDub;
   const liveDubClips = useMemo(
-    () => (liveDub && activeJob?.syncBank ? liveClips(activeJob.syncBank, activeJob.syncEdits, Boolean(activeJob.syncBaseReport?.mix)) : []),
-    [liveDub, activeJob?.syncBank, activeJob?.syncEdits, activeJob?.syncBaseReport]
+    () =>
+      liveDub && activeJob?.syncBank
+        ? liveClips(activeJob.syncBank, activeJob.syncEdits, Boolean(activeJob.syncBaseReport?.mix), originalParts(activeJob.syncEdits, sourceDurationOf(activeJob)))
+        : [],
+    [liveDub, activeJob?.syncBank, activeJob?.syncEdits, activeJob?.syncBaseReport, activeJob?.audioBuffer]
   );
   const liveDubClipsRef = useRef(liveDubClips);
   liveDubClipsRef.current = liveDubClips;
   const liveEngineRef = useRef<LiveDubEngine | null>(null);
-  const liveDubInputRef = useRef<{ bank: NonNullable<BatchJob['syncBank']>; multiSpeaker: boolean } | null>(null);
-  liveDubInputRef.current = activeJob?.syncBank ? { bank: activeJob.syncBank, multiSpeaker: Boolean(activeJob.syncBaseReport?.mix) } : null;
+  const liveDubInputRef = useRef<{ bank: NonNullable<BatchJob['syncBank']>; multiSpeaker: boolean; sourceDuration: number } | null>(null);
+  liveDubInputRef.current = activeJob?.syncBank
+    ? { bank: activeJob.syncBank, multiSpeaker: Boolean(activeJob.syncBaseReport?.mix), sourceDuration: sourceDurationOf(activeJob) }
+    : null;
+  // The original, which the clips of it on the dub play from.
+  const liveOriginal = activeJob?.audioBuffer ?? null;
+  const liveOriginalRef = useRef(liveOriginal);
+  liveOriginalRef.current = liveOriginal;
   /** A drag in Edit timing, heard while it lasts; null puts the committed edits back. Nothing re-renders for it. */
   const handleSyncEditDraft = useCallback((edits: SyncEdits | null) => {
     const engine = liveEngineRef.current;
     const input = liveDubInputRef.current;
     if (!engine || !input) return;
-    engine.setClips(edits ? liveClips(input.bank, edits, input.multiSpeaker) : liveDubClipsRef.current);
+    engine.setClips(edits ? liveClips(input.bank, edits, input.multiSpeaker, originalParts(edits, input.sourceDuration)) : liveDubClipsRef.current);
   }, []);
 
   // Sync playback rate to audio elements, including ones mounted after the rate was set
@@ -1593,6 +1602,7 @@ export default function App() {
         const out = mixer.liveOutput();
         if (!out) return;
         engine = new LiveDubEngine(out.ctx, out.input, editTimingAudio);
+        engine.setOriginal(liveOriginalRef.current);
         engine.setClips(liveDubClipsRef.current);
         liveEngineRef.current = engine;
       }
@@ -1610,6 +1620,9 @@ export default function App() {
   useEffect(() => {
     liveEngineRef.current?.setClips(liveDubClips);
   }, [liveDubClips]);
+  useEffect(() => {
+    liveEngineRef.current?.setOriginal(liveOriginal);
+  }, [liveOriginal]);
 
   // Spacebar shortcuts for play/pause
   useEffect(() => {
@@ -2090,7 +2103,7 @@ export default function App() {
    */
   const scheduleSyncEditRender = (
     jobId: string,
-    input: { bank: NonNullable<BatchJob['syncBank']>; bankBlob: Blob | null | undefined; baseReport: NonNullable<BatchJob['syncReport']>; edits: SyncEdits | null; sourceDuration: number },
+    input: { bank: NonNullable<BatchJob['syncBank']>; bankBlob: Blob | null | undefined; baseReport: NonNullable<BatchJob['syncReport']>; edits: SyncEdits | null; sourceDuration: number; source: AudioBuffer | null | undefined },
     delay = SYNC_EDIT_RENDER_DELAY_MS
   ) => {
     cancelSyncEditRender();
@@ -2101,7 +2114,7 @@ export default function App() {
       setSyncEditStatus({ state: 'rendering' });
       try {
         const { blob, stems, mix } = await renderSyncEdits(
-          { bank: input.bank, bankBlob: input.bankBlob, edits: input.edits, report: input.baseReport, sourceDuration: input.sourceDuration },
+          { bank: input.bank, bankBlob: input.bankBlob, edits: input.edits, report: input.baseReport, sourceDuration: input.sourceDuration, source: input.source },
           { signal: controller.signal }
         );
         if (controller.signal.aborted) return;
@@ -2150,6 +2163,7 @@ export default function App() {
       baseReport: activeJob.syncBaseReport,
       edits: clean,
       sourceDuration: sourceDurationOf(activeJob),
+      source: activeJob.audioBuffer,
     });
   };
 
@@ -2158,7 +2172,7 @@ export default function App() {
     if (!activeJob?.syncBank || !activeJob.syncBaseReport) return;
     scheduleSyncEditRender(
       activeJob.id,
-      { bank: activeJob.syncBank, bankBlob: activeJob.syncBankBlob, baseReport: activeJob.syncBaseReport, edits: activeJob.syncEdits || null, sourceDuration: sourceDurationOf(activeJob) },
+      { bank: activeJob.syncBank, bankBlob: activeJob.syncBankBlob, baseReport: activeJob.syncBaseReport, edits: activeJob.syncEdits || null, sourceDuration: sourceDurationOf(activeJob), source: activeJob.audioBuffer },
       0
     );
   };
@@ -2351,7 +2365,7 @@ export default function App() {
           : { state: 'ready' }
       );
       // The sync placed the locked lines' blocks; their edits are rendered over them now.
-      if (edited) scheduleSyncEditRender(activeJob.id, { bank, bankBlob, baseReport: report, edits: keptEdits, sourceDuration }, 0);
+      if (edited) scheduleSyncEditRender(activeJob.id, { bank, bankBlob, baseReport: report, edits: keptEdits, sourceDuration, source: activeJob.audioBuffer }, 0);
       decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
         .then((syncedBuffer) => {

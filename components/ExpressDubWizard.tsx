@@ -128,7 +128,7 @@ import { useSignoff } from '../services/signoffService';
 import { ContinuousDocumentView, ContinuousDocumentHandle } from './review/ContinuousDocumentView';
 import { CueEditBar, PickableWords, useCueEditing } from './review/CueEditBar';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
-import type { SyncEdits } from '../services/syncEditService';
+import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
 
 type ReviewMode = 'grid' | 'table' | 'spotlight' | 'script' | 'document' | 'qa';
 
@@ -3196,7 +3196,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const runSync = () => onSyncDub?.({ ...syncOptions, matchLoudness: dubMatchLoudness });
         const canEditTiming = Boolean(onSyncEditsChange);
         // Clips of the original put on the dub are hand edits too, but not lines.
-        const editedLineCount = Object.keys(activeJob.syncEdits || {}).length;
+        const editedLineCount = Object.keys(activeJob.syncEdits || {}).filter((key) => !isOriginalClip(key)).length;
         const hasEditedTiming = editedLineCount > 0;
         const legacyDub = !report && Boolean(activeJob.synthesizedAudioUrl);
 

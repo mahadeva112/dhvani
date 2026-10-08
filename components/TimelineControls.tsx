@@ -31,8 +31,10 @@ export type TimelineZoom = ReturnType<typeof useTimelineZoom>;
  * The part of a timeline on screen. It opens on the whole of `total`; zooming
  * in (the buttons, Ctrl + wheel or a pinch over `lanesRef`, or a drag across
  * the ruler) shows a window of it, which follows playback while `follow` is on.
+ * With `wheelScrollsTime`, a plain up/down wheel over the lanes moves a zoomed
+ * window through time instead of scrolling the page.
  */
-export const useTimelineZoom = (total: number, currentTime: number) => {
+export const useTimelineZoom = (total: number, currentTime: number, { wheelScrollsTime = false } = {}) => {
   const fullSpan = Math.max(MIN_WINDOW_SECONDS, total);
   // Seconds on screen; null is the whole timeline.
   const [zoomSpan, setZoomSpan] = useState<number | null>(null);
@@ -78,7 +80,16 @@ export const useTimelineZoom = (total: number, currentTime: number) => {
   const rulerRef = useRef<HTMLDivElement>(null);
   const wheelZoom = useRef<(e: WheelEvent) => void>(() => {});
   wheelZoom.current = (e: WheelEvent) => {
-    if (!e.ctrlKey && !e.metaKey) return;
+    if (!e.ctrlKey && !e.metaKey) {
+      // Shift + wheel and sideways swipes are wheelScroll's; the whole timeline on screen has nowhere to go.
+      if (!wheelScrollsTime || e.shiftKey || maxStart <= 0 || Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const width = lanesRef.current?.getBoundingClientRect().width;
+      if (!width) return;
+      e.preventDefault();
+      const lines = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? width : 1;
+      scrollTo(windowStart + ((e.deltaY * lines) / width) * windowSeconds);
+      return;
+    }
     const r = rulerRef.current?.getBoundingClientRect();
     if (!r || !r.width) return;
     e.preventDefault();

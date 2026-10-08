@@ -23,6 +23,12 @@ import { mixSpeakers } from './speakerMix.js';
 export const MIN_RATE = 0.5;
 export const MAX_RATE = 2;
 
+/**
+ * The speaker a clip of the original renders as: a stretch of the original's
+ * own voice the user put on the dub to fill a gap (services/syncEditService.ts).
+ */
+export const ORIGINAL_SPEAKER = 'Original audio';
+
 /** Gain the user may set on a part, in dB. */
 export const MIN_GAIN_DB = -48;
 export const MAX_GAIN_DB = 24;

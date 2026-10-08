@@ -7,7 +7,7 @@ import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } fr
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch } from '../lib/media.js';
 import { pcmToWav, floatToWav, parseWav } from '../lib/wav.js';
 import { runSync } from '../lib/syncDub.js';
-import { checkParts, lineArrays, renderEdits } from '../lib/syncEdit.js';
+import { checkParts, lineArrays, ORIGINAL_SPEAKER, renderEdits } from '../lib/syncEdit.js';
 import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
 import { shortenLine, lengthenLine, suggestLine, suggestLines, MAX_OPTIONS } from '../lib/syncRewrite.js';
@@ -697,9 +697,13 @@ syncRouter.put(
 /**
  * POST /api/sync/edit/render — a synced dub rendered again with the user's
  * edits (see syncEdit.js). Body: `{ bankId, sampleRate, lines, speakerGains,
- * parts, sourceDuration, edgeFade, multiSpeaker, peak }`: `lines` as the bank
- * gave them (only `bankStart`, `length`, `maxStartShift`, `gain` and
- * `speaker` are read) and `parts` as checkParts takes them. Replies as /sync
+ * parts, sourceDuration, edgeFade, multiSpeaker, peak, original? }`: `lines`
+ * as the bank gave them (only `bankStart`, `length`, `maxStartShift`, `gain`
+ * and `speaker` are read) and `parts` as checkParts takes them. `original`,
+ * `{ bankId, lines }`, holds the clips of the original put on the dub: a bank
+ * of their own, sent as a sync's is, its lines numbered after the bank's (a
+ * 404 with code `edit_original_missing` when this server doesn't have it).
+ * Replies as /sync
  * does, `{ audioId, contentType, stems, report }`, `report` holding the mix
  * report with several speakers. A bank this server no longer has is a 404
  * with code `edit_bank_missing`: send it again and retry.
@@ -707,12 +711,28 @@ syncRouter.put(
 syncRouter.post(
   '/sync/edit/render',
   asyncHandler(async (req, res) => {
-    const { bankId, sampleRate, lines, speakerGains, parts, sourceDuration, edgeFade, multiSpeaker, peak } = req.body || {};
+    const { bankId, sampleRate, lines, speakerGains, parts, sourceDuration, edgeFade, multiSpeaker, peak, original } = req.body || {};
     const entry = typeof bankId === 'string' ? bankFor(bankId) : null;
     if (!entry) throw new ApiError('The saved lines of this sync are not on the server.', { status: 404, code: 'edit_bank_missing' });
     if (Number(sampleRate) !== entry.sampleRate) {
       throw new ApiError('The saved lines are at a different sample rate from this sync.', { status: 400, code: 'bank_sample_rate' });
     }
+    // Clips of the original on the dub come as a bank of their own, sent like a sync's (PUT /sync/edit/banks/:bankId).
+    const originalEntry = original ? (typeof original.bankId === 'string' && BANK_ID.test(original.bankId) ? bankFor(original.bankId) : null) : null;
+    if (original && !originalEntry) throw new ApiError('The clips of the original are not on the server.', { status: 404, code: 'edit_original_missing' });
+    if (originalEntry && originalEntry.sampleRate !== entry.sampleRate) {
+      throw new ApiError('The clips of the original are at a different sample rate from this sync.', { status: 400, code: 'bank_sample_rate' });
+    }
+    const originalLines = originalEntry
+      ? (Array.isArray(original.lines) ? original.lines.slice(0, 20000) : []).map((line, n) => {
+          const bankStart = Number(line?.bankStart);
+          const length = Number(line?.length);
+          if (!Number.isInteger(bankStart) || !Number.isInteger(length) || bankStart < 0 || length < 0 || bankStart + length > originalEntry.samples.length) {
+            throw new ApiError(`Clip ${n + 1} of the original is not in its saved samples.`, { status: 400, code: 'bad_bank_line' });
+          }
+          return { bankStart, length, gain: 1, speaker: ORIGINAL_SPEAKER };
+        })
+      : [];
     if (!Array.isArray(lines) || lines.length > 20000) throw new ApiError('The lines of the sync are missing.', { status: 400, code: 'no_lines' });
 
     const bankLines = lines.map((line, n) => {
@@ -744,27 +764,35 @@ syncRouter.post(
       entry.stretched.clear();
     }
 
+    // The clips of the original are lines after the bank's, cut from their own samples.
+    const renderBank = originalLines.length ? { ...bank, lines: [...bankLines, ...originalLines] } : bank;
+    const arrays = originalLines.length
+      ? [...entry.arrays, ...originalLines.map((line) => originalEntry.samples.subarray(line.bankStart, line.bankStart + line.length))]
+      : entry.arrays;
+
     let checked;
     try {
-      checked = checkParts(parts, bank);
+      checked = checkParts(parts, renderBank);
     } catch (err) {
       throw new ApiError(`These edits can't be rendered: ${err.message}.`, { status: 400, code: 'bad_edit' });
     }
     const several = multiSpeaker === true;
     // A stretched part is the same until its line, its samples or its speed change.
     const stretch = async (samples, rate, { line, from, to }) => {
-      const key = `${line}:${from}:${to}:${rate}`;
-      const hit = entry.stretched.get(key);
+      const clip = originalLines[line - bankLines.length];
+      const cache = clip ? originalEntry.stretched : entry.stretched;
+      const key = clip ? `${clip.bankStart}:${clip.length}:${from}:${to}:${rate}` : `${line}:${from}:${to}:${rate}`;
+      const hit = cache.get(key);
       if (hit) return hit;
       const out = await timeStretch(samples, entry.sampleRate, rate);
-      entry.stretched.set(key, out);
-      if (entry.stretched.size > STRETCH_CACHE_LIMIT) entry.stretched.delete(entry.stretched.keys().next().value);
+      cache.set(key, out);
+      if (cache.size > STRETCH_CACHE_LIMIT) cache.delete(cache.keys().next().value);
       return out;
     };
     const result = await renderEdits(
       {
-        bank,
-        arrays: entry.arrays,
+        bank: renderBank,
+        arrays,
         parts: checked,
         sourceDuration: Number(sourceDuration) || 0,
         edgeFade: Math.max(0, Number(edgeFade) || 0),

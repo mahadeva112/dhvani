@@ -42,6 +42,22 @@ test('moving a part changes its id but keeps its stretched copy', () => {
   assert.equal(at(1).stretchKey, at(2).stretchKey);
 });
 
+test('a clip of the original plays from the original, at its own gain, among the lines', () => {
+  const original = { id: 'o', start: 4.5, from: 10, to: 11, rate: 1, gainDb: -6, fadeIn: 0, fadeOut: 0, muted: false };
+  const clips = liveClips(bank, null, true, [original]);
+  assert.deepEqual(
+    clips.map((c) => [c.start, Boolean(c.original)]),
+    [
+      [3, false],
+      [4.5, true],
+      [6, false],
+    ]
+  );
+  const clip = clips[1];
+  assert.deepEqual([clip.bankFrom, clip.bankTo], [10, 11], 'seconds of the original, not of the bank');
+  assert.ok(Math.abs(clip.gain - 10 ** (-6 / 20)) < 1e-9, 'no line or speaker gain');
+});
+
 test('a stretch keeps the pitch and changes the length', () => {
   const sr = 16000;
   const tone = new Float32Array(sr);
