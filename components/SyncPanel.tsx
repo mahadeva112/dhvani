@@ -132,6 +132,8 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
   if (unit.silent) return 'The voice returned no audio for this line';
   if (unit.cutOff)
     return `The voice stops before the last word is finished${unit.retakes ? `, in all ${unit.retakes + 1} takes` : ''}: retake it or reword the line`;
+  if (unit.exceeded && unit.deepCut)
+    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Fewer words would cut over a third of it and lose what it says: give it more time in Edit timing, or join it with the line beside it`;
   if (unit.exceeded) return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had`;
   if (unit.short)
     return `Ends ${unit.shortBy.toFixed(1)} s before the original speaker stops: ${unit.speech.toFixed(1)} s said, ${(unit.srcEnd - unit.srcStart).toFixed(1)} s spoken`;
@@ -785,12 +787,15 @@ const ReviewRow: React.FC<{
   const [askError, setAskError] = useState<string | null>(null);
   // What the meaning check found in the shown suggestion, when it did not pass it.
   const [issues, setIssues] = useState<string[] | null>(null);
+  // The shown suggestion translated back into English, without the original line in view.
+  const [says, setSays] = useState<string | null>(null);
   // Wordings already offered for this line, so another try reads differently.
   const tried = useRef<string[]>([]);
   useEffect(() => {
     setDraft(unit.suggestion || unit.text);
     setSuggested(Boolean(unit.suggestion));
     setIssues(null);
+    setSays(null);
     tried.current = unit.suggestion ? [unit.suggestion] : [];
   }, [unit.suggestion, unit.text]);
   const changed = draft.trim() !== '' && draft.trim() !== unit.text.trim();
@@ -809,6 +814,7 @@ const ReviewRow: React.FC<{
         setDraft(line.text);
         setSuggested(true);
         setIssues(line.issues ?? null);
+        setSays(line.backTranslation ?? null);
       } else setAskError(`No usable ${fuller ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`);
     } catch (err: any) {
       setAskError(err?.message || 'The text model did not answer.');
@@ -860,6 +866,11 @@ const ReviewRow: React.FC<{
                       : 'Shorten this line'}
               </label>
               {suggested && issues && <MeaningWarning issues={issues} />}
+              {suggested && says && (
+                <p className="mb-1 text-[11.5px] text-slate-500 leading-snug" title="This wording translated back into English, without the original line in view">
+                  Says: {says}
+                </p>
+              )}
               <textarea
                 id={`sync-line-${unit.key}`}
                 value={draft}
@@ -933,7 +944,7 @@ const ReviewRow: React.FC<{
             onClick={() => onRetake(unit)}
             disabled={pending}
             className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-            title="Voice this line again for a new take. Sync again to hear it."
+            title="Voices this line three times and keeps the take that fits its slot best (three voicings of the line). Sync again to hear it."
           >
             <Mic className="w-3 h-3" /> Retake
           </button>

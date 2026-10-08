@@ -125,6 +125,7 @@ import type { ScriptFitFilter } from './FinalScriptFit';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
+import { choicesFor, rememberChoice } from '../services/wordingChoices';
 import { useSignoff } from '../services/signoffService';
 import { ContinuousDocumentView, ContinuousDocumentHandle } from './review/ContinuousDocumentView';
 import { CueEditBar, PickableWords, useCueEditing } from './review/CueEditBar';
@@ -1037,11 +1038,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       avoid,
       count,
       context: lineContextOf(unit.cueIds),
+      examples: choicesFor(activeJob?.id, unit.text),
     });
+  /** A wording put into the script, remembered for this project so later suggestions follow the user's style. */
+  const useLine = (unit: SyncPreviewUnit, text: string) => {
+    rememberChoice(activeJob?.id, { from: unit.text, to: text });
+    return applyPreviewLine(unit, text);
+  };
   /** Review's rewording of a sync line, the one place a line is reworded before it is voiced. */
-  const lineFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
+  const lineFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: useLine, onRestore: restoreCueTexts });
   /** Review's rewording of one cue, while the line fit is still being worked out. */
-  const reviewFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
+  const reviewFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: useLine, onRestore: restoreCueTexts });
   /** The preview with the lengths the user trimmed lines to on the timeline; both steps use it. */
   /** Quick or Expert, the user's pick, kept across restarts; both steps' previews follow it. */
   const [estimateMethod, setEstimateMethod] = useState<EstimateMethod>(() => {
@@ -3568,7 +3575,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 sourceBuffer={activeJob.audioBuffer}
                 dubBuffer={report ? activeJob.syncedAudioBuffer : null}
                 pendingLines={syncPendingLines}
-                onApplyLine={onApplySyncLine}
+                onApplyLine={
+                  onApplySyncLine &&
+                  ((unit, text) => {
+                    rememberChoice(activeJob?.id, { from: unit.text, to: text });
+                    onApplySyncLine(unit, text);
+                  })
+                }
                 onRetakeLine={onRetakeSyncLine}
                 onSuggestLine={(unit, avoid) =>
                   unit.targetChars == null
@@ -3580,6 +3593,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         targetChars: unit.targetChars,
                         avoid,
                         context: lineContextOf(unit.cueIds, unit.speaker),
+                        examples: choicesFor(activeJob?.id, unit.text),
                       }).then((options) => options[0] ?? null)
                 }
               />

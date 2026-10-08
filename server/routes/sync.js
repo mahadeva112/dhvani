@@ -589,6 +589,20 @@ const lineContextOf = (context) => {
   };
 };
 
+/** Most earlier choices a request may carry as style examples, and the longest line kept. */
+const MAX_EXAMPLES = 5;
+const MAX_EXAMPLE_CHARS = 300;
+
+/** The user's earlier wordings the request carries, held to short plain pairs. */
+const examplesOf = (examples) =>
+  Array.isArray(examples)
+    ? examples
+        .filter((e) => typeof e?.from === 'string' && typeof e?.to === 'string' && e.from.trim() && e.to.trim())
+        .filter((e) => e.from.length <= MAX_EXAMPLE_CHARS && e.to.length <= MAX_EXAMPLE_CHARS)
+        .map((e) => ({ from: e.from.trim(), to: e.to.trim() }))
+        .slice(-MAX_EXAMPLES)
+    : [];
+
 /** Most glossary terms a request may name, and the longest one kept. */
 const MAX_KEEP_TERMS = 200;
 const MAX_KEEP_CHARS = 120;
@@ -612,7 +626,7 @@ const keepTermsOf = (keep) =>
  */
 const rewordRoute = (direction) =>
   asyncHandler(async (req, res) => {
-    const { text, sourceText, language, targetChars, avoid, count, context, keep } = req.body || {};
+    const { text, sourceText, language, targetChars, avoid, count, context, keep, examples } = req.body || {};
     const longer = direction === 'longer';
     if (typeof text !== 'string' || !text.trim()) {
       throw new ApiError(longer ? 'There is no line to make fuller.' : direction === 'same' ? 'There is no line to reword.' : 'There is no line to shorten.', {
@@ -638,6 +652,7 @@ const rewordRoute = (direction) =>
       direction,
       context: lineContextOf(context),
       keep: keepTermsOf(keep),
+      examples: examplesOf(examples),
     };
     const options = { apiKey: req.get('x-gemini-key') || undefined };
     const wanted = Math.max(1, Math.min(MAX_OPTIONS, Math.floor(Number(count)) || 1));
@@ -652,8 +667,8 @@ const rewordRoute = (direction) =>
       });
       return;
     }
-    const { line, reason, flagged } = await suggestLine(request, options);
-    res.json({ options: line ? [{ line }] : flagged ? [flagged] : [], line, reason, flagged });
+    const { line, reason, flagged, backTranslation } = await suggestLine(request, options);
+    res.json({ options: line ? [backTranslation ? { line, backTranslation } : { line }] : flagged ? [flagged] : [], line, reason, flagged });
   });
 
 /**

@@ -237,6 +237,8 @@ export interface SyncUnitReport {
   targetChars: number | null;
   /** A shorter (or, for a short line, fuller) wording to use instead, or null. Never applied automatically. */
   suggestion: string | null;
+  /** Too long by more than a third: no shorter wording was asked for, since it would lose meaning; its timing should change. */
+  deepCut?: boolean;
   /** Seconds taken out of the pauses inside the line. */
   pauseTrimmed: number;
   /** The line's first word landed later after its source line than the join settings allow. */
@@ -247,6 +249,8 @@ export interface SyncUnitReport {
   tightJoin: boolean;
   /** Times the line was voiced again because the voice cut it off mid-word (absent in older reports). */
   retakes?: number;
+  /** A line the user retook: how many takes were voiced, the one that fits its slot best kept; 0 otherwise. */
+  takesCompared?: number;
   /** The line was cut from an earlier dub, not voiced again (absent in older reports). */
   fromDub?: boolean;
   /** The take used still ends before its last word died away: the voice cut it off. */
@@ -278,6 +282,8 @@ export interface SyncReport {
     suggested: number;
     /** Suggestions held back because every wording the text model offered changed the meaning. */
     meaningRejected: number;
+    /** Long lines given no suggestion because fitting them would cut more than a third of them. */
+    deepCuts?: number;
     /** Why some or all suggestions are missing: the text model's error, or null. */
     suggestionError: string | null;
     pauseTrimmed: number;
@@ -763,6 +769,8 @@ type LineRequest = {
   /** How many wordings to ask for, 1 to 3; each of a different kind. */
   count?: number;
   context?: LineContext;
+  /** Lines this user reworded before in the project, and how: a guide to their style, never to content. */
+  examples?: { from: string; to: string }[];
 };
 
 /**
@@ -772,6 +780,8 @@ type LineRequest = {
 export interface LineSuggestion {
   text: string;
   issues?: string[];
+  /** The wording translated literally back into English, without the original line in view: what it actually says. */
+  backTranslation?: string;
 }
 
 /**
@@ -782,17 +792,19 @@ export interface LineSuggestion {
  */
 const askForLines = async (path: string, request: LineRequest, signal?: AbortSignal): Promise<LineSuggestion[]> => {
   const { options, line, flagged } = await apiJson<{
-    options?: { line: string; issues?: string[] }[];
+    options?: { line: string; issues?: string[]; backTranslation?: string }[];
     line: string | null;
     reason?: 'unusable' | 'meaning' | null;
-    flagged?: { line: string; issues: string[] } | null;
+    flagged?: { line: string; issues: string[]; backTranslation?: string } | null;
   }>(path, { body: { ...request, keep: keepTermsFor(request.language || '') }, signal });
   const list = Array.isArray(options) ? options : line ? [{ line }] : flagged?.line ? [flagged] : [];
   return list
     .filter((o) => typeof o?.line === 'string' && o.line.trim())
-    .map((o) =>
-      o.issues ? { text: o.line, issues: o.issues.length ? o.issues : ['The meaning may differ from the original line.'] } : { text: o.line }
-    );
+    .map((o) => ({
+      text: o.line,
+      ...(o.issues && { issues: o.issues.length ? o.issues : ['The meaning may differ from the original line.'] }),
+      ...(typeof o.backTranslation === 'string' && o.backTranslation.trim() && { backTranslation: o.backTranslation.trim() }),
+    }));
 };
 
 /** Shorter wordings of one line from the text model; empty when it had nothing usable. */

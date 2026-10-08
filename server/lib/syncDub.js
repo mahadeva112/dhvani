@@ -28,6 +28,7 @@ import { prepareClip, removeBreaths, shortenPauses, applyCuts, renderTimeline, s
 import { matchingGains } from './loudness.js';
 import { TTS_CONTEXT_CHARS, withSentenceEnd } from './ttsText.js';
 import { mixSpeakers, speakerGains } from './speakerMix.js';
+import { tooDeepCut } from './syncRewrite.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -88,6 +89,14 @@ const SELF_OVERLAP_SLACK = 0.01;
 
 /** Times a line the voice cut off mid-word is voiced again before it is reported instead. */
 export const MAX_RETAKES = 2;
+
+/**
+ * Takes voiced of a line the user asks to retake, the best fitting one kept.
+ * Each costs a voicing, so a retake costs this many of the line.
+ */
+export const RETAKE_TAKES = 3;
+/** Where those takes' seeds start, clear of the seeds of cut-off retakes (1 to MAX_RETAKES). */
+const RETAKE_TAKE_OFFSET = 100;
 
 /** The seed of retake `attempt` of a line voiced with `seed` (none: the voice picked one). */
 const retakeSeed = (seed, attempt) => ((Number.isInteger(seed) ? seed : 0) + attempt * 7919) % 2 ** 32;
@@ -341,6 +350,37 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     seedOf
   );
   for (let i = 0; i < units.length; i++) if (taken[i]) await fit(i);
+
+  // A line the user asked to retake is voiced RETAKE_TAKES times, and the take
+  // that best fits its slot is kept: one that finishes its last word, then
+  // one that runs least past the slot, then one closest to how long the
+  // original speaker took. The takes' seeds follow from the line's own, so a
+  // later sync finds them in the cache and keeps the same one.
+  const slotOf = (unit) => Math.max(0.05, (unit.nextStart ?? unit.srcEnd + 0.5) - unit.srcStart);
+  const takeScore = (clip, unit) =>
+    !clip
+      ? Infinity
+      : (clip.cutOff ? 1000 : 0) + Math.max(0, clip.speech - slotOf(unit)) * 10 + Math.abs(clip.speech - Math.max(0, unit.srcEnd - unit.srcStart));
+  const askedRetake = units.map((_, i) => i).filter((i) => Number.isInteger(lineSeeds[lineKey(units[i])]) && !taken[i]);
+  const takesCompared = units.map((_, i) => (askedRetake.includes(i) ? 1 : 0));
+  if (askedRetake.length > 0) {
+    const best = new Map(askedRetake.map((i) => [i, { buffer: buffers[i], clip: clips[i], length: voicedLength[i], breaths: breathsRemoved[i] }]));
+    for (let take = 1; take < RETAKE_TAKES; take++) {
+      await voiceAndFit(askedRetake, (unit) => retakeSeed(seedOf(unit), RETAKE_TAKE_OFFSET + take));
+      for (const i of askedRetake) {
+        takesCompared[i]++;
+        if (takeScore(clips[i], units[i]) < takeScore(best.get(i).clip, units[i])) {
+          best.set(i, { buffer: buffers[i], clip: clips[i], length: voicedLength[i], breaths: breathsRemoved[i] });
+        }
+      }
+    }
+    for (const [i, kept] of best) {
+      buffers[i] = kept.buffer;
+      clips[i] = kept.clip;
+      voicedLength[i] = kept.length;
+      breathsRemoved[i] = kept.breaths;
+    }
+  }
 
   // A take the voice cut off before its last word died away is voiced again
   // with another seed, up to MAX_RETAKES times. A take the user locked in
@@ -634,8 +674,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   let meaningRejected = 0;
   const tooLong = units.map((_, i) => i).filter((i) => exceeded[i]);
   const tooShort = units.map((_, i) => i).filter((i) => shortBy[i] > 0);
+  // A line that would lose more than a third of itself to fit needs its timing changed, not fewer words.
+  const deepCut = units.map((unit, i) => exceeded[i] && tooDeepCut(unit.text, targetChars[i]));
   const asks = [
-    ...(suggest && deps.shorten ? tooLong.map((i) => ({ i, ask: deps.shorten })) : []),
+    ...(suggest && deps.shorten ? tooLong.filter((i) => !deepCut[i]).map((i) => ({ i, ask: deps.shorten })) : []),
     ...(suggestLonger && deps.lengthen ? tooShort.map((i) => ({ i, ask: deps.lengthen })) : []),
   ];
   // The lines either side and the speaker, so a line is reworded as part of the conversation.
@@ -693,11 +735,14 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       speech: clips[i] ? clips[i].speech : 0,
       targetChars: targetChars[i],
       suggestion: suggestions.get(i) || null,
+      deepCut: deepCut[i],
       pauseTrimmed: pauseTrimmed.get(i) || 0,
       late: late[i],
       joinAfter: joinAfter.has(i) ? joinAfter.get(i) : null,
       tightJoin: tightJoin[i],
       retakes: retakes[i],
+      // A line the user retook: how many takes were voiced to pick the best fitting one from.
+      takesCompared: takesCompared[i],
       fromDub: Boolean(taken[i]),
       cutOff: Boolean(clips[i]?.cutOff),
       breathsRemoved: breathsRemoved[i],
@@ -723,6 +768,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         suggestionsAsked: asks.length,
         suggested: suggestions.size,
         meaningRejected,
+        deepCuts: deepCut.filter(Boolean).length,
         suggestionError,
         pauseTrimmed: pauseTrimmed.size,
         late: late.filter(Boolean).length,

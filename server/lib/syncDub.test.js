@@ -5,7 +5,7 @@ import { DEFAULT_JOIN_SETTINGS, resolveJoinSettings, dbToAmplitude } from './syn
 import { pava, placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, removeBreaths, shortenPauses, renderTimeline, MIN_INNER_PAUSE_SECONDS } from './syncRender.js';
 import { acceptRewrite } from './syncRewrite.js';
-import { runSync, clearClipCache, clipHash, MAX_RETAKES } from './syncDub.js';
+import { runSync, clearClipCache, clipHash, MAX_RETAKES, RETAKE_TAKES } from './syncDub.js';
 
 const RATE = 8000;
 
@@ -503,7 +503,7 @@ test('acceptRewrite rejects lines that are not shorter or that lost most of the 
 
 test('a text model that fails leaves the sync finished, with the reason reported', async () => {
   clearClipCache();
-  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 2.6, 3.5, 'yyyyyyyyyy')];
+  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 3.2, 3.9, 'yyyyyyyyyy')];
   const { deps } = fakeDeps({
     shorten: async () => {
       throw new Error('Budget has been exceeded');
@@ -654,8 +654,8 @@ test('measureSync counts clips that overlap', () => {
 
 test('a line too long for its slot is voiced as written, flagged, and given a suggestion', async () => {
   clearClipCache();
-  // 30 characters take 2.4 s, but the slot is 1.5 s.
-  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 2.6, 3.5, 'yyyyyyyyyy'), cue(3, 6, 7, 'zzzzzzzzzz')];
+  // 30 characters take 2.4 s, but the slot is about 2 s: under a third of the line has to go.
+  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 3.2, 3.9, 'yyyyyyyyyy'), cue(3, 6, 7, 'zzzzzzzzzz')];
   const requests = [];
   const { deps, voiced } = fakeDeps({
     shorten: async (req) => {
@@ -686,9 +686,23 @@ test('a line too long for its slot is voiced as written, flagged, and given a su
   assert.deepEqual([...new Set(progress.map((p) => p.step))], [1, 2, 3, 4, 5, 6, 7]);
 });
 
+test('a line that would lose over a third of itself to fit gets no suggestion, only a note to change its timing', async () => {
+  clearClipCache();
+  // 30 characters take 2.4 s, but the slot is 1.5 s: fitting it would cut close to half of it.
+  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 2.6, 3.5, 'yyyyyyyyyy')];
+  const { deps } = fakeDeps({ shorten: async () => assert.fail('no shorter wording is asked for') });
+  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice }, deps);
+  assert.equal(report.units[0].exceeded, true);
+  assert.equal(report.units[0].deepCut, true);
+  assert.equal(report.units[0].suggestion, null);
+  assert.equal(report.units[1].deepCut, false);
+  assert.equal(report.summary.deepCuts, 1);
+  assert.equal(report.summary.suggestionsAsked, 0);
+});
+
 test('with suggestions off, a long line is still placed without overlapping and is flagged', async () => {
   clearClipCache();
-  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 2.6, 3.5, 'yyyyyyyyyy')];
+  const segments = [cue(1, 1, 2, 'x'.repeat(30)), cue(2, 3.2, 3.9, 'yyyyyyyyyy')];
   const { deps } = fakeDeps({ shorten: async () => assert.fail('should not ask for suggestions') });
   const { report } = await runSync({ segments, sourceDuration: 6, sampleRate: RATE, suggest: false, voice }, deps);
   assert.equal(report.summary.overlaps, 0);
@@ -713,7 +727,7 @@ test('a resync after a retake or a changed line voices only that line', async ()
   const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 4, 5, 'bbbbbbbbbb'), cue(3, 7, 8, 'cccccccccc')];
   await runSync({ segments, sourceDuration: 9, sampleRate: RATE, voice }, fakeDeps().deps);
 
-  // A retake of line 1: a new seed for it alone.
+  // A retake of line 1: new seeds for it alone, RETAKE_TAKES takes of it to keep the best fitting one.
   const lines = [];
   const retake = fakeDeps();
   const voiceLines = retake.deps.voiceLines;
@@ -722,9 +736,12 @@ test('a resync after a retake or a changed line voices only that line', async ()
     return voiceLines(batch, options);
   };
   const { report } = await runSync({ segments, sourceDuration: 9, sampleRate: RATE, voice, lineSeeds: { 1: 99 } }, retake.deps);
-  assert.deepEqual(retake.voiced, ['aaaaaaaaaa.']);
+  assert.deepEqual(retake.voiced, Array(RETAKE_TAKES).fill('aaaaaaaaaa.'));
   assert.equal(lines[0].seed, 99);
+  assert.equal(new Set(lines.map((line) => line.seed)).size, RETAKE_TAKES);
   assert.equal(report.units[0].key, '1');
+  assert.equal(report.units[0].takesCompared, RETAKE_TAKES);
+  assert.equal(report.units[1].takesCompared, 0);
 
   // The same retake again is already voiced; a changed line 3 is the only new take.
   const changed = fakeDeps();
@@ -753,8 +770,9 @@ test('a take the voice cut off mid-word is voiced again with another seed, and t
   const { deps, requests } = cuttingDeps([-1]);
   // Line 2 has its own seed, which the voice doesn't cut off.
   const { report } = await runSync({ segments, sourceDuration: 7, sampleRate: RATE, voice, lineSeeds: { 2: 5 } }, deps);
-  assert.deepEqual(requests.map((r) => r.text), ['aaaaaaaaaa.', 'bbbbbbbbbb.', 'aaaaaaaaaa.']);
-  assert.ok(Number.isInteger(requests[2].seed) && requests[2].seed !== 5);
+  // Line 2 is a retake, so it gets RETAKE_TAKES takes; line 1 is voiced again because it was cut off.
+  assert.deepEqual(requests.map((r) => r.text), ['aaaaaaaaaa.', 'bbbbbbbbbb.', ...Array(RETAKE_TAKES - 1).fill('bbbbbbbbbb.'), 'aaaaaaaaaa.']);
+  assert.ok(Number.isInteger(requests.at(-1).seed) && requests.at(-1).seed !== 5);
   assert.equal(report.units[0].retakes, 1);
   assert.equal(report.units[0].cutOff, false);
   assert.equal(report.units[1].retakes, 0);
@@ -766,6 +784,27 @@ test('a take the voice cut off mid-word is voiced again with another seed, and t
   const second = await runSync({ segments, sourceDuration: 7, sampleRate: RATE, voice, lineSeeds: { 2: 5 } }, again.deps);
   assert.equal(again.requests.length, 0);
   assert.equal(second.report.units[0].cutOff, false);
+});
+
+test('of the takes of a retaken line, the one that fits its slot is kept', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 2.6, 3.5, 'bbbbbbbbbb')];
+  const { deps } = fakeDeps();
+  // The user's own seed and the third take read the line slowly, past its slot; the second take reads it in time.
+  const slow = 40;
+  const seeds = [];
+  deps.voiceLines = async (lines, { onLine }) =>
+    lines.map((line, n) => {
+      seeds.push(line.seed);
+      onLine(n + 1);
+      // Line 1 and 2 go first (pushes 1 and 2); push 3 is line 1's second take, the only one in time.
+      const perChar = line.text.startsWith('a') && seeds.length !== 3 ? SECONDS_PER_CHAR * 2.2 : SECONDS_PER_CHAR * 0.9;
+      return clip({ lead: 0.15, tone: line.text.replace(/[.।]$/u, '').length * perChar, tail: 0.15 });
+    });
+  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice, lineSeeds: { 1: slow } }, deps);
+  assert.equal(report.units[0].takesCompared, RETAKE_TAKES);
+  assert.equal(report.units[0].exceeded, false, 'the take that fits was kept');
+  assert.ok(Math.abs(report.units[0].speech - 10 * SECONDS_PER_CHAR * 0.9) < 0.05, `speech ${report.units[0].speech}`);
 });
 
 test('a line cut off in every take is retaken MAX_RETAKES times, then reported', async () => {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { alignmentText, cueSpans, cutDubTakes, quietestPoint } from './dubTakes.js';
-import { runSync, clearClipCache } from './syncDub.js';
+import { runSync, clearClipCache, RETAKE_TAKES } from './syncDub.js';
 
 const RATE = 8000;
 
@@ -99,8 +99,8 @@ test('a sync takes the lines the dub has and voices only the rest', async () => 
       encode: async (samples) => ({ buffer: Buffer.from(new Uint8Array(samples.buffer)), contentType: 'audio/test' }),
     }
   );
-  // Line 2 isn't in the dub, and line 3 was asked to be retaken.
-  assert.deepEqual(voiced, ['bbbbbbbbbb.', 'cccccccccc.']);
+  // Line 2 isn't in the dub, and line 3 was asked to be retaken: RETAKE_TAKES takes of it.
+  assert.deepEqual(voiced, ['bbbbbbbbbb.', ...Array(RETAKE_TAKES).fill('cccccccccc.')]);
   assert.deepEqual(report.units.map((unit) => unit.fromDub), [true, false, false]);
   assert.equal(report.summary.fromDub, 1);
 });

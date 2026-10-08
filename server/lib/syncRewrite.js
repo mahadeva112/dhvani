@@ -46,6 +46,17 @@ import { parseJsonResponse } from '../providers/gemini/client.js';
 const MIN_TARGET_SHARE = 0.5;
 
 /**
+ * The most of a line a shorter wording may cut. Past a third, a line can only
+ * fit by losing what it says: its timing has to change instead (a longer
+ * slot, or one line with the line beside it), so no wording is offered unasked.
+ */
+export const MAX_CUT_SHARE = 0.35;
+
+/** True when fitting `text` into `targetChars` would cut more of it than MAX_CUT_SHARE. */
+export const tooDeepCut = (text, targetChars) =>
+  Number.isFinite(Number(targetChars)) && Number(targetChars) < String(text).trim().length * (1 - MAX_CUT_SHARE);
+
+/**
  * Earlier suggestions for a line, shown to the model so a new try reads
  * differently. Every earlier one is still kept out in code, however many.
  */
@@ -129,6 +140,19 @@ export const missingTerms = (text, candidate, keep = []) => {
   return keptTerms(text, keep).filter((term) => (/^\d/.test(term) ? !numbers.has(term) : !line.includes(normal(term))));
 };
 
+/**
+ * How this user reworded other lines in the project, as a guide to the style
+ * they want (plainer or more formal, shorter words, word order), never to what
+ * a line says: those are other lines, about other things.
+ */
+export const examplesNote = (examples) => {
+  const pairs = Array.isArray(examples) ? examples.filter((e) => typeof e?.from === 'string' && typeof e?.to === 'string') : [];
+  if (pairs.length === 0) return '';
+  return `\nHow this user reworded other lines of this script before. Follow the style of their choices (how plain or formal, which kind of words, the word order); never take words, ideas or facts from them, since they are about other lines:\n${pairs
+    .map((e) => `- "${e.from}" became "${e.to}"`)
+    .join('\n')}\n`;
+};
+
 /** The prompt line naming what must stay exactly as it is. */
 const keepNote = (text, keep) => {
   const terms = keptTerms(text, keep);
@@ -138,7 +162,7 @@ const keepNote = (text, keep) => {
 /** The check's issues for a wording that dropped a kept term. */
 const droppedIssues = (missing) => missing.map((term) => `leaves out "${term}"`);
 
-export const buildRewritePrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null, keep = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
+export const buildRewritePrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null, keep = [], examples = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
 This dub line takes too long to say in the time the original speaker took. Rewrite it so it is at most ${targetChars} characters long (it is now ${text.length}).
 
@@ -149,7 +173,7 @@ Rules:
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
 ${keepNote(text, keep)}- Do not add anything that is not in the original line.
-${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
+${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${examplesNote(examples)}${
   avoid.length > 0
     ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(-MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
     : ''
@@ -165,7 +189,7 @@ Reply with only the rewritten line, nothing else.`;
  */
 const MAX_TARGET_SHARE = 1.25;
 
-export const buildLengthenPrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null, keep = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
+export const buildLengthenPrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null, keep = [], examples = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
 This dub line is much shorter than what the original speaker says, so the dub goes silent while the speaker is still talking. Rewrite it so it is about ${targetChars} characters long (it is now ${text.length}), and no longer than that.
 
@@ -174,7 +198,7 @@ Rules:
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
 ${keepNote(text, keep)}- Do not add any idea, fact or example that is not in the original line. Do not pad with filler sounds, repetition or empty phrases.
-${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
+${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${examplesNote(examples)}${
   avoid.length > 0
     ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(-MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
     : ''
@@ -198,7 +222,7 @@ const SAME_MAX_SHARE = 1.15;
 export const rewordLimit = (text, targetChars) =>
   Math.max(text.trim().length, Math.floor(Math.min(text.trim().length * SAME_MAX_SHARE, Number(targetChars) || Infinity)));
 
-export const buildRewordPrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null, keep = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
+export const buildRewordPrompt = ({ text, sourceText, language, targetChars, avoid = [], fix = null, context = null, keep = [], examples = [] }) => `You are adapting a ${language || 'dubbing'} script so it can be dubbed in sync with the original video.
 
 This dub line fits its time, but the user wants another way to say it. Reword it so it reads more naturally, in about the same length: at most ${targetChars} characters (it is now ${text.length}).
 
@@ -207,7 +231,7 @@ Rules:
 - It must sound like natural spoken ${language || 'language'}, as the speaker would say it.
 - Keep names, numbers and key terms exactly.
 ${keepNote(text, keep)}- Change the words or their order, not what is said.
-${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
+${sourceText ? `\nOriginal line (for meaning):\n${sourceText}\n` : ''}${contextNote(context)}${examplesNote(examples)}${
   avoid.length > 0
     ? `\nThese wordings were already offered and not taken. Write a different one:\n${avoid.slice(-MAX_AVOID).map((line) => `- ${line}`).join('\n')}\n`
     : ''
@@ -264,7 +288,35 @@ const directionOf = (direction) => DIRECTIONS[direction] || DIRECTIONS.shorter;
  * drop filler and repetition, 'longer' may restore what the source says,
  * 'same' (reworded) may change only the words and their order.
  */
-export const buildMeaningCheckPrompt = ({ text, sourceText, candidate, language, direction }) => `You are a strict reviewer checking a ${language || 'dubbing'} dub script against its source. A wording was ${
+/**
+ * The prompt for a back-translation: the suggested wording put into English,
+ * literally, by a call that never sees the original line, so it can only say
+ * what the wording itself says. The meaning check then sets it against the
+ * original, which catches a change a reviewer reading both lines can miss.
+ */
+export const buildBackTranslationPrompt = ({ candidate, language }) => `Translate this ${language || ''} line into English, literally: what it says, word for word in meaning, keeping every negation, condition, number, name and emphasis, and its tone (a question stays a question). Do not improve it, explain it or fix it.
+
+${candidate}
+
+Reply with only the English translation.`;
+
+/** The English of `candidate` (see buildBackTranslationPrompt), or null when the text model gave none. */
+export const backTranslate = async ({ candidate, language }, { apiKey, generate = generateText } = {}) => {
+  try {
+    const { response } = await generate({
+      contents: { role: 'user', parts: [{ text: buildBackTranslationPrompt({ candidate, language }) }] },
+      generationConfig: { temperature: 0 },
+      apiKey,
+    });
+    return cleanLine(response?.text) || null;
+  } catch (err) {
+    // The check still runs without it; only a failure of the check itself withholds a wording.
+    logger.info(`A back-translation was not available (${err?.message || 'no answer'}); the meaning is checked without it.`);
+    return null;
+  }
+};
+
+export const buildMeaningCheckPrompt = ({ text, sourceText, candidate, language, direction, backTranslation = null }) => `You are a strict reviewer checking a ${language || 'dubbing'} dub script against its source. A wording was ${
   direction === 'longer' ? 'made fuller' : direction === 'same' ? 'reworded' : 'shortened'
 } so the dub fits the video's timing. Decide whether it still means exactly what the ${sourceText ? 'original line' : 'current dub line'} means.
 
@@ -273,7 +325,16 @@ ${text}
 
 Suggested wording:
 ${candidate}
+${
+  backTranslation
+    ? `
+The suggested wording, translated literally into English by someone who never saw the original line:
+${backTranslation}
 
+Set this English against the original line too: it shows what the suggested wording actually says.
+`
+    : ''
+}
 It does NOT keep the meaning if, compared with the ${sourceText ? 'original line' : 'current dub line'}, it:
 - leaves out any idea, fact, condition, qualifier or emphasis${direction === 'longer' || direction === 'same' ? '' : ' (dropping only filler words and repetition is fine)'};
 - adds any idea, fact, example or opinion that is not there${direction === 'longer' ? ' (saying what is there more fully is fine)' : ''};
@@ -297,13 +358,17 @@ Respond with ONLY this JSON:
 const MAX_REPAIRS = 1;
 
 /**
- * Checks that `candidate` means what the source line means. Returns
- * `{ ok, issues }`. An answer that can't be read counts as a failure: a
- * suggestion is only shown when the check positively passed.
+ * Checks that `candidate` means what the source line means. With a source
+ * line, the wording is first translated back into English on its own
+ * (backTranslate), and the check reads that too. Returns `{ ok, issues,
+ * backTranslation }`, `backTranslation` the English or null, for the user to
+ * read beside the wording. An answer that can't be read counts as a failure:
+ * a suggestion is only shown when the check positively passed.
  */
 export const checkMeaning = async ({ text, sourceText, candidate, language, direction }, { apiKey, generate = generateText } = {}) => {
+  const backTranslation = sourceText ? await backTranslate({ candidate, language }, { apiKey, generate }) : null;
   const { response } = await generate({
-    contents: { role: 'user', parts: [{ text: buildMeaningCheckPrompt({ text, sourceText, candidate, language, direction }) }] },
+    contents: { role: 'user', parts: [{ text: buildMeaningCheckPrompt({ text, sourceText, candidate, language, direction, backTranslation }) }] },
     generationConfig: { responseMimeType: 'application/json', temperature: 0 },
     apiKey,
   });
@@ -311,24 +376,24 @@ export const checkMeaning = async ({ text, sourceText, candidate, language, dire
   try {
     parsed = parseJsonResponse(response?.text, 'Meaning check');
   } catch {
-    return { ok: false, issues: ['The meaning check gave no readable answer.'] };
+    return { ok: false, issues: ['The meaning check gave no readable answer.'], backTranslation };
   }
   const issues = Array.isArray(parsed?.issues) ? parsed.issues.filter((i) => typeof i === 'string' && i.trim()).map((i) => i.trim()) : [];
-  return { ok: parsed?.sameMeaning === true, issues };
+  return { ok: parsed?.sameMeaning === true, issues, backTranslation };
 };
 
 /**
  * Writes a new wording of a line, `direction` 'shorter', 'longer' or 'same', and only
  * returns it as `line` once the meaning check passed. Returns
- * `{ line, reason, flagged }`: the line, or null with `reason` 'unusable' (no
+ * `{ line, reason, flagged, backTranslation }`: the line (and its English), or null with `reason` 'unusable' (no
  * answer passed the length checks) or 'meaning' (every wording changed what
  * the source line says). With 'meaning', `flagged` is the last wording and the
- * check's issues, `{ line, issues }`, for a caller that shows it marked as
+ * check's issues, `{ line, issues, backTranslation }`, for a caller that shows it marked as
  * such; null otherwise. Throws when the text model can't be reached or
  * refuses, so the caller can say why.
  */
 export const suggestLine = async (
-  { text, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [] },
+  { text, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [], examples = [] },
   { apiKey, generate = generateText } = {}
 ) => {
   const { build, accept, kind } = directionOf(direction);
@@ -337,7 +402,7 @@ export const suggestLine = async (
   let retried = false;
   for (let attempt = 0; attempt <= MAX_REPAIRS; attempt++) {
     const { response } = await generate({
-      contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, fix, context, keep }) }] },
+      contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, fix, context, keep, examples }) }] },
       // A second try at the same line is asked to differ, and given more room to.
       generationConfig: { temperature: avoid.length > 0 || fix || retried ? 0.7 : 0.3 },
       apiKey,
@@ -354,10 +419,11 @@ export const suggestLine = async (
       missing.length > 0
         ? { ok: false, issues: droppedIssues(missing) }
         : await checkMeaning({ text, sourceText, candidate: line, language, direction }, { apiKey, generate });
-    if (check.ok) return { line, reason: null, flagged: null };
+    const backTranslation = check.backTranslation ?? null;
+    if (check.ok) return { line, reason: null, flagged: null, backTranslation };
     const issues = check.issues.length > 0 ? check.issues : ['The meaning is not the same as the original line.'];
     logger.info(`A suggested ${kind} dub line changed the meaning (${issues.join('; ')}); ${attempt < MAX_REPAIRS ? 'asking again' : 'it is only offered flagged'}.`);
-    flagged = { line, issues };
+    flagged = { line, issues, backTranslation };
     fix = flagged;
   }
   if (!flagged) logger.info(`A suggested ${kind} dub line was not usable; none is shown for that line.`);
@@ -387,7 +453,7 @@ const MAX_AVOID_OPTIONS = 12;
  * what keeps every wording on it. `fixes` are earlier wordings the meaning
  * check rejected, with what it found.
  */
-export const buildOptionsPrompt = ({ text, sourceText, language, targetChars, direction, count, avoid = [], fixes = [], context = null, keep = [] }) => {
+export const buildOptionsPrompt = ({ text, sourceText, language, targetChars, direction, count, avoid = [], fixes = [], context = null, keep = [], examples = [] }) => {
   const longer = direction === 'longer';
   const same = direction === 'same';
   const lang = language || 'the dub language';
@@ -418,7 +484,7 @@ ${keepNote(text, keep)}- differ clearly from the others${avoid.length > 0 ? ' an
 
 Make them different in kind:
 ${styles.map((style, i) => `${i + 1}. ${style}`).join('\n')}
-${sourceText ? `\nOriginal line (the authority on meaning):\n${sourceText}\n` : ''}${contextNote(context)}${
+${sourceText ? `\nOriginal line (the authority on meaning):\n${sourceText}\n` : ''}${contextNote(context)}${examplesNote(examples)}${
     avoid.length > 0
       ? `\nThese wordings were already offered and not taken. Do not repeat them:\n${avoid.slice(-MAX_AVOID_OPTIONS).map((line) => `- ${line}`).join('\n')}\n`
       : ''
@@ -446,7 +512,7 @@ Respond with ONLY this JSON:
  * the model offered anything at all. Throws when the text model can't be reached.
  */
 export const suggestLines = async (
-  { text, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [], count = MAX_OPTIONS },
+  { text, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [], examples = [], count = MAX_OPTIONS },
   { apiKey, generate = generateText } = {}
 ) => {
   const { accept, kind } = directionOf(direction);
@@ -472,6 +538,7 @@ export const suggestLines = async (
               fixes,
               context,
               keep,
+              examples,
             }),
           },
         ],
@@ -503,10 +570,11 @@ export const suggestLines = async (
     );
     fixes = [];
     candidates.forEach((line, i) => {
-      if (checks[i].ok) passed.push({ line });
+      const backTranslation = checks[i].backTranslation ?? null;
+      if (checks[i].ok) passed.push(backTranslation ? { line, backTranslation } : { line });
       else {
         const issues = checks[i].issues.length > 0 ? checks[i].issues : ['The meaning is not the same as the original line.'];
-        flagged.push({ line, issues });
+        flagged.push(backTranslation ? { line, issues, backTranslation } : { line, issues });
         fixes.push({ line, issues });
       }
     });
