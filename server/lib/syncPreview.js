@@ -5,7 +5,7 @@
  * gets the same slot: from its source phrase's start to where the next phrase
  * starts, less the breath Sync leaves there. How long the dub line will take
  * is only estimated, from its length in characters and a speaking rate (the
- * client measures one from the Final dub, or falls back to a typical rate).
+ * client measures one from the last sync, or falls back to a typical rate).
  * Sync measures the real clips, so this is a guide to which lines to shorten
  * first, never a promise.
  */

@@ -4,9 +4,9 @@ import { wantsChange } from '../services/syncService';
 import type { SyncPreview, SyncPreviewUnit } from '../services/syncService';
 
 /**
- * The Final dub script's sync fit: how long each dub line is estimated to take
- * against the time its source sentence gives it, from the same preview Sync
- * shows (server/lib/syncPreview.js). Which way a line should change is decided
+ * A script's sync fit, in Review and in the Dub step: how long each dub line
+ * is estimated to take against the time its source sentence gives it
+ * (server/lib/syncPreview.js). Which way a line should change is decided
  * from its source sentence, so a line offers a shorter wording or a fuller
  * one, never both; see useLineFixes in SyncPreviewPanel.
  */
@@ -101,12 +101,15 @@ export const ScriptFitStrip: React.FC<{
   loading: boolean;
   error: string | null;
   rateMeasured: boolean;
-  filter: ScriptFitFilter;
-  onFilter: (filter: ScriptFitFilter) => void;
-  /** Open lines with no suggestion yet, each to be worded the way it needs. */
-  toFix: { shorter: number; longer: number };
-  onFixAll: () => void;
-}> = ({ preview, loading, error, rateMeasured, filter, onFilter, toFix, onFixAll }) => {
+  /** All lines or only those to fix; left out where the page filters on its own. */
+  filter?: ScriptFitFilter;
+  onFilter?: (filter: ScriptFitFilter) => void;
+  /** Open lines with no suggestion yet, each to be worded the way it needs; left out where lines aren't reworded. */
+  toFix?: { shorter: number; longer: number };
+  onFixAll?: () => void;
+  /** Shown beside the rate: the Quick or Expert switch. */
+  estimate?: React.ReactNode;
+}> = ({ preview, loading, error, rateMeasured, filter, onFilter, toFix, onFixAll, estimate }) => {
   if (!preview) {
     return (
       <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/40 text-xs" role="status">
@@ -121,7 +124,7 @@ export const ScriptFitStrip: React.FC<{
     );
   }
   const { summary } = preview;
-  const fixCount = toFix.shorter + toFix.longer;
+  const fixCount = toFix ? toFix.shorter + toFix.longer : 0;
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-slate-800 bg-slate-950/40">
       <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-300">Sync fit</span>
@@ -140,17 +143,19 @@ export const ScriptFitStrip: React.FC<{
         className="font-mono text-[11px] text-slate-500 tabular-nums"
         title={
           rateMeasured
-            ? 'Estimated from the text length at the speaking rate measured from your Final dub. Sync measures the real clips.'
-            : 'A typical rate. Make the dub first for an estimate from your own voice.'
+            ? 'Estimated at the speaking rate measured from your last sync. Sync measures the real clips.'
+            : 'A typical rate. After the first sync the estimate uses your own voice.'
         }
       >
         {preview.method === 'expert' && preview.syllablesPerSecond
           ? `Expert · ${preview.syllablesPerSecond.toFixed(1)} syllables/s`
           : `est. at ${preview.charsPerSecond.toFixed(1)} chars/s`}{' '}
-        · {rateMeasured ? 'from this dub' : 'typical rate, rough'}
+        · {rateMeasured ? 'from your last sync' : 'typical rate, rough'}
       </span>
+      {estimate}
       {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
       <span className="ml-auto flex flex-wrap items-center gap-2">
+        {filter && onFilter && (
         <span role="group" aria-label="Show lines" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
           {[
             { id: 'all' as const, label: 'All lines' },
@@ -169,7 +174,8 @@ export const ScriptFitStrip: React.FC<{
             </button>
           ))}
         </span>
-        {fixCount > 1 && (
+        )}
+        {toFix && onFixAll && fixCount > 1 && (
           <button
             type="button"
             onClick={onFixAll}

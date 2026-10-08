@@ -161,6 +161,12 @@ export interface DubLines {
   dubId: string;
   voiceId: string;
   modelId: string;
+  /**
+   * How a continuous read was voiced (voice settings, emotion, loudness), so
+   * Sync again reads the script again only when that changes. Absent on dubs
+   * made before Dub and Sync were one step.
+   */
+  readKey?: string;
   /** The cues as the dub says them, in spoken order. */
   cues: { id: string; text: string }[];
 }
@@ -234,9 +240,9 @@ export interface BatchJob {
   targetSource?: TargetSource;
 
   /**
-   * The synced dub: Sync's own file, kept beside the dub above, which it
-   * never replaces. The Final dub step plays the dub; the Sync step plays
-   * this one under the original.
+   * The synced dub: Sync's own file, kept beside the dub above (a dub made
+   * before Dub and Sync were one step), which it never replaces. Every step
+   * plays this one under the original once there is one.
    */
   syncedAudioUrl?: string | null;
   syncedBlob?: Blob | null;

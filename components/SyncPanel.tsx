@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, Scissors, TriangleAlert, X } from 'lucide-react';
+import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react';
 import {
   LineSuggestion,
   SYNC_JOIN_PRESETS,
@@ -10,16 +10,18 @@ import {
   SyncProgress,
   SyncReport,
   SyncUnitReport,
+  SyncVoicing,
 } from '../services/syncService';
+import type { DubProgress } from '../services/elevenLabsService';
 import { isShort, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import { joinPresetOf, readJoinSettings, SyncFitSource, SyncJoinSettingsPanel } from './SyncJoinSettings';
 
 /**
- * Sync, step 4: makes a dub that plays in step with the original, line by
- * line, and shows how well each line landed. The step is two panels: the
- * settings rail (what to sync with, and the button) and the results (progress,
- * then the report). See services/syncService.ts.
+ * Sync, in the Dub step: voices the script line by line, places each line in
+ * step with the original, and shows how well each line landed. Two panels:
+ * the settings rail (what to sync with, and the button) and the results
+ * (what the dub will take, progress, then the report). See services/syncService.ts.
  */
 
 const OPTIONS_KEY = 'dhvani_sync_options';
@@ -34,8 +36,13 @@ const formatClock = (seconds: number) => {
 
 const formatOffset = (seconds: number) => `${seconds > 0 ? '+' : seconds < 0 ? '−' : '±'}${Math.abs(seconds).toFixed(2)} s`;
 
-/** The settings Sync starts with: phrase precision, Natural joins, no suggestions, loudness as voiced. */
+/**
+ * The settings Sync starts with: each line voiced on its own, phrase
+ * precision, Natural joins, no suggestions. Loudness is not one of them: the
+ * Dub step's Even out loudness decides it for every dub.
+ */
 export const defaultSyncOptions = (): SyncOptions => ({
+  voicing: 'lines',
   precision: 'phrase',
   preset: 'natural',
   join: readJoinSettings(null),
@@ -47,11 +54,11 @@ export const defaultSyncOptions = (): SyncOptions => ({
 const isDefaultOptions = (options: SyncOptions) => {
   const defaults = defaultSyncOptions();
   return (
+    options.voicing === defaults.voicing &&
     options.precision === defaults.precision &&
     options.preset === defaults.preset &&
     options.suggest === defaults.suggest &&
     options.suggestLonger === defaults.suggestLonger &&
-    options.matchLoudness === defaults.matchLoudness &&
     joinPresetOf(options.join) === 'natural'
   );
 };
@@ -63,6 +70,7 @@ const readOptions = (): SyncOptions => {
     const preset = (Object.keys(SYNC_JOIN_PRESETS) as (keyof typeof SYNC_JOIN_PRESETS)[]).find((id) => id === saved.preset);
     const join = preset ? { ...SYNC_JOIN_PRESETS[preset] } : readJoinSettings(saved.join);
     return {
+      voicing: saved.voicing === 'continuous' ? 'continuous' : 'lines',
       precision: SYNC_PRECISION_OPTIONS.some((o) => o.id === saved.precision) ? saved.precision : 'phrase',
       // A saved Custom stays Custom even when it happens to match a preset.
       preset: preset ?? (saved.preset === 'custom' ? 'custom' : joinPresetOf(join)),
@@ -143,6 +151,16 @@ const previewNote = (long: number, short: number) => {
   return `${lines(short)} likely to end early.`;
 };
 
+/** The two ways to voice a dub, as the settings offer them. */
+const VOICING_OPTIONS: { id: SyncVoicing; label: string; detail: string }[] = [
+  { id: 'lines', label: 'Line by line', detail: 'Each line is voiced for its own slot. The best timing; a retake matches the lines around it.' },
+  {
+    id: 'continuous',
+    label: 'One continuous read',
+    detail: 'The script is read in one take, then each line is cut from it and placed. The most natural flow, for narration. One voice only.',
+  },
+];
+
 const sectionLabel ='text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
 const downloadRow =
   'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
@@ -168,19 +186,25 @@ export interface SyncSettingsPanelProps {
   previewShortCount?: number;
   onSync: () => void;
   onCancel: () => void;
-  /** Back to step 3. */
+  /** Back to Review. */
   onBack: () => void;
+  /** What a dub costs, under the button before the first sync. */
+  costNote?: string;
+  /** Files and tools at the foot of the rail: the script, the other studios. */
+  extras?: React.ReactNode;
   /** Saves the synced dub; absent before the first sync. */
   onDownloadWav?: () => void;
   /** Opens the voice changer on the synced dub; absent before the first sync. */
   onOpenVoiceChanger?: () => void;
   /** The subtitles section: downloads and settings, built by the step. */
   subtitles?: React.ReactNode;
+  /** Several speakers: a continuous read needs one voice, so each line is voiced on its own. */
+  multiSpeaker?: boolean;
   /** What Fit to this video measures from; the card is left out without it. */
   fitSource?: SyncFitSource;
 }
 
-/** The right-hand rail of step 4: what to sync with, the Sync button, and the synced files. */
+/** The Dub step's settings rail: what to sync with, the Dub & sync button, and the files. */
 export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   options,
   onOptionsChange,
@@ -197,20 +221,50 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   onSync,
   onCancel,
   onBack,
+  costNote,
+  extras,
   onDownloadWav,
   onOpenVoiceChanger,
   subtitles,
+  multiSpeaker = false,
   fitSource,
 }) => (
   <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
       <h2 className="text-[15px] font-semibold text-slate-100">Sync settings</h2>
       <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
-        <ArrowLeft className="w-3 h-3" /> Final dub
+        <ArrowLeft className="w-3 h-3" /> Review
       </button>
     </div>
 
     <div className={`px-4 sm:px-5 py-4 flex flex-col gap-3.5 ${isSyncing ? 'opacity-60' : ''}`}>
+      <fieldset className="flex flex-col gap-1.5" disabled={isSyncing}>
+        <legend className={`${sectionLabel} mb-1.5`}>How to voice</legend>
+        {VOICING_OPTIONS.map((o) => {
+          const off = o.id === 'continuous' && multiSpeaker;
+          return (
+            <label key={o.id} className={`flex items-start gap-2.5 ${off ? 'opacity-50 cursor-default' : 'cursor-pointer'}`}>
+              <input
+                type="radio"
+                name="sync-voicing"
+                checked={multiSpeaker ? o.id === 'lines' : options.voicing === o.id}
+                disabled={off}
+                onChange={() => onOptionsChange((opts) => ({ ...opts, voicing: o.id }))}
+                className="mt-0.5 accent-indigo-500"
+              />
+              <span>
+                <span className="block text-[13px] text-slate-200">
+                  {o.label}
+                  {o.id === 'lines' && <span className="text-slate-500"> (default)</span>}
+                </span>
+                <span className="block text-[11.5px] text-slate-400 mt-0.5">
+                  {off ? 'For a dub in one voice. With several speakers each line is voiced on its own.' : o.detail}
+                </span>
+              </span>
+            </label>
+          );
+        })}
+      </fieldset>
       <div className="flex flex-col gap-1.5">
         <label htmlFor="sync-precision" className={sectionLabel}>
           Precision
@@ -259,24 +313,11 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           </span>
         </span>
       </label>
-      <label className="flex items-start gap-2.5 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={options.matchLoudness}
-          disabled={isSyncing}
-          onChange={(e) => onOptionsChange((o) => ({ ...o, matchLoudness: e.target.checked }))}
-          className="mt-0.5 accent-indigo-500"
-        />
-        <span>
-          <span className="block text-[13px] text-slate-200">Even out loudness</span>
-          <span className="block text-[11.5px] text-slate-400 mt-0.5">Off, each line keeps exactly the level it was voiced at.</span>
-        </span>
-      </label>
       <button
         type="button"
         onClick={() => onOptionsChange(defaultSyncOptions())}
         disabled={isSyncing || isDefaultOptions(options)}
-        title={isDefaultOptions(options) ? 'Already on the default settings' : 'Phrase precision, Natural line joins, both suggestions on, loudness as voiced'}
+        title={isDefaultOptions(options) ? 'Already on the default settings' : 'Line by line, phrase precision, Natural line joins, no suggestions'}
         className="self-start flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
       >
         <RotateCcw className="w-3.5 h-3.5" /> Reset to defaults
@@ -313,6 +354,13 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       </div>
     )}
 
+    {extras && (
+      <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
+        <span className={sectionLabel}>Script and tools</span>
+        {extras}
+      </div>
+    )}
+
     <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2">
       {isSyncing ? (
         <button
@@ -330,15 +378,15 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           disabled={Boolean(blockedReason)}
           className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
         >
-          {synced ? <RefreshCw className="w-4 h-4" /> : <Scissors className="w-4 h-4" />}
-          {synced ? 'Sync again' : 'Sync'}
+          {synced ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+          {synced ? 'Sync again' : 'Dub & sync'}
         </button>
       )}
       {blockedReason && !isSyncing ? (
         <p className="text-center text-[11.5px] text-amber-300">{blockedReason}</p>
       ) : error && !isSyncing ? (
         <p role="alert" className="text-center text-[11.5px] text-rose-300">
-          Sync failed: {error}
+          Dub failed: {error}
         </p>
       ) : (
         <p className="text-center text-[11.5px] text-slate-500">
@@ -347,12 +395,19 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
             : synced && pendingCount > 0
               ? `Voices only the ${pendingCount === 1 ? 'changed line' : `${pendingCount} changed lines`} again.`
               : synced
-                ? 'Places every line again with these settings.'
-                : previewShown && (previewLongCount > 0 || previewShortCount > 0)
-                  ? `${previewNote(previewLongCount, previewShortCount)} You can sync anyway.`
-                  : hasDub
-                  ? 'Voices every line and replaces the current dub audio.'
-                  : 'Voices every line with the voice from Final dub.'}
+                ? 'Places every line again with these settings; a new voice or voice setting voices them again.'
+                : [
+                    previewShown && (previewLongCount > 0 || previewShortCount > 0)
+                      ? `${previewNote(previewLongCount, previewShortCount)} You can dub anyway.`
+                      : options.voicing === 'continuous' && !multiSpeaker
+                        ? 'Reads the script in one take, then cuts each line from it and places it on the original.'
+                        : hasDub
+                          ? 'Voices every line again and places it on the original.'
+                          : 'Voices every line and places it on the original.',
+                    costNote,
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
         </p>
       )}
     </div>
@@ -396,9 +451,11 @@ export interface SyncResultsPanelProps {
   /** The original and the synced dub, drawn behind the lines of the alignment view. */
   sourceBuffer?: AudioBuffer | null;
   dubBuffer?: AudioBuffer | null;
+  /** One continuous read: its progress while the script is voiced in one take, before the lines are placed. */
+  reading?: DubProgress | null;
 }
 
-/** The main column of step 4: what Sync does, its progress, then how every line landed. */
+/** The Dub step's main panel: what the dub will take, its progress, then how every line landed. */
 export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   report,
   handEdits = 0,
@@ -422,6 +479,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   onSuggestLine,
   sourceBuffer,
   dubBuffer,
+  reading = null,
 }) => {
   const review = useMemo(() => {
     if (!report) return [];
@@ -459,7 +517,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
     <section aria-label="Sync" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0">
       <div>
         <div className="flex flex-wrap items-center gap-2.5">
-          <h2 className="text-[15px] font-semibold text-slate-100">Sync to the original</h2>
+          <h2 className="text-[15px] font-semibold text-slate-100">{report || isSyncing ? 'Synced dub' : 'Dub, in sync with the original'}</h2>
           {report && !isSyncing && <SyncVerdictBadge report={report} />}
           {isSyncing && (
             <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">
@@ -467,7 +525,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             </span>
           )}
           {idle && (
-            <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full border border-slate-700 text-slate-400">Not synced</span>
+            <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full border border-slate-700 text-slate-400">Not dubbed yet</span>
           )}
           {report && !isSyncing && handEdits > 0 && (
             <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
@@ -501,6 +559,31 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           <p className="sm:max-w-[16rem] text-[12.5px] text-slate-400">
             {blockedReason || 'Pick the settings on the right, then press Sync.'}
           </p>
+        </div>
+      )}
+
+      {isSyncing && reading && (
+        <div className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3.5 py-3" role="status" aria-live="polite">
+          <div className="flex items-center gap-2 text-[12.5px] text-slate-100">
+            <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin shrink-0" />
+            {reading.phase === 'listening'
+              ? 'Listening to the original to match its delivery…'
+              : reading.phase === 'joining'
+                ? 'Read in one take. Putting the passages together…'
+                : 'Reading the script in one take…'}
+            {reading.totalChars > 0 && (
+              <span className="ml-auto font-mono text-[11px] text-slate-500 tabular-nums">
+                {Math.round(Math.min(1, reading.charsDone / reading.totalChars) * 100)}%
+              </span>
+            )}
+          </div>
+          <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-cyan-400/80 transition-[width] duration-500"
+              style={{ width: `${Math.max(2, reading.totalChars > 0 ? Math.min(100, (reading.charsDone / reading.totalChars) * 100) : 2)}%` }}
+            />
+          </div>
+          <p className="text-[11.5px] text-slate-500">Then each line is cut from the read and placed on the original.</p>
         </div>
       )}
 
@@ -587,10 +670,10 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           {(report.summary.fromDub ?? 0) > 0 && (
             <p className="text-xs text-slate-400">
               {report.summary.fromDub === report.summary.lines
-                ? `All ${report.summary.lines} lines were taken from your Final dub, so they sound exactly as the dub does.`
-                : `${report.summary.fromDub} of ${report.summary.lines} lines were taken from your Final dub, so they sound exactly as the dub does. The other ${
+                ? `All ${report.summary.lines} lines were cut from the continuous read, so they keep its flow.`
+                : `${report.summary.fromDub} of ${report.summary.lines} lines were cut from the continuous read, so they keep its flow. The other ${
                     report.summary.lines - (report.summary.fromDub ?? 0)
-                  } were voiced again: their words changed after the dub, or you asked for a retake.`}
+                  } were voiced on their own: their words changed after the read, or you asked for a retake.`}
             </p>
           )}
           {(report.summary.meaningRejected ?? 0) > 0 && (

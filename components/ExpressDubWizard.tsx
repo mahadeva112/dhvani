@@ -1,6 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
-  Volume2,
   Play,
   Pause,
   CheckCircle2,
@@ -53,7 +52,7 @@ import {
   SeparatorVertical,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
-import { hasTranscript } from '../services/projects';
+import { hasTranscript } from '../services/steps';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
 import { SpeakerBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
@@ -107,6 +106,7 @@ import {
   measureSpeechSeconds,
   scriptCharacterCount,
   speakingRate,
+  syncedSpeakingRate,
   suggestShorterLine,
   suggestLongerLine,
   syncedSegments,
@@ -115,9 +115,9 @@ import {
 } from '../services/syncService';
 import type { EstimateMethod, LineContext, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { syllableRate } from '../services/speechTiming';
-import { SyncPreviewPanel, useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor } from './SyncPreviewPanel';
 import type { RewriteDirection } from './SyncPreviewPanel';
-import { FitMeter, ScriptFitStrip, fitAdvice, needsFix } from './FinalScriptFit';
+import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix } from './FinalScriptFit';
 import { SaveScriptMenu } from './SaveScriptMenu';
 import { hueOf, lineIndexByCue, withAlpha } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
@@ -229,10 +229,6 @@ const reviewLineOf = (seg: AudioSegment, text: string, sourceText: string): Sync
 /** True when a cue's line ends well before the original speaker stops: one to make fuller. */
 const endsEarly = (seg: AudioSegment, text: string) => reviewLineOf(seg, text, '').status === 'short';
 
-/** Rough time left, in words. */
-const formatTimeLeft = (seconds: number) =>
-  seconds < 60 ? 'Less than a minute left' : `About ${Math.round(seconds / 60)} min left`;
-
 /** 125.4 -> "2:05", 3725 -> "1:02:05" */
 const formatClock = (seconds: number) => {
   const t = Math.max(0, Math.floor(seconds || 0));
@@ -286,16 +282,14 @@ const railButton =
 
 /**
  * The step a job has got to: source until it is transcribed, review until
- * there is a dub, then the final dub, and Sync once the dub is synced.
+ * there is a dub, then Dub.
  */
 export const stepForJob = (job: BatchJob | null): number =>
   !job || !hasTranscript(job.segments)
     ? 1
-    : job.syncedAudioUrl
-      ? 4
-      : job.synthesizedAudioUrl || job.synthAudioBuffer
-        ? 3
-        : 2;
+    : job.syncedAudioUrl || job.synthesizedAudioUrl || job.synthAudioBuffer
+      ? 3
+      : 2;
 
 interface ExpressDubWizardProps {
   /** The step on screen, owned by App so the header can show and change it. */
@@ -327,12 +321,11 @@ interface ExpressDubWizardProps {
   isTranscribing: boolean;
   /** Stops the transcription in flight, on the server too. */
   onCancelTranscription?: () => void;
-  /** The last step that may be opened, and why each later one is locked (services/projects.ts openSteps). */
+  /** The last step that may be opened, and why each later one is locked (services/steps.ts openSteps). */
   openUpTo?: number;
   lockedWhy?: Record<number, string>;
   /** The last transcription of this project was cancelled by the user. */
   transcriptionCancelled?: boolean;
-  onSynthesizeMaster: () => Promise<void>;
   /** Display name of the ElevenLabs model the dub is generated with. */
   ttsModelName?: string;
   /** The ElevenLabs model the dub is voiced with, and the models to choose from. */
@@ -345,7 +338,7 @@ interface ExpressDubWizardProps {
   /** With Enhance emotion: tag the dub from the source audio's delivery instead of guessing from the script. */
   emotionMatchSource?: boolean;
   onEmotionMatchSourceChange?: (enabled: boolean) => void;
-  /** Brings a dub's passages to one loudness; off keeps each at the level it was voiced at. */
+  /** Brings a dub's lines (or, with several speakers, each speaker) to one loudness; off keeps each at the level it was voiced at. */
   dubMatchLoudness?: boolean;
   onDubMatchLoudnessChange?: (enabled: boolean) => void;
   /** Used to load the voice's own ElevenLabs settings, which the sliders start from. */
@@ -353,12 +346,7 @@ interface ExpressDubWizardProps {
   /** Null means the voice's own ElevenLabs settings are used. */
   elVoiceSettings?: ElevenLabsVoiceSettings | null;
   onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
-  isSynthesizing: boolean;
-  /** Progress of the dub in flight, polled from the server; null before the first report. */
-  dubProgress?: DubProgress | null;
-  isCancellingDub?: boolean;
-  onCancelSynthesis?: () => void;
-  /** Sync: a dub voiced line by line and placed on the original's phrases. Omitted hides the panel. */
+  /** Dub & sync: the dub, voiced line by line and placed on the original's phrases. */
   onSyncDub?: (options: SyncOptions) => void;
   /** Edit timing: the synced dub's lines changed by hand, with a name for the change. Omitted hides Edit timing. */
   onSyncEditsChange?: (edits: SyncEdits, label: string) => void;
@@ -373,6 +361,8 @@ interface ExpressDubWizardProps {
   onRetrySyncEditRender?: () => void;
   isSyncing?: boolean;
   syncProgress?: SyncProgress | null;
+  /** One continuous read: its progress while the script is voiced in one take, before Sync places the lines. */
+  readProgress?: DubProgress | null;
   isCancellingSync?: boolean;
   onCancelSync?: () => void;
   /** Why the last sync failed, shown in the panel. */
@@ -395,7 +385,7 @@ interface ExpressDubWizardProps {
   trackMode: 'source' | 'synth' | 'both';
   /** Switches what is heard as one action; see TrackSwitchOptions. */
   onTrackModeChange: (mode: 'source' | 'synth' | 'both', options?: TrackSwitchOptions) => void;
-  /** The listening level of each track in the Final dub and Sync players; solo is `trackMode`. */
+  /** The listening level of each track in the Dub step's player; solo is `trackMode`. */
   mixerLevels?: MixerLevels;
   onMixerLevelChange?: (track: MixerTrack, patch: Partial<TrackLevel>) => void;
   /** A track's peak level right now, 0 to 1, for its meter. */
@@ -468,7 +458,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   openUpTo = 4,
   lockedWhy = {},
   transcriptionCancelled = false,
-  onSynthesizeMaster,
   ttsModelName = 'ElevenLabs',
   elModelId,
   emotionEnhance = false,
@@ -482,10 +471,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   elApiKey = '',
   elVoiceSettings = null,
   onElVoiceSettingsChange,
-  isSynthesizing,
-  dubProgress = null,
-  isCancellingDub = false,
-  onCancelSynthesis,
   onSyncDub,
   onSyncEditsChange,
   syncEditStatus = { state: 'ready' },
@@ -495,6 +480,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onRetrySyncEditRender,
   isSyncing = false,
   syncProgress = null,
+  readProgress = null,
   isCancellingSync = false,
   onCancelSync,
   syncError = null,
@@ -555,7 +541,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Pro Review Suite Mode & Controls
   const [reviewMode, setReviewMode] = useState<ReviewMode>('table');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight' | 'short'>('all');
+  const [pacingFilter, setPacingFilter] = useState<'all' | 'risk' | 'tight' | 'short' | 'fix'>('all');
   // Several speakers: whose cues the review shows (none: everyone), and labels to check.
   const [speakerFilter, setSpeakerFilter] = useState<string[]>([]);
   const [slipsOnly, setSlipsOnly] = useState(false);
@@ -584,8 +570,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const isListExpanded = true;
   const [isSrtModalOpen, setIsSrtModalOpen] = useState<boolean>(false);
   const [isAlignModalOpen, setIsAlignModalOpen] = useState<boolean>(false);
-  /** Sync step: the player's lanes are the Edit timing timeline. */
+  /** Dub step: the player's lanes are the Edit timing timeline. */
   const [editingTiming, setEditingTiming] = useState(false);
+  /** Dub step, once synced: the voice panel unfolded to change the voice before syncing again. */
+  const [voicePanelOpen, setVoicePanelOpen] = useState(false);
+  /** A cue for Review to open on and scroll to: the last cue of a line sent there to be reworded. */
+  const [reviewFocusCue, setReviewFocusCue] = useState<string | null>(null);
   const [srtOptions, setSrtOptions] = useState<SrtOptions>(() => {
     try {
       const saved = localStorage.getItem('dhvani_srt_options');
@@ -764,7 +754,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
   // The header shows and switches steps, so the step lives in App.
   const setStepOverride = onStepChange;
-  // Step 4's settings, shared by its rail and the "Sync again" in its results.
+  // The Dub step's sync settings, shared by its rail and the "Sync again" in its results.
   const [syncOptions, setSyncOptions] = useSyncOptions();
   const hasSegments = Boolean(activeJob && activeJob.segments.length > 0);
 
@@ -809,10 +799,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const scriptIsCustom = activeJob?.targetSource === 'custom';
 
   /*
-   * The sync preview: step 4's before the first sync, and the Final script's
-   * sync fit on step 3. The voice's speaking rate comes from the Final dub
-   * when there is one (the characters it was voiced from over its seconds of
-   * speech), else a typical rate, and both say which.
+   * The sync preview: Review's line fit and suggestions, and the Dub step's
+   * before the first sync. The voice's speaking rate comes from the last sync
+   * (each line's characters over the seconds its words took), else from a dub
+   * made before Dub and Sync were one step, else a typical rate, and each
+   * place says which.
    */
   const dubSpeechSeconds = useMemo(
     () => (activeJob?.synthAudioBuffer ? measureSpeechSeconds(activeJob.synthAudioBuffer) : 0),
@@ -821,16 +812,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const scriptCharacters = useMemo(() => scriptCharacterCount(segments), [segments]);
   // Counted when the dub was made, so editing lines afterwards doesn't shift the rate. Older dubs didn't save it.
   const rateCharacters = activeJob?.dubScriptCharacters ?? scriptCharacters;
-  const measuredRate = activeJob?.synthesizedAudioUrl ? speakingRate(rateCharacters, dubSpeechSeconds) : null;
+  const syncRate = useMemo(() => syncedSpeakingRate(activeJob?.syncReport), [activeJob?.syncReport]);
+  const measuredRate = syncRate ?? (activeJob?.synthesizedAudioUrl ? speakingRate(rateCharacters, dubSpeechSeconds) : null);
   // Rounded so small script edits don't move every estimate and refetch the preview.
   const previewRate = Math.round((measuredRate ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   /*
-   * The Sync step plays the synced dub as its second track once there is one
-   * (App picks the same file), every other step the dub, which Sync leaves as
-   * it was.
+   * The second track is the synced dub once there is one (App picks the same
+   * file), else a dub made before Dub and Sync were one step.
    */
-  const onSyncedTrack = activeStep === 4 && hasSyncReport;
+  const onSyncedTrack = hasSyncReport;
   /** The cues where Sync placed them, for subtitles that match the synced dub. */
   const syncedCues = useMemo(
     () => (hasSyncReport && activeJob?.syncReport ? syncedSegments(segments, activeJob.syncReport) : undefined),
@@ -961,7 +952,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
   const syncPreview = useSyncPreview({
     enabled:
-      ((activeStep === 4 && !hasSyncReport) || (activeStep === 3 && !isSynthesizing)) && !isSyncing && segments.length > 0,
+      ((activeStep === 2 && !awaitingScript) || (activeStep === 3 && !hasSyncReport)) && !isSyncing && segments.length > 0,
     segments,
     precision: syncOptions.precision,
     join: syncOptions.join,
@@ -1020,9 +1011,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       count,
       context: lineContextOf(unit.cueIds),
     });
-  /** Step 3's rewording, kept apart from step 4's so each step's rows are its own. */
-  const finalFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
-  /** The Review step's rewording, one cue at a time. */
+  /** Review's rewording of a sync line, the one place a line is reworded before it is voiced. */
+  const lineFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
+  /** Review's rewording of one cue, while the line fit is still being worked out. */
   const reviewFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: applyPreviewLine, onRestore: restoreCueTexts });
   /** The preview with the lengths the user trimmed lines to on the timeline; both steps use it. */
   /** Quick or Expert, the user's pick, kept across restarts; both steps' previews follow it. */
@@ -1047,7 +1038,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const base = syncPreview.preview;
     return withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond) : base, segments);
   }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond]);
-  /** The dub bar picked on the Final dub timeline, for trimming. */
+  /** The dub bar picked on the Dub step's preview timeline, for trimming. */
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   const selectedLine = linePreview?.units.find((u) => u.key === selectedLineKey) || null;
   /**
@@ -1069,7 +1060,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     [cueLines]
   );
   /**
-   * The Final dub lanes in line colours: each cue's stretch of the original and
+   * The Dub step's lanes in line colours: each cue's stretch of the original and
    * of the dub, and where each line starts on both. Kept between renders, since
    * a new set of spans redraws the waveforms.
    */
@@ -1113,7 +1104,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         return seconds === null ? rest : { ...rest, dubTargetSeconds: seconds };
       })
     );
-    finalFixes.reset(unit);
+    lineFixes.reset(unit);
   };
   const [finalScriptFilter, setFinalScriptFilter] = useState<ScriptFitFilter>('all');
   /**
@@ -1133,7 +1124,46 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     });
     return groups;
   }, [segments, linePreview]);
-  const finalToFix = (linePreview?.units || []).filter((u) => needsFix(u) && finalFixes.notStarted(u));
+  /** Each cue's sync line, for Review to show a line's fit and rewording once, under its last cue. */
+  const unitOfCue = useMemo(() => {
+    const map = new Map<string, SyncPreviewUnit>();
+    for (const unit of linePreview?.units || []) for (const id of unit.cueIds) map.set(String(id), unit);
+    return map;
+  }, [linePreview]);
+  /** Lines with no suggestion asked for yet, for Review's Suggest for all. */
+  const linesToFix = (linePreview?.units || []).filter((u) => needsFix(u) && lineFixes.notStarted(u));
+  // A line stays under Lines to fix once it has been worked on, even when it now fits. A key, so the filter reruns only when they change.
+  const fixCueKey = (linePreview?.units || [])
+    .filter((u) => needsFix(u) || lineFixes.worked(u))
+    .flatMap((u) => u.cueIds.map(String))
+    .join(' ');
+  const fixCueIds = useMemo(() => new Set(fixCueKey.split(' ')), [fixCueKey]);
+  const linesToFixCount = (linePreview?.units || []).filter(needsFix).length;
+  /** Opens a line in Review, where lines are edited and reworded, scrolled to its last cue. */
+  const fixInReview = (unit: SyncPreviewUnit) => {
+    setSearchQuery('');
+    setPacingFilter('all');
+    setSpeakerFilter([]);
+    setSlipsOnly(false);
+    setReviewMode('table');
+    setReviewFocusCue(String(unit.cueIds[unit.cueIds.length - 1]));
+    setStepOverride(2);
+  };
+  const fixInReviewButton = (unit: SyncPreviewUnit) => (
+    <button
+      type="button"
+      onClick={() => fixInReview(unit)}
+      className="mt-1.5 flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+      title="Edit this line and get suggestions in Review"
+    >
+      <Edit3 className="w-3.5 h-3.5" /> {directionFor(unit) === 'longer' ? 'Make it fuller in Review' : 'Shorten it in Review'}
+    </button>
+  );
+  /** After a sync, the voice panel unfolds and comes into view. */
+  const openVoicePanel = () => {
+    setVoicePanelOpen(true);
+    document.getElementById('dub-voice')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const filteredSegments = useMemo(() => {
     return segments.filter((seg) => {
@@ -1155,9 +1185,21 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       if (pacingFilter === 'risk') return cps > 18;
       if (pacingFilter === 'tight') return cps > 14 && cps <= 18;
       if (pacingFilter === 'short') return endsEarly(seg, getTargetText(seg));
+      if (pacingFilter === 'fix') return fixCueIds.has(String(seg.id));
       return true;
     });
-  }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips]);
+  }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips, fixCueIds]);
+
+  // A line sent here from the Dub step: open its page, then, once its row is drawn, bring its last cue into view.
+  useEffect(() => {
+    if (activeStep !== 2 || !reviewFocusCue) return;
+    const idx = filteredSegments.findIndex((s) => String(s.id) === reviewFocusCue);
+    if (idx === -1) return;
+    const page = Math.floor(idx / itemsPerPage) + 1;
+    if (page !== currentPage) return setCurrentPage(page);
+    document.getElementById(`cue-card-${reviewFocusCue}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setReviewFocusCue(null);
+  }, [activeStep, reviewFocusCue, filteredSegments, currentPage]);
 
   const activeSegmentId = useMemo(() => {
     return segments.find((s) => sourceClockTime >= s.startTime && sourceClockTime <= s.endTime)?.id || null;
@@ -1212,55 +1254,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       '';
     return full.trim().split(/\s+[-–—|]\s+/)[0];
   }, [availableVoices, elVoiceId]);
-
-  /**
-   * Where a dub in flight has got to, as a cue. Streamed audio is measured in
-   * seconds against the source's length; without streaming only finished
-   * passages count, so the cue range of the passage being voiced is shown.
-   */
-  const dubStartedAtRef = useRef<number | null>(null);
-  if (isSynthesizing && dubStartedAtRef.current === null) dubStartedAtRef.current = Date.now();
-  if (!isSynthesizing) dubStartedAtRef.current = null;
-
-  const dubRun = useMemo(() => {
-    if (!isSynthesizing) return null;
-    // Cumulative share of the script's characters at the end of each cue.
-    const lengths = segments.map((seg) => getTargetText(seg).length);
-    const total = lengths.reduce((a, b) => a + b, 0) || 1;
-    let running = 0;
-    const cueEnds = lengths.map((n) => (running += n) / total);
-    const cueAt = (fraction: number) => {
-      const i = cueEnds.findIndex((end) => end > fraction);
-      return i === -1 ? segments.length - 1 : i;
-    };
-
-    const p = dubProgress;
-    const sourceLength =
-      activeJob?.audioBuffer?.duration || segments[segments.length - 1]?.endTime || 0;
-    const charsFraction = p && p.totalChars > 0 ? p.charsDone / p.totalChars : 0;
-    const secondsFraction = p?.streaming && sourceLength > 0 ? p.secondsGenerated / sourceLength : 0;
-    const joining = p?.phase === 'joining';
-    // Never claim the end before the last passage is in.
-    const fraction = joining ? 1 : Math.min(0.98, Math.max(charsFraction, secondsFraction));
-
-    // Without streaming, the passage being voiced runs from what's done to the next boundary.
-    const passageEnd = p && p.passageCount > 0 ? Math.min(1, charsFraction + 1 / p.passageCount) : 1;
-    const elapsed = dubStartedAtRef.current ? (Date.now() - dubStartedAtRef.current) / 1000 : 0;
-    const secondsLeft = fraction > 0.05 && !joining ? (elapsed * (1 - fraction)) / fraction : null;
-
-    return {
-      phase: p?.phase || 'preparing',
-      streaming: p?.streaming !== false,
-      fraction,
-      currentCue: cueAt(fraction),
-      rangeStart: cueAt(charsFraction),
-      rangeEnd: cueAt(Math.max(charsFraction, passageEnd - 0.0001)),
-      cuesDone: fraction >= 1 ? segments.length : cueAt(fraction),
-      secondsLeft,
-      passagesDone: p?.passagesDone ?? 0,
-      passageCount: p?.passageCount ?? 0,
-    };
-  }, [isSynthesizing, dubProgress, segments, activeJob?.audioBuffer]);
 
   const pacingCounts = useMemo(() => {
     const counts = { natural: 0, tight: 0, fast: 0, short: 0 };
@@ -1406,7 +1399,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     subtitleChoice.track === 'source' ? subtitleSourceLanguage || 'Original' : targetLanguage || 'Captions';
   const subtitleTimingLabel = { synced: 'the synced dub', dubbed: 'the dub', original: 'the original speech' }[subtitleTiming];
 
-  /** One-click subtitles from step 4, with the language, timing and style saved in Export subtitles. */
+  /** One-click subtitles from the Dub step, with the language, timing and style saved in Export subtitles. */
   const handleExportStepSubtitles = () => {
     const cues = buildSubtitleSegments({
       segments,
@@ -1486,8 +1479,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   };
 
   /*
-   * The original and a dub, one lane each, as the Final dub step and the Sync
-   * step show them, on one shared timeline of `span` seconds: a line that
+   * The original and the synced dub, one lane each, as the Dub step shows
+   * them, on one shared timeline of `span` seconds: a line that
    * starts later in the dub is drawn later, and the shorter track ends early.
    * Click a lane to jump there. A lane the track mode leaves out is dimmed,
    * and a click on it starts it at that point.
@@ -2088,6 +2081,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         { id: 'risk' as const, label: 'Too fast', count: pacingCounts.fast, dot: 'bg-rose-400' },
                         { id: 'tight' as const, label: 'Tight', count: pacingCounts.tight, dot: 'bg-amber-400' },
                         { id: 'short' as const, label: 'Ends early', count: pacingCounts.short, dot: 'bg-sky-400' },
+                        ...(linePreview ? [{ id: 'fix' as const, label: 'Lines to fix', count: linesToFixCount, dot: 'bg-indigo-400' }] : []),
                       ].map((f) => (
                         <button
                           key={f.id}
@@ -2164,6 +2158,26 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 )}
               </div>
 
+              {/* Each line's fit at the voice's rate, and the one place to reword lines before they are voiced */}
+              {!awaitingScript && reviewMode !== 'qa' && (
+                <ScriptFitStrip
+                  preview={linePreview}
+                  loading={syncPreview.loading}
+                  error={syncPreview.error}
+                  rateMeasured={measuredRate !== null}
+                  toFix={{
+                    shorter: linesToFix.filter((u) => lineFixes.directionOf(u) === 'shorter').length,
+                    longer: linesToFix.filter((u) => lineFixes.directionOf(u) === 'longer').length,
+                  }}
+                  onFixAll={() => {
+                    lineFixes.suggestAll(linesToFix);
+                    setReviewMode('table');
+                    setPacingFilter('fix');
+                  }}
+                  estimate={<EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />}
+                />
+              )}
+
               {/* Active view */}
               <div ref={scriptScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
                 <div
@@ -2200,6 +2214,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               getPaceLevel={(seg) => getPace(getTargetText(seg), seg.duration).level}
               isEndingEarly={(seg) => endsEarly(seg, getTargetText(seg))}
               pacingFilter={pacingFilter}
+              inLineToFix={(seg) => fixCueIds.has(String(seg.id))}
               searchQuery={searchQuery}
               activeSegmentId={activeSegmentId}
               isPlaying={isPlaying}
@@ -2554,6 +2569,32 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       />
                       <CharCount text={tgtText} className="block mt-1" />
                       {(() => {
+                        if (linePreview) {
+                          // A sync line can span several cues: its fit and rewording sit once, under its last cue.
+                          const unit = unitOfCue.get(String(seg.id));
+                          if (!unit || String(unit.cueIds[unit.cueIds.length - 1]) !== String(seg.id)) return null;
+                          const fix = lineFixes.controlsFor(unit);
+                          if (!needsFix(unit) && fix.state.kind === 'idle') return null;
+                          const note = fix.state.kind === 'idle' ? { text: fitAdvice(unit), tone: '' } : lineNote(unit, fix.state, fix.direction);
+                          const tone = note.tone || (unit.status === 'long' ? 'text-amber-300' : unit.status === 'short' ? 'text-sky-300' : 'text-slate-400');
+                          const firstCue = cueIndexById.get(String(unit.cueIds[0]));
+                          return (
+                            <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-2">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Sync fit</span>
+                                <span className="font-mono text-[11px] text-slate-300 tabular-nums">{fitLabel(unit)}</span>
+                                {unit.cueIds.length > 1 && firstCue !== undefined && (
+                                  <span className="text-[11px] text-slate-500">
+                                    One line with cues {firstCue + 1}–{cueNumber}
+                                  </span>
+                                )}
+                              </div>
+                              {note.text && <p className={`mt-1 text-[11.5px] leading-snug ${tone}`}>{note.text}</p>}
+                              <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...fix} />
+                            </div>
+                          );
+                        }
+                        // Until the line fit is worked out, each cue is judged on its own.
                         const { cps: lineCps, ...line } = reviewLineOf(seg, tgtText, srcText);
                         const fix = reviewFixes.controlsFor(line);
                         const flagged = line.status === 'long' || line.status === 'short';
@@ -3098,8 +3139,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </div>
 
               {/*
-                Continuing only moves on to Step 3. Dubbing spends ElevenLabs
-                credits, so it starts from Step 3 once a voice is picked. A dub can
+                Continuing only moves on to the Dub step. Dubbing spends ElevenLabs
+                credits, so it starts there once the voice is set. A dub can
                 still be run with QA issues outstanding, but not without being told.
               */}
               <div className="px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2">
@@ -3113,7 +3154,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   title={openUpTo < 3 ? lockedWhy[3] : undefined}
                   className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
                 >
-                  {isSynthesizing ? (
+                  {isSyncing ? (
                     <>
                       <RefreshCw className="w-4 h-4 animate-spin" /> Dubbing in progress, view it
                     </>
@@ -3123,20 +3164,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </>
                   )}
                 </button>
-                {activeJob.synthesizedAudioUrl && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setStepOverride(3);
-                      await onSynthesizeMaster();
-                    }}
-                    disabled={isSynthesizing || activeJob.segments.length === 0}
-                    className={`${railButton} h-9`}
-                    title="Discard the existing dub and make it again from the current script"
-                  >
-                    <Volume2 className="w-3.5 h-3.5" /> Dub again from this script
-                  </button>
-                )}
                 <p className={`text-center text-[11.5px] ${qaBlockingCount > 0 ? 'text-rose-300' : 'text-slate-500'}`}>
                   {qaBlockingCount > 0
                     ? `${qaBlockingCount} blocking ${qaBlockingCount === 1 ? 'issue' : 'issues'} open. You can still dub.`
@@ -3150,953 +3177,169 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       )}
 
       {/* ========================================================================= */}
-      {/* STEP 3: FINAL DUB */}
+      {/* STEP 3: DUB (voice the script, sync it to the original, then edit it) */}
       {/* ========================================================================= */}
       {activeStep === 3 && activeJob && (() => {
-        const hasDub = Boolean(activeJob.synthesizedAudioUrl);
-        const sourceBuffer = activeJob.audioBuffer;
-        const totalLength = duration || dubBuffer?.duration || sourceBuffer?.duration || 0;
-        // Both lanes share one timeline, as long as the longer track, so a dub that runs long shows it.
-        const sourceLength = duration || sourceBuffer?.duration || 0;
-        const dubLength = dubBuffer?.duration || 0;
-        const laneSpan = Math.max(sourceLength, dubLength);
-        const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
-        const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
-        const openIssues = openFindings.length;
-        const { cueColors, sourceSpans, dubSpans, lineStarts } = lineLanes;
-        const laneLinks =
-          laneSpan > 0 && dubLength > 0
-            ? lineStarts.map((start) => ({ from: start.source / laneSpan, to: start.dub / laneSpan, color: start.color }))
-            : undefined;
-
-        return (
-        <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
-          {/* Dub panel: ready, dubbing, or finished */}
-          <section aria-label="Dub" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
-            {isSynthesizing && dubRun ? (
-              <>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-[17px] font-semibold text-slate-100">Dubbing in {targetLanguage}</h2>
-                  <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">
-                    {isCancellingDub ? 'Cancelling…' : 'In progress'}
-                  </span>
-                  <span className="text-xs text-slate-400">{[voiceShortName, ttsModelName].filter(Boolean).join(' · ')}</span>
-                  {onCancelSynthesis && (
-                    <button
-                      type="button"
-                      onClick={onCancelSynthesis}
-                      disabled={isCancellingDub}
-                      className={`ml-auto ${railButton}`}
-                      title="Stop the dub. The passage being voiced finishes on ElevenLabs; nothing after it is requested."
-                    >
-                      <X className="w-3.5 h-3.5" /> {isCancellingDub ? 'Cancelling…' : 'Cancel'}
-                    </button>
-                  )}
-                </div>
-
-                <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                  {dubRun.phase === 'preparing' || dubRun.phase === 'listening' ? (
-                    <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
-                  ) : (
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-[width] duration-500"
-                      style={{ width: `${Math.max(2, dubRun.fraction * 100)}%` }}
-                    />
-                  )}
-                </div>
-
-                {/* One block per cue: voiced, being voiced, still to come */}
-                <div
-                  aria-hidden="true"
-                  className="grid gap-0.5"
-                  style={{ gridTemplateColumns: `repeat(${Math.min(segments.length, 120) || 1}, minmax(0, 1fr))` }}
-                >
-                  {Array.from({ length: Math.min(segments.length, 120) }, (_, cell) => {
-                    const perCell = segments.length / Math.min(segments.length, 120);
-                    const first = Math.floor(cell * perCell);
-                    const last = Math.max(first, Math.ceil((cell + 1) * perCell) - 1);
-                    const active =
-                      dubRun.phase === 'voicing' &&
-                      (dubRun.streaming
-                        ? dubRun.currentCue >= first && dubRun.currentCue <= last
-                        : last >= dubRun.rangeStart && first <= dubRun.rangeEnd);
-                    const done = last < dubRun.cuesDone && !active;
-                    return (
-                      <span
-                        key={cell}
-                        className={`h-3.5 rounded-sm ${done ? 'bg-indigo-500' : active ? 'bg-cyan-400 animate-pulse' : 'bg-slate-800'}`}
-                      />
-                    );
-                  })}
-                </div>
-
-                <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-[12.5px] text-slate-400" role="status" aria-live="polite">
-                  <span className="min-w-0">
-                    {dubRun.phase === 'listening' && 'Listening to the source audio to match its delivery…'}
-                    {dubRun.phase === 'preparing' && 'Preparing the script for the voice…'}
-                    {dubRun.phase === 'joining' && 'All cues voiced. Putting the passages together…'}
-                    {dubRun.phase === 'voicing' &&
-                      (dubRun.streaming ? (
-                        <>
-                          Voicing cue <b className="text-slate-100 font-medium tabular-nums">{dubRun.currentCue + 1} of {segments.length}</b>
-                          {segments[dubRun.currentCue] && (
-                            <span className="text-slate-500">: “{getTargetText(segments[dubRun.currentCue])}”</span>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          Voicing cues{' '}
-                          <b className="text-slate-100 font-medium tabular-nums">
-                            {dubRun.rangeStart + 1}–{dubRun.rangeEnd + 1} of {segments.length}
-                          </b>
-                          {dubRun.passageCount > 1 && (
-                            <span className="text-slate-500">
-                              {' '}(part {Math.min(dubRun.passagesDone + 1, dubRun.passageCount)} of {dubRun.passageCount})
-                            </span>
-                          )}
-                        </>
-                      ))}
-                  </span>
-                  {dubRun.secondsLeft !== null && (
-                    <span className="shrink-0 text-slate-300">{formatTimeLeft(dubRun.secondsLeft)}</span>
-                  )}
-                </div>
-              </>
-            ) : !hasDub ? (
-              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-5 items-center">
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h2 className="text-[17px] font-semibold text-slate-100">Ready to dub</h2>
-                    <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full border border-slate-700 text-slate-400">Not started</span>
-                  </div>
-                  <div className="flex flex-wrap gap-x-8 gap-y-3">
-                    {[
-                      { value: segments.length.toLocaleString(), label: 'cues' },
-                      { value: dubCharacterCount.toLocaleString(), label: 'characters to voice' },
-                      { value: formatClock(totalLength), label: 'dub length' },
-                      {
-                        value: String(openIssues),
-                        label: openIssues === 1 ? 'QA issue open' : 'QA issues open',
-                        tone: openIssues > 0 ? 'text-amber-300' : 'text-emerald-300',
-                      },
-                    ].map((f) => (
-                      <div key={f.label}>
-                        <span className={`block text-[22px] font-semibold tabular-nums leading-tight ${f.tone || 'text-slate-100'}`}>{f.value}</span>
-                        <span className="text-xs text-slate-400">{f.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex flex-col md:items-end gap-1.5">
-                  <button
-                    type="button"
-                    onClick={onSynthesizeMaster}
-                    className="h-13 px-6 py-3.5 flex items-center justify-center gap-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[15px] font-semibold transition-colors cursor-pointer active:translate-y-px"
-                  >
-                    <Play className="w-4 h-4 fill-current" />
-                    Dub in {targetLanguage}
-                    {voiceShortName && ` with ${voiceShortName}`}
-                  </button>
-                  <p className="text-xs text-slate-500">Uses about {dubCharacterCount.toLocaleString()} ElevenLabs characters.</p>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-wrap items-center gap-3">
-                  <h2 className="text-[17px] font-semibold text-slate-100">{targetLanguage} dub</h2>
-                  <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
-                    <Check className="w-3 h-3" /> Ready
-                  </span>
-                  <span className="text-xs text-slate-400">
-                    {[voiceShortName, ttsModelName].filter(Boolean).join(' · ')}
-                  </span>
-                  <span className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-500">
-                    <Headphones className="w-3.5 h-3.5" /> Levels are for listening; the dub file is unchanged
-                  </span>
-                </div>
-
-                {renderTrackLanes(
-                  [
-                    { label: 'Original', track: 'source', length: sourceLength, buffer: sourceBuffer, dot: 'bg-cyan-400', color: 'text-slate-400/30', spans: sourceSpans },
-                    { label: `${targetLanguage} dub`, track: 'synth', length: dubLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-slate-400/30', spans: dubSpans },
-                  ],
-                  laneSpan || heardDuration,
-                  laneLinks
-                )}
-
-                {multiSpeaker && activeJob.dubMix && (
-                  <div className="rounded-xl border border-slate-800 bg-slate-950/40 px-3 py-2.5">
-                    <MixChecks mix={activeJob.dubMix} />
-                  </div>
-                )}
-
-                {/* Transport and live caption */}
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={() => activeCueIndex > 0 && seekSource(segments[activeCueIndex - 1].startTime)}
-                    className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
-                    aria-label="Previous cue"
-                  >
-                    <ChevronsLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onTogglePlay}
-                    className="w-11 h-11 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-pointer"
-                    aria-label={isPlaying ? 'Pause' : 'Play'}
-                  >
-                    {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = segments.find((s) => s.startTime > sourceClockTime + 0.05);
-                      if (next) seekSource(next.startTime);
-                    }}
-                    className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
-                    aria-label="Next cue"
-                  >
-                    <ChevronsRight className="w-4 h-4" />
-                  </button>
-                  <span className="font-mono text-sm text-slate-100 tabular-nums">
-                    <LiveClock currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} />{' '}
-                    <span className="text-slate-500">/ {formatClock((trackMode === 'both' && laneSpan) || heardDuration || totalLength)}</span>
-                  </span>
-
-                  <div
-                    aria-live="polite"
-                    className="flex-1 min-w-[15rem] flex items-center gap-3 px-3.5 py-2 rounded-xl bg-slate-950/60 border border-slate-800 min-h-[3.25rem]"
-                  >
-                    {activeCue ? (
-                      <>
-                        <span className="font-mono text-[10.5px] shrink-0 flex items-center gap-1.5" style={{ color: cueColors[activeCueIndex] ?? '#64748b' }}>
-                          <span className="w-2 h-2 rounded-sm" style={{ background: cueColors[activeCueIndex] ?? '#64748b' }} />#{String(activeCueIndex + 1).padStart(2, '0')}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-[15px] font-medium text-slate-100 leading-snug">{getTargetText(activeCue)}</span>
-                          <span className="block text-[11.5px] text-slate-400 truncate">{getSourceText(activeCue)}</span>
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-xs text-slate-500">Press play to follow the dub line by line.</span>
-                    )}
-                  </div>
-
-                  <select
-                    value={playbackRate}
-                    onChange={(e) => onPlaybackRateChange(Number(e.target.value))}
-                    className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
-                    aria-label="Playback speed"
-                  >
-                    {[0.75, 1, 1.25, 1.5].map((r) => (
-                      <option key={r} value={r} className="bg-slate-900">
-                        {r}×
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </>
-            )}
-          </section>
-
-          {/* Sync is step 4; the dub hands over to it here. */}
-          {onSyncDub && hasDub && !isSynthesizing && (
-            <section
-              aria-label="Next step"
-              className="flex flex-wrap items-center gap-x-4 gap-y-3 px-4 py-3.5 rounded-2xl border border-indigo-500/40 bg-indigo-950/30"
-            >
-              <span className="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0">
-                <Scissors className="w-4 h-4" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-100">
-                  {isSyncing
-                    ? 'Syncing the dub to the original'
-                    : hasSyncReport && activeJob.syncReport
-                      ? `Synced: ${activeJob.syncReport.summary.inSync} of ${activeJob.syncReport.summary.lines} lines in sync`
-                      : 'Next: sync the dub to the original'}
-                </p>
-                <p className="text-[12.5px] text-slate-400">
-                  {isSyncing
-                    ? 'It runs in step 4. You can keep working here.'
-                    : hasSyncReport && syncPendingLines.length > 0
-                      ? `${syncPendingLines.length === 1 ? '1 line has' : `${syncPendingLines.length} lines have`} changed since. Sync again to hear ${syncPendingLines.length === 1 ? 'it' : 'them'}.`
-                      : hasSyncReport
-                        ? 'Every line starts where the original line starts. The synced dub is in step 4; the dub here stays as it was.'
-                        : 'Each line is moved to start where the original line starts. The audio is never stretched.'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setStepOverride(4);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                disabled={openUpTo < 4}
-                title={openUpTo < 4 ? lockedWhy[4] : undefined}
-                className="h-10 px-4 flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors cursor-pointer active:translate-y-px shrink-0 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed"
-              >
-                {isSyncing ? 'View sync' : hasSyncReport ? 'Open sync' : 'Continue to sync'} <ArrowRight className="w-4 h-4" />
-              </button>
-            </section>
-          )}
-
-          {/* The Sync preview, as step 4 shows it, with trimming: pick a dub bar and drag its end to the length you want. */}
-          {!isSynthesizing && linePreview && (
-            <section aria-label="Sync preview" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2.5">
-                    <h2 className="text-[15px] font-semibold text-slate-100">Sync preview</h2>
-                    <EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />
-                  </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {estimateMethod === 'expert'
-                      ? `Counted in syllables at your voice's rate (${estimateBasis(linePreview, measuredRate !== null)}), with pauses at commas and full stops, a fast to slow range, and where the lips close. Sync still measures the real clips.`
-                      : `${measuredRate !== null ? 'An estimate' : 'A rough estimate'} from the text length, at ${linePreview.charsPerSecond.toFixed(1)} chars/s ${
-                          measuredRate !== null ? 'from this dub' : '(a typical rate)'
-                        }.`}{' '}
-                    Click a dub bar, then drag its end to the length you want; that line's suggestion aims for it.
-                  </p>
-                </div>
-                {syncPreview.loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
-              </div>
-              <PreviewCards preview={linePreview} />
-              <PreviewTimeline
-                units={linePreview.units}
-                reportedTime={sourceClockTime}
-                getLiveTime={getSourceLiveTime}
-                onSeek={previewSeek}
-                isPlaying={isPlaying}
-                onTogglePlay={previewTogglePlay}
-                selectedKey={selectedLineKey}
-                // Picking a line only shows it in the card below; the page stays where the user scrolled it.
-                onSelect={(unit) => setSelectedLineKey(unit.key)}
-                onTrim={trimLine}
-                charsPerSecond={linePreview.charsPerSecond}
-                offClockNote={previewOffClockNote}
-                onCurrentLine={(unit) => setNowLineKey(unit?.key ?? null)}
-                sourceBuffer={sourceBuffer}
-              />
-              {selectedLine &&
-                (() => {
-                  const unit = selectedLine;
-                  const fix = finalFixes.controlsFor(unit);
-                  const fixing = needsFix(unit) || fix.state.kind !== 'idle';
-                  const note = fix.state.kind === 'idle' ? fitAdvice(unit) : lineNote(unit, fix.state, fix.direction).text;
-                  const lineNumber = segments.findIndex((seg) => String(seg.id) === unit.key) + 1;
-                  return (
-                    <div className="rounded-xl border border-indigo-500/30 bg-slate-950/60 px-3.5 py-3">
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                        <span className="text-[13px] font-semibold text-slate-100">Line {String(lineNumber).padStart(2, '0')}</span>
-                        <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">{formatClock(unit.srcStart)}</span>
-                        <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">
-                          about {unit.estimate.toFixed(1)} s · slot {unit.slot.toFixed(1)} s · original speech {unit.spoken.toFixed(1)} s
-                        </span>
-                        <span className="ml-auto flex items-center gap-1.5">
-                          {unit.wantSeconds !== undefined && (
-                            <button type="button" onClick={() => trimLine(unit, null)} className={railButton} title="Go back to the length worked out from the slot">
-                              <RotateCcw className="w-3.5 h-3.5" /> Reset trim
-                            </button>
-                          )}
-                          <button type="button" onClick={() => setSelectedLineKey(null)} className={railButton} aria-label="Close this line">
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </span>
-                      </div>
-                      <p className="mt-1.5 text-[14px] text-slate-100 leading-snug">{unit.text}</p>
-                      {unit.sourceText && <p className="text-xs text-slate-500 mt-0.5">{unit.sourceText}</p>}
-                      <ExpertLineDetail unit={unit} />
-                      <p className={`text-[11.5px] mt-1.5 ${fixing ? (fix.direction === 'longer' ? 'text-sky-300' : 'text-amber-300') : 'text-slate-400'}`}>
-                        {note || 'Fits its slot. Drag the end of its bar to set a length of your own.'}
-                      </p>
-                      {fixing && <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...fix} />}
-                    </div>
-                  );
-                })()}
-            </section>
-          )}
-
-          {/* Script and delivery share one height */}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-stretch lg:flex-1">
-            <section
-              aria-label="Final script"
-              className="flex flex-col min-h-0 lg:h-0 lg:min-h-full bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
-            >
-              <div className="flex flex-wrap items-center gap-3 px-4 py-3.5 border-b border-slate-800">
-                <div className="min-w-0">
-                  <h2 className="text-[15px] font-semibold text-slate-100">Final script</h2>
-                  <p className="text-xs text-slate-400">What the voice says, cue by cue. Click a line to jump there.</p>
-                </div>
-                <div className="ml-auto flex flex-wrap items-center gap-2">
-                  <div role="group" aria-label="Script layout" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
-                    {[
-                      { id: 'dialogue' as const, label: 'Dialogue' },
-                      { id: 'timecoded' as const, label: 'Timecoded' },
-                      { id: 'bilingual' as const, label: 'Bilingual' },
-                    ].map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        aria-pressed={finalScriptLayout === m.id}
-                        onClick={() => setFinalScriptLayout(m.id)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                          finalScriptLayout === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCopyFullTargetScript(finalScriptLayout)}
-                    className={railButton}
-                    title={`Copy the ${targetLanguage} script in this layout`}
-                  >
-                    <Copy className="w-3.5 h-3.5" /> Copy
-                  </button>
-                  <button type="button" onClick={() => setStepOverride(2)} className={railButton}>
-                    <Edit3 className="w-3.5 h-3.5" /> Edit in review
-                  </button>
-                </div>
-              </div>
-
-              {!isSynthesizing && (
-                <ScriptFitStrip
-                  preview={linePreview}
-                  loading={syncPreview.loading}
-                  error={syncPreview.error}
-                  rateMeasured={measuredRate !== null}
-                  filter={finalScriptFilter}
-                  onFilter={setFinalScriptFilter}
-                  toFix={{
-                    shorter: finalToFix.filter((u) => finalFixes.directionOf(u) === 'shorter').length,
-                    longer: finalToFix.filter((u) => finalFixes.directionOf(u) === 'longer').length,
-                  }}
-                  onFixAll={() => finalFixes.suggestAll(finalToFix)}
-                />
-              )}
-
-              <div ref={finalListRef} className="relative flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar py-1.5">
-                {(() => {
-                  const fitShown = Boolean(linePreview) && !isSynthesizing;
-                  const cps = linePreview?.charsPerSecond ?? 1;
-                  // A line stays listed under Lines to fix once it has been worked on, even when it now fits.
-                  const shown = finalScriptGroups.filter(
-                    (g) => finalScriptFilter === 'all' || !fitShown || (g.unit && (needsFix(g.unit) || finalFixes.worked(g.unit)))
-                  );
-                  if (shown.length === 0) {
-                    return (
-                      <p className="px-4 py-6 text-center text-xs text-slate-500">
-                        No line is likely to run past its slot or end early.{' '}
-                        <button type="button" onClick={() => setFinalScriptFilter('all')} className="text-indigo-300 hover:text-indigo-200 cursor-pointer">
-                          Show all lines
-                        </button>
-                      </p>
-                    );
-                  }
-                  // The fit's note and controls line up under the text, past the number (and the time).
-                  const indent = finalScriptLayout === 'dialogue' ? 'pl-[3.75rem]' : 'pl-[9rem]';
-                  return shown.map((group) => {
-                    const unit = fitShown ? group.unit : null;
-                    const fix = unit ? finalFixes.controlsFor(unit) : null;
-                    const fixing = Boolean(unit && fix && (needsFix(unit) || fix.state.kind !== 'idle'));
-                    const note = unit && fix ? (fix.state.kind === 'idle' ? { text: fitAdvice(unit), tone: '' } : lineNote(unit, fix.state, fix.direction)) : null;
-                    const noteTone =
-                      note?.tone || (unit?.status === 'long' ? 'text-amber-300' : unit?.status === 'short' ? 'text-sky-300' : 'text-slate-500');
-                    return (
-                      <div
-                        key={group.key}
-                        id={group.unit ? `final-line-${group.unit.key}` : undefined}
-                        className={`border-t border-slate-800/50 first:border-t-0 scroll-mt-2 border-l-[3px] ${
-                          group.unit && group.unit.key === nowLineKey ? 'border-l-white/80 bg-slate-800/40' : group.unit ? '' : 'border-l-transparent'
-                        } ${group.unit && group.unit.key === selectedLineKey ? 'bg-indigo-950/20 ring-1 ring-inset ring-indigo-500/40' : ''}`}
-                        // The line's colour, as on the timelines; white while it plays.
-                        style={group.unit && group.unit.key !== nowLineKey ? { borderLeftColor: hueOf(group.unit.index) } : undefined}
-                      >
-                        <div className="flex flex-col sm:flex-row sm:items-start">
-                          <div className="flex-1 min-w-0">
-                            {group.cues.map(({ seg, index: i }) => {
-                              const isNow = seg.id === activeSegmentId;
-                              return (
-                                <button
-                                  key={seg.id}
-                                  type="button"
-                                  onClick={() => seekSource(seg.startTime)}
-                                  className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${
-                                    finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
-                                  } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
-                                >
-                                  <span
-                                    className={`font-mono text-[11px] pt-1 tabular-nums ${isNow ? 'text-indigo-300' : 'text-slate-500'}`}
-                                    style={!isNow && cueColor(seg, i) ? { color: cueColor(seg, i) as string } : undefined}
-                                  >
-                                    {String(i + 1).padStart(2, '0')}
-                                  </span>
-                                  {finalScriptLayout !== 'dialogue' && (
-                                    <span className="font-mono text-[11.5px] text-slate-400 pt-1 tabular-nums">{formatClock(seg.startTime)}</span>
-                                  )}
-                                  <span className="min-w-0">
-                                    {seg.speaker && (i === 0 || segments[i - 1].speaker !== seg.speaker) && (
-                                      <span
-                                        className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500"
-                                        style={multiSpeaker ? { color: speakerByName.get(speakerOf(seg))?.color } : undefined}
-                                      >
-                                        {seg.speaker}
-                                      </span>
-                                    )}
-                                    <span className="block text-[15px] text-slate-100 leading-relaxed">{getTargetText(seg)}</span>
-                                    {finalScriptLayout === 'bilingual' && (
-                                      <span className="block text-xs text-slate-500 mt-0.5">{getSourceText(seg)}</span>
-                                    )}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                          {unit && <FitMeter unit={unit} className={`${indent} sm:pl-0 pr-4 pb-2 sm:py-3 sm:w-40 shrink-0`} />}
-                        </div>
-                        {unit && fix && note?.text && (
-                          <div className={`${indent} pr-4 pb-3`}>
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                              <p className={`text-[11.5px] ${noteTone}`}>{note.text}</p>
-                              {fixing && (
-                                <button
-                                  type="button"
-                                  onClick={() => listenOriginal(Math.max(0, unit.srcStart - 0.6))}
-                                  className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
-                                  title="Play the original sentence"
-                                >
-                                  <Play className="w-3 h-3 fill-current" /> Original
-                                </button>
-                              )}
-                            </div>
-                            {fixing && <LineFixControls unit={unit} cps={cps} {...fix} />}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  });
-                })()}
-              </div>
-            </section>
-
-            {/* Deliver panel */}
-            <aside aria-label="Deliver" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden">
-              <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
-                <h2 className="text-[15px] font-semibold text-slate-100">Deliver</h2>
-                <button type="button" onClick={() => setStepOverride(2)} className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
-                  ← Review
-                </button>
-              </div>
-
-              {multiSpeaker && onCastChange && (
-                <div className="px-4 sm:px-5 pt-4 flex flex-col gap-2">
-                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Cast</span>
-                  <CastCard
-                    speakers={speakers}
-                    cast={activeJob.cast}
-                    mainVoiceId={elVoiceId}
-                    availableVoices={availableVoices}
-                    disabled={isSynthesizing}
-                    onPick={(speaker) => {
-                      setCastPickFor(speaker);
-                      setIsVoicePickerOpen(true);
-                    }}
-                    onUseMain={(speaker) => onCastChange(speaker, null)}
-                  />
-                </div>
-              )}
-
-              <div className="px-4 sm:px-5 py-4 flex flex-col gap-2.5">
-                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{multiSpeaker ? 'Main voice' : 'Voice'}</span>
-                {multiSpeaker && (
-                  <span className="-mt-1 text-[11px] text-slate-500 leading-snug">Speaks for anyone in the cast without a voice of their own.</span>
-                )}
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 min-w-0">
-                    <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCastPickFor(null);
-                      setIsVoicePickerOpen(true);
-                    }}
-                    className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
-                  >
-                    Change
-                  </button>
-                </div>
-                {favoriteVoices.length > 0 && (
-                  <div role="group" aria-label="Favourite voices" className="flex flex-wrap gap-1.5">
-                    {favoriteVoices.slice(0, 4).map((fav) => {
-                      const on = fav.id === elVoiceId;
-                      const name = (fav.name || fav.id).split(/\s+[-–—|]\s+/)[0];
-                      return (
-                        <button
-                          key={fav.id}
-                          type="button"
-                          aria-pressed={on}
-                          onClick={() => onElVoiceIdChange(fav.id)}
-                          className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-pointer ${
-                            on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-slate-800 text-slate-300 hover:bg-slate-800/60'
-                          }`}
-                          title={fav.name}
-                        >
-                          <span className="w-5 h-5 rounded-full bg-slate-700 text-white text-[10px] font-semibold flex items-center justify-center">
-                            {name.charAt(0).toUpperCase()}
-                          </span>
-                          <span className="truncate max-w-[7rem]">{name}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                {voiceEngine === 'elevenlabs' && elModelId && onElModelIdChange && elModels.length > 0 ? (
-                  <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
-                    <label htmlFor="dub-el-model">Model</label>
-                    <select
-                      id="dub-el-model"
-                      value={elModelId}
-                      onChange={(e) => onElModelIdChange(e.target.value)}
-                      disabled={isSynthesizing}
-                      title={hasDub ? 'A new model applies the next time you dub.' : undefined}
-                      className="min-w-0 max-w-[65%] h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
-                    >
-                      {!elModels.some((m) => m.model_id === elModelId) && (
-                        <option value={elModelId} className="bg-slate-900">{ttsModelName}</option>
-                      )}
-                      {elModels.map((m) => (
-                        <option key={m.model_id} value={m.model_id} className="bg-slate-900">
-                          {m.name}
-                          {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="flex justify-between text-xs text-slate-400">
-                    <span>Model</span>
-                    <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
-                  </div>
-                )}
-                {voiceEngine === 'elevenlabs' && onEmotionEnhanceChange && (() => {
-                  // A dub with several voices is read as written: delivery cues are written for one continuous read.
-                  const takesCues = Boolean(elModelId && performsAudioTags(elModelId)) && !multiSpeaker;
-                  return (
-                    <>
-                    <label
-                      className={`flex items-start gap-2.5 text-xs ${takesCues ? 'cursor-pointer' : 'opacity-60 cursor-default'}`}
-                      title={hasDub ? 'Applies the next time you dub.' : undefined}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={emotionEnhance && takesCues}
-                        onChange={(e) => onEmotionEnhanceChange(e.target.checked)}
-                        disabled={isSynthesizing || !takesCues}
-                        className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
-                      />
-                      <span className="flex flex-col gap-0.5">
-                        <span className="text-slate-200 font-medium">Enhance emotion</span>
-                        <span className="text-[11px] text-slate-500 leading-snug">
-                          {takesCues
-                            ? 'Adds delivery tags before voicing. Off: the script is spoken exactly as written.'
-                            : multiSpeaker
-                              ? 'For a dub in one voice. With several speakers, each reads the script as written.'
-                              : 'Eleven v3 and v4 only.'}
-                        </span>
-                      </span>
-                    </label>
-                    {takesCues && onEmotionMatchSourceChange && (
-                      <label
-                        className={`ml-6 pl-3 border-l border-slate-700 flex items-start gap-2.5 text-xs ${emotionEnhance ? 'cursor-pointer' : 'opacity-50 cursor-default'}`}
-                        title={hasDub ? 'Applies the next time you dub.' : undefined}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={emotionMatchSource && emotionEnhance}
-                          onChange={(e) => onEmotionMatchSourceChange(e.target.checked)}
-                          disabled={isSynthesizing || !emotionEnhance}
-                          className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
-                        />
-                        <span className="flex flex-col gap-0.5">
-                          <span className="text-slate-200 font-medium">Match source audio</span>
-                          <span className="text-[11px] text-slate-500 leading-snug">
-                            {emotionMatchSource
-                              ? 'Listens to the original speaker and tags only what they did, like [explaining, calm, slow]. No extra drama.'
-                              : 'Off: tags like [calm] and [sighs] are guessed from the script alone.'}
-                          </span>
-                        </span>
-                      </label>
-                    )}
-                    </>
-                  );
-                })()}
-                {onDubMatchLoudnessChange && (
-                  <label className="flex items-start gap-2.5 text-xs cursor-pointer" title={hasDub ? 'Applies the next time you dub.' : undefined}>
-                    <input
-                      type="checkbox"
-                      checked={dubMatchLoudness}
-                      onChange={(e) => onDubMatchLoudnessChange(e.target.checked)}
-                      disabled={isSynthesizing}
-                      className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
-                    />
-                    <span className="flex flex-col gap-0.5">
-                      <span className="text-slate-200 font-medium">{multiSpeaker ? 'Even out speakers' : 'Even out loudness'}</span>
-                      <span className="text-[11px] text-slate-500 leading-snug">
-                        {multiSpeaker
-                          ? 'One gain per speaker, so every voice sits at one level and keeps its own dynamics. Off: every line exactly as voiced.'
-                          : 'Brings every passage of a long script to one level. Off: each keeps exactly the level it was voiced at.'}
-                      </span>
-                    </span>
-                  </label>
-                )}
-                {multiSpeaker && onMixPeakChange && (
-                  <div className="pt-1" title={hasDub ? 'Applies the next time you dub.' : undefined}>
-                    <MixPeakChoice value={mixPeak} onChange={onMixPeakChange} disabled={isSynthesizing} />
-                  </div>
-                )}
-                {showVoiceSliders && (
-                  <div className="flex flex-col gap-3 pt-1">
-                    <div className="flex items-center justify-between -mb-1">
-                      <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice settings</span>
-                      <ResetDefaultsButton
-                        onClick={() => onElVoiceSettingsChange?.({ ...DEFAULT_VOICE_SETTINGS })}
-                        disabled={isSynthesizing || isElevenLabsDefault(shownVoiceSettings)}
-                      />
-                    </div>
-                    {[
-                      {
-                        key: 'stability' as const,
-                        label: 'Stability',
-                        ends: elModelId && performsAudioTags(elModelId) ? ['Creative', 'Robust'] : ['More variable', 'More stable'],
-                      },
-                      { key: 'similarity_boost' as const, label: 'Similarity', ends: ['Low', 'High'] },
-                      { key: 'style' as const, label: 'Style Exaggeration', ends: ['None', 'Exaggerated'] },
-                    ].map((s) => (
-                      <div key={s.key}>
-                        <div className="flex items-baseline justify-between gap-3">
-                          <span className="text-[13px] font-semibold text-slate-100">{s.label}</span>
-                          <span className="font-mono text-xs text-slate-300 tabular-nums">{(shownVoiceSettings[s.key] ?? 0).toFixed(2)}</span>
-                        </div>
-                        <input
-                          type="range"
-                          min={0}
-                          max={1}
-                          step={0.05}
-                          value={shownVoiceSettings[s.key] ?? 0}
-                          disabled={isSynthesizing}
-                          onChange={(e) =>
-                            onElVoiceSettingsChange?.({ ...shownVoiceSettings, [s.key]: parseFloat(e.target.value) })
-                          }
-                          aria-label={s.label}
-                          className="w-full mt-1.5 accent-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
-                        />
-                        <div className="flex justify-between text-[10.5px] text-slate-500">
-                          <span>{s.ends[0]}</span>
-                          <span>{s.ends[1]}</span>
-                        </div>
-                      </div>
-                    ))}
-                    <div className="flex items-center gap-3">
-                      <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-100">Speaker boost</span>
-                      <button
-                        type="button"
-                        role="switch"
-                        aria-checked={shownVoiceSettings.use_speaker_boost !== false}
-                        aria-label="Speaker boost"
-                        disabled={isSynthesizing}
-                        onClick={() =>
-                          onElVoiceSettingsChange?.({
-                            ...shownVoiceSettings,
-                            use_speaker_boost: shownVoiceSettings.use_speaker_boost === false,
-                          })
-                        }
-                        className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer disabled:cursor-default disabled:opacity-60 ${
-                          shownVoiceSettings.use_speaker_boost !== false ? 'bg-indigo-500' : 'bg-slate-700'
-                        }`}
-                      >
-                        <span
-                          className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${
-                            shownVoiceSettings.use_speaker_boost !== false ? 'left-[17px]' : 'left-[3px]'
-                          }`}
-                        />
-                      </button>
-                    </div>
-                    <p className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                      <span>{elVoiceSettings ? 'Your settings. They apply the next time you dub.' : "The voice's own ElevenLabs settings."}</span>
-                      {elVoiceSettings && (
-                        <button
-                          type="button"
-                          onClick={() => onElVoiceSettingsChange?.(null)}
-                          disabled={isSynthesizing}
-                          className="shrink-0 text-indigo-400 hover:text-indigo-300 cursor-pointer disabled:cursor-default"
-                        >
-                          Reset
-                        </button>
-                      )}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2">
-                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Downloads</span>
-                {[
-                  {
-                    tag: 'WAV',
-                    tone: 'bg-emerald-500/15 text-emerald-300',
-                    title: `${targetLanguage} dub audio`,
-                    detail: hasDub && dubBuffer
-                      ? `${formatClock(dubBuffer.duration)} · ${Math.round(dubBuffer.sampleRate / 1000)} kHz`
-                      : 'Available once the dub is made',
-                    onClick: onDownloadWav,
-                    disabled: !hasDub || !onDownloadWav,
-                    hero: hasDub,
-                  },
-                ].filter((d) => !!d).map((d) => (
-                  <button
-                    key={d.tag}
-                    type="button"
-                    onClick={d.onClick}
-                    disabled={d.disabled}
-                    className={`w-full flex items-center gap-3 p-2.5 rounded-xl border text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer ${
-                      d.hero ? 'border-emerald-800/70 bg-emerald-950/30 hover:bg-emerald-950/50' : 'border-slate-800 hover:bg-slate-800/50'
-                    }`}
-                  >
-                    <span className={`w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[9.5px] font-semibold shrink-0 ${d.tone}`}>
-                      {d.tag}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-semibold text-slate-100">{d.title}</span>
-                      <span className="block text-[11.5px] text-slate-400 truncate">{d.detail}</span>
-                    </span>
-                    <Download className="w-4 h-4 text-slate-500 shrink-0" />
-                  </button>
-                ))}
-                <SaveScriptMenu title={`${targetLanguage} script`} onSave={handleExportTargetScript} disabled={segments.length === 0} />
-                {hasDub && multiSpeaker && activeJob.dubStems && activeJob.dubStems.length > 0 && onDownloadStem && (
-                  <StemDownloads stems={activeJob.dubStems} speakers={speakers} onDownload={onDownloadStem} />
-                )}
-              </div>
-
-              {onOpenVoiceChanger && (
-                <div className="px-4 sm:px-5 py-4 border-t border-slate-800">
-                  <button type="button" onClick={onOpenVoiceChanger} className={`${railButton} w-full`}>
-                    <AudioWaveform className="w-3.5 h-3.5" /> Voice changer
-                  </button>
-                  {onOpenTextToSpeech && (
-                    <button type="button" onClick={onOpenTextToSpeech} className={`${railButton} w-full mt-2`}>
-                      <Speech className="w-3.5 h-3.5" /> Text to speech
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2">
-                <button
-                  type="button"
-                  onClick={onSynthesizeMaster}
-                  disabled={isSynthesizing || segments.length === 0}
-                  className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
-                >
-                  {isSynthesizing ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" /> Dubbing…
-                    </>
-                  ) : hasDub ? (
-                    <>
-                      <RefreshCw className="w-4 h-4" /> Dub again
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4 fill-current" /> Dub in {targetLanguage}
-                    </>
-                  )}
-                </button>
-                {onResetSession && (
-                  <button type="button" onClick={onResetSession} className={`${railButton} h-9`}>
-                    <Plus className="w-3.5 h-3.5" /> Start a new dub
-                  </button>
-                )}
-                <p className="text-center text-[11.5px] text-slate-500">
-                  {isSynthesizing
-                    ? 'You can keep reading while it works.'
-                    : `${hasDub ? 'Dubbing again uses' : 'Uses'} about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`}
-                </p>
-              </div>
-            </aside>
-          </div>
-
-          {/* Full voice library, opened from Change */}
-          {isVoicePickerOpen && (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Choose a voice"
-              onClick={(e) => e.target === e.currentTarget && setIsVoicePickerOpen(false)}
-              onKeyDown={(e) => e.key === 'Escape' && setIsVoicePickerOpen(false)}
-            >
-              <div className="w-full max-w-5xl flex flex-col gap-3">
-                <div className="flex items-center justify-end gap-3">
-                  {castPickFor && (
-                    <span className="mr-auto text-sm text-slate-200">
-                      Voice for <SpeakerChip speaker={speakerByName.get(castPickFor)} name={castPickFor} />
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setIsVoicePickerOpen(false)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" /> Done
-                  </button>
-                </div>
-                <VoiceSelectorCard
-                  elVoiceId={castPickFor ? activeJob.cast?.[castPickFor]?.voiceId || elVoiceId : elVoiceId}
-                  onElVoiceIdChange={castPickFor && onCastChange ? (id) => onCastChange(castPickFor, id) : onElVoiceIdChange}
-                  availableVoices={availableVoices}
-                  loading={voicesLoading}
-                  targetLanguage={targetLanguage}
-                  voiceEngine={voiceEngine}
-                  onVoiceEngineChange={onVoiceEngineChange}
-                  className="h-[78vh]"
-                />
-              </div>
-            </div>
-          )}
-        </div>
-        );
-      })()}
-
-      {/* ========================================================================= */}
-      {/* STEP 4: SYNC */}
-      {/* ========================================================================= */}
-      {activeStep === 4 && activeJob && (() => {
-        // Before the first sync the player here plays the dub; after it, the synced dub.
+        // Before the first sync the player plays a dub made before Dub and Sync were one step, if there is one; after it, the synced dub.
         const hasDub = hasDubAudio;
         const report = hasSyncReport ? activeJob.syncReport || null : null;
-        const totalLength = duration || dubBuffer?.duration || activeJob.audioBuffer?.duration || 0;
-        const sourceLength = duration || activeJob.audioBuffer?.duration || 0;
+        const sourceBuffer = activeJob.audioBuffer;
+        const totalLength = duration || dubBuffer?.duration || sourceBuffer?.duration || 0;
+        const sourceLength = duration || sourceBuffer?.duration || 0;
         const syncedLength = dubBuffer?.duration || sourceLength;
         const laneSpan = Math.max(sourceLength, syncedLength);
         const activeCue = segments.find((s) => s.id === activeSegmentId) || null;
         const activeCueIndex = activeCue ? segments.indexOf(activeCue) : -1;
-        const blockedReason = !onSyncDub
-          ? 'Sync is not available.'
-          : isSynthesizing
-            ? 'Wait for the dub to finish first.'
-            : segments.length === 0
-              ? 'There are no cues to sync yet.'
-              : null;
-        const runSync = () => onSyncDub?.(syncOptions);
+        const openIssues = openFindings.length;
+        const blockedReason = !onSyncDub ? 'Dubbing is not available.' : segments.length === 0 ? 'There are no cues to dub yet.' : null;
+        // One Even out loudness, on the voice panel, for every dub.
+        const runSync = () => onSyncDub?.({ ...syncOptions, matchLoudness: dubMatchLoudness });
         const canEditTiming = Boolean(onSyncEditsChange);
+        // Clips of the original put on the dub are hand edits too, but not lines.
         const editedLineCount = Object.keys(activeJob.syncEdits || {}).length;
         const hasEditedTiming = editedLineCount > 0;
+        const legacyDub = !report && Boolean(activeJob.synthesizedAudioUrl);
+
+        /** Before the first sync: what the dub will take, and how each line is likely to fit. */
+        const prepPanel = (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap gap-x-8 gap-y-3">
+              {[
+                { value: segments.length.toLocaleString(), label: 'cues' },
+                { value: dubCharacterCount.toLocaleString(), label: 'characters to voice' },
+                { value: formatClock(sourceLength || totalLength), label: 'length' },
+                {
+                  value: String(openIssues),
+                  label: openIssues === 1 ? 'QA issue open' : 'QA issues open',
+                  tone: openIssues > 0 ? 'text-amber-300' : 'text-emerald-300',
+                },
+              ].map((f) => (
+                <div key={f.label}>
+                  <span className={`block text-[22px] font-semibold tabular-nums leading-tight ${f.tone || 'text-slate-100'}`}>{f.value}</span>
+                  <span className="text-xs text-slate-400">{f.label}</span>
+                </div>
+              ))}
+            </div>
+            {linePreview ? (
+                <div role="group" aria-label="Sync preview" className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2.5">
+                        <h2 className="text-[15px] font-semibold text-slate-100">Sync preview</h2>
+                        <EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">
+                        {estimateMethod === 'expert'
+                          ? `Counted in syllables at your voice's rate (${estimateBasis(linePreview, measuredRate !== null)}), with pauses at commas and full stops, a fast to slow range, and where the lips close. Sync still measures the real clips.`
+                          : `${measuredRate !== null ? 'An estimate' : 'A rough estimate'} from the text length, at ${linePreview.charsPerSecond.toFixed(1)} chars/s ${
+                              measuredRate !== null ? 'from this dub' : '(a typical rate)'
+                            }.`}{' '}
+                        Click a dub bar, then drag its end to the length you want; Review's suggestion for that line aims for it.
+                      </p>
+                    </div>
+                    {syncPreview.loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
+                  </div>
+                  <PreviewCards preview={linePreview} />
+                  <PreviewTimeline
+                    units={linePreview.units}
+                    reportedTime={sourceClockTime}
+                    getLiveTime={getSourceLiveTime}
+                    onSeek={previewSeek}
+                    isPlaying={isPlaying}
+                    onTogglePlay={previewTogglePlay}
+                    selectedKey={selectedLineKey}
+                    // Picking a line only shows it in the card below; the page stays where the user scrolled it.
+                    onSelect={(unit) => setSelectedLineKey(unit.key)}
+                    onTrim={trimLine}
+                    charsPerSecond={linePreview.charsPerSecond}
+                    offClockNote={previewOffClockNote}
+                    onCurrentLine={(unit) => setNowLineKey(unit?.key ?? null)}
+                    sourceBuffer={sourceBuffer}
+                  />
+                  {selectedLine &&
+                    (() => {
+                      const unit = selectedLine;
+                      const fixing = needsFix(unit);
+                      const note = fitAdvice(unit);
+                      const lineNumber = segments.findIndex((seg) => String(seg.id) === unit.key) + 1;
+                      return (
+                        <div className="rounded-xl border border-indigo-500/30 bg-slate-950/60 px-3.5 py-3">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                            <span className="text-[13px] font-semibold text-slate-100">Line {String(lineNumber).padStart(2, '0')}</span>
+                            <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">{formatClock(unit.srcStart)}</span>
+                            <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">
+                              about {unit.estimate.toFixed(1)} s · slot {unit.slot.toFixed(1)} s · original speech {unit.spoken.toFixed(1)} s
+                            </span>
+                            <span className="ml-auto flex items-center gap-1.5">
+                              {unit.wantSeconds !== undefined && (
+                                <button type="button" onClick={() => trimLine(unit, null)} className={railButton} title="Go back to the length worked out from the slot">
+                                  <RotateCcw className="w-3.5 h-3.5" /> Reset trim
+                                </button>
+                              )}
+                              <button type="button" onClick={() => setSelectedLineKey(null)} className={railButton} aria-label="Close this line">
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </span>
+                          </div>
+                          <p className="mt-1.5 text-[14px] text-slate-100 leading-snug">{unit.text}</p>
+                          {unit.sourceText && <p className="text-xs text-slate-500 mt-0.5">{unit.sourceText}</p>}
+                          <ExpertLineDetail unit={unit} />
+                          <p className={`text-[11.5px] mt-1.5 ${fixing ? (directionFor(unit) === 'longer' ? 'text-sky-300' : 'text-amber-300') : 'text-slate-400'}`}>
+                            {note || 'Fits its slot. Drag the end of its bar to set a length of your own.'}
+                          </p>
+                          {fixing && fixInReviewButton(unit)}
+                        </div>
+                      );
+                    })()}
+                </div>
+            ) : (
+              <p className="flex items-center gap-2 text-xs text-slate-400" role="status">
+                {syncPreview.error ? (
+                  <span className="text-amber-300">The sync fit could not be worked out: {syncPreview.error}</span>
+                ) : (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Timing each line against its source sentence…
+                  </>
+                )}
+              </p>
+            )}
+          </div>
+        );
+
+        /** Files and tools under the settings: the script, a dub from before, and the other studios. */
+        const dubExtras = (
+          <>
+            <SaveScriptMenu title={`${targetLanguage} script`} onSave={handleExportTargetScript} disabled={segments.length === 0} />
+            {legacyDub && onDownloadWav && (
+              <button
+                type="button"
+                onClick={onDownloadWav}
+                className={`${railButton} w-full`}
+                title="The script read in one take, before its lines are placed on the original"
+              >
+                <Download className="w-3.5 h-3.5" /> Continuous read, not synced (WAV)
+              </button>
+            )}
+            {legacyDub && multiSpeaker && activeJob.dubStems && activeJob.dubStems.length > 0 && onDownloadStem && (
+              <StemDownloads stems={activeJob.dubStems} speakers={speakers} onDownload={onDownloadStem} />
+            )}
+            {!report && onOpenVoiceChanger && (
+              <button type="button" onClick={onOpenVoiceChanger} className={`${railButton} w-full`}>
+                <AudioWaveform className="w-3.5 h-3.5" /> Voice changer
+              </button>
+            )}
+            {onOpenTextToSpeech && (
+              <button type="button" onClick={onOpenTextToSpeech} className={`${railButton} w-full`}>
+                <Speech className="w-3.5 h-3.5" /> Text to speech
+              </button>
+            )}
+            {onResetSession && (
+              <button type="button" onClick={onResetSession} className={`${railButton} w-full`}>
+                <Plus className="w-3.5 h-3.5" /> Start a new dub
+              </button>
+            )}
+          </>
+        );
 
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
@@ -4241,7 +3484,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           )}
 
           {multiSpeaker && (
-            <section aria-label="Speakers in the synced dub" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
+            <section aria-label="Speakers" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-1">Cast</span>
                 {speakers.map((s) => (
@@ -4255,8 +3498,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     }
                   />
                 ))}
-                <button type="button" onClick={() => setStepOverride(3)} className="ml-auto text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
-                  Change voices in Final dub
+                <button type="button" onClick={openVoicePanel} className="ml-auto text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+                  Change voices
                 </button>
               </div>
               {report && activeJob.syncMix ? (
@@ -4275,111 +3518,569 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-start">
-            <SyncResultsPanel
-              report={report}
-              handEdits={editedLineCount}
-              progress={syncProgress}
-              isSyncing={isSyncing}
-              isCancelling={isCancellingSync}
-              lineCount={segments.length}
-              duration={totalLength}
-              blockedReason={blockedReason}
-              onSync={runSync}
-              preview={
-                <SyncPreviewPanel
-                  preview={linePreview}
-                  loading={syncPreview.loading}
-                  error={syncPreview.error}
-                  rateMeasured={measuredRate !== null}
-                  currentTime={sourceClockTime}
-                  isPlaying={isPlaying}
-                  onTogglePlay={previewTogglePlay}
-                  getLiveTime={getSourceLiveTime}
-                  onSeek={previewSeek}
-                  onListenOriginal={listenOriginal}
-                  offClockNote={previewOffClockNote}
-                  onSuggest={suggestLine}
-                  onUseLine={applyPreviewLine}
-                  onRestore={restoreCueTexts}
-                  sourceBuffer={activeJob.audioBuffer}
-                  onMethodChange={changeEstimateMethod}
-                />
-              }
-              currentTime={sourceClockTime}
-              isPlaying={isPlaying}
-              onTogglePlay={onTogglePlay}
-              getLiveTime={getSourceLiveTime}
-              onSeek={seekSource}
-              onListen={listenHere}
-              sourceBuffer={activeJob.audioBuffer}
-              dubBuffer={report ? activeJob.syncedAudioBuffer : null}
-              pendingLines={syncPendingLines}
-              onApplyLine={onApplySyncLine}
-              onRetakeLine={onRetakeSyncLine}
-              onSuggestLine={(unit, avoid) =>
-                unit.targetChars == null
-                  ? Promise.resolve(null)
-                  : (unit.short && !unit.exceeded ? suggestLongerLine : suggestShorterLine)({
-                      text: unit.text,
-                      sourceText: unit.sourceText,
-                      language: targetLanguage,
-                      targetChars: unit.targetChars,
-                      avoid,
-                      context: lineContextOf(unit.cueIds, unit.speaker),
-                    }).then((options) => options[0] ?? null)
-              }
-            />
-            <SyncSettingsPanel
-              options={syncOptions}
-              onOptionsChange={setSyncOptions}
-              synced={Boolean(report)}
-              hasDub={hasDub}
-              isSyncing={isSyncing}
-              isCancelling={isCancellingSync}
-              error={syncError}
-              blockedReason={blockedReason}
-              pendingCount={syncPendingLines.length}
-              previewShown={!report && Boolean(syncPreview.preview)}
-              previewLongCount={syncPreview.preview?.summary.long ?? 0}
-              previewShortCount={syncPreview.preview?.summary.short ?? 0}
-              onSync={runSync}
-              onCancel={() => onCancelSync?.()}
-              onBack={() => {
-                setStepOverride(3);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              onDownloadWav={report ? onDownloadWav : undefined}
-              onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
-              fitSource={{ segments, charsPerSecond: previewRate, rateMeasured: measuredRate !== null }}
-              subtitles={
-                report && syncedCues && syncedCues.length > 0 && (
-                  <>
+            <div className="flex flex-col gap-4 min-w-0">
+              <SyncResultsPanel
+                report={report}
+                handEdits={editedLineCount}
+                progress={syncProgress}
+                reading={readProgress}
+                isSyncing={isSyncing}
+                isCancelling={isCancellingSync}
+                lineCount={segments.length}
+                duration={totalLength}
+                blockedReason={blockedReason}
+                onSync={runSync}
+                preview={prepPanel}
+                currentTime={sourceClockTime}
+                isPlaying={isPlaying}
+                onTogglePlay={onTogglePlay}
+                getLiveTime={getSourceLiveTime}
+                onSeek={seekSource}
+                onListen={listenHere}
+                sourceBuffer={activeJob.audioBuffer}
+                dubBuffer={report ? activeJob.syncedAudioBuffer : null}
+                pendingLines={syncPendingLines}
+                onApplyLine={onApplySyncLine}
+                onRetakeLine={onRetakeSyncLine}
+                onSuggestLine={(unit, avoid) =>
+                  unit.targetChars == null
+                    ? Promise.resolve(null)
+                    : (unit.short && !unit.exceeded ? suggestLongerLine : suggestShorterLine)({
+                        text: unit.text,
+                        sourceText: unit.sourceText,
+                        language: targetLanguage,
+                        targetChars: unit.targetChars,
+                        avoid,
+                        context: lineContextOf(unit.cueIds, unit.speaker),
+                      }).then((options) => options[0] ?? null)
+                }
+              />
+              {!report && (
+                <section
+                  aria-label="Final script"
+                  className="flex flex-col min-h-0 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
+                >
+                  <div className="flex flex-wrap items-center gap-3 px-4 py-3.5 border-b border-slate-800">
+                    <div className="min-w-0">
+                      <h2 className="text-[15px] font-semibold text-slate-100">Final script</h2>
+                      <p className="text-xs text-slate-400">What the voice says, cue by cue. Click a line to jump there; edit and reword lines in Review.</p>
+                    </div>
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                      <div role="group" aria-label="Script layout" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+                        {[
+                          { id: 'dialogue' as const, label: 'Dialogue' },
+                          { id: 'timecoded' as const, label: 'Timecoded' },
+                          { id: 'bilingual' as const, label: 'Bilingual' },
+                        ].map((m) => (
+                          <button
+                            key={m.id}
+                            type="button"
+                            aria-pressed={finalScriptLayout === m.id}
+                            onClick={() => setFinalScriptLayout(m.id)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                              finalScriptLayout === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyFullTargetScript(finalScriptLayout)}
+                        className={railButton}
+                        title={`Copy the ${targetLanguage} script in this layout`}
+                      >
+                        <Copy className="w-3.5 h-3.5" /> Copy
+                      </button>
+                      <button type="button" onClick={() => setStepOverride(2)} className={railButton}>
+                        <Edit3 className="w-3.5 h-3.5" /> Edit in review
+                      </button>
+                    </div>
+                  </div>
+
+                  {!isSyncing && (
+                    <ScriptFitStrip
+                      preview={linePreview}
+                      loading={syncPreview.loading}
+                      error={syncPreview.error}
+                      rateMeasured={measuredRate !== null}
+                      filter={finalScriptFilter}
+                      onFilter={setFinalScriptFilter}
+                    />
+                  )}
+
+                  <div ref={finalListRef} className="relative flex-1 min-h-0 max-h-[36rem] overflow-y-auto custom-scrollbar py-1.5">
+                    {(() => {
+                      const fitShown = Boolean(linePreview) && !isSyncing;
+                      const shown = finalScriptGroups.filter((g) => finalScriptFilter === 'all' || !fitShown || (g.unit && needsFix(g.unit)));
+                      if (shown.length === 0) {
+                        return (
+                          <p className="px-4 py-6 text-center text-xs text-slate-500">
+                            No line is likely to run past its slot or end early.{' '}
+                            <button type="button" onClick={() => setFinalScriptFilter('all')} className="text-indigo-300 hover:text-indigo-200 cursor-pointer">
+                              Show all lines
+                            </button>
+                          </p>
+                        );
+                      }
+                      // The fit's note and controls line up under the text, past the number (and the time).
+                      const indent = finalScriptLayout === 'dialogue' ? 'pl-[3.75rem]' : 'pl-[9rem]';
+                      return shown.map((group) => {
+                        const unit = fitShown ? group.unit : null;
+                        const fixing = Boolean(unit && needsFix(unit));
+                        const note = unit ? fitAdvice(unit) : '';
+                        const noteTone = unit?.status === 'long' ? 'text-amber-300' : unit?.status === 'short' ? 'text-sky-300' : 'text-slate-500';
+                        return (
+                          <div
+                            key={group.key}
+                            id={group.unit ? `final-line-${group.unit.key}` : undefined}
+                            className={`border-t border-slate-800/50 first:border-t-0 scroll-mt-2 border-l-[3px] ${
+                              group.unit && group.unit.key === nowLineKey ? 'border-l-white/80 bg-slate-800/40' : group.unit ? '' : 'border-l-transparent'
+                            } ${group.unit && group.unit.key === selectedLineKey ? 'bg-indigo-950/20 ring-1 ring-inset ring-indigo-500/40' : ''}`}
+                            // The line's colour, as on the timelines; white while it plays.
+                            style={group.unit && group.unit.key !== nowLineKey ? { borderLeftColor: hueOf(group.unit.index) } : undefined}
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-start">
+                              <div className="flex-1 min-w-0">
+                                {group.cues.map(({ seg, index: i }) => {
+                                  const isNow = seg.id === activeSegmentId;
+                                  return (
+                                    <button
+                                      key={seg.id}
+                                      type="button"
+                                      onClick={() => seekSource(seg.startTime)}
+                                      className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${
+                                        finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
+                                      } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
+                                    >
+                                      <span
+                                        className={`font-mono text-[11px] pt-1 tabular-nums ${isNow ? 'text-indigo-300' : 'text-slate-500'}`}
+                                        style={!isNow && cueColor(seg, i) ? { color: cueColor(seg, i) as string } : undefined}
+                                      >
+                                        {String(i + 1).padStart(2, '0')}
+                                      </span>
+                                      {finalScriptLayout !== 'dialogue' && (
+                                        <span className="font-mono text-[11.5px] text-slate-400 pt-1 tabular-nums">{formatClock(seg.startTime)}</span>
+                                      )}
+                                      <span className="min-w-0">
+                                        {seg.speaker && (i === 0 || segments[i - 1].speaker !== seg.speaker) && (
+                                          <span
+                                            className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500"
+                                            style={multiSpeaker ? { color: speakerByName.get(speakerOf(seg))?.color } : undefined}
+                                          >
+                                            {seg.speaker}
+                                          </span>
+                                        )}
+                                        <span className="block text-[15px] text-slate-100 leading-relaxed">{getTargetText(seg)}</span>
+                                        {finalScriptLayout === 'bilingual' && (
+                                          <span className="block text-xs text-slate-500 mt-0.5">{getSourceText(seg)}</span>
+                                        )}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {unit && <FitMeter unit={unit} className={`${indent} sm:pl-0 pr-4 pb-2 sm:py-3 sm:w-40 shrink-0`} />}
+                            </div>
+                            {unit && note && (
+                              <div className={`${indent} pr-4 pb-3`}>
+                                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                  <p className={`text-[11.5px] ${noteTone}`}>{note}</p>
+                                  {fixing && (
+                                    <button
+                                      type="button"
+                                      onClick={() => listenOriginal(Math.max(0, unit.srcStart - 0.6))}
+                                      className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+                                      title="Play the original sentence"
+                                    >
+                                      <Play className="w-3 h-3 fill-current" /> Original
+                                    </button>
+                                  )}
+                                </div>
+                                {fixing && fixInReviewButton(unit)}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </section>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-4 min-w-0">
+              {/* Voice: open before the first sync; after it, folded to one line until wanted */}
+              <aside id="dub-voice" aria-label="Voice and delivery" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden scroll-mt-4">
+                <div className="flex items-center justify-between gap-2 px-4 sm:px-5 pt-4">
+                  <h2 className="text-[15px] font-semibold text-slate-100">Voice and delivery</h2>
+                  {report && (
                     <button
                       type="button"
-                      onClick={handleExportStepSubtitles}
-                      disabled={isSyncing}
-                      className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                      onClick={() => setVoicePanelOpen((open) => !open)}
+                      aria-expanded={voicePanelOpen}
+                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
                     >
-                      <span className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[9.5px] font-semibold shrink-0 bg-indigo-500/15 text-indigo-300">
-                        SRT
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-semibold text-slate-100">{subtitleLanguage} subtitles</span>
-                        <span className="block text-[11.5px] text-slate-400 truncate">
-                          Timed to {subtitleTimingLabel} · {srtOptions.maxLinesPerCue} line,{' '}
-                          {srtOptions.maxWordsPerLine} words max
-                        </span>
-                      </span>
-                      <Download className="w-4 h-4 text-slate-500 shrink-0" />
+                      {voicePanelOpen ? 'Hide' : 'Change'}
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${voicePanelOpen ? 'rotate-180' : ''}`} />
                     </button>
-                    <button type="button" onClick={() => setIsSrtModalOpen(true)} className={`w-full ${railButton}`}>
-                      <Sliders className="w-3.5 h-3.5" /> Export subtitles
-                    </button>
+                  )}
+                </div>
+                {report && !voicePanelOpen ? (
+                  <p className="px-4 sm:px-5 pt-1 pb-4 text-xs text-slate-400">
+                    {[voiceShortName, ttsModelName, multiSpeaker && `${speakers.length} speakers`].filter(Boolean).join(' · ')}. A change applies when you sync
+                    again.
+                  </p>
+                ) : (
+                  <>
+                    {multiSpeaker && onCastChange && (
+                      <div className="px-4 sm:px-5 pt-4 flex flex-col gap-2">
+                        <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Cast</span>
+                        <CastCard
+                          speakers={speakers}
+                          cast={activeJob.cast}
+                          mainVoiceId={elVoiceId}
+                          availableVoices={availableVoices}
+                          disabled={isSyncing}
+                          onPick={(speaker) => {
+                            setCastPickFor(speaker);
+                            setIsVoicePickerOpen(true);
+                          }}
+                          onUseMain={(speaker) => onCastChange(speaker, null)}
+                        />
+                      </div>
+                    )}
+
+                    <div className="px-4 sm:px-5 py-4 flex flex-col gap-2.5">
+                      <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{multiSpeaker ? 'Main voice' : 'Voice'}</span>
+                      {multiSpeaker && (
+                        <span className="-mt-1 text-[11px] text-slate-500 leading-snug">Speaks for anyone in the cast without a voice of their own.</span>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCastPickFor(null);
+                            setIsVoicePickerOpen(true);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+                        >
+                          Change
+                        </button>
+                      </div>
+                      {favoriteVoices.length > 0 && (
+                        <div role="group" aria-label="Favourite voices" className="flex flex-wrap gap-1.5">
+                          {favoriteVoices.slice(0, 4).map((fav) => {
+                            const on = fav.id === elVoiceId;
+                            const name = (fav.name || fav.id).split(/\s+[-–—|]\s+/)[0];
+                            return (
+                              <button
+                                key={fav.id}
+                                type="button"
+                                aria-pressed={on}
+                                onClick={() => onElVoiceIdChange(fav.id)}
+                                className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-pointer ${
+                                  on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                                }`}
+                                title={fav.name}
+                              >
+                                <span className="w-5 h-5 rounded-full bg-slate-700 text-white text-[10px] font-semibold flex items-center justify-center">
+                                  {name.charAt(0).toUpperCase()}
+                                </span>
+                                <span className="truncate max-w-[7rem]">{name}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {voiceEngine === 'elevenlabs' && elModelId && onElModelIdChange && elModels.length > 0 ? (
+                        <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
+                          <label htmlFor="dub-el-model">Model</label>
+                          <select
+                            id="dub-el-model"
+                            value={elModelId}
+                            onChange={(e) => onElModelIdChange(e.target.value)}
+                            disabled={isSyncing}
+                            title={hasDub ? 'A new model applies the next time you sync.' : undefined}
+                            className="min-w-0 max-w-[65%] h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
+                          >
+                            {!elModels.some((m) => m.model_id === elModelId) && (
+                              <option value={elModelId} className="bg-slate-900">{ttsModelName}</option>
+                            )}
+                            {elModels.map((m) => (
+                              <option key={m.model_id} value={m.model_id} className="bg-slate-900">
+                                {m.name}
+                                {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between text-xs text-slate-400">
+                          <span>Model</span>
+                          <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
+                        </div>
+                      )}
+                      {voiceEngine === 'elevenlabs' && onEmotionEnhanceChange && (() => {
+                        // A dub with several voices is read as written: delivery cues are written for one continuous read.
+                        const takesCues = Boolean(elModelId && performsAudioTags(elModelId)) && !multiSpeaker;
+                        return (
+                          <>
+                          <label
+                            className={`flex items-start gap-2.5 text-xs ${takesCues ? 'cursor-pointer' : 'opacity-60 cursor-default'}`}
+                            title={hasDub ? 'Applies the next time you sync.' : undefined}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={emotionEnhance && takesCues}
+                              onChange={(e) => onEmotionEnhanceChange(e.target.checked)}
+                              disabled={isSyncing || !takesCues}
+                              className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                            />
+                            <span className="flex flex-col gap-0.5">
+                              <span className="text-slate-200 font-medium">Enhance emotion</span>
+                              <span className="text-[11px] text-slate-500 leading-snug">
+                                {takesCues
+                                  ? 'Adds delivery tags before voicing. Off: the script is spoken exactly as written.'
+                                  : multiSpeaker
+                                    ? 'For a dub in one voice. With several speakers, each reads the script as written.'
+                                    : 'Eleven v3 and v4 only.'}
+                              </span>
+                            </span>
+                          </label>
+                          {takesCues && onEmotionMatchSourceChange && (
+                            <label
+                              className={`ml-6 pl-3 border-l border-slate-700 flex items-start gap-2.5 text-xs ${emotionEnhance ? 'cursor-pointer' : 'opacity-50 cursor-default'}`}
+                              title={hasDub ? 'Applies the next time you sync.' : undefined}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={emotionMatchSource && emotionEnhance}
+                                onChange={(e) => onEmotionMatchSourceChange(e.target.checked)}
+                                disabled={isSyncing || !emotionEnhance}
+                                className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                              />
+                              <span className="flex flex-col gap-0.5">
+                                <span className="text-slate-200 font-medium">Match source audio</span>
+                                <span className="text-[11px] text-slate-500 leading-snug">
+                                  {emotionMatchSource
+                                    ? 'Listens to the original speaker and tags only what they did, like [explaining, calm, slow]. No extra drama.'
+                                    : 'Off: tags like [calm] and [sighs] are guessed from the script alone.'}
+                                </span>
+                              </span>
+                            </label>
+                          )}
+                          </>
+                        );
+                      })()}
+                      {onDubMatchLoudnessChange && (
+                        <label className="flex items-start gap-2.5 text-xs cursor-pointer" title={hasDub ? 'Applies the next time you sync.' : undefined}>
+                          <input
+                            type="checkbox"
+                            checked={dubMatchLoudness}
+                            onChange={(e) => onDubMatchLoudnessChange(e.target.checked)}
+                            disabled={isSyncing}
+                            className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                          />
+                          <span className="flex flex-col gap-0.5">
+                            <span className="text-slate-200 font-medium">{multiSpeaker ? 'Even out speakers' : 'Even out loudness'}</span>
+                            <span className="text-[11px] text-slate-500 leading-snug">
+                              {multiSpeaker
+                                ? 'One gain per speaker, so every voice sits at one level and keeps its own dynamics. Off: every line exactly as voiced.'
+                                : 'Brings every line to one level. Off: each line keeps exactly the level it was voiced at.'}
+                            </span>
+                          </span>
+                        </label>
+                      )}
+                      {multiSpeaker && onMixPeakChange && (
+                        <div className="pt-1" title={hasDub ? 'Applies the next time you sync.' : undefined}>
+                          <MixPeakChoice value={mixPeak} onChange={onMixPeakChange} disabled={isSyncing} />
+                        </div>
+                      )}
+                      {showVoiceSliders && (
+                        <div className="flex flex-col gap-3 pt-1">
+                          <div className="flex items-center justify-between -mb-1">
+                            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice settings</span>
+                            <ResetDefaultsButton
+                              onClick={() => onElVoiceSettingsChange?.({ ...DEFAULT_VOICE_SETTINGS })}
+                              disabled={isSyncing || isElevenLabsDefault(shownVoiceSettings)}
+                            />
+                          </div>
+                          {[
+                            {
+                              key: 'stability' as const,
+                              label: 'Stability',
+                              ends: elModelId && performsAudioTags(elModelId) ? ['Creative', 'Robust'] : ['More variable', 'More stable'],
+                            },
+                            { key: 'similarity_boost' as const, label: 'Similarity', ends: ['Low', 'High'] },
+                            { key: 'style' as const, label: 'Style Exaggeration', ends: ['None', 'Exaggerated'] },
+                          ].map((s) => (
+                            <div key={s.key}>
+                              <div className="flex items-baseline justify-between gap-3">
+                                <span className="text-[13px] font-semibold text-slate-100">{s.label}</span>
+                                <span className="font-mono text-xs text-slate-300 tabular-nums">{(shownVoiceSettings[s.key] ?? 0).toFixed(2)}</span>
+                              </div>
+                              <input
+                                type="range"
+                                min={0}
+                                max={1}
+                                step={0.05}
+                                value={shownVoiceSettings[s.key] ?? 0}
+                                disabled={isSyncing}
+                                onChange={(e) =>
+                                  onElVoiceSettingsChange?.({ ...shownVoiceSettings, [s.key]: parseFloat(e.target.value) })
+                                }
+                                aria-label={s.label}
+                                className="w-full mt-1.5 accent-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
+                              />
+                              <div className="flex justify-between text-[10.5px] text-slate-500">
+                                <span>{s.ends[0]}</span>
+                                <span>{s.ends[1]}</span>
+                              </div>
+                            </div>
+                          ))}
+                          <div className="flex items-center gap-3">
+                            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-100">Speaker boost</span>
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={shownVoiceSettings.use_speaker_boost !== false}
+                              aria-label="Speaker boost"
+                              disabled={isSyncing}
+                              onClick={() =>
+                                onElVoiceSettingsChange?.({
+                                  ...shownVoiceSettings,
+                                  use_speaker_boost: shownVoiceSettings.use_speaker_boost === false,
+                                })
+                              }
+                              className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer disabled:cursor-default disabled:opacity-60 ${
+                                shownVoiceSettings.use_speaker_boost !== false ? 'bg-indigo-500' : 'bg-slate-700'
+                              }`}
+                            >
+                              <span
+                                className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${
+                                  shownVoiceSettings.use_speaker_boost !== false ? 'left-[17px]' : 'left-[3px]'
+                                }`}
+                              />
+                            </button>
+                          </div>
+                          <p className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                            <span>{elVoiceSettings ? 'Your settings. They apply the next time you sync.' : "The voice's own ElevenLabs settings."}</span>
+                            {elVoiceSettings && (
+                              <button
+                                type="button"
+                                onClick={() => onElVoiceSettingsChange?.(null)}
+                                disabled={isSyncing}
+                                className="shrink-0 text-indigo-400 hover:text-indigo-300 cursor-pointer disabled:cursor-default"
+                              >
+                                Reset
+                              </button>
+                            )}
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </>
-                )
-              }
-            />
+                )}
+              </aside>
+              <SyncSettingsPanel
+                options={syncOptions}
+                onOptionsChange={setSyncOptions}
+                multiSpeaker={multiSpeaker}
+                synced={Boolean(report)}
+                hasDub={hasDub}
+                isSyncing={isSyncing}
+                isCancelling={isCancellingSync}
+                error={syncError}
+                blockedReason={blockedReason}
+                pendingCount={syncPendingLines.length}
+                previewShown={!report && Boolean(syncPreview.preview)}
+                previewLongCount={syncPreview.preview?.summary.long ?? 0}
+                previewShortCount={syncPreview.preview?.summary.short ?? 0}
+                onSync={runSync}
+                onCancel={() => onCancelSync?.()}
+                onBack={() => {
+                  setStepOverride(2);
+                  window.scrollTo({ top: 0, behavior: 'smooth' });
+                }}
+                costNote={`Uses about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`}
+                extras={dubExtras}
+                onDownloadWav={report ? onDownloadWav : undefined}
+                onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
+                fitSource={{ segments, charsPerSecond: previewRate, rateMeasured: measuredRate !== null }}
+                subtitles={
+                  report && syncedCues && syncedCues.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleExportStepSubtitles}
+                        disabled={isSyncing}
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        <span className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[9.5px] font-semibold shrink-0 bg-indigo-500/15 text-indigo-300">
+                          SRT
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold text-slate-100">{subtitleLanguage} subtitles</span>
+                          <span className="block text-[11.5px] text-slate-400 truncate">
+                            Timed to {subtitleTimingLabel} · {srtOptions.maxLinesPerCue} line,{' '}
+                            {srtOptions.maxWordsPerLine} words max
+                          </span>
+                        </span>
+                        <Download className="w-4 h-4 text-slate-500 shrink-0" />
+                      </button>
+                      <button type="button" onClick={() => setIsSrtModalOpen(true)} className={`w-full ${railButton}`}>
+                        <Sliders className="w-3.5 h-3.5" /> Export subtitles
+                      </button>
+                    </>
+                  )
+                }
+              />
+            </div>
           </div>
+
+          {/* Full voice library, opened from Change */}
+          {isVoicePickerOpen && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Choose a voice"
+              onClick={(e) => e.target === e.currentTarget && setIsVoicePickerOpen(false)}
+              onKeyDown={(e) => e.key === 'Escape' && setIsVoicePickerOpen(false)}
+            >
+              <div className="w-full max-w-5xl flex flex-col gap-3">
+                <div className="flex items-center justify-end gap-3">
+                  {castPickFor && (
+                    <span className="mr-auto text-sm text-slate-200">
+                      Voice for <SpeakerChip speaker={speakerByName.get(castPickFor)} name={castPickFor} />
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsVoicePickerOpen(false)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" /> Done
+                  </button>
+                </div>
+                <VoiceSelectorCard
+                  elVoiceId={castPickFor ? activeJob.cast?.[castPickFor]?.voiceId || elVoiceId : elVoiceId}
+                  onElVoiceIdChange={castPickFor && onCastChange ? (id) => onCastChange(castPickFor, id) : onElVoiceIdChange}
+                  availableVoices={availableVoices}
+                  loading={voicesLoading}
+                  targetLanguage={targetLanguage}
+                  voiceEngine={voiceEngine}
+                  onVoiceEngineChange={onVoiceEngineChange}
+                  className="h-[78vh]"
+                />
+              </div>
+            </div>
+          )}
         </div>
         );
       })()}

@@ -1201,7 +1201,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       </span>
                       <span className="min-w-0">
                         <span className="block text-[13px] font-semibold text-slate-100">Replace the dub</span>
-                        <span className="block text-[11.5px] text-slate-400">Becomes the finished audio in Final dub</span>
+                        <span className="block text-[11.5px] text-slate-400">Becomes the finished audio in the Dub step</span>
                       </span>
                     </button>
                   )}

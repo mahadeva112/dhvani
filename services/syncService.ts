@@ -135,7 +135,15 @@ export const SYNC_JOIN_PRESET_OPTIONS: { id: SyncJoinPreset; label: string; hint
 ];
 
 /** What the user picks before a sync. */
+/**
+ * How the dub is voiced: each line on its own, timed for its slot ('lines'),
+ * or the whole script in one take with each line then cut from it
+ * ('continuous'), which keeps the flow of one read. One voice only.
+ */
+export type SyncVoicing = 'lines' | 'continuous';
+
 export interface SyncOptions {
+  voicing: SyncVoicing;
   precision: SyncPrecision;
   /** Which preset `join` came from; 'custom' once any of it is changed. */
   preset: SyncJoinPreset;
@@ -238,7 +246,7 @@ export interface SyncUnitReport {
   tightJoin: boolean;
   /** Times the line was voiced again because the voice cut it off mid-word (absent in older reports). */
   retakes?: number;
-  /** The line was cut from the Final dub, not voiced again (absent in older reports). */
+  /** The line was cut from an earlier dub, not voiced again (absent in older reports). */
   fromDub?: boolean;
   /** The take used still ends before its last word died away: the voice cut it off. */
   cutOff?: boolean;
@@ -280,7 +288,7 @@ export interface SyncReport {
     /** Lines voiced again because the voice cut them off, and lines still cut off after that. */
     retaken?: number;
     cutOff?: number;
-    /** Lines cut from the Final dub rather than voiced again. */
+    /** Lines cut from an earlier dub rather than voiced again. */
     fromDub?: number;
     /** Breaths silenced across the dub. */
     breathsRemoved?: number;
@@ -353,7 +361,7 @@ export interface SyncRequest {
   /** Enhance emotion: delivery cues are added to the lines before they are voiced, as in a dub. */
   expressive?: boolean;
   /**
-   * The Final dub (mono WAV) and what it says: every line that still reads the
+   * A dub made before Dub and Sync were one step (mono WAV) and what it says: every line that still reads the
    * same is cut from it rather than voiced again, so the sync sounds as the dub did.
    */
   dub?: { blob: Blob; lines: DubLines };
@@ -848,4 +856,16 @@ export const speakingRate = (characters: number, speechSeconds: number): number 
   if (!(speechSeconds > 1) || characters <= 0) return null;
   const rate = characters / speechSeconds;
   return rate >= 5 && rate <= 35 ? rate : null;
+};
+
+/** The voice's rate as a sync measured it: each voiced line's characters over the seconds its words took. */
+export const syncedSpeakingRate = (report: Pick<SyncReport, 'units'> | null | undefined): number | null => {
+  let characters = 0;
+  let seconds = 0;
+  for (const unit of report?.units || []) {
+    if (unit.silent || !(unit.speech > 0)) continue;
+    characters += unit.text.trim().length;
+    seconds += unit.speech;
+  }
+  return speakingRate(characters, seconds);
 };

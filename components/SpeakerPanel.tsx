@@ -6,7 +6,7 @@ import type { Voice } from '../services/elevenLabsService';
 
 /**
  * The pieces of the wizard that deal with several speakers: who speaks when
- * (Review), which voice speaks for whom (Final dub), and what the mix of
+ * (Review), which voice speaks for whom (Dub), and what the mix of
  * those voices did. All of them stay out of the way when there is one speaker.
  */
 
@@ -310,7 +310,7 @@ export const SpeakerCueNotes: React.FC<{
 );
 
 /* ------------------------------------------------------------------------ */
-/* Final dub                                                                 */
+/* Dub                                                                       */
 /* ------------------------------------------------------------------------ */
 
 const voiceName = (voiceId: string, voices: Voice[]) => {

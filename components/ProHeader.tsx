@@ -73,7 +73,7 @@ export interface ProHeaderProps {
   /** The step on screen and how to change it. */
   activeStep: number;
   onStepChange: (step: number) => void;
-  /** The last step that may be opened (services/projects.ts openSteps), and why each later one can't be yet. */
+  /** The last step that may be opened (services/steps.ts openSteps), and why each later one can't be yet. */
   openUpTo?: number;
   lockedWhy?: Record<number, string>;
   /** Spoken language shown next to the file; empty means auto-detect. */
@@ -318,7 +318,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   };
 
   const hasCues = Boolean(activeJob && activeJob.segments.length > 0);
-  const hasDub = Boolean(activeJob?.synthesizedAudioUrl);
+  const hasDub = Boolean(activeJob?.synthesizedAudioUrl || activeJob?.syncedAudioUrl);
   const hasSync = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   const servicesOk = elevenLabsReady && translationReady;
   /** What an engine is doing right now, e.g. "Transcription and voice", or "Off". */
@@ -385,10 +385,9 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const steps = [
     { n: 1, label: 'Source & voice', enabled: true },
     { n: 2, label: 'Review', enabled: openUpTo >= 2 },
-    { n: 3, label: 'Final dub', enabled: openUpTo >= 3 },
-    { n: 4, label: 'Sync', enabled: openUpTo >= 4 },
+    { n: 3, label: 'Dub', enabled: openUpTo >= 3 },
   ];
-  const stepDone = (n: number) => (n === 1 ? hasCues : n === 2 || n === 3 ? hasDub : hasSync);
+  const stepDone = (n: number) => (n === 1 ? hasCues : n === 2 ? hasDub : hasSync);
 
   return (
     <header className="relative z-20 w-full bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md select-none">
@@ -436,7 +435,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
           )}
         </div>
 
-        {/* Centre: the four steps */}
+        {/* Centre: the three steps */}
         <nav
           aria-label="Dubbing steps"
           className="col-span-2 md:col-span-1 row-start-2 md:row-start-auto justify-self-center flex items-center gap-0.5 p-[3px] rounded-full bg-slate-900 border border-slate-800 max-w-full overflow-x-auto [scrollbar-width:none]"
@@ -445,7 +444,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
           {steps.map((s) => {
             const on = activeStep === s.n;
             const done = !on && s.enabled && stepDone(s.n);
-            const next = !on && s.enabled && !done && s.n === activeStep + 1 && (s.n !== 4 || hasDub);
+            const next = !on && s.enabled && !done && s.n === activeStep + 1;
             return (
               <button
                 key={s.n}
@@ -486,7 +485,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                     {activeJob!.segments.length} cues
                   </span>
                 )}
-                {s.n === 4 && hasSync && syncPendingCount > 0 && (
+                {s.n === 3 && hasSync && syncPendingCount > 0 && (
                   <span
                     className="hidden lg:inline font-mono text-[10px] text-amber-300 tabular-nums"
                     title="Lines changed since the last sync. Sync again to hear them."

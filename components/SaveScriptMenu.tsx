@@ -19,7 +19,7 @@ interface SaveScriptMenuProps {
 }
 
 /**
- * The script's row in the Final dub's downloads, as a split button: the row
+ * The script's row in the Dub step's downloads, as a split button: the row
  * saves the script file, the arrow offers every other format.
  */
 export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, disabled }) => {

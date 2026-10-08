@@ -56,8 +56,7 @@ import {
 } from './services/elevenLabsService';
 import { buildSpeechScript } from './services/speechScript';
 import { matchSourceDelivery } from './services/sourceCueService';
-import { conversationTurns, isMultiSpeaker, renameCast, renameSpeaker } from './services/speakers';
-import { dubConversation } from './services/castService';
+import { isMultiSpeaker, renameCast, renameSpeaker } from './services/speakers';
 import {
   getCartesiaVoices,
   isCartesiaVoice,
@@ -114,7 +113,6 @@ import {
   TargetScriptFormat,
   DEFAULT_SRT_OPTIONS,
   SrtOptions,
-  adjustSegmentsForDubbedTimeline,
 } from './services/srtService';
 import {
   syncDub,
@@ -136,7 +134,8 @@ import {
   deleteJobFromStorage,
   clearAllJobsFromStorage,
 } from './services/storageService';
-import { byNewest, hasTranscript, openSteps } from './services/projects';
+import { byNewest } from './services/projects';
+import { currentStep, hasTranscript, openSteps } from './services/steps';
 import {
   BatchJob,
   ProcessingStatus,
@@ -144,8 +143,8 @@ import {
   AudioTrackMode,
   TargetSource,
   TrackSwitchOptions,
+  DubLines,
   DubMixReport,
-  DubStem,
   MixPeakMode,
 } from './types';
 
@@ -416,18 +415,15 @@ export default function App() {
   // False until the first library fetch has finished, or there is nothing to fetch.
   const [voicesSettled, setVoicesSettled] = useState<boolean>(false);
 
-  // Processing Flags
-  const [isBatchProcessing, setIsBatchProcessing] = useState<boolean>(false);
-  // The dub in flight: its progress, and what cancelling it needs.
-  const [dubProgress, setDubProgress] = useState<DubProgress | null>(null);
-  const [isCancellingDub, setIsCancellingDub] = useState(false);
-  const dubRunRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
-  // The sync in flight, the same way.
+  // The dub in flight (a sync): its progress, and what cancelling it needs.
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isCancellingSync, setIsCancellingSync] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const syncRunRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
+  // `readJobId`: the continuous read in flight before the lines are placed, if the dub is voiced that way.
+  const syncRunRef = useRef<{ jobId: string; controller: AbortController; readJobId?: string } | null>(null);
+  /** The continuous read's progress, while the script is voiced in one take; null otherwise. */
+  const [readProgress, setReadProgress] = useState<DubProgress | null>(null);
   /** One seed per dub session, so a second Sync reuses the lines the first one voiced. */
   const syncSeedRef = useRef<Record<string, number>>({});
   /** Retaken lines per job, by line key: each gets its own seed, so the next Sync voices it again. */
@@ -598,7 +594,7 @@ export default function App() {
   // stays on Review, where the choice is made.
   const awaitingScript = activeJob?.targetSource === 'pending';
   // A step kept from before only counts once there is a transcript to work on.
-  const keptStep = activeJob?.lastStep && (activeJob.lastStep === 1 || hasTranscript(activeJob.segments)) ? activeJob.lastStep : null;
+  const keptStep = activeJob?.lastStep && (activeJob.lastStep === 1 || hasTranscript(activeJob.segments)) ? currentStep(activeJob.lastStep) : null;
   const requestedStep = stepOverride ?? keptStep ?? stepForJob(activeJob);
   // Steps open one at a time: a step is reachable only once the one before it
   // is done, and while a step's work runs every step after it is locked.
@@ -607,9 +603,8 @@ export default function App() {
       openSteps(activeJob, {
         transcribing: Boolean(activeJob && transcribingJobId === activeJob.id),
         translating: isTranslatingLanguage,
-        dubbing: isBatchProcessing,
       }),
-    [activeJob, transcribingJobId, isTranslatingLanguage, isBatchProcessing]
+    [activeJob, transcribingJobId, isTranslatingLanguage]
   );
   const activeStep = Math.max(1, Math.min(awaitingScript && requestedStep > 2 ? 2 : requestedStep, stepGate.upTo));
   useEffect(() => {
@@ -777,25 +772,15 @@ export default function App() {
 
   /** What is running on the active job, for the header's status pill and progress line. */
   const headerActivity = useMemo(() => {
-    if (isBatchProcessing) {
-      const p = dubProgress;
-      const sourceLength = activeJob?.audioBuffer?.duration || 0;
-      if (p?.phase === 'listening') return { label: 'Listening to source', fraction: null };
-      if (!p || p.phase === 'preparing') return { label: 'Dubbing', fraction: null };
-      if (p.phase === 'joining') return { label: 'Finishing dub', fraction: null };
-      const byChars = p.totalChars > 0 ? p.charsDone / p.totalChars : 0;
-      const bySeconds = p.streaming && sourceLength > 0 ? p.secondsGenerated / sourceLength : 0;
-      return { label: 'Dubbing', fraction: Math.min(0.98, Math.max(byChars, bySeconds)) };
-    }
-    // Sync runs in step 4 but keeps going on any step, so the header follows it.
-    if (isSyncing) return { label: isCancellingSync ? 'Cancelling sync' : 'Syncing', fraction: syncProgress ? Math.min(0.98, syncFraction(syncProgress)) : null };
+    // Sync runs in the Dub step but keeps going on any step, so the header follows it.
+    if (isSyncing) return { label: isCancellingSync ? 'Cancelling dub' : 'Dubbing', fraction: syncProgress ? Math.min(0.98, syncFraction(syncProgress)) : null };
     if (isTranscribing) return { label: pipelineStatus.replace(/\.+$/, '') || 'Transcribing', fraction: null };
     if (isTranslatingLanguage) {
       const p = translationProgress;
       return { label: 'Translating', fraction: p && p.total > 0 ? Math.min(0.98, (p.done + 0.5) / p.total) : null };
     }
     return null;
-  }, [isBatchProcessing, dubProgress, activeJob?.audioBuffer, isSyncing, isCancellingSync, syncProgress, isTranscribing, pipelineStatus, isTranslatingLanguage, translationProgress]);
+  }, [isSyncing, isCancellingSync, syncProgress, isTranscribing, pipelineStatus, isTranslatingLanguage, translationProgress]);
 
   const handleDismissSetup = useCallback(() => {
     setSetupDismissed(true);
@@ -1203,18 +1188,17 @@ export default function App() {
   }, [activeJob?.file]);
 
   /*
-   * The second track: the Sync step plays the synced dub once there is one,
-   * every other step the dub. Each keeps its own file, so syncing never
-   * replaces the dub the Final dub step plays.
+   * The second track: the synced dub once there is one, else the dub of a
+   * project made before Dub and Sync were one step. Each keeps its own file.
    */
-  const playsSynced = activeStep === 4 && Boolean(activeJob?.syncedAudioUrl);
+  const playsSynced = Boolean(activeJob?.syncedAudioUrl);
   const synthAudioUrl = (playsSynced ? activeJob?.syncedAudioUrl : activeJob?.synthesizedAudioUrl) || null;
   const synthBufferField = playsSynced ? 'syncedAudioBuffer' : 'synthAudioBuffer';
   // Until there is a dub the original is the only thing to hear, whatever mode was last picked.
   const playMode: AudioTrackMode = synthAudioUrl ? trackMode : 'source';
-  // The listening faders of Final dub and Sync; every other step hears both tracks at full level.
+  // The listening faders of the Dub step; every other step hears both tracks at full level.
   const mixerElements = useMemo(() => ({ source: sourceAudioRef, synth: synthAudioRef }), []);
-  const mixer = useTrackMixer(mixerElements, activeStep === 3 || activeStep === 4);
+  const mixer = useTrackMixer(mixerElements, activeStep === 3);
 
   /*
    * While Edit timing is open, the dub is played live from the sync's lines
@@ -1260,9 +1244,7 @@ export default function App() {
   const decodingSynthUrlRef = useRef<string | null>(null);
   const currentSynthUrlRef = useRef<string | null>(synthAudioUrl);
   currentSynthUrlRef.current = synthAudioUrl;
-  /** The active job's dub and synced dub, so a decode that lands after a newer file of its kind is dropped. */
-  const currentDubUrlRef = useRef<string | null>(null);
-  currentDubUrlRef.current = activeJob?.synthesizedAudioUrl || null;
+  /** The active job's synced dub, so a decode that lands after a newer one is dropped. */
   const currentSyncedUrlRef = useRef<string | null>(null);
   currentSyncedUrlRef.current = activeJob?.syncedAudioUrl || null;
 
@@ -2087,198 +2069,6 @@ export default function App() {
     return result.segments;
   };
 
-  // Master Speech Synthesis (ElevenLabs or Gemini 3.5 Flash)
-  const handleSynthesizeMaster = async () => {
-    if (!activeJob || isSyncing) return;
-    if (activeJob.targetSource === 'pending') {
-      alert('Choose how to get the script first: translate the transcript or use your own script.');
-      return;
-    }
-
-    // Subtitle cues are rejoined into flowing sentences; see buildSpeechScript.
-    const textToSynthesize =
-      activeJob.segments && activeJob.segments.length > 0
-        ? buildSpeechScript(activeJob.segments)
-        : activeJob.script.trim();
-
-    if (!textToSynthesize) {
-      alert('Please enter or review translated dialogue cues first.');
-      return;
-    }
-
-    setIsBatchProcessing(true);
-    const hadDub = Boolean(activeJob.synthesizedAudioUrl);
-    updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null });
-
-    const jobId =
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto
-        ? crypto.randomUUID()
-        : `dub-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-    const controller = new AbortController();
-    dubRunRef.current = { jobId, controller };
-    setDubProgress(null);
-    setIsCancellingDub(false);
-    const poll = window.setInterval(() => {
-      getDubProgress(jobId)
-        .then((progress) => {
-          if (dubRunRef.current?.jobId === jobId) setDubProgress(progress);
-        })
-        // The job is only registered once the request reaches the server; until then, keep waiting.
-        .catch(() => {});
-    }, 700);
-
-    try {
-      // Several speakers: each is voiced by their own voice, turn by turn, with a stem each.
-      const several = isMultiSpeaker(activeJob.segments);
-      let blob: Blob;
-      let dubStems: DubStem[] | null = null;
-      let dubMix: DubMixReport | null = null;
-      if (several) {
-        const result = await dubConversation(
-          {
-            turns: conversationTurns(activeJob.segments),
-            cast: activeJob.cast,
-            voiceId: elVoiceId,
-            voicing: { modelId: elModelId, voiceSettings: elVoiceSettings, cartesia: cartesiaVoice },
-            outputFormat: elOutputFormat,
-            language: activeJob.language || selectedLanguage,
-            matchSpeakers: dubMatchLoudness,
-            peak: mixPeak,
-          },
-          { apiKey: elApiKey, jobId, signal: controller.signal }
-        );
-        blob = result.blob;
-        dubStems = result.stems;
-        dubMix = result.report;
-      } else {
-        const language = activeJob.language || selectedLanguage;
-        // Match source audio: tag the script from the original speaker's delivery before voicing it.
-        const matchSource =
-          emotionEnhance &&
-          emotionMatchSource &&
-          performsAudioTags(elModelId) &&
-          !isCartesiaVoice(elVoiceId) &&
-          activeJob.segments.length > 0;
-        let script = textToSynthesize;
-        if (matchSource) {
-          const tagged = await sourceTaggedSegments(activeJob, language, controller.signal, () =>
-            setDubProgress({ phase: 'listening', passageCount: 0, passagesDone: 0, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true })
-          );
-          script = buildSpeechScript(tagged);
-        }
-        blob = await synthesizeSpeech(
-          elApiKey,
-          elVoiceId,
-          script,
-          elModelId,
-          elOutputFormat,
-          elVoiceSettings,
-          {
-            expressive: emotionEnhance && !matchSource,
-            audioTags: matchSource,
-            performanceTags: matchSource,
-            matchLoudness: dubMatchLoudness,
-            cartesia: cartesiaVoice,
-            language: activeJob.language || selectedLanguage,
-            jobId,
-            signal: controller.signal,
-          }
-        );
-      }
-
-      const url = URL.createObjectURL(blob);
-      let srtOpts = DEFAULT_SRT_OPTIONS;
-      try {
-        const saved = localStorage.getItem('dhvani_srt_options');
-        if (saved) srtOpts = JSON.parse(saved);
-      } catch {}
-      const srtContent = generateSrtContent(activeJob.segments, srtOpts);
-      const srtBlob = new Blob([srtContent], { type: 'text/srt' });
-      const srtUrl = URL.createObjectURL(srtBlob);
-
-      // Decode synthetic audio buffer for waveform and playback; a newer dub by then makes it stale.
-      decodingSynthUrlRef.current = url;
-      decodeAudioBlobUrl(url)
-        .then((synthBuffer) => {
-          if (currentDubUrlRef.current !== url) return;
-          const alignedSegments = adjustSegmentsForDubbedTimeline(activeJob.segments, synthBuffer.duration, srtOpts);
-          const alignedSrtContent = generateSrtContent(alignedSegments, srtOpts);
-          const alignedSrtBlob = new Blob([alignedSrtContent], { type: 'text/srt' });
-          const alignedSrtUrl = URL.createObjectURL(alignedSrtBlob);
-
-          updateJob(activeJob.id, {
-            synthAudioBuffer: synthBuffer,
-            srtUrl: alignedSrtUrl,
-            srtBlob: alignedSrtBlob,
-          });
-        })
-        .catch(console.warn)
-        .finally(() => {
-          if (decodingSynthUrlRef.current === url) decodingSynthUrlRef.current = null;
-        });
-
-      updateJob(activeJob.id, {
-        synthesizedAudioUrl: url,
-        synthesizedBlob: blob,
-        // Until the new dub decodes, no waveform rather than the previous dub's.
-        synthAudioBuffer: null,
-        dubScriptCharacters: scriptCharacterCount(activeJob.segments),
-        // What this dub says, so Sync can cut its lines from it (one voice only).
-        dubLines:
-          !several && activeJob.segments.length > 0
-            ? {
-                dubId: jobId,
-                voiceId: elVoiceId,
-                modelId: elModelId,
-                cues: activeJob.segments
-                  .map((segment) => ({ id: String(segment.id), text: (segment.textTarget || segment.targetText || '').trim() }))
-                  .filter((cue) => cue.text),
-              }
-            : null,
-        srtUrl,
-        srtBlob,
-        dubStems,
-        dubMix,
-        // The synced dub is its own file, voiced line by line, so a new dub leaves it as it was.
-        status: ProcessingStatus.COMPLETED,
-      });
-
-      // Switch monitor to Dubbed Master
-      setTrackMode('synth');
-      refreshQuota();
-    } catch (err: any) {
-      if (controller.signal.aborted || err?.code === 'cancelled') {
-        // A cancelled re-dub keeps the dub that was there before.
-        updateJob(activeJob.id, {
-          status: hadDub ? ProcessingStatus.COMPLETED : ProcessingStatus.IDLE,
-          errorMsg: null,
-        });
-      } else {
-        console.error('Synthesis Error:', err);
-        updateJob(activeJob.id, {
-          status: ProcessingStatus.ERROR,
-          errorMsg: `Speech Synthesis Failed: ${err.message}`,
-        });
-      }
-    } finally {
-      window.clearInterval(poll);
-      if (dubRunRef.current?.jobId === jobId) dubRunRef.current = null;
-      setDubProgress(null);
-      setIsCancellingDub(false);
-      setIsBatchProcessing(false);
-    }
-  };
-
-  /** Stops the dub in flight: the server stops requesting passages, and the upload is dropped. */
-  const handleCancelSynthesis = () => {
-    const run = dubRunRef.current;
-    if (!run) return;
-    setIsCancellingDub(true);
-    cancelDub(run.jobId)
-      .catch(() => {})
-      .finally(() => run.controller.abort());
-  };
-
   /**
    * Sync: voices the cues line by line and places each line on its source
    * phrase, so the dub plays in step with the original. The result is the
@@ -2373,8 +2163,75 @@ export default function App() {
     );
   };
 
-  const handleSyncDub = async ({ precision, join, suggest, suggestLonger, matchLoudness }: SyncOptions) => {
-    if (!activeJob || activeJob.segments.length === 0 || isBatchProcessing || isSyncing) return;
+  /**
+   * One continuous read: the whole script voiced in one take, as a narrator
+   * reads it, for Sync to cut each line from. Kept on the job as its dub, with
+   * what it says and how it was voiced, so Sync again reuses it until that
+   * changes; lines reworded since are voiced on their own.
+   */
+  const readScript = async (job: BatchJob, language: string, readKey: string, matchLoudness: boolean, signal: AbortSignal) => {
+    const readJobId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `read-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    if (syncRunRef.current) syncRunRef.current.readJobId = readJobId;
+    setReadProgress({ phase: 'preparing', passageCount: 0, passagesDone: 0, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true });
+    const poll = window.setInterval(() => {
+      getDubProgress(readJobId)
+        .then((progress) => {
+          if (syncRunRef.current?.readJobId === readJobId) setReadProgress(progress);
+        })
+        // The job is only registered once the request reaches the server; until then, keep waiting.
+        .catch(() => {});
+    }, 700);
+    try {
+      // Match source audio: tag the script from the original speaker's delivery before voicing it.
+      const matchSource = emotionEnhance && emotionMatchSource && performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
+      let script = buildSpeechScript(job.segments);
+      if (matchSource) {
+        const tagged = await sourceTaggedSegments(job, language, signal, () =>
+          setReadProgress({ phase: 'listening', passageCount: 0, passagesDone: 0, totalChars: 0, charsDone: 0, secondsGenerated: 0, streaming: true })
+        );
+        script = buildSpeechScript(tagged);
+      }
+      const blob = await synthesizeSpeech(elApiKey, elVoiceId, script, elModelId, elOutputFormat, elVoiceSettings, {
+        expressive: emotionEnhance && !matchSource,
+        audioTags: matchSource,
+        performanceTags: matchSource,
+        matchLoudness,
+        cartesia: cartesiaVoice,
+        language,
+        jobId: readJobId,
+        signal,
+      });
+      const lines: DubLines = {
+        dubId: readJobId,
+        voiceId: elVoiceId,
+        modelId: elModelId,
+        readKey,
+        cues: job.segments
+          .map((segment) => ({ id: String(segment.id), text: (segment.textTarget || segment.targetText || '').trim() }))
+          .filter((cue) => cue.text),
+      };
+      updateJob(job.id, {
+        synthesizedAudioUrl: URL.createObjectURL(blob),
+        synthesizedBlob: blob,
+        synthAudioBuffer: null,
+        dubScriptCharacters: scriptCharacterCount(job.segments),
+        dubLines: lines,
+        dubStems: null,
+        dubMix: null,
+      });
+      return { blob, lines };
+    } finally {
+      window.clearInterval(poll);
+      if (syncRunRef.current?.readJobId === readJobId) syncRunRef.current.readJobId = undefined;
+      setReadProgress(null);
+    }
+  };
+
+  const handleSyncDub = async ({ voicing, precision, join, suggest, suggestLonger, matchLoudness }: SyncOptions) => {
+    if (!activeJob || activeJob.segments.length === 0 || isSyncing) return;
     if (activeJob.targetSource === 'pending') return;
 
     const hadDub = Boolean(activeJob.synthesizedAudioUrl || activeJob.syncedAudioUrl);
@@ -2411,19 +2268,30 @@ export default function App() {
     try {
       const several = isMultiSpeaker(activeJob.segments);
       const language = activeJob.language || selectedLanguage;
-      // Emotion as in the dub: one voice on a model that performs tags (see handleSynthesizeMaster).
+      // Emotion tags need one voice on a model that performs them.
       const tagsEmotion = emotionEnhance && !several && performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
       let voiceTexts: Record<string, string> | undefined;
       if (tagsEmotion && emotionMatchSource) {
         const tagged = await sourceTaggedSegments(activeJob, language, controller.signal);
         voiceTexts = Object.fromEntries(tagged.map((segment) => [String(segment.id), segment.textTarget || segment.targetText || '']));
       }
-      // The Final dub, where it was voiced by this voice: its lines are cut from it rather than voiced again.
-      const dubLines = activeJob.dubLines;
-      const dub =
-        !several && dubLines && activeJob.synthesizedBlob && dubLines.voiceId === elVoiceId && dubLines.modelId === elModelId
-          ? { blob: activeJob.synthesizedBlob, lines: dubLines }
-          : undefined;
+      /*
+       * One continuous read (one voice only): the script is read in one take,
+       * or the last read is reused while it was voiced the same way, and its
+       * lines are cut from it rather than voiced again. A dub made before Dub
+       * and Sync were one step counts as a read by its voice.
+       */
+      let dub: { blob: Blob; lines: DubLines } | undefined;
+      if (voicing === 'continuous' && !several) {
+        const readKey = JSON.stringify([elVoiceId, elModelId, elVoiceSettings ?? null, emotionEnhance, emotionMatchSource, matchLoudness, cartesiaVoice]);
+        const last = activeJob.dubLines;
+        const lastFits =
+          activeJob.synthesizedBlob && last && last.voiceId === elVoiceId && last.modelId === elModelId && (last.readKey ?? readKey) === readKey;
+        dub =
+          lastFits && activeJob.synthesizedBlob && last
+            ? { blob: activeJob.synthesizedBlob, lines: last }
+            : await readScript(activeJob, language, readKey, matchLoudness, controller.signal);
+      }
       const { blob, stems, report, bank, bankBlob } = await syncDub(
         {
           segments: activeJob.segments,
@@ -2459,7 +2327,7 @@ export default function App() {
       setSyncPending((pending) => ({ ...pending, [activeJob.id]: [] }));
 
       const url = URL.createObjectURL(blob);
-      // The dub, its waveform and its subtitles stay as they are: the Final dub step still plays it.
+      // A dub made before Dub and Sync were one step stays as it was, beside the synced dub.
       updateJob(activeJob.id, {
         syncedAudioUrl: url,
         syncedBlob: blob,
@@ -2546,6 +2414,7 @@ export default function App() {
     const run = syncRunRef.current;
     if (!run) return;
     setIsCancellingSync(true);
+    if (run.readJobId) cancelDub(run.readJobId).catch(() => {});
     cancelSync(run.jobId)
       .catch(() => {})
       .finally(() => run.controller.abort());
@@ -2604,7 +2473,7 @@ export default function App() {
     [changeTrackMode]
   );
 
-  // Download Master Lossless WAV: the synced dub from the Sync step, the dub everywhere else
+  // Download Master Lossless WAV: the synced dub, else a dub made before Dub and Sync were one step
   const handleDownloadMasterWav = useCallback(() => {
     if (!activeJob) return;
     const blob = playsSynced ? activeJob.syncedBlob : activeJob.synthesizedBlob;
@@ -2873,7 +2742,7 @@ export default function App() {
     [activeJob, selectedLanguage, customPrompt, promptPresetId, updateJob]
   );
 
-  // Voice Changer: its result takes the place of the track it worked on, the synced dub from the Sync step or the dub
+  // Voice Changer: its result takes the place of the track it worked on, the synced dub or an earlier dub
   const handleSetDubbedMaster = useCallback(
     (masterBlob: Blob, masterBuffer: AudioBuffer) => {
       if (!activeJob) return;
@@ -2900,7 +2769,7 @@ export default function App() {
     [activeJob, playsSynced, updateJob]
   );
 
-  /** The finished dub (synced on the Sync step), which is what the voice changer works on (not the source speech). */
+  /** The finished dub (the synced one once there is one), which is what the voice changer works on (not the source speech). */
   const voiceChangerBuffer = (playsSynced ? activeJob?.syncedAudioBuffer : activeJob?.synthAudioBuffer) || null;
   const voiceChangerBlob = (playsSynced ? activeJob?.syncedBlob : activeJob?.synthesizedBlob) || null;
   const voiceChangerDubFile = useMemo(() => {
@@ -3121,7 +2990,6 @@ export default function App() {
           openUpTo={stepGate.upTo}
           lockedWhy={stepGate.why}
           transcriptionCancelled={Boolean(activeJob && cancelledTranscriptionJob === activeJob.id)}
-          onSynthesizeMaster={handleSynthesizeMaster}
           ttsModelName={
             isCartesiaVoice(elVoiceId)
               ? `Cartesia ${cartesiaModelName}`
@@ -3133,10 +3001,6 @@ export default function App() {
           elApiKey={elApiKey}
           elVoiceSettings={elVoiceSettings}
           onElVoiceSettingsChange={handleElVoiceSettingsChange}
-          isSynthesizing={isBatchProcessing}
-          dubProgress={dubProgress}
-          isCancellingDub={isCancellingDub}
-          onCancelSynthesis={handleCancelSynthesis}
           onSyncDub={handleSyncDub}
           onSyncEditsChange={handleSyncEditsChange}
           syncEditStatus={syncEditStatus}
@@ -3146,6 +3010,7 @@ export default function App() {
           onRetrySyncEditRender={handleRetrySyncEditRender}
           isSyncing={isSyncing}
           syncProgress={syncProgress}
+          readProgress={readProgress}
           isCancellingSync={isCancellingSync}
           onCancelSync={handleCancelSync}
           syncError={syncError}

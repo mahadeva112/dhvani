@@ -80,7 +80,9 @@ interface ContinuousDocumentViewProps {
   /** True for a line that ends well before the original speaker stops, for the Ends early filter. */
   isEndingEarly?: (seg: AudioSegment) => boolean;
   /** The Review step's pacing filter; here it dims other sentences rather than removing them from the text. */
-  pacingFilter: 'all' | 'risk' | 'tight' | 'short';
+  pacingFilter: 'all' | 'risk' | 'tight' | 'short' | 'fix';
+  /** For the Lines to fix filter: the cue is in a sync line likely too long or ending early. */
+  inLineToFix?: (segment: AudioSegment) => boolean;
   searchQuery: string;
   activeSegmentId: string | number | null;
   isPlaying: boolean;
@@ -105,6 +107,7 @@ export function ContinuousDocumentView({
   getPaceLevel,
   isEndingEarly,
   pacingFilter,
+  inLineToFix,
   searchQuery,
   fontSize = 15,
   activeSegmentId,
@@ -382,6 +385,7 @@ export function ContinuousDocumentView({
   const isDimmed = (seg: AudioSegment) => {
     if (pacingFilter === 'all') return false;
     if (pacingFilter === 'short') return !isEndingEarly?.(seg);
+    if (pacingFilter === 'fix') return !inLineToFix?.(seg);
     const level = getPaceLevel(seg);
     return pacingFilter === 'risk' ? level !== 'fast' : level !== 'tight';
   };

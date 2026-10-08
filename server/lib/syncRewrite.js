@@ -26,7 +26,7 @@
  * wording comes back as `flagged`, with what the check found, so the user
  * gets a wording to judge and edit rather than an empty answer.
  *
- * Asked for one line, Review and the Final dub offer several wordings at once
+ * Asked for one line, Review offers several wordings at once
  * (`suggestLines`), each of a different kind and each checked the same way.
  * Every prompt can carry the lines around the one being reworded, and who
  * says it, so the model reads the line in context before rewording it.

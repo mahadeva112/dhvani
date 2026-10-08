@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Loader2, Pencil, Play, RotateCcw, X } from 'lucide-react';
+import { Check, Loader2, Pencil, RotateCcw, X } from 'lucide-react';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { hueOf, withAlpha } from './lineColors';
@@ -23,9 +23,9 @@ import { timeLine } from '../services/speechTiming';
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
  * time the original gives them, drawn on the same Original / Dub timeline the
- * sync report uses, a shorter wording for the lines that are likely too
- * long, and a fuller one for the lines likely to end while the original
- * speaker is still talking. Lengths are estimated from characters and a
+ * sync report uses, and the controls Review rewords lines with: a shorter
+ * wording for a line likely too long, a fuller one for a line likely to end
+ * while the original speaker is still talking. Lengths are estimated from characters and a
  * speaking rate, so every figure here says so. See server/lib/syncPreview.js.
  */
 
@@ -191,8 +191,7 @@ export const directionFor = (unit: SyncPreviewUnit): RewriteDirection =>
       : 'shorter';
 
 /**
- * Rewording lines, one at a time or all at once, as the Sync preview and the
- * Final dub script both offer it. Each line's direction comes from how it
+ * Rewording lines, one at a time or all at once, as Review offers it. Each line's direction comes from how it
  * compares with its source sentence (directionFor) and is kept once work on
  * the line starts: once a fuller wording is used the line is no longer short,
  * but it is still the line that was made fuller.
@@ -300,212 +299,6 @@ export const useLineFixes = ({
   return { directionOf, stateOf, worked, open, notStarted, suggestAll, controlsFor, reset };
 };
 
-export interface SyncPreviewPanelProps {
-  preview: SyncPreview | null;
-  loading: boolean;
-  error: string | null;
-  /** True when the rate was measured from the Final dub, false when it is a typical rate. */
-  rateMeasured: boolean;
-  currentTime: number;
-  isPlaying: boolean;
-  onTogglePlay: () => void;
-  /** The exact playback position, read every frame while playing, so the playhead moves smoothly. */
-  getLiveTime?: () => number | null;
-  onSeek: (time: number) => void;
-  /** Plays the original from `time`. */
-  onListenOriginal: (time: number) => void;
-  /** Shorter (or, for a line that ends early, fuller) wordings of a line, from the text model. */
-  onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection, count: number) => Promise<LineSuggestion[]>;
-  /** Puts a wording into the script; returns the cues' texts before, for Undo. */
-  onUseLine: (unit: SyncPreviewUnit, text: string) => Record<string, string>;
-  /** Puts cue texts back, for Undo. */
-  onRestore: (before: Record<string, string>) => void;
-  /** See PreviewTimeline: shown in place of the playhead while an unsynced dub is heard. */
-  offClockNote?: React.ReactNode;
-  /** The original, for the timeline's waveform. */
-  sourceBuffer?: AudioBuffer | null;
-  /** Switches between the Quick and the Expert estimate. */
-  onMethodChange?: (method: EstimateMethod) => void;
-}
-
-export const SyncPreviewPanel: React.FC<SyncPreviewPanelProps> = ({
-  preview,
-  loading,
-  error,
-  rateMeasured,
-  currentTime,
-  isPlaying,
-  onTogglePlay,
-  getLiveTime,
-  onSeek,
-  onListenOriginal,
-  onSuggest,
-  onUseLine,
-  onRestore,
-  offClockNote,
-  sourceBuffer,
-  onMethodChange,
-}) => {
-  const [showTight, setShowTight] = useState(false);
-  const fixes = useLineFixes({ onSuggest, onUseLine, onRestore });
-  const { directionOf, worked, open, suggestAll } = fixes;
-
-  const units = preview?.units || [];
-  // A line stays listed once it has been worked on, even when it now fits.
-  const listed = units.filter((u) => directionOf(u) === 'shorter' && (u.status === 'long' || wantsChange(u) || worked(u)));
-  const listedShort = units.filter((u) => directionOf(u) === 'longer' && (u.status === 'short' || wantsChange(u) || worked(u)));
-  const tight = units.filter((u) => u.status === 'tight' && !listed.includes(u));
-  const stillLong = units.filter((u) => u.status === 'long').length;
-  const stillShort = units.filter((u) => u.status === 'short').length;
-  const openLong = units.filter((u) => u.status === 'long' && open(u));
-  const openShort = units.filter((u) => u.status === 'short' && open(u));
-
-  /** What every row needs; its direction decides how it reads. */
-  const rowProps = (unit: SyncPreviewUnit) => ({
-    unit,
-    cps: preview?.charsPerSecond ?? 1,
-    ...fixes.controlsFor(unit),
-    onListen: () => onListenOriginal(Math.max(0, unit.srcStart - 0.6)),
-  });
-
-  if (error && !preview) {
-    return <p className="text-xs text-amber-300">The preview could not be worked out: {error}</p>;
-  }
-  if (!preview) {
-    return (
-      <p className="flex items-center gap-2 text-xs text-slate-400" role="status">
-        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Working out the preview…
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-dashed border-slate-700 bg-slate-950/60 px-3.5 py-2.5">
-        <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-300">Preview</span>
-        <span className="flex-1 min-w-[16rem] text-[12.5px] text-slate-300">
-          {rateMeasured ? 'An estimate' : 'A rough estimate'} from the text {preview.method === 'expert' ? 'in syllables' : 'length'}. Nothing is voiced and
-          no ElevenLabs characters are used until you press Sync.
-        </span>
-        {onMethodChange && <EstimateSwitch method={preview.method ?? 'quick'} onChange={onMethodChange} />}
-        <span
-          className="font-mono text-[11.5px] text-slate-400 tabular-nums"
-          title={rateMeasured ? 'Measured from your Final dub' : 'A typical rate. Make the Final dub first for an estimate from your own voice.'}
-        >
-          {estimateBasis(preview, rateMeasured)}
-        </span>
-        {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
-      </div>
-
-      <PreviewCards preview={preview} />
-
-      <PreviewTimeline
-        units={units}
-        reportedTime={currentTime}
-        getLiveTime={getLiveTime}
-        onSeek={onSeek}
-        isPlaying={isPlaying}
-        onTogglePlay={onTogglePlay}
-        offClockNote={offClockNote}
-        sourceBuffer={sourceBuffer}
-      />
-
-      <div>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-[13.5px] font-semibold text-slate-100">Shorten before you sync</h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {stillLong === 0
-                ? 'No line is likely to run past the time the original gives it.'
-                : `${stillLong === 1 ? '1 line is' : `${stillLong} lines are`} likely too long for the time the original gives ${
-                    stillLong === 1 ? 'it' : 'them'
-                  }. Shortening now saves a second sync. Suggestions use your text model, not ElevenLabs.`}
-            </p>
-          </div>
-          {openLong.length > 1 && (
-            <button
-              type="button"
-              onClick={() => suggestAll(openLong)}
-              className="h-8 px-3 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
-            >
-              Suggest for all {openLong.length}
-            </button>
-          )}
-        </div>
-
-        {(listed.length > 0 || tight.length > 0) && (
-          <ul className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
-            {listed.map((unit) => (
-              <PreviewRow key={unit.key} {...rowProps(unit)} />
-            ))}
-            {tight.length > 0 && (
-              <li>
-                <button
-                  type="button"
-                  onClick={() => setShowTight((v) => !v)}
-                  aria-expanded={showTight}
-                  className="group w-full flex items-center gap-3 py-3 text-left text-[12.5px] text-slate-400 hover:text-slate-200 cursor-pointer"
-                >
-                  <span className="shrink-0 flex items-center gap-1.5 font-mono text-[11px] px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-200 tabular-nums">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-300/80" />
-                    {tight.length} tight
-                  </span>
-                  <span className="flex-1 min-w-0">Likely to fit, just. Sync can shorten the pauses inside them.</span>
-                  <span className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 group-hover:bg-slate-800 text-xs text-slate-300">
-                    {showTight ? 'Hide' : 'Show'}
-                    <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showTight ? 'rotate-180' : ''}`} />
-                  </span>
-                </button>
-              </li>
-            )}
-            {showTight &&
-              tight.map((unit) => (
-                <PreviewRow
-                  key={unit.key}
-                  {...rowProps(unit)}
-                  state={{ kind: 'idle' }}
-                  onDraft={() => {}}
-                  onPick={() => {}}
-                  onUse={() => {}}
-                  onUndo={() => {}}
-                />
-              ))}
-          </ul>
-        )}
-      </div>
-
-      {listedShort.length > 0 && (
-        <div>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="text-[13.5px] font-semibold text-slate-100">Fill out lines that end early</h3>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {stillShort === 0
-                  ? 'No line is likely to end well before the original speaker stops.'
-                  : `${stillShort === 1 ? '1 line is' : `${stillShort} lines are`} likely to end well before the original speaker stops, so the dub goes quiet while the speaker is still talking on screen. A fuller wording with the same meaning closes the gap. Suggestions use your text model, not ElevenLabs.`}
-              </p>
-            </div>
-            {openShort.length > 1 && (
-              <button
-                type="button"
-                onClick={() => suggestAll(openShort)}
-                className="h-8 px-3 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
-              >
-                Suggest for all {openShort.length}
-              </button>
-            )}
-          </div>
-          <ul className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
-            {listedShort.map((unit) => (
-              <PreviewRow key={unit.key} {...rowProps(unit)} />
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-};
-
 /** Quick or Expert: how the preview times the dub lines. */
 export const EstimateSwitch: React.FC<{ method: EstimateMethod; onChange: (method: EstimateMethod) => void }> = ({ method, onChange }) => (
   <div role="group" aria-label="Estimate" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
@@ -607,7 +400,7 @@ export const ExpertLineDetail: React.FC<{ unit: SyncPreviewUnit }> = ({ unit }) 
   );
 };
 
-/** The preview's five counts, as the Sync step and the Final dub both show them. */
+/** The preview's five counts, as the Dub step shows them before the first sync. */
 export const PreviewCards: React.FC<{ preview: SyncPreview }> = ({ preview: { summary } }) => (
   <div className={`grid grid-cols-2 sm:grid-cols-3 ${summary.lips ? 'xl:grid-cols-6' : 'xl:grid-cols-5'} gap-3`}>
     {[
@@ -935,33 +728,6 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
         </div>
       )}
     </>
-  );
-};
-
-const PreviewRow: React.FC<LineFixControlsProps & { onListen: () => void }> = ({ onListen, ...controls }) => {
-  const { unit, state, direction } = controls;
-  const pill = linePill(unit, state);
-  const note = lineNote(unit, state, direction);
-  return (
-    <li className="flex items-start gap-3 py-3">
-      <span aria-hidden="true" className="shrink-0 w-1 self-stretch rounded-full" style={{ background: hueOf(unit.index) }} />
-      <span className={`shrink-0 mt-0.5 font-mono text-[11px] px-2 py-0.5 rounded-md tabular-nums ${pill.tone}`}>{pill.text}</span>
-      <span className="shrink-0 mt-0.5 font-mono text-[11.5px] text-slate-500 tabular-nums w-14">{formatClock(unit.srcStart)}</span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
-        {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
-        <p className={`text-[11.5px] mt-1 ${note.tone}`}>{note.text}</p>
-        <LineFixControls {...controls} />
-      </div>
-      <button
-        type="button"
-        onClick={onListen}
-        className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer"
-        title="Play the original line"
-      >
-        <Play className="w-3 h-3 fill-current" /> Original
-      </button>
-    </li>
   );
 };
 

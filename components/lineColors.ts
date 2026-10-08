@@ -1,5 +1,5 @@
 /**
- * A colour per line, so one line can be followed from the Final dub step
+ * A colour per line, so one line can be followed from Review's script
  * through the sync preview to the sync report: line N is the same colour in
  * every lane, list and link. Lines are numbered as Sync groups them (a sync
  * unit's index), and a cue takes the colour of the line it belongs to.
