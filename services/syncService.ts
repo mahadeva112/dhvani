@@ -480,12 +480,13 @@ export const distributeLineText = (text: string, cueTexts: string[]): string[] =
  * they belong to the source audio.
  */
 export const syncedSegments = (segments: AudioSegment[], report: SyncReport): AudioSegment[] => {
-  const byId = new Map(segments.map((segment) => [segment.id, segment]));
+  // The report names cues as strings; a transcript may number them.
+  const byId = new Map(segments.map((segment) => [String(segment.id), segment]));
   const out: AudioSegment[] = [];
   for (const unit of report.units) {
     if (unit.placedStart === null || unit.placedEnd === null) continue;
     const span = Math.max(0.01, unit.placedEnd - unit.placedStart);
-    const cues = unit.cueIds.map((id) => byId.get(id)).filter((cue): cue is AudioSegment => Boolean(cue));
+    const cues = unit.cueIds.map((id) => byId.get(String(id))).filter((cue): cue is AudioSegment => Boolean(cue));
     if (cues.length === 0) {
       out.push({
         id: cues[0]?.id ?? `sync-${unit.index}`,
