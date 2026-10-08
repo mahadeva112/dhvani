@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.33',
+    changes: [
+      'Edit timing: pick several lines (Ctrl + A for the whole dub) and set one Speed for all of them. The voice keeps its pitch, and each line still starts where it did.',
+    ],
+  },
+  {
     version: '1.3.32',
     changes: [
       'Dub has a new Expression setting: Neutral (calm and steady in the speaker’s own voice, the new default), Natural (follows how the original speaker spoke) or Expressive (adds emotion from the script).',
