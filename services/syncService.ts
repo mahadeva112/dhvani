@@ -803,6 +803,13 @@ export const suggestShorterLine = (request: LineRequest, { signal }: { signal?: 
 export const suggestLongerLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<LineSuggestion[]> =>
   askForLines('/sync/lengthen', request, signal);
 
+/**
+ * Other wordings of a line that already fits, about as long as it is;
+ * `targetChars` is the most its slot holds. Empty when nothing usable came back.
+ */
+export const suggestRewordedLine = (request: LineRequest, { signal }: { signal?: AbortSignal } = {}): Promise<LineSuggestion[]> =>
+  askForLines('/sync/reword', request, signal);
+
 /** A typical dub speaking rate, used when there is no dub to measure one from. */
 export const TYPICAL_CHARS_PER_SECOND = 14;
 

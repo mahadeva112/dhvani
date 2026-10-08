@@ -109,6 +109,7 @@ import {
   syncedSpeakingRate,
   suggestShorterLine,
   suggestLongerLine,
+  suggestRewordedLine,
   syncedSegments,
   TYPICAL_CHARS_PER_SECOND,
   withLineTargets,
@@ -225,6 +226,24 @@ const reviewLineOf = (seg: AudioSegment, text: string, sourceText: string): Sync
       : Math.max(1, Math.floor(REVIEW_FAST_CPS * duration * REVIEW_SHORTER_MARGIN)),
   };
 };
+
+/** The share of a slot a line that fits may grow into when reworded, as the server leaves for Sync's own suggestions. */
+const SLOT_MARGIN = 0.92;
+
+/**
+ * Other wordings for a line that already fits: shown when the row is hovered
+ * or focused, so the list stays quiet until the user wants one.
+ */
+const OtherWordingsButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="mt-1.5 h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity cursor-pointer"
+    title="Other ways to say this line, about as long, with the same meaning"
+  >
+    <RefreshCw className="w-3 h-3" /> Suggest other wordings
+  </button>
+);
 
 /** True when a cue's line ends well before the original speaker stops: one to make fuller. */
 const endsEarly = (seg: AudioSegment, text: string) => reviewLineOf(seg, text, '').status === 'short';
@@ -1006,11 +1025,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   };
   /** Shorter or fuller wordings of a line, from the text model; the line's status decides which. */
   const suggestLine = (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection, count: number) =>
-    (direction === 'longer' ? suggestLongerLine : suggestShorterLine)({
+    (direction === 'longer' ? suggestLongerLine : direction === 'same' ? suggestRewordedLine : suggestShorterLine)({
       text: unit.text,
       sourceText: unit.sourceText,
       language: targetLanguage,
-      targetChars: unit.targetChars,
+      // A line that fits may take up to what its slot holds, at its own estimated rate.
+      targetChars:
+        direction === 'same'
+          ? Math.max(unit.text.length, Math.floor((unit.text.length * unit.slot * SLOT_MARGIN) / Math.max(0.1, unit.estimate)))
+          : unit.targetChars,
       avoid,
       count,
       context: lineContextOf(unit.cueIds),
@@ -2579,7 +2602,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           const unit = unitOfCue.get(String(seg.id));
                           if (!unit || String(unit.cueIds[unit.cueIds.length - 1]) !== String(seg.id)) return null;
                           const fix = lineFixes.controlsFor(unit);
-                          if (!needsFix(unit) && fix.state.kind === 'idle') return null;
+                          if (!needsFix(unit) && fix.state.kind === 'idle') return <OtherWordingsButton onClick={fix.onSuggest} />;
                           const note = fix.state.kind === 'idle' ? { text: fitAdvice(unit), tone: '' } : lineNote(unit, fix.state, fix.direction);
                           const tone = note.tone || (unit.status === 'long' ? 'text-amber-300' : unit.status === 'short' ? 'text-sky-300' : 'text-slate-400');
                           const firstCue = cueIndexById.get(String(unit.cueIds[0]));
@@ -2603,7 +2626,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         const { cps: lineCps, ...line } = reviewLineOf(seg, tgtText, srcText);
                         const fix = reviewFixes.controlsFor(line);
                         const flagged = line.status === 'long' || line.status === 'short';
-                        if (!flagged && fix.state.kind === 'idle') return null;
+                        if (!flagged && fix.state.kind === 'idle') return <OtherWordingsButton onClick={fix.onSuggest} />;
                         const started = fix.state.kind !== 'idle' && fix.state.kind !== 'error';
                         return (
                           <>

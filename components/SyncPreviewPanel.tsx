@@ -110,7 +110,10 @@ const LipMark: React.FC<{ left: string; up?: boolean }> = ({ left, up }) => (
 export const isShort = isShortSpeech;
 
 /** Which way a line's wording has to change: fewer words to fit its slot, or more to fill the original speech. */
-export type RewriteDirection = 'shorter' | 'longer';
+export type RewriteDirection = 'shorter' | 'longer' | 'same';
+
+/** What a wording of each direction is called. */
+export const wordingKind = (direction: RewriteDirection) => (direction === 'longer' ? 'fuller' : direction === 'same' ? 'other' : 'shorter');
 
 /** Wordings a line is offered when the user asks for that line; Suggest for all asks for one each. */
 export const LINE_OPTIONS = 3;
@@ -179,7 +182,10 @@ export type LineFixState =
   | { kind: 'used'; text: string; before: Record<string, string> }
   | { kind: 'kept' };
 
-/** A line's way of being reworded: fewer words for a long line, more for one that ends early. */
+/**
+ * A line's way of being reworded: fewer words for a long line, more for one
+ * that ends early, and for one that fits, other words of about its length.
+ */
 export const directionFor = (unit: SyncPreviewUnit): RewriteDirection =>
   // A line trimmed on the timeline goes toward its trim; any other, toward its slot or its speech.
   unit.wantSeconds !== undefined
@@ -188,7 +194,9 @@ export const directionFor = (unit: SyncPreviewUnit): RewriteDirection =>
       : 'longer'
     : unit.status === 'short'
       ? 'longer'
-      : 'shorter';
+      : unit.status === 'long'
+        ? 'shorter'
+        : 'same';
 
 /**
  * Rewording lines, one at a time or all at once, as Review offers it. Each line's direction comes from how it
@@ -246,7 +254,7 @@ export const useLineFixes = ({
       else
         setRow(unit, {
           kind: 'error',
-          message: `No usable ${direction === 'longer' ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`,
+          message: `No usable ${wordingKind(direction)} wording came back. Try again, or edit it yourself.`,
           tried,
         });
     } catch (err: any) {
@@ -520,8 +528,9 @@ export interface LineFixControlsProps {
 /**
  * How a line can be reworded, with its draft, Use, Keep and Undo. Asked for
  * one line, the text model offers several wordings to pick from; the one
- * picked goes into the draft to edit. They are all shorter or all fuller,
- * never both: the direction is decided from the line's source sentence.
+ * picked goes into the draft to edit. They are all shorter, all fuller or,
+ * for a line that fits, all about its length: the direction is decided from
+ * the line's source sentence.
  */
 export const LineFixControls: React.FC<LineFixControlsProps> = ({
   unit,
@@ -538,6 +547,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
   onUndo,
 }) => {
   const longer = direction === 'longer';
+  const kind = wordingKind(direction);
   // A line the user may leave as it is: too long, ending early, or off its trim.
   const flagged = unit.status === 'long' || unit.status === 'short' || wantsChange(unit);
   const draftFit = state.kind === 'draft' ? fitOf(state.text, unit, cps) : null;
@@ -551,7 +561,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           text: `About ${draftFit.seconds.toFixed(1)} s · your trim ${want.toFixed(1)} s${draftFit.fits ? '' : ` · +${draftFit.over.toFixed(1)} s past its slot`}`,
         }
     : !draftFit.fits
-      ? { good: false, text: `${longer ? 'About' : 'Still about'} ${draftFit.seconds.toFixed(1)} s · +${draftFit.over.toFixed(1)} s past its slot` }
+      ? { good: false, text: `${direction === 'shorter' ? 'Still about' : 'About'} ${draftFit.seconds.toFixed(1)} s · +${draftFit.over.toFixed(1)} s past its slot` }
       : longer
         ? draftFit.short
           ? { good: false, text: `Still about ${draftFit.seconds.toFixed(1)} s of ${unit.spoken.toFixed(1)} s · ends early` }
@@ -571,9 +581,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
               ? 'Try again'
               : want !== undefined
                 ? `Suggest ${want.toFixed(1)} s lines`
-                : longer
-                  ? 'Suggest fuller lines'
-                  : 'Suggest shorter lines'}
+                : `Suggest ${kind} wordings`}
           </button>
           <button
             type="button"
@@ -594,7 +602,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
       {state.kind === 'working' && (
         <div role="status" className="mt-2 flex items-center gap-2 h-7 text-xs text-slate-300">
           <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin" /> Asking the text model for{' '}
-          {state.count > 1 ? `${state.count} ${longer ? 'fuller' : 'shorter'} wordings` : `a ${longer ? 'fuller' : 'shorter'} wording`}…
+          {state.count > 1 ? `${state.count} ${kind} wordings` : `a${kind === 'other' ? 'n' : ''} ${kind} wording`}…
           <button type="button" onClick={onStop} className="ml-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-400 cursor-pointer">
             Stop
           </button>
@@ -606,7 +614,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           {state.options && state.options.length > 1 && (
             <div className="mb-2">
               <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1">
-                {state.options.length} {longer ? 'fuller' : 'shorter'} wordings · pick one, then edit it if you like
+                {state.options.length} {kind} wordings · pick one, then edit it if you like
               </span>
               <div role="radiogroup" aria-label="Suggested wordings" className="flex flex-col gap-1">
                 {state.options.map((option, i) => {
@@ -654,9 +662,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                 ? 'Picked wording'
                 : 'Your wording'
               : state.suggested
-                ? longer
-                  ? 'Suggested fuller line'
-                  : 'Suggested shorter line'
+                ? `Suggested ${kind === 'other' ? '' : `${kind} `}line`
                 : 'Your wording'}
           </label>
           {state.suggested && state.issues && <MeaningWarning issues={state.issues} />}

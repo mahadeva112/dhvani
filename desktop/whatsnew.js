@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.29',
+    changes: [
+      'In Review, any line can get other wordings: hover a line that fits and click Suggest other wordings. Suggestions keep names, numbers and glossary terms exactly, and read the lines around them.',
+      'Export subtitles has a player: play the original, the dub or the synced dub and watch each subtitle as it is said; click one to play from there.',
+      'Splitting, joining or moving a cut in Review now marks those lines for Sync again; a retaken line keeps its new take after a restart.',
+    ],
+  },
+  {
     version: '1.3.28',
     changes: [
       'Dub and Sync are now one step: Dub voices your script and syncs it to the original in one go.',

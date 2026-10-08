@@ -10,6 +10,8 @@ import {
   buildOptionsPrompt,
   keptTerms,
   missingTerms,
+  rewordLimit,
+  acceptReword,
 } from './syncRewrite.js';
 
 /**
@@ -239,4 +241,31 @@ test('among several wordings, one that drops a glossary term comes back flagged 
   const { options } = await suggestLines({ ...line, direction: 'shorter', count: 2, keep: ['Isha Yoga Center'] }, { generate });
   assert.deepEqual(options, [{ line: kept }, { line: dropped, issues: ['leaves out "Isha Yoga Center"'] }]);
   assert.equal(prompts.check.length, 1);
+});
+
+test('a line that fits is reworded at about its own length, never past what its slot holds', async () => {
+  const text = request.text; // 56 characters
+  const near = 'कल सुबह दस बजे मैं बाज़ार नहीं जाऊँगा, क्योंकि बारिश होगी';
+  const cut = 'कल बाज़ार नहीं जाऊँगा';
+  const { generate, prompts } = fakeModel({ lines: [cut, near], checks: [{ sameMeaning: true, issues: [] }] });
+  const { line } = await suggestLine({ ...request, direction: 'same', targetChars: rewordLimit(text, 60) }, { generate });
+  assert.equal(line, near, 'the cut was not offered as a rewording; the second try was');
+  assert.match(prompts.rewrite[0], /fits its time, but the user wants another way to say it/);
+  assert.match(prompts.check[0], /A wording was reworded/);
+  // Nothing may be dropped from a rewording, not even filler.
+  assert.doesNotMatch(prompts.check[0], /dropping only filler/);
+  // About its own length: no more than its slot, or 15% past the line.
+  assert.equal(rewordLimit(text, 60), 60);
+  assert.equal(rewordLimit(text, 200), Math.floor(text.length * 1.15));
+  assert.equal(rewordLimit(text, 10), text.length);
+  assert.equal(acceptReword(text, text, 60), null, 'the same line is not a new wording');
+});
+
+test('several rewordings of a line that fits are asked for as other wordings', async () => {
+  const lines = ['कल सुबह दस बजे मैं बाज़ार नहीं जाऊँगा, क्योंकि बारिश होगी', 'बारिश होगी, इसलिए कल सुबह दस बजे बाज़ार नहीं जाऊँगा'];
+  const { generate, prompts } = optionsModel({ rounds: [lines] });
+  const { options } = await suggestLines({ ...request, direction: 'same', targetChars: 64, count: 2 }, { generate });
+  assert.deepEqual(options.map((o) => o.line), lines);
+  assert.match(prompts.options[0], /Write 2 new wordings of it that read naturally/);
+  assert.match(prompts.options[0], /Dub line to reword:/);
 });

@@ -10,7 +10,7 @@ import { runSync } from '../lib/syncDub.js';
 import { checkParts, lineArrays, ORIGINAL_SPEAKER, renderEdits } from '../lib/syncEdit.js';
 import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
-import { shortenLine, lengthenLine, suggestLine, suggestLines, MAX_OPTIONS } from '../lib/syncRewrite.js';
+import { shortenLine, lengthenLine, suggestLine, suggestLines, rewordLimit, MAX_OPTIONS } from '../lib/syncRewrite.js';
 import { previewSync } from '../lib/syncPreview.js';
 import { fitJoinSettings } from '../lib/syncFit.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
@@ -615,12 +615,19 @@ const rewordRoute = (direction) =>
     const { text, sourceText, language, targetChars, avoid, count, context, keep } = req.body || {};
     const longer = direction === 'longer';
     if (typeof text !== 'string' || !text.trim()) {
-      throw new ApiError(longer ? 'There is no line to make fuller.' : 'There is no line to shorten.', { status: 400, code: 'no_text' });
+      throw new ApiError(longer ? 'There is no line to make fuller.' : direction === 'same' ? 'There is no line to reword.' : 'There is no line to shorten.', {
+        status: 400,
+        code: 'no_text',
+      });
     }
-    const target = longer
-      ? // At most three times the line: past that it is a new line, not a fuller one.
-        Math.max(text.length + 1, Math.min(text.length * 3, Math.floor(Number(targetChars) || text.length * 1.5)))
-      : Math.max(1, Math.min(text.length, Math.floor(Number(targetChars) || text.length * 0.8)));
+    const target =
+      direction === 'same'
+        ? // About the line's own length, and never past what its slot holds.
+          rewordLimit(text, targetChars)
+        : longer
+          ? // At most three times the line: past that it is a new line, not a fuller one.
+            Math.max(text.length + 1, Math.min(text.length * 3, Math.floor(Number(targetChars) || text.length * 1.5)))
+          : Math.max(1, Math.min(text.length, Math.floor(Number(targetChars) || text.length * 0.8)));
     const earlier = Array.isArray(avoid) ? avoid.filter((line) => typeof line === 'string' && line.length <= 2000).slice(-MAX_AVOID_LINES) : [];
     const request = {
       text,
@@ -667,6 +674,14 @@ syncRouter.post('/sync/shorten', rewordRoute('shorter'));
  * script is never changed here.
  */
 syncRouter.post('/sync/lengthen', rewordRoute('longer'));
+
+/**
+ * POST /api/sync/reword — other wordings of a line that already fits, for a
+ * user who wants it said another way. Body and reply as for /sync/shorten;
+ * `targetChars` is the most its slot holds, and every wording stays about the
+ * line's own length. The script is never changed here.
+ */
+syncRouter.post('/sync/reword', rewordRoute('same'));
 
 /**
  * PUT /api/sync/dubs/:dubId — the Final dub (mono WAV, as the dub gave it),
