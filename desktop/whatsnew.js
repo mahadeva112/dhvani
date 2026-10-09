@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.34',
+    changes: [
+      'Subtitles are cut where each phrase ends and appear exactly when the words start. Subtitles for the dub are timed to the dub’s own words.',
+      'Retake several lines of a synced dub at once, from the Sync report.',
+      'Expression has a new Off setting, now the default, and Neutral, Natural and Expressive also work with Cartesia Sonic 3 voices.',
+    ],
+  },
+  {
     version: '1.3.33',
     changes: [
       'Edit timing: pick several lines (Ctrl + A for the whole dub) and set one Speed for all of them. The voice keeps its pitch, and each line still starts where it did.',
