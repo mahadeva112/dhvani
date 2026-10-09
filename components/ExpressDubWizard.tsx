@@ -86,6 +86,7 @@ import {
   buildSubtitleSegments,
   subtitleFileLabel,
 } from '../services/srtService';
+import { getDubWordTimings } from '../services/dubSubtitleTiming';
 import { timelineMapper } from '../services/playbackTimeline';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
@@ -1431,7 +1432,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const subtitleTimingLabel = { synced: 'the synced dub', dubbed: 'the dub', original: 'the original speech' }[subtitleTiming];
 
   /** One-click subtitles from the Dub step, with the language, timing and style saved in Export subtitles. */
-  const handleExportStepSubtitles = () => {
+  const handleExportStepSubtitles = async () => {
+    // Dub timings cut on the dub's own words when ElevenLabs can place them; the estimate otherwise.
+    const dubAudioUrl =
+      subtitleTiming === 'synced' ? activeJob?.syncedAudioUrl : subtitleTiming === 'dubbed' ? activeJob?.synthesizedAudioUrl : null;
+    if (dubAudioUrl) setExportSuccessMessage("Timing the subtitles to the dub's own words…");
+    const dubWordTimings = dubAudioUrl
+      ? await getDubWordTimings(dubAudioUrl, subtitleTiming === 'synced' ? syncedCues ?? [] : segments)
+      : null;
     const cues = buildSubtitleSegments({
       segments,
       syncedSegments: syncedCues,
@@ -1439,6 +1447,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       track: subtitleChoice.track,
       synthAudioDuration: hasSubtitleDub ? activeJob?.synthAudioBuffer?.duration : 0,
       options: srtOptions,
+      dubWordTimings,
     });
     if (cues.length === 0) return;
     downloadFile(

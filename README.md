@@ -447,7 +447,7 @@ Everything below is optional; `.env.example` documents each one.
 | `RATE_LIMIT_PER_MINUTE` | `120` | Per-IP cap on `/api`. `0` disables it. |
 | `ALLOW_KEY_SETUP` | `true` | Lets the in-app setup screen save keys. Loopback-only regardless. |
 | `DHVANI_CONFIG_DIR` | OS config dir | Where keys saved from the UI are stored. |
-| `ELEVENLABS_STT_MODEL` | `scribe_v1` | Speech-to-text model. |
+| `ELEVENLABS_STT_MODEL` | `scribe_v2` | Speech-to-text model. |
 | `ELEVENLABS_TTS_MODEL` | `eleven_v4` | Default voice model. Users can pick another in Voice Settings or on the Final Dub step. |
 | `GEMINI_TRANSLATION_MODELS` | `gemini-2.5-flash,gemini-2.0-flash` | Tried in order. |
 | `GEMINI_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Only for the Gemini TTS provider. |

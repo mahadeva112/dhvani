@@ -2,7 +2,8 @@
  * Subtitle timing engine.
  *
  * INVARIANT: every timestamp produced here comes from an ElevenLabs word
- * timestamp. Nothing in this file estimates, interpolates across a gap, or
+ * timestamp (onset-corrected against the waveform before it arrives — see
+ * onsetSnap.js). Nothing in this file estimates, interpolates across a gap, or
  * lets a language model influence a start/end value. Translation replaces
  * cue *text* only — see `retextCues`.
  */

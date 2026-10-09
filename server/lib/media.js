@@ -317,6 +317,59 @@ export const probeDuration = async (inputPath) => {
   }
 };
 
+/**
+ * Peak-loudness envelope of `inputPath`: one value per `hopSeconds`, normalised
+ * to the file's own peak. Read-only analysis for subtitle timing — the audio is
+ * decoded to a pipe and never written anywhere. Resolves null when ffmpeg is
+ * missing or the file cannot be decoded, so callers must work without it.
+ */
+export const loudnessEnvelope = async (inputPath, { hopSeconds = 0.005, sampleRate = 8000, signal } = {}) => {
+  const binary = await resolveFfmpeg();
+  if (!binary) return null;
+
+  const hop = Math.max(1, Math.round(sampleRate * hopSeconds));
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve(null);
+    const child = spawn(binary, [
+      '-v', 'quiet',
+      '-i', inputPath,
+      '-vn',
+      '-ac', '1',
+      '-ar', String(sampleRate),
+      '-f', 's16le',
+      '-',
+    ], { stdio: ['ignore', 'pipe', 'ignore'] });
+    const onAbort = () => child.kill('SIGKILL');
+    signal?.addEventListener('abort', onAbort, { once: true });
+
+    const peaks = [];
+    let carry = Buffer.alloc(0);
+    let top = 0;
+    child.stdout.on('data', (chunk) => {
+      const data = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      const full = Math.floor(data.length / (hop * 2));
+      for (let k = 0; k < full; k += 1) {
+        let peak = 0;
+        for (let i = 0; i < hop; i += 1) {
+          const sample = Math.abs(data.readInt16LE((k * hop + i) * 2));
+          if (sample > peak) peak = sample;
+        }
+        peaks.push(peak);
+        if (peak > top) top = peak;
+      }
+      carry = data.subarray(full * hop * 2);
+    });
+    child.on('error', () => resolve(null));
+    child.on('close', (code) => {
+      signal?.removeEventListener('abort', onAbort);
+      if (code !== 0 || top === 0) return resolve(null);
+      const envelope = new Float32Array(peaks.length);
+      for (let i = 0; i < peaks.length; i += 1) envelope[i] = peaks[i] / top;
+      resolve(envelope);
+    });
+  });
+};
+
 export const assertSupportedMedia = (file) => {
   if (!file) throw new ApiError('No media file was uploaded.', { status: 400, code: 'no_file' });
   if (!isSupportedMedia(file.originalname, file.mimetype)) {

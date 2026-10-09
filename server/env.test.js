@@ -128,7 +128,7 @@ test('a base URL entered as a bare host gets the API version path', async () => 
 test('the defaults stand when nothing is saved or set', async () => {
   await withEnv({}, async (env) => {
     assert.equal(env.config.elevenlabs.baseUrl, 'https://api.elevenlabs.io/v1');
-    assert.equal(env.config.elevenlabs.sttModel, 'scribe_v1');
+    assert.equal(env.config.elevenlabs.sttModel, 'scribe_v2');
     assert.equal(env.config.gemini.baseUrl, '', 'blank means Google\'s own endpoint');
     assert.equal(env.serverSettings().origins.elevenLabsBaseUrl, 'default');
     assert.equal(env.keySource().gateway, 'none');

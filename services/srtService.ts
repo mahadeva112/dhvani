@@ -1,5 +1,6 @@
 import { AudioSegment, SubtitleConfiguration, WordTimestamp } from "../types";
 import { buildScriptFile } from "./scriptShare";
+import { buildCues, sanitizeCues, CueBudget, TimedCue, TimedWord } from "./subtitleCues";
 
 /* ------------------------------------------------------------------ */
 /* Types & Defaults                                                    */
@@ -182,44 +183,6 @@ export const normalizeSubtitleText = (
 /* ------------------------------------------------------------------ */
 
 /**
- * Splits a segment's ElevenLabs word timings into groups matching `lines`.
- *
- * Returns null when the segment has no word data, or when the text has been
- * translated or edited so its word count no longer lines up with the measured
- * words. In that case the caller falls back to distributing time inside the
- * segment's own measured span.
- */
-const groupWordTimingsForLines = (
-  segment: AudioSegment,
-  lines: string[]
-): { start: number; end: number }[] | null => {
-  const words: WordTimestamp[] = segment.words || [];
-  if (words.length === 0 || lines.length === 0) return null;
-
-  const counts = lines.map((line) => line.split(/\s+/).filter(Boolean).length);
-  const total = counts.reduce((sum, count) => sum + count, 0);
-
-  // A mismatch means these are not the words that were measured (e.g. the cue
-  // has been translated), so exact per-word anchoring is not available.
-  if (total !== words.length) return null;
-
-  const spans: { start: number; end: number }[] = [];
-  let cursor = 0;
-
-  for (const count of counts) {
-    if (count === 0) {
-      spans.push({ start: words[Math.min(cursor, words.length - 1)].start, end: words[Math.min(cursor, words.length - 1)].start });
-      continue;
-    }
-    const slice = words.slice(cursor, cursor + count);
-    spans.push({ start: slice[0].start, end: slice[slice.length - 1].end });
-    cursor += count;
-  }
-
-  return spans;
-};
-
-/**
  * Re-cuts segments to subtitle constraints using the ElevenLabs word timings.
  *
  * Every resulting cue starts and ends on a measured word boundary, so tightening
@@ -291,6 +254,12 @@ export const resegmentByWordTimestamps = (
  * - maxCharsPerLine (default: 25)
  * - maxDurationSeconds (default: 2.5)
  * - includePunctuation
+ *
+ * Segments that still carry their ElevenLabs word timings are cut by the
+ * Srutilekha splitter (subtitleCues.ts) as one continuous word stream, so a
+ * boundary lands where the phrase ends rather than where a budget ran out.
+ * Every cue list then goes through sanitizeCues: no overlaps, a readable
+ * minimum, and short silences bridged so captions do not flicker.
  */
 export const generateSrtContent = (
   segments: AudioSegment[],
@@ -303,14 +272,53 @@ export const generateSrtContent = (
   const maxLines = Math.max(1, config.maxLinesPerCue || 1);
   const maxChars = Math.max(10, config.maxCharsPerLine || 25);
   const maxDur = Math.max(0.5, config.maxDurationSeconds || 2.5);
+  const budget: CueBudget = {
+    maxCharsPerLine: maxChars,
+    maxLines,
+    maxWordsPerLine: maxWords,
+    maxSecs: maxDur,
+  };
+  // Per-word display text: casing and punctuation, but the speaker label has
+  // already been taken off the segment as a whole.
+  const wordDisplayOptions: Partial<SrtOptions> = { ...config, removeSpeakerLabel: false };
 
-  let cueIndex = 1;
-  const cueBlocks: string[] = [];
+  const cues: TimedCue[] = [];
+  let run: TimedWord[] = [];
+  const flushRun = () => {
+    if (run.length) cues.push(...buildCues(run, budget));
+    run = [];
+  };
 
   for (const segment of segments) {
     const rawText = segment.textTarget || segment.targetText || segment.textSource || segment.text || '';
-    const text = normalizeSubtitleText(rawText, config);
 
+    /*
+     * Preferred path: this segment still carries the ElevenLabs word timings
+     * for exactly this text, so every cue starts and ends on a measured word.
+     * The original-language SRT always takes this path.
+     */
+    const measured: WordTimestamp[] = segment.words || [];
+    const spoken = config.removeSpeakerLabel !== false ? cleanSpeakerLabels(rawText) : rawText.trim();
+    const tokens = spoken.split(/\s+/).filter(Boolean);
+    if (measured.length > 0 && tokens.length === measured.length) {
+      tokens.forEach((token, i) => {
+        const text = normalizeSubtitleText(token, wordDisplayOptions);
+        if (!text) return;
+        const start = measured[i].start;
+        run.push({
+          text,
+          raw: token,
+          start,
+          end: Math.max(measured[i].end, start),
+          speaker: segment.speaker ?? null,
+        });
+      });
+      continue;
+    }
+
+    flushRun();
+
+    const text = normalizeSubtitleText(rawText, config);
     if (!text) continue;
 
     const segmentDuration = Math.max(0.2, segment.endTime - segment.startTime);
@@ -345,31 +353,9 @@ export const generateSrtContent = (
     }
 
     /* ---------------- Group lines into cues based on maxLinesPerCue ---------------- */
-    const cues: string[][] = [];
+    const groups: string[][] = [];
     for (let i = 0; i < lines.length; i += maxLines) {
-      cues.push(lines.slice(i, i + maxLines));
-    }
-
-    if (cues.length === 0) continue;
-
-    /* ---------------- Assign timing to each cue ---------------- */
-    /*
-     * Preferred path: this segment still carries the ElevenLabs word timings
-     * for exactly this text, so every sub-cue starts and ends on a measured
-     * word boundary. The original-language SRT always takes this path.
-     */
-    const cueTexts = cues.map((cueLines) => cueLines.join('\n'));
-    const exactSpans = groupWordTimingsForLines(segment, cueTexts);
-
-    if (exactSpans) {
-      for (let i = 0; i < cues.length; i++) {
-        const span = exactSpans[i];
-        cueBlocks.push(
-          `${cueIndex}\n${formatSrtTime(span.start)} --> ${formatSrtTime(span.end)}\n${cueTexts[i]}`
-        );
-        cueIndex++;
-      }
-      continue;
+      groups.push(lines.slice(i, i + maxLines));
     }
 
     /*
@@ -383,40 +369,34 @@ export const generateSrtContent = (
     const totalWordsInSegment = words.length;
     let cursorTime = segment.startTime;
 
-    for (let i = 0; i < cues.length; i++) {
-      const cueLines = cues[i];
-      const cueText = cueTexts[i];
+    for (let i = 0; i < groups.length; i++) {
+      const cueLines = groups[i];
       const cueWordCount = cueLines.reduce(
         (sum, line) => sum + line.split(/\s+/).filter(Boolean).length,
         0
       );
 
       // Weight by word count, fallback to equal ratio
-      const weight = totalWordsInSegment > 0 ? cueWordCount / totalWordsInSegment : 1 / cues.length;
-      const allocatedDuration = weight * segmentDuration;
-
+      const weight = totalWordsInSegment > 0 ? cueWordCount / totalWordsInSegment : 1 / groups.length;
       const cueStart = cursorTime;
-      // Clamped end time
-      let cueEnd = cueStart + allocatedDuration;
+      let cueEnd = cueStart + weight * segmentDuration;
 
       // Last cue in the segment lands exactly on the measured segment end.
-      if (i === cues.length - 1) {
+      if (i === groups.length - 1) {
         cueEnd = Math.max(cueStart + 0.3, segment.endTime);
       }
 
       // If cue exceeds maxDurationSeconds, clamp display end but keep cursor progression
-      const displayEnd = Math.min(cueEnd, cueStart + maxDur);
-
-      cueBlocks.push(
-        `${cueIndex}\n${formatSrtTime(cueStart)} --> ${formatSrtTime(displayEnd)}\n${cueText}`
-      );
-
-      cueIndex++;
+      cues.push({ start: cueStart, end: Math.min(cueEnd, cueStart + maxDur), text: cueLines.join('\n') });
       cursorTime = cueEnd;
     }
   }
+  flushRun();
 
-  return cueBlocks.join('\n\n').trim();
+  return sanitizeCues(cues)
+    .map((cue, i) => `${i + 1}\n${formatSrtTime(cue.start)} --> ${formatSrtTime(cue.end)}\n${cue.text}`)
+    .join('\n\n')
+    .trim();
 };
 
 /**
@@ -666,8 +646,52 @@ export const resolveSubtitleTiming = (timing: SubtitleTiming, hasSynced: boolean
 };
 
 /**
+ * Puts the dub's own word timings (forced alignment, see dubSubtitleTiming.ts)
+ * on the cues they belong to. A cue whose aligned words land far from where
+ * its line was placed (`tolerance` seconds) is left as it was: that dub audio
+ * is not this line's. The words are kept only for the dub's own text; the
+ * original's text at the dub's timing gets the measured cue span alone.
+ */
+export const applyDubWordTimings = (
+  segments: AudioSegment[],
+  timings: Map<string, WordTimestamp[]>,
+  { keepWords, tolerance = Infinity }: { keepWords: boolean; tolerance?: number }
+): AudioSegment[] =>
+  segments.map((segment) => {
+    const words = timings.get(String(segment.id)) || [];
+    const said = words.filter((word) => word.end > word.start);
+    if (said.length === 0) return segment;
+    const startTime = said[0].start;
+    const endTime = said[said.length - 1].end;
+    if (Math.abs(startTime - segment.startTime) > tolerance || Math.abs(endTime - segment.endTime) > tolerance) {
+      return segment;
+    }
+    const { words: _sourceWords, ...rest } = segment;
+    return {
+      ...rest,
+      startTime,
+      endTime,
+      duration: endTime - startTime,
+      timingSource: 'elevenlabs',
+      ...(keepWords ? { words } : {}),
+    };
+  });
+
+const isTimed = (segment: AudioSegment, timings: Map<string, WordTimestamp[]>) =>
+  (timings.get(String(segment.id)) || []).some((word) => word.end > word.start);
+
+/** Every cue the dub says has its words timed; otherwise the whole dub keeps the estimate, on one clock. */
+const everyLineTimed = (segments: AudioSegment[], timings: Map<string, WordTimestamp[]>) =>
+  segments.every((segment) => !(segment.textTarget || segment.targetText || '').trim() || isTimed(segment, timings));
+
+/** How far a synced cue's aligned words may land from Sync's own placement of its line. */
+const SYNCED_ALIGN_TOLERANCE = 2;
+
+/**
  * The cues an export writes: the chosen language's text at the chosen timing.
  * The Export subtitles modal and the one-click subtitle card both use it, so they give the same file.
+ * With `dubWordTimings` (the dub's words, aligned), dub timings cut on the
+ * dub's real word boundaries instead of sharing each line out by length.
  */
 export const buildSubtitleSegments = ({
   segments,
@@ -676,6 +700,7 @@ export const buildSubtitleSegments = ({
   track,
   synthAudioDuration = 0,
   options,
+  dubWordTimings,
 }: {
   segments: AudioSegment[];
   syncedSegments?: AudioSegment[];
@@ -683,16 +708,23 @@ export const buildSubtitleSegments = ({
   track: SubtitleTrack;
   synthAudioDuration?: number;
   options: SrtOptions;
+  dubWordTimings?: Map<string, WordTimestamp[]> | null;
 }): AudioSegment[] => {
   // The synced cues carry every cue's own fields, source text included, at their placed times.
-  const base = timing === 'synced' && syncedSegments ? syncedSegments : segments;
-  const withText =
-    track === 'target'
-      ? base
-      : base.map((segment) => ({ ...segment, textTarget: segment.textSource || '', targetText: segment.textSource || '' }));
-  return timing === 'dubbed' && synthAudioDuration > 0
-    ? adjustSegmentsForDubbedTimeline(withText, synthAudioDuration, options)
-    : withText;
+  let base = timing === 'synced' && syncedSegments ? syncedSegments : segments;
+  const keepWords = track === 'target';
+  if (timing === 'synced' && syncedSegments && dubWordTimings) {
+    base = applyDubWordTimings(base, dubWordTimings, { keepWords, tolerance: SYNCED_ALIGN_TOLERANCE });
+  } else if (timing === 'dubbed' && dubWordTimings && everyLineTimed(base, dubWordTimings)) {
+    // The dub is on its own clock: a cue it doesn't say has no time on it.
+    const said = base.filter((segment) => isTimed(segment, dubWordTimings));
+    base = applyDubWordTimings(said, dubWordTimings, { keepWords });
+  } else if (timing === 'dubbed' && synthAudioDuration > 0) {
+    base = adjustSegmentsForDubbedTimeline(base, synthAudioDuration, options);
+  }
+  return track === 'target'
+    ? base
+    : base.map((segment) => ({ ...segment, textTarget: segment.textSource || '', targetText: segment.textSource || '' }));
 };
 
 /** "hindi_synced": names the file after the language and timing actually exported. */

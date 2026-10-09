@@ -22,7 +22,7 @@ services:
 
       MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-1024}
       TRANSLATION_BATCH_SIZE: ${TRANSLATION_BATCH_SIZE:-40}
-      ELEVENLABS_STT_MODEL: ${ELEVENLABS_STT_MODEL:-scribe_v1}
+      ELEVENLABS_STT_MODEL: ${ELEVENLABS_STT_MODEL:-scribe_v2}
       GEMINI_TRANSLATION_MODELS: ${GEMINI_TRANSLATION_MODELS:-gemini-2.5-flash,gemini-2.0-flash}
 
       # Keys are supplied above, so the in-app setup screen is unnecessary.

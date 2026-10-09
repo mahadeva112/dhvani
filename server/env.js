@@ -184,7 +184,7 @@ export const config = {
       );
     },
     get sttModel() {
-      return setting('elevenLabsSttModel', 'ELEVENLABS_STT_MODEL', 'scribe_v1');
+      return setting('elevenLabsSttModel', 'ELEVENLABS_STT_MODEL', 'scribe_v2');
     },
     get ttsModel() {
       return setting('elevenLabsTtsModel', 'ELEVENLABS_TTS_MODEL', 'eleven_v4');

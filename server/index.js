@@ -22,6 +22,7 @@ import { transliterateRouter } from './routes/transliterate.js';
 import { syncRouter } from './routes/sync.js';
 import { usageRouter } from './routes/usage.js';
 import { deliveryRouter } from './routes/delivery.js';
+import { subtitlesRouter } from './routes/subtitles.js';
 import { ffmpegAvailable } from './lib/media.js';
 
 const app = express();
@@ -176,6 +177,7 @@ app.use('/api', transliterateRouter);
 app.use('/api', syncRouter);
 app.use('/api', usageRouter);
 app.use('/api', deliveryRouter);
+app.use('/api', subtitlesRouter);
 
 /*
  * In production the same process serves the built frontend, so the whole app is

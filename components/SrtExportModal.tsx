@@ -17,6 +17,7 @@ import {
   buildSubtitleSegments,
   subtitleFileLabel,
 } from '../services/srtService';
+import { useDubWordTimings } from '../services/dubSubtitleTiming';
 
 /** Short names for the presets, which carry long ones for elsewhere. */
 const PRESET_LABELS: Record<string, string> = {
@@ -218,6 +219,14 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
     handleUpdateOptions({ ...DEFAULT_SRT_OPTIONS }, 'shorts_viral');
   };
 
+  /* Dub timings cut on the dub's own words, once ElevenLabs has placed them in the dub. */
+  const dubAudioUrl = syncMode === 'synced' ? audio?.synced : syncMode === 'dubbed' ? audio?.dubbed : null;
+  const { timings: dubWordTimings, loading: aligningDub } = useDubWordTimings(
+    dubAudioUrl,
+    syncMode === 'synced' ? syncedSegments ?? [] : segments,
+    isOpen && syncMode !== 'original'
+  );
+
   const processedSegments = useMemo(
     () =>
       buildSubtitleSegments({
@@ -227,17 +236,20 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
         track: scriptTrack,
         synthAudioDuration: hasSynthAudio ? synthAudioDuration : 0,
         options,
+        dubWordTimings,
       }),
-    [segments, syncedSegments, syncMode, scriptTrack, hasSynthAudio, synthAudioDuration, options]
+    [segments, syncedSegments, syncMode, scriptTrack, hasSynthAudio, synthAudioDuration, options, dubWordTimings]
   );
 
   /** True when every exported cue boundary is a measured ElevenLabs word. */
   const hasExactTimings = useMemo(
     () =>
-      syncMode === 'original' &&
-      scriptTrack === 'source' &&
-      segments.some((segment) => (segment.words?.length ?? 0) > 0),
-    [segments, syncMode, scriptTrack]
+      processedSegments.length > 0 &&
+      processedSegments.every((segment) => {
+        const tokens = (segment.textTarget || segment.targetText || '').split(/\s+/).filter(Boolean).length;
+        return tokens === 0 || tokens === (segment.words?.length ?? 0);
+      }),
+    [processedSegments]
   );
 
   // Generate real-time preview content
@@ -625,6 +637,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                 widest line <span className="font-semibold text-slate-100 tabular-nums">{widest}</span> characters
               </span>
               {hasExactTimings && <span className="text-emerald-300">Every cut on a measured word</span>}
+              {aligningDub && <span className="text-slate-300">Timing to the dub's own words…</span>}
             </div>
 
             <div ref={listRef} className="relative flex-1 min-h-[12rem] max-h-[18rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-slate-800 bg-slate-900">

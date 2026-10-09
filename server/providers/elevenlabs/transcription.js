@@ -7,7 +7,14 @@ import { elevenLabsMultipart, PROVIDER_LABEL } from './client.js';
 import { cancelledError } from '../../lib/http.js';
 import { toIsoCode, toDisplayName } from '../../lib/languages.js';
 import { buildCuesFromWords } from '../../lib/srt.js';
-import { extractAudioTrack, isVideoFile, cleanupFiles, probeDuration } from '../../lib/media.js';
+import {
+  extractAudioTrack,
+  isVideoFile,
+  cleanupFiles,
+  probeDuration,
+  loudnessEnvelope,
+} from '../../lib/media.js';
+import { ENVELOPE_HOP, snapWordOnsets } from '../../lib/onsetSnap.js';
 
 const MIME_BY_EXTENSION = {
   '.mp3': 'audio/mpeg',
@@ -98,8 +105,8 @@ export const transcribeFile = async (
     const response = await elevenLabsMultipart('/speech-to-text', form, { apiKey, signal });
     const data = await response.json();
 
-    const words = Array.isArray(data.words) ? data.words : [];
-    if (words.length === 0 && !String(data.text || '').trim()) {
+    const scribeWords = Array.isArray(data.words) ? data.words : [];
+    if (scribeWords.length === 0 && !String(data.text || '').trim()) {
       throw new ApiError(
         'ElevenLabs returned an empty transcription. The file may contain no intelligible speech, ' +
           'or the selected source language may not match the audio.',
@@ -107,15 +114,23 @@ export const transcribeFile = async (
       );
     }
 
-    if (words.length === 0) {
+    if (scribeWords.length === 0) {
       throw new ApiError(
         'ElevenLabs returned text but no word timestamps, so accurate subtitle timing is not possible. ' +
-          'Try the scribe_v1 model, or re-upload the file as audio.',
+          'Try the scribe_v2 model, or re-upload the file as audio.',
         { status: 422, code: 'no_timestamps', provider: 'elevenlabs' }
       );
     }
 
     onStatus?.('Building subtitle cues from ElevenLabs timestamps...');
+
+    // Scribe marks a word where it gets loud, a few frames after the speaker
+    // starts it. Read the waveform Scribe heard and move each word that starts
+    // out of silence back onto its real onset (see onsetSnap.js).
+    const envelope = await loudnessEnvelope(uploadPath, { hopSeconds: ENVELOPE_HOP, signal });
+    if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+    if (!envelope) logger.warn('Onset sync unavailable (no ffmpeg); using a fixed lead on word starts.');
+    const words = snapWordOnsets(scribeWords, envelope);
 
     const cues = buildCuesFromWords(words, cueOptions);
     const detectedIso = data.language_code || isoCode;

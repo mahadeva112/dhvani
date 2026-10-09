@@ -494,8 +494,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     {
       key: 'elevenLabsSttModel',
       label: 'Transcription model',
-      placeholder: 'scribe_v1',
-      hint: 'scribe_v1 or scribe_v1_experimental. This is what produces the word timings.',
+      placeholder: 'scribe_v2',
+      hint: 'scribe_v2 (sharpest word timings) or scribe_v1. This is what produces the word timings.',
       origin: server?.origins.elevenLabsSttModel,
     },
     {
