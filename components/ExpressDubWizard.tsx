@@ -389,7 +389,8 @@ interface ExpressDubWizardProps {
   /** Keys of synced lines reworded or retaken since the last sync. */
   syncPendingLines?: string[];
   onApplySyncLine?: (unit: SyncUnitReport, text: string) => void;
-  onRetakeSyncLine?: (unit: SyncUnitReport) => void;
+  /** Asks for a new take of each of these synced lines. */
+  onRetakeSyncLines?: (units: SyncUnitReport[]) => void;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
   /** Replaces every segment in one write, for changes that touch many cues. */
   onReplaceSegments: (segments: AudioSegment[]) => void;
@@ -503,7 +504,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   syncError = null,
   syncPendingLines = [],
   onApplySyncLine,
-  onRetakeSyncLine,
+  onRetakeSyncLines,
   onUpdateSegment,
   onReplaceSegments,
   onPlaySegmentSolo,
@@ -3587,7 +3588,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onApplySyncLine(unit, text);
                   })
                 }
-                onRetakeLine={onRetakeSyncLine}
+                onRetakeLine={onRetakeSyncLines && ((unit) => onRetakeSyncLines([unit]))}
+                onRetakeLines={onRetakeSyncLines}
+                lockedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => activeJob.syncEdits?.[key]?.locked)}
                 onSuggestLine={(unit, avoid) =>
                   unit.targetChars == null
                     ? Promise.resolve(null)

@@ -445,6 +445,10 @@ export interface SyncResultsPanelProps {
   onApplyLine?: (unit: SyncUnitReport, text: string) => void;
   /** Asks for a new take of a line. */
   onRetakeLine?: (unit: SyncUnitReport) => void;
+  /** Asks for a new take of every line in `units` at once. */
+  onRetakeLines?: (units: SyncUnitReport[]) => void;
+  /** Keys of lines locked in Edit timing: Sync keeps their take, so they aren't retaken. */
+  lockedKeys?: string[];
   /**
    * Another wording of a line that is too long (shorter) or ends early (fuller),
    * different from `avoid`; null when the text model had nothing usable.
@@ -456,6 +460,9 @@ export interface SyncResultsPanelProps {
   /** One continuous read: its progress while the script is voiced in one take, before the lines are placed. */
   reading?: DubProgress | null;
 }
+
+/** Takes voiced of a retaken line, the best fitting one kept (RETAKE_TAKES in server/lib/syncDub.js). */
+const RETAKE_TAKES = 3;
 
 /** The Dub step's main panel: what the dub will take, its progress, then how every line landed. */
 export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
@@ -478,6 +485,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   pendingLines = [],
   onApplyLine,
   onRetakeLine,
+  onRetakeLines,
+  lockedKeys = [],
   onSuggestLine,
   sourceBuffer,
   dubBuffer,
@@ -507,6 +516,15 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
         : review,
     [showAll, report, review]
   );
+  /** The listed lines a retake would voice again: not silent, not already waiting for Sync, not locked. */
+  const retakeable = useMemo(
+    () => rows.map((row) => row.unit).filter((unit) => !unit.silent && !pendingLines.includes(unit.key) && !lockedKeys.includes(unit.key)),
+    [rows, pendingLines, lockedKeys]
+  );
+  /** The retake of every listed line waits for a yes: it costs RETAKE_TAKES voicings of each. */
+  const [confirmRetake, setConfirmRetake] = useState(false);
+  useEffect(() => setConfirmRetake(false), [showAll, report]);
+  const retakeChars = retakeable.reduce((sum, unit) => sum + unit.text.length, 0);
 
   const step = progress?.step ?? 1;
   const stepDetail = (phase: string) => {
@@ -713,6 +731,17 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
               >
                 {showAll ? 'Only lines worth a listen' : `Show all ${report.units.length} lines`}
               </button>
+              {onRetakeLines && retakeable.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmRetake(true)}
+                  aria-expanded={confirmRetake}
+                  className="flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200 cursor-pointer"
+                  title={`Voices ${showAll ? 'every line' : 'every line listed here'} again, three takes each, and keeps the take of each that fits its slot best`}
+                >
+                  <Mic className="w-3 h-3" /> {showAll ? `Retake all ${retakeable.length}` : `Retake these ${retakeable.length}`}
+                </button>
+              )}
               <span className="flex-1" />
               <span className="text-xs text-slate-500">
                 {review.length === 0
@@ -724,6 +753,33 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                     }`}
               </span>
             </div>
+            {confirmRetake && onRetakeLines && retakeable.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-950/20 px-3.5 py-2.5" role="alertdialog" aria-label="Retake lines">
+                <span className="flex-1 min-w-[16rem] text-[12.5px] text-slate-200">
+                  Retake {retakeable.length} lines? Each is voiced {RETAKE_TAKES} times and the take that fits its slot best is kept: about{' '}
+                  {(retakeChars * RETAKE_TAKES).toLocaleString()} characters of voicing ({RETAKE_TAKES} × {retakeChars.toLocaleString()}).
+                  {lockedKeys.some((key) => rows.some((row) => row.unit.key === key)) && ' Lines locked in Edit timing keep their take.'}
+                  {(report.summary.fromDub ?? 0) > 0 && ' Retaken lines are voiced on their own, not cut from the continuous read.'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRetakeLines(retakeable);
+                    setConfirmRetake(false);
+                  }}
+                  className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold cursor-pointer"
+                >
+                  <Mic className="w-3.5 h-3.5" /> Retake {retakeable.length} lines
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmRetake(false)}
+                  className="h-8 px-3 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
             {pendingLines.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 px-3.5 py-2.5">
                 <span className="flex-1 min-w-0 text-[12.5px] text-slate-200">

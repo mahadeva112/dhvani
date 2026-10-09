@@ -2403,12 +2403,19 @@ export default function App() {
     });
   };
 
-  /** Asks for a new take of a synced line: the next Sync voices it again with its own seed. */
-  const handleRetakeSyncLine = (unit: SyncUnitReport) => {
+  /**
+   * Asks for a new take of synced lines: the next Sync voices each again with
+   * its own seed. A line locked in Edit timing keeps its take and is skipped.
+   */
+  const handleRetakeSyncLines = (units: SyncUnitReport[]) => {
     if (!activeJob) return;
+    const keys = units.map((unit) => unit.key).filter((key) => !activeJob.syncEdits?.[key]?.locked);
+    if (keys.length === 0) return;
+    const seeds = { ...activeJob.syncLineSeeds };
+    for (const key of keys) seeds[key] = Math.floor(Math.random() * 2 ** 31);
     updateJob(activeJob.id, {
-      syncLineSeeds: { ...activeJob.syncLineSeeds, [unit.key]: Math.floor(Math.random() * 2 ** 31) },
-      syncPendingLines: withPendingLines(activeJob.syncPendingLines, [unit.key]),
+      syncLineSeeds: seeds,
+      syncPendingLines: withPendingLines(activeJob.syncPendingLines, keys),
     });
   };
 
@@ -3019,7 +3026,7 @@ export default function App() {
           syncError={syncError}
           syncPendingLines={activeJob?.syncPendingLines || []}
           onApplySyncLine={handleApplySyncLine}
-          onRetakeSyncLine={handleRetakeSyncLine}
+          onRetakeSyncLines={handleRetakeSyncLines}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}
           onPlaySegmentSolo={handlePlaySoloSegment}
