@@ -5,6 +5,15 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.35',
+    changes: [
+      'Sync has one Export subtitles section, with the .srt download inside it.',
+      'Voice Settings shows when a long dub’s stability was steadied, and a new Auto-tune stability switch turns that off.',
+      'The text-to-speech studio uses the dub’s voice settings by default (Same as the dub).',
+      'A dub rebuilt from its decoded copy is now the same audio, bit for bit. Review plays the original.',
+    ],
+  },
+  {
     version: '1.3.34',
     changes: [
       'Subtitles are cut where each phrase ends and appear exactly when the words start. Subtitles for the dub are timed to the dub’s own words.',
