@@ -74,7 +74,6 @@ import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { audioBufferToWav } from '../services/audioService';
 import {
   generateTargetLanguageScript,
-  generateSrtContent,
   downloadFile,
   TargetScriptFormat,
   SrtOptions,
@@ -84,10 +83,7 @@ import {
   loadSubtitleExportChoice,
   saveSubtitleExportChoice,
   resolveSubtitleTiming,
-  buildSubtitleSegments,
-  subtitleFileLabel,
 } from '../services/srtService';
-import { getDubWordTimings } from '../services/dubSubtitleTiming';
 import { timelineMapper } from '../services/playbackTimeline';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
@@ -609,7 +605,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     } catch {}
     return DEFAULT_SRT_OPTIONS;
   });
-  /** The language and timing last chosen in Export subtitles, which the subtitle card downloads with. */
+  /** The language and timing last chosen in Export subtitles, shown on the Export subtitles button. */
   const [subtitleChoice, setSubtitleChoice] = useState<SubtitleExportChoice>(loadSubtitleExportChoice);
   const [exportSuccessMessage, setExportSuccessMessage] = useState<string | null>(null);
   // Offered in the toast right after a pasted script replaces every cue.
@@ -926,6 +922,23 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     },
     [trackMode, hasDubAudio, onSyncedTrack, getLiveTime, currentTime, dubToSource, sourceToDub, onTrackModeChange]
   );
+  /*
+   * Review checks the script against the original, so it plays the original;
+   * leaving it gives the Dub step back the track it had.
+   */
+  const trackBeforeReviewRef = useRef<'source' | 'synth' | 'both' | null>(null);
+  useEffect(() => {
+    if (activeStep === 2) {
+      if (trackMode !== 'source') {
+        trackBeforeReviewRef.current = trackMode;
+        switchTrack('source', { play: false });
+      }
+    } else if (trackBeforeReviewRef.current) {
+      switchTrack(trackBeforeReviewRef.current, { play: false });
+      trackBeforeReviewRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStep]);
   /*
    * The sync previews draw lines where they will sit on the original's clock,
    * and their playheads read that clock whatever is heard. Playing or
@@ -1435,34 +1448,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const subtitleLanguage =
     subtitleChoice.track === 'source' ? subtitleSourceLanguage || 'Original' : targetLanguage || 'Captions';
   const subtitleTimingLabel = { synced: 'the synced dub', dubbed: 'the dub', original: 'the original speech' }[subtitleTiming];
-
-  /** One-click subtitles from the Dub step, with the language, timing and style saved in Export subtitles. */
-  const handleExportStepSubtitles = async () => {
-    // Dub timings cut on the dub's own words when ElevenLabs can place them; the estimate otherwise.
-    const dubAudioUrl =
-      subtitleTiming === 'synced' ? activeJob?.syncedAudioUrl : subtitleTiming === 'dubbed' ? activeJob?.synthesizedAudioUrl : null;
-    if (dubAudioUrl) setExportSuccessMessage("Timing the subtitles to the dub's own words…");
-    const dubWordTimings = dubAudioUrl
-      ? await getDubWordTimings(dubAudioUrl, subtitleTiming === 'synced' ? syncedCues ?? [] : segments)
-      : null;
-    const cues = buildSubtitleSegments({
-      segments,
-      syncedSegments: syncedCues,
-      timing: subtitleTiming,
-      track: subtitleChoice.track,
-      synthAudioDuration: hasSubtitleDub ? activeJob?.synthAudioBuffer?.duration : 0,
-      options: srtOptions,
-      dubWordTimings,
-    });
-    if (cues.length === 0) return;
-    downloadFile(
-      generateSrtContent(cues, srtOptions),
-      `dhvani_${subtitleFileLabel(subtitleLanguage, subtitleTiming)}_subtitles.srt`,
-      'text/srt;charset=utf-8'
-    );
-    setExportSuccessMessage(`Saved the ${subtitleLanguage} subtitles, timed to ${subtitleTimingLabel}`);
-    setTimeout(() => setExportSuccessMessage(null), 3500);
-  };
 
   const getCpsInfo = (charCount: number, duration: number) => {
     const cps = duration > 0 ? charCount / duration : 0;
@@ -1976,9 +1961,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             targetLanguage={targetLanguage}
             playbackRate={playbackRate}
             onPlaybackRateChange={onPlaybackRateChange}
-            trackMode={trackMode}
-            onTrackModeChange={switchTrack}
-            hasSynthesizedAudio={Boolean(activeJob.synthesizedAudioUrl)}
             sensitivity={analysisSensitivity}
             onSensitivityChange={onSensitivityChange}
             onDragCut={!hearingDub && !awaitingScript ? cueEditing.dragCut : undefined}
@@ -4080,29 +4062,26 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 fitSource={{ segments, charsPerSecond: previewRate, rateMeasured: measuredRate !== null }}
                 subtitles={
                   report && syncedCues && syncedCues.length > 0 && (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handleExportStepSubtitles}
-                        disabled={isSyncing}
-                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
-                      >
-                        <span className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[9.5px] font-semibold shrink-0 bg-indigo-500/15 text-indigo-300">
-                          SRT
+                    <button
+                      type="button"
+                      onClick={() => setIsSrtModalOpen(true)}
+                      disabled={isSyncing}
+                      className="w-full flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800/60 hover:border-slate-600 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      <span className="w-11 h-11 rounded-[10px] flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-300">
+                        <Sliders className="w-5 h-5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[14.5px] font-semibold text-slate-100">Export subtitles</span>
+                        <span className="block text-[12px] text-slate-400 truncate">
+                          {subtitleLanguage} · timed to {subtitleTimingLabel}
                         </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] font-semibold text-slate-100">{subtitleLanguage} subtitles</span>
-                          <span className="block text-[11.5px] text-slate-400 truncate">
-                            Timed to {subtitleTimingLabel} · {srtOptions.maxLinesPerCue} line,{' '}
-                            {srtOptions.maxWordsPerLine} words max
-                          </span>
+                        <span className="block text-[11.5px] text-slate-500 truncate">
+                          {srtOptions.maxLinesPerCue} line, {srtOptions.maxWordsPerLine} words max · .srt or .vtt
                         </span>
-                        <Download className="w-4 h-4 text-slate-500 shrink-0" />
-                      </button>
-                      <button type="button" onClick={() => setIsSrtModalOpen(true)} className={`w-full ${railButton}`}>
-                        <Sliders className="w-3.5 h-3.5" /> Export subtitles
-                      </button>
-                    </>
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                    </button>
                   )
                 }
               />

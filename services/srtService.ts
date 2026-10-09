@@ -689,7 +689,7 @@ const SYNCED_ALIGN_TOLERANCE = 2;
 
 /**
  * The cues an export writes: the chosen language's text at the chosen timing.
- * The Export subtitles modal and the one-click subtitle card both use it, so they give the same file.
+ * The Export subtitles modal uses it for both the .srt and the .vtt.
  * With `dubWordTimings` (the dub's words, aligned), dub timings cut on the
  * dub's real word boundaries instead of sharing each line out by length.
  */

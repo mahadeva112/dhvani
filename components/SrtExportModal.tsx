@@ -71,7 +71,7 @@ interface SrtExportModalProps {
   hasSynthAudio?: boolean;
   /** The cues where Sync placed them, once the dub is synced: timing that matches the synced dub exactly. */
   syncedSegments?: AudioSegment[];
-  /** The saved language and timing, shared with the one-click subtitle card. */
+  /** The saved language and timing, shown on the Export subtitles button. */
   exportChoice?: SubtitleExportChoice;
   onExportChoiceChange?: (choice: SubtitleExportChoice) => void;
   /** What each timing is heard against: the original, the synced dub, the dub. Missing ones can't be played. */
@@ -110,7 +110,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const [activeTab, setActiveTab] = useState<'srt' | 'vtt'>('srt');
   /*
    * Which language track to export and what it is timed to. Both are saved, so
-   * the subtitle card downloads exactly what this modal last showed. A saved
+   * the Export subtitles button shows what this modal last used. A saved
    * timing this project lacks falls back to the most exact one it has.
    */
   const hasSynced = Boolean(syncedSegments && syncedSegments.length > 0);
@@ -692,9 +692,9 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
             type="button"
             onClick={handleDownloadSrt}
             disabled={!previewSrt}
-            className="h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-pointer"
+            className="h-11 px-5 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[14px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-pointer"
           >
-            <Download className="w-4 h-4" /> Download .srt
+            <Download className="w-4 h-4" /> Download {trackName} .srt
           </button>
         </div>
       </section>
