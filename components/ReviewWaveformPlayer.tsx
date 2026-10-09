@@ -35,9 +35,6 @@ export interface ReviewWaveformPlayerProps {
   targetLanguage?: string;
   playbackRate?: number;
   onPlaybackRateChange?: (rate: number) => void;
-  trackMode?: 'source' | 'synth' | 'both';
-  onTrackModeChange?: (mode: 'source' | 'synth' | 'both') => void;
-  hasSynthesizedAudio?: boolean;
   /** Pause detection now lives in the review panel; kept so callers need not change. */
   sensitivity?: number;
   onSensitivityChange?: (sensitivity: number) => void;
@@ -168,9 +165,6 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   targetLanguage = 'Hindi',
   playbackRate = 1,
   onPlaybackRateChange,
-  trackMode = 'source',
-  onTrackModeChange,
-  hasSynthesizedAudio = false,
   onDragCut,
   selectedCutId = null,
 }) => {
@@ -684,28 +678,6 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               <span className="hidden sm:inline text-[11px] uppercase tracking-wide font-semibold text-slate-500 truncate">{activeCue.speaker}</span>
             )}
           </div>
-
-          {/* Until there's a dub the original is the only track, so there's nothing to pick. */}
-          {onTrackModeChange && hasSynthesizedAudio && (
-            <div role="group" aria-label="Listen to" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950/60 border border-slate-800">
-              {([
-                ['source', 'Original', 'bg-cyan-400'],
-                ['synth', 'Dub', 'bg-indigo-400'],
-                ['both', 'Both', ''],
-              ] as const).map(([mode, label, dot]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={trackMode === mode}
-                  onClick={() => onTrackModeChange(mode)}
-                  className={segBtn(trackMode === mode)}
-                >
-                  {dot && <span className={`w-[7px] h-[7px] rounded-sm ${dot}`} />}
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
 
           {onPlaybackRateChange && (
             <div role="group" aria-label="Speed" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950/60 border border-slate-800">
