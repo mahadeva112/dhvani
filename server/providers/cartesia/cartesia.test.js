@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { synthesizeScript, synthesizeLines, getVoices, toCartesiaOutputFormat } from './speech.js';
+import { synthesizeScript, synthesizeLines, getVoices, toCartesiaOutputFormat, cartesiaEmotionOf } from './speech.js';
 import { toCartesiaLanguage, toCartesiaVoiceId, toDhvaniVoiceId } from './client.js';
 import { cartesiaSettings } from '../../routes/sync.js';
 
@@ -140,4 +140,33 @@ test('the voice library is paged through and reshaped like the ElevenLabs list',
   assert.equal(bela.labels.language, 'hi');
   assert.equal(bela.preview_url, '/api/cartesia/voices/b/preview');
   assert.equal(voices[0].category, 'cloned', "the account's own voices count as cloned");
+});
+
+test('Natural on Cartesia voices each line with one mild emotion from its source tags, and never speaks the tags', async () => {
+  assert.equal(cartesiaEmotionOf('[explaining, calm, slow] नमस्ते।'), 'calm');
+  assert.equal(cartesiaEmotionOf('[questioning, rising pitch] क्यों?'), 'curious');
+  assert.equal(cartesiaEmotionOf('[sentence-build pause] [reasoning, focused] तो...'), 'contemplative');
+  assert.equal(cartesiaEmotionOf('[jovial, dramatic pause] नमस्ते।'), 'neutral');
+  assert.equal(cartesiaEmotionOf('नमस्ते।'), 'neutral');
+
+  const calls = mockFetch(() => audio());
+  await synthesizeLines(
+    {
+      voiceId: 'cartesia:v',
+      lines: [{ text: '[explaining, calm, slow] नमस्ते।' }, { text: '[questioning] क्यों?' }],
+      modelId: 'sonic-3',
+      outputFormat: 'pcm_16000',
+      voiceSettings: { speed: 1, emotion: 'excited' },
+      performanceTags: true,
+    },
+    { apiKey: 'sk_car_test' }
+  );
+  await synthesizeScript(
+    { voiceId: 'cartesia:v', text: '[meditative, calm] नमस्ते।', modelId: 'sonic-3', outputFormat: 'pcm_16000', performanceTags: true },
+    { apiKey: 'sk_car_test' }
+  );
+  const bodies = calls.map((call) => JSON.parse(call.init.body));
+  assert.deepEqual(bodies.map((b) => b.transcript), ['नमस्ते।', 'क्यों?', 'नमस्ते।']);
+  assert.deepEqual(bodies.map((b) => b.generation_config.emotion), ['calm', 'curious', 'calm']);
+  assert.equal(bodies[0].generation_config.speed, 1);
 });

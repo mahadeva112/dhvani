@@ -69,6 +69,7 @@ import {
   isElevenLabsDefault,
   type VoiceExpression,
 } from '../services/elevenLabsService';
+import { cartesiaTakesControls } from '../services/cartesiaService';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { audioBufferToWav } from '../services/audioService';
 import {
@@ -357,6 +358,8 @@ interface ExpressDubWizardProps {
   /** How much expression the dub is voiced with: Neutral, Natural (from the source audio) or Expressive. */
   voiceExpression?: VoiceExpression;
   onVoiceExpressionChange?: (expression: VoiceExpression) => void;
+  /** The Cartesia model a Cartesia dub is voiced with: Natural and Expressive need a sonic-3 one. */
+  cartesiaModelId?: string;
   /** Brings a dub's lines (or, with several speakers, each speaker) to one loudness; off keeps each at the level it was voiced at. */
   dubMatchLoudness?: boolean;
   onDubMatchLoudnessChange?: (enabled: boolean) => void;
@@ -480,8 +483,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   transcriptionCancelled = false,
   ttsModelName = 'ElevenLabs',
   elModelId,
-  voiceExpression = 'neutral',
+  voiceExpression = 'off',
   onVoiceExpressionChange,
+  cartesiaModelId,
   dubMatchLoudness = false,
   onDubMatchLoudnessChange,
   onElModelIdChange,
@@ -3875,11 +3879,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
                         </div>
                       )}
-                      {voiceEngine === 'elevenlabs' && onVoiceExpressionChange && (() => {
-                        // Tags are written for one continuous read on a model that performs them; anything else is Neutral.
-                        const takesCues = Boolean(elModelId && performsAudioTags(elModelId)) && !multiSpeaker;
-                        const current: VoiceExpression = takesCues ? voiceExpression : 'neutral';
-                        const notTagged = multiSpeaker ? 'Natural and Expressive are for a dub in one voice.' : 'Natural and Expressive need Eleven v3 or v4.';
+                      {onVoiceExpressionChange && (() => {
+                        // Tags are written for one continuous read on a model that performs them; anything else is Neutral (or Off).
+                        const cartesia = voiceEngine === 'cartesia';
+                        const takesCues =
+                          (cartesia ? cartesiaTakesControls(cartesiaModelId) : Boolean(elModelId && performsAudioTags(elModelId))) && !multiSpeaker;
+                        const current: VoiceExpression = takesCues || voiceExpression === 'off' ? voiceExpression : 'neutral';
+                        const notTagged = multiSpeaker
+                          ? 'Natural and Expressive are for a dub in one voice.'
+                          : cartesia
+                            ? 'Natural and Expressive need a Sonic 3 model.'
+                            : 'Natural and Expressive need Eleven v3 or v4.';
                         return (
                           <div className="flex flex-col gap-1.5">
                             <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
@@ -3891,11 +3901,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5"
                               >
                                 {([
+                                  { id: 'off', label: 'Off' },
                                   { id: 'neutral', label: 'Neutral' },
                                   { id: 'natural', label: 'Natural' },
                                   { id: 'expressive', label: 'Expressive' },
                                 ] as const).map((m) => {
-                                  const off = m.id !== 'neutral' && !takesCues;
+                                  const off = (m.id === 'natural' || m.id === 'expressive') && !takesCues;
                                   return (
                                     <button
                                       key={m.id}
@@ -3904,7 +3915,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                       onClick={() => onVoiceExpressionChange(m.id)}
                                       disabled={isSyncing || off}
                                       title={off ? notTagged : undefined}
-                                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:cursor-default ${
+                                      className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:cursor-default ${
                                         current === m.id ? 'bg-slate-800 text-slate-100' : off ? 'text-slate-600' : 'text-slate-400 hover:text-slate-200'
                                       }`}
                                     >
@@ -3915,10 +3926,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                               </div>
                             </div>
                             <span className="text-[11px] text-slate-500 leading-snug">
-                              {current === 'natural'
-                                ? 'Follows how the original speaker spoke: their pace and pauses, with calm tags only.'
+                              {current === 'off'
+                                ? "The script as written, in the voice's own settings. Nothing added."
+                                : current === 'natural'
+                                ? cartesia
+                                  ? 'Follows how the original speaker spoke: each line gets one mild emotion, like calm or curious.'
+                                  : 'Follows how the original speaker spoke: their pace and pauses, with calm tags only.'
                                 : current === 'expressive'
-                                  ? 'Adds emotion tags guessed from the script. Can sound dramatic.'
+                                  ? cartesia
+                                    ? 'The voice takes its emotion from the words. Can sound dramatic.'
+                                    : 'Adds emotion tags guessed from the script. Can sound dramatic.'
                                   : takesCues
                                     ? "Calm and steady in the speaker's own voice. No tags, one tone throughout."
                                     : `Calm and steady in the speaker's own voice. ${notTagged}`}

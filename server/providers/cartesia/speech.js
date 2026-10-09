@@ -8,6 +8,7 @@ import { joinPassages } from '../../lib/audioJoin.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
 import { pcmToWav } from '../../lib/wav.js';
 import { cleanTextForNaturalSpeech, secondsOfAudio } from '../elevenlabs/speech.js';
+import { performanceTag } from '../../lib/sourceCues.js';
 import {
   cartesiaJson,
   cartesiaBinary,
@@ -84,19 +85,64 @@ const generationConfig = (settings = {}, modelId) => {
   return Object.keys(out).length ? out : undefined;
 };
 
-/** One text-to-speech request. Returns the raw Response. */
+/**
+ * Voice expression "Natural" on Cartesia. Cartesia performs no
+ * [explaining, calm] tags, and its inline emotion tags work in English only,
+ * so a passage tagged from the source audio (see sourceCues.js) is voiced
+ * with one mild sonic-3 emotion for the whole request instead: the one the
+ * tags describe most often. Tags that describe no emotion are not counted,
+ * and with none at all the request is neutral; nothing stronger than these
+ * five is ever chosen.
+ */
+const EMOTION_OF_TAG = {
+  calm: 'calm',
+  meditative: 'calm',
+  slow: 'calm',
+  flowing: 'calm',
+  decelerating: 'calm',
+  reasoning: 'contemplative',
+  'sentence-build pause': 'contemplative',
+  'audience-think pause': 'contemplative',
+  questioning: 'curious',
+  firm: 'confident',
+  concluding: 'confident',
+};
+
+export const cartesiaEmotionOf = (text) => {
+  const counts = new Map();
+  for (const [, inner] of String(text || '').matchAll(/\[([^\]\n]{1,120})\]/g)) {
+    const tag = performanceTag(inner);
+    if (!tag) continue;
+    for (const part of tag.slice(1, -1).split(', ')) {
+      const emotion = EMOTION_OF_TAG[part];
+      if (emotion) counts.set(emotion, (counts.get(emotion) || 0) + 1);
+    }
+  }
+  let best = 'neutral';
+  let most = 0;
+  for (const [emotion, n] of counts) if (n > most) [best, most] = [emotion, n];
+  return best;
+};
+
+/**
+ * One text-to-speech request. Returns the raw Response. With
+ * `performanceTags`, the text carries tags matched to the source audio: they
+ * set the request's emotion (see cartesiaEmotionOf) and are not spoken.
+ */
 export const synthesizeSpeech = async (
-  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings },
+  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings, performanceTags = false },
   { apiKey, signal } = {}
 ) => {
   const id = requireVoiceId(voiceId);
-  const transcript = cleanTextForNaturalSpeech(text);
+  // Compound tags ("[explaining, calm]") are not stage directions the cleanup knows, so they are removed here.
+  const transcript = cleanTextForNaturalSpeech(performanceTags ? String(text || '').replace(/\[[a-zA-Z0-9_\-\s,]{1,120}\]/g, ' ') : text);
   if (!transcript) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
   const model = modelId || config.cartesia.ttsModel;
   const code = toCartesiaLanguage(language);
-  const generation = generationConfig(voiceSettings, model);
+  const settings = performanceTags ? { ...voiceSettings, emotion: cartesiaEmotionOf(text) } : voiceSettings;
+  const generation = generationConfig(settings, model);
 
   return cartesiaBinary(
     '/tts/bytes',
@@ -142,11 +188,12 @@ const joinAudio = async (parts, passages, format, { matchLoudness = false } = {}
  * progress bar and cancel button work unchanged. Returns `{ contentType, buffer }`.
  */
 export const synthesizeScript = async (
-  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings, matchLoudness = false },
+  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings, matchLoudness = false, performanceTags = false },
   { apiKey, signal, onProgress = () => {} } = {}
 ) => {
   requireVoiceId(voiceId);
-  const cleanText = cleanTextForNaturalSpeech(text);
+  // Source-matched tags ride along to each passage, which takes its emotion from them.
+  const cleanText = cleanTextForNaturalSpeech(text, { keepPerformanceTags: performanceTags });
   if (!cleanText) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }
@@ -176,7 +223,7 @@ export const synthesizeScript = async (
 
   const generate = async (index) => {
     const response = await synthesizeSpeech(
-      { voiceId, text: chunks[index], modelId, outputFormat: format, language, voiceSettings },
+      { voiceId, text: chunks[index], modelId, outputFormat: format, language, voiceSettings, performanceTags },
       { apiKey, signal }
     );
     parts[index] = Buffer.from(await response.arrayBuffer());
@@ -207,11 +254,12 @@ export const synthesizeScript = async (
  * is voiced on its own with the same voice, model and settings.
  *
  * `lines[i]` is `{ text }`; `outputFormat` should already be one Cartesia
- * produces (see toCartesiaOutputFormat). `onLine(done)` reports each finished
+ * produces (see toCartesiaOutputFormat). With `performanceTags`, each line
+ * takes its emotion from its source-matched tags (see cartesiaEmotionOf). `onLine(done)` reports each finished
  * line. Returns `[{ buffer }]` in the same order.
  */
 export const synthesizeLines = async (
-  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings },
+  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings, performanceTags = false },
   { apiKey, signal, onLine = () => {} } = {}
 ) => {
   requireVoiceId(voiceId);
@@ -223,7 +271,7 @@ export const synthesizeLines = async (
       if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
       const index = next++;
       const response = await synthesizeSpeech(
-        { voiceId, text: lines[index].text, modelId, outputFormat, language, voiceSettings },
+        { voiceId, text: lines[index].text, modelId, outputFormat, language, voiceSettings, performanceTags },
         { apiKey, signal }
       );
       results[index] = { buffer: Buffer.from(await response.arrayBuffer()) };

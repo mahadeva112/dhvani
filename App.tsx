@@ -64,6 +64,8 @@ import {
   readCartesiaPrefs,
   saveCartesiaPrefs,
   CARTESIA_MODELS,
+  cartesiaTakesControls,
+  cartesiaForExpression,
   type CartesiaVoicePrefs,
 } from './services/cartesiaService';
 
@@ -216,20 +218,20 @@ export default function App() {
   const [keyboardActiveSegment, setKeyboardActiveSegment] = useState<AudioSegment | null>(null);
 
   /*
-   * How much expression a dub is voiced with: Neutral (calm and even, no tags), Natural (tagged from the
-   * source audio) or Expressive (tags guessed from the script). Neutral by default. A choice saved before
-   * this was one setting carries over: Enhance emotion off was Neutral, on was Natural with Match source
-   * audio and Expressive without.
+   * How much expression a dub is voiced with: Off (as written, the voice's own settings), Neutral (calm and
+   * even, no tags), Natural (tagged from the source audio) or Expressive (tags guessed from the script).
+   * Off by default. A choice saved before this was one setting carries over: Enhance emotion on was
+   * Natural with Match source audio and Expressive without.
    */
   const [voiceExpression, setVoiceExpression] = useState<VoiceExpression>(() => {
     try {
       const saved = localStorage.getItem('dhvani_voice_expression');
-      if (saved === 'neutral' || saved === 'natural' || saved === 'expressive') return saved;
+      if (saved === 'off' || saved === 'neutral' || saved === 'natural' || saved === 'expressive') return saved;
       if (localStorage.getItem('dhvani_emotion_enhance') === 'true') {
         return localStorage.getItem('dhvani_emotion_match_source') === 'false' ? 'expressive' : 'natural';
       }
     } catch {}
-    return 'neutral';
+    return 'off';
   });
 
   // Whether a dub's passages are brought to one loudness. On by default; off keeps each at the level it was voiced at.
@@ -2171,6 +2173,10 @@ export default function App() {
    * what it says and how it was voiced, so Sync again reuses it until that
    * changes; lines reworded since are voiced on their own.
    */
+  /** Whether the dub's voice can take Natural or Expressive: an Eleven v3/v4 model, or a Cartesia sonic-3 one. */
+  const expressionTakesTags = () =>
+    isCartesiaVoice(elVoiceId) ? cartesiaTakesControls(cartesiaVoice.modelId) : performsAudioTags(elModelId);
+
   const readScript = async (job: BatchJob, language: string, readKey: string, matchLoudness: boolean, signal: AbortSignal) => {
     const readJobId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -2188,8 +2194,9 @@ export default function App() {
     }, 700);
     try {
       // Natural: tag the script from the original speaker's delivery before voicing it.
-      const tags = performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
-      const matchSource = voiceExpression === 'natural' && tags;
+      const tags = expressionTakesTags();
+      const expression: VoiceExpression = tags || voiceExpression === 'off' ? voiceExpression : 'neutral';
+      const matchSource = expression === 'natural';
       let script = buildSpeechScript(job.segments);
       if (matchSource) {
         const tagged = await sourceTaggedSegments(job, language, signal, () =>
@@ -2198,12 +2205,12 @@ export default function App() {
         script = buildSpeechScript(tagged);
       }
       const blob = await synthesizeSpeech(elApiKey, elVoiceId, script, elModelId, elOutputFormat, elVoiceSettings, {
-        expressive: voiceExpression === 'expressive' && tags,
+        expressive: expression === 'expressive',
         audioTags: matchSource,
         performanceTags: matchSource,
-        steady: voiceExpression === 'neutral',
+        steady: expression === 'neutral',
         matchLoudness,
-        cartesia: cartesiaVoice,
+        cartesia: cartesiaForExpression(cartesiaVoice, expression),
         language,
         jobId: readJobId,
         signal,
@@ -2272,9 +2279,10 @@ export default function App() {
     try {
       const several = isMultiSpeaker(activeJob.segments);
       const language = activeJob.language || selectedLanguage;
-      // Tags need one voice on a model that performs them; otherwise the dub is voiced as Neutral.
-      const tags = !several && performsAudioTags(elModelId) && !isCartesiaVoice(elVoiceId);
-      const expression: VoiceExpression = tags ? voiceExpression : 'neutral';
+      // Tags need one voice on a model that performs them; otherwise the dub is voiced as Neutral (or Off).
+      const tags = !several && expressionTakesTags();
+      const expression: VoiceExpression = tags || voiceExpression === 'off' ? voiceExpression : 'neutral';
+      const cartesiaDub = cartesiaForExpression(cartesiaVoice, expression);
       let voiceTexts: Record<string, string> | undefined;
       if (expression === 'natural') {
         const tagged = await sourceTaggedSegments(activeJob, language, controller.signal);
@@ -2288,7 +2296,7 @@ export default function App() {
        */
       let dub: { blob: Blob; lines: DubLines } | undefined;
       if (voicing === 'continuous' && !several) {
-        const readKey = JSON.stringify([elVoiceId, elModelId, elVoiceSettings ?? null, expression, matchLoudness, cartesiaVoice]);
+        const readKey = JSON.stringify([elVoiceId, elModelId, elVoiceSettings ?? null, expression, matchLoudness, cartesiaDub]);
         const last = activeJob.dubLines;
         const lastFits =
           activeJob.synthesizedBlob && last && last.voiceId === elVoiceId && last.modelId === elModelId && (last.readKey ?? readKey) === readKey;
@@ -2314,7 +2322,7 @@ export default function App() {
           matchLoudness,
           lineSeeds: activeJob.syncLineSeeds || undefined,
           debug: audioDebugEnabled(),
-          cartesia: cartesiaVoice,
+          cartesia: cartesiaDub,
           ...(voiceTexts && { voiceTexts }),
           ...(expression === 'expressive' && { expressive: true }),
           ...(expression === 'neutral' && { steady: true }),
@@ -3043,6 +3051,7 @@ export default function App() {
           getLiveTime={getLiveTime}
           voiceExpression={voiceExpression}
           onVoiceExpressionChange={handleVoiceExpressionChange}
+          cartesiaModelId={cartesiaVoice.modelId}
           dubMatchLoudness={dubMatchLoudness}
           onDubMatchLoudnessChange={handleDubMatchLoudnessChange}
           playbackRate={playbackRate}

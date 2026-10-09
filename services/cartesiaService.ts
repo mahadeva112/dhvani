@@ -1,5 +1,5 @@
 import { apiAudio, apiGet, apiUpload } from './apiClient';
-import type { Voice } from './elevenLabsService';
+import type { Voice, VoiceExpression } from './elevenLabsService';
 
 /**
  * Cartesia client.
@@ -62,6 +62,14 @@ export const saveCartesiaPrefs = (prefs: CartesiaVoicePrefs) => {
 /** Speed, volume and emotion only steer the sonic-3 family; other models ignore them. */
 export const cartesiaTakesControls = (modelId?: string) => /^sonic-3/.test(modelId || '');
 
+/**
+ * The prefs a dub is voiced with under a voice expression (sonic-3 only). Off keeps the chosen emotion;
+ * Neutral holds it at neutral; Natural and Expressive clear it, Natural for the server to set each line's
+ * emotion from the source audio, Expressive for the model to take it from the words.
+ */
+export const cartesiaForExpression = (prefs: CartesiaVoicePrefs, expression: VoiceExpression): CartesiaVoicePrefs =>
+  expression === 'off' ? prefs : { ...prefs, emotion: expression === 'neutral' ? 'neutral' : '' };
+
 /** The delivery settings sent for `prefs`: none for a model that ignores them. */
 export const cartesiaDelivery = (prefs: CartesiaVoicePrefs): { speed: number; volume: number; emotion?: string } | undefined =>
   cartesiaTakesControls(prefs.modelId)
@@ -95,6 +103,7 @@ export const synthesizeWithCartesia = (
     volume,
     emotion,
     matchLoudness = false,
+    performanceTags = false,
     jobId,
     signal,
   }: {
@@ -110,6 +119,8 @@ export const synthesizeWithCartesia = (
     emotion?: string;
     /** Bring every passage to the same loudness. Off: each keeps the level it was voiced at. */
     matchLoudness?: boolean;
+    /** Voice expression Natural: the text carries source-matched tags, which set each passage's emotion. */
+    performanceTags?: boolean;
     jobId?: string;
     signal?: AbortSignal;
   } = {}
@@ -128,6 +139,7 @@ export const synthesizeWithCartesia = (
       outputFormat,
       language,
       matchLoudness,
+      ...(performanceTags && { performanceTags: true }),
       jobId,
       voiceSettings: Object.keys(voiceSettings).length ? voiceSettings : undefined,
     },

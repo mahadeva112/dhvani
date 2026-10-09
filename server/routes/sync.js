@@ -63,7 +63,8 @@ const makeVoice = ({ voiceId, modelId, voiceSettings }, { requested, seed, stead
       cartesia: true,
       modelId: modelId && !/^eleven_/.test(modelId) ? modelId : undefined,
       outputFormat: toCartesiaOutputFormat(requested).format,
-      voiceSettings: cartesiaSettings(voiceSettings),
+      // Voice expression Neutral: the sonic-3 emotion is held at neutral.
+      voiceSettings: steady ? { ...cartesiaSettings(voiceSettings), emotion: 'neutral' } : cartesiaSettings(voiceSettings),
       // Cartesia takes no seed, but a retake still needs its own cache entry.
       seed: cleanSeed,
     };
@@ -316,7 +317,7 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  * tagged for voice expression Natural) and `expressive` (Expressive) adds
  * delivery cues first; both only on a model that performs tags, and the
  * words are never changed. `steady` (voice expression Neutral) holds every
- * ElevenLabs voice calm and even. With `dub` (`{ dubId, cues }`, one voice only) every
+ * voice calm and even (a Cartesia one at emotion neutral). With `dub` (`{ dubId, cues }`, one voice only) every
  * line that still reads as the Final dub said it is cut from that dub rather
  * than voiced again (see dubTakes.js); a 409 `sync_dub_missing` asks for the
  * dub at PUT /api/sync/dubs/:dubId first. `suggest` and `suggestLonger`
@@ -395,16 +396,19 @@ syncRouter.post(
     const audioDebug = debug === true || process.env.DHVANI_AUDIO_DEBUG === '1';
     const cartesiaKey = req.get('x-cartesia-key') || undefined;
     const voice = cartesia
-      ? { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed }), outputFormat: format }
+      ? { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed, steady: steady === true }), outputFormat: format }
       : { ...makeVoice({ voiceId, modelId, voiceSettings }, { requested, seed, steady: steady === true }), modelId, outputFormat: format };
     const several = multiSpeaker === true;
     const voiceFor = several ? castVoices(cast, voice, { requested, seed, steady: steady === true }) : undefined;
-    // Emotion follows the dub: one voice on a model that performs tags.
-    const tags = !cartesia && !several && performsTags(voice.modelId || config.elevenlabs.ttsModel);
+    // Emotion follows the dub: one voice on a model that performs tags (ElevenLabs) or takes an emotion (Cartesia sonic-3).
+    const tags =
+      !several &&
+      (cartesia ? /^sonic-3/.test(voice.modelId || config.cartesia.ttsModel) : performsTags(voice.modelId || config.elevenlabs.ttsModel));
     const sourceTagged = tags && performanceTags === true;
     if (sourceTagged) voice.performanceTags = true;
     const lineSegments = sourceTagged ? segments : segments.map((segment) => (segment && typeof segment === 'object' ? { ...segment, voiceText: undefined } : segment));
-    const cueLines = tags && !sourceTagged && expressive === true ? cueLinesWith({ language, apiKey: textModelKey }) : undefined;
+    // Expressive on Cartesia needs no cues: with no emotion set, sonic-3 takes it from the words.
+    const cueLines = tags && !cartesia && !sourceTagged && expressive === true ? cueLinesWith({ language, apiKey: textModelKey }) : undefined;
     const voiceWith = voiceLinesWith({ apiKey, cartesiaKey, language, signal: controller.signal });
     const voiceLines = (lines, { voice: lineVoice, onLine }) => voiceWith(lines, { voice: lineVoice || voice, onLine });
 

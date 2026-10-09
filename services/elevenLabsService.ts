@@ -77,11 +77,13 @@ export const DEFAULT_ELEVENLABS_MODEL = 'eleven_v4';
 export const performsAudioTags = (modelId: string) => /^eleven_v[34]/.test(modelId);
 
 /**
- * How much expression a dub is voiced with. Neutral: no tags, the voice held calm and even. Natural:
- * tagged from how the original speaker spoke. Expressive: tags guessed from the script. Natural and
- * Expressive need one voice on a model that performs tags; anything else is voiced as Neutral.
+ * How much expression a dub is voiced with. Off: the script as written, in the voice's own settings,
+ * nothing added. Neutral: no tags, the voice held calm and even. Natural: tagged from how the original
+ * speaker spoke. Expressive: tags guessed from the script. Natural and Expressive need one voice on a
+ * model that performs tags (on Cartesia, a sonic-3 model; see cartesiaForExpression); anything else is
+ * voiced as Neutral.
  */
-export type VoiceExpression = 'neutral' | 'natural' | 'expressive';
+export type VoiceExpression = 'off' | 'neutral' | 'natural' | 'expressive';
 
 /** v3 ignores speed and v4 sets its pace from audio tags; the v1 models reject it. */
 export const modelTakesSpeed = (modelId: string) => !performsAudioTags(modelId) && !/_v1$/.test(modelId);
@@ -172,6 +174,7 @@ export const synthesizeSpeech = async (
       modelId: cartesia?.modelId || undefined,
       ...delivery,
       matchLoudness,
+      performanceTags,
       jobId,
       signal,
     });
