@@ -501,6 +501,25 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the gateway, so translation, alignment, Indic polish, cue splitting and SSML all work with either.
   Subtitle timing is unchanged — it comes from ElevenLabs regardless.
 
+## [1.3.36] — 2026-10-10
+
+### Added
+
+- Instant retakes of synced lines, with three new takes, individual playback, timing-fit
+  indicators, delivery directions and explicit take selection. Applying a take renders the
+  dub without requiring another full Sync. Other takes remain available within that sync;
+  Sync again carries the selected take forward and starts a new takes list.
+- Phrase retakes with the surrounding words as context, joined into the current take at
+  word gaps. Retake buttons show estimated character costs.
+- Select range in Edit timing: drag inside one dub waveform to select measured words for
+  retaking. Forced alignment maps the current take's words through moved, trimmed, split
+  and stretched timeline parts. Alignment may use provider credits.
+
+### Fixed
+
+- Locked lines and lines whose script changed cannot be retaken or replaced accidentally.
+- Narrow-screen toolbar tooltips no longer cause horizontal overflow.
+
 ## [1.0.0] — 2026-09-18
 
 First standalone release. DHVANI began as a Google AI Studio app; this version runs entirely on your

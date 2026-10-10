@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.36',
+    changes: [
+      'Retake a synced line instantly: hear three new takes, compare their timing and choose which one goes in the dub. Return to another take while working on the same sync.',
+      'In Edit timing, Select range picks words directly from the dub waveform using forced alignment. Retake the whole line or only the selected phrase.',
+      'Choose Same, A bit faster, A bit slower, Calmer or More energy. Retake buttons show estimated character costs; locked or changed lines are protected.',
+    ],
+  },
+  {
     version: '1.3.35',
     changes: [
       'Sync has one Export subtitles section, with the .srt download inside it.',
