@@ -1,5 +1,6 @@
 import type { SyncReport } from './services/syncService';
 import type { SyncBank, SyncEdits } from './services/syncEditService';
+import type { SyncTakes } from './services/syncTakes';
 
 /**
  * One word as measured by ElevenLabs. These are the authoritative timings for
@@ -263,6 +264,12 @@ export interface BatchJob {
   syncLineSeeds?: Record<string, number> | null;
   /** Lines changed since the last Sync (reworded, cut, joined or retaken), by line key: the next Sync re-voices them. */
   syncPendingLines?: string[] | null;
+  /**
+   * Takes asked for after Sync, by line key: every take of the line, Sync's own
+   * among them, and the one it plays (see syncTakesService.ts). Their samples
+   * are in the bank above; the next Sync keeps the picked ones and starts afresh.
+   */
+  syncTakes?: SyncTakes | null;
 
   /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
   cast?: Record<string, SpeakerVoice>;

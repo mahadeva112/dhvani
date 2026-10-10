@@ -130,6 +130,8 @@ import { ContinuousDocumentView, ContinuousDocumentHandle } from './review/Conti
 import { CueEditBar, PickableWords, useCueEditing } from './review/CueEditBar';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
 import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
+import { firstWordAt, takesOf, type TakeDirection } from '../services/syncTakesService';
+import { TakesPanel } from './TakesPanel';
 
 type ReviewMode = 'grid' | 'table' | 'spotlight' | 'script' | 'document' | 'qa';
 
@@ -390,6 +392,13 @@ interface ExpressDubWizardProps {
   onApplySyncLine?: (unit: SyncUnitReport, text: string) => void;
   /** Asks for a new take of each of these synced lines. */
   onRetakeSyncLines?: (units: SyncUnitReport[]) => void;
+  /** Voices new takes of a synced line now, of the whole line or of some of its words (TakesPanel). */
+  onVoiceSyncTakes?: (unit: SyncUnitReport, options: { direction: TakeDirection; phrase?: { from: number; to: number } }) => void;
+  /** Puts one of a line's takes in the dub. */
+  onUseSyncTake?: (key: string, takeId: string) => void;
+  /** The line whose takes are being voiced, and why asking for takes last failed. */
+  syncTakesBusy?: string | null;
+  syncTakesError?: { key: string; message: string } | null;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
   /** Replaces every segment in one write, for changes that touch many cues. */
   onReplaceSegments: (segments: AudioSegment[]) => void;
@@ -505,6 +514,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   syncPendingLines = [],
   onApplySyncLine,
   onRetakeSyncLines,
+  onVoiceSyncTakes,
+  onUseSyncTake,
+  syncTakesBusy = null,
+  syncTakesError = null,
   onUpdateSegment,
   onReplaceSegments,
   onPlaySegmentSolo,
@@ -594,6 +607,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [isAlignModalOpen, setIsAlignModalOpen] = useState<boolean>(false);
   /** Dub step: the player's lanes are the Edit timing timeline. */
   const [editingTiming, setEditingTiming] = useState(false);
+  /** Edit timing: the line whose takes are open under the timeline. */
+  const [timingTakesKey, setTimingTakesKey] = useState<string | null>(null);
+  const [timingTakesPhrase, setTimingTakesPhrase] = useState<{ from: number; to: number } | null>(null);
+  useEffect(() => {
+    if (!editingTiming) setTimingTakesKey(null);
+  }, [editingTiming]);
   /** Dub step, once synced: the voice panel unfolded to change the voice before syncing again. */
   const [voicePanelOpen, setVoicePanelOpen] = useState(false);
   /** A cue for Review to open on and scroll to: the last cue of a line sent there to be reworded. */
@@ -3227,6 +3246,45 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const hasEditedTiming = editedLineCount > 0;
         const legacyDub = !report && Boolean(activeJob.synthesizedAudioUrl);
 
+        /** A synced line's takes, voiced and picked from at once (TakesPanel). */
+        const takesBank = activeJob.syncBank;
+        const takesBase = activeJob.syncBaseReport;
+        const renderTakes =
+          onVoiceSyncTakes && onUseSyncTake && takesBank && takesBase
+            ? (unit: SyncUnitReport, close: () => void, initialPhrase?: { from: number; to: number } | null) => {
+                const line = takesBank.lines.find((l) => l.key === unit.key);
+                const n = takesBase.units.findIndex((u) => u.key === unit.key);
+                if (!line || n === -1) {
+                  return <p className="text-[12px] text-slate-400">This line has no take in the dub. Sync again to voice it.</p>;
+                }
+                return (
+                  <TakesPanel
+                    key={`${activeJob.id}:${unit.key}`}
+                    unit={unit}
+                    initialPhrase={initialPhrase}
+                    locked={Boolean(activeJob.syncEdits?.[unit.key]?.locked ?? line.locked)}
+                    lineNumber={segments.findIndex((seg) => String(seg.id) === unit.key) + 1}
+                    lineTakes={takesOf(activeJob.syncTakes, line, takesBase.units[n])}
+                    firstWord={firstWordAt(line, activeJob.syncEdits, takesBank.sampleRate)}
+                    nextStart={takesBase.units[n + 1]?.srcStart ?? null}
+                    tolerance={takesBase.tolerance}
+                    bankBlob={activeJob.syncBankBlob}
+                    sampleRate={takesBank.sampleRate}
+                    float={takesBank.float}
+                    busy={syncTakesBusy === unit.key}
+                    anyBusy={Boolean(syncTakesBusy)}
+                    error={syncTakesError?.key === unit.key ? syncTakesError.message : null}
+                    pending={syncPendingLines.includes(unit.key)}
+                    onVoice={(options) => onVoiceSyncTakes(unit, options)}
+                    onUse={(takeId) => onUseSyncTake(unit.key, takeId)}
+                    onListenInDub={() => listenHere(Math.max(0, unit.srcStart - 0.6))}
+                    onClose={close}
+                  />
+                );
+              }
+            : undefined;
+        const timingTakesUnit = timingTakesKey ? report?.units.find((unit) => unit.key === timingTakesKey) ?? null : null;
+
         /** Before the first sync: what the dub will take, and how each line is likely to fit. */
         const prepPanel = (
           <div className="flex flex-col gap-4">
@@ -3421,8 +3479,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   }}
                   onClose={() => setEditingTiming(false)}
                   renderTrackHead={mixerLevels ? renderTrackHead : undefined}
+                  elApiKey={elApiKey}
+                  takesUnavailableKeys={syncPendingLines}
+                  onOpenTakes={renderTakes ? (key, phrase) => { setTimingTakesKey(key); setTimingTakesPhrase(phrase ?? null); } : undefined}
                 />
               )}
+              {report && editingTiming && renderTakes && timingTakesUnit && renderTakes(timingTakesUnit, () => setTimingTakesKey(null), timingTakesPhrase)}
               {report &&
                 !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport && onSyncEditsChange) &&
                 renderTrackLanes(
@@ -3576,6 +3638,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 }
                 onRetakeLine={onRetakeSyncLines && ((unit) => onRetakeSyncLines([unit]))}
                 onRetakeLines={onRetakeSyncLines}
+                renderTakes={renderTakes}
                 lockedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => activeJob.syncEdits?.[key]?.locked)}
                 onSuggestLine={(unit, avoid) =>
                   unit.targetChars == null

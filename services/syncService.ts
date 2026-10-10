@@ -253,6 +253,8 @@ export interface SyncUnitReport {
   takesCompared?: number;
   /** The line was cut from an earlier dub, not voiced again (absent in older reports). */
   fromDub?: boolean;
+  /** The take the user picked in the takes panel, kept as it was (absent in older reports). */
+  picked?: boolean;
   /** The take used still ends before its last word died away: the voice cut it off. */
   cutOff?: boolean;
   /** Breaths silenced in the line (absent in older reports). */
@@ -299,6 +301,8 @@ export interface SyncReport {
     cutOff?: number;
     /** Lines cut from an earlier dub rather than voiced again. */
     fromDub?: number;
+    /** Lines kept as the take the user picked. */
+    picked?: number;
     /** Breaths silenced across the dub. */
     breathsRemoved?: number;
   };
@@ -378,6 +382,12 @@ export interface SyncRequest {
    * same is cut from it rather than voiced again, so the sync sounds as the dub did.
    */
   dub?: { blob: Blob; lines: DubLines };
+  /**
+   * The takes the user picked in the takes panel (syncTakesService.pickedTakes), kept as they are, and
+   * the bank they are in, sent again when the server no longer has it.
+   */
+  picked?: { bankId: string; lines: Record<string, { bankStart: number; length: number; lead: number; speech: number; cutOff: boolean }> };
+  pickedBankBlob?: Blob | null;
 }
 
 /** Only what the server reads from each cue; word timings and legacy fields stay behind. */
@@ -400,7 +410,7 @@ export const syncDub = async (
   request: SyncRequest,
   { apiKey, jobId, signal }: { apiKey?: string; jobId?: string; signal?: AbortSignal } = {}
 ): Promise<{ blob: Blob; stems: DubStem[]; report: SyncReport; bank: SyncBank; bankBlob: Blob }> => {
-  const { cartesia, cast, multiSpeaker, voiceTexts, dub, ...rest } = request;
+  const { cartesia, cast, multiSpeaker, voiceTexts, dub, picked, pickedBankBlob, ...rest } = request;
   // A Cartesia voice gets the same model and delivery as a Cartesia dub.
   const voice =
     cartesia && isCartesiaVoice(request.voiceId)
@@ -413,10 +423,13 @@ export const syncDub = async (
     report: SyncReport;
     bank: SyncBank & { audioId: string };
   };
+  // Picked takes the server can't have (no saved bank to send it) are voiced again instead.
+  let keepPicked = Boolean(picked);
   const send = (withDub: boolean) =>
     apiJson<Synced>('/sync', {
       body: {
         ...rest,
+        ...(keepPicked && picked && { picked }),
         ...voice,
         segments: request.segments.map((segment) => slimSegment(segment, voiceTexts)),
         keep: keepTermsFor(request.language || ''),
@@ -431,9 +444,20 @@ export const syncDub = async (
       keys: { elevenLabsKey: apiKey },
       signal,
     });
+  /** Sends a sync again after the server asked for the bank the picked takes are in. */
+  const sendWithBank = async (withDub: boolean): Promise<Synced> => {
+    try {
+      return await send(withDub);
+    } catch (err) {
+      if (!picked || !(err instanceof DhvaniApiError) || err.code !== 'sync_bank_missing') throw err;
+      if (pickedBankBlob) await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(picked.bankId)}`, pickedBankBlob, { signal });
+      else keepPicked = false;
+      return send(withDub);
+    }
+  };
   let data: Synced;
   try {
-    data = await send(Boolean(dub));
+    data = await sendWithBank(Boolean(dub));
   } catch (err) {
     if (!dub || !(err instanceof DhvaniApiError) || err.code !== 'sync_dub_missing') throw err;
     // The server keeps a dub a few hours, and not across a restart: send it again.
@@ -446,7 +470,7 @@ export const syncDub = async (
       console.warn('The dub could not be sent for Sync; every line is voiced again.', putErr);
       sent = false;
     }
-    data = await send(sent);
+    data = await sendWithBank(sent);
   }
   // The dub, any stems and the bank are fetched on their own: lossless WAV is too big to ride inside JSON.
   const mixed = await fetchMixed(data, signal);

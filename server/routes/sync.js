@@ -1,12 +1,23 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { cancelledError } from '../lib/http.js';
 import express, { Router } from 'express';
 import { asyncHandler } from '../middleware/asyncHandler.js';
 import { ApiError } from '../errors.js';
-import { synthesizeLines, cleanTextForNaturalSpeech, performsTags } from '../providers/elevenlabs/speech.js';
+import {
+  synthesizeLines,
+  cleanTextForNaturalSpeech,
+  performsTags,
+  getVoiceSettings,
+  readSettings,
+  DEFAULT_VOICE_SETTINGS,
+} from '../providers/elevenlabs/speech.js';
 import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } from '../providers/cartesia/speech.js';
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch } from '../lib/media.js';
 import { pcmToWav, floatToWav, parseWav } from '../lib/wav.js';
-import { runSync } from '../lib/syncDub.js';
+import { runSync, cachedClip, rememberClip, clipHash, lineKey } from '../lib/syncDub.js';
+import { TAKE_DIRECTIONS, MAX_TAKES_PER_REQUEST, directedSettings, fitTake, phraseCut, splicePhrase, takeGain } from '../lib/syncTakes.js';
+import { resolveJoinSettings } from '../lib/syncSettings.js';
+import { TTS_CONTEXT_CHARS, withSentenceEnd } from '../lib/ttsText.js';
 import { checkParts, lineArrays, ORIGINAL_SPEAKER, renderEdits } from '../lib/syncEdit.js';
 import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
@@ -301,6 +312,42 @@ const cleanLocked = (value) =>
       .map(([key, lock]) => [key, { hash: lock.hash, cuts: lock.cuts || [], crossfade: Number(lock.crossfade) || 0, start: lock.start, end: lock.end }])
   );
 
+/**
+ * The takes the user picked in the takes panel, as the app sends them back:
+ * `{ bankId, lines: { [key]: { bankStart, length, lead, speech, cutOff } } }`,
+ * each a stretch of that bank. Null when there are none.
+ */
+const cleanPicked = (value) => {
+  if (!value || typeof value !== 'object' || !BANK_ID.test(String(value.bankId || ''))) return null;
+  const lines = Object.entries(value.lines && typeof value.lines === 'object' ? value.lines : {})
+    .slice(0, 20000)
+    .filter(
+      ([key, take]) =>
+        key.length <= 128 &&
+        take &&
+        Number.isInteger(take.bankStart) &&
+        Number.isInteger(take.length) &&
+        take.bankStart >= 0 &&
+        take.length > 0 &&
+        Number.isFinite(take.lead) &&
+        Number.isFinite(take.speech)
+    );
+  return lines.length ? { bankId: value.bankId, lines: Object.fromEntries(lines) } : null;
+};
+
+/** `pickedTakes` for runSync: each unit's picked take, cut from the bank exactly as it was kept. */
+const pickedTakesWith = (picked, entry) => (units) =>
+  units.map((unit) => {
+    const take = picked.lines[lineKey(unit)];
+    if (!take || take.bankStart + take.length > entry.samples.length) return null;
+    return {
+      samples: entry.samples.slice(take.bankStart, take.bankStart + take.length),
+      lead: Math.max(0, take.lead),
+      speech: Math.max(0, take.speech),
+      cutOff: take.cutOff === true,
+    };
+  });
+
 /** Every cut, placement, gain and fade of a sync, one line each, for tracing an artifact to the step that made it. */
 const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output, lines }) => {
   logger.info(
@@ -374,6 +421,7 @@ syncRouter.post(
       performanceTags,
       steady,
       dub,
+      picked,
     } = req.body || {};
 
     if (!Array.isArray(segments) || segments.length === 0) {
@@ -397,6 +445,18 @@ syncRouter.post(
     const fromDub = multiSpeaker === true ? null : cleanDub(dub);
     if (fromDub && !dubFor(fromDub.dubId)) {
       throw new ApiError('The server no longer has the dub to sync from.', { status: 409, code: 'sync_dub_missing' });
+    }
+    // The takes the user picked live in the bank of the last sync; the app sends it again when this server lost it.
+    const pickedTakes = cleanPicked(picked);
+    const pickedBank = pickedTakes ? bankFor(pickedTakes.bankId) : null;
+    if (pickedTakes && !pickedBank) {
+      throw new ApiError('The server no longer has the takes you picked.', { status: 409, code: 'sync_bank_missing' });
+    }
+    if (pickedBank && pickedBank.sampleRate !== sampleRate) {
+      throw new ApiError(
+        'The takes you picked are at a different sample rate from this voice. Pick the voice and format they were made with, or take them out.',
+        { status: 400, code: 'take_sample_rate' }
+      );
     }
 
     const job = startDubJob(jobId, { phase: 'units', step: 1, unitCount: 0, unitsVoiced: 0, unitsToVoice: 0, suggestionsTotal: 0, suggestionsDone: 0 });
@@ -466,6 +526,7 @@ syncRouter.post(
           dubTakes: fromDub
             ? dubTakesWith({ dub: fromDub, segments, sampleRate, apiKey, signal: controller.signal })
             : undefined,
+          pickedTakes: pickedBank ? pickedTakesWith(pickedTakes, pickedBank) : undefined,
           decode: (buffer) => decodeAudio(buffer, format),
           // One write at the end, lossless and at the clips' own rate: encoding to
           // MP3 again would be a second lossy generation of every line.
@@ -505,6 +566,267 @@ syncRouter.post(
       if (job) finishDubJob(jobId, controller.signal.aborted ? 'cancelled' : 'failed');
       throw err;
     }
+  })
+);
+
+/** Forced alignments of a take, by its samples and the words asked about, so a second phrase retake doesn't pay again. */
+const ALIGNMENT_CACHE_LIMIT = 200;
+const takeAlignments = new Map();
+
+const textOf = (value, max = 5000) => (typeof value === 'string' ? value.slice(0, max).trim() : '');
+
+/** Word boundaries for waveform selection; alignment only, no voice generation. */
+syncRouter.post('/sync/takes/words', asyncHandler(async (req, res) => {
+  const { bankId, line } = req.body || {};
+  const entry = typeof bankId === 'string' ? bankFor(bankId) : null;
+  if (!entry) throw new ApiError('The saved lines of this sync are not on the server.', { status: 404, code: 'edit_bank_missing' });
+  const start = line?.bankStart, length = line?.length;
+  if (!Number.isInteger(start) || !Number.isInteger(length) || start < 0 || length <= 0 || start + length > entry.samples.length) {
+    throw new ApiError('That line is not in this bank.', { status: 400, code: 'bad_bank_line' });
+  }
+  if (typeof line?.text !== 'string' || !line.text.trim() || line.text.length > 5000) {
+    throw new ApiError('This line cannot be aligned. Pick words in Takes instead.', { status: 400, code: 'bad_alignment_text' });
+  }
+  const tokens = line.text.trim().split(/\s+/);
+  const cues = tokens.map((text, id) => ({ id: String(id), text }));
+  const samples = entry.samples.subarray(start, start + length);
+  const key = createHash('sha256').update(JSON.stringify([entry.sampleRate, clipHash(samples), cues])).digest('hex');
+  const controller = new AbortController();
+  res.on('close', () => { if (!res.writableFinished) controller.abort(); });
+  if (!takeAlignments.has(key)) {
+    const wav = await encodeWav(entry.sampleRate)(samples);
+    const aligned = await forceAlign({ buffer: wav.buffer, text: alignmentText(cues) }, {
+      apiKey: req.get('x-elevenlabs-key') || undefined, signal: controller.signal,
+    });
+    const spans = cueSpans(aligned.words, cues);
+    if (!spans || cues.some(c => !spans.has(c.id))) {
+      throw new ApiError('Word boundaries could not be matched reliably. Select the words in Takes instead.', { status: 422, code: 'phrase_not_found' });
+    }
+    takeAlignments.set(key, spans);
+    if (takeAlignments.size > ALIGNMENT_CACHE_LIMIT) takeAlignments.delete(takeAlignments.keys().next().value);
+  }
+  const spans = takeAlignments.get(key);
+  const words = cues.map((cue, index) => ({ index, text: cue.text, ...spans.get(cue.id) }));
+  if (words.some((w, i) => !Number.isFinite(w.start) || !Number.isFinite(w.end) || w.start < 0 || w.end <= w.start || w.end > length / entry.sampleRate + 0.02 || (i > 0 && w.start < words[i - 1].start))) {
+    takeAlignments.delete(key);
+    throw new ApiError('Word timings are incomplete. Select the words in Takes instead.', { status: 422, code: 'phrase_not_found' });
+  }
+  res.json({ words });
+}));
+
+/**
+ * POST /api/sync/takes — new takes of one synced line, voiced now, for the
+ * user to hear and pick from (see syncTakes.js). Nothing is placed or
+ * rendered: the takes are added to the end of the sync's bank, which is kept
+ * under a new id, and Edit timing renders the dub with whichever one is
+ * picked. Body: `{ bankId, line, phrase?, seeds, direction, matchLoudness,
+ * join }` and the voice as for /sync (`voiceId, modelId, outputFormat,
+ * voiceSettings, language, steady, tuneStability, performanceTags,
+ * expressive, multiSpeaker, cast`). `line` is `{ bankStart, length, gain,
+ * text, voiceText?, speaker, previousText, nextText, readCount }`: where the
+ * line's current take is in the bank and what it says. `phrase`, `{ before,
+ * words, after }`, voices only `words` and puts them in place of those words
+ * in the current take. Each seed is one take. Replies `{ bankId, baseLength,
+ * audioId, takes }`: the new bank's id, how many samples the old bank had,
+ * the takes' samples as they were added (a WAV in the bank's own format,
+ * fetched from /api/sync/audio/:audioId) and each take's `{ seed, bankStart,
+ * length, lead, speech, cutOff, gain, hash }`. A bank this server no longer
+ * has is a 404 with code `edit_bank_missing`: send it again and retry.
+ */
+syncRouter.post(
+  '/sync/takes',
+  asyncHandler(async (req, res) => {
+    const {
+      bankId,
+      line,
+      phrase,
+      seeds,
+      direction = 'same',
+      voiceId,
+      modelId,
+      outputFormat,
+      voiceSettings,
+      language,
+      steady,
+      tuneStability,
+      performanceTags,
+      expressive,
+      multiSpeaker,
+      cast,
+      join,
+      matchLoudness,
+    } = req.body || {};
+    const entry = typeof bankId === 'string' ? bankFor(bankId) : null;
+    if (!entry) throw new ApiError('The saved lines of this sync are not on the server.', { status: 404, code: 'edit_bank_missing' });
+    const bankStart = Number(line?.bankStart);
+    const length = Number(line?.length);
+    if (!Number.isInteger(bankStart) || !Number.isInteger(length) || bankStart < 0 || length <= 0 || bankStart + length > entry.samples.length) {
+      throw new ApiError('That line is not in the saved lines of this sync.', { status: 400, code: 'bad_bank_line' });
+    }
+    const lineText = textOf(line?.text);
+    if (!lineText) throw new ApiError('There is no line to retake.', { status: 400, code: 'no_text' });
+    const takeSeeds = (Array.isArray(seeds) ? seeds : []).filter((seed) => Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32).slice(0, MAX_TAKES_PER_REQUEST);
+    if (takeSeeds.length === 0) throw new ApiError('Say how many takes to voice.', { status: 400, code: 'no_seeds' });
+    if (!TAKE_DIRECTIONS.includes(direction)) throw new ApiError('That is not a way to read a take.', { status: 400, code: 'bad_direction' });
+    const words = phrase ? textOf(phrase.words) : '';
+    const before = phrase ? textOf(phrase.before) : '';
+    const after = phrase ? textOf(phrase.after) : '';
+    if (phrase && !words) throw new ApiError('Pick the words to retake.', { status: 400, code: 'no_phrase' });
+
+    const cartesia = isCartesiaVoice(voiceId);
+    const requested = parseOutputFormat(outputFormat) ? outputFormat : FALLBACK_FORMAT;
+    const format = cartesia ? toCartesiaOutputFormat(requested).format : requested;
+    const { codec, sampleRate } = parseOutputFormat(format);
+    if (codec !== 'pcm' && !(await ffmpegAvailable())) {
+      throw new ApiError("Takes need ffmpeg to read the voice's MP3 clips. Install ffmpeg and try again.", { status: 501, code: 'ffmpeg_missing' });
+    }
+    if (sampleRate !== entry.sampleRate) {
+      throw new ApiError(
+        `This voice now comes back at ${sampleRate} Hz and the dub was synced at ${entry.sampleRate} Hz, and DHVANI never resamples a voice. Pick the voice and output format the dub was synced with, or Sync again.`,
+        { status: 400, code: 'take_sample_rate' }
+      );
+    }
+
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
+    const { signal } = controller;
+    const apiKey = req.get('x-elevenlabs-key') || undefined;
+    const cartesiaKey = req.get('x-cartesia-key') || undefined;
+    const textModelKey = req.get('x-gemini-key') || undefined;
+
+    // The voice the line was synced with, as /sync makes it.
+    const voiceOptions = { requested, steady: steady === true, tuneStability: tuneStability !== false };
+    const main = cartesia
+      ? { ...makeVoice({ voiceId, modelId, voiceSettings }, voiceOptions), outputFormat: format }
+      : { ...makeVoice({ voiceId, modelId, voiceSettings }, voiceOptions), modelId, outputFormat: format };
+    const several = multiSpeaker === true;
+    let voice = several ? castVoices(cast, main, voiceOptions)(textOf(line?.speaker, 128)) : main;
+    const readCount = Number.isInteger(line?.readCount) && line.readCount > 0 ? Math.min(line.readCount, 20000) : 1;
+    const tags =
+      !several && (cartesia ? /^sonic-3/.test(main.modelId || config.cartesia.ttsModel) : performsTags(main.modelId || config.elevenlabs.ttsModel));
+    const voiceText = textOf(line?.voiceText);
+    const sourceTagged = tags && !phrase && performanceTags === true && Boolean(voiceText);
+    if (sourceTagged) voice = { ...voice, performanceTags: true };
+
+    // A direction changes how the voice is asked to read, starting from the settings the line was read with.
+    if (direction !== 'same') {
+      if (voice.cartesia) voice = { ...voice, voiceSettings: directedSettings(voice.voiceSettings, direction, 'cartesia') };
+      else {
+        const saved = voice.voiceSettings || (await getVoiceSettings({ voiceId: voice.voiceId, apiKey }).catch(() => null)) || DEFAULT_VOICE_SETTINGS;
+        const { settings } = readSettings(saved, voice.modelId || config.elevenlabs.ttsModel, {
+          explicit: Boolean(voice.voiceSettings),
+          count: readCount,
+          steady: voice.steady === true,
+          tune: voice.tuneStability !== false,
+        });
+        voice = { ...voice, voiceSettings: directedSettings(settings, direction, 'elevenlabs'), steady: false, tuneStability: false };
+      }
+    }
+
+    // What is read: the whole line as Sync read it, or only the words picked, ending a sentence only where the line does.
+    let text = sourceTagged ? voiceText : lineText;
+    if (!phrase && tags && !cartesia && !sourceTagged && expressive === true) {
+      const [cued] = await cueLinesWith({ language, apiKey: textModelKey })([text]);
+      if (typeof cued === 'string' && cued.trim()) text = cued;
+    }
+    const spoken = phrase ? (after ? words : withSentenceEnd(words)) : withSentenceEnd(text);
+    const previousText = [textOf(line?.previousText), before].filter(Boolean).join(' ').slice(-TTS_CONTEXT_CHARS) || undefined;
+    const nextText = [after, textOf(line?.nextText)].filter(Boolean).join(' ').slice(0, TTS_CONTEXT_CHARS) || undefined;
+    const joinSettings = resolveJoinSettings(join);
+    const lineSamples = entry.samples.subarray(bankStart, bankStart + length);
+
+    // A phrase is put in where its words are in the current take: forced alignment finds them.
+    let cut = null;
+    if (phrase) {
+      const cues = [
+        { id: 'before', text: before },
+        { id: 'phrase', text: words },
+        { id: 'after', text: after },
+      ].filter((cue) => cue.text);
+      const key = createHash('sha256').update(JSON.stringify([clipHash(lineSamples), cues])).digest('hex');
+      if (!takeAlignments.has(key)) {
+        let aligned;
+        try {
+          const wav = await encodeWav(sampleRate)(lineSamples);
+          aligned = await forceAlign({ buffer: wav.buffer, text: alignmentText(cues) }, { apiKey, signal });
+        } catch (err) {
+          if (signal.aborted) throw err;
+          throw new ApiError(`Retaking some words needs ElevenLabs forced alignment to find them in the take, and it failed: ${err.message}`, {
+            status: 502,
+            code: 'phrase_align_failed',
+          });
+        }
+        takeAlignments.set(key, cueSpans(aligned.words, cues));
+        if (takeAlignments.size > ALIGNMENT_CACHE_LIMIT) takeAlignments.delete(takeAlignments.keys().next().value);
+      }
+      const spans = takeAlignments.get(key);
+      cut = spans ? phraseCut(lineSamples, spans, sampleRate) : null;
+      if (!cut) {
+        throw new ApiError('Those words could not be found in this take. Retake the whole line instead.', { status: 422, code: 'phrase_not_found' });
+      }
+    }
+
+    // Each take is voiced on its own, so no take is read as if it followed another.
+    const voiceWith = voiceLinesWith({ apiKey, cartesiaKey, language, signal });
+    const cacheText = [spoken, previousText || '', nextText || ''].join('\u0000');
+    const takes = [];
+    for (const seed of takeSeeds) {
+      if (signal.aborted) throw cancelledError('Takes');
+      const seeded = { ...voice, seed };
+      let buffer = cachedClip(seeded, cacheText);
+      if (!buffer) {
+        [buffer] = await voiceWith([{ text: spoken, previousText, nextText, seed }], { voice: seeded, readCount, onLine: () => {} });
+        rememberClip(seeded, cacheText, buffer);
+      }
+      const fitted = fitTake(await decodeAudio(buffer, format), sampleRate, joinSettings);
+      const take = fitted && cut ? splicePhrase(lineSamples, cut, fitted, sampleRate, joinSettings) : fitted;
+      if (take) takes.push({ seed, ...take });
+    }
+    if (takes.length === 0) throw new ApiError('The voice gave back no sound for this line. Try again.', { status: 502, code: 'takes_silent' });
+
+    // The takes go on the end of the bank, written once in its own format and read back, as a sync's bank is.
+    const lineGain = Number(line?.gain);
+    const gains = takes.map((take) =>
+      matchLoudness === true && !several ? takeGain(take.samples, lineSamples, lineGain > 0 ? lineGain : 1, sampleRate) : 1
+    );
+    const all = new Float32Array(takes.reduce((sum, take) => sum + take.samples.length, 0));
+    let at = 0;
+    for (const take of takes) {
+      all.set(take.samples, at);
+      at += take.samples.length;
+    }
+    const file = await encodeWav(sampleRate)(all, { float: entry.float });
+    const written = parseWav(file.buffer).samples;
+    const baseLength = entry.samples.length;
+    const samples = new Float32Array(baseLength + written.length);
+    samples.set(entry.samples, 0);
+    samples.set(written, baseLength);
+    const nextBankId = randomUUID();
+    keepBank(nextBankId, { sampleRate, float: entry.float, samples });
+    // The app moves to the new bank; it sends the old one again if a render still asks for it.
+    banks.delete(bankId);
+    at = 0;
+    res.json({
+      bankId: nextBankId,
+      baseLength,
+      audioId: keepResult(file.buffer, file.contentType),
+      takes: takes.map((take, n) => {
+        const out = {
+          seed: take.seed,
+          bankStart: baseLength + at,
+          length: take.samples.length,
+          lead: take.lead,
+          speech: take.speech,
+          cutOff: Boolean(take.cutOff),
+          gain: gains[n],
+          hash: clipHash(written.subarray(at, at + take.samples.length)),
+        };
+        at += take.samples.length;
+        return out;
+      }),
+    });
   })
 );
 

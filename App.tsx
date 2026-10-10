@@ -131,6 +131,7 @@ import {
 } from './services/syncService';
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
+import { pickedTakes, putTake, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
 import { LiveDubEngine, liveClips } from './services/liveDubEngine';
 import type { SyncEditStatus } from './components/SyncEditTimeline';
 import {
@@ -190,6 +191,9 @@ const sourceDurationOf = (job: BatchJob) =>
 export default function App() {
   // --- STATE ---
   const [queue, setQueue] = useState<BatchJob[]>([]);
+  /** The projects as they are now, for work that finishes after the render that started it. */
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
   // Audio Playback State
@@ -432,6 +436,9 @@ export default function App() {
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isCancellingSync, setIsCancellingSync] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  /** The synced line whose takes are being voiced (one at a time), and why asking for takes last failed. */
+  const [syncTakesBusy, setSyncTakesBusy] = useState<string | null>(null);
+  const [syncTakesError, setSyncTakesError] = useState<{ key: string; message: string } | null>(null);
   // `readJobId`: the continuous read in flight before the lines are placed, if the dub is voiced that way.
   const syncRunRef = useRef<{ jobId: string; controller: AbortController; readJobId?: string } | null>(null);
   /** The continuous read's progress, while the script is voiced in one take; null otherwise. */
@@ -955,6 +962,7 @@ export default function App() {
               syncReport: null,
               syncBank: null,
               syncBankBlob: null,
+              syncTakes: null,
               syncEdits: null,
               syncBaseReport: null,
               dubStems: null,
@@ -1041,6 +1049,7 @@ export default function App() {
           syncReport: null,
           syncBank: null,
           syncBankBlob: null,
+          syncTakes: null,
           syncEdits: null,
           syncBaseReport: null,
           dubStems: null,
@@ -1173,6 +1182,7 @@ export default function App() {
           syncReport: null,
           syncBank: null,
           syncBankBlob: null,
+          syncTakes: null,
           syncEdits: null,
           syncBaseReport: null,
           dubStems: null,
@@ -2054,6 +2064,7 @@ export default function App() {
         syncReport: null,
         syncBank: null,
         syncBankBlob: null,
+        syncTakes: null,
         syncEdits: null,
         syncBaseReport: null,
         dubStems: null,
@@ -2293,6 +2304,8 @@ export default function App() {
     const priorBank = activeJob.syncBank || null;
     const priorEdits = activeJob.syncEdits || null;
     const locked = lockedLines(priorBank, priorEdits);
+    // Takes picked in the takes panel are kept as they are, unless their words changed since.
+    const picked = pickedTakes(priorBank, activeJob.syncTakes, activeJob.syncPendingLines || []);
     // An edit render in flight belongs to the dub this sync replaces.
     cancelSyncEditRender();
 
@@ -2349,6 +2362,7 @@ export default function App() {
           ...(dub && { dub }),
           ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
           ...(Object.keys(locked).length > 0 && { locked }),
+          ...(picked && { picked, pickedBankBlob: activeJob.syncBankBlob }),
           tuneStability,
         },
         { apiKey: elApiKey, jobId, signal: controller.signal }
@@ -2372,6 +2386,8 @@ export default function App() {
         syncBank: bank,
         syncBankBlob: bankBlob,
         syncEdits: edited ? keptEdits : null,
+        // The takes were in the last bank; the picked ones are in this one now.
+        syncTakes: null,
         syncPendingLines: [],
         syncedStems: several ? stems : null,
         syncMix: several ? report.mix || null : null,
@@ -2447,6 +2463,115 @@ export default function App() {
       syncLineSeeds: seeds,
       syncPendingLines: withPendingLines(activeJob.syncPendingLines, keys),
     });
+  };
+
+  /**
+   * Voices new takes of a synced line now (TakesPanel): the whole line, or
+   * only the words picked, read as Sync read it or in a direction. They are
+   * added to the line's takes; the dub doesn't change until one is used.
+   */
+  const handleVoiceSyncTakes = async (unit: SyncUnitReport, { direction, phrase }: { direction: TakeDirection; phrase?: { from: number; to: number } }) => {
+    const job = activeJob;
+    if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport || syncTakesBusy) return;
+    const bank = job.syncBank;
+    const base = job.syncBaseReport;
+    const line = bank.lines.find((l) => l.key === unit.key);
+    const n = base.units.findIndex((u) => u.key === unit.key);
+    if (!line || n === -1) return;
+    if ((job.syncEdits?.[unit.key]?.locked ?? line.locked) || job.syncPendingLines?.includes(unit.key)) return;
+    setSyncTakesBusy(unit.key);
+    setSyncTakesError(null);
+    const controller = new AbortController();
+    try {
+      // The voice the dub was synced with, as Sync voices it.
+      const several = isMultiSpeaker(job.segments);
+      const language = job.language || selectedLanguage;
+      const tags = !several && expressionTakesTags();
+      const expression: VoiceExpression = tags || voiceExpression === 'off' ? voiceExpression : 'neutral';
+      let voiceText: string | undefined;
+      if (expression === 'natural' && !phrase) {
+        const tagged = await sourceTaggedSegments(job, language, controller.signal);
+        const byId = new Map(tagged.map((segment) => [String(segment.id), segment.textTarget || segment.targetText || '']));
+        voiceText = unit.cueIds.map((id) => (byId.get(String(id)) || '').trim()).filter(Boolean).join(' ');
+      }
+      // The lines either side, by the same speaker when there are several, as Sync tells the voice about them.
+      const neighbour = (step: number) => {
+        for (let j = n + step; j >= 0 && j < base.units.length; j += step) {
+          if (!several || base.units[j].speaker === unit.speaker) return base.units[j];
+        }
+        return null;
+      };
+      const result = await voiceTakes(
+        {
+          bank,
+          bankBlob: job.syncBankBlob,
+          line,
+          unit: base.units[n],
+          voiceText,
+          previousText: neighbour(-1)?.text.slice(-300),
+          nextText: neighbour(1)?.text.slice(0, 300),
+          readCount: base.units.length,
+          phrase,
+          direction,
+          count: TAKES_PER_ASK,
+          join: base.join,
+          // Loudness was evened out when the sync gave any line a gain.
+          matchLoudness: !several && bank.lines.some((l) => l.gain !== 1),
+          voiceId: elVoiceId,
+          modelId: elModelId,
+          outputFormat: elOutputFormat,
+          voiceSettings: elVoiceSettings,
+          cartesia: cartesiaForExpression(cartesiaVoice, expression),
+          language,
+          tuneStability,
+          steady: expression === 'neutral',
+          expressive: expression === 'expressive',
+          multiSpeaker: several,
+          cast: job.cast,
+        },
+        { apiKey: elApiKey, signal: controller.signal }
+      );
+      // A Sync that finished meanwhile made a new bank: these takes belong to the old one.
+      const now = queueRef.current.find((j) => j.id === job.id);
+      if (!now?.syncBank || now.syncBank.bankId !== bank.bankId) return;
+      const nowLine = now.syncBank.lines.find((l) => l.key === unit.key) || line;
+      const kept = takesOf(now.syncTakes, nowLine, base.units[n]);
+      updateJob(job.id, {
+        syncBank: { ...now.syncBank, bankId: result.bankId },
+        syncBankBlob: result.bankBlob,
+        syncTakes: { ...(now.syncTakes || {}), [unit.key]: { takes: [...kept.takes, ...result.takes], active: kept.active } },
+      });
+      refreshQuota();
+    } catch (err: any) {
+      if (controller.signal.aborted || err?.code === 'cancelled') return;
+      console.error('Takes error:', err);
+      setSyncTakesError({ key: unit.key, message: err?.message || 'The takes could not be voiced.' });
+    } finally {
+      setSyncTakesBusy(null);
+    }
+  };
+
+  /** Puts one of a line's takes in the dub, where the line is now, and renders the dub with it. */
+  const handleUseSyncTake = (key: string, takeId: string) => {
+    const job = activeJob;
+    const kept = job?.syncTakes?.[key];
+    const take = kept?.takes.find((t) => t.id === takeId);
+    if (!job?.syncBank || !job.syncBaseReport || !kept || !take || kept.active === takeId) return;
+    const line = job.syncBank.lines.find(l => l.key === key);
+    if (syncTakesBusy || (job.syncEdits?.[key]?.locked ?? line?.locked) || job.syncPendingLines?.includes(key) || take.text !== job.syncBaseReport.units.find(u => u.key === key)?.text) return;
+    const { bank, edits, baseReport } = putTake({ bank: job.syncBank, edits: job.syncEdits, baseReport: job.syncBaseReport, key, take });
+    updateJob(job.id, {
+      syncBank: bank,
+      syncEdits: edits,
+      syncBaseReport: baseReport,
+      syncReport: measureEdits(baseReport, bank, edits),
+      syncTakes: { ...job.syncTakes, [key]: { ...kept, active: takeId } },
+    });
+    scheduleSyncEditRender(
+      job.id,
+      { bank, bankBlob: job.syncBankBlob, baseReport, edits, sourceDuration: sourceDurationOf(job), source: job.audioBuffer },
+      0
+    );
   };
 
   const handleCancelSync = () => {
@@ -2798,6 +2923,7 @@ export default function App() {
               // The bank is the dub before the voice changer: editing it now would undo the change.
               syncBank: null,
               syncBankBlob: null,
+              syncTakes: null,
               syncEdits: null,
               syncBaseReport: null,
               status: ProcessingStatus.COMPLETED,
@@ -3057,6 +3183,10 @@ export default function App() {
           syncPendingLines={activeJob?.syncPendingLines || []}
           onApplySyncLine={handleApplySyncLine}
           onRetakeSyncLines={handleRetakeSyncLines}
+          onVoiceSyncTakes={handleVoiceSyncTakes}
+          onUseSyncTake={handleUseSyncTake}
+          syncTakesBusy={syncTakesBusy}
+          syncTakesError={syncTakesError}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}
           onPlaySegmentSolo={handlePlaySoloSegment}

@@ -447,6 +447,12 @@ export interface SyncResultsPanelProps {
   onRetakeLine?: (unit: SyncUnitReport) => void;
   /** Asks for a new take of every line in `units` at once. */
   onRetakeLines?: (units: SyncUnitReport[]) => void;
+  /**
+   * The takes panel of a line (TakesPanel), shown under its row: new takes
+   * voiced at once and one picked. With it, a row's Retake opens the panel
+   * instead of waiting for the next Sync.
+   */
+  renderTakes?: (unit: SyncUnitReport, close: () => void) => React.ReactNode;
   /** Keys of lines locked in Edit timing: Sync keeps their take, so they aren't retaken. */
   lockedKeys?: string[];
   /**
@@ -486,6 +492,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   onApplyLine,
   onRetakeLine,
   onRetakeLines,
+  renderTakes,
   lockedKeys = [],
   onSuggestLine,
   sourceBuffer,
@@ -525,6 +532,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   const [confirmRetake, setConfirmRetake] = useState(false);
   useEffect(() => setConfirmRetake(false), [showAll, report]);
   const retakeChars = retakeable.reduce((sum, unit) => sum + unit.text.length, 0);
+  /** The line whose takes are open under its row. */
+  const [takesKey, setTakesKey] = useState<string | null>(null);
 
   const step = progress?.step ?? 1;
   const stepDetail = (phase: string) => {
@@ -808,6 +817,9 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                     onApply={onApplyLine}
                     onRetake={onRetakeLine}
                     onSuggest={onSuggestLine}
+                    takesOpen={takesKey === unit.key}
+                    onToggleTakes={renderTakes && (() => setTakesKey((key) => (key === unit.key ? null : unit.key)))}
+                    takes={renderTakes && takesKey === unit.key ? renderTakes(unit, () => setTakesKey(null)) : null}
                   />
                 ))}
               </ul>
@@ -835,7 +847,11 @@ const ReviewRow: React.FC<{
   onApply?: (unit: SyncUnitReport, text: string) => void;
   onRetake?: (unit: SyncUnitReport) => void;
   onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion | null>;
-}> = ({ unit, reason, pending, onListen, onApply, onRetake, onSuggest }) => {
+  /** The takes panel: a toggle in the row, and the panel under it while open. */
+  takesOpen?: boolean;
+  onToggleTakes?: () => void;
+  takes?: React.ReactNode;
+}> = ({ unit, reason, pending, onListen, onApply, onRetake, onSuggest, takesOpen = false, onToggleTakes, takes }) => {
   const [draft, setDraft] = useState(unit.suggestion || unit.text);
   const [suggested, setSuggested] = useState(Boolean(unit.suggestion));
   const [copied, setCopied] = useState(false);
@@ -888,7 +904,8 @@ const ReviewRow: React.FC<{
       .catch(() => {});
 
   return (
-    <li className="flex items-start gap-3 py-3">
+    <li className="py-3">
+      <div className="flex items-start gap-3">
       <span
         className={`shrink-0 mt-0.5 font-mono text-[11px] px-2 py-0.5 rounded-md tabular-nums ${
           unit.inSync ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/15 text-amber-300'
@@ -994,7 +1011,19 @@ const ReviewRow: React.FC<{
         >
           <Play className="w-3 h-3 fill-current" /> Listen
         </button>
-        {onRetake && !unit.silent && (
+        {onToggleTakes && !unit.silent ? (
+          <button
+            type="button"
+            onClick={onToggleTakes}
+            aria-expanded={takesOpen}
+            className={`flex items-center gap-1 h-7 px-2.5 rounded-lg border text-xs cursor-pointer ${
+              takesOpen ? 'border-indigo-400/70 bg-indigo-500/15 text-indigo-100' : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-200'
+            }`}
+            title="Voice new takes of this line now, hear them side by side and pick one"
+          >
+            <Mic className="w-3 h-3" /> Takes
+          </button>
+        ) : onRetake && !unit.silent && (
           <button
             type="button"
             onClick={() => onRetake(unit)}
@@ -1006,6 +1035,8 @@ const ReviewRow: React.FC<{
           </button>
         )}
       </div>
+      </div>
+      {takes && <div className="mt-3">{takes}</div>}
     </li>
   );
 };

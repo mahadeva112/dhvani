@@ -45,6 +45,14 @@ const peak = (samples) => {
   return max;
 };
 
+/** The gain that brings a clip at speech loudness `level` to `target`, capped as matchingGains caps it. */
+const gainFor = (samples, level, target) => {
+  let gain = Math.min(MAX_GAIN, Math.max(MIN_GAIN, target / level));
+  const top = peak(samples);
+  if (top * gain > PEAK_CEILING) gain = Math.max(Math.min(1, gain), PEAK_CEILING / top);
+  return gain;
+};
+
 /** Gain per clip that brings each to the median speech loudness of all of them, never past PEAK_CEILING. */
 export const matchingGains = (clips, sampleRate) => {
   const levels = clips.map((samples) => speechLoudness(samples, sampleRate));
@@ -52,11 +60,11 @@ export const matchingGains = (clips, sampleRate) => {
   if (measured.length < 2) return clips.map(() => 1);
 
   const target = median(measured);
-  return clips.map((samples, index) => {
-    if (levels[index] === null) return 1;
-    let gain = Math.min(MAX_GAIN, Math.max(MIN_GAIN, target / levels[index]));
-    const top = peak(samples);
-    if (top * gain > PEAK_CEILING) gain = Math.max(Math.min(1, gain), PEAK_CEILING / top);
-    return gain;
-  });
+  return clips.map((samples, index) => (levels[index] === null ? 1 : gainFor(samples, levels[index], target)));
+};
+
+/** Gain that brings one clip to speech loudness `target` (a new take of a line matched before), capped the same way. */
+export const matchGainTo = (samples, sampleRate, target) => {
+  const level = speechLoudness(samples, sampleRate);
+  return level === null || !(target > 0) ? 1 : gainFor(samples, level, target);
 };

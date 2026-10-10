@@ -152,6 +152,11 @@ const remember = (key, buffer) => {
 /** Forgets every cached clip. For tests. */
 export const clearClipCache = () => clipCache.clear();
 
+/** A clip voiced before with exactly this voice and text, or null; for takes (see syncTakes.js). */
+export const cachedClip = (voice, text) => clipCache.get(cacheKey(voice, text)) || null;
+/** Keeps a clip a take voiced, as Sync keeps its own. */
+export const rememberClip = (voice, text, buffer) => remember(cacheKey(voice, text), buffer);
+
 const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
 
 /** A line's key: the id of its first cue, which a retake and the report both name it by. */
@@ -204,6 +209,9 @@ const mapLimit = async (items, limit, fn) => {
  * - `cue(texts)` → the same texts with delivery cues (voice expression Expressive), every word kept (optional);
  * - `dubTakes(units)` → for each unit, its take cut from the Final dub (mono Float32Array at
  *   `sampleRate`) or null to voice it (optional; see dubTakes.js);
+ * - `pickedTakes(units)` → for each unit, the take the user picked in the takes panel, as the
+ *   bank holds it (`{ samples, lead, speech, cutOff }`, already fitted), or null (optional);
+ *   a picked take is used exactly as it is, unless the user asked to retake the line;
  * - `decode(buffer)` → mono Float32Array at `sampleRate`;
  * - `encode(samples, { float })` → `{ buffer, contentType }`, `float` asking for 32-bit float;
  * - `shorten({ text, sourceText, language, targetChars, context, keep })` → a shorter wording, or null, or
@@ -276,8 +284,18 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // the user asked to retake is voiced again even when the dub has it.
   const fromDub = deps.dubTakes ? await deps.dubTakes(units) : [];
   checkCancelled();
+  // A take the user picked from the takes panel is kept as it is, already fitted.
+  const pickedTakes = deps.pickedTakes ? deps.pickedTakes(units) : [];
+  const picked = units.map((unit, i) => {
+    const take = pickedTakes?.[i];
+    return !Number.isInteger(lineSeeds[lineKey(unit)]) && take?.samples instanceof Float32Array && take.samples.length > 0 ? take : null;
+  });
   const taken = units.map((unit, i) =>
-    !Number.isInteger(lineSeeds[lineKey(unit)]) && fromDub?.[i] instanceof Float32Array && fromDub[i].length > 0 ? fromDub[i] : null
+    picked[i]
+      ? picked[i].samples
+      : !Number.isInteger(lineSeeds[lineKey(unit)]) && fromDub?.[i] instanceof Float32Array && fromDub[i].length > 0
+        ? fromDub[i]
+        : null
   );
   // What each line is voiced from: its text with any delivery tags, ending a
   // sentence so the voice finishes the last word.
@@ -306,6 +324,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const voicedLength = new Array(units.length);
   const breathsRemoved = units.map(() => 0);
   const fit = async (i) => {
+    if (picked[i]) {
+      const { samples, lead, speech, cutOff } = picked[i];
+      voicedLength[i] = samples.length;
+      clips[i] = { samples, lead, speech, start: 0, end: samples.length, cutOff: Boolean(cutOff) };
+      return;
+    }
     const decoded = taken[i] || (await deps.decode(buffers[i]));
     voicedLength[i] = decoded.length;
     const { samples, removed } = join.removeBreaths ? removeBreaths(decoded, sampleRate) : { samples: decoded, removed: 0 };
@@ -757,7 +781,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       retakes: retakes[i],
       // A line the user retook: how many takes were voiced to pick the best fitting one from.
       takesCompared: takesCompared[i],
-      fromDub: Boolean(taken[i]),
+      fromDub: Boolean(taken[i]) && !picked[i],
+      // The take the user picked from the takes panel, kept as it was.
+      picked: Boolean(picked[i]),
       cutOff: Boolean(clips[i]?.cutOff),
       breathsRemoved: breathsRemoved[i],
     };
@@ -789,7 +815,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         tightJoins: tightJoin.filter(Boolean).length,
         silent: units.length - placedIndex.length,
         retaken: retakes.filter((n) => n > 0).length,
-        fromDub: taken.filter(Boolean).length,
+        fromDub: taken.filter((take, i) => take && !picked[i]).length,
+        picked: picked.filter(Boolean).length,
         cutOff: clips.filter((clip) => clip?.cutOff).length,
         breathsRemoved: breathsRemoved.reduce((sum, n) => sum + n, 0),
       },

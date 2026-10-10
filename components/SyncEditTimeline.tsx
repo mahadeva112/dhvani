@@ -9,6 +9,7 @@ import {
   LockOpen,
   Magnet,
   Maximize2,
+  Mic,
   Redo2,
   RotateCcw,
   Scissors,
@@ -23,6 +24,8 @@ import { TimelineRuler, useTimelineZoom, useWindowPlayheads, wheelScroll } from 
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
 import { hueOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
+import { alignTakeWords } from '../services/syncTakesService';
+import { wordsInTakeRange } from '../services/takeRange';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import {
   basePart,
@@ -238,7 +241,8 @@ const ToolButton: React.FC<{
     type="button"
     onClick={onClick}
     aria-pressed={pressed}
-    aria-keyshortcuts={shortcut}
+    aria-keyshortcuts={shortcut === 'Drag' ? undefined : shortcut}
+    title={hint || label}
     aria-label={label}
     className={`group relative h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
       pressed ? 'bg-indigo-500/20 text-indigo-100 ring-1 ring-inset ring-indigo-400/60' : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
@@ -247,7 +251,7 @@ const ToolButton: React.FC<{
     {children}
     <span
       role="tooltip"
-      className="pointer-events-none absolute left-1/2 top-full z-40 mt-2 -translate-x-1/2 w-max max-w-[16rem] rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-left text-[11px] font-normal leading-snug text-slate-300 opacity-0 shadow-lg shadow-black/40 transition-opacity delay-150 group-hover:opacity-100 group-focus-visible:opacity-100"
+      className="hidden sm:block pointer-events-none absolute left-1/2 top-full z-40 mt-2 -translate-x-1/2 w-max max-w-[16rem] rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-left text-[11px] font-normal leading-snug text-slate-300 opacity-0 shadow-lg shadow-black/40 transition-opacity delay-150 group-hover:opacity-100 group-focus-visible:opacity-100"
     >
       <span className="flex items-center gap-2 font-medium text-slate-100">
         {label}
@@ -526,6 +530,10 @@ export const SyncEditTimeline: React.FC<{
   onClose: () => void;
   /** A lane's header with its mute, solo, fader and meter; without it the lanes show their names. */
   renderTrackHead?: (track: 'source' | 'synth', label: string, dot: string, badge?: React.ReactNode) => React.ReactNode;
+  /** Opens the takes of a line (TakesPanel): new readings of it, voiced now, to pick from. */
+  onOpenTakes?: (key: string, phrase?: { from: number; to: number }) => void;
+  elApiKey?: string;
+  takesUnavailableKeys?: string[];
 }> = ({
   bank,
   bankBlob,
@@ -547,6 +555,9 @@ export const SyncEditTimeline: React.FC<{
   onPlayFrom,
   onClose,
   renderTrackHead,
+  onOpenTakes,
+  elApiKey,
+  takesUnavailableKeys = [],
 }) => {
   const rate = bank.sampleRate;
   const committed = edits ?? {};
@@ -663,6 +674,20 @@ export const SyncEditTimeline: React.FC<{
 
   /** Blade: a click cuts the line there, as DaVinci Resolve's blade. Off, every drag edits by where it starts. */
   const [blade, setBlade] = useState(false);
+  const [rangeTool, setRangeTool] = useState(false);
+  const [takeRange, setTakeRange] = useState<{ from: number; to: number } | null>(null);
+  const [rangeWords, setRangeWords] = useState<{ key: string; from: number; to: number; text: string } | null>(null);
+  const [aligningRange, setAligningRange] = useState(false);
+  const rangeDrag = useRef<{ chunk: Chunk; start: number; end: number } | null>(null);
+  const alignmentRequest = useRef<AbortController | null>(null);
+  useEffect(() => {
+    alignmentRequest.current?.abort();
+    rangeDrag.current = null;
+    setTakeRange(null);
+    setRangeWords(null);
+    setAligningRange(false);
+    return () => { alignmentRequest.current?.abort(); };
+  }, [bank, edits, baseReport]);
   const [snap, setSnap] = useState(true);
   const [ripple, setRipple] = useState(false);
   /*
@@ -937,6 +962,22 @@ export const SyncEditTimeline: React.FC<{
     rootRef.current?.focus({ preventScroll: true });
     const t = timeAt(e.clientX);
     const under = partUnder(e.target);
+    if (rangeTool) {
+      alignmentRequest.current?.abort();
+      setAligningRange(false);
+      setRangeWords(null);
+      setTakeRange(null);
+      if (!under || under.chunk.original || under.chunk.part.muted) return say('Drag inside one audible dub line to select words.');
+      const { chunk } = under;
+      if (committed[chunk.key]?.locked ?? lineOf(chunk).locked) return say('Unlock this line before retaking it.');
+      if (takesUnavailableKeys.includes(chunk.key)) return say('This line changed. Sync again before selecting its words.');
+      setSelected(chunk.part.id);
+      const start = clamp(t, chunk.part.start, partEnd(chunk.part));
+      rangeDrag.current = { chunk, start, end: start };
+      setTakeRange({ from: start, to: start });
+      capture(e);
+      return;
+    }
     const additive = e.ctrlKey || e.metaKey;
     if (!under) {
       // A click seeks; a drag picks the parts it crosses (see onLanePointerMove).
@@ -979,6 +1020,13 @@ export const SyncEditTimeline: React.FC<{
   };
 
   const onLanePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const range = rangeDrag.current;
+    if (range) {
+      range.end = clamp(timeAt(e.clientX), range.chunk.part.start, partEnd(range.chunk.part));
+      setTakeRange({ from: Math.min(range.start, range.end), to: Math.max(range.start, range.end) });
+      return;
+    }
+    if (rangeTool) return;
     const m = marquee.current;
     if (m) {
       const t = timeAt(e.clientX);
@@ -1102,6 +1150,33 @@ export const SyncEditTimeline: React.FC<{
   };
 
   const endDrag = () => {
+    const range = rangeDrag.current;
+    if (range) {
+      rangeDrag.current = null;
+      if (!bankBlob || !range.chunk.unit || Math.abs(range.start - range.end) < 0.01) {
+        setTakeRange(null);
+        say('Drag across the words to retake, or open Takes and click the words.');
+        return;
+      }
+      const controller = new AbortController();
+      alignmentRequest.current?.abort();
+      alignmentRequest.current = controller;
+      setAligningRange(true);
+      void alignTakeWords(bank, bankBlob, lineOf(range.chunk), range.chunk.unit.text, { apiKey: elApiKey, signal: controller.signal })
+        .then(words => {
+          if (controller.signal.aborted) return;
+          const picked = wordsInTakeRange(words, range.chunk.part, range.start, range.end);
+          if (!picked) throw new Error('No complete words in this range. Widen it or pick words in Takes.');
+          setTakeRange({ from: picked.start, to: picked.end });
+          setRangeWords({ key: range.chunk.key, from: picked.from, to: picked.to, text: picked.text });
+          onOpenTakes?.(range.chunk.key, { from: picked.from, to: picked.to });
+        })
+        .catch(err => {
+          if (!controller.signal.aborted) { setTakeRange(null); say(err?.message || 'Could not match words. Open Takes to pick them manually.'); }
+        })
+        .finally(() => { if (!controller.signal.aborted) setAligningRange(false); });
+      return;
+    }
     const m = marquee.current;
     if (m) {
       marquee.current = null;
@@ -1484,7 +1559,7 @@ export const SyncEditTimeline: React.FC<{
       setSelected(null);
       setPick(null);
     }
-    else if (lower === 'b') setBlade((v) => !v);
+    else if (lower === 'b') { alignmentRequest.current?.abort(); rangeDrag.current = null; setAligningRange(false); setTakeRange(null); setRangeWords(null); setRangeTool(false); setBlade((v) => !v); }
     else done = false;
     if (done) {
       e.preventDefault();
@@ -1507,7 +1582,7 @@ export const SyncEditTimeline: React.FC<{
   );
   const statusColor = (chunk: Chunk) => (chunk.original ? ORIGINAL_HUE : landing(chunk.unit, tolerance).color);
   const driftY = (offset: number) => 50 - clamp(offset / 0.6, -1, 1) * 40;
-  const laneCursor = blade ? 'crosshair' : drag.current ? ZONE_CURSOR[drag.current.zone].replace('grab', 'grabbing') : hover ? ZONE_CURSOR[hover.zone] : 'default';
+  const laneCursor = blade || rangeTool ? 'crosshair' : drag.current ? ZONE_CURSOR[drag.current.zone].replace('grab', 'grabbing') : hover ? ZONE_CURSOR[hover.zone] : 'default';
   const currentUnit = current ? unitByKey.get(current.key) : undefined;
   const currentLanding = landing(currentUnit, tolerance);
   const currentLocked = current ? committed[current.key]?.locked ?? false : false;
@@ -1571,7 +1646,10 @@ export const SyncEditTimeline: React.FC<{
       {/* Tools: names and shortcuts show on hover */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5">
-          <ToolButton label="Blade" shortcut="B" hint="On: a click cuts a line in two there. Off: S splits at the pointer or the playhead." pressed={blade} onClick={() => setBlade((v) => !v)}>
+          {onOpenTakes && <ToolButton label="Select range" shortcut="Drag" hint="Drag inside a dub line to select words for a retake. Uses ElevenLabs forced alignment; may use alignment credits. No voice is generated until Retake is pressed." pressed={rangeTool} onClick={() => { alignmentRequest.current?.abort(); rangeDrag.current = null; setAligningRange(false); setTakeRange(null); setRangeWords(null); setRangeTool(v => !v); setBlade(false); }}>
+            <Mic className="w-4 h-4" /> Select range
+          </ToolButton>}
+          <ToolButton label="Blade" shortcut="B" hint="On: a click cuts a line in two there. Off: S splits at the pointer or the playhead." pressed={blade} onClick={() => { alignmentRequest.current?.abort(); rangeDrag.current = null; setAligningRange(false); setTakeRange(null); setRangeWords(null); setRangeTool(false); setBlade((v) => !v); }}>
             <Scissors className="w-4 h-4" />
             Blade
           </ToolButton>
@@ -1706,7 +1784,10 @@ export const SyncEditTimeline: React.FC<{
               pointerTime.current = null;
             }}
             onPointerUp={endDrag}
-            onPointerCancel={endDrag}
+            onPointerCancel={() => {
+              if (rangeDrag.current) { rangeDrag.current = null; setTakeRange(null); }
+              else endDrag();
+            }}
           >
             {visible.map((chunk) => {
               const { part } = chunk;
@@ -1754,7 +1835,7 @@ export const SyncEditTimeline: React.FC<{
                   {(() => {
                     const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;
                     const lit = picked || zone !== null;
-                    if (!lit || blade) return null;
+                    if (!lit || blade || rangeTool) return null;
                     const edgeClass = (on: boolean, stretch: boolean) =>
                       `absolute top-0 bottom-0 w-[3px] pointer-events-none ${on ? (stretch ? 'bg-indigo-300' : 'bg-slate-100') : 'bg-slate-100/25'}`;
                     return (
@@ -1784,6 +1865,10 @@ export const SyncEditTimeline: React.FC<{
                 className={`absolute top-1.5 bottom-1.5 rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.fits ? 'border-cyan-300 bg-cyan-300/15' : 'border-rose-400 bg-rose-400/10'}`}
                 style={{ left: `${pct(carry.start)}%`, width: `${Math.max(0.15, (carry.length / windowSeconds) * 100)}%` }}
               />
+            )}
+            {takeRange && (
+              <span aria-hidden="true" className="absolute top-0 bottom-0 border-x-2 border-indigo-300 bg-indigo-400/20 pointer-events-none z-30"
+                style={{ left: `${pct(takeRange.from)}%`, width: `${((takeRange.to - takeRange.from) / windowSeconds) * 100}%` }} />
             )}
             {band && (
               <span
@@ -1859,6 +1944,9 @@ export const SyncEditTimeline: React.FC<{
       />
 
       {/* Actions on the picked line */}
+      {rangeTool && <p role="status" className="text-[12px] text-indigo-200">
+        {aligningRange ? 'Matching the selected audio to its words…' : rangeWords ? `Selected: “${rangeWords.text}” · word boundaries matched. Choose a direction and Retake below.` : 'Drag inside one dub waveform to select words. For keyboard selection, open Takes, click a word, then Shift-click another.'}
+      </p>}
       <div className="flex flex-wrap items-center gap-1">
         <div className="flex flex-wrap gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5">
           <ActionButton label="Split" shortcut="S" onClick={act.split} title="Cut the line at the playhead">
@@ -1876,6 +1964,15 @@ export const SyncEditTimeline: React.FC<{
           <ActionButton label={currentLocked ? 'Unlock' : 'Lock'} shortcut="L" onClick={act.lock} title="A locked line stays where it is when Sync runs again">
             {currentLocked ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
           </ActionButton>
+          {onOpenTakes && (
+            <ActionButton
+              label="Takes"
+              onClick={() => (current && !current.original ? onOpenTakes(current.key) : say('Pick a line of the dub to retake it'))}
+              title="Voice new takes of the picked line, or of some of its words, and pick one"
+            >
+              <Mic className="w-4 h-4" />
+            </ActionButton>
+          )}
         </div>
         <div className="flex gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5">
           <button type="button" onClick={act.undo} disabled={history.at === 0} title="Undo (Ctrl + Z)" aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-pointer disabled:cursor-default">
