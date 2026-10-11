@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.39',
+    changes: [
+      'Review shows each line’s syllables next to its characters, and the dub line says how many syllables to take out to fit its time, or how many more it has room for. It updates as you type.',
+    ],
+  },
+  {
     version: '1.3.38',
     changes: [
       'When a translated script is matched to the lines by meaning, a sentence’s last word or two (like “है।”) now stays on the line it ends instead of starting the next one. Line timings don’t change.',
