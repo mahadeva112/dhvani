@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.38',
+    changes: [
+      'When a translated script is matched to the lines by meaning, a sentence’s last word or two (like “है।”) now stays on the line it ends instead of starting the next one. Line timings don’t change.',
+    ],
+  },
+  {
     version: '1.3.37',
     changes: [
       'Sync settings are kept with each project and can be saved as named presets. Strict timing and Protect long pauses never fail a sync: a line that can’t meet its limit is placed as early as it can go and flagged.',
