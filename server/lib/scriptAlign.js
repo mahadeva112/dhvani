@@ -63,6 +63,23 @@ export const tokenizeScript = (script) => {
   return tokens;
 };
 
+const SENTENCE_END = /[.!?。！？।॥؟…]["'”’)\]]*$/u;
+const SENTENCE_TAIL = 2;
+
+/**
+ * Where cue text that ends at `end` should really end. Verb-final languages
+ * close a sentence with a word or two ("है।") that a cut by meaning can leave
+ * at the start of the next cue; those words go back to the sentence they
+ * close. The next cue, which ends at `limit`, always keeps some words.
+ */
+export const closeSentence = (tokens, from, end, limit) => {
+  if (end <= from || SENTENCE_END.test(tokens[end - 1]?.text ?? '')) return end;
+  for (let j = end; j < Math.min(end + SENTENCE_TAIL, limit - 1); j += 1) {
+    if (SENTENCE_END.test(tokens[j].text)) return j + 1;
+  }
+  return end;
+};
+
 /** Joins tokens back into one cue's text; line breaks inside a cue become spaces. */
 export const joinTokens = (tokens) =>
   tokens.map((t, i) => t.text + (i < tokens.length - 1 && t.sep ? ' ' : '')).join('');
@@ -499,7 +516,8 @@ export const alignScript = async (
 
     let from = cursor;
     for (let i = 0; i < plan.commit; i += 1) {
-      const end = resolved.ends[i];
+      const next = i + 1 < plan.count ? resolved.ends[i + 1] : resolved.ends[i];
+      const end = closeSentence(tokens, from, resolved.ends[i], next);
       const result = results[cueIndex + i];
       result.text = joinTokens(tokens.slice(from, end));
       result.estimated = resolved.estimated[i];

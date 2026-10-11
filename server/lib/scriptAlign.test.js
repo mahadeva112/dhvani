@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenizeScript, joinTokens, resolveBoundaries, alignScript } from './scriptAlign.js';
+import { tokenizeScript, joinTokens, resolveBoundaries, alignScript, closeSentence } from './scriptAlign.js';
 
 const words = (n, prefix = 'w') => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 const cuesOf = (n) => Array.from({ length: n }, (_, i) => ({ id: `c${i}`, text: `English cue ${i}` }));
@@ -294,4 +294,23 @@ test('a network fault after the model was reached only estimates that window', a
   assert.equal(result.failedWindows, 1);
   assert.ok(result.cues.some((c) => c.estimated));
   assert.ok(result.cues.some((c) => c.fit === 'full'));
+});
+
+test('a sentence-closing word cut into the next cue goes back to its sentence', async () => {
+  const script = 'ये परे जाने का है। इसलिए दसवां दिन विजयदशमी, विजय।';
+  const cues = cuesOf(2);
+  // The model cuts before the verb "है।".
+  const callModel = async () => ({ cues: [{ n: 1, last: 3, fit: 'full' }, { n: 2, last: 9, fit: 'full' }] });
+  const result = await alignScript(cues, script, { callModel, targetLanguage: 'Hindi' });
+  assert.equal(result.cues[0].text, 'ये परे जाने का है।');
+  assert.equal(result.cues[1].text, 'इसलिए दसवां दिन विजयदशमी, विजय।');
+  assertWholeScript(result, script);
+});
+
+test('a sentence end further away, or the whole next cue, is left where it is', () => {
+  const tokens = tokenizeScript('a b c d e. f g');
+  assert.equal(closeSentence(tokens, 0, 2, 7), 2, 'three words away');
+  assert.equal(closeSentence(tokens, 0, 3, 5), 3, 'would empty the next cue');
+  assert.equal(closeSentence(tokens, 0, 3, 7), 5);
+  assert.equal(closeSentence(tokenizeScript('a b. c d.'), 0, 2, 4), 2, 'already closed');
 });
