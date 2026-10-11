@@ -39,6 +39,7 @@ export const SyncPresetLibrary: React.FC<{
     <summary className="text-[13px] font-medium text-slate-200 cursor-pointer">My sync presets</summary>
     <div className="flex flex-col gap-2 pt-2">
       <p className="text-[11.5px] text-slate-400">Save these sync settings with a name. Settings are also remembered separately for each project.</p>
+      <p className="text-[11.5px] text-slate-400">Saved presets stay on this computer. To use them on another one, Export them here and Import the file there.</p>
       <label htmlFor="sync-saved-preset" className="text-[12px] text-slate-400">Saved preset</label>
       <select id="sync-saved-preset" value={selected} disabled={disabled} className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200"
         onChange={(e) => {

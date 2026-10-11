@@ -247,6 +247,8 @@ export interface SyncSettingsPanelProps {
   multiSpeaker?: boolean;
   /** What Fit to this video measures from; the card is left out without it. */
   fitSource?: SyncFitSource;
+  /** Lines the sync voices, from the last sync or the preview: what Verify actual word timing sends, one request each. */
+  lineCount?: number;
 }
 
 /** The Dub step's settings rail: what to sync with, the Dub & sync button, and the files. */
@@ -273,6 +275,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   subtitles,
   multiSpeaker = false,
   fitSource,
+  lineCount,
 }) => (
   <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
@@ -364,7 +367,13 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           <input type="checkbox" checked={Boolean(options.verifyWords)} disabled={isSyncing} className="mt-0.5 accent-indigo-500"
             onChange={(e) => onOptionsChange((o) => ({ ...o, verifyWords: e.target.checked }))} />
           <span><span className="block text-[13px] text-slate-200">Verify actual word timing</span>
-            <span className="block text-[11.5px] text-slate-400 mt-0.5">Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span></span>
+            <span className="block text-[11.5px] text-slate-400 mt-0.5">Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span>
+            {lineCount ? (
+              <span className={`block text-[11.5px] mt-0.5 ${options.verifyWords ? 'text-indigo-300' : 'text-slate-500'}`}>
+                About {lineCount} alignment request{lineCount === 1 ? '' : 's'} for this dub, one per line.
+              </span>
+            ) : null}
+          </span>
         </label>
       </fieldset>
       <SyncPresetLibrary options={options} onChange={onOptionsChange} normalize={readOptions} disabled={isSyncing} />

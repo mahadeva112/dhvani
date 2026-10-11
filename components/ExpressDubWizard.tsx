@@ -4119,6 +4119,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 previewShown={!report && Boolean(syncPreview.preview)}
                 previewLongCount={syncPreview.preview?.summary.long ?? 0}
                 previewShortCount={syncPreview.preview?.summary.short ?? 0}
+                lineCount={report ? report.units.length : syncPreview.preview?.summary.lines}
                 onSync={runSync}
                 onCancel={() => onCancelSync?.()}
                 onBack={() => {
