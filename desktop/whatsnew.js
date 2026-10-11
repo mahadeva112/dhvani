@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.40',
+    changes: [
+      'When you pick a voice, it reads a short sample once to measure how fast it speaks in your dub language. Review’s line fit and syllable hints use that speed before the first sync, and translation can size each line for the voice (a checkbox turns this off).',
+      'The language list is shorter: Bodo, Dogri, Kashmiri, Konkani, Maithili, Manipuri, Sanskrit, Santali, Sindhi and Urdu are no longer offered.',
+    ],
+  },
+  {
     version: '1.3.39',
     changes: [
       'Review shows each line’s syllables next to its characters, and the dub line says how many syllables to take out to fit its time, or how many more it has room for. It updates as you type.',
