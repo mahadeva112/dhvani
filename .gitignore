@@ -44,3 +44,6 @@ desktop/icons/*.icns
 
 # Local, machine-specific Claude Code permissions
 .claude/settings.local.json
+
+# Pages hosted from their own repository (Codex sites), not part of the app
+sites/
