@@ -115,7 +115,7 @@ import {
   withLineTargets,
 } from '../services/syncService';
 import type { EstimateMethod, LineContext, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
-import { syllableRate } from '../services/speechTiming';
+import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor } from './SyncPreviewPanel';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix } from './FinalScriptFit';
@@ -159,6 +159,29 @@ const CharCount: React.FC<{ text: string; className?: string }> = ({ text, class
     {text.length} chars
   </span>
 );
+
+/** A line's syllables, counted as the Expert estimate counts them. */
+const SyllableCount: React.FC<{ text: string; className?: string }> = ({ text, className = '' }) => (
+  <span className={`font-mono text-[10.5px] text-slate-500 tabular-nums whitespace-nowrap ${className}`}>
+    {timeLine(text, 1).syllables} syl
+  </span>
+);
+
+/** `own`: the cue's syllables; the rest are for its whole sync line, which spans `cues` when it is more than this one. */
+type SyllableFitInfo = ReturnType<typeof syllableFit> & { own: number; cues: string | null };
+
+/** A dub line's syllables and what it takes to fit its slot: fewer, or room for more. */
+const SyllableFitNote: React.FC<{ fit: SyllableFitInfo; className?: string }> = ({ fit, className = '' }) =>
+  fit.own === 0 && fit.syllables === 0 ? null : (
+  <span
+    className={`font-mono text-[10.5px] tabular-nums whitespace-nowrap ${fit.cut > 0 ? 'text-amber-300' : 'text-slate-500'} ${className}`}
+    title={`The slot holds about ${fit.holds} syllables at the voice's rate${fit.cues ? `, for cues ${fit.cues} as one line` : ''}`}
+  >
+    {fit.own} syl ·{' '}
+    {fit.cues && <span className="text-slate-500">line {fit.cues}: {fit.syllables} syl, </span>}
+    {fit.cut > 0 ? `${fit.cut} fewer to fit` : fit.room > 0 ? `room for ${fit.room} more` : 'fits'}
+  </span>
+  );
 
 /**
  * How comfortably a translated line fits its time slot, in characters per
@@ -1206,6 +1229,20 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     for (const unit of linePreview?.units || []) for (const id of unit.cueIds) map.set(String(id), unit);
     return map;
   }, [linePreview]);
+  /**
+   * A cue's dub line in syllables against its slot, from the live text. A cue
+   * in a sync line of several cues is judged with that whole line, in its slot.
+   */
+  const syllableFitOf = (seg: AudioSegment): SyllableFitInfo => {
+    const unit = unitOfCue.get(String(seg.id));
+    const own = timeLine(getTargetText(seg), 1).syllables;
+    if (!unit) return { ...syllableFit(getTargetText(seg), seg.duration, syllablesPerSecond), own, cues: null };
+    const text = unit.cueIds.map((id) => getTargetText(segments[cueIndexById.get(String(id)) ?? -1] ?? seg)).join(' ');
+    const first = cueIndexById.get(String(unit.cueIds[0]));
+    const last = cueIndexById.get(String(unit.cueIds[unit.cueIds.length - 1]));
+    const cues = unit.cueIds.length > 1 && first !== undefined && last !== undefined ? `${first + 1}–${last + 1}` : null;
+    return { ...syllableFit(text, unit.slot, syllablesPerSecond), own, cues };
+  };
   /** Lines with no suggestion asked for yet, for Review's Suggest for all. */
   const linesToFix = (linePreview?.units || []).filter((u) => needsFix(u) && lineFixes.notStarted(u));
   // A line stays under Lines to fix once it has been worked on, even when it now fits. A key, so the filter reruns only when they change.
@@ -2389,7 +2426,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <div className="space-y-1">
                         <label className="text-[10px] uppercase font-mono tracking-wider text-slate-500 flex items-center justify-between">
                           <span>Original Audio Transcription:</span>
-                          <CharCount text={srcText} className="normal-case tracking-normal" />
+                          <span className="flex gap-2 normal-case tracking-normal">
+                            <CharCount text={srcText} />
+                            <SyllableCount text={srcText} />
+                          </span>
                         </label>
                         <div
                           className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-slate-300 leading-relaxed font-sans min-h-[56px]"
@@ -2403,8 +2443,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <div className="space-y-1">
                         <label className="text-[10px] uppercase font-mono tracking-wider text-indigo-400 flex items-center justify-between">
                           <span>{targetLanguage} Translation:</span>
-                          <span className="text-slate-500 font-sans normal-case text-[10px]">
-                            {charCount} characters
+                          <span className="flex gap-2 normal-case tracking-normal">
+                            <span className="text-slate-500 font-sans text-[10px]">{charCount} characters</span>
+                            <SyllableFitNote fit={syllableFitOf(seg)} />
                           </span>
                         </label>
                         <PhoneticSmartTextarea
@@ -2585,7 +2626,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       ) : (
                         <span className="text-slate-600 italic">No original text</span>
                       )}
-                      <CharCount text={srcText} className="block mt-1" />
+                      <span className="flex flex-wrap gap-x-2 mt-1">
+                        <CharCount text={srcText} />
+                        <SyllableCount text={srcText} />
+                      </span>
                       {multiSpeaker && (
                         <SpeakerCueNotes
                           current={speakerOf(seg)}
@@ -2620,7 +2664,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         compactToolbar
                         fontSize={reviewFontPx}
                       />
-                      <CharCount text={tgtText} className="block mt-1" />
+                      <span className="flex flex-wrap gap-x-2 mt-1">
+                        <CharCount text={tgtText} />
+                        <SyllableFitNote fit={syllableFitOf(seg)} />
+                      </span>
                       {(() => {
                         if (linePreview) {
                           // A sync line can span several cues: its fit and rewording sit once, under its last cue.
@@ -2758,7 +2805,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <label className="text-xs uppercase font-mono tracking-wider text-slate-400">
                       Original Speech (Source Audio):
                     </label>
-                    <span className="text-xs text-slate-400 font-mono">{srcText.length} chars</span>
+                    <span className="text-xs text-slate-400 font-mono">
+                      {srcText.length} chars · {timeLine(srcText, 1).syllables} syl
+                    </span>
                   </div>
                   <div
                     className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-slate-200 leading-relaxed font-sans"
@@ -2781,6 +2830,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <span className="text-xs text-slate-400 font-mono">
                         {charCount} chars
                       </span>
+                      <SyllableFitNote fit={syllableFitOf(currentSeg)} />
                     </div>
                   </div>
                   <PhoneticSmartTextarea
@@ -2890,7 +2940,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             <p className="text-slate-200 leading-relaxed font-sans" style={reviewTextStyle}>
                               {getSourceText(seg)}
                             </p>
-                            <CharCount text={getSourceText(seg)} className="block text-right" />
+                            <span className="flex justify-end gap-2">
+                              <CharCount text={getSourceText(seg)} />
+                              <SyllableCount text={getSourceText(seg)} />
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -2937,7 +2990,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                               <span className="font-bold text-indigo-300">
                                 [{(currentPage - 1) * itemsPerPage + idx + 1}] {targetLanguage}
                               </span>
-                              <span>{getTargetText(seg).length} chars</span>
+                              <span className="flex gap-2">
+                                <span>{getTargetText(seg).length} chars</span>
+                                <SyllableFitNote fit={syllableFitOf(seg)} />
+                              </span>
                             </div>
                             <PhoneticSmartTextarea
                           showQuickSymbols={false}

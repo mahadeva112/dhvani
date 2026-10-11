@@ -5,7 +5,7 @@ import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './ca
 import { castPayload, fetchMixed } from './castService';
 import { keepTermsFor } from './glossaryService';
 import type { lockedLines, SyncBank } from './syncEditService';
-import { matchedLips, READ_SPREAD, sourceLipTimes, timeLine, type TimedWord } from './speechTiming';
+import { matchedLips, READ_SPREAD, sourceLipTimes, syllablesHeld, timeLine, type TimedWord } from './speechTiming';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
@@ -742,9 +742,7 @@ export const expertPreview = (preview: SyncPreview, segments: AudioSegment[], sy
       .flatMap((id) => sourceLipTimes(cueById.get(String(id))?.words))
       .filter((t) => t >= unit.srcStart - 0.05 && t <= unit.srcStart + unit.slot);
     const dubLips = timing.lips;
-    // The syllables the slot holds at this rate, once the line's pauses are taken out.
-    const pauses = estimate - timing.syllables / rate;
-    const holds = Math.floor(Math.max(0, unit.slot * SUGGESTION_MARGIN - pauses) * rate);
+    const holds = syllablesHeld(timing, unit.slot, rate);
     return {
       ...unit,
       estimate,

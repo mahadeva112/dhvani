@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lipClosuresIn, matchedLips, sourceLipTimes, syllableRate, syllablesIn, timeLine } from './speechTiming.ts';
+import { lipClosuresIn, matchedLips, sourceLipTimes, syllableFit, syllableRate, syllablesIn, timeLine } from './speechTiming.ts';
 
 test('counts Hindi syllables: joined letters, vowel signs and the dropped final "a"', () => {
   assert.equal(syllablesIn('साफ'), 1);
@@ -57,4 +57,16 @@ test('the syllable rate makes the whole script take as long as the character rat
   const total = lines.reduce((sum, t) => sum + timeLine(t, rate).seconds, 0);
   const byCharacters = lines.reduce((sum, t) => sum + t.length / cps, 0);
   assert.ok(Math.abs(total - byCharacters) < 0.05, `${total.toFixed(2)} vs ${byCharacters.toFixed(2)}`);
+});
+
+test('a line\'s syllable fit says how many to cut, or how many more its slot holds', () => {
+  // कल हम मिलेंगे: 1 + 1 + 3 syllables; at 5 a second a 2 s slot, less its word gaps, holds 8.
+  const roomy = syllableFit('कल हम मिलेंगे', 2, 5);
+  assert.equal(roomy.syllables, 5);
+  assert.equal(roomy.holds, 8);
+  assert.deepEqual([roomy.cut, roomy.room], [0, 3]);
+  const long = syllableFit('कल हम मिलेंगे', 0.5, 5);
+  assert.deepEqual([long.cut, long.room], [5 - long.holds, 0]);
+  // A full stop's pause takes room from the slot.
+  assert.ok(syllableFit('कल। हम मिलेंगे', 2, 5).holds < roomy.holds);
 });

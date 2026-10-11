@@ -156,6 +156,27 @@ export const timeLine = (text: string, rate: number): LineTiming => {
   return { seconds: t, syllables: words.reduce((sum, w) => sum + w.syllables, 0), words, lips };
 };
 
+/** A line aims a little under its slot, as Sync's suggestions do (SUGGESTION_MARGIN in syncService). */
+const FIT_MARGIN = 0.92;
+
+/** The syllables `slot` seconds hold at `rate`, once the timed line's own pauses are taken out. */
+export const syllablesHeld = (timing: LineTiming, slot: number, rate: number): number => {
+  const pauses = timing.seconds - timing.syllables / rate;
+  return Math.floor(Math.max(0, slot * FIT_MARGIN - pauses) * rate);
+};
+
+/** A line's syllables against its slot: how many to take out to fit, or how many more it has room for. */
+export const syllableFit = (text: string, slot: number, rate: number) => {
+  const timing = timeLine(text, rate);
+  const holds = syllablesHeld(timing, slot, rate);
+  return {
+    syllables: timing.syllables,
+    holds,
+    cut: Math.max(0, timing.syllables - holds),
+    room: Math.max(0, holds - timing.syllables),
+  };
+};
+
 /** Seconds of pauses a text's punctuation asks for, between its words. */
 const pausesIn = (text: string) => {
   const parts = text.trim().split(/\s+/).filter((p) => bare(p));
