@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.37',
+    changes: [
+      'Sync settings are kept with each project and can be saved as named presets. Strict timing and Protect long pauses never fail a sync: a line that can’t meet its limit is placed as early as it can go and flagged.',
+      'Breaths can be softened instead of removed, and an optional check measures each line’s spoken words against the original’s timing. The check never changes the dub.',
+      'Locked lines stay where you put them unless the lines before need the room; then they move only that far and are flagged. A locked line can be retaken.',
+    ],
+  },
+  {
     version: '1.3.36',
     changes: [
       'Retake a synced line instantly: hear three new takes, compare their timing and choose which one goes in the dub. Return to another take while working on the same sync.',
