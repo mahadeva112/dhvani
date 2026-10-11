@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react';
 import {
   LineSuggestion,
@@ -16,6 +16,7 @@ import type { DubProgress } from '../services/elevenLabsService';
 import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import { joinPresetOf, readJoinSettings, SyncFitSource, SyncJoinSettingsPanel } from './SyncJoinSettings';
+import { SyncPresetLibrary } from './SyncPresetLibrary';
 
 /**
  * Sync, in the Dub step: voices the script line by line, places each line in
@@ -42,6 +43,8 @@ const formatOffset = (seconds: number) => `${seconds > 0 ? '+' : seconds < 0 ? '
  * Dub step's Even out loudness decides it for every dub.
  */
 export const defaultSyncOptions = (): SyncOptions => ({
+  verifyWords: false,
+  timingProtection: 'warn',
   voicing: 'lines',
   precision: 'phrase',
   preset: 'natural',
@@ -59,17 +62,20 @@ const isDefaultOptions = (options: SyncOptions) => {
     options.preset === defaults.preset &&
     options.suggest === defaults.suggest &&
     options.suggestLonger === defaults.suggestLonger &&
+    !options.verifyWords && options.timingProtection !== 'strict' &&
     joinPresetOf(options.join) === 'natural'
   );
 };
 
-const readOptions = (): SyncOptions => {
+export const readOptions = (value?: unknown): SyncOptions => {
   try {
-    const saved = JSON.parse(localStorage.getItem(OPTIONS_KEY) || '{}');
+    const saved = (value ?? JSON.parse(localStorage.getItem(OPTIONS_KEY) || '{}')) as Partial<SyncOptions>;
     // A saved preset is read as the preset is now, so a retuned preset reaches everyone who picked it.
     const preset = (Object.keys(SYNC_JOIN_PRESETS) as (keyof typeof SYNC_JOIN_PRESETS)[]).find((id) => id === saved.preset);
     const join = preset ? { ...SYNC_JOIN_PRESETS[preset] } : readJoinSettings(saved.join);
     return {
+      verifyWords: saved.verifyWords === true,
+      timingProtection: saved.timingProtection === 'strict' ? 'strict' : 'warn',
       voicing: saved.voicing === 'continuous' ? 'continuous' : 'lines',
       precision: SYNC_PRECISION_OPTIONS.some((o) => o.id === saved.precision) ? saved.precision : 'phrase',
       // A saved Custom stays Custom even when it happens to match a preset.
@@ -85,13 +91,26 @@ const readOptions = (): SyncOptions => {
 };
 
 /** The sync options, remembered across sessions. One copy serves both panels. */
-export const useSyncOptions = () => {
-  const [options, setOptions] = useState(readOptions);
+export const useSyncOptions = (projectId?: string, saved?: SyncOptions, onSave?: (options: SyncOptions) => void) => {
+  const [slot, setSlot] = useState(() => ({ id: projectId, options: readOptions(saved) }));
+  const options = useMemo(() => slot.id === projectId ? slot.options : readOptions(saved), [slot, projectId, saved]);
+  const current = useRef(options);
+  current.current = options;
   useEffect(() => {
+    if (slot.id !== projectId) setSlot({ id: projectId, options });
+  }, [slot.id, projectId, options]);
+  useEffect(() => {
+    if (projectId && !saved) onSave?.(options);
+  }, [projectId, saved, onSave, options]);
+  const setOptions: React.Dispatch<React.SetStateAction<SyncOptions>> = useCallback((update) => {
+    const next = typeof update === 'function' ? update(current.current) : update;
+    current.current = next;
+    setSlot({ id: projectId, options: next });
     try {
-      localStorage.setItem(OPTIONS_KEY, JSON.stringify(options));
+      localStorage.setItem(OPTIONS_KEY, JSON.stringify(next));
     } catch {}
-  }, [options]);
+    onSave?.(next);
+  }, [projectId, onSave]);
   return [options, setOptions] as const;
 };
 
@@ -109,7 +128,7 @@ export const syncFraction = (progress: SyncProgress | null) =>
  */
 export const SyncVerdictBadge: React.FC<{ report: SyncReport }> = ({ report }) => {
   const { inSync, lines, exceeded, maxError } = report.summary;
-  if (inSync === lines) {
+  if (inSync === lines && !(report.summary.boundaryMismatches || report.summary.wordTimingUnavailable || report.summary.endMismatches)) {
     return (
       <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
         <Check className="w-3 h-3" /> Synced · all {lines} lines in sync
@@ -117,6 +136,9 @@ export const SyncVerdictBadge: React.FC<{ report: SyncReport }> = ({ report }) =
     );
   }
   const off = [
+    ...(report.summary.boundaryMismatches ? [`${report.summary.boundaryMismatches} cue boundaries need review`] : []),
+    ...(report.summary.endMismatches ? [`${report.summary.endMismatches} line endings need review`] : []),
+    ...(report.summary.wordTimingUnavailable ? [`${report.summary.wordTimingUnavailable} word checks unavailable`] : []),
     exceeded > 0 ? `${exceeded} line${exceeded === 1 ? '' : 's'} too long` : `${inSync} of ${lines} in sync`,
     `worst line off by ${maxError.toFixed(1)} s`,
   ];
@@ -130,6 +152,7 @@ export const SyncVerdictBadge: React.FC<{ report: SyncReport }> = ({ report }) =
 /** Why a line is worth a listen, or null when it landed cleanly. */
 const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null => {
   if (unit.silent) return 'The voice returned no audio for this line';
+  if (unit.timingConflict) return unit.timingConflict;
   if (unit.cutOff)
     return `The voice stops before the last word is finished${unit.retakes ? `, in all ${unit.retakes + 1} takes` : ''}: retake it or reword the line`;
   if (unit.exceeded && unit.deepCut)
@@ -142,6 +165,9 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
     return `Only ${Math.max(0, Math.round(unit.joinAfter * 1000))} ms before the next line starts: it may sound cut off`;
   if (unit.late && unit.offset !== null) return `Starts ${unit.offset.toFixed(2)} s late: the line before it runs long`;
   if (unit.offset !== null && Math.abs(unit.offset) > tolerance) return unit.offset > 0 ? 'Starts late: the line before it runs long' : 'Starts early to make room';
+  if (unit.wordTiming?.status === 'unavailable') return `Word timing not verified: ${unit.wordTiming.reason || 'check again after Sync'}`;
+  if (unit.wordTiming?.boundaryMismatch) return `An internal cue boundary is off by ${(unit.wordTiming.boundaryMaxError ?? 0).toFixed(2)} s: review this phrase's pacing`;
+  if (unit.wordTiming?.endMismatch) return `The measured last word ends ${Math.abs(unit.wordTiming.endError ?? 0).toFixed(2)} s ${(unit.wordTiming.endError ?? 0) < 0 ? 'before' : 'after'} the source line: review its wording or take`;
   return null;
 };
 
@@ -287,6 +313,23 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         {previewShown && <span className="text-[11.5px] text-slate-400">The preview updates when you change this.</span>}
       </div>
       <SyncJoinSettingsPanel options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} fitSource={fitSource} />
+      <SyncPresetLibrary options={options} onChange={onOptionsChange} normalize={readOptions} disabled={isSyncing} />
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="sync-timing-protection" className={sectionLabel}>Timing protection</label>
+        <select id="sync-timing-protection" value={options.timingProtection || 'warn'} disabled={isSyncing}
+          onChange={(e) => onOptionsChange((o) => ({ ...o, timingProtection: e.target.value as 'warn' | 'strict' }))}
+          className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200">
+          <option value="warn">Warn when a line starts late</option>
+          <option value="strict">Strict — keep within latest start</option>
+        </select>
+        <span className="text-[11.5px] text-slate-400">Strict holds every line within its latest start; a line that still cannot fit is placed as early as it can go and flagged below, never left out. Locked edits keep their position unless the lines before them need the room, and are flagged when they move.</span>
+      </div>
+      <label className="flex items-start gap-2.5 cursor-pointer">
+        <input type="checkbox" checked={Boolean(options.verifyWords)} disabled={isSyncing} className="mt-0.5 accent-indigo-500"
+          onChange={(e) => onOptionsChange((o) => ({ ...o, verifyWords: e.target.checked }))} />
+        <span><span className="block text-[13px] text-slate-200">Verify actual word timing</span>
+          <span className="block text-[11.5px] text-slate-400 mt-0.5">Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span></span>
+      </label>
       <label className="flex items-start gap-2.5 cursor-pointer">
         <input
           type="checkbox"
@@ -538,6 +581,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   const step = progress?.step ?? 1;
   const stepDetail = (phase: string) => {
     if (!progress) return '';
+    if (phase === 'placing' && progress.wordChecksTotal) return `word checks ${progress.wordChecksDone ?? 0} / ${progress.wordChecksTotal}`;
     if (phase === 'voicing' && progress.unitCount > 0) {
       return progress.unitsToVoice === 0 && step > 2
         ? 'reused'
@@ -574,7 +618,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
         </div>
         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
           <Lock className="w-3 h-3 shrink-0" />
-          Each line is placed to start where the original line starts; a line longer than its original pushes the ones after it later. The audio is never stretched: no time-stretch, no volume change and no fades. Lines are only moved and the silence inside them shortened.
+          Each line is placed near its original timing; a long line can move the lines around it. Sync does not stretch the voice. Breath reduction, loudness matching and fades follow the options you choose. A line that cannot meet Strict timing or a protected pause is flagged below, never left out.
           {handEdits > 0 && ' Your hand edits in Edit timing are in this dub: there, only the speed, level and fades you set change a line, and Sync again keeps every locked line where you put it.'}
         </p>
       </div>
@@ -704,6 +748,9 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             sourceBuffer={sourceBuffer}
             dubBuffer={dubBuffer}
           />
+          {report.summary.wordTimingMeasured !== undefined && (
+            <p className="text-xs text-slate-400">Actual word timing: {report.summary.wordTimingMeasured} measured · {report.summary.wordTimingUnavailable ?? 0} unavailable · {report.summary.boundaryMismatches ?? 0} internal cue mismatches · {report.summary.endMismatches ?? 0} line endings to review. Single-cue lines have no internal boundary comparison. This does not verify visual lip-sync.</p>
+          )}
 
           {(report.summary.fromDub ?? 0) > 0 && (
             <p className="text-xs text-slate-400">
@@ -918,6 +965,7 @@ const ReviewRow: React.FC<{
         <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
         {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
         <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : unit.short ? 'text-sky-300' : 'text-slate-400'}`}>{reason}</p>
+        {unit.wordTiming?.status === 'measured' && <p className="text-[11.5px] mt-1 text-indigo-300">Measured words · start {formatOffset(unit.wordTiming.startError ?? 0)} · end {formatOffset(unit.wordTiming.endError ?? 0)}{unit.wordTiming.boundaryMaxError != null && ` · internal boundary ${unit.wordTiming.boundaryMaxError.toFixed(2)} s`}</p>}
 
         {pending ? (
           <p className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300">

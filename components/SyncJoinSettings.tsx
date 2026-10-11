@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, Loader2, Ruler, X } from 'lucide-react';
 import {
   fitJoinSettings,
@@ -40,7 +40,15 @@ export const readJoinSettings = (saved: unknown): SyncJoinSettings => {
   (Object.keys(join) as (keyof SyncJoinSettings)[]).forEach((key) => {
     const value = record[key];
     if (typeof join[key] === 'boolean' && typeof value === 'boolean') (join[key] as boolean) = value;
-    if (typeof join[key] === 'number' && typeof value === 'number' && Number.isFinite(value)) (join[key] as number) = value;
+    if (typeof join[key] === 'number' && typeof value === 'number' && Number.isFinite(value)) {
+      const ranges: Partial<Record<keyof SyncJoinSettings, [number, number]>> = {
+        minGap: [0.04, 0.6], speakerGap: [0.04, 1], gapShare: [0, 1], minInnerPause: [0.08, 0.6], maxPauseTake: [0.05, 1],
+        spliceCrossfade: [0, 0.02], tailFloorDb: [-90, -50], tailHold: [0, 0.2], edgeFade: [0, 0.03], maxLateStart: [0.05, 1.5],
+        unitGap: [0, 1.2], maxUnit: [3, 30], flagJoin: [0, 0.5], protectedPause: [0.5, 5], breathReduction: [0, 1],
+      };
+      const range = ranges[key];
+      (join[key] as number) = range ? Math.min(range[1], Math.max(range[0], value)) : value;
+    }
   });
   return join;
 };
@@ -130,6 +138,7 @@ const Group: React.FC<{ title: string; summary: string; measured?: boolean; chil
 
 /** What Fit to this video measures from: the cues, and the dub's speaking rate. */
 export interface SyncFitSource {
+  speakerRates?: Record<string, { charsPerSecond: number; lines: number }>;
   segments: AudioSegment[];
   charsPerSecond: number;
   /** True when the rate was measured from this dub, not a typical one. */
@@ -171,16 +180,23 @@ const FitCard: React.FC<{
   const [fit, setFit] = useState<SyncFit | null>(null);
   const [measuring, setMeasuring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const revision = useRef(0);
+  useEffect(() => {
+    revision.current++; setFit(null); setError(null); setMeasuring(false);
+    return () => { revision.current++; };
+  }, [source.segments, source.charsPerSecond, source.rateMeasured, source.speakerRates, join]);
 
   const measure = async () => {
+    const requestRevision = revision.current;
     setMeasuring(true);
     setError(null);
     try {
-      setFit(await fitJoinSettings({ ...source, join }));
+      const result = await fitJoinSettings({ ...source, join });
+      if (revision.current === requestRevision) setFit(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't measure this video.");
+      if (revision.current === requestRevision) setError(err instanceof Error ? err.message : "Couldn't measure this video.");
     } finally {
-      setMeasuring(false);
+      if (revision.current === requestRevision) setMeasuring(false);
     }
   };
 
@@ -223,6 +239,7 @@ const FitCard: React.FC<{
         </span>
       </div>
       {note && <span className="text-[11.5px] text-slate-400">{note}</span>}
+      {measured.rateBasis && <span className="text-[11.5px] text-indigo-300">Rate basis: {measured.rateBasis} · {measured.measuredLines ?? 0} lines use previous dub rates · {measured.estimatedLines ?? 0} use a typical rate. Fit remains a duration estimate.</span>}
       {!note && changes.length === 0 && <span className="text-[11.5px] text-slate-400">Your settings already match how this video is spoken.</span>}
       {changes.length > 0 && (
         <ul className="flex flex-col">
@@ -320,12 +337,17 @@ export const SyncJoinSettingsPanel: React.FC<{
 
       <div className="flex flex-col">
         <Group title="Gaps between lines" measured={measured('gaps')} summary={`${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`}>
+          <Toggle label="Protect long pauses" checked={join.preserveLongPauses} disabled={disabled}
+            onChange={(v) => set('preserveLongPauses', v)} hint="Keeps long breaks between source lines clear and preserves long silence inside the dub. A line too long to finish before a protected break is flagged in the results." />
+          <Slider id="sync-protected-pause" label="Protect pauses at least" value={join.protectedPause} min={0.5} max={5} step={0.1}
+            format={(v) => `${v.toFixed(1)} s`} disabled={disabled || !join.preserveLongPauses} onChange={(v) => set('protectedPause', v)}
+            hint="Protects breaks by duration. It does not detect scene cuts in the video." />
           <Slider
             id="sync-min-gap"
             label="Minimum gap"
             value={join.minGap}
             min={0.04}
-            max={0.4}
+            max={0.6}
             step={0.01}
             format={ms}
             disabled={disabled}
@@ -337,7 +359,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             label="Gap at a speaker change"
             value={join.speakerGap}
             min={0.04}
-            max={0.6}
+            max={1}
             step={0.01}
             format={ms}
             disabled={disabled}
@@ -363,12 +385,14 @@ export const SyncJoinSettingsPanel: React.FC<{
             onChange={(v) => set('breathClear', v)}
           />
           <Toggle
-            label="Remove breaths"
-            hint="Silences the breaths the voice takes before, between and after words, so there are none to cut by hand. Words are never touched."
+            label="Reduce or remove breaths — changes audio"
+            hint="Reduces detected breaths before, between and after words. Use 100% to silence them."
             checked={join.removeBreaths}
             disabled={disabled}
             onChange={(v) => set('removeBreaths', v)}
           />
+          <Slider id="sync-breath-reduction" label="Breath reduction" value={join.breathReduction} min={0} max={1} step={0.05} format={percent}
+            disabled={disabled || !join.removeBreaths} onChange={(v) => set('breathReduction', v)} hint="0% keeps breaths; 100% removes detected breaths. Lower values keep a softer breath." />
         </Group>
 
         <Group
@@ -388,7 +412,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             label="Shortest pause kept"
             value={join.minInnerPause}
             min={0.08}
-            max={0.5}
+            max={0.6}
             step={0.01}
             format={ms}
             disabled={disabled || !join.shortenPauses}
@@ -436,6 +460,7 @@ export const SyncJoinSettingsPanel: React.FC<{
               disabled={disabled}
               className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
             >
+              {![-60, -70, -80].includes(join.tailFloorDb) && <option value={join.tailFloorDb}>{join.tailFloorDb} dB, custom</option>}
               <option value={-60} className="bg-slate-900">
                 -60 dB, shortest tail
               </option>
@@ -452,7 +477,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             label="Tail hold"
             value={join.tailHold}
             min={0}
-            max={0.15}
+            max={0.2}
             step={0.005}
             format={ms}
             disabled={disabled}
@@ -471,6 +496,7 @@ export const SyncJoinSettingsPanel: React.FC<{
               disabled={disabled}
               className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
             >
+              {![0, 0.01, 0.02].includes(join.edgeFade) && <option value={join.edgeFade}>{ms(join.edgeFade)}, custom</option>}
               <option value={0} className="bg-slate-900">
                 Off, 3 ms micro-fade only where needed
               </option>
@@ -500,7 +526,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             label="Latest a line may start"
             value={join.maxLateStart}
             min={0.05}
-            max={0.8}
+            max={1.5}
             step={0.01}
             format={ms}
             disabled={disabled}
@@ -509,13 +535,13 @@ export const SyncJoinSettingsPanel: React.FC<{
           />
         </Group>
 
-        <Group title="Grouping" measured={measured('grouping')} summary={`Cues under ${ms(join.unitGap)} apart are one line, ${join.maxUnit} s at most`}>
+        <Group title="Grouping" measured={measured('grouping')} summary={`Cues under ${ms(join.unitGap)} apart are one line, usually up to ${join.maxUnit} s`}>
           <Slider
             id="sync-unit-gap"
             label="Join cues closer than"
             value={join.unitGap}
             min={0}
-            max={1}
+            max={1.2}
             step={0.05}
             format={ms}
             disabled={disabled}
@@ -526,12 +552,13 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-max-unit"
             label="Longest joined line"
             value={join.maxUnit}
-            min={4}
-            max={20}
+            min={3}
+            max={30}
             step={1}
             format={(v) => `${v} s`}
             disabled={disabled}
             onChange={(v) => set('maxUnit', v)}
+            hint="An unfinished sentence may stay together for up to 30 s, even past this limit."
           />
         </Group>
 
@@ -541,7 +568,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             label="Flag joins tighter than"
             value={join.flagJoin}
             min={0}
-            max={0.4}
+            max={0.5}
             step={0.01}
             format={(v) => (v === 0 ? 'Off' : ms(v))}
             disabled={disabled}

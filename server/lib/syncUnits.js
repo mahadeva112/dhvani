@@ -53,7 +53,7 @@ const finite = (value) => typeof value === 'number' && Number.isFinite(value);
  * left open is finished in the same unit (see MAX_SENTENCE_UNIT_SECONDS),
  * unless `unitGap` is 0 or the text has no sentence marks at all.
  */
-export const buildSyncUnits = (segments = [], { unitGap = UNIT_GAP_SECONDS, maxUnit = MAX_UNIT_SECONDS } = {}) => {
+export const buildSyncUnits = (segments = [], { unitGap = UNIT_GAP_SECONDS, maxUnit = MAX_UNIT_SECONDS, preserveLongPauses = false, protectedPause = 1.2 } = {}) => {
   const cues = segments
     .filter((segment) => cueText(segment) && finite(segment.startTime) && finite(segment.endTime))
     .sort((a, b) => a.startTime - b.startTime);
@@ -68,6 +68,7 @@ export const buildSyncUnits = (segments = [], { unitGap = UNIT_GAP_SECONDS, maxU
     const gap = current ? cue.startTime - current.srcEnd : 0;
     const joins =
       current &&
+      !(preserveLongPauses && gap >= protectedPause) &&
       (cue.speaker || null) === current.speaker &&
       (gap < unitGap || (open && gap < HARD_ANCHOR_GAP_SECONDS)) &&
       cue.endTime - current.srcStart <= (open ? Math.max(maxUnit, MAX_SENTENCE_UNIT_SECONDS) : maxUnit);

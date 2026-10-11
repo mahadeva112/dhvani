@@ -60,7 +60,7 @@ export const directedSettings = (settings, direction, engine) => {
  * so, then trimmed to the silence around it. Null for a take with no sound.
  */
 export const fitTake = (decoded, sampleRate, join) => {
-  const { samples } = join.removeBreaths ? removeBreaths(decoded, sampleRate) : { samples: decoded };
+  const { samples } = join.removeBreaths ? removeBreaths(decoded, sampleRate, { reduction: join.breathReduction }) : { samples: decoded };
   const clip = prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold });
   return clip ? { samples: clip.samples, lead: clip.lead, speech: clip.speech, cutOff: clip.cutOff } : null;
 };

@@ -2272,7 +2272,7 @@ export default function App() {
     }
   };
 
-  const handleSyncDub = async ({ voicing, precision, join, suggest, suggestLonger, matchLoudness }: SyncOptions) => {
+  const handleSyncDub = async ({ voicing, precision, join, suggest, suggestLonger, matchLoudness, verifyWords, timingProtection }: SyncOptions) => {
     if (!activeJob || activeJob.segments.length === 0 || isSyncing) return;
     if (activeJob.targetSource === 'pending') return;
 
@@ -2353,6 +2353,8 @@ export default function App() {
           suggest,
           suggestLonger,
           matchLoudness,
+          verifyWords,
+          timingProtection,
           lineSeeds: activeJob.syncLineSeeds || undefined,
           debug: audioDebugEnabled(),
           cartesia: cartesiaDub,
@@ -3132,6 +3134,7 @@ export default function App() {
           activeStep={activeStep}
           onStepChange={handleStepChange}
           activeJob={activeJob}
+          onSyncOptionsChange={(options) => activeJob && updateJob(activeJob.id, { syncOptions: options })}
           onFileSelect={handleFilesUpload}
           onLoadSampleSession={handleLoadSampleSession}
           targetLanguage={activeJob?.language || selectedLanguage}

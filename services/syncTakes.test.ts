@@ -3,8 +3,21 @@ import assert from 'node:assert/strict';
 import { appendToBank, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
+import { measureEdits } from './syncEditModel.ts';
 
 const RATE = 1000;
+
+test('a changed take invalidates previous word verification instead of retaining stale measurements', () => {
+  const bank: SyncBank = { bankId: 'b', sampleRate: RATE, float: false, lines: [line('1')], speakerGains: {} };
+  const base = { tolerance: 0.15, join: { maxLateStart: 1, flagJoin: 0.05 },
+    units: [unit('1', 2.1, 3, { wordTiming: { status: 'measured', boundaryMismatch: true } })],
+    summary: { wordTimingMeasured: 1, boundaryMismatches: 1 } } as unknown as SyncReport;
+  const report = measureEdits(base, bank, null, ['1']);
+  assert.equal(report.units[0].wordTiming?.status, 'unavailable');
+  assert.equal(report.summary.wordTimingMeasured, 0);
+  assert.equal(report.summary.wordTimingUnavailable, 1);
+  assert.equal(report.summary.boundaryMismatches, 0);
+});
 
 /** A 16-bit mono WAV as the server writes it: the 44-byte header, then the samples. */
 const wav = (values: number[]) => {

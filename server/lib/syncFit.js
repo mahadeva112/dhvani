@@ -62,7 +62,7 @@ const innerPausesOf = (cues) =>
  * `measured` the counts behind them; `note` set when there was too little to
  * measure anything.
  */
-export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, rateMeasured = false } = {}) => {
+export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, rateMeasured = false, speakerRates = {} } = {}) => {
   const from = resolveJoinSettings(current);
   const proposed = { ...from };
   const reasons = {};
@@ -110,17 +110,29 @@ export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, 
   // 3. Length: how much longer or shorter the dub runs than the original speaker.
   const cps = Number(charsPerSecond);
   let ratio = NaN;
+  let measuredLines = 0;
+  let estimatedLines = 0;
   if (cps > 0) {
     const units = buildSyncUnits(cues, { unitGap: proposed.unitGap, maxUnit: proposed.maxUnit });
     const ratios = units
-      .map((unit) => ({ spoken: unit.srcEnd - unit.srcStart, estimate: unit.text.length / cps }))
+      .map((unit) => {
+        const entry = speakerRates && Object.hasOwn(speakerRates, unit.speaker || 'Speaker') ? speakerRates[unit.speaker || 'Speaker'] : null;
+        const measured = entry && Number.isFinite(entry.charsPerSecond) && entry.charsPerSecond >= 2 && entry.charsPerSecond <= 100 && entry.lines >= MIN_SAMPLES;
+        const rate = measured ? entry.charsPerSecond : cps;
+        const spoken = unit.srcEnd - unit.srcStart;
+        const estimate = unit.text.length / rate;
+        if (spoken >= SHORTEST_SPOKEN && estimate > 0) {
+          if (measured || rateMeasured) measuredLines++; else estimatedLines++;
+        }
+        return { spoken, estimate };
+      })
       .filter(({ spoken, estimate }) => spoken >= SHORTEST_SPOKEN && estimate > 0)
       .map(({ spoken, estimate }) => estimate / spoken);
     if (ratios.length >= MIN_SAMPLES) ratio = quantile(ratios, 0.5);
   }
   if (finite(ratio)) {
     const percent = Math.round(Math.abs(ratio - 1) * 100);
-    const basis = rateMeasured ? '' : ', at a typical speaking rate';
+    const basis = estimatedLines === 0 ? ', using rates from the previous dub' : measuredLines > 0 ? ', using a mix of measured and typical rates' : ', at a typical speaking rate';
     const longer = `The dub runs about ${percent}% longer than the original${basis}.`;
     if (ratio >= 1.08) {
       if (!from.shortenPauses) propose('shortenPauses', true, longer);
@@ -143,7 +155,8 @@ export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, 
   return {
     join,
     changes,
-    measured: { lines, speakers, pauses: linePauses.length, handovers: handovers.length, wordPauses: inner.length, lengthRatio: finite(ratio) ? ratio : null },
+    measured: { lines, speakers, pauses: linePauses.length, handovers: handovers.length, wordPauses: inner.length, lengthRatio: finite(ratio) ? ratio : null,
+      measuredLines, estimatedLines, rateBasis: measuredLines > 0 ? (estimatedLines > 0 ? 'mixed' : 'measured') : 'estimated' },
     note: measuredAnything ? null : 'Too few cues with timings to measure. Transcribe the original first, or keep the preset.',
   };
 };

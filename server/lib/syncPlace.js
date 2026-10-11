@@ -42,15 +42,19 @@ export const pava = (values, weights = values.map(() => 1)) => {
 /**
  * Chooses a start position for each clip.
  *
- * `clips[i]` is `{ want, length, gapAfter, weight?, earliest?, floor? }`:
+ * `clips[i]` is `{ want, length, gapAfter, weight?, earliest?, latest?, fixed?, floor? }`:
  * `want` is the position that puts its first word on the source phrase,
  * `length` the clip's length, `gapAfter` the minimum pause before the next
  * clip, `earliest` the soonest it may start (a dub line may not start
  * noticeably before the source line it translates) and `floor` the lowest
  * position the track allows (0 by default; negative when what comes before
- * the first word may be dropped). Returns positions in the same order.
+ * the first word may be dropped). `latest` is an upper bound; `fixed` holds
+ * the position exactly at `want`. A clip whose bounds can't be met (the clips
+ * before it need more room) is placed as early as they allow, later than its
+ * bounds, and its index is added to `conflicts`, so the dub is still made and
+ * the line is flagged. Returns positions in the same order.
  */
-export const placeClips = (clips) => {
+export const placeClips = (clips, { conflicts = [] } = {}) => {
   if (clips.length === 0) return [];
 
   const offsets = [];
@@ -59,6 +63,34 @@ export const placeClips = (clips) => {
     offsets.push(running);
     running += clip.length + (i < clips.length - 1 ? clip.gapAfter : 0);
   });
+
+  if (clips.some((clip) => Number.isFinite(clip.latest) || clip.fixed === true)) {
+    const blocks = [];
+    let lower = -Infinity;
+    for (let i = 0; i < clips.length; i++) {
+      const clip = clips[i];
+      let low = (clip.fixed ? clip.want : Math.max(clip.floor ?? 0, clip.earliest ?? -Infinity)) - offsets[i];
+      let high = (clip.fixed ? clip.want : clip.latest ?? Infinity) - offsets[i];
+      lower = Math.max(lower, low);
+      if (lower > high + 1e-9) {
+        // Held at the earliest the clips before it allow.
+        conflicts.push(i);
+        low = lower;
+        high = lower;
+      }
+      const weight = clip.weight ?? 1;
+      const sum = (clip.want - offsets[i]) * weight;
+      blocks.push({ low, high, weight, sum, count: 1, value: Math.min(high, Math.max(low, sum / weight)) });
+      while (blocks.length > 1 && blocks.at(-2).value > blocks.at(-1).value) {
+        const b = blocks.pop();
+        const a = blocks.pop();
+        const merged = { low: Math.max(a.low, b.low), high: Math.min(a.high, b.high), weight: a.weight + b.weight, sum: a.sum + b.sum, count: a.count + b.count };
+        merged.value = Math.min(merged.high, Math.max(merged.low, merged.sum / merged.weight));
+        blocks.push(merged);
+      }
+    }
+    return blocks.flatMap((block) => Array(block.count).fill(block.value)).map((value, i) => value + offsets[i]);
+  }
 
   const solved = pava(
     clips.map((clip, i) => clip.want - offsets[i]),

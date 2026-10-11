@@ -27,6 +27,7 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   breathClear: true,
   /** Silence the breaths the voice makes before, between and after its words. Changes the audio. */
   removeBreaths: true,
+  breathReduction: 1,
   /** Take silence out of the pauses inside a line that runs long. */
   shortenPauses: true,
   /** A pause inside a line is never shortened below this. */
@@ -49,6 +50,8 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   maxUnit: 12,
   /** A join with less than this between one line's last word and the next one's first is flagged. */
   flagJoin: 0.15,
+  preserveLongPauses: false,
+  protectedPause: 1.2,
 });
 
 /** A long source pause lends everything past this to a line that runs long. */
@@ -69,6 +72,8 @@ const RANGES = {
   unitGap: [0, 1.2],
   maxUnit: [3, 30],
   flagJoin: [0, 0.5],
+  protectedPause: [0.5, 5],
+  breathReduction: [0, 1],
 };
 
 const clamp = (value, [low, high]) => Math.min(high, Math.max(low, value));
@@ -81,7 +86,7 @@ export const resolveJoinSettings = (requested) => {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }
-  for (const key of ['breathClear', 'removeBreaths', 'shortenPauses']) {
+  for (const key of ['breathClear', 'removeBreaths', 'shortenPauses', 'preserveLongPauses']) {
     if (typeof requested[key] === 'boolean') settings[key] = requested[key];
   }
   return settings;

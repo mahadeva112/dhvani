@@ -2,6 +2,16 @@
 
 A standalone dubbing and subtitling studio that runs entirely on your own machine.
 
+### Advanced sync controls
+
+Sync settings are remembered per project. **My sync presets** saves named settings and imports or exports preset files.
+
+- **Timing protection:** Warn reports late lines; Strict holds each line within its latest start, and a line that still cannot fit is placed as early as it can go and flagged with what to do. Locked timing edits keep their position unless the lines before them need the room, and are flagged when they move. Sync never fails over timing.
+- **Verify actual word timing:** opt-in ElevenLabs forced alignment checks generated words, line endings and internal translated cue boundaries. It adds alignment requests and needs an ElevenLabs key even for Cartesia dubs. Failed checks remain explicitly unverified; timing edits or changed takes invalidate previous checks. This checks spoken timing, not video mouth movements.
+- **Protect long pauses:** protects breaks above the chosen duration from grouping, borrowing and internal silence trimming. A line too long to finish before a protected break is flagged, not refused. It uses pause duration and does not detect scene cuts.
+- **Breath reduction:** keep, soften or remove detected breaths using the reduction slider. This changes audio.
+- **Fit to this video:** can use a previous dub's separate speaking rates for each current speaker's voice, with at least five usable lines. It labels measured and typical rate coverage; the proposed duration remains an estimate.
+
 **ElevenLabs is the source of truth for transcription and subtitle timestamps. Gemini is used only
 for translation, and never creates or alters subtitle timing.**
 

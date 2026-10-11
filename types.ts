@@ -250,6 +250,7 @@ export interface BatchJob {
   syncedAudioBuffer?: AudioBuffer | null;
   /** Set with the synced dub: how each line lined up with the source, with any Edit timing edits measured in. */
   syncReport?: SyncReport | null;
+  syncOptions?: import('./services/syncService').SyncOptions;
   /**
    * Edit timing. The bank is every line as Sync placed it (its samples in
    * `syncBankBlob`); `syncEdits` is what the user did to them, and

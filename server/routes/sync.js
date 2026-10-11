@@ -406,6 +406,8 @@ syncRouter.post(
       lineSeeds,
       precision,
       join,
+      verifyWords,
+      timingProtection,
       suggest,
       suggestLonger,
       keep,
@@ -507,6 +509,8 @@ syncRouter.post(
           sampleRate,
           precision,
           join,
+          verifyWords: verifyWords === true,
+          timingProtection: timingProtection === 'strict' ? 'strict' : 'warn',
           suggest: suggest !== false,
           suggestLonger: suggestLonger !== false,
           keep: keepTermsOf(keep),
@@ -531,6 +535,9 @@ syncRouter.post(
           // One write at the end, lossless and at the clips' own rate: encoding to
           // MP3 again would be a second lossy generation of every line.
           encode: encodeWav(sampleRate),
+          // 16-bit WAV, as every other forced alignment here sends it.
+          align: async ({ samples, text, sampleRate: rate }) =>
+            forceAlign({ buffer: (await encodeWav(rate)(samples)).buffer, text }, { apiKey, signal: controller.signal }),
           shorten: (request) => shortenLine(request, { apiKey: textModelKey }),
           lengthen: (request) => lengthenLine(request, { apiKey: textModelKey }),
         },
@@ -924,9 +931,9 @@ syncRouter.post('/sync/preview', (req, res) => {
  * applied, the app shows the changes for the user to apply.
  */
 syncRouter.post('/sync/fit', (req, res) => {
-  const { segments, join, charsPerSecond, rateMeasured } = req.body || {};
+  const { segments, join, charsPerSecond, rateMeasured, speakerRates } = req.body || {};
   if (!Array.isArray(segments)) throw new ApiError('There are no cues to measure.', { status: 400, code: 'no_segments' });
-  res.json(fitJoinSettings({ segments, join, charsPerSecond, rateMeasured: rateMeasured === true }));
+  res.json(fitJoinSettings({ segments, join, charsPerSecond, rateMeasured: rateMeasured === true, speakerRates }));
 });
 
 /** Most earlier wordings a rewording request may list, to be told apart from. */

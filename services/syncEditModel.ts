@@ -187,12 +187,16 @@ export const measureEdits = (base: SyncReport, bank: SyncBank, edits: SyncEdits 
     const line = lineByKey.get(unit.key);
     if (!line || (!edits?.[unit.key] && !again.has(unit.key))) return unit;
     const span = spokenSpan(line, partsOf(edits, line, bank.sampleRate));
-    if (!span) return { ...unit, placedStart: null, placedEnd: null, offset: null, overrun: null, inSync: false, silent: true, late: false };
+    const wordTiming = unit.wordTiming ? { status: 'unavailable' as const, reason: 'Timing was edited or a take changed after verification. Sync again with word verification enabled.' } : undefined;
+    if (!span) return { ...unit, wordTiming, timingConflict: null, placedStart: null, placedEnd: null, offset: null, overrun: null, inSync: false, silent: true, late: false };
     const nextStart = base.units[n + 1]?.srcStart ?? null;
     const offset = span.start - unit.srcStart;
     const overrun = nextStart === null ? 0 : Math.max(0, span.end - nextStart);
     return {
       ...unit,
+      wordTiming,
+      // Sync's timing conflict was about where it put the line; the user has placed it since.
+      timingConflict: null,
       placedStart: span.start,
       placedEnd: span.end,
       offset,
@@ -241,6 +245,13 @@ export const measureEdits = (base: SyncReport, bank: SyncBank, edits: SyncEdits 
       late: withJoins.filter((unit) => unit.late).length,
       tightJoins: withJoins.filter((unit) => unit.tightJoin).length,
       silent: withJoins.filter((unit) => unit.silent).length,
+      ...(base.summary.timingConflicts !== undefined && { timingConflicts: withJoins.filter((unit) => unit.timingConflict).length }),
+      ...(base.summary.wordTimingMeasured !== undefined && {
+        wordTimingMeasured: withJoins.filter((unit) => unit.wordTiming?.status === 'measured').length,
+        wordTimingUnavailable: withJoins.filter((unit) => unit.wordTiming?.status === 'unavailable').length,
+        boundaryMismatches: withJoins.filter((unit) => unit.wordTiming?.boundaryMismatch).length,
+        endMismatches: withJoins.filter((unit) => unit.wordTiming?.endMismatch).length,
+      }),
     },
   };
 };

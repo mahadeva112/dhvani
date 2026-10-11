@@ -42,7 +42,9 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
 
   const previews = units.map((unit, index) => {
     const end =
-      unit.nextStart !== null
+      join.preserveLongPauses && unit.gapAfter >= join.protectedPause
+        ? unit.srcEnd
+        : unit.nextStart !== null
         ? unit.nextStart - unitGapAfter(unit, join)
         : Math.max(Number(sourceDuration) || 0, unit.srcEnd) + 0.5;
     const slot = Math.max(0.05, end - unit.srcStart);

@@ -1024,6 +1024,20 @@ test('removeBreaths silences a breath before the first word and in a pause, and 
   assert.ok(prepared.lead < 0.12, `the clip now starts at its first word (lead ${prepared.lead.toFixed(3)} s)`);
 });
 
+test('partial breath reduction keeps a softer breath and leaves voiced samples unchanged', () => {
+  const original = sound([
+    { seconds: 0.05, kind: 'silence' }, { seconds: 0.3, kind: 'noise', level: 0.02 },
+    { seconds: 0.1, kind: 'silence' }, { seconds: 0.5, kind: 'voice', level: 0.3 }, { seconds: 0.1, kind: 'silence' },
+  ]);
+  const partial = removeBreaths(original, BREATH_RATE, { reduction: 0.5 });
+  assert.equal(partial.removed, 1);
+  assert.ok(Math.abs(levelOf(partial.samples, 0.1, 0.3) / levelOf(original, 0.1, 0.3) - 0.5) < 0.0001);
+  for (let i = Math.round(0.45 * BREATH_RATE); i < Math.round(0.95 * BREATH_RATE); i++) assert.equal(partial.samples[i], original[i]);
+  const kept = removeBreaths(original, BREATH_RATE, { reduction: 0 });
+  assert.equal(kept.samples, original);
+  assert.equal(kept.removed, 0);
+});
+
 test('removeBreaths keeps an "s" that runs into its word, a loud noise, and a quiet voiced word', () => {
   const clip = sound([
     { seconds: 0.1, kind: 'silence' },

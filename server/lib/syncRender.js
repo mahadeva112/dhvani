@@ -127,7 +127,9 @@ const BREATH_MAX_DB = -22;
  * stretch. Returns `{ samples, removed }`, `removed` the breaths silenced;
  * `samples` is the input itself when there were none.
  */
-export const removeBreaths = (samples, sampleRate) => {
+export const removeBreaths = (samples, sampleRate, { reduction = 1 } = {}) => {
+  const amount = Number.isFinite(reduction) ? Math.max(0, Math.min(1, reduction)) : 1;
+  if (amount === 0) return { samples, removed: 0 };
   const frame = Math.max(1, Math.round(BREATH_FRAME_SECONDS * sampleRate));
   const count = Math.floor(samples.length / frame);
   if (count === 0) return { samples, removed: 0 };
@@ -181,7 +183,8 @@ export const removeBreaths = (samples, sampleRate) => {
     const ramp = Math.min(fade, Math.floor((to - from) / 2));
     for (let i = from; i < to; i++) {
       const weight = i - from < ramp ? 1 - fadeWeight(i - from, ramp) : to - 1 - i < ramp ? 1 - fadeWeight(to - 1 - i, ramp) : 0;
-      out[i] = samples[i] * weight;
+      // Fully removed is exactly the fade weight, as before breath reduction existed, so earlier takes keep their hashes.
+      out[i] = samples[i] * (amount === 1 ? weight : 1 - amount * (1 - weight));
     }
   }
   return { samples: out, removed: breaths.length };
@@ -261,13 +264,14 @@ const innerPauses = (samples, sampleRate) => {
  * either side; it changes those samples. Returns `{ samples, removed, cuts }`,
  * `cuts` being the sample ranges taken out, in order.
  */
-export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INNER_PAUSE_SECONDS, maxTake = 1, crossfade = 0 } = {}) => {
+export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INNER_PAUSE_SECONDS, maxTake = 1, crossfade = 0, protectAbove = Infinity } = {}) => {
   const floor = Math.round(minPause * sampleRate);
   let budget = Math.round(Math.max(0, seconds) * sampleRate);
   const cuts = [];
   for (const pause of innerPauses(samples, sampleRate)) {
     if (budget <= 0) break;
     const length = pause.end - pause.start;
+    if (length / sampleRate >= protectAbove) continue;
     const spare = Math.min(length - floor, Math.floor(Math.max(0, maxTake) * length));
     if (spare <= 0) continue;
     const take = Math.min(spare, budget);

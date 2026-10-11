@@ -24,14 +24,14 @@ export type SyncPrecision = 'lipsync' | 'phrase' | 'loose';
 
 export const SYNC_PRECISION_OPTIONS: { id: SyncPrecision; label: string }[] = [
   { id: 'phrase', label: 'Phrase (±150 ms)' },
-  { id: 'lipsync', label: 'Lip-sync (±80 ms)' },
+  { id: 'lipsync', label: 'Close-up timing (±80 ms)' },
   { id: 'loose', label: 'Loose (±300 ms)' },
 ];
 
 /**
  * How a synced dub joins its lines. Times are in seconds, shares from 0 to 1;
  * the server keeps every value inside its range (server/lib/syncSettings.js).
- * Only `spliceCrossfade` and `edgeFade` change the audio itself.
+ * Breath reduction, `spliceCrossfade` and `edgeFade` change the audio itself.
  */
 export interface SyncJoinSettings {
   /** Smallest silence between one line's tail and the next line's first sound. */
@@ -44,6 +44,7 @@ export interface SyncJoinSettings {
   breathClear: boolean;
   /** Silence the breaths the voice makes before, between and after its words. Changes the audio. */
   removeBreaths: boolean;
+  breathReduction: number;
   /** Take silence out of the pauses inside a line that runs long. */
   shortenPauses: boolean;
   /** A pause inside a line is never shortened below this. */
@@ -66,6 +67,8 @@ export interface SyncJoinSettings {
   maxUnit: number;
   /** A join with less than this between the words either side is flagged. */
   flagJoin: number;
+  preserveLongPauses: boolean;
+  protectedPause: number;
 }
 
 export type SyncJoinPreset = 'natural' | 'tight' | 'lipsync' | 'custom';
@@ -78,6 +81,7 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     gapShare: 0.3,
     breathClear: true,
     removeBreaths: true,
+    breathReduction: 1,
     shortenPauses: true,
     minInnerPause: 0.25,
     maxPauseTake: 0.4,
@@ -89,6 +93,8 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     unitGap: 0.4,
     maxUnit: 12,
     flagJoin: 0.15,
+    preserveLongPauses: false,
+    protectedPause: 1.2,
   },
   tight: {
     minGap: 0.12,
@@ -96,6 +102,7 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     gapShare: 0.35,
     breathClear: true,
     removeBreaths: true,
+    breathReduction: 1,
     shortenPauses: true,
     minInnerPause: 0.2,
     maxPauseTake: 0.6,
@@ -107,6 +114,8 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     unitGap: 0.3,
     maxUnit: 12,
     flagJoin: 0.11,
+    preserveLongPauses: false,
+    protectedPause: 1.2,
   },
   lipsync: {
     minGap: 0.09,
@@ -114,6 +123,7 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     gapShare: 0.3,
     breathClear: true,
     removeBreaths: true,
+    breathReduction: 1,
     shortenPauses: true,
     minInnerPause: 0.18,
     maxPauseTake: 0.7,
@@ -125,13 +135,15 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     unitGap: 0.25,
     maxUnit: 12,
     flagJoin: 0.09,
+    preserveLongPauses: false,
+    protectedPause: 1.2,
   },
 };
 
 export const SYNC_JOIN_PRESET_OPTIONS: { id: SyncJoinPreset; label: string; hint: string }[] = [
   { id: 'natural', label: 'Natural (recommended)', hint: 'Room to breathe between lines.' },
   { id: 'tight', label: 'Tight', hint: 'Follows the original pauses closely.' },
-  { id: 'lipsync', label: 'Strict lip-sync', hint: 'Smallest gaps, for on-screen faces.' },
+  { id: 'lipsync', label: 'Close-up (tight joins)', hint: 'Smallest gaps, for on-screen faces. Visual lip-sync is not verified.' },
   { id: 'custom', label: 'Custom', hint: 'Your own settings, below.' },
 ];
 
@@ -144,6 +156,8 @@ export const SYNC_JOIN_PRESET_OPTIONS: { id: SyncJoinPreset; label: string; hint
 export type SyncVoicing = 'lines' | 'continuous';
 
 export interface SyncOptions {
+  verifyWords?: boolean;
+  timingProtection?: 'warn' | 'strict';
   voicing: SyncVoicing;
   precision: SyncPrecision;
   /** Which preset `join` came from; 'custom' once any of it is changed. */
@@ -203,6 +217,20 @@ export const audioDebugEnabled = (): boolean => {
 
 /** One synced line: a group of cues spoken as one phrase. Times are in seconds. */
 export interface SyncUnitReport {
+  voiceId?: string;
+  /** Why the line could not meet its timing limits (Strict, a protected pause or a lock), or null; the dub is made either way. */
+  timingConflict?: string | null;
+  wordTiming?: {
+    status: 'measured' | 'unavailable';
+    reason?: string;
+    startError?: number;
+    endError?: number;
+    boundaryMaxError?: number | null;
+    boundaryMismatch?: boolean;
+    endMismatch?: boolean;
+    anchors?: { cueId: string; startError: number; endError: number }[];
+    words?: TimedWord[] | { text: string; start: number; end: number }[];
+  };
   index: number;
   /** Names the line for a retake: the id of its first cue. */
   key: string;
@@ -262,6 +290,8 @@ export interface SyncUnitReport {
 }
 
 export interface SyncReport {
+  language?: string;
+  timingProtection?: 'warn' | 'strict';
   precision: SyncPrecision;
   /** The join settings the sync ran with, as the server kept them. */
   join: SyncJoinSettings;
@@ -271,6 +301,12 @@ export interface SyncReport {
   /** Length of the synced dub. */
   duration: number;
   summary: {
+    /** Lines flagged with a timing conflict. */
+    timingConflicts?: number;
+    wordTimingMeasured?: number;
+    wordTimingUnavailable?: number;
+    boundaryMismatches?: number;
+    endMismatches?: number;
     lines: number;
     inSync: number;
     medianError: number;
@@ -325,6 +361,8 @@ export const SYNC_STEPS = [
 ] as const;
 
 export interface SyncProgress {
+  wordChecksTotal?: number;
+  wordChecksDone?: number;
   phase: (typeof SYNC_STEPS)[number]['phase'] | 'done' | 'cancelled' | 'failed';
   /** 1-based step in SYNC_STEPS. */
   step: number;
@@ -336,6 +374,8 @@ export interface SyncProgress {
 }
 
 export interface SyncRequest {
+  verifyWords?: boolean;
+  timingProtection?: 'warn' | 'strict';
   segments: AudioSegment[];
   sourceDuration: number;
   voiceId: string;
@@ -390,14 +430,15 @@ export interface SyncRequest {
   pickedBankBlob?: Blob | null;
 }
 
-/** Only what the server reads from each cue; word timings and legacy fields stay behind. */
-const slimSegment = (segment: AudioSegment, voiceTexts?: Record<string, string>) => ({
+/** Only what the server reads from each cue; source word timings only for word verification, legacy fields stay behind. */
+const slimSegment = (segment: AudioSegment, voiceTexts?: Record<string, string>, withWords = false) => ({
   id: segment.id,
   startTime: segment.startTime,
   endTime: segment.endTime,
   speaker: segment.speaker,
   textTarget: segment.textTarget || segment.targetText || '',
   textSource: segment.textSource || segment.originalText || '',
+  ...(withWords && segment.words && { words: segment.words }),
   ...(voiceTexts?.[segment.id] && { voiceText: voiceTexts[segment.id] }),
 });
 
@@ -431,7 +472,7 @@ export const syncDub = async (
         ...rest,
         ...(keepPicked && picked && { picked }),
         ...voice,
-        segments: request.segments.map((segment) => slimSegment(segment, voiceTexts)),
+        segments: request.segments.map((segment) => slimSegment(segment, voiceTexts, request.verifyWords === true)),
         keep: keepTermsFor(request.language || ''),
         ...(voiceTexts && { performanceTags: true }),
         ...(withDub && dub && { dub: { dubId: dub.lines.dubId, cues: dub.lines.cues } }),
@@ -765,7 +806,8 @@ export interface SyncFit {
   /** The settings sent, with the changes in them. */
   join: SyncJoinSettings;
   changes: SyncFitChange[];
-  measured: { lines: number; speakers: number; pauses: number; handovers: number; wordPauses: number; lengthRatio: number | null };
+  measured: { lines: number; speakers: number; pauses: number; handovers: number; wordPauses: number; lengthRatio: number | null;
+    measuredLines?: number; estimatedLines?: number; rateBasis?: 'measured' | 'mixed' | 'estimated' };
   /** Why nothing could be measured, or null. */
   note: string | null;
 }
@@ -775,7 +817,7 @@ export interface SyncFit {
  * cues' word timings) and how much longer the dub runs. Nothing is applied.
  */
 export const fitJoinSettings = (
-  request: { segments: AudioSegment[]; join: SyncJoinSettings; charsPerSecond: number; rateMeasured: boolean },
+  request: { segments: AudioSegment[]; join: SyncJoinSettings; charsPerSecond: number; rateMeasured: boolean; speakerRates?: Record<string, { charsPerSecond: number; lines: number }> },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncFit> =>
   apiJson<SyncFit>('/sync/fit', {
@@ -920,4 +962,20 @@ export const syncedSpeakingRate = (report: Pick<SyncReport, 'units'> | null | un
     seconds += unit.speech;
   }
   return speakingRate(characters, seconds);
+};
+
+/** Rates of each current speaker's voice from complete lines of the previous dub. */
+export const syncedSpeakerRates = (report: SyncReport | null | undefined, voices: Record<string, string>, mainVoice: string, language: string) => {
+  const totals = new Map<string, { characters: number; seconds: number; lines: number }>();
+  if (report?.language && report.language !== language) return {};
+  for (const unit of report?.units || []) {
+    const speaker = unit.speaker || 'Speaker';
+    if (unit.silent || unit.cutOff || unit.wordTiming?.status === 'unavailable' || !(unit.speech > 0) || unit.voiceId !== (voices[speaker] || mainVoice)) continue;
+    const total = totals.get(speaker) || { characters: 0, seconds: 0, lines: 0 };
+    total.characters += unit.text.trim().length;
+    total.seconds += unit.speech;
+    total.lines++;
+    totals.set(speaker, total);
+  }
+  return Object.fromEntries([...totals].map(([speaker, total]) => [speaker, { charsPerSecond: total.characters / total.seconds, lines: total.lines }]));
 };

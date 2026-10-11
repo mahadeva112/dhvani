@@ -29,6 +29,7 @@ import { matchingGains } from './loudness.js';
 import { TTS_CONTEXT_CHARS, withSentenceEnd } from './ttsText.js';
 import { mixSpeakers, speakerGains } from './speakerMix.js';
 import { tooDeepCut } from './syncRewrite.js';
+import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -245,6 +246,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     matchLoudness = false,
     locked = {},
     debug = false,
+    verifyWords = false,
+    timingProtection = 'warn',
   } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
@@ -332,7 +335,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
     const decoded = taken[i] || (await deps.decode(buffers[i]));
     voicedLength[i] = decoded.length;
-    const { samples, removed } = join.removeBreaths ? removeBreaths(decoded, sampleRate) : { samples: decoded, removed: 0 };
+    const { samples, removed } = join.removeBreaths ? removeBreaths(decoded, sampleRate, { reduction: join.breathReduction }) : { samples: decoded, removed: 0 };
     breathsRemoved[i] = removed;
     clips[i] = prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold });
   };
@@ -475,7 +478,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     const unit = units[i];
     const start = unit.srcStart - core(i).lead;
     const limit =
-      unit.nextStart !== null
+      join.preserveLongPauses && unit.gapAfter >= join.protectedPause
+        ? unit.srcEnd
+        : unit.nextStart !== null
         ? unit.nextStart - (clips[i + 1] ? core(i + 1).lead : 0) - gapAfterUnit(i)
         : sourceDuration > 0
           ? Math.max(sourceDuration, unit.srcEnd) + 0.5
@@ -506,6 +511,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       minPause: join.minInnerPause,
       maxTake: join.maxPauseTake,
       crossfade: join.spliceCrossfade,
+      protectAbove: join.preserveLongPauses ? join.protectedPause : Infinity,
     });
     if (removed > 0) {
       clips[i] = { ...clips[i], samples, speech: clips[i].speech - removed };
@@ -514,35 +520,81 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
   });
 
+  const wordTimings = new Map();
+  const wordErrors = new Map();
+  if (verifyWords) {
+    const toCheck = units.map((_, i) => i).filter((i) => clips[i]);
+    let checksDone = 0;
+    report({ phase: 'placing', step: 4, wordChecksTotal: toCheck.length, wordChecksDone: 0 });
+    await mapLimit(toCheck, 2, async (i) => {
+      checkCancelled();
+      try {
+        if (!deps.align) throw new Error('Word alignment is unavailable.');
+        const { words } = await deps.align({ samples: clips[i].samples, text: units[i].text, sampleRate });
+        checkCancelled();
+        wordTimings.set(i, validateAlignedWords(words, units[i].text, clips[i].samples.length / sampleRate));
+        // A fixed edit's duration and position are authoritative.
+        if (!lockOf[i]) clips[i] = { ...clips[i], lead: words[0].start, speech: words.at(-1).end - words[0].start };
+      } catch (error) {
+        checkCancelled();
+        wordErrors.set(i, error.message || 'Word timing could not be checked.');
+      }
+      report({ wordChecksDone: ++checksDone });
+    });
+    report({ phase: 'placing', step: 4 });
+  }
+
   const placedIndex = units.map((_, i) => i).filter((i) => clips[i]);
   const cores = placedIndex.map((i) => core(i));
+  // Lines whose timing limits could not be met, with why: the dub is still made, and they are flagged for review.
+  const timingConflicts = new Map();
+  const placeConflicts = [];
   const positions = placeClips(
     placedIndex.map((i, n) => {
       const unit = units[i];
       const lock = lockOf[i];
       // A locked line is one rigid block, the stretch its edits take, held where the user put it.
       if (lock) {
+        if (join.preserveLongPauses && ((unit.gapBefore >= join.protectedPause && lock.start < unit.srcStart - 1 / sampleRate) ||
+          (unit.gapAfter >= join.protectedPause && lock.end > unit.srcEnd + 1 / sampleRate))) {
+          timingConflicts.set(i, 'Your locked edit of this line runs into a protected pause. It is kept where you put it.');
+        }
         return {
           want: lock.start,
           length: lock.end - lock.start,
           gapAfter: n < placedIndex.length - 1 ? gapAfterUnit(i) : 0,
           weight: LOCK_WEIGHT,
+          fixed: true,
           earliest: lock.start,
           floor: 0,
         };
       }
       const want = unit.srcStart - cores[n].lead;
+      const preserveBefore = join.preserveLongPauses && unit.gapBefore >= join.protectedPause;
+      const preserveAfter = join.preserveLongPauses && unit.gapAfter >= join.protectedPause;
       return {
         want,
         length: cores[n].length,
         gapAfter: n < placedIndex.length - 1 ? gapAfterUnit(i) : 0,
         weight: unit.hardAnchor ? HARD_ANCHOR_WEIGHT : 1,
-        earliest: want - tolerance,
+        earliest: preserveBefore ? want : want - tolerance,
+        latest: Math.min(timingProtection === 'strict' ? want + join.maxLateStart : Infinity, preserveAfter ? unit.srcEnd - cores[n].length : Infinity),
         // Only the first word has to be inside the track; what comes before it may be dropped.
         floor: -cores[n].lead,
       };
-    })
+    }),
+    { conflicts: placeConflicts }
   );
+  for (const n of placeConflicts) {
+    const i = placedIndex[n];
+    const moved = lockOf[i] ? positions[n] - lockOf[i].start : null;
+    timingConflicts.set(
+      i,
+      moved !== null
+        ? `The lines before it needed more room, so your locked line moved ${moved.toFixed(2)} s later. Shorten or retake the line before it, or move the lock.`
+        : 'The lines before it need more room than its timing limit allows, so it starts late. Shorten or retake the line before it, or relax the limit.'
+    );
+  }
   checkCancelled();
 
   // 5. Rendering. Each clip goes in with its pre-roll before its core. Only a
@@ -565,7 +617,17 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     positions[n] += cut.delay / sampleRate;
     return { samples: clips[i].samples.subarray(cut.from), startSample: 0, maxStartShift: 0, speaker };
   });
-  const log = debug ? (entry) => rendered.push(entry) : undefined;
+  const log = debug || verifyWords ? (entry) => rendered.push(entry) : undefined;
+  if (timingProtection === 'strict') {
+    // A line that still starts past the Strict limit once its audio edge is placed is flagged, never dropped.
+    placedIndex.forEach((i, n) => {
+      if (lockOf[i] || timingConflicts.has(i)) return;
+      const late = positions[n] + cores[n].lead - units[i].srcStart;
+      if (late > join.maxLateStart + 1 / sampleRate) {
+        timingConflicts.set(i, `It starts ${late.toFixed(2)} s after the original line, past the Strict limit. Shorten or retake the line before it, or relax the limit.`);
+      }
+    });
+  }
   // The gains are worked out here rather than inside the render so the bank can
   // carry them, and an edit render of the same lines comes out the same.
   const lineGains = !multiSpeaker && matchLoudness ? matchingGains(placedClips.map((clip) => clip.samples), sampleRate) : placedClips.map(() => 1);
@@ -749,6 +811,20 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     });
   }
 
+  const cueById = new Map(segments.map((cue) => [cue.id, cue]));
+  const verifiedTiming = new Map();
+  if (verifyWords) placedIndex.forEach((i, n) => {
+    const words = wordTimings.get(i);
+    if (!words) return;
+    const retainedFrom = (dropped[n] + rendered[n].edgeTrimStartSamples) / sampleRate;
+    const retainedTo = (dropped[n] + placedClips[n].samples.length - rendered[n].edgeTrimEndSamples) / sampleRate;
+    if (words[0].start < retainedFrom - 1 / sampleRate || words.at(-1).end > retainedTo + 1 / sampleRate) {
+      wordErrors.set(i, 'The rendered audio edge moved through an aligned word. Review this take.');
+      return;
+    }
+    const origin = (rendered[n].timelineStartSample - rendered[n].edgeTrimStartSamples - dropped[n]) / sampleRate;
+    verifiedTiming.set(i, measureWordTiming(words, units[i], units[i].cueIds.map((id) => cueById.get(id)).filter(Boolean).sort((a, b) => a.startTime - b.startTime), origin, tolerance));
+  });
   const unitReports = units.map((unit, i) => {
     const line = lineFor.get(i);
     return {
@@ -756,6 +832,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       key: lineKey(unit),
       cueIds: unit.cueIds,
       speaker: unit.speaker || null,
+      voiceId: baseVoiceOf(unit).voiceId,
       text: unit.text,
       sourceText: unit.sourceText,
       srcStart: unit.srcStart,
@@ -786,6 +863,11 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       picked: Boolean(picked[i]),
       cutOff: Boolean(clips[i]?.cutOff),
       breathsRemoved: breathsRemoved[i],
+      // Why the line could not meet its timing limits (Strict, a protected pause or a lock), or null.
+      timingConflict: timingConflicts.get(i) || null,
+      ...(verifyWords && { wordTiming: verifiedTiming.has(i)
+        ? verifiedTiming.get(i)
+        : { status: 'unavailable', reason: wordErrors.get(i) || 'This line contains no audible speech.' } }),
     };
   });
 
@@ -796,8 +878,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     ...(mixed && { stems }),
     report: {
       precision,
+      language,
       tolerance,
       join,
+      timingProtection: timingProtection === 'strict' ? 'strict' : 'warn',
       duration: track.length / sampleRate,
       summary: {
         ...summary,
@@ -819,6 +903,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         picked: picked.filter(Boolean).length,
         cutOff: clips.filter((clip) => clip?.cutOff).length,
         breathsRemoved: breathsRemoved.reduce((sum, n) => sum + n, 0),
+        timingConflicts: timingConflicts.size,
+        ...(verifyWords && { wordTimingMeasured: verifiedTiming.size, wordTimingUnavailable: units.length - verifiedTiming.size,
+          boundaryMismatches: unitReports.filter((unit) => unit.wordTiming?.boundaryMismatch).length,
+          endMismatches: unitReports.filter((unit) => unit.wordTiming?.endMismatch).length }),
       },
       units: unitReports,
       ...(mixed && { mix: { ...mixed.report, overlapsKept, selfOverlaps } }),

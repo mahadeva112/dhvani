@@ -106,6 +106,7 @@ import {
   scriptCharacterCount,
   speakingRate,
   syncedSpeakingRate,
+  syncedSpeakerRates,
   suggestShorterLine,
   suggestLongerLine,
   suggestRewordedLine,
@@ -368,6 +369,7 @@ interface ExpressDubWizardProps {
   onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
   /** Dub & sync: the dub, voiced line by line and placed on the original's phrases. */
   onSyncDub?: (options: SyncOptions) => void;
+  onSyncOptionsChange?: (options: SyncOptions) => void;
   /** Edit timing: the synced dub's lines changed by hand, with a name for the change. Omitted hides Edit timing. */
   onSyncEditsChange?: (edits: SyncEdits, label: string) => void;
   /** Whether the synced dub has caught up with the edits. */
@@ -499,6 +501,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   elVoiceSettings = null,
   onElVoiceSettingsChange,
   onSyncDub,
+  onSyncOptionsChange,
   onSyncEditsChange,
   syncEditStatus = { state: 'ready' },
   syncEditLive = false,
@@ -796,7 +799,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // The header shows and switches steps, so the step lives in App.
   const setStepOverride = onStepChange;
   // The Dub step's sync settings, shared by its rail and the "Sync again" in its results.
-  const [syncOptions, setSyncOptions] = useSyncOptions();
+  const [syncOptions, setSyncOptions] = useSyncOptions(activeJob?.id, activeJob?.syncOptions, onSyncOptionsChange);
   const hasSegments = Boolean(activeJob && activeJob.segments.length > 0);
 
   const getSourceText = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
@@ -854,6 +857,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Counted when the dub was made, so editing lines afterwards doesn't shift the rate. Older dubs didn't save it.
   const rateCharacters = activeJob?.dubScriptCharacters ?? scriptCharacters;
   const syncRate = useMemo(() => syncedSpeakingRate(activeJob?.syncReport), [activeJob?.syncReport]);
+  const fitSpeakerRates = useMemo(() => syncedSpeakerRates(activeJob?.syncReport,
+    Object.fromEntries(Object.entries(activeJob?.cast || {}).map(([speaker, voice]) => [speaker, voice.voiceId])), elVoiceId, targetLanguage),
+    [activeJob?.syncReport, activeJob?.cast, elVoiceId, targetLanguage]);
   const measuredRate = syncRate ?? (activeJob?.synthesizedAudioUrl ? speakingRate(rateCharacters, dubSpeechSeconds) : null);
   // Rounded so small script edits don't move every estimate and refetch the preview.
   const previewRate = Math.round((measuredRate ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
@@ -4122,7 +4128,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 extras={dubExtras}
                 onDownloadWav={report ? onDownloadWav : undefined}
                 onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
-                fitSource={{ segments, charsPerSecond: previewRate, rateMeasured: measuredRate !== null }}
+                fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && measuredRate !== null, speakerRates: fitSpeakerRates }}
                 subtitles={
                   report && syncedCues && syncedCues.length > 0 && (
                     <button

@@ -969,7 +969,6 @@ export const SyncEditTimeline: React.FC<{
       setTakeRange(null);
       if (!under || under.chunk.original || under.chunk.part.muted) return say('Drag inside one audible dub line to select words.');
       const { chunk } = under;
-      if (committed[chunk.key]?.locked ?? lineOf(chunk).locked) return say('Unlock this line before retaking it.');
       if (takesUnavailableKeys.includes(chunk.key)) return say('This line changed. Sync again before selecting its words.');
       setSelected(chunk.part.id);
       const start = clamp(t, chunk.part.start, partEnd(chunk.part));
