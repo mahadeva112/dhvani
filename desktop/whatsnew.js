@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.41',
+    changes: [
+      'With several speakers, Edit timing gives each speaker their own lane, with their voice and speed, a level for the dub, and mute and solo for listening. Speakers’ lines can overlap, as in the original.',
+      'Each speaker’s own voice is measured too, and translation and Review size each line for the voice that says it. You can pick each speaker’s voice on Source & voice, before translating.',
+    ],
+  },
+  {
     version: '1.3.40',
     changes: [
       'When you pick a voice, it reads a short sample once to measure how fast it speaks in your dub language. Review’s line fit and syllable hints use that speed before the first sync, and translation can size each line for the voice (a checkbox turns this off).',
