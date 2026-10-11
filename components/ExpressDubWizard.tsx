@@ -369,7 +369,8 @@ interface ExpressDubWizardProps {
   onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
   /** Dub & sync: the dub, voiced line by line and placed on the original's phrases. */
   onSyncDub?: (options: SyncOptions) => void;
-  onSyncOptionsChange?: (options: SyncOptions) => void;
+  /** The Dub step's sync settings changed, for the project they belong to. */
+  onSyncOptionsChange?: (projectId: string, options: SyncOptions) => void;
   /** Edit timing: the synced dub's lines changed by hand, with a name for the change. Omitted hides Edit timing. */
   onSyncEditsChange?: (edits: SyncEdits, label: string) => void;
   /** Whether the synced dub has caught up with the edits. */

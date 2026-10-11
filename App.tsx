@@ -97,7 +97,8 @@ const OPEN_PROJECT_STORAGE_KEY = 'dhvani_open_project';
  * Not working on a project: its audio, decoded again each time it opens, and
  * the step it is on. Changing these leaves when it was last worked on.
  */
-const VIEW_FIELDS = new Set<string>(['audioBuffer', 'synthAudioBuffer', 'syncedAudioBuffer', 'lastStep']);
+// Sync settings too: opening an older project saves them for the first time, and that isn't working on it.
+const VIEW_FIELDS = new Set<string>(['audioBuffer', 'synthAudioBuffer', 'syncedAudioBuffer', 'lastStep', 'syncOptions']);
 const DEFAULT_ELEVENLABS_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
 
 const engineOfVoice = (voiceId?: string | null): VoiceEngine =>
@@ -3134,7 +3135,7 @@ export default function App() {
           activeStep={activeStep}
           onStepChange={handleStepChange}
           activeJob={activeJob}
-          onSyncOptionsChange={(options) => activeJob && updateJob(activeJob.id, { syncOptions: options })}
+          onSyncOptionsChange={(projectId, options) => updateJob(projectId, { syncOptions: options })}
           onFileSelect={handleFilesUpload}
           onLoadSampleSession={handleLoadSampleSession}
           targetLanguage={activeJob?.language || selectedLanguage}

@@ -84,14 +84,17 @@ test('pause shortening preserves long internal silence and can still trim shorte
   assert.ok(shortenPauses(tone(1, 0.6), RATE, 0.3, { protectAbove: 1 }).removed > 0.25);
 });
 
-test('actual word alignment replaces acoustic onset estimates and reports internal boundaries', async () => {
+test('word verification only checks: the dub is the same with it on, and internal boundaries are reported', async () => {
   const segments = [cue(1, 1, 1.4, 'one'), cue(2, 1.5, 2, 'two.')];
+  const off = await run(segments);
   const result = await run(segments, { verifyWords: true }, { align: async () => ({ words: [
     { text: 'one', start: 0.02, end: 0.3 }, { text: 'two.', start: 0.8, end: 0.98 },
   ] }) });
+  assert.deepEqual(result.buffer, off.buffer, 'verification never moves a line');
+  assert.deepEqual(result.report.units.map((u) => u.placedStart), off.report.units.map((u) => u.placedStart));
   const timing = result.report.units[0].wordTiming;
   assert.equal(timing.status, 'measured');
-  assert.ok(Math.abs(timing.startError) < 0.001);
+  assert.ok(Number.isFinite(timing.startError));
   assert.ok(timing.boundaryMaxError > 0.2);
   assert.equal(result.report.summary.boundaryMismatches, 1);
   assert.equal(timing.words.length, 2);

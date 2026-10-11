@@ -91,17 +91,30 @@ export const readOptions = (value?: unknown): SyncOptions => {
 };
 
 /** The sync options, remembered across sessions. One copy serves both panels. */
-export const useSyncOptions = (projectId?: string, saved?: SyncOptions, onSave?: (options: SyncOptions) => void) => {
+export const useSyncOptions = (projectId?: string, saved?: SyncOptions, onSave?: (projectId: string, options: SyncOptions) => void) => {
   const [slot, setSlot] = useState(() => ({ id: projectId, options: readOptions(saved) }));
   const options = useMemo(() => slot.id === projectId ? slot.options : readOptions(saved), [slot, projectId, saved]);
   const current = useRef(options);
   current.current = options;
+  const save = useRef(onSave);
+  save.current = onSave;
+  // Saved to the project a moment after the last change, so dragging a slider writes the project once, not on every step.
+  const pending = useRef<{ id: string; options: SyncOptions; timer: ReturnType<typeof setTimeout> } | null>(null);
+  const flush = useCallback(() => {
+    const due = pending.current;
+    if (!due) return;
+    clearTimeout(due.timer);
+    pending.current = null;
+    save.current?.(due.id, due.options);
+  }, []);
+  // Leaving a project, or the page, saves what is still waiting to its own project.
+  useEffect(() => flush, [projectId, flush]);
   useEffect(() => {
     if (slot.id !== projectId) setSlot({ id: projectId, options });
   }, [slot.id, projectId, options]);
   useEffect(() => {
-    if (projectId && !saved) onSave?.(options);
-  }, [projectId, saved, onSave, options]);
+    if (projectId && !saved && !pending.current) save.current?.(projectId, options);
+  }, [projectId, saved, options]);
   const setOptions: React.Dispatch<React.SetStateAction<SyncOptions>> = useCallback((update) => {
     const next = typeof update === 'function' ? update(current.current) : update;
     current.current = next;
@@ -109,8 +122,10 @@ export const useSyncOptions = (projectId?: string, saved?: SyncOptions, onSave?:
     try {
       localStorage.setItem(OPTIONS_KEY, JSON.stringify(next));
     } catch {}
-    onSave?.(next);
-  }, [projectId, onSave]);
+    if (!projectId) return;
+    if (pending.current) clearTimeout(pending.current.timer);
+    pending.current = { id: projectId, options: next, timer: setTimeout(flush, 500) };
+  }, [projectId, flush]);
   return [options, setOptions] as const;
 };
 
@@ -128,7 +143,8 @@ export const syncFraction = (progress: SyncProgress | null) =>
  */
 export const SyncVerdictBadge: React.FC<{ report: SyncReport }> = ({ report }) => {
   const { inSync, lines, exceeded, maxError } = report.summary;
-  if (inSync === lines && !(report.summary.boundaryMismatches || report.summary.wordTimingUnavailable || report.summary.endMismatches)) {
+  const conflicts = report.summary.timingConflicts ?? 0;
+  if (inSync === lines && !(conflicts || report.summary.boundaryMismatches || report.summary.wordTimingUnavailable || report.summary.endMismatches)) {
     return (
       <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
         <Check className="w-3 h-3" /> Synced · all {lines} lines in sync
@@ -136,6 +152,7 @@ export const SyncVerdictBadge: React.FC<{ report: SyncReport }> = ({ report }) =
     );
   }
   const off = [
+    ...(conflicts ? [`${conflicts} line${conflicts === 1 ? '' : 's'} need timing review`] : []),
     ...(report.summary.boundaryMismatches ? [`${report.summary.boundaryMismatches} cue boundaries need review`] : []),
     ...(report.summary.endMismatches ? [`${report.summary.endMismatches} line endings need review`] : []),
     ...(report.summary.wordTimingUnavailable ? [`${report.summary.wordTimingUnavailable} word checks unavailable`] : []),
@@ -328,7 +345,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         <input type="checkbox" checked={Boolean(options.verifyWords)} disabled={isSyncing} className="mt-0.5 accent-indigo-500"
           onChange={(e) => onOptionsChange((o) => ({ ...o, verifyWords: e.target.checked }))} />
         <span><span className="block text-[13px] text-slate-200">Verify actual word timing</span>
-          <span className="block text-[11.5px] text-slate-400 mt-0.5">Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span></span>
+          <span className="block text-[11.5px] text-slate-400 mt-0.5">Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span></span>
       </label>
       <label className="flex items-start gap-2.5 cursor-pointer">
         <input

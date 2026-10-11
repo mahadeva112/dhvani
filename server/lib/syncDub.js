@@ -533,8 +533,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         const { words } = await deps.align({ samples: clips[i].samples, text: units[i].text, sampleRate });
         checkCancelled();
         wordTimings.set(i, validateAlignedWords(words, units[i].text, clips[i].samples.length / sampleRate));
-        // A fixed edit's duration and position are authoritative.
-        if (!lockOf[i]) clips[i] = { ...clips[i], lead: words[0].start, speech: words.at(-1).end - words[0].start };
+        // Only checked: the line is placed exactly as it would be with the check off.
       } catch (error) {
         checkCancelled();
         wordErrors.set(i, error.message || 'Word timing could not be checked.');
