@@ -330,23 +330,6 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         {previewShown && <span className="text-[11.5px] text-slate-400">The preview updates when you change this.</span>}
       </div>
       <SyncJoinSettingsPanel options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} fitSource={fitSource} />
-      <SyncPresetLibrary options={options} onChange={onOptionsChange} normalize={readOptions} disabled={isSyncing} />
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="sync-timing-protection" className={sectionLabel}>Timing protection</label>
-        <select id="sync-timing-protection" value={options.timingProtection || 'warn'} disabled={isSyncing}
-          onChange={(e) => onOptionsChange((o) => ({ ...o, timingProtection: e.target.value as 'warn' | 'strict' }))}
-          className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200">
-          <option value="warn">Warn when a line starts late</option>
-          <option value="strict">Strict — keep within latest start</option>
-        </select>
-        <span className="text-[11.5px] text-slate-400">Strict holds every line within its latest start; a line that still cannot fit is placed as early as it can go and flagged below, never left out. Locked edits keep their position unless the lines before them need the room, and are flagged when they move.</span>
-      </div>
-      <label className="flex items-start gap-2.5 cursor-pointer">
-        <input type="checkbox" checked={Boolean(options.verifyWords)} disabled={isSyncing} className="mt-0.5 accent-indigo-500"
-          onChange={(e) => onOptionsChange((o) => ({ ...o, verifyWords: e.target.checked }))} />
-        <span><span className="block text-[13px] text-slate-200">Verify actual word timing</span>
-          <span className="block text-[11.5px] text-slate-400 mt-0.5">Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span></span>
-      </label>
       <label className="flex items-start gap-2.5 cursor-pointer">
         <input
           type="checkbox"
@@ -375,6 +358,16 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           </span>
         </span>
       </label>
+      <fieldset className="flex flex-col gap-2">
+        <legend className={`${sectionLabel} mb-2`}>Extra checks</legend>
+        <label className="flex items-start gap-2.5 cursor-pointer">
+          <input type="checkbox" checked={Boolean(options.verifyWords)} disabled={isSyncing} className="mt-0.5 accent-indigo-500"
+            onChange={(e) => onOptionsChange((o) => ({ ...o, verifyWords: e.target.checked }))} />
+          <span><span className="block text-[13px] text-slate-200">Verify actual word timing</span>
+            <span className="block text-[11.5px] text-slate-400 mt-0.5">Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span></span>
+        </label>
+      </fieldset>
+      <SyncPresetLibrary options={options} onChange={onOptionsChange} normalize={readOptions} disabled={isSyncing} />
       <button
         type="button"
         onClick={() => onOptionsChange(defaultSyncOptions())}

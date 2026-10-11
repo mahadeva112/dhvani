@@ -10,6 +10,7 @@ import {
   SyncOptions,
 } from '../services/syncService';
 import { AudioSegment } from '../types';
+import { JOIN_SETTING_RANGES } from '../server/lib/syncSettings.js';
 
 /**
  * How Sync joins its lines: a preset, and under it every setting the preset
@@ -32,6 +33,10 @@ export const joinPresetOf = (join: SyncJoinSettings): SyncJoinPreset => {
   return match ?? 'custom';
 };
 
+const RANGES: Record<string, number[]> = JOIN_SETTING_RANGES;
+/** A slider's ends: the range the server holds the setting to. */
+const bounds = (key: keyof SyncJoinSettings) => ({ min: RANGES[key][0], max: RANGES[key][1] });
+
 /** Saved join settings, filled in from Natural wherever one is missing or not a usable value. */
 export const readJoinSettings = (saved: unknown): SyncJoinSettings => {
   const join: SyncJoinSettings = { ...SYNC_JOIN_PRESETS.natural };
@@ -41,12 +46,8 @@ export const readJoinSettings = (saved: unknown): SyncJoinSettings => {
     const value = record[key];
     if (typeof join[key] === 'boolean' && typeof value === 'boolean') (join[key] as boolean) = value;
     if (typeof join[key] === 'number' && typeof value === 'number' && Number.isFinite(value)) {
-      const ranges: Partial<Record<keyof SyncJoinSettings, [number, number]>> = {
-        minGap: [0.04, 0.6], speakerGap: [0.04, 1], gapShare: [0, 1], minInnerPause: [0.08, 0.6], maxPauseTake: [0.05, 1],
-        spliceCrossfade: [0, 0.02], tailFloorDb: [-90, -50], tailHold: [0, 0.2], edgeFade: [0, 0.03], maxLateStart: [0.05, 1.5],
-        unitGap: [0, 1.2], maxUnit: [3, 30], flagJoin: [0, 0.5], protectedPause: [0.5, 5], breathReduction: [0, 1],
-      };
-      const range = ranges[key];
+      // The server's own ranges, so a saved value is kept inside the same limits Sync holds it to.
+      const range = RANGES[key];
       (join[key] as number) = range ? Math.min(range[1], Math.max(range[0], value)) : value;
     }
   });
@@ -292,6 +293,7 @@ export const SyncJoinSettingsPanel: React.FC<{
   fitSource?: SyncFitSource;
 }> = ({ options, onOptionsChange, disabled, fitSource }) => {
   const { join } = options;
+  const strict = options.timingProtection === 'strict';
   /** The values Fit to this video set; a group is marked while any of its settings still holds one. */
   const [fitted, setFitted] = useState<Partial<SyncJoinSettings>>({});
   const measured = (group: keyof typeof GROUP_KEYS) => GROUP_KEYS[group].some((key) => key in fitted && fitted[key] === join[key]);
@@ -339,15 +341,14 @@ export const SyncJoinSettingsPanel: React.FC<{
         <Group title="Gaps between lines" measured={measured('gaps')} summary={`${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`}>
           <Toggle label="Protect long pauses" checked={join.preserveLongPauses} disabled={disabled}
             onChange={(v) => set('preserveLongPauses', v)} hint="Keeps long breaks between source lines clear and preserves long silence inside the dub. A line too long to finish before a protected break is flagged in the results." />
-          <Slider id="sync-protected-pause" label="Protect pauses at least" value={join.protectedPause} min={0.5} max={5} step={0.1}
+          <Slider id="sync-protected-pause" label="Protect pauses at least" value={join.protectedPause} {...bounds('protectedPause')} step={0.1}
             format={(v) => `${v.toFixed(1)} s`} disabled={disabled || !join.preserveLongPauses} onChange={(v) => set('protectedPause', v)}
             hint="Protects breaks by duration. It does not detect scene cuts in the video." />
           <Slider
             id="sync-min-gap"
             label="Minimum gap"
             value={join.minGap}
-            min={0.04}
-            max={0.6}
+            {...bounds('minGap')}
             step={0.01}
             format={ms}
             disabled={disabled}
@@ -358,8 +359,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-speaker-gap"
             label="Gap at a speaker change"
             value={join.speakerGap}
-            min={0.04}
-            max={1}
+            {...bounds('speakerGap')}
             step={0.01}
             format={ms}
             disabled={disabled}
@@ -369,8 +369,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-gap-share"
             label="Keep of the original pause"
             value={join.gapShare}
-            min={0}
-            max={1}
+            {...bounds('gapShare')}
             step={0.05}
             format={percent}
             disabled={disabled}
@@ -391,7 +390,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             disabled={disabled}
             onChange={(v) => set('removeBreaths', v)}
           />
-          <Slider id="sync-breath-reduction" label="Breath reduction" value={join.breathReduction} min={0} max={1} step={0.05} format={percent}
+          <Slider id="sync-breath-reduction" label="Breath reduction" value={join.breathReduction} {...bounds('breathReduction')} step={0.05} format={percent}
             disabled={disabled || !join.removeBreaths} onChange={(v) => set('breathReduction', v)} hint="0% keeps breaths; 100% removes detected breaths. Lower values keep a softer breath." />
         </Group>
 
@@ -411,8 +410,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-min-inner-pause"
             label="Shortest pause kept"
             value={join.minInnerPause}
-            min={0.08}
-            max={0.6}
+            {...bounds('minInnerPause')}
             step={0.01}
             format={ms}
             disabled={disabled || !join.shortenPauses}
@@ -422,8 +420,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-max-pause-take"
             label="Most taken from one pause"
             value={join.maxPauseTake}
-            min={0.05}
-            max={1}
+            {...bounds('maxPauseTake')}
             step={0.05}
             format={percent}
             disabled={disabled || !join.shortenPauses}
@@ -438,8 +435,7 @@ export const SyncJoinSettingsPanel: React.FC<{
               </>
             }
             value={join.spliceCrossfade}
-            min={0}
-            max={0.02}
+            {...bounds('spliceCrossfade')}
             step={0.001}
             format={(v) => (v === 0 ? 'Off' : ms(v))}
             disabled={disabled || !join.shortenPauses}
@@ -476,8 +472,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-tail-hold"
             label="Tail hold"
             value={join.tailHold}
-            min={0}
-            max={0.2}
+            {...bounds('tailHold')}
             step={0.005}
             format={ms}
             disabled={disabled}
@@ -510,7 +505,10 @@ export const SyncJoinSettingsPanel: React.FC<{
           </div>
         </Group>
 
-        <Group title="When a line doesn't fit" summary={`Flagged when it starts over ${ms(join.maxLateStart)} late`}>
+        <Group
+          title="When a line doesn't fit"
+          summary={`${strict ? 'Strict' : 'Flagged'} when it starts over ${ms(join.maxLateStart)} late`}
+        >
           <ol className="flex flex-col gap-1.5 text-[12.5px] text-slate-300">
             {['Shorten the pauses inside it', 'Move the lines around it, never over each other', 'Flag it with a shorter wording, never squeeze it'].map(
               (step, n) => (
@@ -525,14 +523,41 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-max-late"
             label="Latest a line may start"
             value={join.maxLateStart}
-            min={0.05}
-            max={1.5}
+            {...bounds('maxLateStart')}
             step={0.01}
             format={ms}
             disabled={disabled}
             onChange={(v) => set('maxLateStart', v)}
-            hint="A line pushed later than this after its original line is listed for review."
+            hint={
+              strict
+                ? 'Strict keeps every line within this of its original line.'
+                : 'A line pushed later than this after its original line is listed for review.'
+            }
           />
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="sync-timing-protection" className="text-[13px] text-slate-200">
+              Timing protection
+            </label>
+            <select
+              id="sync-timing-protection"
+              value={strict ? 'strict' : 'warn'}
+              disabled={disabled}
+              // Not a line-join setting: changing it keeps the preset.
+              onChange={(e) => onOptionsChange((o) => ({ ...o, timingProtection: e.target.value === 'strict' ? 'strict' : 'warn' }))}
+              className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+            >
+              <option value="warn" className="bg-slate-900">
+                Warn: list lines that start later than this
+              </option>
+              <option value="strict" className="bg-slate-900">
+                Strict: keep every line within this
+              </option>
+            </select>
+            <span className="text-[11.5px] text-slate-400">
+              With Strict, a line that still can't fit is placed as early as it can go and flagged, never left out. Locked lines keep their
+              place unless the lines before them need the room, and are flagged when they move.
+            </span>
+          </div>
         </Group>
 
         <Group title="Grouping" measured={measured('grouping')} summary={`Cues under ${ms(join.unitGap)} apart are one line, usually up to ${join.maxUnit} s`}>
@@ -540,8 +565,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-unit-gap"
             label="Join cues closer than"
             value={join.unitGap}
-            min={0}
-            max={1.2}
+            {...bounds('unitGap')}
             step={0.05}
             format={ms}
             disabled={disabled}
@@ -552,8 +576,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-max-unit"
             label="Longest joined line"
             value={join.maxUnit}
-            min={3}
-            max={30}
+            {...bounds('maxUnit')}
             step={1}
             format={(v) => `${v} s`}
             disabled={disabled}
@@ -567,8 +590,7 @@ export const SyncJoinSettingsPanel: React.FC<{
             id="sync-flag-join"
             label="Flag joins tighter than"
             value={join.flagJoin}
-            min={0}
-            max={0.5}
+            {...bounds('flagJoin')}
             step={0.01}
             format={(v) => (v === 0 ? 'Off' : ms(v))}
             disabled={disabled}

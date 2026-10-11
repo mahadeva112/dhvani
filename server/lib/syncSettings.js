@@ -57,8 +57,12 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
 /** A long source pause lends everything past this to a line that runs long. */
 export const MAX_KEPT_PAUSE_SECONDS = 0.6;
 
-/** What each setting may be set to; anything outside is brought back inside. */
-const RANGES = {
+/**
+ * What each setting may be set to; anything outside is brought back inside.
+ * The app reads saved settings with this same table (components/SyncJoinSettings.tsx),
+ * so this module stays free of imports.
+ */
+export const JOIN_SETTING_RANGES = {
   minGap: [0.04, 0.6],
   speakerGap: [0.04, 1],
   gapShare: [0, 1],
@@ -82,7 +86,7 @@ const clamp = (value, [low, high]) => Math.min(high, Math.max(low, value));
 export const resolveJoinSettings = (requested) => {
   const settings = { ...DEFAULT_JOIN_SETTINGS };
   if (!requested || typeof requested !== 'object') return settings;
-  for (const [key, range] of Object.entries(RANGES)) {
+  for (const [key, range] of Object.entries(JOIN_SETTING_RANGES)) {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }

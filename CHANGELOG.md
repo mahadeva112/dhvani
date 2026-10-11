@@ -9,6 +9,23 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Timing protection, in Sync settings.** **Warn** (the default) reports lines that start late,
+  as before. **Strict** holds every line within **Latest a line may start**; a line that still
+  cannot fit is placed as early as it can go and flagged with what to do. Sync never fails over
+  timing.
+- **Protect long pauses.** Off by default. Pauses longer than the chosen length (1.2 s to start
+  with) are kept clear: lines are not grouped across them, a long line does not borrow them, and
+  silence that long inside a line is not shortened. A line too long to finish before one is
+  flagged.
+- **Breath reduction.** **Remove breaths** now has a slider, so breaths can be softened rather
+  than silenced. At 100% the dub is exactly as before.
+- **Verify actual word timing.** Off by default. Each line's spoken words are measured with
+  ElevenLabs alignment and compared with the original's cue boundaries and line endings; the
+  results list what to review. It only checks: the dub comes out the same with it on or off. It
+  adds one alignment request per line and needs an ElevenLabs key, also for Cartesia dubs.
+- **Fit to this video uses each speaker's own speaking rate** from the previous dub, when that
+  speaker has at least five usable lines, and says how many lines used a measured rate.
+
 - **Match source audio, under Enhance emotion.** A new sub-option, on by default, for Eleven v3
   and v4 dubs in one voice. Before voicing, the model listens to the original speaker and tags
   the dub where their delivery shifts: "[explaining, calm, slow]", "[sentence-build pause]",
@@ -197,6 +214,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and keeps it in view while playing.
 
 ### Changed
+
+- **Locked lines stay exactly where you put them.** Sync again used to let a locked line give a
+  little to the lines around it. It is now held at its position, and moves only when the lines
+  before it need the room; it is then flagged in the results with how far it moved. A project
+  with locked lines can come out slightly differently the next time it is synced.
+- **A locked line can be retaken.** Selecting words on a locked line in Edit timing and retaking
+  them no longer asks you to unlock it first; the lock follows the new take.
+- **Sync settings belong to each project**, and can be saved as named presets under **My sync
+  presets**, which also imports and exports them.
+- **Lip-sync is called Close-up.** The ±80 ms precision is **Close-up timing** and the tightest
+  join preset **Close-up (tight joins)**, because neither checks mouth movements.
 
 - **One Export subtitles button on Sync.** The .vtt and Subtitle settings buttons under the
   subtitle card are now one **Export subtitles** button, which opens the settings (now titled
