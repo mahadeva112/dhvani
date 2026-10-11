@@ -73,9 +73,19 @@ test('a dub that runs long may take more of a pause, and lends long pauses to th
 test('a rate from a sample read of the voice is named as that, not as the previous dub', () => {
   const segments = run(10, 0.6, { text: 'x'.repeat(15) });
   const sampled = fitJoinSettings({ segments, charsPerSecond: 10, rateMeasured: true, rateSample: true });
-  assert.match(sampled.changes.find((c) => c.key === 'maxPauseTake').reason, /sample read/);
+  assert.match(sampled.changes.find((c) => c.key === 'maxPauseTake').reason, /read their samples/);
   const synced = fitJoinSettings({ segments, charsPerSecond: 10, rateMeasured: true });
   assert.match(synced.changes.find((c) => c.key === 'maxPauseTake').reason, /previous dub/);
+});
+
+test("a speaker's sample-read rate counts however few lines it has", () => {
+  // 15 characters: at the typical 10 chars/s the dub runs long, at the speaker's own 25 chars/s it does not.
+  const segments = run(10, 0.6, { text: 'x'.repeat(15) }).map((c) => ({ ...c, speaker: 'A' }));
+  const fit = fitJoinSettings({ segments, charsPerSecond: 10, speakerRates: { A: { charsPerSecond: 25, lines: 0, sample: true } } });
+  assert.equal(fit.measured.rateBasis, 'measured');
+  assert.ok(fit.measured.lengthRatio < 1);
+  const unsampled = fitJoinSettings({ segments, charsPerSecond: 10, speakerRates: { A: { charsPerSecond: 25, lines: 0 } } });
+  assert.ok(unsampled.measured.lengthRatio > 1);
 });
 
 test('a dub that runs short keeps more of each pause', () => {

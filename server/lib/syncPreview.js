@@ -31,13 +31,19 @@ const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
  * `targetChars` is the length a new wording should aim for: shorter for a long
  * line, worked out as Sync works it out for its own suggestions; longer for a
  * short one, filling the original speech but never past the slot. `join`
- * groups the lines and sets the gaps as it does for Sync.
+ * groups the lines and sets the gaps as it does for Sync. `speakerRates` maps
+ * a speaker to their own voice's rate in characters a second; a line of a
+ * speaker not in it is estimated at `charsPerSecond`.
  */
-export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDuration = 0, join: requested } = {}) => {
+export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDuration = 0, join: requested, speakerRates = {} } = {}) => {
   const join = resolveJoinSettings(requested);
   const level = SYNC_PRECISION[precision] ? precision : 'phrase';
   const { allowedOverflow } = SYNC_PRECISION[level];
   const cps = Math.min(MAX_CPS, Math.max(MIN_CPS, Number(charsPerSecond) || 14));
+  const rateOf = (speaker) => {
+    const own = speakerRates && typeof speakerRates === 'object' && Object.hasOwn(speakerRates, speaker || 'Speaker') ? Number(speakerRates[speaker || 'Speaker']) : NaN;
+    return own > 0 ? Math.min(MAX_CPS, Math.max(MIN_CPS, own)) : cps;
+  };
   const units = buildSyncUnits(segments, join).filter((unit) => hasWords(unit.text));
 
   const previews = units.map((unit, index) => {
@@ -48,7 +54,8 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
         ? unit.nextStart - unitGapAfter(unit, join)
         : Math.max(Number(sourceDuration) || 0, unit.srcEnd) + 0.5;
     const slot = Math.max(0.05, end - unit.srcStart);
-    const estimate = unit.text.length / cps;
+    const rate = rateOf(unit.speaker);
+    const estimate = unit.text.length / rate;
     const overflow = estimate - slot;
     const spoken = Math.max(0, unit.srcEnd - unit.srcStart);
     const underflow = Math.max(0, spoken - estimate);
@@ -56,7 +63,7 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
     const status = overflow > allowedOverflow ? 'long' : estimate > slot * TIGHT_SHARE ? 'tight' : short ? 'short' : 'fits';
     const targetChars =
       status === 'short'
-        ? Math.max(unit.text.length + 1, Math.floor(cps * Math.min(spoken * LENGTHEN_FILL, slot * SUGGESTION_MARGIN)))
+        ? Math.max(unit.text.length + 1, Math.floor(rate * Math.min(spoken * LENGTHEN_FILL, slot * SUGGESTION_MARGIN)))
         : Math.max(1, Math.floor(unit.text.length * Math.min(1, slot / estimate) * SUGGESTION_MARGIN));
     return {
       index,
@@ -64,6 +71,7 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
       cueIds: unit.cueIds,
       text: unit.text,
       sourceText: unit.sourceText,
+      speaker: unit.speaker || null,
       srcStart: unit.srcStart,
       srcEnd: unit.srcEnd,
       nextStart: unit.nextStart,

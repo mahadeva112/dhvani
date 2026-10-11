@@ -114,11 +114,12 @@ import {
   TYPICAL_CHARS_PER_SECOND,
   withLineTargets,
 } from '../services/syncService';
-import type { EstimateMethod, LineContext, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
+import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE } from './SyncPreviewPanel';
 import type { RateBasis, VoiceRateState } from '../services/voiceRate';
 import { VoiceRateCard } from './VoiceRateCard';
+import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix } from './FinalScriptFit';
 import { SaveScriptMenu } from './SaveScriptMenu';
@@ -151,6 +152,8 @@ const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{
 const REVIEW_FONT_KEY = 'dhvani_review_font_px';
 /** Quick or Expert: how the Sync preview times the dub lines. */
 const ESTIMATE_METHOD_KEY = 'dhvani_estimate_method';
+/** A speaker's rate from a sync is used once that many of their lines were voiced, as Fit to this video asks. */
+const MIN_SPEAKER_SYNC_LINES = 5;
 const REVIEW_FONT_MIN = 12;
 const REVIEW_FONT_MAX = 22;
 const REVIEW_FONT_DEFAULT = 15;
@@ -406,6 +409,10 @@ interface ExpressDubWizardProps {
   onEditTimingAudio?: (buffer: AudioBuffer | null) => void;
   /** Edit timing's edits while a drag lasts, for the live dub; null when it ends with nothing changed. */
   onSyncEditDraft?: (edits: SyncEdits | null) => void;
+  /** With several speakers, Edit timing's lanes: mute and solo for listening, and each speaker's level for the file. */
+  speakerMonitor?: Record<string, SpeakerMonitor>;
+  onSpeakerLevelChange?: (speaker: string, db: number) => void;
+  onSpeakerMonitorChange?: (speaker: string, patch: Partial<SpeakerMonitor>) => void;
   onRetrySyncEditRender?: () => void;
   isSyncing?: boolean;
   syncProgress?: SyncProgress | null;
@@ -462,6 +469,8 @@ interface ExpressDubWizardProps {
   onTranslateTranscript?: () => Promise<void>;
   /** The dub voice's speaking rate, measured from a sample read when it is picked (services/voiceRate.ts). */
   voiceRate?: VoiceRateState;
+  /** With several speakers: the rate of each speaker's own voice from the cast, by speaker name. */
+  speakerVoiceRates?: Record<string, VoiceRateState>;
   /** Translation sizes each cue for the voice's rate. */
   fitTranslationToVoice?: boolean;
   onFitTranslationToVoiceChange?: (on: boolean) => void;
@@ -538,6 +547,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   syncEditLive = false,
   onEditTimingAudio,
   onSyncEditDraft,
+  speakerMonitor,
+  onSpeakerLevelChange,
+  onSpeakerMonitorChange,
   onRetrySyncEditRender,
   isSyncing = false,
   syncProgress = null,
@@ -580,6 +592,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onRetranscribeAudio,
   onTranslateTranscript,
   voiceRate,
+  speakerVoiceRates,
   fitTranslationToVoice = true,
   onFitTranslationToVoiceChange,
   onTargetSourceChange,
@@ -900,6 +913,41 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const rateBasis: RateBasis = measuredRate !== null ? 'sync' : sampleRate ? 'sample' : 'typical';
   // Rounded so small script edits don't move every estimate and refetch the preview.
   const previewRate = Math.round((measuredRate ?? sampleRate?.charsPerSecond ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
+  /*
+   * With several speakers, each speaker whose voice speaks at a rate of its
+   * own: from the last sync's lines of that voice when there are enough,
+   * else from the sample read of their own voice. Everyone else is estimated
+   * at the rate above.
+   */
+  const speakerRateTable = useMemo(() => {
+    const table: Record<string, { charsPerSecond: number; syllablesPerSecond: number; sample: boolean }> = {};
+    if (!multiSpeaker) return table;
+    for (const { name } of speakers) {
+      const synced = fitSpeakerRates[name];
+      if (synced && synced.lines >= MIN_SPEAKER_SYNC_LINES && synced.charsPerSecond > 0) {
+        const texts = segments.filter((seg) => (seg.speaker || 'Speaker') === name).map(getTargetText);
+        table[name] = { charsPerSecond: synced.charsPerSecond, syllablesPerSecond: syllableRate(texts, synced.charsPerSecond), sample: false };
+        continue;
+      }
+      const own = speakerVoiceRates?.[name]?.rate;
+      if (own) table[name] = { charsPerSecond: own.charsPerSecond, syllablesPerSecond: own.syllablesPerSecond, sample: true };
+    }
+    return table;
+  }, [multiSpeaker, speakers, fitSpeakerRates, speakerVoiceRates, segments]);
+  // Fit to this video: a speaker's sync rate when there is one, else the sample read of their own voice.
+  const fitRates = useMemo<SpeakerFitRates>(
+    () =>
+      multiSpeaker
+        ? Object.fromEntries(
+            Object.entries(speakerRateTable).map(([name, rate]) => [name, rate.sample ? { charsPerSecond: rate.charsPerSecond, lines: 0, sample: true } : fitSpeakerRates[name]])
+          )
+        : fitSpeakerRates,
+    [multiSpeaker, speakerRateTable, fitSpeakerRates]
+  );
+  const previewSpeakerRates = useMemo(
+    () => Object.fromEntries(Object.entries(speakerRateTable).map(([name, rate]) => [name, Math.round(rate.charsPerSecond * 10) / 10])),
+    [speakerRateTable]
+  );
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   /*
    * The second track is the synced dub once there is one (App picks the same
@@ -1058,6 +1106,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     precision: syncOptions.precision,
     join: syncOptions.join,
     charsPerSecond: previewRate,
+    speakerRates: previewSpeakerRates,
     sourceDuration: activeJob?.audioBuffer?.duration || 0,
   });
 
@@ -1147,10 +1196,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // The voice's rate in syllables: as the sample read measured it, else from the same rate in characters.
   const scriptSyllableRate = useMemo(() => syllableRate(segments.map(getTargetText), previewRate), [segments, previewRate]);
   const syllablesPerSecond = rateBasis === 'sample' && sampleRate ? sampleRate.syllablesPerSecond : scriptSyllableRate;
+  /** The syllables a second of whoever says a line: their own voice's, else the main voice's. */
+  const syllableRateOf = useCallback(
+    (speaker?: string | null) => speakerRateTable[speaker || 'Speaker']?.syllablesPerSecond ?? syllablesPerSecond,
+    [speakerRateTable, syllablesPerSecond]
+  );
   const linePreview = useMemo(() => {
     const base = syncPreview.preview;
-    return withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond) : base, segments);
-  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond]);
+    return withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond, syllableRateOf) : base, segments);
+  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond, syllableRateOf]);
   /** The dub bar picked on the Dub step's preview timeline, for trimming. */
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   const selectedLine = linePreview?.units.find((u) => u.key === selectedLineKey) || null;
@@ -1250,12 +1304,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const syllableFitOf = (seg: AudioSegment): SyllableFitInfo => {
     const unit = unitOfCue.get(String(seg.id));
     const own = timeLine(getTargetText(seg), 1).syllables;
-    if (!unit) return { ...syllableFit(getTargetText(seg), seg.duration, syllablesPerSecond), own, cues: null };
+    if (!unit) return { ...syllableFit(getTargetText(seg), seg.duration, syllableRateOf(seg.speaker)), own, cues: null };
     const text = unit.cueIds.map((id) => getTargetText(segments[cueIndexById.get(String(id)) ?? -1] ?? seg)).join(' ');
     const first = cueIndexById.get(String(unit.cueIds[0]));
     const last = cueIndexById.get(String(unit.cueIds[unit.cueIds.length - 1]));
     const cues = unit.cueIds.length > 1 && first !== undefined && last !== undefined ? `${first + 1}–${last + 1}` : null;
-    return { ...syllableFit(text, unit.slot, syllablesPerSecond), own, cues };
+    return { ...syllableFit(text, unit.slot, syllableRateOf(unit.speaker ?? seg.speaker)), own, cues };
   };
   /** Lines with no suggestion asked for yet, for Review's Suggest for all. */
   const linesToFix = (linePreview?.units || []).filter((u) => needsFix(u) && lineFixes.notStarted(u));
@@ -1372,6 +1426,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     () => segments.reduce((sum, seg) => sum + getTargetText(seg).length, 0),
     [segments]
   );
+
+  /** Who voices a speaker, and how fast: shown on their lane in Edit timing. */
+  const speakerCaption = (speaker: string) => {
+    const own = activeJob?.cast?.[speaker]?.voiceId;
+    const full = availableVoices?.find((v) => v.voice_id === (own || elVoiceId))?.name || '';
+    const name = full.trim().split(/\s+[-–—|]\s+/)[0] || (own ? 'Own voice' : 'Main voice');
+    const rate = (own ? speakerVoiceRates?.[speaker] : voiceRate)?.rate;
+    return [name, rate && `${rate.syllablesPerSecond.toFixed(1)} syllables/s`].filter(Boolean).join(' · ');
+  };
 
   /** "Aaditya" out of "Aaditya - Rich, Deep and Suspenseful", for button labels. */
   const voiceShortName = useMemo(() => {
@@ -1867,9 +1930,28 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               )}
 
               <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
-                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{multiSpeaker ? 'Main voice' : 'Voice'}</span>
                 <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
                 {voiceRate && <VoiceRateCard voiceRate={voiceRate} language={targetLanguage} />}
+                {/* Each speaker's voice can be picked here too, so translation is sized for it before anything is voiced. */}
+                {multiSpeaker && onCastChange && activeJob && (
+                  <div className="flex flex-col gap-2 pt-2">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Cast</span>
+                    <CastCard
+                      speakers={speakers}
+                      cast={activeJob.cast}
+                      mainVoiceId={elVoiceId}
+                      availableVoices={availableVoices}
+                      onPick={(speaker) => {
+                        setCastPickFor(speaker);
+                        setIsVoicePickerOpen(true);
+                      }}
+                      onUseMain={(speaker) => onCastChange(speaker, null)}
+                      rates={speakerVoiceRates}
+                      mainRate={voiceRate}
+                    />
+                  </div>
+                )}
               </div>
 
               {onSensitivityChange && (
@@ -2101,6 +2183,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               }}
               voiceRate={voiceRate?.rate ?? null}
               voiceName={voiceShortName}
+              ownVoiceRates={multiSpeaker ? Object.values(speakerVoiceRates || {}).filter((state) => state.rate).length : 0}
               fitToVoice={fitTranslationToVoice}
               onFitToVoiceChange={onFitTranslationToVoiceChange}
               onTranslate={async () => {
@@ -3559,6 +3642,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   }}
                   onClose={() => setEditingTiming(false)}
                   renderTrackHead={mixerLevels ? renderTrackHead : undefined}
+                  speakerLanes={
+                    activeJob.syncBaseReport.mix && onSpeakerLevelChange && onSpeakerMonitorChange
+                      ? {
+                          colors: Object.fromEntries(speakers.map((s) => [s.name, s.color])),
+                          captions: Object.fromEntries(speakers.map((s) => [s.name, speakerCaption(s.name)])),
+                          levels: activeJob.syncSpeakerLevels || {},
+                          monitor: speakerMonitor || {},
+                          onLevel: onSpeakerLevelChange,
+                          onMonitor: onSpeakerMonitorChange,
+                        }
+                      : undefined
+                  }
                   elApiKey={elApiKey}
                   takesUnavailableKeys={syncPendingLines}
                   onOpenTakes={renderTakes ? (key, phrase) => { setTimingTakesKey(key); setTimingTakesPhrase(phrase ?? null); } : undefined}
@@ -3927,6 +4022,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             setIsVoicePickerOpen(true);
                           }}
                           onUseMain={(speaker) => onCastChange(speaker, null)}
+                          rates={speakerVoiceRates}
+                          mainRate={voiceRate}
                         />
                       </div>
                     )}
@@ -4203,7 +4300,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 extras={dubExtras}
                 onDownloadWav={report ? onDownloadWav : undefined}
                 onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
-                fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && rateBasis !== 'typical', rateSample: !multiSpeaker && rateBasis === 'sample', speakerRates: fitSpeakerRates }}
+                fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && rateBasis !== 'typical', rateSample: !multiSpeaker && rateBasis === 'sample', speakerRates: fitRates }}
                 subtitles={
                   report && syncedCues && syncedCues.length > 0 && (
                     <button
@@ -4233,46 +4330,48 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           </div>
 
           {/* Full voice library, opened from Change */}
-          {isVoicePickerOpen && (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Choose a voice"
-              onClick={(e) => e.target === e.currentTarget && setIsVoicePickerOpen(false)}
-              onKeyDown={(e) => e.key === 'Escape' && setIsVoicePickerOpen(false)}
-            >
-              <div className="w-full max-w-5xl flex flex-col gap-3">
-                <div className="flex items-center justify-end gap-3">
-                  {castPickFor && (
-                    <span className="mr-auto text-sm text-slate-200">
-                      Voice for <SpeakerChip speaker={speakerByName.get(castPickFor)} name={castPickFor} />
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setIsVoicePickerOpen(false)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
-                  >
-                    <X className="w-3.5 h-3.5" /> Done
-                  </button>
-                </div>
-                <VoiceSelectorCard
-                  elVoiceId={castPickFor ? activeJob.cast?.[castPickFor]?.voiceId || elVoiceId : elVoiceId}
-                  onElVoiceIdChange={castPickFor && onCastChange ? (id) => onCastChange(castPickFor, id) : onElVoiceIdChange}
-                  availableVoices={availableVoices}
-                  loading={voicesLoading}
-                  targetLanguage={targetLanguage}
-                  voiceEngine={voiceEngine}
-                  onVoiceEngineChange={onVoiceEngineChange}
-                  className="h-[78vh]"
-                />
-              </div>
-            </div>
-          )}
         </div>
         );
       })()}
+
+      {/* The voice library over any step: the main voice, or one speaker's from the cast */}
+      {isVoicePickerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose a voice"
+          onClick={(e) => e.target === e.currentTarget && setIsVoicePickerOpen(false)}
+          onKeyDown={(e) => e.key === 'Escape' && setIsVoicePickerOpen(false)}
+        >
+          <div className="w-full max-w-5xl flex flex-col gap-3">
+            <div className="flex items-center justify-end gap-3">
+              {castPickFor && (
+                <span className="mr-auto text-sm text-slate-200">
+                  Voice for <SpeakerChip speaker={speakerByName.get(castPickFor)} name={castPickFor} />
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsVoicePickerOpen(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" /> Done
+              </button>
+            </div>
+            <VoiceSelectorCard
+              elVoiceId={castPickFor ? activeJob?.cast?.[castPickFor]?.voiceId || elVoiceId : elVoiceId}
+              onElVoiceIdChange={castPickFor && onCastChange ? (id) => onCastChange(castPickFor, id) : onElVoiceIdChange}
+              availableVoices={availableVoices}
+              loading={voicesLoading}
+              targetLanguage={targetLanguage}
+              voiceEngine={voiceEngine}
+              onVoiceEngineChange={onVoiceEngineChange}
+              className="h-[78vh]"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Floating Export Toast Notification */}
       {exportSuccessMessage && (

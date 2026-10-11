@@ -8,8 +8,9 @@ import {
   formatEnglishSegments,
   stripPaceTags,
   voiceSpeedNote,
+  chunkRate,
 } from './threeStepTranslation.js';
-import { cleanVoiceRate, syllableTarget } from './translation.js';
+import { cleanVoiceRate, cleanSpeakerRates, rateForCue, syllableTarget } from './translation.js';
 
 test('the preset marker switches translation to the 3-step pipeline', () => {
   assert.equal(isThreeStepPrompt('#pipeline: 3-step\n# notes'), true);
@@ -66,4 +67,22 @@ test('a cue is sized from its own duration at the voice rate, and only a believa
   assert.equal(cleanVoiceRate('4.5'), 4.5);
   assert.equal(cleanVoiceRate(40), null);
   assert.equal(cleanVoiceRate(undefined), null);
+});
+
+test("a speaker with a voice of their own is sized at that voice's rate, the rest at the main voice's", () => {
+  const speakers = cleanSpeakerRates({ Asha: 4, Ravi: '6', Mohan: 50 });
+  assert.deepEqual(speakers, { Asha: 4, Ravi: 6 });
+  assert.equal(rateForCue({ speaker: 'Asha' }, 5, speakers), 4);
+  assert.equal(rateForCue({ speaker: 'Mohan' }, 5, speakers), 5);
+  assert.equal(rateForCue({}, 5, speakers), 5);
+});
+
+test("a 3-step chunk gets its speakers' rates weighted by how long each speaks", () => {
+  const chunk = [
+    { speaker: 'Asha', duration: 3 },
+    { speaker: 'Ravi', duration: 1 },
+  ];
+  assert.equal(chunkRate(chunk, 5, { Asha: 4, Ravi: 8 }), 5);
+  assert.equal(chunkRate(chunk, 5, {}), 5);
+  assert.equal(chunkRate([], 5, { Asha: 4 }), 5);
 });

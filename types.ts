@@ -274,6 +274,8 @@ export interface BatchJob {
 
   /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
   cast?: Record<string, SpeakerVoice>;
+  /** Each speaker's level in dB, set on their lane in Edit timing; the synced dub is rendered with it (services/speakerLevels.ts). */
+  syncSpeakerLevels?: Record<string, number> | null;
   /** Set when the dub was voiced by several speakers: one track per speaker, and what the mix did. */
   dubStems?: DubStem[] | null;
   dubMix?: DubMixReport | null;

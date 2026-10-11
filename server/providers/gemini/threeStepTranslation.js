@@ -4,7 +4,7 @@ import { config, ROOT_DIR } from '../../env.js';
 import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { generateText } from '../textModel.js';
-import { alignScriptToCues } from './translation.js';
+import { alignScriptToCues, rateForCue } from './translation.js';
 
 /**
  * The 3-step dubbing translation, driven by the per-language prompt files in
@@ -243,6 +243,24 @@ export const voiceSpeedNote = (language, rate) => {
 };
 
 /**
+ * One rate for a chunk whose speakers have voices of different speeds: their
+ * rates weighted by how long each speaks in it. The segments the prompts read
+ * carry no speaker, so a rate per segment could not be told apart there.
+ */
+export const chunkRate = (chunk, rate, speakerRates = {}) => {
+  let seconds = 0;
+  let syllables = 0;
+  for (const cue of chunk) {
+    const cueRate = rateForCue(cue, rate, speakerRates);
+    const duration = Number(cue.duration) || Math.max(0, Number(cue.endTime) - Number(cue.startTime)) || 0;
+    if (!cueRate || duration <= 0) continue;
+    seconds += duration;
+    syllables += duration * cueRate;
+  }
+  return seconds > 0 ? syllables / seconds : rate;
+};
+
+/**
  * Runs Steps 1–3 over one chunk of cues and aligns the result onto them.
  */
 const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, models, report, voiceRate }) => {
@@ -300,7 +318,7 @@ const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, mo
  */
 export const translateCueTextsThreeStep = async (
   cues,
-  { targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress, voiceRate = null } = {}
+  { targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress, voiceRate = null, speakerRates = {} } = {}
 ) => {
   const stages = loadStagePrompts(targetLanguage);
   const notes = extraInstructions(customPrompt);
@@ -312,6 +330,7 @@ export const translateCueTextsThreeStep = async (
         text: String(cue.text ?? '').trim(),
         startTime: Number(cue.startTime) || 0,
         endTime: Number(cue.endTime) || 0,
+        speaker: cue.speaker || 'Speaker',
       }))
       .filter((cue) => cue.text.length > 0)
   );
@@ -342,7 +361,7 @@ export const translateCueTextsThreeStep = async (
       });
 
     try {
-      const outcome = await translateChunk({ chunk, stages, notes, targetLanguage, apiKey, models, report, voiceRate });
+      const outcome = await translateChunk({ chunk, stages, notes, targetLanguage, apiKey, models, report, voiceRate: chunkRate(chunk, voiceRate, speakerRates) });
       modelUsed = outcome.modelUsed;
       scripts.push(outcome.script);
       for (const [id, text] of outcome.aligned) {

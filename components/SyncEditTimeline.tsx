@@ -38,6 +38,7 @@ import {
   MIN_PART_SECONDS,
   ORIGINAL_CLIP_PREFIX,
   originalLines,
+  ORIGINAL_SPEAKER,
   partEnd,
   partLength,
   partsOf,
@@ -46,6 +47,7 @@ import {
   SyncEditPart,
   SyncEdits,
 } from '../services/syncEditService';
+import { MAX_SPEAKER_DB, MIN_SPEAKER_DB, type SpeakerMonitor } from '../services/speakerLevels';
 
 /**
  * Edit timing: the synced dub's lines on a timeline under the original, to
@@ -61,7 +63,11 @@ import {
  *              word now lands: upright is in sync
  *   dub        the lines as they will play, each part with its waveform as
  *              edited (gain, fades); where a drag starts on a line says what
- *              it does (see zoneAt), with no tool to pick first
+ *              it does (see zoneAt), with no tool to pick first. With several
+ *              speakers, one lane per speaker (and one for clips of the
+ *              original), each with its level, mute and solo: a speaker's
+ *              lines only make room for their own, so speakers may overlap
+ *              as they do in the original
  *   script     what each line says, under where it plays
  *   drift      each line's start error against the tolerance band
  *   overview   under the lanes, like a scrollbar: the whole dub, each line
@@ -143,7 +149,25 @@ type Chunk = {
   part: SyncEditPart;
   /** The line's number, with a letter for each part once it is split. */
   label: string;
+  /** With several speakers, the lane it is on: its speaker, or ORIGINAL_SPEAKER for a clip of the original. */
+  lane: string;
 };
+
+/** With several speakers, how tall each speaker's lane is (px). */
+const LANE_PX = 56;
+
+/** Edit timing's lanes with several speakers: each speaker's colour, voice, level, mute and solo. */
+export interface SpeakerLanes {
+  colors: Record<string, string>;
+  /** Who voices the speaker and how fast, under their name. */
+  captions: Record<string, string>;
+  /** Each speaker's level in dB, which the file is rendered with. */
+  levels: Record<string, number>;
+  /** Mute and solo, for listening only. */
+  monitor: Record<string, SpeakerMonitor>;
+  onLevel: (speaker: string, db: number) => void;
+  onMonitor: (speaker: string, patch: Partial<SpeakerMonitor>) => void;
+}
 
 /** A line's edits replaced by `parts`. Anything edited is locked. A clip of the original with no parts left is gone. */
 const withParts = (edits: SyncEdits, key: string, parts: SyncEditPart[]): SyncEdits => {
@@ -501,6 +525,107 @@ const Overview: React.FC<{
   );
 };
 
+const formatLevel = (db: number) => `${db > 0 ? '+' : db < 0 ? '−' : ''}${Math.abs(db).toFixed(1)} dB`;
+
+/**
+ * A speaker's lane header: who it is, who voices them, how many lines they
+ * have, and their mute, solo and level. The level is in the file; mute and
+ * solo are for listening, while the dub plays live. The lane for clips of the
+ * original has only its name.
+ */
+const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: number; heard: boolean; live: boolean }> = ({
+  name,
+  lanes,
+  lines,
+  heard,
+  live,
+}) => {
+  const saved = lanes.levels[name] ?? 0;
+  // The fader moves freely while dragged; the level is set, and the file rendered, when it is let go.
+  const [db, setDb] = useState(saved);
+  useEffect(() => setDb(saved), [saved]);
+  const commit = (value: number) => {
+    if (Math.abs(value - saved) > 1e-6) lanes.onLevel(name, value);
+  };
+  if (name === ORIGINAL_SPEAKER) {
+    return (
+      <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-slate-800/80 first:border-t-0" style={{ height: LANE_PX }}>
+        <span className="flex items-center gap-1.5 text-[11.5px] text-slate-300">
+          <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: ORIGINAL_HUE }} />
+          Original clips
+          <span className="ml-auto text-[10px] text-slate-500 tabular-nums">{lines}</span>
+        </span>
+        <span className="text-[10px] text-slate-500 leading-snug">Drag a stretch of the original down here.</span>
+      </div>
+    );
+  }
+  const monitor = lanes.monitor[name] ?? { muted: false, solo: false };
+  const listenNote = live ? '' : ' Heard while the dub plays live, at 1×.';
+  const toggle = (on: boolean, onClass: string) =>
+    `w-[22px] h-5 rounded-[5px] border text-[10.5px] font-semibold flex items-center justify-center cursor-pointer transition-colors ${
+      on ? onClass : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 hover:border-slate-500'
+    }`;
+  return (
+    <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-slate-800/80 first:border-t-0 min-w-0" style={{ height: LANE_PX }}>
+      <span className="flex items-center gap-1.5 text-[11.5px] text-slate-200 min-w-0">
+        <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: lanes.colors[name] ?? '#818cf8' }} />
+        <span className="truncate" title={name}>
+          {name}
+        </span>
+        <span className="ml-auto shrink-0 text-[10px] text-slate-500 tabular-nums">
+          {lines} {lines === 1 ? 'line' : 'lines'}
+        </span>
+      </span>
+      {lanes.captions[name] && (
+        <span className="block text-[10px] text-slate-500 truncate" title={lanes.captions[name]}>
+          {lanes.captions[name]}
+        </span>
+      )}
+      <span className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-pressed={monitor.muted}
+          aria-label={`Mute ${name}`}
+          title={`Mute: don't hear ${name}. The file keeps them.${listenNote}`}
+          onClick={() => lanes.onMonitor(name, { muted: !monitor.muted })}
+          className={toggle(monitor.muted, 'border-rose-500 bg-rose-500 text-white')}
+        >
+          M
+        </button>
+        <button
+          type="button"
+          aria-pressed={monitor.solo}
+          aria-label={`Solo ${name}`}
+          title={`Solo: hear only the soloed speakers. The file keeps everyone.${listenNote}`}
+          onClick={() => lanes.onMonitor(name, { solo: !monitor.solo })}
+          className={toggle(monitor.solo, 'border-amber-400 bg-amber-400 text-amber-950')}
+        >
+          S
+        </button>
+        <input
+          type="range"
+          min={MIN_SPEAKER_DB}
+          max={MAX_SPEAKER_DB}
+          step={0.5}
+          value={db}
+          aria-label={`${name} level`}
+          aria-valuetext={formatLevel(db)}
+          title={`${name}'s level in the dub, which the file is rendered with. Double-click for 0 dB.`}
+          onChange={(e) => setDb(Number(e.target.value))}
+          onPointerUp={(e) => commit(Number(e.currentTarget.value))}
+          onKeyUp={(e) => commit(Number(e.currentTarget.value))}
+          onDoubleClick={() => {
+            setDb(0);
+            commit(0);
+          }}
+          className={`flex-1 min-w-0 h-1 accent-indigo-400 cursor-pointer transition-opacity ${heard ? '' : 'opacity-40'}`}
+        />
+        <span className="w-[3.25rem] text-right font-mono text-[10.5px] text-slate-400 tabular-nums">{formatLevel(db)}</span>
+      </span>
+    </div>
+  );
+};
+
 export const SyncEditTimeline: React.FC<{
   bank: SyncBank;
   bankBlob: Blob | null | undefined;
@@ -530,6 +655,8 @@ export const SyncEditTimeline: React.FC<{
   onClose: () => void;
   /** A lane's header with its mute, solo, fader and meter; without it the lanes show their names. */
   renderTrackHead?: (track: 'source' | 'synth', label: string, dot: string, badge?: React.ReactNode) => React.ReactNode;
+  /** With several speakers: one lane each, with a level, mute and solo. Without it, one dub lane. */
+  speakerLanes?: SpeakerLanes;
   /** Opens the takes of a line (TakesPanel): new readings of it, voiced now, to pick from. */
   onOpenTakes?: (key: string, phrase?: { from: number; to: number }) => void;
   elApiKey?: string;
@@ -555,6 +682,7 @@ export const SyncEditTimeline: React.FC<{
   onPlayFrom,
   onClose,
   renderTrackHead,
+  speakerLanes,
   onOpenTakes,
   elApiKey,
   takesUnavailableKeys = [],
@@ -625,6 +753,15 @@ export const SyncEditTimeline: React.FC<{
   const sourceSeconds = sourceBuffer?.duration || sourceTotal;
   const lines = useMemo(() => [...bank.lines, ...originalLines(view, sourceSeconds, rate)], [bank, view, sourceSeconds, rate]);
 
+  // With several speakers: a lane for each, in the order they first speak, and one for clips of the original.
+  const multi = Boolean(speakerLanes);
+  const laneNames = useMemo(
+    () => (multi ? [...new Set(bank.lines.filter((line) => !line.original).map((line) => line.speaker || 'Speaker')), ORIGINAL_SPEAKER] : ['']),
+    [multi, bank]
+  );
+  const laneIndex = useMemo(() => new Map(laneNames.map((name, n) => [name, n])), [laneNames]);
+  const laneOfChunk = (chunk: Chunk) => laneIndex.get(chunk.lane) ?? 0;
+
   const chunks: Chunk[] = useMemo(() => {
     const out: Chunk[] = [];
     let clips = 0;
@@ -643,11 +780,12 @@ export const SyncEditTimeline: React.FC<{
           unitIndex,
           part,
           label: `${name}${parts.length > 1 ? 'abcdefghijklmnopqrstuvwxyz'[k] ?? `.${k + 1}` : ''}`,
+          lane: !multi ? '' : original ? ORIGINAL_SPEAKER : line.speaker || 'Speaker',
         })
       );
     });
     return out.sort((a, b) => a.part.start - b.part.start);
-  }, [lines, view, rate, unitIndexByKey, unitByKey]);
+  }, [lines, view, rate, unitIndexByKey, unitByKey, multi]);
 
   const total = useMemo(() => Math.max(sourceTotal, ...chunks.map((c) => partEnd(c.part)), 1), [sourceTotal, chunks]);
   const zoom = useTimelineZoom(total, currentTime, { wheelScrollsTime: true });
@@ -733,7 +871,8 @@ export const SyncEditTimeline: React.FC<{
     let lo = 0;
     let hi = Math.max(total, end) + 600;
     for (const other of among) {
-      if (other.part.id === id || other.part.muted) continue;
+      // Each speaker's lines make room only for their own: two speakers may talk at once.
+      if (other.part.id === id || other.part.muted || other.lane !== me.lane) continue;
       const oEnd = partEnd(other.part);
       if (oEnd <= start + 1e-6) lo = Math.max(lo, oEnd);
       else if (other.part.start >= end - 1e-6) hi = Math.min(hi, other.part.start);
@@ -749,6 +888,12 @@ export const SyncEditTimeline: React.FC<{
     return list;
   }, [baseReport]);
   const laneRef = useRef<HTMLDivElement>(null);
+  /** The lane under `clientY`: always 0 with one dub lane. */
+  const laneAt = (clientY: number) => {
+    const r = laneRef.current?.getBoundingClientRect();
+    if (!multi || !r) return 0;
+    return clamp(Math.floor((clientY - r.top) / LANE_PX), 0, laneNames.length - 1);
+  };
   const timeAt = (clientX: number) => {
     const r = laneRef.current?.getBoundingClientRect();
     if (!r || !r.width) return windowStart;
@@ -915,8 +1060,9 @@ export const SyncEditTimeline: React.FC<{
   };
   const drag = useRef<Drag | null>(null);
   /** A drag across empty lane: the parts it touches are picked. `keep` is what was picked before, with Ctrl. */
-  const marquee = useRef<{ t0: number; keep: string[]; moved: boolean } | null>(null);
-  const [band, setBand] = useState<{ from: number; to: number } | null>(null);
+  const marquee = useRef<{ t0: number; lane0: number; keep: string[]; moved: boolean } | null>(null);
+  /** The marquee: the time it spans and, with several speakers, the lanes it crosses. */
+  const [band, setBand] = useState<{ from: number; to: number; laneFrom: number; laneTo: number } | null>(null);
 
   /*
    * The edits a drag has, sent on to the live dub while it lasts, at most
@@ -980,7 +1126,7 @@ export const SyncEditTimeline: React.FC<{
     const additive = e.ctrlKey || e.metaKey;
     if (!under) {
       // A click seeks; a drag picks the parts it crosses (see onLanePointerMove).
-      marquee.current = { t0: t, keep: additive ? selectedIds : [], moved: false };
+      marquee.current = { t0: t, lane0: laneAt(e.clientY), keep: additive ? selectedIds : [], moved: false };
       capture(e);
       return;
     }
@@ -1034,8 +1180,13 @@ export const SyncEditTimeline: React.FC<{
       m.moved = true;
       const from = Math.min(m.t0, t);
       const to = Math.max(m.t0, t);
-      setBand({ from, to });
-      const touched = chunks.filter((c) => c.part.start < to && partEnd(c.part) > from).map((c) => c.part.id);
+      const lane = laneAt(e.clientY);
+      const laneFrom = Math.min(m.lane0, lane);
+      const laneTo = Math.max(m.lane0, lane);
+      setBand({ from, to, laneFrom, laneTo });
+      const touched = chunks
+        .filter((c) => c.part.start < to && partEnd(c.part) > from && laneOfChunk(c) >= laneFrom && laneOfChunk(c) <= laneTo)
+        .map((c) => c.part.id);
       setSelectedIds([...m.keep.filter((id) => !touched.includes(id)), ...touched]);
       return;
     }
@@ -1226,7 +1377,7 @@ export const SyncEditTimeline: React.FC<{
       if (!later) return say('This line has no later part to join it to.');
       const joined: SyncEditPart = { ...current.part, to: Math.max(current.part.to, later.part.to), fadeOut: later.part.fadeOut };
       const end = joined.start + partLength(joined);
-      const others = chunks.filter((c) => c.part.id !== current.part.id && c.part.id !== later.part.id && !c.part.muted);
+      const others = chunks.filter((c) => c.part.id !== current.part.id && c.part.id !== later.part.id && !c.part.muted && c.lane === current.lane);
       if (others.some((c) => c.part.start < end - 1e-6 && partEnd(c.part) > joined.start + 1e-6 && c.part.start >= current.part.start)) {
         return say('No room to join: the joined line would run into the next one.');
       }
@@ -1401,7 +1552,8 @@ export const SyncEditTimeline: React.FC<{
    */
   const placeOriginal = (at: number, length: number) => {
     const start = clamp(at, 0, total);
-    const playing = chunks.filter((c) => !c.part.muted);
+    // With several speakers a clip of the original goes on its own lane, so only other clips are in its way.
+    const playing = chunks.filter((c) => !c.part.muted && (!multi || c.lane === ORIGINAL_SPEAKER));
     if (playing.some((c) => c.part.start <= start + 1e-6 && partEnd(c.part) > start + 1e-6)) return null;
     const next = Math.min(Infinity, ...playing.filter((c) => c.part.start > start + 1e-6).map((c) => c.part.start));
     const fit = Math.min(length, next - start);
@@ -1570,6 +1722,16 @@ export const SyncEditTimeline: React.FC<{
 
   const onScreen = (start: number, end: number) => end >= windowStart - 1 && start <= windowStart + windowSeconds + 1;
   const visible = chunks.filter((c) => onScreen(c.part.start, partEnd(c.part)));
+  /** A part's colour: its speaker's with several speakers, else its line's; a clip of the original the Original lane's. */
+  const laneHue = (chunk: Chunk) =>
+    chunk.original ? ORIGINAL_HUE : speakerLanes ? speakerLanes.colors[chunk.lane] ?? hueOf(laneOfChunk(chunk)) : hueOf(chunk.unitIndex);
+  /** Lanes the listener does not hear now: muted, or left out by another lane's solo. */
+  const silencedLanes = useMemo(() => {
+    if (!speakerLanes) return new Set<string>();
+    const speakers = laneNames.filter((name) => name !== ORIGINAL_SPEAKER);
+    const soloing = speakers.some((name) => speakerLanes.monitor[name]?.solo);
+    return new Set(speakers.filter((name) => speakerLanes.monitor[name]?.muted || (soloing && !speakerLanes.monitor[name]?.solo)));
+  }, [speakerLanes, laneNames]);
   const spoken = measured.units.filter((u) => u.placedStart !== null && onScreen(Math.min(u.srcStart, u.placedStart as number), Math.max(u.srcEnd, u.placedEnd as number)));
   const editedCount = Object.keys(committed).filter((key) => !isOriginalClip(key)).length;
   const originalCount = Object.keys(committed).length - editedCount;
@@ -1695,7 +1857,31 @@ export const SyncEditTimeline: React.FC<{
             </div>
           )}
           <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-slate-800">Sync links</div>
-          {renderTrackHead ? (
+          {speakerLanes && (
+            <div className="h-14 px-2 flex items-center border-b border-slate-800">
+              {renderTrackHead ? (
+                renderTrackHead('synth', 'All speakers', 'bg-indigo-400')
+              ) : (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-sm bg-indigo-400" /> All speakers
+                </span>
+              )}
+            </div>
+          )}
+          {speakerLanes ? (
+            <div className="flex flex-col border-b border-slate-800">
+              {laneNames.map((name) => (
+                <SpeakerLaneHead
+                  key={name}
+                  name={name}
+                  lanes={speakerLanes}
+                  lines={chunks.filter((c) => c.lane === name && !c.part.muted).length}
+                  heard={!silencedLanes.has(name)}
+                  live={live}
+                />
+              ))}
+            </div>
+          ) : renderTrackHead ? (
             <div className="h-[4.5rem] px-2 flex items-center border-b border-slate-800">{renderTrackHead('synth', `${targetLanguage} dub`, 'bg-indigo-400')}</div>
           ) : (
             <div className="h-[4.5rem] px-2 flex items-center gap-1.5 border-b border-slate-800">
@@ -1770,11 +1956,33 @@ export const SyncEditTimeline: React.FC<{
             </svg>
           </div>
 
+          {/* With several speakers: every speaker's lines in one row, to see who talks when and where they overlap */}
+          {speakerLanes && (
+            <div className="relative h-14 border-b border-slate-800 bg-slate-950/40 overflow-hidden" aria-hidden="true">
+              {visible.map((chunk) => {
+                const row = 44 / laneNames.length;
+                return (
+                  <span
+                    key={chunk.part.id}
+                    className="absolute rounded-sm"
+                    style={{
+                      left: `${pct(chunk.part.start)}%`,
+                      width: `${Math.max(0.15, (partLength(chunk.part) / windowSeconds) * 100)}%`,
+                      top: 6 + laneOfChunk(chunk) * row,
+                      height: Math.max(2, row - 1),
+                      background: withAlpha(laneHue(chunk), chunk.part.muted || silencedLanes.has(chunk.lane) ? 0.2 : 0.75),
+                    }}
+                  />
+                );
+              })}
+            </div>
+          )}
+
           {/* The dub, editable */}
           <div
             ref={laneRef}
-            className="relative h-[4.5rem] border-b border-slate-800 bg-slate-950/70 overflow-hidden touch-none"
-            style={{ cursor: laneCursor }}
+            className={`relative ${speakerLanes ? '' : 'h-[4.5rem]'} border-b border-slate-800 bg-slate-950/70 overflow-hidden touch-none`}
+            style={{ cursor: laneCursor, ...(speakerLanes && { height: laneNames.length * LANE_PX }) }}
             onPointerDown={onLanePointerDown}
             onPointerMove={onLanePointerMove}
             onPointerLeave={() => {
@@ -1788,11 +1996,20 @@ export const SyncEditTimeline: React.FC<{
               else endDrag();
             }}
           >
+            {speakerLanes &&
+              laneNames.map((name, n) => (
+                <span
+                  key={name}
+                  aria-hidden="true"
+                  className={`absolute left-0 right-0 pointer-events-none ${n > 0 ? 'border-t border-slate-800/80' : ''} ${silencedLanes.has(name) ? 'bg-slate-950/60' : ''}`}
+                  style={{ top: n * LANE_PX, height: LANE_PX }}
+                />
+              ))}
             {visible.map((chunk) => {
               const { part } = chunk;
               const chosen = chunk.part.id === selected;
               const picked = selectedSet.has(chunk.part.id);
-              const hue = chunk.original ? ORIGINAL_HUE : hueOf(chunk.unitIndex);
+              const hue = laneHue(chunk);
               const color = statusColor(chunk);
               const length = partLength(part);
               const showOffset = chunk.unit && chunk.unit.offset !== null && part.from <= lineOf(chunk).lead + 1e-6;
@@ -1801,8 +2018,9 @@ export const SyncEditTimeline: React.FC<{
                 <div
                   key={part.id}
                   data-part={part.id}
-                  className={`absolute top-1.5 bottom-1.5 rounded-md border overflow-hidden ${chunk.original ? 'border-dashed' : ''} ${part.muted ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
+                  className={`absolute ${speakerLanes ? '' : 'top-1.5 bottom-1.5'} rounded-md border overflow-hidden ${chunk.original ? 'border-dashed' : ''} ${part.muted || silencedLanes.has(chunk.lane) ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
                   style={{
+                    ...(speakerLanes && { top: laneOfChunk(chunk) * LANE_PX + 5, height: LANE_PX - 10 }),
                     left: `${pct(part.start)}%`,
                     width: `${Math.max(0.15, (length / windowSeconds) * 100)}%`,
                     background: withAlpha(hue, 0.16),
@@ -1861,8 +2079,12 @@ export const SyncEditTimeline: React.FC<{
             {carry && (
               <span
                 aria-hidden="true"
-                className={`absolute top-1.5 bottom-1.5 rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.fits ? 'border-cyan-300 bg-cyan-300/15' : 'border-rose-400 bg-rose-400/10'}`}
-                style={{ left: `${pct(carry.start)}%`, width: `${Math.max(0.15, (carry.length / windowSeconds) * 100)}%` }}
+                className={`absolute ${speakerLanes ? '' : 'top-1.5 bottom-1.5'} rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.fits ? 'border-cyan-300 bg-cyan-300/15' : 'border-rose-400 bg-rose-400/10'}`}
+                style={{
+                  left: `${pct(carry.start)}%`,
+                  width: `${Math.max(0.15, (carry.length / windowSeconds) * 100)}%`,
+                  ...(speakerLanes && { top: (laneNames.length - 1) * LANE_PX + 5, height: LANE_PX - 10 }),
+                }}
               />
             )}
             {takeRange && (
@@ -1872,8 +2094,12 @@ export const SyncEditTimeline: React.FC<{
             {band && (
               <span
                 aria-hidden="true"
-                className="absolute top-0 bottom-0 border border-dashed border-indigo-300/80 bg-indigo-400/10 pointer-events-none z-20"
-                style={{ left: `${pct(band.from)}%`, width: `${((band.to - band.from) / windowSeconds) * 100}%` }}
+                className={`absolute ${speakerLanes ? '' : 'top-0 bottom-0'} border border-dashed border-indigo-300/80 bg-indigo-400/10 pointer-events-none z-20`}
+                style={{
+                  left: `${pct(band.from)}%`,
+                  width: `${((band.to - band.from) / windowSeconds) * 100}%`,
+                  ...(speakerLanes && { top: band.laneFrom * LANE_PX, height: (band.laneTo - band.laneFrom + 1) * LANE_PX }),
+                }}
               />
             )}
             {/* Where the picked line's original starts */}

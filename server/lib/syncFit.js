@@ -113,17 +113,20 @@ export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, 
   let ratio = NaN;
   let measuredLines = 0;
   let estimatedLines = 0;
+  let sampledLines = 0;
   if (cps > 0) {
     const units = buildSyncUnits(cues, { unitGap: proposed.unitGap, maxUnit: proposed.maxUnit });
     const ratios = units
       .map((unit) => {
         const entry = speakerRates && Object.hasOwn(speakerRates, unit.speaker || 'Speaker') ? speakerRates[unit.speaker || 'Speaker'] : null;
-        const measured = entry && Number.isFinite(entry.charsPerSecond) && entry.charsPerSecond >= 2 && entry.charsPerSecond <= 100 && entry.lines >= MIN_SAMPLES;
+        // A rate from a sample read of the speaker's voice counts however few lines it has; one from a dub needs enough of them.
+        const measured = entry && Number.isFinite(entry.charsPerSecond) && entry.charsPerSecond >= 2 && entry.charsPerSecond <= 100 && (entry.sample === true || entry.lines >= MIN_SAMPLES);
         const rate = measured ? entry.charsPerSecond : cps;
         const spoken = unit.srcEnd - unit.srcStart;
         const estimate = unit.text.length / rate;
         if (spoken >= SHORTEST_SPOKEN && estimate > 0) {
           if (measured || rateMeasured) measuredLines++; else estimatedLines++;
+          if (measured ? entry.sample === true : rateMeasured && rateSample) sampledLines++;
         }
         return { spoken, estimate };
       })
@@ -133,7 +136,11 @@ export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, 
   }
   if (finite(ratio)) {
     const percent = Math.round(Math.abs(ratio - 1) * 100);
-    const basis = estimatedLines === 0 ? (rateSample ? ", at the voice's rate from a sample read" : ', using rates from the previous dub') : measuredLines > 0 ? ', using a mix of measured and typical rates' : ', at a typical speaking rate';
+    const measuredBasis =
+      sampledLines === measuredLines ? ', at the rates the voices read their samples at'
+        : sampledLines > 0 ? ', using rates from the previous dub and from sample reads'
+          : ', using rates from the previous dub';
+    const basis = estimatedLines === 0 ? measuredBasis : measuredLines > 0 ? ', using a mix of measured and typical rates' : ', at a typical speaking rate';
     const longer = `The dub runs about ${percent}% longer than the original${basis}.`;
     if (ratio >= 1.08) {
       if (!from.shortenPauses) propose('shortenPauses', true, longer);

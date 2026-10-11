@@ -39,6 +39,18 @@ export const cleanVoiceRate = (value) => {
   return Number.isFinite(rate) && rate >= MIN_VOICE_RATE && rate <= MAX_VOICE_RATE ? rate : null;
 };
 
+/** Believable rates of the voices speakers have of their own, by speaker name. */
+export const cleanSpeakerRates = (value) =>
+  Object.fromEntries(
+    Object.entries(value && typeof value === 'object' ? value : {})
+      .filter(([speaker]) => speaker.length <= 128)
+      .map(([speaker, rate]) => [speaker, cleanVoiceRate(rate)])
+      .filter(([, rate]) => rate !== null)
+  );
+
+/** The rate of the voice that speaks `cue`: its speaker's own, else the main voice's `rate`. */
+export const rateForCue = (cue, rate, speakerRates = {}) => speakerRates[cue.speaker || 'Speaker'] ?? rate;
+
 /** Syllables the voice says at `rate` in the time the speaker took for `cue`, or null without timings. */
 export const syllableTarget = (cue, rate) => {
   const seconds = Number(cue.endTime) - Number(cue.startTime);
@@ -133,13 +145,15 @@ const translateBatch = async ({ batch, sourceLanguage, targetLanguage, customPro
  * Translates cue texts, batching long transcripts so a single request never
  * grows unbounded. `voiceRate` is the dub voice's speaking rate in syllables a
  * second, when the app has measured it: each cue is then sized for that voice.
+ * `speakerRates` holds the rates of the voices speakers have of their own, by
+ * speaker name; their cues are sized for those.
  *
  * @returns {Promise<{translations: Map<string,string>, modelUsed: string|null,
  *   translatedCount: number, missingIds: string[], failedBatches: number}>}
  */
 export const translateCueTexts = async (
   cues,
-  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress, voiceRate } = {}
+  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress, voiceRate, speakerRates } = {}
 ) => {
   if (!targetLanguage) {
     throw new ApiError('No target language was selected for translation.', {
@@ -148,12 +162,13 @@ export const translateCueTexts = async (
     });
   }
   const rate = cleanVoiceRate(voiceRate);
+  const ownRates = cleanSpeakerRates(speakerRates);
 
   // The 3-step preset runs the per-language prompt files instead of the
   // one-shot prompt below; it needs the cue timings, so it gets the raw cues.
   if (isThreeStepPrompt(customPrompt)) {
     if (supportsThreeStep(targetLanguage)) {
-      return translateCueTextsThreeStep(cues, { targetLanguage, customPrompt, apiKey, models, onProgress, voiceRate: rate });
+      return translateCueTextsThreeStep(cues, { targetLanguage, customPrompt, apiKey, models, onProgress, voiceRate: rate, speakerRates: ownRates });
     }
     // It is the default style, so a language without prompt files falls back
     // to the one-shot translation, keeping only the user's own additions.
@@ -162,7 +177,7 @@ export const translateCueTexts = async (
   }
 
   const translatable = cues
-    .map((cue) => ({ id: String(cue.id), text: String(cue.text ?? '').trim(), syllables: syllableTarget(cue, rate) }))
+    .map((cue) => ({ id: String(cue.id), text: String(cue.text ?? '').trim(), syllables: syllableTarget(cue, rateForCue(cue, rate, ownRates)) }))
     .filter((cue) => cue.text.length > 0);
 
   if (translatable.length === 0) {

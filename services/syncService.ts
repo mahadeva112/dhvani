@@ -601,6 +601,8 @@ export interface SyncPreviewUnit {
   cueIds: (string | number)[];
   text: string;
   sourceText: string;
+  /** Who says the line, when the cues name speakers. */
+  speaker?: string | null;
   srcStart: number;
   srcEnd: number;
   nextStart: number | null;
@@ -722,12 +724,19 @@ export const isShortSpeech = (seconds: number, spoken: number) => seconds < spok
  * syllables at `syllablesPerSecond`, its status, overrun and target length
  * worked out again from that, and the lip closures of the original (from the
  * cues' word timings) set against the dub's. Slots stay as the server set them.
+ * `rateOf` gives the rate of a speaker whose voice speaks at its own; every
+ * other line is timed at `syllablesPerSecond`.
  */
-export const expertPreview = (preview: SyncPreview, segments: AudioSegment[], syllablesPerSecond: number): SyncPreview => {
-  const rate = syllablesPerSecond;
+export const expertPreview = (
+  preview: SyncPreview,
+  segments: AudioSegment[],
+  syllablesPerSecond: number,
+  rateOf: (speaker?: string | null) => number = () => syllablesPerSecond
+): SyncPreview => {
   const cueById = new Map(segments.map((seg) => [String(seg.id), seg]));
   const allowed = ALLOWED_OVERFLOW[preview.precision] ?? ALLOWED_OVERFLOW.phrase;
   const units = preview.units.map((unit): SyncPreviewUnit => {
+    const rate = rateOf(unit.speaker);
     const timing = timeLine(unit.text, rate);
     const estimate = timing.seconds;
     const overflow = estimate - unit.slot;
@@ -768,7 +777,7 @@ export const expertPreview = (preview: SyncPreview, segments: AudioSegment[], sy
   return {
     ...preview,
     method: 'expert',
-    syllablesPerSecond: rate,
+    syllablesPerSecond,
     units,
     summary: {
       lines: units.length,
@@ -787,7 +796,15 @@ export const expertPreview = (preview: SyncPreview, segments: AudioSegment[], sy
 
 /** Which lines are likely to fit, before anything is voiced. No voice or text model is called. */
 export const previewSync = (
-  request: { segments: AudioSegment[]; precision: SyncPrecision; charsPerSecond: number; sourceDuration?: number; join?: SyncJoinSettings },
+  request: {
+    segments: AudioSegment[];
+    precision: SyncPrecision;
+    charsPerSecond: number;
+    sourceDuration?: number;
+    join?: SyncJoinSettings;
+    /** Characters a second of the speakers whose voices speak at their own rate. */
+    speakerRates?: Record<string, number>;
+  },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncPreview> =>
   apiJson<SyncPreview>('/sync/preview', { body: { ...request, segments: request.segments.map((segment) => slimSegment(segment)) }, signal });
@@ -810,12 +827,15 @@ export interface SyncFit {
   note: string | null;
 }
 
+/** Each speaker's voice rate for Fit to this video: from `lines` lines of a dub, or with `sample` from a sample read of the voice. */
+export type SpeakerFitRates = Record<string, { charsPerSecond: number; lines: number; sample?: boolean }>;
+
 /**
  * Join settings measured from this video: the speaker's pauses (from the
  * cues' word timings) and how much longer the dub runs. Nothing is applied.
  */
 export const fitJoinSettings = (
-  request: { segments: AudioSegment[]; join: SyncJoinSettings; charsPerSecond: number; rateMeasured: boolean; rateSample?: boolean; speakerRates?: Record<string, { charsPerSecond: number; lines: number }> },
+  request: { segments: AudioSegment[]; join: SyncJoinSettings; charsPerSecond: number; rateMeasured: boolean; rateSample?: boolean; speakerRates?: SpeakerFitRates },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncFit> =>
   apiJson<SyncFit>('/sync/fit', {

@@ -28,6 +28,8 @@ interface TargetScriptChoiceProps {
   /** The dub voice's measured speaking rate, or null before its sample is read. */
   voiceRate?: VoiceRate | null;
   voiceName?: string;
+  /** How many speakers' own voices have been measured too; their cues are sized for those. */
+  ownVoiceRates?: number;
   /** Translation sizes each cue for that rate. */
   fitToVoice?: boolean;
   onFitToVoiceChange?: (on: boolean) => void;
@@ -76,6 +78,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   onOpenPromptModal,
   voiceRate = null,
   voiceName = '',
+  ownVoiceRates = 0,
   fitToVoice = true,
   onFitToVoiceChange,
   onTranslate,
@@ -333,8 +336,9 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
                     Fit the translation to the voice's speed
                   </span>
                   <span className="block text-[11px] text-slate-500 leading-snug mt-0.5">
-                    {voiceName || 'Your voice'} speaks {targetLanguage} at {voiceRate.syllablesPerSecond.toFixed(1)} syllables/s. Each cue is
-                    translated to about the syllables it can say in the time the speaker took, without dropping meaning.
+                    {voiceName || 'Your voice'} speaks {targetLanguage} at {voiceRate.syllablesPerSecond.toFixed(1)} syllables/s
+                    {ownVoiceRates > 0 ? `, and ${ownVoiceRates} speaker${ownVoiceRates > 1 ? 's have their' : ' has their'} own voice measured too` : ''}. Each cue is
+                    translated to about the syllables its voice can say in the time the speaker took, without dropping meaning.
                   </span>
                 </span>
               </label>

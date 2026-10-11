@@ -18,6 +18,14 @@ test('each line gets the slot Sync gives it: to the next phrase, less a breath',
   assert.equal(units[0].key, '1');
 });
 
+test("a speaker with a voice of their own is estimated at that voice's rate", () => {
+  const segments = [cue(1, 0, 1, 'a'.repeat(20), { speaker: 'Asha' }), cue(2, 3, 4, 'b'.repeat(20), { speaker: 'Ravi' })];
+  const { units } = previewSync({ segments, charsPerSecond: 10, speakerRates: { Asha: 20 } });
+  assert.equal(units[0].speaker, 'Asha');
+  assert.ok(Math.abs(units[0].estimate - 1) < 1e-9);
+  assert.ok(Math.abs(units[1].estimate - 2) < 1e-9);
+});
+
 test('cues spoken as one phrase are previewed as one line, as Sync voices them', () => {
   const { units } = previewSync({ segments: [cue(1, 0, 1, 'one'), cue(2, 1.1, 2, 'two'), cue(3, 4, 5, 'three')], charsPerSecond: 10 });
   assert.deepEqual(units.map((u) => u.cueIds), [[1, 2], [3]]);

@@ -50,7 +50,9 @@ export const liveClips = (
   edits: SyncEdits | null | undefined,
   multiSpeaker: boolean,
   /** The clips of the original that play (syncEditService's originalParts), from the original's own buffer. */
-  originals: SyncEditPart[] = []
+  originals: SyncEditPart[] = [],
+  /** Speakers not to play: muted or left out by a solo in Edit timing. Listening only. */
+  silenced: ReadonlySet<string> = new Set()
 ): LiveClip[] => {
   const rate = bank.sampleRate;
   const out: LiveClip[] = [];
@@ -71,6 +73,7 @@ export const liveClips = (
     });
   }
   for (const line of bank.lines) {
+    if (silenced.has(line.speaker)) continue;
     const lineGain = Number.isFinite(line.gain) ? line.gain : 1;
     const speakerGain = multiSpeaker ? (Number.isFinite(bank.speakerGains?.[line.speaker]) ? bank.speakerGains[line.speaker] : 1) : 1;
     const seconds = line.length / rate;
@@ -85,14 +88,16 @@ export const liveClips = (
       if (to - from <= 0) continue;
       const bankFrom = line.bankStart / rate + from;
       const bankTo = line.bankStart / rate + to;
+      const gain = lineGain * speakerGain * 10 ** (part.gainDb / 20);
       out.push({
-        id: [part.id, part.start, from, to, part.rate, part.gainDb, part.fadeIn, part.fadeOut].join(':'),
+        // The gain is in the id, so a speaker's level set while playing is heard at once.
+        id: [part.id, part.start, from, to, part.rate, gain.toFixed(5), part.fadeIn, part.fadeOut].join(':'),
         stretchKey: `${bankFrom.toFixed(5)}:${bankTo.toFixed(5)}:${part.rate}`,
         bankFrom,
         bankTo,
         start: Math.max(0, part.start),
         rate: part.rate,
-        gain: lineGain * speakerGain * 10 ** (part.gainDb / 20),
+        gain,
         fadeIn: part.fadeIn,
         fadeOut: part.fadeOut,
         cutIn: from > 1e-4,

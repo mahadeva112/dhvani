@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeftRight, Check, CheckCircle2, Download, Layers, P
 import { AudioSegment, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
 import { SpeakerSummary, SpeakerSlip, speakerOf } from '../services/speakers';
 import type { Voice } from '../services/elevenLabsService';
+import type { VoiceRateState } from '../services/voiceRate';
 
 /**
  * The pieces of the wizard that deal with several speakers: who speaks when
@@ -318,6 +319,10 @@ const voiceName = (voiceId: string, voices: Voice[]) => {
   return ((voice?.name || 'Voice not in your library').split(/\s+[-–—|]\s+/)[0] || '').trim();
 };
 
+/** A voice's speaking rate after its role: its syllables a second, or that it is being measured. */
+const rateNote = (state?: VoiceRateState) =>
+  state?.rate ? ` · ${state.rate.syllablesPerSecond.toFixed(1)} syllables/s` : state?.status === 'measuring' ? ' · measuring speed…' : '';
+
 /** Which voice speaks for whom. A speaker with no voice of their own is voiced by the main voice. */
 export const CastCard: React.FC<{
   speakers: SpeakerSummary[];
@@ -327,7 +332,10 @@ export const CastCard: React.FC<{
   disabled?: boolean;
   onPick: (speaker: string) => void;
   onUseMain: (speaker: string) => void;
-}> = ({ speakers, cast, mainVoiceId, availableVoices, disabled, onPick, onUseMain }) => {
+  /** Each speaker's own voice's speaking rate, by name, and the main voice's (services/voiceRate.ts). */
+  rates?: Record<string, VoiceRateState>;
+  mainRate?: VoiceRateState;
+}> = ({ speakers, cast, mainVoiceId, availableVoices, disabled, onPick, onUseMain, rates, mainRate }) => {
   const ownVoices = speakers.map((s) => cast?.[s.name]?.voiceId || mainVoiceId);
   const shared = new Set(ownVoices).size < speakers.length;
   return (
@@ -352,7 +360,10 @@ export const CastCard: React.FC<{
               <span className="block text-[12.5px] text-slate-100 truncate" title={name}>
                 {name}
               </span>
-              <span className="block text-[10.5px] text-slate-500">{own ? 'Own voice' : 'Main voice'}</span>
+              <span className="block text-[10.5px] text-slate-500 tabular-nums">
+                {own ? 'Own voice' : 'Main voice'}
+                {rateNote(own ? rates?.[s.name] : mainRate)}
+              </span>
             </span>
             {own && (
               <button

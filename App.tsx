@@ -136,6 +136,7 @@ import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
 import { pickedTakes, putTake, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
 import { LiveDubEngine, liveClips } from './services/liveDubEngine';
+import { cleanSpeakerLevels, silencedSpeakers, withSpeakerLevels, type SpeakerMonitor } from './services/speakerLevels';
 import type { SyncEditStatus } from './components/SyncEditTimeline';
 import {
   getAllJobsFromStorage,
@@ -144,7 +145,7 @@ import {
   clearAllJobsFromStorage,
 } from './services/storageService';
 import { byNewest } from './services/projects';
-import { useVoiceRate } from './services/voiceRate';
+import { speakerSyllableRates, useVoiceRates, type VoiceRateVoice } from './services/voiceRate';
 import { currentStep, hasTranscript, openSteps } from './services/steps';
 import {
   BatchJob,
@@ -608,15 +609,28 @@ export default function App() {
   activeJobIdRef.current = activeJobId;
 
   /*
-   * The dub voice's speaking rate in the dub language, measured from a short
-   * sample read as soon as the voice is picked (services/voiceRate.ts). Review
-   * estimates with it before the first sync, and translation sizes each cue for it.
+   * The dub voices' speaking rates in the dub language, measured from a short
+   * sample read as soon as a voice is picked (services/voiceRate.ts): the main
+   * voice, and with several speakers each one's own voice from the cast. Review
+   * estimates with them before the first sync, and translation sizes each cue
+   * for the voice that will say it.
    */
   const rateVoice = useMemo(
     () => (elVoiceId ? { voiceId: elVoiceId, modelId: elModelId, voiceSettings: elVoiceSettings, cartesia: cartesiaVoice } : null),
     [elVoiceId, elModelId, elVoiceSettings, cartesiaVoice]
   );
-  const voiceRate = useVoiceRate(rateVoice, activeJob?.language || selectedLanguage, { apiKey: elApiKey });
+  const jobSegments = activeJob?.segments;
+  const jobCast = activeJob?.cast;
+  // Sync voices the cast only when the cues name more than one speaker, so only then are their voices read.
+  const castRateVoices = useMemo<Record<string, VoiceRateVoice>>(
+    () =>
+      jobSegments && isMultiSpeaker(jobSegments)
+        ? Object.fromEntries(Object.entries(jobCast || {}).filter(([, voice]) => voice?.voiceId).map(([speaker, voice]) => [speaker, { voiceId: voice.voiceId }]))
+        : {},
+    [jobSegments, jobCast]
+  );
+  const voiceRates = useVoiceRates(rateVoice, castRateVoices, activeJob?.language || selectedLanguage, { apiKey: elApiKey });
+  const voiceRate = voiceRates.main;
   const [fitTranslationToVoice, setFitTranslationToVoice] = useState<boolean>(() => {
     try {
       return localStorage.getItem(FIT_TRANSLATION_STORAGE_KEY) !== 'off';
@@ -1055,6 +1069,7 @@ export default function App() {
             targetLanguage: targetLang,
             customPrompt: promptToUse,
             ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
+            ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
             onProgress: setTranslationProgress,
           });
 
@@ -1102,7 +1117,7 @@ export default function App() {
         setIsTranslatingLanguage(false);
       }
     },
-    [activeJob, customPrompt, selectedLanguage, updateJob, fitTranslationToVoice, voiceRate.rate]
+    [activeJob, customPrompt, selectedLanguage, updateJob, fitTranslationToVoice, voiceRate.rate, voiceRates.speakers]
   );
 
   /**
@@ -1262,19 +1277,34 @@ export default function App() {
   const liveDub = playsSynced && Boolean(editTimingAudio && activeJob?.syncBank) && playbackRate === 1;
   const liveDubRef = useRef(liveDub);
   liveDubRef.current = liveDub;
+  /*
+   * With several speakers each has a lane in Edit timing: a level, which the
+   * file is rendered with and the live dub plays with, and a mute and solo,
+   * which only the live dub follows. Mute and solo belong to the project open now.
+   */
+  const [speakerMonitor, setSpeakerMonitor] = useState<Record<string, SpeakerMonitor>>({});
+  useEffect(() => setSpeakerMonitor({}), [activeJobId]);
+  const liveBank = useMemo(
+    () => (activeJob?.syncBank ? withSpeakerLevels(activeJob.syncBank, activeJob.syncSpeakerLevels) : null),
+    [activeJob?.syncBank, activeJob?.syncSpeakerLevels]
+  );
+  const liveSilenced = useMemo(
+    () => (liveBank && activeJob?.syncBaseReport?.mix ? silencedSpeakers([...new Set(liveBank.lines.map((line) => line.speaker))], speakerMonitor) : new Set<string>()),
+    [liveBank, activeJob?.syncBaseReport, speakerMonitor]
+  );
   const liveDubClips = useMemo(
     () =>
-      liveDub && activeJob?.syncBank
-        ? liveClips(activeJob.syncBank, activeJob.syncEdits, Boolean(activeJob.syncBaseReport?.mix), originalParts(activeJob.syncEdits, sourceDurationOf(activeJob)))
+      liveDub && liveBank
+        ? liveClips(liveBank, activeJob?.syncEdits, Boolean(activeJob?.syncBaseReport?.mix), activeJob ? originalParts(activeJob.syncEdits, sourceDurationOf(activeJob)) : [], liveSilenced)
         : [],
-    [liveDub, activeJob?.syncBank, activeJob?.syncEdits, activeJob?.syncBaseReport, activeJob?.audioBuffer]
+    [liveDub, liveBank, activeJob?.syncEdits, activeJob?.syncBaseReport, activeJob?.audioBuffer, liveSilenced]
   );
   const liveDubClipsRef = useRef(liveDubClips);
   liveDubClipsRef.current = liveDubClips;
   const liveEngineRef = useRef<LiveDubEngine | null>(null);
-  const liveDubInputRef = useRef<{ bank: NonNullable<BatchJob['syncBank']>; multiSpeaker: boolean; sourceDuration: number } | null>(null);
-  liveDubInputRef.current = activeJob?.syncBank
-    ? { bank: activeJob.syncBank, multiSpeaker: Boolean(activeJob.syncBaseReport?.mix), sourceDuration: sourceDurationOf(activeJob) }
+  const liveDubInputRef = useRef<{ bank: NonNullable<BatchJob['syncBank']>; multiSpeaker: boolean; sourceDuration: number; silenced: Set<string> } | null>(null);
+  liveDubInputRef.current = activeJob && liveBank
+    ? { bank: liveBank, multiSpeaker: Boolean(activeJob.syncBaseReport?.mix), sourceDuration: sourceDurationOf(activeJob), silenced: liveSilenced }
     : null;
   // The original, which the clips of it on the dub play from.
   const liveOriginal = activeJob?.audioBuffer ?? null;
@@ -1285,7 +1315,7 @@ export default function App() {
     const engine = liveEngineRef.current;
     const input = liveDubInputRef.current;
     if (!engine || !input) return;
-    engine.setClips(edits ? liveClips(input.bank, edits, input.multiSpeaker, originalParts(edits, input.sourceDuration)) : liveDubClipsRef.current);
+    engine.setClips(edits ? liveClips(input.bank, edits, input.multiSpeaker, originalParts(edits, input.sourceDuration), input.silenced) : liveDubClipsRef.current);
   }, []);
 
   // Sync playback rate to audio elements, including ones mounted after the rate was set
@@ -2165,8 +2195,10 @@ export default function App() {
       syncEditRunRef.current = { timer: null, controller };
       setSyncEditStatus({ state: 'rendering' });
       try {
+        // Each speaker's level from their lane, as the project has it when the render starts.
+        const levels = queueRef.current.find((job) => job.id === jobId)?.syncSpeakerLevels;
         const { blob, stems, mix } = await renderSyncEdits(
-          { bank: input.bank, bankBlob: input.bankBlob, edits: input.edits, report: input.baseReport, sourceDuration: input.sourceDuration, source: input.source },
+          { bank: withSpeakerLevels(input.bank, levels), bankBlob: input.bankBlob, edits: input.edits, report: input.baseReport, sourceDuration: input.sourceDuration, source: input.source },
           { signal: controller.signal }
         );
         if (controller.signal.aborted) return;
@@ -2218,6 +2250,25 @@ export default function App() {
       source: activeJob.audioBuffer,
     });
   };
+
+  /** A speaker's level from their lane in Edit timing: kept with the project, and the synced dub rendered with it. */
+  const handleSpeakerLevelChange = (speaker: string, db: number) => {
+    if (!activeJob?.syncBank || !activeJob.syncBaseReport) return;
+    const levels = cleanSpeakerLevels({ ...activeJob.syncSpeakerLevels, [speaker]: db });
+    updateJob(activeJob.id, { syncSpeakerLevels: Object.keys(levels).length > 0 ? levels : null });
+    scheduleSyncEditRender(activeJob.id, {
+      bank: activeJob.syncBank,
+      bankBlob: activeJob.syncBankBlob,
+      baseReport: activeJob.syncBaseReport,
+      edits: activeJob.syncEdits || null,
+      sourceDuration: sourceDurationOf(activeJob),
+      source: activeJob.audioBuffer,
+    });
+  };
+
+  /** A speaker's lane muted or soloed: heard in the live dub only. */
+  const handleSpeakerMonitorChange = (speaker: string, patch: Partial<SpeakerMonitor>) =>
+    setSpeakerMonitor((all) => ({ ...all, [speaker]: { muted: false, solo: false, ...all[speaker], ...patch } }));
 
   /** Renders the edits again after a failed render. */
   const handleRetrySyncEditRender = () => {
@@ -2439,7 +2490,9 @@ export default function App() {
           : { state: 'ready' }
       );
       // The sync placed the locked lines' blocks; their edits are rendered over them now.
-      if (edited) scheduleSyncEditRender(activeJob.id, { bank, bankBlob, baseReport: report, edits: keptEdits, sourceDuration, source: activeJob.audioBuffer }, 0);
+      // The speakers' levels are not in what the sync rendered either, so they are rendered over it too.
+      const leveled = several && Object.keys(cleanSpeakerLevels(activeJob.syncSpeakerLevels)).length > 0;
+      if (edited || leveled) scheduleSyncEditRender(activeJob.id, { bank, bankBlob, baseReport: report, edits: edited ? keptEdits : null, sourceDuration, source: activeJob.audioBuffer }, 0);
       decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
         .then((syncedBuffer) => {
@@ -3209,6 +3262,9 @@ export default function App() {
           syncEditLive={liveDub}
           onEditTimingAudio={setEditTimingAudio}
           onSyncEditDraft={handleSyncEditDraft}
+          speakerMonitor={speakerMonitor}
+          onSpeakerLevelChange={handleSpeakerLevelChange}
+          onSpeakerMonitorChange={handleSpeakerMonitorChange}
           onRetrySyncEditRender={handleRetrySyncEditRender}
           isSyncing={isSyncing}
           syncProgress={syncProgress}
@@ -3264,6 +3320,7 @@ export default function App() {
           onRetranscribeAudio={handleRetranscribeAudio}
           onTranslateTranscript={handleTranslateTranscript}
           voiceRate={voiceRate}
+          speakerVoiceRates={voiceRates.speakers}
           fitTranslationToVoice={fitTranslationToVoice}
           onFitTranslationToVoiceChange={handleFitTranslationToVoiceChange}
           onTargetSourceChange={handleTargetSourceChange}

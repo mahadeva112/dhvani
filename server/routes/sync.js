@@ -916,13 +916,13 @@ syncRouter.post(
 
 /**
  * POST /api/sync/preview — which lines are likely to fit before anything is
- * voiced. Body: `{ segments, precision, charsPerSecond, sourceDuration, join }`.
+ * voiced. Body: `{ segments, precision, charsPerSecond, sourceDuration, join, speakerRates }`.
  * Pure arithmetic on the cues: no voice and no text model is called.
  */
 syncRouter.post('/sync/preview', (req, res) => {
-  const { segments, precision, charsPerSecond, sourceDuration, join } = req.body || {};
+  const { segments, precision, charsPerSecond, sourceDuration, join, speakerRates } = req.body || {};
   if (!Array.isArray(segments)) throw new ApiError('There are no cues to preview.', { status: 400, code: 'no_segments' });
-  res.json(previewSync({ segments, precision, charsPerSecond, sourceDuration, join }));
+  res.json(previewSync({ segments, precision, charsPerSecond, sourceDuration, join, speakerRates }));
 });
 
 /**

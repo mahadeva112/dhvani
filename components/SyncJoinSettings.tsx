@@ -8,6 +8,7 @@ import {
   SyncJoinPreset,
   SyncJoinSettings,
   SyncOptions,
+  type SpeakerFitRates,
 } from '../services/syncService';
 import { AudioSegment } from '../types';
 import { JOIN_SETTING_RANGES } from '../server/lib/syncSettings.js';
@@ -139,7 +140,7 @@ const Group: React.FC<{ title: string; summary: string; measured?: boolean; chil
 
 /** What Fit to this video measures from: the cues, and the dub's speaking rate. */
 export interface SyncFitSource {
-  speakerRates?: Record<string, { charsPerSecond: number; lines: number }>;
+  speakerRates?: SpeakerFitRates;
   segments: AudioSegment[];
   charsPerSecond: number;
   /** True when the rate was measured from this dub (or a sample read of its voice), not a typical one. */

@@ -141,6 +141,7 @@ export const useSyncPreview = ({
   precision,
   join,
   charsPerSecond,
+  speakerRates,
   sourceDuration,
 }: {
   enabled: boolean;
@@ -148,8 +149,12 @@ export const useSyncPreview = ({
   precision: SyncPrecision;
   join?: SyncJoinSettings;
   charsPerSecond: number;
+  /** Characters a second of the speakers whose voices speak at their own rate. */
+  speakerRates?: Record<string, number>;
   sourceDuration: number;
 }) => {
+  // By value, so a new object with the same rates doesn't fetch again.
+  const speakerRatesKey = JSON.stringify(speakerRates || {});
   const [preview, setPreview] = useState<SyncPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -160,7 +165,7 @@ export const useSyncPreview = ({
     // Typing in the script changes the segments on every key; wait for a pause.
     const timer = window.setTimeout(() => {
       setLoading(true);
-      previewSync({ segments, precision, join, charsPerSecond, sourceDuration }, { signal: controller.signal })
+      previewSync({ segments, precision, join, charsPerSecond, speakerRates: JSON.parse(speakerRatesKey), sourceDuration }, { signal: controller.signal })
         .then((next) => {
           setPreview(next);
           setError(null);
@@ -176,7 +181,7 @@ export const useSyncPreview = ({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, segments, precision, join, charsPerSecond, sourceDuration]);
+  }, [enabled, segments, precision, join, charsPerSecond, speakerRatesKey, sourceDuration]);
 
   return { preview: enabled ? preview : null, error: enabled ? error : null, loading };
 };
