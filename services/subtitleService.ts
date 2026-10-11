@@ -149,6 +149,7 @@ export const retranslateCues = async (
     sourceLanguage = '',
     targetLanguage,
     customPrompt = '',
+    voiceRate,
     keys,
     signal,
     onProgress,
@@ -156,6 +157,8 @@ export const retranslateCues = async (
     sourceLanguage?: string;
     targetLanguage: string;
     customPrompt?: string;
+    /** The dub voice's speaking rate in syllables a second: each cue is then sized for that voice. */
+    voiceRate?: number;
     onProgress?: (progress: RetranslateProgress) => void;
   }
 ): Promise<{ segments: AudioSegment[]; translatedSrt: string; untranslatedCueIds: string[] }> => {
@@ -165,7 +168,7 @@ export const retranslateCues = async (
     untranslatedCueIds: string[];
   }>(
     '/pipeline/retranslate',
-    { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt },
+    { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt, ...(voiceRate && { voiceRate }) },
     {
       keys,
       signal,

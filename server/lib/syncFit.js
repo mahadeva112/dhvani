@@ -55,14 +55,15 @@ const innerPausesOf = (cues) =>
 /**
  * Proposes join settings for these cues. `join` is what the user has now;
  * every setting not proposed keeps its value. `charsPerSecond` is the dub's
- * speaking rate (`rateMeasured` says whether it was measured from this dub).
+ * speaking rate (`rateMeasured` says whether it was measured from this dub,
+ * or with `rateSample` from a sample read of the voice).
  *
  * Returns `{ join, changes, measured, note }`: `join` with the changes in it;
  * `changes` as `{ key, from, to, reason }`, only for settings that move;
  * `measured` the counts behind them; `note` set when there was too little to
  * measure anything.
  */
-export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, rateMeasured = false, speakerRates = {} } = {}) => {
+export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, rateMeasured = false, rateSample = false, speakerRates = {} } = {}) => {
   const from = resolveJoinSettings(current);
   const proposed = { ...from };
   const reasons = {};
@@ -132,7 +133,7 @@ export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, 
   }
   if (finite(ratio)) {
     const percent = Math.round(Math.abs(ratio - 1) * 100);
-    const basis = estimatedLines === 0 ? ', using rates from the previous dub' : measuredLines > 0 ? ', using a mix of measured and typical rates' : ', at a typical speaking rate';
+    const basis = estimatedLines === 0 ? (rateSample ? ", at the voice's rate from a sample read" : ', using rates from the previous dub') : measuredLines > 0 ? ', using a mix of measured and typical rates' : ', at a typical speaking rate';
     const longer = `The dub runs about ${percent}% longer than the original${basis}.`;
     if (ratio >= 1.08) {
       if (!from.shortenPauses) propose('shortenPauses', true, longer);

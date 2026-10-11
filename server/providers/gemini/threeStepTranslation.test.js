@@ -7,7 +7,9 @@ import {
   countSyllables,
   formatEnglishSegments,
   stripPaceTags,
+  voiceSpeedNote,
 } from './threeStepTranslation.js';
+import { cleanVoiceRate, syllableTarget } from './translation.js';
 
 test('the preset marker switches translation to the 3-step pipeline', () => {
   assert.equal(isThreeStepPrompt('#pipeline: 3-step\n# notes'), true);
@@ -47,4 +49,21 @@ test('pace tags from the Step prompts are stripped, keeping the words and line b
   assert.equal(stripPaceTags('[fast]जैसा उसे होना चाहिए![/fast]'), 'जैसा उसे होना चाहिए!');
   assert.equal(stripPaceTags('पहला [fast] दूसरा [/fast]\nतीसरा'), 'पहला दूसरा\nतीसरा');
   assert.equal(stripPaceTags('No tags here.'), 'No tags here.');
+});
+
+test("the voice's speed turns each segment's durations into syllable counts", () => {
+  const note = voiceSpeedNote('Bengali', 5.08);
+  assert.match(note, /about 5\.1 Bengali syllables per second/);
+  assert.match(note, /\[Segment duration\] × 5\.1/);
+  assert.match(note, /\[Total duration available\] × 5\.1/);
+});
+
+test('a cue is sized from its own duration at the voice rate, and only a believable rate is used', () => {
+  assert.equal(syllableTarget({ startTime: 10, endTime: 12.5 }, 4.8), 12);
+  assert.equal(syllableTarget({ startTime: 3, endTime: 3 }, 4.8), null);
+  assert.equal(syllableTarget({ startTime: 0, endTime: 2 }, null), null);
+  assert.equal(cleanVoiceRate(5.1), 5.1);
+  assert.equal(cleanVoiceRate('4.5'), 4.5);
+  assert.equal(cleanVoiceRate(40), null);
+  assert.equal(cleanVoiceRate(undefined), null);
 });

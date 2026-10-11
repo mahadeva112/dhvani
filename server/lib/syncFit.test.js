@@ -70,6 +70,14 @@ test('a dub that runs long may take more of a pause, and lends long pauses to th
   assert.match(fit.changes.find((c) => c.key === 'maxPauseTake').reason, /67% longer.*typical speaking rate/);
 });
 
+test('a rate from a sample read of the voice is named as that, not as the previous dub', () => {
+  const segments = run(10, 0.6, { text: 'x'.repeat(15) });
+  const sampled = fitJoinSettings({ segments, charsPerSecond: 10, rateMeasured: true, rateSample: true });
+  assert.match(sampled.changes.find((c) => c.key === 'maxPauseTake').reason, /sample read/);
+  const synced = fitJoinSettings({ segments, charsPerSecond: 10, rateMeasured: true });
+  assert.match(synced.changes.find((c) => c.key === 'maxPauseTake').reason, /previous dub/);
+});
+
 test('a dub that runs short keeps more of each pause', () => {
   const fit = fitJoinSettings({ segments: run(10, 0.6, { text: 'x'.repeat(6) }), charsPerSecond: 10, rateMeasured: true });
   assert.equal(fit.join.gapShare, 0.4);

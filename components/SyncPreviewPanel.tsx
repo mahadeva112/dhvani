@@ -18,6 +18,7 @@ import {
   wantsChange,
 } from '../services/syncService';
 import type { EstimateMethod } from '../services/syncService';
+import type { RateBasis } from '../services/voiceRate';
 import { timeLine } from '../services/speechTiming';
 
 /**
@@ -378,10 +379,17 @@ export const EstimateSwitch: React.FC<{ method: EstimateMethod; onChange: (metho
 );
 
 /** What the preview's figures are worked out from, in a few words. */
-export const estimateBasis = (preview: SyncPreview, rateMeasured: boolean) =>
+/** Where an estimate's rate came from, after its value. */
+export const RATE_BASIS_NOTE: Record<RateBasis, string> = {
+  sync: 'from this dub',
+  sample: "from your voice's sample read",
+  typical: '(a typical rate)',
+};
+
+export const estimateBasis = (preview: SyncPreview, basis: RateBasis) =>
   preview.method === 'expert' && preview.syllablesPerSecond
-    ? `${preview.syllablesPerSecond.toFixed(1)} syllables/s · ${rateMeasured ? 'from this dub' : 'typical rate'}`
-    : `${preview.charsPerSecond.toFixed(1)} chars/s · ${rateMeasured ? 'from this dub' : 'typical rate'}`;
+    ? `${preview.syllablesPerSecond.toFixed(1)} syllables/s ${RATE_BASIS_NOTE[basis]}`
+    : `${preview.charsPerSecond.toFixed(1)} chars/s ${RATE_BASIS_NOTE[basis]}`;
 
 /**
  * An Expert line up close: its words with their syllables, what to cut or

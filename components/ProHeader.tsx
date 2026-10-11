@@ -31,26 +31,16 @@ export const DEFAULT_TARGET_LANGUAGE = 'Hindi';
 export const DEFAULT_LANGUAGES = [
   { code: 'Assamese', label: 'Assamese (অসমীয়া)' },
   { code: 'Bengali', label: 'Bengali (বাংলা)' },
-  { code: 'Bodo', label: 'Bodo (बड़ो)' },
-  { code: 'Dogri', label: 'Dogri (डोगरी)' },
   { code: 'Gujarati', label: 'Gujarati (ગુજરાતી)' },
   { code: 'Hindi', label: 'Hindi (हिन्दी)' },
   { code: 'Kannada', label: 'Kannada (ಕನ್ನಡ)' },
-  { code: 'Kashmiri', label: 'Kashmiri (کٲشُر)' },
-  { code: 'Konkani', label: 'Konkani (कोंकणी)' },
-  { code: 'Maithili', label: 'Maithili (मैथिली)' },
   { code: 'Malayalam', label: 'Malayalam (മലയാളം)' },
-  { code: 'Manipuri', label: 'Manipuri (মৈতৈলোন্)' },
   { code: 'Marathi', label: 'Marathi (मराठी)' },
   { code: 'Nepali', label: 'Nepali (नेपाली)' },
   { code: 'Odia', label: 'Odia (ଓଡ଼ିଆ)' },
   { code: 'Punjabi', label: 'Punjabi (ਪੰਜਾਬੀ)' },
-  { code: 'Sanskrit', label: 'Sanskrit (संस्कृतम्)' },
-  { code: 'Santali', label: 'Santali (ᱥᱟᱱᱛᱟᱲᱤ)' },
-  { code: 'Sindhi', label: 'Sindhi (سنڌي)' },
   { code: 'Tamil', label: 'Tamil (தமிழ்)' },
   { code: 'Telugu', label: 'Telugu (తెలుగు)' },
-  { code: 'Urdu', label: 'Urdu (اردو)' },
 ];
 
 /** Something running on the active job, for the status pill and the progress line. */

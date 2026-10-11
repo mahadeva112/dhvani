@@ -142,8 +142,10 @@ export interface SyncFitSource {
   speakerRates?: Record<string, { charsPerSecond: number; lines: number }>;
   segments: AudioSegment[];
   charsPerSecond: number;
-  /** True when the rate was measured from this dub, not a typical one. */
+  /** True when the rate was measured from this dub (or a sample read of its voice), not a typical one. */
   rateMeasured: boolean;
+  /** True when that rate came from a sample read of the voice, not from the dub. */
+  rateSample?: boolean;
 }
 
 const FIT_LABELS: Partial<Record<keyof SyncJoinSettings, string>> = {
@@ -185,7 +187,7 @@ const FitCard: React.FC<{
   useEffect(() => {
     revision.current++; setFit(null); setError(null); setMeasuring(false);
     return () => { revision.current++; };
-  }, [source.segments, source.charsPerSecond, source.rateMeasured, source.speakerRates, join]);
+  }, [source.segments, source.charsPerSecond, source.rateMeasured, source.rateSample, source.speakerRates, join]);
 
   const measure = async () => {
     const requestRevision = revision.current;

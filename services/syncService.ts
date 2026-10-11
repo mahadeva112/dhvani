@@ -815,7 +815,7 @@ export interface SyncFit {
  * cues' word timings) and how much longer the dub runs. Nothing is applied.
  */
 export const fitJoinSettings = (
-  request: { segments: AudioSegment[]; join: SyncJoinSettings; charsPerSecond: number; rateMeasured: boolean; speakerRates?: Record<string, { charsPerSecond: number; lines: number }> },
+  request: { segments: AudioSegment[]; join: SyncJoinSettings; charsPerSecond: number; rateMeasured: boolean; rateSample?: boolean; speakerRates?: Record<string, { charsPerSecond: number; lines: number }> },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncFit> =>
   apiJson<SyncFit>('/sync/fit', {

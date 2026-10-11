@@ -17,6 +17,7 @@ import { pcmToWav, floatToWav, parseWav } from '../lib/wav.js';
 import { runSync, cachedClip, rememberClip, clipHash, lineKey } from '../lib/syncDub.js';
 import { TAKE_DIRECTIONS, MAX_TAKES_PER_REQUEST, directedSettings, fitTake, phraseCut, splicePhrase, takeGain } from '../lib/syncTakes.js';
 import { resolveJoinSettings } from '../lib/syncSettings.js';
+import { prepareClip } from '../lib/syncRender.js';
 import { TTS_CONTEXT_CHARS, withSentenceEnd } from '../lib/ttsText.js';
 import { checkParts, lineArrays, ORIGINAL_SPEAKER, renderEdits } from '../lib/syncEdit.js';
 import { runConversation } from '../lib/conversationDub.js';
@@ -931,10 +932,50 @@ syncRouter.post('/sync/preview', (req, res) => {
  * applied, the app shows the changes for the user to apply.
  */
 syncRouter.post('/sync/fit', (req, res) => {
-  const { segments, join, charsPerSecond, rateMeasured, speakerRates } = req.body || {};
+  const { segments, join, charsPerSecond, rateMeasured, rateSample, speakerRates } = req.body || {};
   if (!Array.isArray(segments)) throw new ApiError('There are no cues to measure.', { status: 400, code: 'no_segments' });
-  res.json(fitJoinSettings({ segments, join, charsPerSecond, rateMeasured: rateMeasured === true, speakerRates }));
+  res.json(fitJoinSettings({ segments, join, charsPerSecond, rateMeasured: rateMeasured === true, rateSample: rateSample === true, speakerRates }));
 });
+
+/** A sample read longer than this is not a sample. */
+const MAX_SAMPLE_CHARS = 600;
+
+/**
+ * POST /api/sync/voice-rate — how long a voice takes to say a sample passage,
+ * so the app knows the voice's speaking rate before anything is translated or
+ * synced. Body: `{ text, voiceId, modelId, voiceSettings, language, steady,
+ * tuneStability }`, the voice as Sync would voice it. Returns `{ characters,
+ * speech, length }`: `speech` the seconds from the first sound to the last,
+ * measured as Sync measures a line (prepareClip). The read is one short line,
+ * voiced once; the app keeps the result.
+ */
+syncRouter.post(
+  '/sync/voice-rate',
+  asyncHandler(async (req, res) => {
+    const { text: rawText, voiceId, modelId, voiceSettings, language, steady, tuneStability } = req.body || {};
+    const text = textOf(rawText, MAX_SAMPLE_CHARS);
+    if (!text) throw new ApiError('There is no sample to read.', { status: 400, code: 'no_text' });
+    if (typeof voiceId !== 'string' || !voiceId.trim()) throw new ApiError('Pick a voice first.', { status: 400, code: 'no_voice' });
+
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
+    // 16-bit PCM is decoded without ffmpeg, and every plan can ask for it at 24 kHz.
+    const voice = makeVoice({ voiceId, modelId, voiceSettings }, { requested: 'pcm_24000', steady: steady === true, tuneStability: tuneStability !== false });
+    const voiceLines = voiceLinesWith({
+      apiKey: req.get('x-elevenlabs-key') || undefined,
+      cartesiaKey: req.get('x-cartesia-key') || undefined,
+      language,
+      signal: controller.signal,
+    });
+    const [buffer] = await voiceLines([{ text: withSentenceEnd(text) }], { voice, readCount: 1 });
+    const { sampleRate } = parseOutputFormat(voice.outputFormat);
+    const clip = prepareClip(await decodeAudio(buffer, voice.outputFormat), sampleRate);
+    if (!clip || !(clip.speech > 0)) throw new ApiError('The voice came back silent, so its rate could not be measured.', { status: 502, code: 'silent_sample' });
+    res.json({ characters: text.length, speech: clip.speech, length: clip.samples.length / sampleRate });
+  })
+);
 
 /** Most earlier wordings a rewording request may list, to be told apart from. */
 const MAX_AVOID_LINES = 30;

@@ -102,12 +102,13 @@ pipelineRouter.post(
  *
  * Re-runs translation over cues that were already transcribed, so a failed or
  * unsatisfying translation never costs another transcription. Timestamps come
- * from the caller's existing cues and are returned unchanged.
+ * from the caller's existing cues and are returned unchanged. `voiceRate`,
+ * the dub voice's speaking rate in syllables a second, sizes each cue for it.
  */
 pipelineRouter.post(
   '/pipeline/retranslate',
   asyncHandler(async (req, res) => {
-    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '' } = req.body || {};
+    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null } = req.body || {};
 
     if (!Array.isArray(cues) || cues.length === 0) {
       throw new ApiError('No cues were supplied to translate.', { status: 400, code: 'no_cues' });
@@ -152,6 +153,7 @@ pipelineRouter.post(
         sourceLanguage,
         targetLanguage,
         customPrompt,
+        voiceRate,
         apiKey: req.get('x-gemini-key') || undefined,
         onProgress: (event) => send({ type: 'progress', cueCount, ...event }),
       });

@@ -229,12 +229,27 @@ export const stripPaceTags = (text) =>
     .trim();
 
 /**
+ * The dub voice's measured speaking rate, for Steps 1 and 2: with the segment
+ * durations they already read, it turns each segment into a syllable count.
+ */
+export const voiceSpeedNote = (language, rate) => {
+  const r = Number(rate).toFixed(1);
+  return (
+    `VOICE SPEED (measured from the voice that will dub this): it speaks about ${r} ${language} syllables per second.\n` +
+    `- [Segment duration] × ${r} is about how many syllables it says in the time the original speaker took. Aim each segment near that.\n` +
+    `- [Total duration available] × ${r} is the most that fits before the next segment. Never go past it.\n` +
+    `- Reach the length through word choice, never by leaving out meaning.`
+  );
+};
+
+/**
  * Runs Steps 1–3 over one chunk of cues and aligns the result onto them.
  */
-const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, models, report }) => {
+const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, models, report, voiceRate }) => {
   const english = formatEnglishSegments(chunk);
   const [translation, review, punctuation] = stages;
   const language = translation.language;
+  const voice = voiceRate ? `\n\n---\n${voiceSpeedNote(language, voiceRate)}` : '';
 
   report(0, `Step 1 of 3 — translating to ${language}`);
   const step1 = await runStage({
@@ -243,6 +258,7 @@ const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, mo
     models,
     prompt:
       `${translation.text}\n\n${english}` +
+      voice +
       (notes ? `\n\n---\nADDITIONAL INSTRUCTIONS (apply throughout):\n${notes}` : ''),
   });
 
@@ -253,7 +269,8 @@ const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, mo
     models,
     prompt:
       `${review.text}\n\nFORMATTED ENGLISH SCRIPT:\n\n${english}\n\n` +
-      `${language.toUpperCase()} TRANSLATION:\n\n${step1.script}`,
+      `${language.toUpperCase()} TRANSLATION:\n\n${step1.script}` +
+      voice,
   });
 
   report(2, 'Step 3 of 3 — refining punctuation');
@@ -283,7 +300,7 @@ const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, mo
  */
 export const translateCueTextsThreeStep = async (
   cues,
-  { targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress } = {}
+  { targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress, voiceRate = null } = {}
 ) => {
   const stages = loadStagePrompts(targetLanguage);
   const notes = extraInstructions(customPrompt);
@@ -325,7 +342,7 @@ export const translateCueTextsThreeStep = async (
       });
 
     try {
-      const outcome = await translateChunk({ chunk, stages, notes, targetLanguage, apiKey, models, report });
+      const outcome = await translateChunk({ chunk, stages, notes, targetLanguage, apiKey, models, report, voiceRate });
       modelUsed = outcome.modelUsed;
       scripts.push(outcome.script);
       for (const [id, text] of outcome.aligned) {

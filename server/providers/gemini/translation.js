@@ -16,8 +16,11 @@ import { alignScript } from '../../lib/scriptAlign.js';
  *
  * Cues are sent to the model as `{ id, text }` pairs only. No start time, end
  * time or duration ever appears in a prompt, so the model has nothing to shift
- * even if it tried. Results are merged back by id; a cue the model drops keeps
- * its previous text rather than collapsing the list and breaking cue order.
+ * even if it tried. When the dub voice's speaking rate is known, each cue also
+ * carries a syllable count: how many syllables that voice says in the time the
+ * original speaker took, a length to aim for, never a time. Results are
+ * merged back by id; a cue the model drops keeps its previous text rather
+ * than collapsing the list and breaking cue order.
  */
 
 const chunk = (items, size) => {
@@ -26,7 +29,31 @@ const chunk = (items, size) => {
   return batches;
 };
 
+/** Speaking rates outside this range (syllables a second) are not believable, and are not sent. */
+const MIN_VOICE_RATE = 2.5;
+const MAX_VOICE_RATE = 9;
+
+/** A believable voice rate in syllables a second, or null. */
+export const cleanVoiceRate = (value) => {
+  const rate = Number(value);
+  return Number.isFinite(rate) && rate >= MIN_VOICE_RATE && rate <= MAX_VOICE_RATE ? rate : null;
+};
+
+/** Syllables the voice says at `rate` in the time the speaker took for `cue`, or null without timings. */
+export const syllableTarget = (cue, rate) => {
+  const seconds = Number(cue.endTime) - Number(cue.startTime);
+  return rate && seconds > 0 ? Math.max(1, Math.round(seconds * rate)) : null;
+};
+
+const lengthDirective = (targetLanguage) => `LENGTH FOR THE VOICE
+Each cue has a "syllables" number: about how many ${targetLanguage} syllables the dub voice says in the time the original speaker took for that cue.
+- Keep each translation close to it; a little under is better than over.
+- Reach it through word choice: shorter everyday words, a tighter sentence shape, dropping filler the speaker did not stress.
+- Never leave out meaning to reach it. If the meaning needs more syllables, keep the meaning.
+- Never pad a short cue with words the speaker did not say.`;
+
 const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount }) => {
+  const sized = batch.some((cue) => cue.syllables);
   const styleDirective = customPrompt?.trim()
     ? `TRANSLATION STYLE & PERSONA DIRECTIVE (follow strictly):\n${customPrompt.trim()}`
     : `TRANSLATION STYLE:\nNatural, idiomatic, context-aware ${targetLanguage}. Preserve meaning, register and emotional tone. Do not translate proper nouns or established technical/brand terms.`;
@@ -49,7 +76,7 @@ These lines will be spoken aloud by a voice as a dub, and must sound like a pers
 - Punctuate for the ear: commas where the speaker breathes, "?" and "!" where their voice rises, "…" where a thought trails off.
 - Write out anything a voice would stumble on: no abbreviations, symbols, brackets or slashes; numbers as they are said.
 The style directive above still sets the tone (formal, witty, cinematic...) — this only makes it sound spoken.
-
+${sized ? `\n${lengthDirective(targetLanguage)}\n` : ''}
 HARD RULES
 1. Return exactly one translation for every input id. Never merge, split, drop or reorder cues.
 2. Copy each "id" back verbatim.
@@ -59,7 +86,7 @@ HARD RULES
 6. If a cue cannot be translated, return its original text unchanged rather than an empty string.
 
 INPUT CUES (JSON):
-${JSON.stringify(batch.map(({ id, text }) => ({ id, text })), null, 2)}
+${JSON.stringify(batch.map(({ id, text, syllables }) => (syllables ? { id, text, syllables } : { id, text })), null, 2)}
 
 Respond with ONLY this JSON:
 {"translations":[{"id":"<the same id>","translatedText":"<${targetLanguage} translation>"}]}`;
@@ -104,14 +131,15 @@ const translateBatch = async ({ batch, sourceLanguage, targetLanguage, customPro
 
 /**
  * Translates cue texts, batching long transcripts so a single request never
- * grows unbounded.
+ * grows unbounded. `voiceRate` is the dub voice's speaking rate in syllables a
+ * second, when the app has measured it: each cue is then sized for that voice.
  *
  * @returns {Promise<{translations: Map<string,string>, modelUsed: string|null,
  *   translatedCount: number, missingIds: string[], failedBatches: number}>}
  */
 export const translateCueTexts = async (
   cues,
-  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress } = {}
+  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress, voiceRate } = {}
 ) => {
   if (!targetLanguage) {
     throw new ApiError('No target language was selected for translation.', {
@@ -119,12 +147,13 @@ export const translateCueTexts = async (
       code: 'missing_target_language',
     });
   }
+  const rate = cleanVoiceRate(voiceRate);
 
   // The 3-step preset runs the per-language prompt files instead of the
   // one-shot prompt below; it needs the cue timings, so it gets the raw cues.
   if (isThreeStepPrompt(customPrompt)) {
     if (supportsThreeStep(targetLanguage)) {
-      return translateCueTextsThreeStep(cues, { targetLanguage, customPrompt, apiKey, models, onProgress });
+      return translateCueTextsThreeStep(cues, { targetLanguage, customPrompt, apiKey, models, onProgress, voiceRate: rate });
     }
     // It is the default style, so a language without prompt files falls back
     // to the one-shot translation, keeping only the user's own additions.
@@ -133,7 +162,7 @@ export const translateCueTexts = async (
   }
 
   const translatable = cues
-    .map((cue) => ({ id: String(cue.id), text: String(cue.text ?? '').trim() }))
+    .map((cue) => ({ id: String(cue.id), text: String(cue.text ?? '').trim(), syllables: syllableTarget(cue, rate) }))
     .filter((cue) => cue.text.length > 0);
 
   if (translatable.length === 0) {

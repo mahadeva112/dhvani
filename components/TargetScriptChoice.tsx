@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowRight, ChevronDown, ClipboardPaste, FileText, Languages, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw } from 'lucide-react';
 import { AudioSegment } from '../types';
 import type { RetranslateProgress } from '../services/subtitleService';
+import type { VoiceRate } from '../services/voiceRate';
 
 export type TargetMethod = 'translate' | 'custom';
 
@@ -24,6 +25,12 @@ interface TargetScriptChoiceProps {
   /** False when no translation engine is set up. */
   translationReady?: boolean;
   onOpenPromptModal: () => void;
+  /** The dub voice's measured speaking rate, or null before its sample is read. */
+  voiceRate?: VoiceRate | null;
+  voiceName?: string;
+  /** Translation sizes each cue for that rate. */
+  fitToVoice?: boolean;
+  onFitToVoiceChange?: (on: boolean) => void;
   /** Runs the existing translation on the transcript. Only called from the button here. */
   onTranslate: () => Promise<void>;
   /** Opens the paste-and-align dialog. Never translates. */
@@ -67,6 +74,10 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   translationSummary,
   translationReady = true,
   onOpenPromptModal,
+  voiceRate = null,
+  voiceName = '',
+  fitToVoice = true,
+  onFitToVoiceChange,
   onTranslate,
   onUseOwnScript,
   onSeek,
@@ -304,6 +315,35 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
                 Change
               </button>
             </div>
+          )}
+
+          {method === 'translate' && !sameLanguage && onFitToVoiceChange && (
+            voiceRate ? (
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={fitToVoice}
+                  disabled={busy}
+                  onChange={(e) => onFitToVoiceChange(e.target.checked)}
+                  className="mt-0.5 accent-indigo-500 cursor-pointer"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-100">
+                    <Gauge className="w-3.5 h-3.5 text-slate-400 shrink-0" aria-hidden="true" />
+                    Fit the translation to the voice's speed
+                  </span>
+                  <span className="block text-[11px] text-slate-500 leading-snug mt-0.5">
+                    {voiceName || 'Your voice'} speaks {targetLanguage} at {voiceRate.syllablesPerSecond.toFixed(1)} syllables/s. Each cue is
+                    translated to about the syllables it can say in the time the speaker took, without dropping meaning.
+                  </span>
+                </span>
+              </label>
+            ) : (
+              <p className="flex items-start gap-1.5 text-[11px] text-slate-500 leading-snug px-1">
+                <Gauge className="w-3.5 h-3.5 shrink-0 mt-px" aria-hidden="true" />
+                Once your voice has read its sample in step 1, the translation can be sized for its speed.
+              </p>
+            )
           )}
         </div>
 

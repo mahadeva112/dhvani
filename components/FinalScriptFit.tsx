@@ -2,6 +2,7 @@ import React from 'react';
 import { Loader2 } from 'lucide-react';
 import { wantsChange } from '../services/syncService';
 import type { SyncPreview, SyncPreviewUnit } from '../services/syncService';
+import type { RateBasis } from '../services/voiceRate';
 
 /**
  * A script's sync fit, in Review and in the Dub step: how long each dub line
@@ -95,12 +96,25 @@ export const FitMeter: React.FC<{ unit: SyncPreviewUnit; className?: string }> =
 
 export type ScriptFitFilter = 'all' | 'fix';
 
+const RATE_BASIS_LABELS: Record<RateBasis, string> = {
+  sync: 'from your last sync',
+  sample: "from your voice's sample read",
+  typical: 'typical rate, rough',
+};
+
+const RATE_BASIS_TITLES: Record<RateBasis, string> = {
+  sync: 'Estimated at the speaking rate measured from your last sync. Sync measures the real clips.',
+  sample: 'Estimated at the speaking rate your voice read its sample at in this language. Sync measures the real clips.',
+  typical: "A typical rate. Once your voice has read its sample, or after the first sync, the estimate uses your own voice.",
+};
+
 /** Counts, the rate the estimate is made at, the filter, and one button for every open line. */
 export const ScriptFitStrip: React.FC<{
   preview: SyncPreview | null;
   loading: boolean;
   error: string | null;
-  rateMeasured: boolean;
+  /** Where the speaking rate came from: the last sync, the voice's sample read, or a typical rate. */
+  rateBasis: RateBasis;
   /** All lines or only those to fix; left out where the page filters on its own. */
   filter?: ScriptFitFilter;
   onFilter?: (filter: ScriptFitFilter) => void;
@@ -109,7 +123,7 @@ export const ScriptFitStrip: React.FC<{
   onFixAll?: () => void;
   /** Shown beside the rate: the Quick or Expert switch. */
   estimate?: React.ReactNode;
-}> = ({ preview, loading, error, rateMeasured, filter, onFilter, toFix, onFixAll, estimate }) => {
+}> = ({ preview, loading, error, rateBasis, filter, onFilter, toFix, onFixAll, estimate }) => {
   if (!preview) {
     return (
       <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/40 text-xs" role="status">
@@ -141,16 +155,12 @@ export const ScriptFitStrip: React.FC<{
       </span>
       <span
         className="font-mono text-[11px] text-slate-500 tabular-nums"
-        title={
-          rateMeasured
-            ? 'Estimated at the speaking rate measured from your last sync. Sync measures the real clips.'
-            : 'A typical rate. After the first sync the estimate uses your own voice.'
-        }
+        title={RATE_BASIS_TITLES[rateBasis]}
       >
         {preview.method === 'expert' && preview.syllablesPerSecond
           ? `Expert · ${preview.syllablesPerSecond.toFixed(1)} syllables/s`
           : `est. at ${preview.charsPerSecond.toFixed(1)} chars/s`}{' '}
-        · {rateMeasured ? 'from your last sync' : 'typical rate, rough'}
+        · {RATE_BASIS_LABELS[rateBasis]}
       </span>
       {estimate}
       {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}

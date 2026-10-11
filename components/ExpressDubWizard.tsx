@@ -116,7 +116,9 @@ import {
 } from '../services/syncService';
 import type { EstimateMethod, LineContext, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
-import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE } from './SyncPreviewPanel';
+import type { RateBasis, VoiceRateState } from '../services/voiceRate';
+import { VoiceRateCard } from './VoiceRateCard';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix } from './FinalScriptFit';
 import { SaveScriptMenu } from './SaveScriptMenu';
@@ -458,6 +460,11 @@ interface ExpressDubWizardProps {
   onRetranscribeAudio?: (prompt: string) => Promise<void>;
   /** The transcript's explicit "Translate" choice; the only path that translates a waiting transcript. */
   onTranslateTranscript?: () => Promise<void>;
+  /** The dub voice's speaking rate, measured from a sample read when it is picked (services/voiceRate.ts). */
+  voiceRate?: VoiceRateState;
+  /** Translation sizes each cue for the voice's rate. */
+  fitTranslationToVoice?: boolean;
+  onFitTranslationToVoiceChange?: (on: boolean) => void;
   /** Records where the target lines came from, e.g. 'custom' once a pasted script is applied. */
   onTargetSourceChange?: (source: TargetSource) => void;
   /** Where translation runs, for the choice panel. */
@@ -572,6 +579,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onRetranslateSegments,
   onRetranscribeAudio,
   onTranslateTranscript,
+  voiceRate,
+  fitTranslationToVoice = true,
+  onFitTranslationToVoiceChange,
   onTargetSourceChange,
   translationSummary = null,
   translationReady = true,
@@ -885,8 +895,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     Object.fromEntries(Object.entries(activeJob?.cast || {}).map(([speaker, voice]) => [speaker, voice.voiceId])), elVoiceId, targetLanguage),
     [activeJob?.syncReport, activeJob?.cast, elVoiceId, targetLanguage]);
   const measuredRate = syncRate ?? (activeJob?.synthesizedAudioUrl ? speakingRate(rateCharacters, dubSpeechSeconds) : null);
+  // Before the first sync: the voice's own rate, from the sample it read when it was picked.
+  const sampleRate = voiceRate?.rate ?? null;
+  const rateBasis: RateBasis = measuredRate !== null ? 'sync' : sampleRate ? 'sample' : 'typical';
   // Rounded so small script edits don't move every estimate and refetch the preview.
-  const previewRate = Math.round((measuredRate ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
+  const previewRate = Math.round((measuredRate ?? sampleRate?.charsPerSecond ?? TYPICAL_CHARS_PER_SECOND) * 10) / 10;
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   /*
    * The second track is the synced dub once there is one (App picks the same
@@ -1131,8 +1144,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       /* Storage off: the pick lasts until the app closes. */
     }
   };
-  // The voice's rate in syllables, from the same measured (or typical) rate in characters.
-  const syllablesPerSecond = useMemo(() => syllableRate(segments.map(getTargetText), previewRate), [segments, previewRate]);
+  // The voice's rate in syllables: as the sample read measured it, else from the same rate in characters.
+  const scriptSyllableRate = useMemo(() => syllableRate(segments.map(getTargetText), previewRate), [segments, previewRate]);
+  const syllablesPerSecond = rateBasis === 'sample' && sampleRate ? sampleRate.syllablesPerSecond : scriptSyllableRate;
   const linePreview = useMemo(() => {
     const base = syncPreview.preview;
     return withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond) : base, segments);
@@ -1855,6 +1869,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
                 <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
+                {voiceRate && <VoiceRateCard voiceRate={voiceRate} language={targetLanguage} />}
               </div>
 
               {onSensitivityChange && (
@@ -2084,6 +2099,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 if (onOpenPromptModal) onOpenPromptModal();
                 else setIsLocalPromptModalOpen(true);
               }}
+              voiceRate={voiceRate?.rate ?? null}
+              voiceName={voiceShortName}
+              fitToVoice={fitTranslationToVoice}
+              onFitToVoiceChange={onFitTranslationToVoiceChange}
               onTranslate={async () => {
                 if (onTranslateTranscript) await onTranslateTranscript();
                 else if (onRetranslateSegments) await onRetranslateSegments(customPrompt || '');
@@ -2254,7 +2273,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   preview={linePreview}
                   loading={syncPreview.loading}
                   error={syncPreview.error}
-                  rateMeasured={measuredRate !== null}
+                  rateBasis={rateBasis}
                   toFix={{
                     shorter: linesToFix.filter((u) => lineFixes.directionOf(u) === 'shorter').length,
                     longer: linesToFix.filter((u) => lineFixes.directionOf(u) === 'longer').length,
@@ -3378,10 +3397,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       </div>
                       <p className="text-xs text-slate-400 mt-1">
                         {estimateMethod === 'expert'
-                          ? `Counted in syllables at your voice's rate (${estimateBasis(linePreview, measuredRate !== null)}), with pauses at commas and full stops, a fast to slow range, and where the lips close. Sync still measures the real clips.`
-                          : `${measuredRate !== null ? 'An estimate' : 'A rough estimate'} from the text length, at ${linePreview.charsPerSecond.toFixed(1)} chars/s ${
-                              measuredRate !== null ? 'from this dub' : '(a typical rate)'
-                            }.`}{' '}
+                          ? `Counted in syllables at your voice's rate (${estimateBasis(linePreview, rateBasis)}), with pauses at commas and full stops, a fast to slow range, and where the lips close. Sync still measures the real clips.`
+                          : `${rateBasis === 'typical' ? 'A rough estimate' : 'An estimate'} from the text length, at ${linePreview.charsPerSecond.toFixed(1)} chars/s ${RATE_BASIS_NOTE[rateBasis]}.`}{' '}
                         Click a dub bar, then drag its end to the length you want; Review's suggestion for that line aims for it.
                       </p>
                     </div>
@@ -3766,7 +3783,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       preview={linePreview}
                       loading={syncPreview.loading}
                       error={syncPreview.error}
-                      rateMeasured={measuredRate !== null}
+                      rateBasis={rateBasis}
                       filter={finalScriptFilter}
                       onFilter={setFinalScriptFilter}
                     />
@@ -4186,7 +4203,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 extras={dubExtras}
                 onDownloadWav={report ? onDownloadWav : undefined}
                 onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
-                fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && measuredRate !== null, speakerRates: fitSpeakerRates }}
+                fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && rateBasis !== 'typical', rateSample: !multiSpeaker && rateBasis === 'sample', speakerRates: fitSpeakerRates }}
                 subtitles={
                   report && syncedCues && syncedCues.length > 0 && (
                     <button

@@ -74,6 +74,8 @@ import {
 const VOICE_SETTINGS_STORAGE_KEY = 'elVoiceSettingsV2';
 /** Which engine speaks the dub, and the last voice picked on each one. */
 const VOICE_ENGINE_STORAGE_KEY = 'dhvani_voice_engine';
+/** Off when the user turned off sizing the translation for the voice's speaking rate. */
+const FIT_TRANSLATION_STORAGE_KEY = 'dhvani_fit_translation_to_voice';
 const LAST_VOICE_STORAGE_KEY = 'dhvani_voice_by_engine';
 // The last voice library fetched, so the picker opens full instead of filling in later.
 const VOICE_LIBRARY_CACHE_KEY = 'dhvani_voice_library';
@@ -142,6 +144,7 @@ import {
   clearAllJobsFromStorage,
 } from './services/storageService';
 import { byNewest } from './services/projects';
+import { useVoiceRate } from './services/voiceRate';
 import { currentStep, hasTranscript, openSteps } from './services/steps';
 import {
   BatchJob,
@@ -562,7 +565,9 @@ export default function App() {
           localStorage.setItem('dhvani_target_language', DEFAULT_TARGET_LANGUAGE);
         }
       }
-      return localStorage.getItem('dhvani_target_language') || DEFAULT_TARGET_LANGUAGE;
+      // A language since dropped from the list falls back to the default.
+      const saved = localStorage.getItem('dhvani_target_language');
+      return saved && DEFAULT_LANGUAGES.some((l) => l.code === saved) ? saved : DEFAULT_TARGET_LANGUAGE;
     } catch {
       return DEFAULT_TARGET_LANGUAGE;
     }
@@ -601,6 +606,32 @@ export default function App() {
   const activeJob = useMemo(() => queue.find((j) => j.id === activeJobId) || null, [queue, activeJobId]);
   const activeJobIdRef = useRef(activeJobId);
   activeJobIdRef.current = activeJobId;
+
+  /*
+   * The dub voice's speaking rate in the dub language, measured from a short
+   * sample read as soon as the voice is picked (services/voiceRate.ts). Review
+   * estimates with it before the first sync, and translation sizes each cue for it.
+   */
+  const rateVoice = useMemo(
+    () => (elVoiceId ? { voiceId: elVoiceId, modelId: elModelId, voiceSettings: elVoiceSettings, cartesia: cartesiaVoice } : null),
+    [elVoiceId, elModelId, elVoiceSettings, cartesiaVoice]
+  );
+  const voiceRate = useVoiceRate(rateVoice, activeJob?.language || selectedLanguage, { apiKey: elApiKey });
+  const [fitTranslationToVoice, setFitTranslationToVoice] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(FIT_TRANSLATION_STORAGE_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const handleFitTranslationToVoiceChange = useCallback((on: boolean) => {
+    setFitTranslationToVoice(on);
+    try {
+      localStorage.setItem(FIT_TRANSLATION_STORAGE_KEY, on ? 'on' : 'off');
+    } catch {
+      /* Storage off: the choice lasts until the app closes. */
+    }
+  }, []);
 
   // The step on screen. Null follows the job: the step the user last picked on
   // it, else as far as it has got. A pick in the header or wizard is kept on
@@ -1023,6 +1054,7 @@ export default function App() {
             sourceLanguage: activeJob.detectedLanguage || sourceLanguage,
             targetLanguage: targetLang,
             customPrompt: promptToUse,
+            ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
             onProgress: setTranslationProgress,
           });
 
@@ -1070,7 +1102,7 @@ export default function App() {
         setIsTranslatingLanguage(false);
       }
     },
-    [activeJob, customPrompt, selectedLanguage, updateJob]
+    [activeJob, customPrompt, selectedLanguage, updateJob, fitTranslationToVoice, voiceRate.rate]
   );
 
   /**
@@ -3231,6 +3263,9 @@ export default function App() {
           onRetranslateSegments={handleRetranslateWithPrompt}
           onRetranscribeAudio={handleRetranscribeAudio}
           onTranslateTranscript={handleTranslateTranscript}
+          voiceRate={voiceRate}
+          fitTranslationToVoice={fitTranslationToVoice}
+          onFitTranslationToVoiceChange={handleFitTranslationToVoiceChange}
           onTargetSourceChange={handleTargetSourceChange}
           translationSummary={translationSummary}
           translationReady={Boolean(backendHealth?.geminiConfigured)}
