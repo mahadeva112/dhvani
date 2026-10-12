@@ -1,6 +1,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
-const { fork } = require('node:child_process');
+const net = require('node:net');
+const { fork, execFile } = require('node:child_process');
 const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session } = require('electron');
 
 /**
@@ -428,15 +429,149 @@ const systemProxyEnv = async () => {
   }
 };
 
+/** Resolves true when nothing is listening on the engine's port. */
+const portIsFree = () =>
+  new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once('error', () => resolve(false));
+    probe.once('listening', () => probe.close(() => resolve(true)));
+    probe.listen(PORT, '127.0.0.1');
+  });
+
+/** Runs a command and resolves its stdout, or '' if it fails. */
+const run = (file, args) =>
+  new Promise((resolve) => {
+    execFile(file, args, { timeout: 10_000, windowsHide: true }, (err, stdout) =>
+      resolve(err ? '' : String(stdout).trim())
+    );
+  });
+
+/**
+ * The process listening on the engine's port, as { pid, name, path, command },
+ * or null when it cannot be found out.
+ */
+const portOwner = async () => {
+  if (process.platform === 'win32') {
+    const script =
+      `$c = Get-NetTCPConnection -LocalPort ${PORT} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
+      `if ($c) { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)"; ` +
+      `[pscustomobject]@{ pid = [int]$c.OwningProcess; name = $p.Name; path = $p.ExecutablePath; command = $p.CommandLine } | ConvertTo-Json -Compress }`;
+    // Encoded, so the quotes in the script survive Windows argument quoting.
+    const encoded = Buffer.from(script, 'utf16le').toString('base64');
+    const out = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded]);
+    try {
+      return out ? JSON.parse(out) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // macOS and Linux: lsof prints "p<pid>" and "c<name>" lines.
+  const out = await run('lsof', ['-nP', `-iTCP:${PORT}`, '-sTCP:LISTEN', '-Fpc']);
+  const pid = Number(/^p(\d+)/m.exec(out)?.[1]);
+  return pid ? { pid, name: /^c(.+)/m.exec(out)?.[1] || null, path: null, command: null } : null;
+};
+
+/** True when a DHVANI engine (of any copy) answers on the port. */
+const dhvaniAnswers = async () => {
+  try {
+    const response = await fetch(`${APP_URL}/api/health`, { signal: AbortSignal.timeout(2000) });
+    return (await response.json())?.service === 'dhvani-backend';
+  } catch {
+    return false;
+  }
+};
+
+const waitForPortFree = async (ms) => {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (await portIsFree()) return true;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  return portIsFree();
+};
+
+const stopProcess = async (pid) => {
+  try {
+    process.kill(pid);
+  } catch (err) {
+    appendLog(`[startup] could not stop PID ${pid}: ${err.message}\n`);
+  }
+  return waitForPortFree(5000);
+};
+
+/**
+ * Makes sure the engine's port is free before the engine starts, because the
+ * engine cannot start on a taken port and the reason used to show only as a
+ * timeout. An engine left behind by an earlier run of this same copy of
+ * DHVANI is stopped without asking (the single-instance lock means no window
+ * is using it). Any other program is named, and the user decides whether to
+ * close it. Resolves when the port is free; rejects if the user chooses Quit.
+ */
+const ensurePortFree = async () => {
+  while (!(await portIsFree())) {
+    const owner = await portOwner();
+    const isDhvani = await dhvaniAnswers();
+    appendLog(
+      `[startup] port ${PORT} is in use by ${owner ? `${owner.name} (PID ${owner.pid}) ${owner.command || owner.path || ''}` : 'an unknown program'}\n`
+    );
+
+    const leftover =
+      owner && isDhvani && owner.path && path.resolve(owner.path) === path.resolve(process.execPath);
+    if (leftover) {
+      appendLog(`[startup] stopping an engine left behind by an earlier run\n`);
+      if (await stopProcess(owner.pid)) return;
+    }
+
+    const who = !owner
+      ? 'Another program is using it, but Windows did not say which one.'
+      : isDhvani
+        ? `Another copy of DHVANI is using it:\n${owner.path || owner.name} (PID ${owner.pid})`
+        : `The program using it:\n${owner.name} (PID ${owner.pid})${owner.command ? `\n${owner.command}` : ''}`;
+
+    const buttons = owner ? ['Close it and start DHVANI', 'Try again', 'Quit'] : ['Try again', 'Quit'];
+    const { response } = await dialog.showMessageBox(mainWindow || undefined, {
+      type: 'warning',
+      title: 'DHVANI could not start',
+      message: `DHVANI needs port ${PORT}, and another program is already using it.`,
+      detail:
+        `${who}\n\n` +
+        (owner
+          ? 'Closing it stops that program. If you still need it, choose Quit, close it yourself, then open DHVANI again.'
+          : `Close the program that uses port ${PORT}, then choose Try again.`),
+      buttons,
+      defaultId: 0,
+      cancelId: buttons.length - 1,
+      noLink: true,
+    });
+
+    const choice = buttons[response];
+    if (choice === 'Quit') throw Object.assign(new Error('Port in use'), { silent: true });
+    if (choice === 'Close it and start DHVANI') {
+      appendLog(`[startup] user chose to close PID ${owner.pid}\n`);
+      if (await stopProcess(owner.pid)) return;
+    }
+  }
+};
+
 /** Starts the Express backend as a child Node process. */
 const startBackend = async () => {
   const proxyEnv = await systemProxyEnv();
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const succeed = () => {
+      settled = true;
+      resolve();
+    };
+    const fail = (err) => {
+      settled = true;
+      reject(err);
+    };
     const serverEntry = path.join(APP_ROOT, 'server', 'index.js');
 
     if (!fs.existsSync(serverEntry)) {
-      reject(new Error(`Backend not found at ${serverEntry}`));
+      fail(new Error(`Backend not found at ${serverEntry}`));
       return;
     }
 
@@ -460,10 +595,16 @@ const startBackend = async () => {
     backend.stdout?.on('data', (chunk) => appendLog(chunk.toString()));
     backend.stderr?.on('data', (chunk) => appendLog(chunk.toString()));
 
-    backend.on('error', reject);
+    backend.on('error', fail);
 
     backend.on('exit', (code) => {
       backend = null;
+      // Exiting before it answered is a failed start, whatever the code (the
+      // engine exits 0 on an uncaught error), so say so now, not after the timeout.
+      if (!settled) {
+        fail(new Error(`The DHVANI engine stopped while starting (exit code ${code}).`));
+        return;
+      }
       if (!isQuitting && code !== 0) {
         dialog.showErrorBox(
           'DHVANI stopped unexpectedly',
@@ -476,18 +617,15 @@ const startBackend = async () => {
     // Poll the health endpoint rather than guessing a fixed startup delay.
     const deadline = Date.now() + 30_000;
     const probe = async () => {
-      try {
-        const response = await fetch(`${APP_URL}/api/health`);
-        if (response.ok) {
-          resolve();
-          return;
-        }
-      } catch {
-        // Not listening yet.
+      if (settled) return;
+      // Only our engine counts: another server on the port must not pass for it.
+      if (await dhvaniAnswers()) {
+        succeed();
+        return;
       }
 
       if (Date.now() > deadline) {
-        reject(new Error('The DHVANI engine did not start within 30 seconds.'));
+        fail(new Error('The DHVANI engine did not start within 30 seconds.'));
         return;
       }
       setTimeout(probe, 250);
@@ -701,10 +839,15 @@ if (!app.requestSingleInstanceLock()) {
       buildMenu();
       createWindow(); // Shows the loading page while the engine starts.
       setupAutoUpdates();
+      await ensurePortFree();
       await startBackend();
       backendReady = true;
       mainWindow?.loadURL(APP_URL);
     } catch (err) {
+      if (err.silent) {
+        app.quit();
+        return;
+      }
       dialog.showErrorBox(
         'DHVANI could not start',
         `${err.message}\n\nDetails were written to:\n${logFile}`
