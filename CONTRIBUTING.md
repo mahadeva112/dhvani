@@ -103,7 +103,7 @@ Match the file you are editing. Beyond that:
 - One logical change per PR. A drive-by refactor in a bug-fix PR makes both harder to review.
 - Say what you changed, why, and how you verified it. Include the failing case if it is a bug fix.
 - Update `docs/` when you change behaviour, and add a `CHANGELOG.md` entry under `[Unreleased]`.
-- UI changes: include a screenshot. The app has a light and a dark theme; check both.
+- UI changes: include a screenshot. The app is dark-only.
 
 ## Reporting bugs
 

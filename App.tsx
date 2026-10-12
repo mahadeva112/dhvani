@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, startTransition } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
-import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, ThemeMode, HeaderQuota } from './components/ProHeader';
+import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, HeaderQuota } from './components/ProHeader';
 import { ExpressDubWizard, stepForJob } from './components/ExpressDubWizard';
 import { useTrackMixer } from './components/useTrackMixer';
 import { syncFraction } from './components/SyncPanel';
@@ -497,63 +497,6 @@ export default function App() {
       return false;
     }
   });
-
-  // Theme State: 'auto' | 'light' | 'dark'
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
-    try {
-      const savedMode = localStorage.getItem('dhvani_theme_mode');
-      if (savedMode === 'auto' || savedMode === 'light' || savedMode === 'dark') return savedMode;
-      const legacy = localStorage.getItem('dhvani_theme');
-      if (legacy === 'light' || legacy === 'dark') return legacy;
-      return 'auto';
-    } catch {
-      return 'auto';
-    }
-  });
-
-  // Track system dark preference dynamically
-  const [systemPrefersDark, setSystemPrefersDark] = useState<boolean>(() => {
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return true;
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e: MediaQueryListEvent) => setSystemPrefersDark(e.matches);
-    mediaQuery.addEventListener('change', handler);
-    return () => mediaQuery.removeEventListener('change', handler);
-  }, []);
-
-  // Effective active theme: 'dark' | 'light'
-  const effectiveTheme: 'dark' | 'light' = useMemo(() => {
-    if (themeMode === 'auto') {
-      return systemPrefersDark ? 'dark' : 'light';
-    }
-    return themeMode;
-  }, [themeMode, systemPrefersDark]);
-
-  // Apply theme to document root
-  useEffect(() => {
-    const root = document.documentElement;
-    if (effectiveTheme === 'light') {
-      root.classList.remove('dark');
-      root.classList.add('light');
-      root.setAttribute('data-theme', 'light');
-    } else {
-      root.classList.remove('light');
-      root.classList.add('dark');
-      root.setAttribute('data-theme', 'dark');
-    }
-    try {
-      localStorage.setItem('dhvani_theme_mode', themeMode);
-      localStorage.setItem('dhvani_theme', effectiveTheme);
-    } catch (e) {
-      console.warn('Failed to save theme preference:', e);
-    }
-  }, [themeMode, effectiveTheme]);
 
   // Target Dubbing Language State (Persistent across sessions & new jobs)
   const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
@@ -3104,9 +3047,7 @@ export default function App() {
 
   return (
     <div
-      className={`flex flex-col min-h-screen font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-200 ${
-        effectiveTheme === 'light' ? 'bg-slate-50 text-slate-900' : 'bg-slate-950 text-slate-100'
-      }`}
+      className="flex flex-col min-h-screen font-sans selection:bg-indigo-500 selection:text-white bg-slate-950 text-slate-100"
     >
       {/* Hidden Audio Elements for Reference & Synth */}
       {/* Keyed by URL: a new file is a new element, so no stale position or pending play carries over. */}
@@ -3167,8 +3108,6 @@ export default function App() {
         onRenameProject={handleRenameJob}
         onRemoveProject={handleRemoveJobFromQueue}
         onResetSession={handleResetSession}
-        themeMode={themeMode}
-        onThemeModeChange={setThemeMode}
       />
 
       {/* First-run setup: keys straight into the machine's config, no terminal. */}

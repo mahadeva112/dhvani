@@ -23,8 +23,6 @@ import { ProjectsMenu } from './ProjectsMenu';
 import { projectName } from '../services/projects';
 import type { CartesiaUsage, GatewayUsage } from '../services/usageService';
 
-export type ThemeMode = 'auto' | 'light' | 'dark';
-
 /** The dub language a new install starts on. */
 export const DEFAULT_TARGET_LANGUAGE = 'Hindi';
 
@@ -110,8 +108,6 @@ export interface ProHeaderProps {
   onSelectProject?: (id: string) => void;
   onRenameProject?: (id: string, name: string) => void;
   onRemoveProject?: (id: string) => void;
-  themeMode?: ThemeMode;
-  onThemeModeChange?: (mode: ThemeMode) => void;
 }
 
 const formatClock = (seconds: number) => {
@@ -286,8 +282,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   onSelectProject,
   onRenameProject,
   onRemoveProject,
-  themeMode = 'auto',
-  onThemeModeChange,
 }) => {
   const [toolsOpen, setToolsOpen] = React.useState(false);
   const [servicesOpen, setServicesOpen] = React.useState(false);
@@ -800,30 +794,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                       hint="Get the latest version"
                       onClick={runAndClose(openUpdates)}
                     />
-                  </>
-                )}
-
-                {onThemeModeChange && (
-                  <>
-                    <div className="h-px bg-slate-800 my-1.5 mx-1" />
-                    <div className="flex items-center justify-between gap-3 px-2.5 py-1.5">
-                      <span className="text-[12.5px] text-slate-400">Theme</span>
-                      <div role="group" aria-label="Theme" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
-                        {(['auto', 'light', 'dark'] as const).map((mode) => (
-                          <button
-                            key={mode}
-                            type="button"
-                            aria-pressed={themeMode === mode}
-                            onClick={() => onThemeModeChange(mode)}
-                            className={`px-2.5 py-1 rounded-md text-xs capitalize transition-colors cursor-pointer ${
-                              themeMode === mode ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                            }`}
-                          >
-                            {mode}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
                   </>
                 )}
               </div>

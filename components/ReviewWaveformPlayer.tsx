@@ -58,36 +58,20 @@ const COMPACT_KEY = 'dhvani_player_compact';
 /** Height of the mini player bar along the bottom of the window. */
 const MINI_BAR_PX = 40;
 
-/** Canvas colours for each theme; the app's light theme is a class on <html>. */
-const PALETTES = {
-  dark: {
-    wave: '#334155',
-    played: '#22d3ee',
-    cue: 'rgba(34,211,238,0.10)',
-    cueEdge: 'rgba(34,211,238,0.45)',
-    fast: 'rgba(251,113,133,0.16)',
-    fastEdge: 'rgba(251,113,133,0.7)',
-    current: 'rgba(129,140,248,0.18)',
-    currentEdge: '#818cf8',
-    hatch: '#1e293b',
-    label: '#94a3b8',
-    playhead: '#f1f5f9',
-    view: '#818cf8',
-  },
-  light: {
-    wave: '#cbd5e1',
-    played: '#0891b2',
-    cue: 'rgba(8,145,178,0.08)',
-    cueEdge: 'rgba(8,145,178,0.45)',
-    fast: 'rgba(225,29,72,0.10)',
-    fastEdge: 'rgba(225,29,72,0.6)',
-    current: 'rgba(79,70,229,0.12)',
-    currentEdge: '#4f46e5',
-    hatch: '#e2e8f0',
-    label: '#64748b',
-    playhead: '#0f172a',
-    view: '#4f46e5',
-  },
+/** Canvas colours. */
+const PALETTE = {
+  wave: '#334155',
+  played: '#22d3ee',
+  cue: 'rgba(34,211,238,0.10)',
+  cueEdge: 'rgba(34,211,238,0.45)',
+  fast: 'rgba(251,113,133,0.16)',
+  fastEdge: 'rgba(251,113,133,0.7)',
+  current: 'rgba(129,140,248,0.18)',
+  currentEdge: '#818cf8',
+  hatch: '#1e293b',
+  label: '#94a3b8',
+  playhead: '#f1f5f9',
+  view: '#818cf8',
 };
 
 const targetOf = (seg: AudioSegment) => seg.textTarget || seg.targetText || '';
@@ -105,16 +89,6 @@ const formatTime = (seconds: number, tenths = true) => {
   const s = t % 60;
   const sec = tenths ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${String(m).padStart(2, '0')}:${sec}`;
-};
-
-const useIsLightTheme = () => {
-  const [light, setLight] = useState(() => document.documentElement.classList.contains('light'));
-  useEffect(() => {
-    const observer = new MutationObserver(() => setLight(document.documentElement.classList.contains('light')));
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
-  return light;
 };
 
 /** Sizes a canvas to its box at device resolution and hands back a drawing context. */
@@ -178,8 +152,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const liveRef = useRef(reportedTime);
 
   const total = duration || audioBuffer?.duration || segments[segments.length - 1]?.endTime || 0;
-  const light = useIsLightTheme();
-  const palette = light ? PALETTES.light : PALETTES.dark;
+  const palette = PALETTE;
 
   const [zoom, setZoom] = useState(1);
   const [viewStart, setViewStart] = useState(0);

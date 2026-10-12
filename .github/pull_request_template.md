@@ -8,7 +8,7 @@
 
 ## How did you verify it?
 
-<!-- Commands you ran, cases you checked. Screenshots for UI changes (light and dark theme). -->
+<!-- Commands you ran, cases you checked. Screenshots for UI changes. -->
 
 ## Checklist
 
