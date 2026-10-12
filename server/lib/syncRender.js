@@ -25,6 +25,7 @@
  * removeBreaths). The words themselves are left sample for sample.
  */
 import { matchingGains } from './loudness.js';
+import { pauseAllowances, pausePositions } from './sourcePauses.js';
 
 /** Raised-cosine weight for sample `i` of a fade `length` samples long, rising from 0 to 1. */
 const fadeWeight = (i, length) => 0.5 - 0.5 * Math.cos((Math.PI * (i + 0.5)) / length);
@@ -261,29 +262,66 @@ const innerPauses = (samples, sampleRate) => {
  * its middle, and the audio either side of every cut is silent, so the cut
  * can't be heard. `crossfade` (seconds, 0 by default) blends the two sides of
  * each cut with an equal-power crossfade instead, for room tone that differs
- * either side; it changes those samples. Returns `{ samples, removed, cuts }`,
- * `cuts` being the sample ranges taken out, in order.
+ * either side; it changes those samples.
+ *
+ * `source` (`{ lead, speech, pauses, keep }`) first matches the clip's pauses
+ * to the original's (see sourcePauses.js): `lead` and `speech` are the
+ * clip's seconds before its first word and of speech, `pauses` the
+ * original's, and a pause the original doesn't have is cut to `keep`
+ * seconds whatever `seconds` asks, a matched one to the original's length.
+ * What that takes counts towards `seconds`.
+ *
+ * Returns `{ samples, removed, cuts, matched }`, `cuts` being the sample
+ * ranges taken out, in order, and `matched` the seconds the source match took.
  */
-export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INNER_PAUSE_SECONDS, maxTake = 1, crossfade = 0, protectAbove = Infinity } = {}) => {
+export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INNER_PAUSE_SECONDS, maxTake = 1, crossfade = 0, protectAbove = Infinity, source = null } = {}) => {
   const floor = Math.round(minPause * sampleRate);
-  let budget = Math.round(Math.max(0, seconds) * sampleRate);
-  const cuts = [];
-  for (const pause of innerPauses(samples, sampleRate)) {
+  const pauses = innerPauses(samples, sampleRate).map((pause) => ({ ...pause, take: 0 }));
+  let matched = 0;
+  if (source && source.speech > 0) {
+    const firstWord = source.lead * sampleRate;
+    const span = source.speech * sampleRate;
+    // Only pauses between the first word and the last: silence around a breath before or after them is not the speaker's.
+    const between = pauses
+      .filter((pause) => pause.start > firstWord && pause.end < firstWord + span)
+      .sort((a, b) => a.start - b.start);
+    const at = pausePositions(
+      between.map((pause) => ({ start: pause.start / sampleRate, end: pause.end / sampleRate })),
+      source.lead,
+      source.lead + source.speech
+    );
+    const allowed = pauseAllowances(
+      between.map((pause, n) => ({ at: at[n], length: (pause.end - pause.start) / sampleRate })),
+      source.pauses,
+      { keep: source.keep }
+    );
+    between.forEach((pause, n) => {
+      pause.take = Math.max(0, pause.end - pause.start - Math.round(allowed[n] * sampleRate));
+      matched += pause.take;
+    });
+  }
+  let budget = Math.round(Math.max(0, seconds) * sampleRate) - matched;
+  for (const pause of pauses) {
     if (budget <= 0) break;
-    const length = pause.end - pause.start;
-    if (length / sampleRate >= protectAbove) continue;
+    if ((pause.end - pause.start) / sampleRate >= protectAbove) continue;
+    const length = pause.end - pause.start - pause.take;
     const spare = Math.min(length - floor, Math.floor(Math.max(0, maxTake) * length));
     if (spare <= 0) continue;
     const take = Math.min(spare, budget);
-    const start = Math.round((pause.start + pause.end - take) / 2);
-    cuts.push({ start, end: start + take });
+    pause.take += take;
     budget -= take;
   }
-  if (cuts.length === 0) return { samples, removed: 0, cuts };
+  const cuts = pauses
+    .filter((pause) => pause.take > 0)
+    .map((pause) => {
+      const start = Math.round((pause.start + pause.end - pause.take) / 2);
+      return { start, end: start + pause.take };
+    });
+  if (cuts.length === 0) return { samples, removed: 0, cuts, matched: 0 };
 
   cuts.sort((a, b) => a.start - b.start);
   const output = applyCuts(samples, cuts, Math.round(Math.max(0, crossfade) * sampleRate));
-  return { samples: output, removed: (samples.length - output.length) / sampleRate, cuts };
+  return { samples: output, removed: (samples.length - output.length) / sampleRate, cuts, matched: matched / sampleRate };
 };
 
 /**

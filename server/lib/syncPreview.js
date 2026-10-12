@@ -12,6 +12,7 @@
 import { buildSyncUnits, unitGapAfter } from './syncUnits.js';
 import { resolveJoinSettings } from './syncSettings.js';
 import { SYNC_PRECISION, SUGGESTION_MARGIN, LENGTHEN_FILL, isShortLine, lineKey } from './syncDub.js';
+import { sourcePausesOf, unpausedMarks } from './sourcePauses.js';
 
 /** A line estimated to use more than this share of its slot is tight: it should fit, just. */
 export const TIGHT_SHARE = 0.9;
@@ -25,9 +26,11 @@ const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
 /**
  * Returns `{ precision, charsPerSecond, units, summary }`. Each unit is
  * `{ index, key, cueIds, text, sourceText, srcStart, srcEnd, nextStart, slot,
- * spoken, estimate, overflow, underflow, status, targetChars }`, `status`
+ * spoken, estimate, overflow, underflow, status, targetChars, unpausedMarks }`, `status`
  * being 'fits', 'tight', 'long' or 'short'. `spoken` is how long the original
- * speaker talks for and `underflow` how much of that the dub leaves silent.
+ * speaker talks for and `underflow` how much of that the dub leaves silent;
+ * `unpausedMarks` the marks in the line the original speaker talks straight
+ * through (see sourcePauses.js), empty where its words have no timestamps.
  * `targetChars` is the length a new wording should aim for: shorter for a long
  * line, worked out as Sync works it out for its own suggestions; longer for a
  * short one, filling the original speech but never past the slot. `join`
@@ -45,6 +48,7 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
     return own > 0 ? Math.min(MAX_CPS, Math.max(MIN_CPS, own)) : cps;
   };
   const units = buildSyncUnits(segments, join).filter((unit) => hasWords(unit.text));
+  const cueById = new Map(segments.map((cue) => [cue?.id, cue]));
 
   const previews = units.map((unit, index) => {
     const end =
@@ -82,6 +86,7 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
       underflow: status === 'short' ? underflow : 0,
       status,
       targetChars,
+      unpausedMarks: unpausedMarks(unit.text, sourcePausesOf(unit.cueIds.map((id) => cueById.get(id)))),
     };
   });
 

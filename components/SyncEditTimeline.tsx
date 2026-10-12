@@ -44,6 +44,7 @@ import {
   partsOf,
   partTime,
   SyncBank,
+  type SyncBankLine,
   SyncEditPart,
   SyncEdits,
 } from '../services/syncEditService';
@@ -105,6 +106,24 @@ const formatTime = (seconds: number) => {
   return `${m}:${(t % 60).toFixed(3).padStart(6, '0')}`;
 };
 const formatShift = (seconds: number) => `${seconds >= 0 ? '+' : '−'}${Math.abs(seconds).toFixed(2)} s`;
+
+/** Seconds into a line, as placed, where Sync took silence out of a pause: each cut is counted before the cuts ahead of it. */
+const pauseJoins = (line: SyncBankLine, sampleRate: number): number[] => {
+  let removed = 0;
+  return line.cuts.map((cut) => {
+    const at = (cut.start - removed) / sampleRate;
+    removed += cut.end - cut.start;
+    return at;
+  });
+};
+
+/** What Sync took out of a line's pauses, for its tooltip. */
+const pauseNote = (unit: SyncUnitReport | null | undefined) => {
+  if (!unit || !(unit.pauseTrimmed > 0)) return '';
+  const unmatched = unit.sourcePauseTrimmed ?? 0;
+  return `
+Pauses shortened by ${unit.pauseTrimmed.toFixed(2)} s${unmatched > 0 ? `, ${unmatched.toFixed(2)} s of it where the original doesn't pause` : ''}`;
+};
 
 /** How a line lands, in the colours the sync report uses. */
 const landing = (unit: SyncUnitReport | undefined, tolerance: number) => {
@@ -2035,7 +2054,7 @@ export const SyncEditTimeline: React.FC<{
                   title={
                     chunk.original
                       ? `Clip ${chunk.label}: the original from ${formatTime(part.from)} to ${formatTime(part.to)}`
-                      : `Line ${chunk.label}${chunk.unit?.text ? `: ${chunk.unit.text}` : ''}`
+                      : `Line ${chunk.label}${chunk.unit?.text ? `: ${chunk.unit.text}` : ''}${pauseNote(chunk.unit)}`
                   }
                 >
                   <PartWave
@@ -2053,6 +2072,18 @@ export const SyncEditTimeline: React.FC<{
                     {part.muted && <VolumeX className="w-3 h-3 text-slate-300" aria-label="Muted" />}
                   </span>
                   {!chunk.original && isEdited(committed, chunk.key) && <span className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />}
+                  {/* Where Sync took silence out of a pause: a tick at each join */}
+                  {!chunk.original &&
+                    pauseJoins(lineOf(chunk), rate)
+                      .filter((at) => at > part.from && at < part.to)
+                      .map((at) => (
+                        <span
+                          key={at}
+                          aria-hidden="true"
+                          className="absolute bottom-0 h-2 w-px bg-slate-100/70 pointer-events-none"
+                          style={{ left: `${(((at - part.from) / part.rate) / length) * 100}%` }}
+                        />
+                      ))}
                   {/* What a drag here does: shown where the pointer is, and on the picked line */}
                   {(() => {
                     const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;

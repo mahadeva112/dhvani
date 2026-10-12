@@ -30,6 +30,7 @@ import { TTS_CONTEXT_CHARS, withSentenceEnd } from './ttsText.js';
 import { mixSpeakers, speakerGains } from './speakerMix.js';
 import { tooDeepCut } from './syncRewrite.js';
 import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
+import { sourcePausesOf } from './sourcePauses.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -489,8 +490,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   };
   const overflow = (i) => (clips[i] ? core(i).length - budget(i) : 0);
 
-  // 4. Placing: a clip that runs long first gives up silence between its words.
+  // 4. Placing: a clip pauses only where the original speaker did (matchSourcePauses),
+  // and a clip that runs long first gives up silence between its words.
   report({ phase: 'placing', step: 4 });
+  const segmentById = new Map(segments.map((cue) => [cue?.id, cue]));
+  const sourcePauses = units.map((unit) => (join.matchSourcePauses ? sourcePausesOf(unit.cueIds.map((id) => segmentById.get(id))) : null));
+  const sourcePauseTrimmed = new Map();
   const pauseTrimmed = new Map();
   const pauseCuts = new Map();
   units.forEach((_, i) => {
@@ -505,18 +510,22 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       pauseCuts.set(i, cuts);
       return;
     }
-    const excess = overflow(i);
-    if (!join.shortenPauses || !clips[i] || excess <= 0) return;
-    const { samples, removed, cuts } = shortenPauses(clips[i].samples, sampleRate, excess, {
+    if (!clips[i]) return;
+    const excess = join.shortenPauses ? Math.max(0, overflow(i)) : 0;
+    const source = sourcePauses[i] ? { lead: clips[i].lead, speech: clips[i].speech, pauses: sourcePauses[i], keep: join.unmatchedPause } : null;
+    if (excess <= 0 && !source) return;
+    const { samples, removed, cuts, matched } = shortenPauses(clips[i].samples, sampleRate, excess, {
       minPause: join.minInnerPause,
       maxTake: join.maxPauseTake,
       crossfade: join.spliceCrossfade,
       protectAbove: join.preserveLongPauses ? join.protectedPause : Infinity,
+      source,
     });
     if (removed > 0) {
       clips[i] = { ...clips[i], samples, speech: clips[i].speech - removed };
       pauseTrimmed.set(i, removed);
       pauseCuts.set(i, cuts);
+      if (matched > 0) sourcePauseTrimmed.set(i, matched);
     }
   });
 
@@ -851,6 +860,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       suggestion: suggestions.get(i) || null,
       deepCut: deepCut[i],
       pauseTrimmed: pauseTrimmed.get(i) || 0,
+      // Of that, what the original has no pause for (matchSourcePauses); null where its words are untimed.
+      sourcePauseTrimmed: sourcePauses[i] ? sourcePauseTrimmed.get(i) || 0 : null,
       late: late[i],
       joinAfter: joinAfter.has(i) ? joinAfter.get(i) : null,
       tightJoin: tightJoin[i],
@@ -894,6 +905,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         deepCuts: deepCut.filter(Boolean).length,
         suggestionError,
         pauseTrimmed: pauseTrimmed.size,
+        sourcePauseTrimmed: [...sourcePauseTrimmed.values()].reduce((sum, seconds) => sum + seconds, 0),
+        // Lines Match source pauses could not check, their original having no word timestamps.
+        sourcePausesUnknown: join.matchSourcePauses ? sourcePauses.filter((pauses, i) => !pauses && clips[i]).length : 0,
         late: late.filter(Boolean).length,
         tightJoins: tightJoin.filter(Boolean).length,
         silent: units.length - placedIndex.length,

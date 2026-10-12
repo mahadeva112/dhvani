@@ -51,6 +51,9 @@ export interface SyncJoinSettings {
   minInnerPause: number;
   /** The most of any one pause that may be taken out. */
   maxPauseTake: number;
+  /** Pause only where the original speaker did: other pauses inside a line are cut to `unmatchedPause`, even when it fits. */
+  matchSourcePauses: boolean;
+  unmatchedPause: number;
   /** Equal-power crossfade at each pause cut; 0 is a plain cut inside silence. Changes the audio. */
   spliceCrossfade: number;
   /** A line's tail runs until the audio stays below this level, in dBFS. */
@@ -85,6 +88,8 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     shortenPauses: true,
     minInnerPause: 0.25,
     maxPauseTake: 0.4,
+    matchSourcePauses: true,
+    unmatchedPause: 0.15,
     spliceCrossfade: 0,
     tailFloorDb: -70,
     tailHold: 0.04,
@@ -106,6 +111,8 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     shortenPauses: true,
     minInnerPause: 0.2,
     maxPauseTake: 0.6,
+    matchSourcePauses: true,
+    unmatchedPause: 0.15,
     spliceCrossfade: 0,
     tailFloorDb: -70,
     tailHold: 0.025,
@@ -127,6 +134,8 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     shortenPauses: true,
     minInnerPause: 0.18,
     maxPauseTake: 0.7,
+    matchSourcePauses: true,
+    unmatchedPause: 0.12,
     spliceCrossfade: 0,
     tailFloorDb: -70,
     tailHold: 0.015,
@@ -269,6 +278,8 @@ export interface SyncUnitReport {
   deepCut?: boolean;
   /** Seconds taken out of the pauses inside the line. */
   pauseTrimmed: number;
+  /** Of that, the pauses the original speaker never made (Match source pauses); null when its words have no timestamps. */
+  sourcePauseTrimmed?: number | null;
   /** The line's first word landed later after its source line than the join settings allow. */
   late: boolean;
   /** Seconds from this line's last word to the next line's first; null for the last line. */
@@ -327,6 +338,10 @@ export interface SyncReport {
     /** Why some or all suggestions are missing: the text model's error, or null. */
     suggestionError: string | null;
     pauseTrimmed: number;
+    /** Seconds Match source pauses took out, all lines together. */
+    sourcePauseTrimmed?: number;
+    /** Lines it could not check, their original having no word timestamps. */
+    sourcePausesUnknown?: number;
     /** Lines pushed later than the join settings allow. */
     late: number;
     /** Joins with less silence between the words than the review limit. */
@@ -438,7 +453,8 @@ const slimSegment = (segment: AudioSegment, voiceTexts?: Record<string, string>,
   speaker: segment.speaker,
   textTarget: segment.textTarget || segment.targetText || '',
   textSource: segment.textSource || segment.originalText || '',
-  ...(withWords && segment.words && { words: segment.words }),
+  // The original's word timestamps: Match source pauses reads its pauses from them, and Verify its words.
+  ...(segment.words && segment.words.length > 0 && { words: withWords ? segment.words : segment.words.map(({ start, end, text }) => ({ start, end, text })) }),
   ...(voiceTexts?.[segment.id] && { voiceText: voiceTexts[segment.id] }),
 });
 
@@ -624,6 +640,8 @@ export interface SyncPreviewUnit {
   wantSeconds?: number;
   /** Set by the Expert estimate (expertPreview): the line timed in syllables, and its lip closures. */
   expert?: ExpertLine;
+  /** Marks in the line the voice may pause at where the original speaker talks straight through; `after` is the word before. */
+  unpausedMarks?: { mark: string; after: string }[];
 }
 
 /** A line as the Expert estimate times it. Seconds in `words` and `dubLips` are from the line's start. */

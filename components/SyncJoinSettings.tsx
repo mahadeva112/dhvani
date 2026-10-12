@@ -271,7 +271,7 @@ export const JOIN_SECTIONS: { id: SyncJoinSection; title: string }[] = [
 /** The join settings each section holds, to mark a section changed from the default. */
 const SECTION_KEYS: Record<SyncJoinSection, (keyof SyncJoinSettings)[]> = {
   gaps: ['preserveLongPauses', 'protectedPause', 'minGap', 'speakerGap', 'gapShare', 'breathClear', 'removeBreaths', 'breathReduction'],
-  pauses: ['shortenPauses', 'minInnerPause', 'maxPauseTake', 'spliceCrossfade'],
+  pauses: ['matchSourcePauses', 'unmatchedPause', 'shortenPauses', 'minInnerPause', 'maxPauseTake', 'spliceCrossfade'],
   edges: ['tailFloorDb', 'tailHold', 'edgeFade'],
   fit: ['maxLateStart'],
   grouping: ['unitGap', 'maxUnit'],
@@ -285,7 +285,10 @@ export const joinSectionSummary = (section: SyncJoinSection, options: SyncOption
     case 'gaps':
       return `${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`;
     case 'pauses':
-      return join.shortenPauses ? `Shortened to ${ms(join.minInnerPause)} at least, ${percent(join.maxPauseTake)} at most` : 'Never shortened';
+      return [
+        join.matchSourcePauses && `Only where the original pauses`,
+        join.shortenPauses ? `${join.matchSourcePauses ? 's' : 'S'}hortened to ${ms(join.minInnerPause)} at least when long` : !join.matchSourcePauses && 'Never shortened',
+      ].filter(Boolean).join(' · ');
     case 'edges':
       return `Tail to ${join.tailFloorDb} dB, held ${ms(join.tailHold)}`;
     case 'fit':
@@ -416,6 +419,23 @@ export const SyncJoinSectionControls: React.FC<{
       return (
         <div className="flex flex-col gap-4">
           <Toggle
+            label="Pause only where the original pauses"
+            hint="A pause the original speaker never made is cut down to a word gap, even when the line fits. Needs the original's word timestamps."
+            checked={join.matchSourcePauses}
+            disabled={disabled}
+            onChange={(v) => set('matchSourcePauses', v)}
+          />
+          <Slider
+            id="sync-unmatched-pause"
+            label="Cut such a pause to"
+            value={join.unmatchedPause}
+            {...bounds('unmatchedPause')}
+            step={0.01}
+            format={ms}
+            disabled={disabled || !join.matchSourcePauses}
+            onChange={(v) => set('unmatchedPause', v)}
+          />
+          <Toggle
             label="Shorten pauses when a line runs long"
             hint="Only silence between words is taken out."
             checked={join.shortenPauses}
@@ -454,7 +474,7 @@ export const SyncJoinSectionControls: React.FC<{
             {...bounds('spliceCrossfade')}
             step={0.001}
             format={(v) => (v === 0 ? 'Off' : ms(v))}
-            disabled={disabled || !join.shortenPauses}
+            disabled={disabled || (!join.shortenPauses && !join.matchSourcePauses)}
             onChange={(v) => set('spliceCrossfade', v)}
             hint="Smooths room tone where a pause is shortened. Off keeps every sample as voiced."
           />

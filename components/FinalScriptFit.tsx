@@ -61,6 +61,21 @@ export const fitAdvice = (unit: SyncPreviewUnit) =>
         : '';
 
 /**
+ * The marks in a line where the voice may pause and the original speaker
+ * doesn't. Sync cuts such a pause anyway (Match source pauses); without the
+ * mark the line also reads the way the original was said.
+ */
+export const pauseAdvice = (unit: SyncPreviewUnit) => {
+  const marks = unit.unpausedMarks ?? [];
+  if (marks.length === 0) return '';
+  const where = marks
+    .slice(0, 3)
+    .map(({ mark, after }) => `“${after}${mark}”`)
+    .join(', ');
+  return `The original runs straight on at ${where}${marks.length > 3 ? ` and ${marks.length - 3} more` : ''}: the voice may pause there.`;
+};
+
+/**
  * One line's estimate: a bar for the dub, a tick where its slot ends, and for
  * a line that ends early a dashed box for the original speech it leaves silent.
  */

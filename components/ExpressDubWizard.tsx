@@ -123,7 +123,7 @@ import type { RateBasis, VoiceRateState } from '../services/voiceRate';
 import { VoiceRateCard } from './VoiceRateCard';
 import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
-import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix } from './FinalScriptFit';
+import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix, pauseAdvice } from './FinalScriptFit';
 import { SaveScriptMenu } from './SaveScriptMenu';
 import { hueOf, lineIndexByCue, withAlpha } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
@@ -2763,8 +2763,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           const unit = unitOfCue.get(String(seg.id));
                           if (!unit || String(unit.cueIds[unit.cueIds.length - 1]) !== String(seg.id)) return null;
                           const fix = lineFixes.controlsFor(unit);
-                          if (!needsFix(unit) && fix.state.kind === 'idle') return <OtherWordingsButton onClick={fix.onSuggest} />;
-                          const note = fix.state.kind === 'idle' ? { text: fitAdvice(unit), tone: '' } : lineNote(unit, fix.state, fix.direction);
+                          const pauses = pauseAdvice(unit);
+                          if (!needsFix(unit) && fix.state.kind === 'idle') {
+                            return (
+                              <>
+                                {pauses && <p className="mt-1 text-[11.5px] leading-snug text-slate-400">{pauses}</p>}
+                                <OtherWordingsButton onClick={fix.onSuggest} />
+                              </>
+                            );
+                          }
+                          const note = fix.state.kind === 'idle' ? { text: [fitAdvice(unit), pauses].filter(Boolean).join(' '), tone: '' } : lineNote(unit, fix.state, fix.direction);
                           const tone = note.tone || (unit.status === 'long' ? 'text-amber-300' : unit.status === 'short' ? 'text-sky-300' : 'text-slate-400');
                           const firstCue = cueIndexById.get(String(unit.cueIds[0]));
                           return (
@@ -3498,7 +3506,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     (() => {
                       const unit = selectedLine;
                       const fixing = needsFix(unit);
-                      const note = fitAdvice(unit);
+                      const note = [fitAdvice(unit), pauseAdvice(unit)].filter(Boolean).join(' ');
                       const lineNumber = segments.findIndex((seg) => String(seg.id) === unit.key) + 1;
                       return (
                         <div className="rounded-xl border border-indigo-500/30 bg-slate-950/60 px-3.5 py-3">
@@ -3893,7 +3901,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       return shown.map((group) => {
                         const unit = fitShown ? group.unit : null;
                         const fixing = Boolean(unit && needsFix(unit));
-                        const note = unit ? fitAdvice(unit) : '';
+                        const note = unit ? [fitAdvice(unit), pauseAdvice(unit)].filter(Boolean).join(' ') : '';
                         const noteTone = unit?.status === 'long' ? 'text-amber-300' : unit?.status === 'short' ? 'text-sky-300' : 'text-slate-500';
                         return (
                           <div

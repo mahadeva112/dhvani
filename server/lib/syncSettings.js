@@ -34,6 +34,14 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   minInnerPause: 0.25,
   /** The most of any one pause that may be taken out. */
   maxPauseTake: 0.4,
+  /**
+   * Pause only where the original speaker did: a pause inside a line that the
+   * original has no pause for is cut to `unmatchedPause`, and one it has is
+   * kept to the original's length, whether the line fits or not (see sourcePauses.js).
+   */
+  matchSourcePauses: true,
+  /** What a pause the original doesn't have is cut to. */
+  unmatchedPause: 0.15,
   /** Equal-power crossfade at each pause cut; 0 is a plain cut inside silence. Changes the audio. */
   spliceCrossfade: 0,
   /** A line's tail runs until the audio stays below this level, in dBFS. */
@@ -68,6 +76,7 @@ export const JOIN_SETTING_RANGES = {
   gapShare: [0, 1],
   minInnerPause: [0.08, 0.6],
   maxPauseTake: [0.05, 1],
+  unmatchedPause: [0.06, 0.6],
   spliceCrossfade: [0, 0.02],
   tailFloorDb: [-90, -50],
   tailHold: [0, 0.2],
@@ -90,7 +99,7 @@ export const resolveJoinSettings = (requested) => {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }
-  for (const key of ['breathClear', 'removeBreaths', 'shortenPauses', 'preserveLongPauses']) {
+  for (const key of ['breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'preserveLongPauses']) {
     if (typeof requested[key] === 'boolean') settings[key] = requested[key];
   }
   return settings;
