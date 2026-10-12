@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.48',
+    changes: [
+      'DHVANI now always uses its dark look. The Theme option has been removed from the menu.',
+    ],
+  },
+  {
     version: '1.3.47',
     changes: [
       'Sync now pauses only where the original speaker pauses. A pause the voice adds where the speaker talked straight on is cut down to a short gap, so the dub no longer runs longer than the original. Turn it off in Sync settings → Pauses inside a line. Sync again to apply it to an existing dub.',
