@@ -135,6 +135,7 @@ import {
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
 import { pickedTakes, putTake, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
+import { stripPauses } from './server/lib/linePauses.js';
 import { LiveDubEngine, liveClips } from './services/liveDubEngine';
 import { cleanSpeakerLevels, silencedSpeakers, withSpeakerLevels, type SpeakerMonitor } from './services/speakerLevels';
 import type { SyncEditStatus } from './components/SyncEditTimeline';
@@ -2555,10 +2556,16 @@ export default function App() {
 
   /**
    * Voices new takes of a synced line now (TakesPanel): the whole line, or
-   * only the words picked, read as Sync read it or in a direction. They are
-   * added to the line's takes; the dub doesn't change until one is used.
+   * only the words picked, read as Sync read it or in a direction. With
+   * `text`, the whole line is voiced in new words (pause marks and all); the
+   * script takes them only when one of those takes is used. They are added to
+   * the line's takes; the dub doesn't change until one is used. A locked line
+   * can be retaken: using a take keeps its lock.
    */
-  const handleVoiceSyncTakes = async (unit: SyncUnitReport, { direction, phrase }: { direction: TakeDirection; phrase?: { from: number; to: number } }) => {
+  const handleVoiceSyncTakes = async (
+    unit: SyncUnitReport,
+    { direction, phrase, text }: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }
+  ) => {
     const job = activeJob;
     if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport || syncTakesBusy) return;
     const bank = job.syncBank;
@@ -2566,7 +2573,11 @@ export default function App() {
     const line = bank.lines.find((l) => l.key === unit.key);
     const n = base.units.findIndex((u) => u.key === unit.key);
     if (!line || n === -1) return;
-    if ((job.syncEdits?.[unit.key]?.locked ?? line.locked) || job.syncPendingLines?.includes(unit.key)) return;
+    if (job.syncPendingLines?.includes(unit.key)) return;
+    // New words are a new reading of the whole line: no phrase of the old take, no tags matched to the old words.
+    const spoken = text?.trim() && text.trim() !== unit.text ? text.trim() : null;
+    if (spoken && phrase) return;
+    const words = spoken ? stripPauses(spoken) : unit.text;
     setSyncTakesBusy(unit.key);
     setSyncTakesError(null);
     const controller = new AbortController();
@@ -2577,7 +2588,7 @@ export default function App() {
       const tags = !several && expressionTakesTags();
       const expression: VoiceExpression = tags || voiceExpression === 'off' ? voiceExpression : 'neutral';
       let voiceText: string | undefined;
-      if (expression === 'natural' && !phrase) {
+      if (expression === 'natural' && !phrase && !spoken) {
         const tagged = await sourceTaggedSegments(job, language, controller.signal);
         const byId = new Map(tagged.map((segment) => [String(segment.id), segment.textTarget || segment.targetText || '']));
         voiceText = unit.cueIds.map((id) => (byId.get(String(id)) || '').trim()).filter(Boolean).join(' ');
@@ -2594,7 +2605,7 @@ export default function App() {
           bank,
           bankBlob: job.syncBankBlob,
           line,
-          unit: base.units[n],
+          unit: spoken ? { ...base.units[n], text: spoken } : base.units[n],
           voiceText,
           previousText: neighbour(-1)?.text.slice(-300),
           nextText: neighbour(1)?.text.slice(0, 300),
@@ -2627,7 +2638,11 @@ export default function App() {
       updateJob(job.id, {
         syncBank: { ...now.syncBank, bankId: result.bankId },
         syncBankBlob: result.bankBlob,
-        syncTakes: { ...(now.syncTakes || {}), [unit.key]: { takes: [...kept.takes, ...result.takes], active: kept.active } },
+        syncTakes: {
+          ...(now.syncTakes || {}),
+          // A take keeps the words the script takes from it, and what the voice read, pauses and all.
+          [unit.key]: { takes: [...kept.takes, ...result.takes.map((take) => (spoken ? { ...take, text: words, spoken } : take))], active: kept.active },
+        },
       });
       refreshQuota();
     } catch (err: any) {
@@ -2639,16 +2654,34 @@ export default function App() {
     }
   };
 
-  /** Puts one of a line's takes in the dub, where the line is now, and renders the dub with it. */
+  /**
+   * Puts one of a line's takes in the dub, where the line is now, and renders
+   * the dub with it. A take voiced in other words puts those words in the
+   * script and the report too, so the line isn't left waiting for Sync. A
+   * locked line stays locked.
+   */
   const handleUseSyncTake = (key: string, takeId: string) => {
     const job = activeJob;
     const kept = job?.syncTakes?.[key];
     const take = kept?.takes.find((t) => t.id === takeId);
     if (!job?.syncBank || !job.syncBaseReport || !kept || !take || kept.active === takeId) return;
     const line = job.syncBank.lines.find(l => l.key === key);
-    if (syncTakesBusy || (job.syncEdits?.[key]?.locked ?? line?.locked) || job.syncPendingLines?.includes(key) || take.text !== job.syncBaseReport.units.find(u => u.key === key)?.text) return;
-    const { bank, edits, baseReport } = putTake({ bank: job.syncBank, edits: job.syncEdits, baseReport: job.syncBaseReport, key, take });
+    const unit = job.syncBaseReport.units.find((u) => u.key === key);
+    if (syncTakesBusy || !line || !unit || job.syncPendingLines?.includes(key)) return;
+    const put = putTake({ bank: job.syncBank, edits: job.syncEdits, baseReport: job.syncBaseReport, key, take });
+    const { bank, edits } = put;
+    const reworded = take.text !== unit.text;
+    const baseReport = reworded ? { ...put.baseReport, units: put.baseReport.units.map((u) => (u.key === key ? { ...u, text: take.text } : u)) } : put.baseReport;
+    let segments = job.segments;
+    if (reworded) {
+      const ids = unit.cueIds.map(String);
+      const cues = job.segments.filter((s) => ids.includes(String(s.id)));
+      const texts = distributeLineText(take.text, cues.map((c) => c.textTarget || c.targetText || ''));
+      const byId = new Map(cues.map((c, i) => [String(c.id), texts[i] ?? '']));
+      segments = job.segments.map((s) => (byId.has(String(s.id)) ? { ...s, textTarget: byId.get(String(s.id)), targetText: byId.get(String(s.id)) } : s));
+    }
     updateJob(job.id, {
+      ...(reworded && { segments }),
       syncBank: bank,
       syncEdits: edits,
       syncBaseReport: baseReport,

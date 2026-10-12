@@ -32,10 +32,16 @@
  * (`suggestLines`), each of a different kind and each checked the same way.
  * Every prompt can carry the lines around the one being reworded, and who
  * says it, so the model reads the line in context before rewording it.
+ *
+ * A retake asks for its wordings with `pauseBudget`, the seconds its slot has
+ * to spare: the model may mark pauses (`[pause 0.4s]`, linePauses.js) where the
+ * meaning wants them, within that time. Length and meaning are judged on the
+ * words alone, and a wording may keep the line's own words with pauses only.
  */
 import { logger } from '../logger.js';
 import { generateText } from '../providers/textModel.js';
 import { parseJsonResponse } from '../providers/gemini/client.js';
+import { normalizePauses, pauseSeconds, PAUSE_MARK, stripPauses } from './linePauses.js';
 
 /**
  * A rewrite shorter than this share of the length asked for has probably been
@@ -446,6 +452,17 @@ const OPTION_STYLES = [
 /** Earlier wordings a request for several shows the model, so new ones read differently. */
 const MAX_AVOID_OPTIONS = 12;
 
+/** Below this, a slot has no time for a pause. */
+const MIN_PAUSE_BUDGET = 0.15;
+
+/** What a retake's prompt says about pauses, for the seconds its slot has to spare. */
+export const pauseNote = (budget) =>
+  budget < MIN_PAUSE_BUDGET
+    ? '\nDo not add pauses: this line has no time to spare.\n'
+    : `
+Pauses: read at its natural pace, this line leaves about ${budget.toFixed(1)} s of its time unspoken. Understand what the line means, then mark a pause where a native speaker saying it would pause: between two thoughts, before the word that carries the weight, after a question or a name addressed. Write a pause as [pause 0.3s] (seconds, 0.1 to 2), between words, never at the start or the end. All the pauses in one wording together come to at most ${budget.toFixed(1)} s. Add no pause the meaning does not call for. One wording may keep the dub line's own words exactly, with pauses only.
+`;
+
 /**
  * The prompt for several wordings of one line at once, as JSON. Before the
  * wordings the model writes down what the original line means, in one English
@@ -453,7 +470,7 @@ const MAX_AVOID_OPTIONS = 12;
  * what keeps every wording on it. `fixes` are earlier wordings the meaning
  * check rejected, with what it found.
  */
-export const buildOptionsPrompt = ({ text, sourceText, language, targetChars, direction, count, avoid = [], fixes = [], context = null, keep = [], examples = [] }) => {
+export const buildOptionsPrompt = ({ text, sourceText, language, targetChars, direction, count, avoid = [], fixes = [], context = null, keep = [], examples = [], pauseBudget = null }) => {
   const longer = direction === 'longer';
   const same = direction === 'same';
   const lang = language || 'the dub language';
@@ -495,11 +512,24 @@ ${sourceText ? `\nOriginal line (the authority on meaning):\n${sourceText}\n` : 
           .join('\n')}\n`
       : ''
   }
+${pauseBudget === null ? '' : pauseNote(pauseBudget)}
 Dub line to ${same ? 'reword' : longer ? 'make fuller' : 'shorten'}:
 ${text}
 
 Respond with ONLY this JSON:
 {"meaning":"<what the original line says, in one English sentence>","options":[${styles.map(() => '"<wording>"').join(',')}]}`;
+};
+
+/**
+ * A wording's pauses scaled down so together they take at most `budget`
+ * seconds, and none at all when it has none to give.
+ */
+export const fitPauses = (line, budget) => {
+  const total = pauseSeconds(line);
+  if (total <= budget + 1e-6) return line;
+  if (budget < MIN_PAUSE_BUDGET) return stripPauses(line);
+  const scale = budget / total;
+  return normalizePauses(line.replace(PAUSE_MARK, (_mark, seconds) => `[pause ${Math.max(0.1, Math.floor(Number(seconds) * scale * 10) / 10)}s]`));
 };
 
 /**
@@ -512,10 +542,25 @@ Respond with ONLY this JSON:
  * the model offered anything at all. Throws when the text model can't be reached.
  */
 export const suggestLines = async (
-  { text, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [], examples = [], count = MAX_OPTIONS },
+  { text: asked, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [], examples = [], count = MAX_OPTIONS, pauseBudget = null },
   { apiKey, generate = generateText } = {}
 ) => {
   const { accept, kind } = directionOf(direction);
+  const pauses = pauseBudget !== null;
+  // Length and meaning are judged on the words: a draft's own pause marks are not words.
+  const text = pauses ? stripPauses(asked) : asked;
+  /** A wording as offered (with its pauses) and its words alone, or null when unusable. */
+  const usable = (raw) => {
+    if (!pauses) {
+      const line = accept(text, raw, targetChars);
+      return line ? { offered: line, words: line } : null;
+    }
+    const offered = fitPauses(normalizePauses(cleanLine(raw)), pauseBudget);
+    const words = stripPauses(offered);
+    // The line's own words with pauses added is a wording a retake can use.
+    if (words === cleanLine(text)) return pauseSeconds(offered) > 0 ? { offered, words, same: true } : null;
+    return accept(text, words, targetChars) === words ? { offered, words } : null;
+  };
   const want = Math.max(1, Math.min(MAX_OPTIONS, Math.floor(count) || 1));
   const passed = [];
   const flagged = [];
@@ -539,6 +584,7 @@ export const suggestLines = async (
               context,
               keep,
               examples,
+              pauseBudget,
             }),
           },
         ],
@@ -554,22 +600,26 @@ export const suggestLines = async (
     }
     const candidates = [];
     for (const raw of Array.isArray(parsed?.options) ? parsed.options : []) {
-      const line = accept(text, String(raw ?? ''), targetChars);
-      if (line && !seen.has(line)) {
-        seen.add(line);
-        candidates.push(line);
+      const found = usable(String(raw ?? ''));
+      // With pauses, the same words paused differently are no new wording either.
+      const key = found && (found.same ? found.offered : found.words);
+      if (found && !seen.has(key)) {
+        seen.add(key);
+        candidates.push(found);
       }
     }
     const checks = await Promise.all(
       candidates.map((candidate) => {
-        const missing = missingTerms(text, candidate, keep);
+        // The line's own words need no check of their meaning.
+        if (candidate.same) return { ok: true, issues: [] };
+        const missing = missingTerms(text, candidate.words, keep);
         return missing.length > 0
           ? { ok: false, issues: droppedIssues(missing) }
-          : checkMeaning({ text, sourceText, candidate, language, direction }, { apiKey, generate });
+          : checkMeaning({ text, sourceText, candidate: candidate.words, language, direction }, { apiKey, generate });
       })
     );
     fixes = [];
-    candidates.forEach((line, i) => {
+    candidates.forEach(({ offered: line }, i) => {
       const backTranslation = checks[i].backTranslation ?? null;
       if (checks[i].ok) passed.push(backTranslation ? { line, backTranslation } : { line });
       else {

@@ -135,7 +135,11 @@ export const synthesizeSpeech = async (
 ) => {
   const id = requireVoiceId(voiceId);
   // Compound tags ("[explaining, calm]") are not stage directions the cleanup knows, so they are removed here.
-  const transcript = cleanTextForNaturalSpeech(performanceTags ? String(text || '').replace(/\[[a-zA-Z0-9_\-\s,]{1,120}\]/g, ' ') : text);
+  // Pause marks ([pause 0.4s]) stay, to become Cartesia breaks.
+  const transcript = cleanTextForNaturalSpeech(
+    performanceTags ? String(text || '').replace(/\[(?!pause\s+\d)[a-zA-Z0-9_\-\s,]{1,120}\]/gi, ' ') : text,
+    { pauses: 'cartesia' }
+  );
   if (!transcript) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });
   }

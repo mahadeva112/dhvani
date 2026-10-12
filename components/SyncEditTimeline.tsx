@@ -859,6 +859,11 @@ export const SyncEditTimeline: React.FC<{
     const still = selectedIds.filter((id) => chunks.some((c) => c.part.id === id));
     if (still.length !== selectedIds.length) setSelectedIds(still);
   }, [selectedIds, chunks]);
+  // Picking one line of the dub opens its takes, with its words to edit and retake. Selecting a range opens them with the words picked.
+  const pickedLineKey = group.length === 1 && current && !current.original ? current.key : null;
+  useEffect(() => {
+    if (pickedLineKey && !rangeTool) onOpenTakes?.(pickedLineKey);
+  }, [pickedLineKey]);
   /** How the picked parts are named in the history: "line 4", "clip O1", or "3 lines". */
   const groupName = (list: Chunk[]) => (list.length === 1 ? `${list[0].original ? 'clip' : 'line'} ${list[0].label}` : `${list.length} lines`);
 

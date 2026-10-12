@@ -7,6 +7,7 @@ import { splitPassages, contextAround, MAX_TTS_CHUNK_CHARS, PASSAGE_PAUSE_SECOND
 import { joinPassages } from '../../lib/audioJoin.js';
 import { AUDIO_TAGS, addDeliveryCuesToPassages } from '../../lib/deliveryCues.js';
 import { performanceTag } from '../../lib/sourceCues.js';
+import { PAUSE_MARK, spokenPause } from '../../lib/linePauses.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
 import { pcmToWav } from '../../lib/wav.js';
 import { cancelledError } from '../../lib/http.js';
@@ -35,10 +36,15 @@ export const DEFAULT_VOICE_SETTINGS = {
  * AUDIO_TAGS ([curious], [sighs], ...) stay: Eleven v3 and v4 perform them.
  * With `keepPerformanceTags`, so do the source-matched performance tags
  * ([explaining, calm, slow], [sentence-build pause]; see sourceCues.js).
+ * Pause marks (`[pause 0.4s]`, linePauses.js) become what `pauses` names:
+ * 'break' or 'cartesia' for an SSML break, 'ellipsis', or a space when unset.
  */
-export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false, keepPerformanceTags = false } = {}) => {
+// Holds a pause's place through the cleanup, which would strip a break tag.
+const PAUSE_HOLD = /\u0001([\d.]+)\u0001/g;
+export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false, keepPerformanceTags = false, pauses = null } = {}) => {
   if (!rawText) return '';
   return String(rawText)
+    .replace(PAUSE_MARK, (_mark, seconds) => `\u0001${seconds}\u0001`)
     .replace(/<[^>]+>/g, ' ')
     .replace(/^\[[^\]]+\]:\s*/gm, '')
     .replace(/^\([^)]+\):\s*/gm, '')
@@ -56,6 +62,8 @@ export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false, keep
     .replace(/[^\S\n]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{3,}/g, '\n\n')
+    .replace(PAUSE_HOLD, (_hold, seconds) => spokenPause(seconds, pauses))
+    .replace(/[^\S\n]+/g, ' ')
     .trim();
 };
 
@@ -256,6 +264,8 @@ export const synthesizeSpeech = async (
   const cleanText = cleanTextForNaturalSpeech(text, {
     keepAudioTags: performsTags(resolvedModel),
     keepPerformanceTags: performanceTags && performsTags(resolvedModel),
+    // v3 and v4 read SSML aloud; an ellipsis is their pause.
+    pauses: performsTags(resolvedModel) ? 'ellipsis' : 'break',
   });
   if (!cleanText) {
     throw new ApiError('There is no dialogue text to synthesize.', { status: 400, code: 'empty_text' });

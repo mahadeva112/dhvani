@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Headphones, Loader2, Mic, Pause, Play, X } from 'lucide-react';
-import type { SyncUnitReport } from '../services/syncService';
+import { Check, Headphones, Loader2, Lock, Mic, Pause, Pencil, Play, RotateCcw, X } from 'lucide-react';
+import type { LineSuggestion, SyncUnitReport } from '../services/syncService';
+import type { RewriteDirection } from './SyncPreviewPanel';
+import { PAUSE_MARK, pauseSeconds, stripPauses } from '../server/lib/linePauses.js';
 import {
   phraseOf,
   SYNC_TAKE_ID,
@@ -23,6 +25,37 @@ const TONE: Record<TakeFit['tone'], string> = {
 };
 
 const directionLabel = (direction?: TakeDirection) => TAKE_DIRECTIONS.find((d) => d.id === direction)?.label ?? 'Same';
+
+/** A wording with its pause marks shown as chips, as the voice will hear them. */
+const WithPauses: React.FC<{ text: string }> = ({ text }) => {
+  const parts: React.ReactNode[] = [];
+  let at = 0;
+  for (const m of text.matchAll(PAUSE_MARK)) {
+    if (m.index! > at) parts.push(text.slice(at, m.index));
+    parts.push(
+      <span key={m.index} className="mx-0.5 inline-flex items-center gap-0.5 rounded px-1 text-[10.5px] font-semibold tabular-nums bg-indigo-500/20 text-indigo-200 align-middle" title="A pause">
+        <Pause className="w-2.5 h-2.5" /> {Number(m[1]).toFixed(1)} s
+      </span>
+    );
+    at = m.index! + m[0].length;
+  }
+  if (at < text.length) parts.push(text.slice(at));
+  return <>{parts}</>;
+};
+
+/** What asking for wordings of a line can be: not asked, on its way, back, or failed. */
+type Wordings = { kind: 'idle' } | { kind: 'working' } | { kind: 'ready'; options: LineSuggestion[] } | { kind: 'error'; message: string };
+
+/** A request for wordings of a retake, made by the panel from its line's time. */
+export interface WordingRequest {
+  /** The words as they are in the panel now, pause marks and all. */
+  text: string;
+  direction: RewriteDirection;
+  targetChars: number;
+  /** Seconds the slot has to spare once the words are said: what the pauses may take. */
+  pauseBudget: number;
+  avoid: string[];
+}
 
 /** A take's name in the list: Sync's own, or its number among the takes asked for. */
 const takeName = (take: SyncTake, index: number) => (take.id === SYNC_TAKE_ID ? "Sync's take" : `Take ${index}`);
@@ -52,9 +85,13 @@ export const TakesPanel: React.FC<{
   error: string | null;
   /** The line's words changed since Sync: takes would read the old words. */
   pending: boolean;
+  /** Locked in Edit timing: it can still be retaken, and a take used keeps the lock. */
   locked?: boolean;
   initialPhrase?: { from: number; to: number } | null;
-  onVoice: (options: { direction: TakeDirection; phrase?: { from: number; to: number } }) => void;
+  /** With `text`, the whole line is voiced in those words; the script takes them only when one of the takes is used. */
+  onVoice: (options: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }) => void;
+  /** Wordings of the line from the text model, asked for only when the user presses Suggest wording. */
+  onSuggestWording?: (request: WordingRequest) => Promise<LineSuggestion[]>;
   onUse: (takeId: string) => void;
   onListenInDub: () => void;
   onClose: () => void;
@@ -75,6 +112,7 @@ export const TakesPanel: React.FC<{
   locked = false,
   initialPhrase,
   onVoice,
+  onSuggestWording,
   onUse,
   onListenInDub,
   onClose,
@@ -86,6 +124,54 @@ export const TakesPanel: React.FC<{
   useEffect(() => setPick(initialPhrase ?? null), [unit.key, unit.text, initialPhrase]);
   const phrase = pick ? phraseOf(unit.text, pick.from, pick.to) : null;
   const wholeLine = !phrase || (!phrase.before && !phrase.after);
+
+  // The line's words, to edit before a retake. Nothing is voiced, and the script is not changed, until the user asks.
+  const [draft, setDraft] = useState(unit.text);
+  const [wordings, setWordings] = useState<Wordings>({ kind: 'idle' });
+  const offered = useRef<string[]>([]);
+  const asking = useRef(0);
+  useEffect(() => {
+    setDraft(unit.text);
+    setWordings({ kind: 'idle' });
+    offered.current = [];
+    asking.current += 1;
+  }, [unit.key, unit.text]);
+  const reworded = draft.trim() !== '' && draft.trim() !== unit.text.trim();
+  const said = stripPauses(draft);
+  // The line's own voice rate, from its take in the dub, to say how long other words would take.
+  const perChar = unit.text.trim().length > 0 ? unit.speech / unit.text.trim().length : 0;
+  const slot = nextStart !== null ? Math.max(0, nextStart - firstWord) : Math.max(0, unit.srcEnd - unit.srcStart);
+  const secondsOf = (text: string) => stripPauses(text).length * perChar + pauseSeconds(text);
+  const draftSeconds = secondsOf(draft);
+  const draftFits = draftSeconds <= slot + tolerance;
+
+  const suggest = async () => {
+    if (!onSuggestWording) return;
+    const id = ++asking.current;
+    const spoken = Math.max(0.1, said.length * perChar);
+    const longer = spoken > slot;
+    const targetChars = longer
+      ? Math.max(1, Math.floor((said.length * slot * 0.92) / spoken))
+      : Math.max(said.length, Math.floor((said.length * slot * 0.95) / spoken));
+    setWordings({ kind: 'working' });
+    try {
+      const options = await onSuggestWording({
+        text: draft.trim(),
+        direction: longer ? 'shorter' : 'same',
+        targetChars,
+        // What the slot has left once the words are said, less a breath at the end.
+        pauseBudget: Math.max(0, Math.round((slot - Math.min(spoken, targetChars * perChar) - 0.1) * 10) / 10),
+        avoid: offered.current,
+      });
+      if (asking.current !== id) return;
+      offered.current = [...offered.current, ...options.map((o) => o.text)].slice(-30);
+      setWordings(options.length ? { kind: 'ready', options } : { kind: 'error', message: 'No usable wording came back. Try again, or edit it yourself.' });
+    } catch (err: any) {
+      if (asking.current !== id) return;
+      setWordings({ kind: 'error', message: err?.message || 'The text model did not answer.' });
+    }
+  };
+
   const chars = (wholeLine ? unit.text.length : phrase.words.length) * TAKES_PER_ASK;
 
   const clickWord = (index: number, extend: boolean) => {
@@ -142,12 +228,99 @@ export const TakesPanel: React.FC<{
         <span className="font-mono text-[11px] text-slate-500 tabular-nums">
           {nextStart !== null ? `slot ${Math.max(0, nextStart - firstWord).toFixed(1)} s · ` : ''}original speech {Math.max(0, unit.srcEnd - unit.srcStart).toFixed(1)} s
         </span>
+        {locked && (
+          <span className="flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-400/12 text-amber-300" title="Retaking does not unlock it: the take you use stays locked">
+            <Lock className="w-3 h-3" /> Locked · a retake keeps the lock
+          </span>
+        )}
         <button type="button" onClick={onClose} aria-label="Close the takes" className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
 
+      {/* The line's words, to change before a retake */}
+      <div>
+        <label htmlFor={`take-words-${unit.key}`} className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1">
+          Words of the line
+        </label>
+        <textarea
+          id={`take-words-${unit.key}`}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={2}
+          className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13.5px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
+        />
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] tabular-nums">
+          <span className="text-slate-500">slot {slot.toFixed(1)} s</span>
+          {perChar > 0 && (
+            <span className={`font-semibold ${draftFits ? 'text-emerald-300' : 'text-amber-300'}`} title="Estimated from how fast this voice said the line">
+              about {draftSeconds.toFixed(1)} s{draftFits ? '' : ` · +${(draftSeconds - slot).toFixed(1)} s past its slot`}
+            </span>
+          )}
+          <span className="text-slate-500">
+            {said.length} / {unit.text.length} characters
+          </span>
+          {pauseSeconds(draft) > 0 && <span className="text-indigo-300">pauses {pauseSeconds(draft).toFixed(1)} s</span>}
+          <span className="ml-auto flex items-center gap-1.5">
+            {onSuggestWording && (
+              <button
+                type="button"
+                onClick={suggest}
+                disabled={wordings.kind === 'working' || !said}
+                title="Wordings from the text model, with pauses where the meaning wants them, sized to the slot. Nothing changes until you use one."
+                className="h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-700 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer disabled:opacity-40 disabled:cursor-default"
+              >
+                {wordings.kind === 'working' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pencil className="w-3 h-3" />}
+                {wordings.kind === 'ready' ? 'Suggest others' : 'Suggest wording'}
+              </button>
+            )}
+            {reworded && (
+              <button type="button" onClick={() => setDraft(unit.text)} className="h-7 px-2 flex items-center gap-1 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer">
+                <RotateCcw className="w-3 h-3" /> Undo edit
+              </button>
+            )}
+          </span>
+        </div>
+        {wordings.kind === 'error' && <p className="mt-1 text-[11.5px] text-rose-300">{wordings.message}</p>}
+        {wordings.kind === 'ready' && (
+          <div className="mt-2 flex flex-col gap-1" aria-label="Suggested wordings">
+            <span className="text-[10.5px] uppercase tracking-wide font-semibold text-slate-500">
+              Pauses placed by meaning, sized to the {slot.toFixed(1)} s slot · use one, then edit it if you like
+            </span>
+            {wordings.options.map((option) => {
+              const seconds = secondsOf(option.text);
+              const fits = seconds <= slot + tolerance;
+              return (
+                <div
+                  key={option.text}
+                  className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${option.text === draft.trim() ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800'}`}
+                >
+                  <span className="flex-1 min-w-0 text-[13px] text-slate-100 leading-relaxed">
+                    <WithPauses text={option.text} />
+                    {option.backTranslation && <span className="block text-[11.5px] text-slate-500">Says: {option.backTranslation}</span>}
+                    {option.issues && <span className="block text-[11px] text-amber-300">Check the meaning: {option.issues.join('; ')}</span>}
+                  </span>
+                  <span
+                    className={`shrink-0 text-[10.5px] font-semibold px-1.5 rounded tabular-nums ${fits ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}
+                  >
+                    ≈{seconds.toFixed(1)} s
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDraft(option.text)}
+                    className="shrink-0 h-6 px-2 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 cursor-pointer"
+                  >
+                    Use
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* The words: click one, shift-click another, to retake only those */}
+      {!reworded && (
       <div>
         <p className="flex flex-wrap gap-x-1 gap-y-0.5 text-[13.5px] leading-relaxed" aria-label="Words of the line">
           {words.map((word, index) => (
@@ -170,6 +343,7 @@ export const TakesPanel: React.FC<{
             : 'Click a word, then Shift + click another, to voice again only those words.'}
         </p>
       </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-[11.5px] text-slate-400 mr-1">Read</span>
@@ -192,16 +366,23 @@ export const TakesPanel: React.FC<{
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => onVoice({ direction })}
-          disabled={anyBusy || pending || locked}
-          className="min-h-8 px-3 py-1 rounded-lg border border-slate-700 text-slate-100 text-xs flex items-center gap-1.5 disabled:opacity-40 cursor-pointer disabled:cursor-default"
+          onClick={() => onVoice(reworded ? { direction, text: draft.trim() } : { direction })}
+          disabled={anyBusy || pending || !said}
+          className={`min-h-8 px-3 py-1 rounded-lg text-xs flex items-center gap-1.5 disabled:opacity-40 cursor-pointer disabled:cursor-default ${
+            reworded ? 'bg-indigo-600 hover:bg-indigo-500 text-white font-semibold' : 'border border-slate-700 text-slate-100'
+          }`}
+          title={reworded ? `Voices ${TAKES_PER_ASK} takes in your words. The script takes them only when you use one.` : undefined}
         >
-          <Mic className="w-3.5 h-3.5" /> Retake line {String(lineNumber).padStart(2, '0')} · {TAKES_PER_ASK} takes · {(unit.text.length * TAKES_PER_ASK).toLocaleString()} chars
+          {busy && reworded ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
+          {busy && reworded
+            ? 'Voicing takes…'
+            : `Retake line ${String(lineNumber).padStart(2, '0')}${reworded ? ' in your words' : ''} · ${TAKES_PER_ASK} takes · ${((reworded ? said.length : unit.text.length) * TAKES_PER_ASK).toLocaleString()} chars`}
         </button>
+        {!reworded && (
         <button
           type="button"
           onClick={() => onVoice({ direction, ...(!wholeLine && pick && { phrase: pick }) })}
-          disabled={anyBusy || pending || locked || wholeLine}
+          disabled={anyBusy || pending || wholeLine}
           title={
             pending
               ? "This line's words changed since Sync: Sync again, then take it again"
@@ -216,8 +397,8 @@ export const TakesPanel: React.FC<{
               ? 'Select words for phrase retake'
               : `Retake “${phrase?.words.length && phrase.words.length > 28 ? `${phrase.words.slice(0, 26)}…` : phrase?.words}” only · ${TAKES_PER_ASK} takes · ${chars.toLocaleString()} chars`}
         </button>
+        )}
         <span className="text-[11.5px] text-slate-500">Character counts are estimates. Phrase retakes also use forced alignment.</span>
-        {locked && <span className="text-[11.5px] text-amber-300">Unlock this line in Edit timing before retaking or replacing it.</span>}
         {pending && <span className="text-[11.5px] text-amber-300">The words changed since Sync: Sync again first.</span>}
       </div>
       {error && <p className="text-[12px] text-rose-300">{error}</p>}
@@ -257,7 +438,12 @@ export const TakesPanel: React.FC<{
                     <span className="absolute -top-0.5 h-2.5 w-px bg-slate-200" style={{ left: `${slot / scale * 100}%` }} />
                   </div>;
                 })()}
-                {take.text !== unit.text && <p className="text-[11px] text-amber-300/90 mt-0.5">Voiced from an earlier wording of the line</p>}
+                {take.text !== unit.text && (
+                  <p className="text-[11.5px] text-sky-200/90 mt-1 leading-snug">
+                    Says: <WithPauses text={take.spoken ?? take.text} />
+                    <span className="block text-[11px] text-slate-500">Other words than the line has now: using this take puts them in the script.</span>
+                  </p>
+                )}
               </div>
               {fit && <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${TONE[fit.tone]}`}>{fit.label}</span>}
               {active ? (
@@ -271,8 +457,8 @@ export const TakesPanel: React.FC<{
                     stop();
                     onUse(take.id);
                   }}
-                  disabled={take.text !== unit.text || anyBusy || pending || locked}
-                  title={take.text !== unit.text ? 'This take says an earlier wording of the line' : 'Put this take in the dub, where the line is now'}
+                  disabled={anyBusy || pending}
+                  title={take.text !== unit.text ? 'Put this take in the dub, and its words in the script' : 'Put this take in the dub, where the line is now'}
                   className="h-7 px-2.5 rounded-lg border border-slate-700 text-xs text-slate-100 hover:bg-slate-800 cursor-pointer disabled:opacity-40 disabled:cursor-default"
                 >
                   Use {takeName(take, n)}

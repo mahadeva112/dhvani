@@ -52,6 +52,8 @@ export interface SyncTake {
   phrase?: string;
   /** What the line said when the take was voiced. */
   text: string;
+  /** What the voice read, when that was new words with pause marks ([pause 0.4s]): `text` is those words without them. */
+  spoken?: string;
 }
 
 /** A line's takes, oldest first, and the one it plays. */

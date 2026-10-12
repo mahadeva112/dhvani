@@ -343,3 +343,17 @@ test("the user's earlier choices go into every prompt as a guide to style, never
   }
   assert.doesNotMatch(buildRewritePrompt(request), /How this user reworded/);
 });
+
+test('a retake may keep its words and add pauses, within the time its slot has to spare', async () => {
+  const same = 'मैं कल सुबह दस बजे बाज़ार नहीं जाऊँगा, [pause 0.8s] क्योंकि बारिश होगी';
+  const reworded = 'कल सुबह दस बजे [pause 0.3s] मैं बाज़ार नहीं जाऊँगा, क्योंकि बारिश होगी';
+  const { generate, prompts } = optionsModel({ rounds: [[same, reworded]] });
+  const { options } = await suggestLines({ ...request, direction: 'same', targetChars: 60, count: 2, pauseBudget: 0.5 }, { generate });
+  // The pause past the budget is scaled down; the line's own words need no meaning check.
+  assert.equal(options[0].line, 'मैं कल सुबह दस बजे बाज़ार नहीं जाऊँगा, [pause 0.5s] क्योंकि बारिश होगी');
+  assert.equal(options[1].line, reworded);
+  assert.equal(prompts.check.length, 1);
+  assert.ok(prompts.check[0].includes('कल सुबह दस बजे मैं बाज़ार'), 'the check reads the words without the pause marks');
+  assert.match(prompts.options[0], /\[pause 0\.3s\]/);
+  assert.match(prompts.options[0], /at most 0\.5 s/);
+});

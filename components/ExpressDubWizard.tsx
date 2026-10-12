@@ -116,7 +116,9 @@ import {
 } from '../services/syncService';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
-import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS } from './SyncPreviewPanel';
+import type { WordingRequest } from './TakesPanel';
+import { stripPauses } from '../server/lib/linePauses.js';
 import type { RateBasis, VoiceRateState } from '../services/voiceRate';
 import { VoiceRateCard } from './VoiceRateCard';
 import type { SpeakerMonitor } from '../services/speakerLevels';
@@ -428,7 +430,7 @@ interface ExpressDubWizardProps {
   /** Asks for a new take of each of these synced lines. */
   onRetakeSyncLines?: (units: SyncUnitReport[]) => void;
   /** Voices new takes of a synced line now, of the whole line or of some of its words (TakesPanel). */
-  onVoiceSyncTakes?: (unit: SyncUnitReport, options: { direction: TakeDirection; phrase?: { from: number; to: number } }) => void;
+  onVoiceSyncTakes?: (unit: SyncUnitReport, options: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }) => void;
   /** Puts one of a line's takes in the dub. */
   onUseSyncTake?: (key: string, takeId: string) => void;
   /** The line whose takes are being voiced, and why asking for takes last failed. */
@@ -665,8 +667,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [editingTiming]);
   /** Dub step, once synced: the voice panel unfolded to change the voice before syncing again. */
   const [voicePanelOpen, setVoicePanelOpen] = useState(false);
-  /** A cue for Review to open on and scroll to: the last cue of a line sent there to be reworded. */
-  const [reviewFocusCue, setReviewFocusCue] = useState<string | null>(null);
   const [srtOptions, setSrtOptions] = useState<SrtOptions>(() => {
     try {
       const saved = localStorage.getItem('dhvani_srt_options');
@@ -1166,6 +1166,23 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       context: lineContextOf(unit.cueIds),
       examples: choicesFor(activeJob?.id, unit.text),
     });
+  /**
+   * Wordings of a synced line for its retake, asked for from the Takes panel:
+   * shorter when the words run past the slot, otherwise reworded, with pauses
+   * marked where the meaning wants them in the time the slot has to spare.
+   */
+  const suggestTakeWording = (unit: SyncUnitReport) => (request: WordingRequest) =>
+    (request.direction === 'shorter' ? suggestShorterLine : suggestRewordedLine)({
+      text: request.text,
+      sourceText: unit.sourceText,
+      language: targetLanguage,
+      targetChars: request.targetChars,
+      avoid: request.avoid,
+      count: LINE_OPTIONS,
+      context: lineContextOf(unit.cueIds, unit.speaker),
+      examples: choicesFor(activeJob?.id, stripPauses(request.text)),
+      pauseBudget: request.pauseBudget,
+    });
   /** A wording put into the script, remembered for this project so later suggestions follow the user's style. */
   const useLine = (unit: SyncPreviewUnit, text: string) => {
     rememberChoice(activeJob?.id, { from: unit.text, to: text });
@@ -1320,26 +1337,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     .join(' ');
   const fixCueIds = useMemo(() => new Set(fixCueKey.split(' ')), [fixCueKey]);
   const linesToFixCount = (linePreview?.units || []).filter(needsFix).length;
-  /** Opens a line in Review, where lines are edited and reworded, scrolled to its last cue. */
-  const fixInReview = (unit: SyncPreviewUnit) => {
-    setSearchQuery('');
-    setPacingFilter('all');
-    setSpeakerFilter([]);
-    setSlipsOnly(false);
-    setReviewMode('table');
-    setReviewFocusCue(String(unit.cueIds[unit.cueIds.length - 1]));
-    setStepOverride(2);
-  };
-  const fixInReviewButton = (unit: SyncPreviewUnit) => (
-    <button
-      type="button"
-      onClick={() => fixInReview(unit)}
-      className="mt-1.5 flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
-      title="Edit this line and get suggestions in Review"
-    >
-      <Edit3 className="w-3.5 h-3.5" /> {directionFor(unit) === 'longer' ? 'Make it fuller in Review' : 'Shorten it in Review'}
-    </button>
-  );
   /** After a sync, the voice panel unfolds and comes into view. */
   const openVoicePanel = () => {
     setVoicePanelOpen(true);
@@ -1371,16 +1368,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     });
   }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips, fixCueIds]);
 
-  // A line sent here from the Dub step: open its page, then, once its row is drawn, bring its last cue into view.
-  useEffect(() => {
-    if (activeStep !== 2 || !reviewFocusCue) return;
-    const idx = filteredSegments.findIndex((s) => String(s.id) === reviewFocusCue);
-    if (idx === -1) return;
-    const page = Math.floor(idx / itemsPerPage) + 1;
-    if (page !== currentPage) return setCurrentPage(page);
-    document.getElementById(`cue-card-${reviewFocusCue}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setReviewFocusCue(null);
-  }, [activeStep, reviewFocusCue, filteredSegments, currentPage]);
 
   const activeSegmentId = useMemo(() => {
     return segments.find((s) => sourceClockTime >= s.startTime && sourceClockTime <= s.endTime)?.id || null;
@@ -3441,6 +3428,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     error={syncTakesError?.key === unit.key ? syncTakesError.message : null}
                     pending={syncPendingLines.includes(unit.key)}
                     onVoice={(options) => onVoiceSyncTakes(unit, options)}
+                    onSuggestWording={suggestTakeWording(unit)}
                     onUse={(takeId) => onUseSyncTake(unit.key, takeId)}
                     onListenInDub={() => listenHere(Math.max(0, unit.srcStart - 0.6))}
                     onClose={close}
@@ -3482,7 +3470,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         {estimateMethod === 'expert'
                           ? `Counted in syllables at your voice's rate (${estimateBasis(linePreview, rateBasis)}), with pauses at commas and full stops, a fast to slow range, and where the lips close. Sync still measures the real clips.`
                           : `${rateBasis === 'typical' ? 'A rough estimate' : 'An estimate'} from the text length, at ${linePreview.charsPerSecond.toFixed(1)} chars/s ${RATE_BASIS_NOTE[rateBasis]}.`}{' '}
-                        Click a dub bar, then drag its end to the length you want; Review's suggestion for that line aims for it.
+                        Click a dub bar to see its line, with wordings that fit it. Drag the bar's end to the length you want, and its suggestions aim for that.
                       </p>
                     </div>
                     {syncPreview.loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
@@ -3535,7 +3523,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           <p className={`text-[11.5px] mt-1.5 ${fixing ? (directionFor(unit) === 'longer' ? 'text-sky-300' : 'text-amber-300') : 'text-slate-400'}`}>
                             {note || 'Fits its slot. Drag the end of its bar to set a length of your own.'}
                           </p>
-                          {fixing && fixInReviewButton(unit)}
+                          {fixing && <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...lineFixes.controlsFor(unit)} />}
                         </div>
                       );
                     })()}
@@ -3972,7 +3960,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                     </button>
                                   )}
                                 </div>
-                                {fixing && fixInReviewButton(unit)}
+                                {fixing && linePreview && <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...lineFixes.controlsFor(unit)} />}
                               </div>
                             )}
                           </div>

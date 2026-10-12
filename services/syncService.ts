@@ -861,6 +861,8 @@ type LineRequest = {
   context?: LineContext;
   /** Lines this user reworded before in the project, and how: a guide to their style, never to content. */
   examples?: { from: string; to: string }[];
+  /** A retake's seconds to spare: its wordings may mark pauses ([pause 0.4s]) where the meaning wants them, within that. */
+  pauseBudget?: number;
 };
 
 /**

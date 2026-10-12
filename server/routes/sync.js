@@ -23,6 +23,7 @@ import { checkParts, lineArrays, ORIGINAL_SPEAKER, renderEdits } from '../lib/sy
 import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
 import { shortenLine, lengthenLine, suggestLine, suggestLines, rewordLimit, MAX_OPTIONS } from '../lib/syncRewrite.js';
+import { stripPauses } from '../lib/linePauses.js';
 import { previewSync } from '../lib/syncPreview.js';
 import { fitJoinSettings } from '../lib/syncFit.js';
 import { startDubJob, updateDubJob, finishDubJob, getDubProgress, cancelDubJob } from '../lib/dubJobs.js';
@@ -1031,7 +1032,10 @@ const keepTermsOf = (keep) =>
  */
 const rewordRoute = (direction) =>
   asyncHandler(async (req, res) => {
-    const { text, sourceText, language, targetChars, avoid, count, context, keep, examples } = req.body || {};
+    const { text: asked, sourceText, language, targetChars, avoid, count, context, keep, examples, pauseBudget } = req.body || {};
+    // A retake's wordings may carry pauses within the seconds its slot has to spare; its words are judged without them.
+    const budget = Number.isFinite(Number(pauseBudget)) && pauseBudget !== null ? Math.max(0, Math.min(10, Number(pauseBudget))) : null;
+    const text = budget !== null && typeof asked === 'string' ? stripPauses(asked) : asked;
     const longer = direction === 'longer';
     if (typeof text !== 'string' || !text.trim()) {
       throw new ApiError(longer ? 'There is no line to make fuller.' : direction === 'same' ? 'There is no line to reword.' : 'There is no line to shorten.', {
@@ -1061,8 +1065,8 @@ const rewordRoute = (direction) =>
     };
     const options = { apiKey: req.get('x-gemini-key') || undefined };
     const wanted = Math.max(1, Math.min(MAX_OPTIONS, Math.floor(Number(count)) || 1));
-    if (wanted > 1) {
-      const result = await suggestLines({ ...request, count: wanted }, options);
+    if (wanted > 1 || budget !== null) {
+      const result = await suggestLines({ ...request, count: wanted, ...(budget !== null && { pauseBudget: budget }) }, options);
       const first = result.options[0];
       res.json({
         options: result.options,
