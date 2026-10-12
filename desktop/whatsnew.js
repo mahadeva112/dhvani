@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.44',
+    changes: [
+      'Click a line in Edit timing to edit its words and retake it right there. Suggest wording offers new wordings with pauses placed where the meaning wants them, sized to the line’s time, and you see and can change every pause.',
+      'Locked lines can be retaken without unlocking them, and they stay locked. Lines too long or short in the Dub step’s estimate get their suggestions and your own edit right there, without going to Review.',
+    ],
+  },
+  {
     version: '1.3.43',
     changes: [
       'Long dubs no longer stop with “Too many requests to the local DHVANI backend”. Checking a dub’s progress no longer counts toward that limit, so an hour-long video dubs through.',
