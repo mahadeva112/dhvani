@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.43',
+    changes: [
+      'Long dubs no longer stop with “Too many requests to the local DHVANI backend”. Checking a dub’s progress no longer counts toward that limit, so an hour-long video dubs through.',
+    ],
+  },
+  {
     version: '1.3.42',
     changes: [
       'If another program is using the port DHVANI needs, DHVANI now says which program it is and can close it for you, instead of waiting 30 seconds and failing. A DHVANI engine left running from before is closed on its own.',

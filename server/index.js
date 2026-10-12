@@ -148,7 +148,13 @@ if (config.rateLimitPerMinute > 0) {
       standardHeaders: 'draft-7',
       legacyHeaders: false,
       // Spelling lookups fire on every keystroke and would exhaust the budget meant for AI calls.
-      skip: (req) => req.path === '/health' || req.path === '/transliterate' || req.path.startsWith('/settings'),
+      // Progress polls (GET …/jobs/:id) are free local reads; a continuous-read dub runs two
+      // 700 ms pollers (~170 a minute), which alone used up the budget and failed long dubs.
+      skip: (req) =>
+        req.path === '/health' ||
+        req.path === '/transliterate' ||
+        req.path.startsWith('/settings') ||
+        (req.method === 'GET' && /\/jobs\/[^/]+$/.test(req.path)),
       message: {
         error: {
           message:
