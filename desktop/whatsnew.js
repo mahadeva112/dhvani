@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.46',
+    changes: [
+      'Continue to dub on the Review page now stays at the bottom of the window, so you can always see it without scrolling down.',
+    ],
+  },
+  {
     version: '1.3.45',
     changes: [
       'Sync settings open in a window of their own from the Dub step, with every setting in sections you can jump between. The Dub step keeps a short summary of what the sync will use, so the dub, subtitles and files fit without scrolling.',
