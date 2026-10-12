@@ -3136,7 +3136,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             {/* Review panel */}
             <aside
               aria-label="Review"
-              className="flex flex-col min-h-0 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
+              className="flex flex-col min-h-0 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-clip"
             >
               <div className="flex items-center justify-between gap-2 px-4 sm:px-5 pt-4">
                 <h2 className="text-[15px] font-semibold text-slate-100">Review</h2>
@@ -3340,8 +3340,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 Continuing only moves on to the Dub step. Dubbing spends ElevenLabs
                 credits, so it starts there once the voice is set. A dub can
                 still be run with QA issues outstanding, but not without being told.
+                The footer sticks to the bottom of the window, so the button shows
+                even while the panel's end is still below the fold.
               */}
-              <div className="px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2">
+              <div className="sticky bottom-0 z-10 px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/95 backdrop-blur flex flex-col gap-2">
                 <button
                   type="button"
                   onClick={() => {
