@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.42',
+    changes: [
+      'If another program is using the port DHVANI needs, DHVANI now says which program it is and can close it for you, instead of waiting 30 seconds and failing. A DHVANI engine left running from before is closed on its own.',
+    ],
+  },
+  {
     version: '1.3.41',
     changes: [
       'With several speakers, Edit timing gives each speaker their own lane, with their voice and speed, a level for the dub, and mute and solo for listening. Speakers’ lines can overlap, as in the original.',
