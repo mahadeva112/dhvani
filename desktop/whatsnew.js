@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.45',
+    changes: [
+      'Sync settings open in a window of their own from the Dub step, with every setting in sections you can jump between. The Dub step keeps a short summary of what the sync will use, so the dub, subtitles and files fit without scrolling.',
+    ],
+  },
+  {
     version: '1.3.44',
     changes: [
       'Click a line in Edit timing to edit its words and retake it right there. Suggest wording offers new wordings with pauses placed where the meaning wants them, sized to the line’s time, and you see and can change every pause.',
