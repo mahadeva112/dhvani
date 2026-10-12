@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.47',
+    changes: [
+      'Sync now pauses only where the original speaker pauses. A pause the voice adds where the speaker talked straight on is cut down to a short gap, so the dub no longer runs longer than the original. Turn it off in Sync settings → Pauses inside a line. Sync again to apply it to an existing dub.',
+      'Review and the Dub step point out commas and full stops in a line where the original speaker doesn’t pause, since the voice tends to stop there.',
+    ],
+  },
+  {
     version: '1.3.46',
     changes: [
       'Continue to dub on the Review page now stays at the bottom of the window, so you can always see it without scrolling down.',
