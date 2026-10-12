@@ -144,7 +144,7 @@ export const SYNC_JOIN_PRESET_OPTIONS: { id: SyncJoinPreset; label: string; hint
   { id: 'natural', label: 'Natural (recommended)', hint: 'Room to breathe between lines.' },
   { id: 'tight', label: 'Tight', hint: 'Follows the original pauses closely.' },
   { id: 'lipsync', label: 'Close-up (tight joins)', hint: 'Smallest gaps, for on-screen faces. Visual lip-sync is not verified.' },
-  { id: 'custom', label: 'Custom', hint: 'Your own settings, below.' },
+  { id: 'custom', label: 'Custom', hint: 'Your own settings, in the sections of this window.' },
 ];
 
 /** What the user picks before a sync. */

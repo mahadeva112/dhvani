@@ -35,9 +35,8 @@ export const SyncPresetLibrary: React.FC<{
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
   const button = 'h-8 px-2 rounded-lg border border-slate-700 text-[12px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer';
-  return <details className="border-t border-slate-800 pt-2">
-    <summary className="text-[13px] font-medium text-slate-200 cursor-pointer">My sync presets</summary>
-    <div className="flex flex-col gap-2 pt-2">
+  return (
+    <div className="flex flex-col gap-2">
       <p className="text-[11.5px] text-slate-400">Save these sync settings with a name. Settings are also remembered separately for each project.</p>
       <p className="text-[11.5px] text-slate-400">Saved presets stay on this computer. To use them on another one, Export them here and Import the file there.</p>
       <label htmlFor="sync-saved-preset" className="text-[12px] text-slate-400">Saved preset</label>
@@ -83,5 +82,5 @@ export const SyncPresetLibrary: React.FC<{
       }} />
       {message && <p role="status" className="text-[11.5px] text-indigo-300">{message}</p>}
     </div>
-  </details>;
+  );
 };

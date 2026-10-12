@@ -1,11 +1,14 @@
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
-import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, TriangleAlert, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, Ruler, SlidersHorizontal, TriangleAlert, X } from 'lucide-react';
 import {
   LineSuggestion,
   SYNC_JOIN_PRESETS,
+  SYNC_JOIN_PRESET_OPTIONS,
   SYNC_PRECISION_OPTIONS,
   SYNC_STEPS,
   SyncOptions,
+  SyncJoinSettings,
   SyncPrecision,
   SyncProgress,
   SyncReport,
@@ -15,7 +18,19 @@ import {
 import type { DubProgress } from '../services/elevenLabsService';
 import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
-import { joinPresetOf, readJoinSettings, SyncFitSource, SyncJoinSettingsPanel } from './SyncJoinSettings';
+import {
+  FitCard,
+  JOIN_SECTIONS,
+  joinPresetOf,
+  JoinPresetPicker,
+  joinSectionChanged,
+  joinSectionMeasured,
+  joinSectionSummary,
+  readJoinSettings,
+  SyncFitSource,
+  SyncJoinSection,
+  SyncJoinSectionControls,
+} from './SyncJoinSettings';
 import { SyncPresetLibrary } from './SyncPresetLibrary';
 
 /**
@@ -251,7 +266,322 @@ export interface SyncSettingsPanelProps {
   lineCount?: number;
 }
 
-/** The Dub step's settings rail: what to sync with, the Dub & sync button, and the files. */
+/** The sections of the Sync settings window, in the order its list shows them. */
+type SettingsSection = 'basics' | SyncJoinSection | 'suggestions' | 'checks' | 'presets';
+
+const voicingLabel = (options: SyncOptions, multiSpeaker: boolean) =>
+  VOICING_OPTIONS.find((o) => o.id === (multiSpeaker ? 'lines' : options.voicing))?.label ?? 'Line by line';
+const precisionLabelOf = (options: SyncOptions) => SYNC_PRECISION_OPTIONS.find((o) => o.id === options.precision)?.label ?? options.precision;
+const presetLabelOf = (options: SyncOptions) =>
+  (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.label ?? 'Custom').replace(' (recommended)', '');
+
+/** Every section of the window, with its one-line summary and whether it differs from the default. */
+const settingsSections = (options: SyncOptions, multiSpeaker: boolean) => {
+  const suggestions = [options.suggest && 'shorter', options.suggestLonger && 'fuller'].filter(Boolean);
+  return [
+    {
+      id: 'basics' as SettingsSection,
+      title: 'Basics',
+      summary: `${voicingLabel(options, multiSpeaker)} · ${precisionLabelOf(options)} · ${presetLabelOf(options)}`,
+      changed: (!multiSpeaker && options.voicing !== 'lines') || options.precision !== 'phrase' || options.preset !== 'natural',
+    },
+    ...JOIN_SECTIONS.map((s) => ({
+      id: s.id as SettingsSection,
+      title: s.title,
+      summary: joinSectionSummary(s.id, options),
+      changed: joinSectionChanged(s.id, options),
+    })),
+    {
+      id: 'suggestions' as SettingsSection,
+      title: 'Suggestions',
+      summary: suggestions.length ? `Suggests ${suggestions.join(' and ')} lines` : 'Off',
+      changed: suggestions.length > 0,
+    },
+    {
+      id: 'checks' as SettingsSection,
+      title: 'Extra checks',
+      summary: options.verifyWords ? 'Verifies actual word timing' : 'Off',
+      changed: Boolean(options.verifyWords),
+    },
+    { id: 'presets' as SettingsSection, title: 'My sync presets', summary: 'Save, apply, import and export', changed: false },
+  ];
+};
+
+/**
+ * Every sync setting, in a window of its own opened from the Dub step's rail:
+ * a list of sections on the left, the chosen one on the right. Changes apply
+ * as they are made, as they did in the rail, so the preview follows them.
+ */
+const SyncSettingsWindow: React.FC<{
+  options: SyncOptions;
+  onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
+  multiSpeaker: boolean;
+  isSyncing: boolean;
+  synced: boolean;
+  blockedReason?: string | null;
+  previewShown: boolean;
+  lineCount?: number;
+  fitSource?: SyncFitSource;
+  /** The values Fit to this video set, kept by the rail so they outlast the window. */
+  fitted: Partial<SyncJoinSettings>;
+  onFitted: (changes: Partial<SyncJoinSettings>) => void;
+  onSync: () => void;
+  onClose: () => void;
+}> = ({ options, onOptionsChange, multiSpeaker, isSyncing, synced, blockedReason, previewShown, lineCount, fitSource, fitted, onFitted, onSync, onClose }) => {
+  const [section, setSection] = useState<SettingsSection>('basics');
+  const sections = settingsSections(options, multiSpeaker);
+  const current = sections.find((s) => s.id === section) ?? sections[0];
+  const measured = (id: SettingsSection) => id !== 'basics' && id !== 'suggestions' && id !== 'checks' && id !== 'presets' && joinSectionMeasured(id, fitted, options.join);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const applyFit = (changes: Partial<SyncJoinSettings>) => {
+    onFitted(changes);
+    onOptionsChange((o) => {
+      const next = { ...o.join, ...changes };
+      return { ...o, join: next, preset: joinPresetOf(next) };
+    });
+  };
+
+  const body = (() => {
+    switch (section) {
+      case 'basics':
+        return (
+          <div className="flex flex-col gap-5">
+            {fitSource && <FitCard source={fitSource} join={options.join} disabled={isSyncing} onApply={applyFit} />}
+            <fieldset className="flex flex-col gap-1.5" disabled={isSyncing}>
+              <legend className={`${sectionLabel} mb-1.5`}>How to voice</legend>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {VOICING_OPTIONS.map((o) => {
+                  const off = o.id === 'continuous' && multiSpeaker;
+                  const checked = multiSpeaker ? o.id === 'lines' : options.voicing === o.id;
+                  return (
+                    <label
+                      key={o.id}
+                      className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors ${
+                        checked ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-slate-800 hover:border-slate-700'
+                      } ${off ? 'opacity-50 cursor-default' : 'cursor-pointer'}`}
+                    >
+                      <input
+                        type="radio"
+                        name="sync-voicing"
+                        checked={checked}
+                        disabled={off}
+                        onChange={() => onOptionsChange((opts) => ({ ...opts, voicing: o.id }))}
+                        className="mt-0.5 accent-indigo-500"
+                      />
+                      <span>
+                        <span className="block text-[13px] text-slate-200">
+                          {o.label}
+                          {o.id === 'lines' && <span className="text-slate-500"> (default)</span>}
+                        </span>
+                        <span className="block text-[11.5px] text-slate-400 mt-0.5">
+                          {off ? 'For a dub in one voice. With several speakers each line is voiced on its own.' : o.detail}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="sync-precision" className={sectionLabel}>
+                  Precision
+                </label>
+                <select
+                  id="sync-precision"
+                  value={options.precision}
+                  onChange={(e) => onOptionsChange((o) => ({ ...o, precision: e.target.value as SyncPrecision }))}
+                  disabled={isSyncing}
+                  className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {SYNC_PRECISION_OPTIONS.map((o) => (
+                    <option key={o.id} value={o.id} className="bg-slate-900">
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                {previewShown && <span className="text-[11.5px] text-slate-400">The preview updates when you change this.</span>}
+              </div>
+              <JoinPresetPicker options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />
+            </div>
+          </div>
+        );
+      case 'suggestions':
+        return (
+          <div className="flex flex-col gap-4">
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={options.suggest}
+                disabled={isSyncing}
+                onChange={(e) => onOptionsChange((o) => ({ ...o, suggest: e.target.checked }))}
+                className="mt-0.5 accent-indigo-500"
+              />
+              <span>
+                <span className="block text-[13px] text-slate-200">Suggest shorter lines</span>
+                <span className="block text-[11.5px] text-slate-400 mt-0.5">For lines too long for the time the original line had. Your script is never changed.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={options.suggestLonger}
+                disabled={isSyncing}
+                onChange={(e) => onOptionsChange((o) => ({ ...o, suggestLonger: e.target.checked }))}
+                className="mt-0.5 accent-indigo-500"
+              />
+              <span>
+                <span className="block text-[13px] text-slate-200">Suggest fuller lines</span>
+                <span className="block text-[11.5px] text-slate-400 mt-0.5">
+                  For lines that end well before the original speaker stops. Same meaning, said in full. Your script is never changed.
+                </span>
+              </span>
+            </label>
+          </div>
+        );
+      case 'checks':
+        return (
+          <label className="flex items-start gap-2.5 cursor-pointer">
+            <input type="checkbox" checked={Boolean(options.verifyWords)} disabled={isSyncing} className="mt-0.5 accent-indigo-500"
+              onChange={(e) => onOptionsChange((o) => ({ ...o, verifyWords: e.target.checked }))} />
+            <span><span className="block text-[13px] text-slate-200">Verify actual word timing</span>
+              <span className="block text-[11.5px] text-slate-400 mt-0.5">Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span>
+              {lineCount ? (
+                <span className={`block text-[11.5px] mt-0.5 ${options.verifyWords ? 'text-indigo-300' : 'text-slate-500'}`}>
+                  About {lineCount} alignment request{lineCount === 1 ? '' : 's'} for this dub, one per line.
+                </span>
+              ) : null}
+            </span>
+          </label>
+        );
+      case 'presets':
+        return <SyncPresetLibrary options={options} onChange={onOptionsChange} normalize={readOptions} disabled={isSyncing} />;
+      default:
+        return <SyncJoinSectionControls section={section} options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />;
+    }
+  })();
+
+  // On the page itself, not in the rail: the sticky rail would keep it under the timeline's markers.
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sync-settings-title"
+        className="w-full max-w-[56rem] min-h-full sm:min-h-0 sm:my-auto sm:h-[min(44rem,calc(100vh-3rem))] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
+      >
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+          <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
+            <SlidersHorizontal className="w-[18px] h-[18px]" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 id="sync-settings-title" className="text-lg font-semibold text-slate-100 leading-tight">
+              Sync settings
+            </h2>
+            <p className="text-[12.5px] text-slate-400 mt-0.5">
+              {isSyncing ? 'Locked while the dub syncs.' : 'How each line is placed. Changes apply as you make them, for the next sync.'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[16rem_minmax(0,1fr)]">
+          <nav
+            aria-label="Sync settings sections"
+            className="shrink-0 flex md:flex-col gap-0.5 p-2 md:p-3 overflow-x-auto md:overflow-y-auto border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/40"
+          >
+            {sections.map((s, n) => (
+              <React.Fragment key={s.id}>
+                {(n === 1 || s.id === 'suggestions') && <span className="hidden md:block my-1.5 border-t border-slate-800" aria-hidden="true" />}
+                <button
+                  type="button"
+                  onClick={() => setSection(s.id)}
+                  aria-current={section === s.id ? 'true' : undefined}
+                  className={`shrink-0 md:w-full text-left rounded-lg px-2.5 py-1.5 md:py-2 transition-colors cursor-pointer ${
+                    section === s.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap">
+                    {s.title}
+                    {measured(s.id) && (
+                      <span title="Set by Fit to this video" className="px-1.5 py-px rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-medium">
+                        measured
+                      </span>
+                    )}
+                    {s.changed && <span title="Changed from the default" className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />}
+                  </span>
+                  <span className="hidden md:block text-[11px] text-slate-500 truncate">{s.summary}</span>
+                </button>
+              </React.Fragment>
+            ))}
+          </nav>
+
+          <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-5">
+            <div className="mb-4">
+              <h3 className="text-[15px] font-semibold text-slate-100">{current.title}</h3>
+              <p className="text-[12px] text-slate-500 mt-0.5">{current.summary}</p>
+            </div>
+            <div className={isSyncing ? 'opacity-60' : ''}>{body}</div>
+          </div>
+        </div>
+
+        <div className="shrink-0 flex flex-wrap items-center gap-2 px-5 sm:px-6 py-3.5 border-t border-slate-800 bg-slate-950/60">
+          <button
+            type="button"
+            onClick={() => onOptionsChange(defaultSyncOptions())}
+            disabled={isSyncing || isDefaultOptions(options)}
+            title={isDefaultOptions(options) ? 'Already on the default settings' : 'Line by line, phrase precision, Natural line joins, no suggestions'}
+            className="flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5" /> Reset to defaults
+          </button>
+          {blockedReason && !isSyncing && <span className="text-[11.5px] text-amber-300">{blockedReason}</span>}
+          <span className="flex-1" />
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-9 px-4 rounded-lg border border-slate-700 text-[13px] text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            Done
+          </button>
+          {!isSyncing && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onSync();
+              }}
+              disabled={Boolean(blockedReason)}
+              className="h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+            >
+              {synced ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+              {synced ? 'Sync again' : 'Dub & sync'}
+            </button>
+          )}
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+};
+
+/** The Dub step's rail: what the sync will use, in brief, with every setting a click away; the Dub & sync button; and the files. */
 export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   options,
   onOptionsChange,
@@ -276,7 +606,23 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   multiSpeaker = false,
   fitSource,
   lineCount,
-}) => (
+}) => {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  /** The values Fit to this video set; a section is marked measured while it still holds one. */
+  const [fitted, setFitted] = useState<Partial<SyncJoinSettings>>({});
+  const changed = settingsSections(options, multiSpeaker).filter((s) => s.changed).length;
+  const fittedNow = JOIN_SECTIONS.some((s) => joinSectionMeasured(s.id, fitted, options.join));
+  const chips = [
+    voicingLabel(options, multiSpeaker),
+    precisionLabelOf(options),
+    `Joins: ${presetLabelOf(options)}`,
+    ...(options.timingProtection === 'strict' ? ['Strict timing'] : []),
+    ...(options.suggest || options.suggestLonger ? ['Suggestions on'] : []),
+    ...(options.verifyWords ? ['Verifies word timing'] : []),
+  ];
+
+  return (
   <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
       <h2 className="text-[15px] font-semibold text-slate-100">Sync settings</h2>
@@ -285,108 +631,52 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       </button>
     </div>
 
-    <div className={`px-4 sm:px-5 py-4 flex flex-col gap-3.5 ${isSyncing ? 'opacity-60' : ''}`}>
-      <fieldset className="flex flex-col gap-1.5" disabled={isSyncing}>
-        <legend className={`${sectionLabel} mb-1.5`}>How to voice</legend>
-        {VOICING_OPTIONS.map((o) => {
-          const off = o.id === 'continuous' && multiSpeaker;
-          return (
-            <label key={o.id} className={`flex items-start gap-2.5 ${off ? 'opacity-50 cursor-default' : 'cursor-pointer'}`}>
-              <input
-                type="radio"
-                name="sync-voicing"
-                checked={multiSpeaker ? o.id === 'lines' : options.voicing === o.id}
-                disabled={off}
-                onChange={() => onOptionsChange((opts) => ({ ...opts, voicing: o.id }))}
-                className="mt-0.5 accent-indigo-500"
-              />
-              <span>
-                <span className="block text-[13px] text-slate-200">
-                  {o.label}
-                  {o.id === 'lines' && <span className="text-slate-500"> (default)</span>}
-                </span>
-                <span className="block text-[11.5px] text-slate-400 mt-0.5">
-                  {off ? 'For a dub in one voice. With several speakers each line is voiced on its own.' : o.detail}
-                </span>
-              </span>
-            </label>
-          );
-        })}
-      </fieldset>
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="sync-precision" className={sectionLabel}>
-          Precision
-        </label>
-        <select
-          id="sync-precision"
-          value={options.precision}
-          onChange={(e) => onOptionsChange((o) => ({ ...o, precision: e.target.value as SyncPrecision }))}
-          disabled={isSyncing}
-          className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
-        >
-          {SYNC_PRECISION_OPTIONS.map((o) => (
-            <option key={o.id} value={o.id} className="bg-slate-900">
-              {o.label}
-            </option>
+    <div className="px-4 sm:px-5 py-4">
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3.5">
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((chip) => (
+            <span key={chip} className="px-2 py-0.5 rounded-md border border-slate-700/80 text-[11.5px] text-slate-300">
+              {chip}
+            </span>
           ))}
-        </select>
-        {previewShown && <span className="text-[11.5px] text-slate-400">The preview updates when you change this.</span>}
+          {fittedNow && (
+            <span title="Set by Fit to this video" className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/15 text-[11.5px] text-indigo-300">
+              <Ruler className="w-3 h-3" /> Fitted
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          aria-haspopup="dialog"
+          className="h-9 flex items-center justify-center gap-2 rounded-lg border border-slate-700 text-[13px] font-medium text-slate-200 hover:bg-slate-800 hover:border-slate-600 transition-colors cursor-pointer"
+        >
+          <SlidersHorizontal className="w-4 h-4" /> Open sync settings
+          <span className={`ml-1 px-1.5 py-px rounded-md text-[10.5px] font-medium ${changed ? 'bg-amber-400/15 text-amber-300' : 'bg-slate-800 text-slate-400'}`}>
+            {changed ? `${changed} changed` : 'Defaults'}
+          </span>
+        </button>
+        {previewShown && <span className="text-[11.5px] text-slate-500 text-center">The preview follows any change you make.</span>}
       </div>
-      <SyncJoinSettingsPanel options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} fitSource={fitSource} />
-      <label className="flex items-start gap-2.5 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={options.suggest}
-          disabled={isSyncing}
-          onChange={(e) => onOptionsChange((o) => ({ ...o, suggest: e.target.checked }))}
-          className="mt-0.5 accent-indigo-500"
-        />
-        <span>
-          <span className="block text-[13px] text-slate-200">Suggest shorter lines</span>
-          <span className="block text-[11.5px] text-slate-400 mt-0.5">For lines too long for the time the original line had. Your script is never changed.</span>
-        </span>
-      </label>
-      <label className="flex items-start gap-2.5 cursor-pointer">
-        <input
-          type="checkbox"
-          checked={options.suggestLonger}
-          disabled={isSyncing}
-          onChange={(e) => onOptionsChange((o) => ({ ...o, suggestLonger: e.target.checked }))}
-          className="mt-0.5 accent-indigo-500"
-        />
-        <span>
-          <span className="block text-[13px] text-slate-200">Suggest fuller lines</span>
-          <span className="block text-[11.5px] text-slate-400 mt-0.5">
-            For lines that end well before the original speaker stops. Same meaning, said in full. Your script is never changed.
-          </span>
-        </span>
-      </label>
-      <fieldset className="flex flex-col gap-2">
-        <legend className={`${sectionLabel} mb-2`}>Extra checks</legend>
-        <label className="flex items-start gap-2.5 cursor-pointer">
-          <input type="checkbox" checked={Boolean(options.verifyWords)} disabled={isSyncing} className="mt-0.5 accent-indigo-500"
-            onChange={(e) => onOptionsChange((o) => ({ ...o, verifyWords: e.target.checked }))} />
-          <span><span className="block text-[13px] text-slate-200">Verify actual word timing</span>
-            <span className="block text-[11.5px] text-slate-400 mt-0.5">Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span>
-            {lineCount ? (
-              <span className={`block text-[11.5px] mt-0.5 ${options.verifyWords ? 'text-indigo-300' : 'text-slate-500'}`}>
-                About {lineCount} alignment request{lineCount === 1 ? '' : 's'} for this dub, one per line.
-              </span>
-            ) : null}
-          </span>
-        </label>
-      </fieldset>
-      <SyncPresetLibrary options={options} onChange={onOptionsChange} normalize={readOptions} disabled={isSyncing} />
-      <button
-        type="button"
-        onClick={() => onOptionsChange(defaultSyncOptions())}
-        disabled={isSyncing || isDefaultOptions(options)}
-        title={isDefaultOptions(options) ? 'Already on the default settings' : 'Line by line, phrase precision, Natural line joins, no suggestions'}
-        className="self-start flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-      >
-        <RotateCcw className="w-3.5 h-3.5" /> Reset to defaults
-      </button>
     </div>
+
+    {settingsOpen && (
+      <SyncSettingsWindow
+        options={options}
+        onOptionsChange={onOptionsChange}
+        multiSpeaker={multiSpeaker}
+        isSyncing={isSyncing}
+        synced={synced}
+        blockedReason={blockedReason}
+        previewShown={previewShown}
+        lineCount={lineCount}
+        fitSource={fitSource}
+        fitted={fitted}
+        onFitted={setFitted}
+        onSync={onSync}
+        onClose={closeSettings}
+      />
+    )}
 
     {synced && (onDownloadWav || onOpenVoiceChanger) && (
       <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
@@ -476,7 +766,8 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       )}
     </div>
   </aside>
-);
+  );
+};
 
 export interface SyncResultsPanelProps {
   report: SyncReport | null;

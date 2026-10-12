@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Check, ChevronDown, Loader2, Ruler, X } from 'lucide-react';
+import { Check, Loader2, Ruler, X } from 'lucide-react';
 import {
   fitJoinSettings,
   SYNC_JOIN_PRESETS,
@@ -14,8 +14,8 @@ import { AudioSegment } from '../types';
 import { JOIN_SETTING_RANGES } from '../server/lib/syncSettings.js';
 
 /**
- * How Sync joins its lines: a preset, and under it every setting the preset
- * fills in, in groups that stay closed until opened. Changing any setting
+ * How Sync joins its lines: a preset, and the settings it fills in, one
+ * section each in the Sync settings window. Changing any setting
  * makes the preset Custom. The two settings that change the audio itself are
  * marked, and are off in every preset (see server/lib/syncSettings.js).
  */
@@ -107,37 +107,6 @@ const Toggle: React.FC<{ label: string; hint?: string; checked: boolean; disable
   </label>
 );
 
-const Group: React.FC<{ title: string; summary: string; measured?: boolean; children: React.ReactNode }> = ({ title, summary, measured, children }) => {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="border-t border-slate-800">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        aria-expanded={open}
-        className="w-full flex items-center gap-2 py-2.5 text-left cursor-pointer"
-      >
-        <span className="flex-1 min-w-0">
-          <span className="block text-[13px] font-medium text-slate-200">
-            {title}
-            {measured && (
-              <span
-                title="Set by Fit to this video"
-                className="ml-1.5 px-1.5 py-px rounded-md bg-indigo-500/15 text-indigo-300 text-[10.5px] font-medium align-middle"
-              >
-                measured
-              </span>
-            )}
-          </span>
-          {!open && <span className="block text-[11.5px] text-slate-500 truncate">{summary}</span>}
-        </span>
-        <ChevronDown className={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-      {open && <div className="pb-3.5 flex flex-col gap-3">{children}</div>}
-    </div>
-  );
-};
-
 /** What Fit to this video measures from: the cues, and the dub's speaking rate. */
 export interface SyncFitSource {
   speakerRates?: SpeakerFitRates;
@@ -175,7 +144,7 @@ const GROUP_KEYS: Record<'gaps' | 'pauses' | 'grouping' | 'review', (keyof SyncJ
  * lists what it would change, each with its reason. Nothing changes until
  * Apply.
  */
-const FitCard: React.FC<{
+export const FitCard: React.FC<{
   source: SyncFitSource;
   join: SyncJoinSettings;
   disabled?: boolean;
@@ -287,61 +256,107 @@ const FitCard: React.FC<{
   );
 };
 
-/** The preset picker and the join settings under it, for the Sync settings rail. */
-export const SyncJoinSettingsPanel: React.FC<{
+/** The groups of join settings, each a section of the Sync settings window. */
+export type SyncJoinSection = 'gaps' | 'pauses' | 'edges' | 'fit' | 'grouping' | 'review';
+
+export const JOIN_SECTIONS: { id: SyncJoinSection; title: string }[] = [
+  { id: 'gaps', title: 'Gaps between lines' },
+  { id: 'pauses', title: 'Pauses inside a line' },
+  { id: 'edges', title: 'Line edges' },
+  { id: 'fit', title: "When a line doesn't fit" },
+  { id: 'grouping', title: 'Grouping' },
+  { id: 'review', title: 'Review' },
+];
+
+/** The join settings each section holds, to mark a section changed from the default. */
+const SECTION_KEYS: Record<SyncJoinSection, (keyof SyncJoinSettings)[]> = {
+  gaps: ['preserveLongPauses', 'protectedPause', 'minGap', 'speakerGap', 'gapShare', 'breathClear', 'removeBreaths', 'breathReduction'],
+  pauses: ['shortenPauses', 'minInnerPause', 'maxPauseTake', 'spliceCrossfade'],
+  edges: ['tailFloorDb', 'tailHold', 'edgeFade'],
+  fit: ['maxLateStart'],
+  grouping: ['unitGap', 'maxUnit'],
+  review: ['flagJoin'],
+};
+
+/** A section's settings in one line, for the section list and the closed rail. */
+export const joinSectionSummary = (section: SyncJoinSection, options: SyncOptions): string => {
+  const { join } = options;
+  switch (section) {
+    case 'gaps':
+      return `${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`;
+    case 'pauses':
+      return join.shortenPauses ? `Shortened to ${ms(join.minInnerPause)} at least, ${percent(join.maxPauseTake)} at most` : 'Never shortened';
+    case 'edges':
+      return `Tail to ${join.tailFloorDb} dB, held ${ms(join.tailHold)}`;
+    case 'fit':
+      return `${options.timingProtection === 'strict' ? 'Strict' : 'Flagged'} when it starts over ${ms(join.maxLateStart)} late`;
+    case 'grouping':
+      return `Cues under ${ms(join.unitGap)} apart are one line, usually up to ${join.maxUnit} s`;
+    case 'review':
+      return `Flags joins under ${ms(join.flagJoin)}`;
+  }
+};
+
+/** True when a section's settings differ from Natural, the default. */
+export const joinSectionChanged = (section: SyncJoinSection, options: SyncOptions) =>
+  SECTION_KEYS[section].some((key) => options.join[key] !== SYNC_JOIN_PRESETS.natural[key]) ||
+  (section === 'fit' && options.timingProtection === 'strict');
+
+/** True while a section still holds a value Fit to this video set. */
+export const joinSectionMeasured = (section: SyncJoinSection, fitted: Partial<SyncJoinSettings>, join: SyncJoinSettings) =>
+  section in GROUP_KEYS && GROUP_KEYS[section as keyof typeof GROUP_KEYS].some((key) => key in fitted && fitted[key] === join[key]);
+
+/** The line-join preset: picking one fills in every join setting; changing any setting makes it Custom. */
+export const JoinPresetPicker: React.FC<{
   options: SyncOptions;
   onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
   disabled?: boolean;
-  /** What Fit to this video measures from; no card without it. */
-  fitSource?: SyncFitSource;
-}> = ({ options, onOptionsChange, disabled, fitSource }) => {
+}> = ({ options, onOptionsChange, disabled }) => {
+  const pickPreset = (preset: SyncJoinPreset) =>
+    onOptionsChange((o) => (preset === 'custom' ? { ...o, preset } : { ...o, preset, join: { ...SYNC_JOIN_PRESETS[preset] } }));
+  const hint = SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label htmlFor="sync-join-preset" className={sectionLabel}>
+        Line joins
+      </label>
+      <select
+        id="sync-join-preset"
+        value={options.preset}
+        onChange={(e) => pickPreset(e.target.value as SyncJoinPreset)}
+        disabled={disabled}
+        className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+      >
+        {SYNC_JOIN_PRESET_OPTIONS.map((p) => (
+          <option key={p.id} value={p.id} className="bg-slate-900">
+            {p.label}
+          </option>
+        ))}
+      </select>
+      {hint && <span className="text-[11.5px] text-slate-400">{hint}</span>}
+    </div>
+  );
+};
+
+/** The settings of one join section. Changing any of them makes the preset Custom. */
+export const SyncJoinSectionControls: React.FC<{
+  section: SyncJoinSection;
+  options: SyncOptions;
+  onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
+  disabled?: boolean;
+}> = ({ section, options, onOptionsChange, disabled }) => {
   const { join } = options;
   const strict = options.timingProtection === 'strict';
-  /** The values Fit to this video set; a group is marked while any of its settings still holds one. */
-  const [fitted, setFitted] = useState<Partial<SyncJoinSettings>>({});
-  const measured = (group: keyof typeof GROUP_KEYS) => GROUP_KEYS[group].some((key) => key in fitted && fitted[key] === join[key]);
-  const applyFit = (changes: Partial<SyncJoinSettings>) => {
-    setFitted(changes);
-    onOptionsChange((o) => {
-      const next = { ...o.join, ...changes };
-      return { ...o, join: next, preset: joinPresetOf(next) };
-    });
-  };
   const set = <K extends keyof SyncJoinSettings>(key: K, value: SyncJoinSettings[K]) =>
     onOptionsChange((o) => {
       const next = { ...o.join, [key]: value };
       return { ...o, join: next, preset: joinPresetOf(next) };
     });
-  const pickPreset = (preset: SyncJoinPreset) =>
-    onOptionsChange((o) => (preset === 'custom' ? { ...o, preset } : { ...o, preset, join: { ...SYNC_JOIN_PRESETS[preset] } }));
-  const hint = SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint;
 
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="sync-join-preset" className={sectionLabel}>
-          Line joins
-        </label>
-        <select
-          id="sync-join-preset"
-          value={options.preset}
-          onChange={(e) => pickPreset(e.target.value as SyncJoinPreset)}
-          disabled={disabled}
-          className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
-        >
-          {SYNC_JOIN_PRESET_OPTIONS.map((p) => (
-            <option key={p.id} value={p.id} className="bg-slate-900">
-              {p.label}
-            </option>
-          ))}
-        </select>
-        {hint && <span className="text-[11.5px] text-slate-400">{hint}</span>}
-      </div>
-
-      {fitSource && <FitCard source={fitSource} join={join} disabled={disabled} onApply={applyFit} />}
-
-      <div className="flex flex-col">
-        <Group title="Gaps between lines" measured={measured('gaps')} summary={`${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`}>
+  switch (section) {
+    case 'gaps':
+      return (
+        <div className="flex flex-col gap-4">
           <Toggle label="Protect long pauses" checked={join.preserveLongPauses} disabled={disabled}
             onChange={(v) => set('preserveLongPauses', v)} hint="Keeps long breaks between source lines clear and preserves long silence inside the dub. A line too long to finish before a protected break is flagged in the results." />
           <Slider id="sync-protected-pause" label="Protect pauses at least" value={join.protectedPause} {...bounds('protectedPause')} step={0.1}
@@ -395,13 +410,11 @@ export const SyncJoinSettingsPanel: React.FC<{
           />
           <Slider id="sync-breath-reduction" label="Breath reduction" value={join.breathReduction} {...bounds('breathReduction')} step={0.05} format={percent}
             disabled={disabled || !join.removeBreaths} onChange={(v) => set('breathReduction', v)} hint="0% keeps breaths; 100% removes detected breaths. Lower values keep a softer breath." />
-        </Group>
-
-        <Group
-          title="Pauses inside a line"
-          measured={measured('pauses')}
-          summary={join.shortenPauses ? `Shortened to ${ms(join.minInnerPause)} at least, ${percent(join.maxPauseTake)} at most` : 'Never shortened'}
-        >
+        </div>
+      );
+    case 'pauses':
+      return (
+        <div className="flex flex-col gap-4">
           <Toggle
             label="Shorten pauses when a line runs long"
             hint="Only silence between words is taken out."
@@ -445,9 +458,11 @@ export const SyncJoinSettingsPanel: React.FC<{
             onChange={(v) => set('spliceCrossfade', v)}
             hint="Smooths room tone where a pause is shortened. Off keeps every sample as voiced."
           />
-        </Group>
-
-        <Group title="Line edges" summary={`Tail to ${join.tailFloorDb} dB, held ${ms(join.tailHold)}`}>
+        </div>
+      );
+    case 'edges':
+      return (
+        <div className="flex flex-col gap-4">
           <div className="flex flex-col gap-1">
             <label htmlFor="sync-tail-floor" className="text-[13px] text-slate-200">
               Tail ends below
@@ -506,12 +521,11 @@ export const SyncJoinSettingsPanel: React.FC<{
               </option>
             </select>
           </div>
-        </Group>
-
-        <Group
-          title="When a line doesn't fit"
-          summary={`${strict ? 'Strict' : 'Flagged'} when it starts over ${ms(join.maxLateStart)} late`}
-        >
+        </div>
+      );
+    case 'fit':
+      return (
+        <div className="flex flex-col gap-4">
           <ol className="flex flex-col gap-1.5 text-[12.5px] text-slate-300">
             {['Shorten the pauses inside it', 'Move the lines around it, never over each other', 'Flag it with a shorter wording, never squeeze it'].map(
               (step, n) => (
@@ -561,9 +575,11 @@ export const SyncJoinSettingsPanel: React.FC<{
               place unless the lines before them need the room, and are flagged when they move.
             </span>
           </div>
-        </Group>
-
-        <Group title="Grouping" measured={measured('grouping')} summary={`Cues under ${ms(join.unitGap)} apart are one line, usually up to ${join.maxUnit} s`}>
+        </div>
+      );
+    case 'grouping':
+      return (
+        <div className="flex flex-col gap-4">
           <Slider
             id="sync-unit-gap"
             label="Join cues closer than"
@@ -586,22 +602,21 @@ export const SyncJoinSettingsPanel: React.FC<{
             onChange={(v) => set('maxUnit', v)}
             hint="An unfinished sentence may stay together for up to 30 s, even past this limit."
           />
-        </Group>
-
-        <Group title="Review" measured={measured('review')} summary={`Flags joins under ${ms(join.flagJoin)}`}>
-          <Slider
-            id="sync-flag-join"
-            label="Flag joins tighter than"
-            value={join.flagJoin}
-            {...bounds('flagJoin')}
-            step={0.01}
-            format={(v) => (v === 0 ? 'Off' : ms(v))}
-            disabled={disabled}
-            onChange={(v) => set('flagJoin', v)}
-            hint="Silence between one line's last word and the next line's first."
-          />
-        </Group>
-      </div>
-    </div>
-  );
+        </div>
+      );
+    case 'review':
+      return (
+        <Slider
+          id="sync-flag-join"
+          label="Flag joins tighter than"
+          value={join.flagJoin}
+          {...bounds('flagJoin')}
+          step={0.01}
+          format={(v) => (v === 0 ? 'Off' : ms(v))}
+          disabled={disabled}
+          onChange={(v) => set('flagJoin', v)}
+          hint="Silence between one line's last word and the next line's first."
+        />
+      );
+  }
 };
