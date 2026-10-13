@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { TimelineRuler, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
+import { drawWave } from '../services/waveform';
 import { hueOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
@@ -235,23 +236,24 @@ const PartWave: React.FC<{
     if (!data || data.seconds <= 0) return;
     const length = (to - from) / rate;
     const gain = 10 ** (gainDb / 20);
-    const bars = Math.max(1, Math.floor(w / 2));
-    const n = data.peaks.length;
-    ctx.fillStyle = color;
-    for (let i = 0; i < bars; i++) {
-      const t0 = (i / bars) * length;
-      const t1 = ((i + 1) / bars) * length;
-      const b0 = Math.max(0, Math.floor(((bankOffset + from + t0 * rate) / data.seconds) * n));
-      const b1 = Math.min(n, Math.max(b0 + 1, Math.floor(((bankOffset + from + t1 * rate) / data.seconds) * n)));
-      let a = 0;
-      for (let b = b0; b < b1; b++) if (data.peaks[b] > a) a = data.peaks[b];
-      const mid = (t0 + t1) / 2;
-      let envelope = gain;
-      if (fadeIn > 0) envelope *= Math.min(1, mid / fadeIn);
-      if (fadeOut > 0) envelope *= Math.min(1, (length - mid) / fadeOut);
-      const bh = Math.max(1, Math.min(1, a * envelope) * (h - 6));
-      ctx.fillRect(i * (w / bars), (h - bh) / 2, Math.max(1, w / bars - 0.5), bh);
-    }
+    const start = bankOffset + from;
+    drawWave(ctx, data, {
+      x: 0,
+      y: 3,
+      w,
+      h: h - 6,
+      from: start,
+      to: start + length * rate,
+      style: color,
+      gain: (t) => {
+        // t is in the bank; the fades are in the part's own (played) time.
+        const at = (t - start) / rate;
+        let envelope = gain;
+        if (fadeIn > 0) envelope *= Math.min(1, at / fadeIn);
+        if (fadeOut > 0) envelope *= Math.min(1, (length - at) / fadeOut);
+        return envelope;
+      },
+    });
     // The fades, as a ramp over the waveform.
     ctx.strokeStyle = 'rgba(241,245,249,0.75)';
     ctx.lineWidth = 1;

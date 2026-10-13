@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Upload, Film, Music, Radio, Tv, RefreshCw } from 'lucide-react';
-import { computePeaks } from '../services/playbackTimeline';
+import { computeWave, drawWave } from '../services/waveform';
 
 interface MediaStripProps {
   file: File | null;
@@ -52,18 +52,18 @@ export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string; s
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
-      // Exact slices of the file, spread over the full width, so x on the canvas is time in the file.
-      const barCount = Math.max(1, Math.floor(width / 3));
-      const barWidth = width / barCount;
+      // One bucket per device pixel over the whole file, so x on the canvas is time in the file.
       // Sampling every 16th value is plenty for an overview of a long file.
-      const peaks = computePeaks(buffer, barCount, 16);
-
+      const wave = computeWave(buffer, Math.round(width * dpr), 16);
       const color = getComputedStyle(canvas).color;
-      peaks.forEach((peak, i) => {
-        const h = Math.max(2, peak * (height - 4));
-        const t = ((i + 0.5) / barCount) * buffer.duration;
-        ctx.fillStyle = spans?.find((s) => t >= s.from && t < s.to)?.color ?? color;
-        ctx.fillRect(i * barWidth, (height - h) / 2, Math.max(1, barWidth - 1), h);
+      drawWave(ctx, wave, {
+        x: 0,
+        y: 2,
+        w: width,
+        h: height - 4,
+        from: 0,
+        to: wave.seconds,
+        style: spans ? (t) => ({ color: spans.find((s) => t >= s.from && t < s.to)?.color ?? color }) : color,
       });
     };
 

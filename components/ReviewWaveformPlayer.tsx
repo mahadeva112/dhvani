@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
-import { bufferSeconds, computePeaks } from '../services/playbackTimeline';
+import { computeWave, drawWave } from '../services/waveform';
 
 export interface ReviewWaveformPlayerProps {
   audioBuffer: AudioBuffer | null;
@@ -218,13 +218,12 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const peaks = useMemo(() => {
     if (!audioBuffer) return null;
     try {
-      return computePeaks(audioBuffer, Math.max(200, Math.min(60000, Math.ceil(audioBuffer.duration * 40))));
+      return computeWave(audioBuffer, Math.max(200, Math.min(400000, Math.ceil(audioBuffer.duration * 100))));
     } catch (e) {
       console.warn('Could not read the waveform:', e);
       return null;
     }
   }, [audioBuffer]);
-  const peakSeconds = audioBuffer ? bufferSeconds(audioBuffer) : total;
 
   const activeCue = activeIndex >= 0 ? segments[activeIndex] ?? null : null;
 
@@ -381,25 +380,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     height: number,
     from: number,
     to: number,
-    color: string,
-    step = 3
-  ) => {
-    const bars = Math.max(1, Math.floor(w / step));
-    const barWidth = w / bars;
-    ctx.fillStyle = color;
-    for (let i = 0; i < bars; i++) {
-      const t0 = from + ((to - from) * i) / bars;
-      const t1 = from + ((to - from) * (i + 1)) / bars;
-      let a = 0.06;
-      if (peaks && peakSeconds > 0) {
-        const b0 = Math.floor((t0 / peakSeconds) * peaks.length);
-        const b1 = Math.max(b0 + 1, Math.floor((t1 / peakSeconds) * peaks.length));
-        for (let b = Math.max(0, b0); b < b1 && b < peaks.length; b++) if (peaks[b] > a) a = peaks[b];
-      }
-      const bh = Math.max(2, a * height);
-      ctx.fillRect(i * barWidth, top + (height - bh) / 2, Math.max(1, barWidth - 1), bh);
-    }
-  };
+    color: string
+  ) => drawWave(ctx, peaks, { x: 0, y: top, w, h: height, from, to, style: color });
 
   useEffect(() => {
     if (compact) return;
@@ -474,9 +456,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
           if (cpsOf(seg) > 18) ctx.fillRect((seg.startTime / total) * w, 0, Math.max(1.5, ((seg.endTime - seg.startTime) / total) * w), 3);
         });
       }
-      drawBars(ctx, w, marks ? 4 : 2, h - (marks ? 6 : 4), 0, total, palette.wave, 2);
+      drawBars(ctx, w, marks ? 4 : 2, h - (marks ? 6 : 4), 0, total, palette.wave);
       const p = prepareCanvas(played);
-      if (p) drawBars(p.ctx, p.w, marks ? 4 : 2, p.h - (marks ? 6 : 4), 0, total, palette.played, 2);
+      if (p) drawBars(p.ctx, p.w, marks ? 4 : 2, p.h - (marks ? 6 : 4), 0, total, palette.played);
     };
     if (!compact) draw(overviewRef.current, overviewPlayedRef.current, true);
     if (compact) draw(compactRef.current, compactPlayedRef.current, true);

@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.51',
+    changes: [
+      'Sharper waveforms. Each bar now shows how loud the voice really is as a solid core inside its peak, and the bars hold still while you scroll the timeline.',
+    ],
+  },
+  {
     version: '1.3.50',
     changes: [
       'Pasting a script into Custom Script no longer starts matching on its own. Paste, choose how to split it, then press the button to match it to the English.',
