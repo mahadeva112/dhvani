@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.50',
+    changes: [
+      'Pasting a script into Custom Script no longer starts matching on its own. Paste, choose how to split it, then press the button to match it to the English.',
+    ],
+  },
+  {
     version: '1.3.49',
     changes: [
       'DHVANI now starts even when another program on the computer is already using its usual connection port. It quietly picks a free one, and your saved projects and settings stay as they were.',

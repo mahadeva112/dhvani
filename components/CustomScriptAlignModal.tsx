@@ -85,7 +85,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
   const [notice, setNotice] = useState<string | null>(null);
   const [onlyToCheck, setOnlyToCheck] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
-  const autoFitPending = useRef(false);
+  const pastePending = useRef(false);
 
   const isAligning = progress !== null;
   // A script Dhvani saved or exported: placed by its times, or one line per cue.
@@ -124,7 +124,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
 
   const cancelAlign = () => abortRef.current?.abort();
 
-  const fit = async ({ auto = false }: { auto?: boolean } = {}) => {
+  const fit = async () => {
     const script = cleaned.text;
     setErrorMsg(null);
     setNotice(null);
@@ -147,18 +147,14 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
       );
     }
     if (exportLines !== null) {
-      if (auto && exportLines === segments.length) {
-        way = 'line';
-        setStrategy('line');
+      if (way === 'line' && exportLines === segments.length) {
         notes.push(`Your paste is a Dhvani script with ${exportLines} lines, one per cue, so each line went to its cue.`);
       } else {
         notes.push(`The Dhvani header and speaker names were removed from your paste (${exportLines} lines for ${segments.length} cues).`);
       }
     }
     if (cleaned.subtitleBlocks !== null) {
-      if (auto && cleaned.subtitleBlocks === segments.length) {
-        way = 'line';
-        setStrategy('line');
+      if (way === 'line' && cleaned.subtitleBlocks === segments.length) {
         notes.push(`Your paste is a subtitle file with ${cleaned.subtitleBlocks} blocks, one per cue, so each block went to its cue.`);
       } else {
         notes.push(`Subtitle numbers and timings were removed from your paste (${cleaned.subtitleBlocks} blocks for ${segments.length} cues).`);
@@ -291,11 +287,13 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     setNotice(notes.join(' '));
   };
 
-  // A paste into the box, or an opened file, fits the script straight away.
+  // A paste into the box, or an opened file, only picks the split: nothing is
+  // matched until the button is pressed. One line or block per cue goes line by line.
   useEffect(() => {
-    if (!autoFitPending.current) return;
-    autoFitPending.current = false;
-    if (cleaned.text) void fit({ auto: true });
+    if (!pastePending.current) return;
+    pastePending.current = false;
+    const count = exportLines ?? cleaned.subtitleBlocks;
+    if (count !== null && count === segments.length) setStrategy('line');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pastedText, opened]);
 
@@ -304,7 +302,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
       const text = await file.text();
       const script = readDhvaniScript(text);
       if (script) {
-        autoFitPending.current = true;
+        pastePending.current = true;
         setOpened({ name: file.name, script });
         resetFit();
       } else if (/\.json$/i.test(file.name)) {
@@ -319,7 +317,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
   };
 
   const acceptPaste = (text: string) => {
-    autoFitPending.current = true;
+    pastePending.current = true;
     setPastedText(text);
     resetFit();
   };
@@ -511,7 +509,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
               value={pastedText}
               readOnly={isAligning}
               onPaste={() => {
-                autoFitPending.current = true;
+                pastePending.current = true;
               }}
               onChange={(e) => {
                 setPastedText(e.target.value);
@@ -523,7 +521,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                   void fit();
                 }
               }}
-              placeholder={`Paste your ${targetLanguage} script: paragraphs, one line per cue, or an .srt file. It's matched to the English as soon as you paste.`}
+              placeholder={`Paste your ${targetLanguage} script: paragraphs, one line per cue, or an .srt file. Then press the button below to match it to the English.`}
               rows={7}
               className="w-full min-h-[10.5rem] resize-y bg-slate-950/60 border border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 rounded-xl px-3 py-2.5 text-[14px] leading-relaxed text-slate-100 placeholder-slate-500 focus:outline-none read-only:opacity-70"
             />
