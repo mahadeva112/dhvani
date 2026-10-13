@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.49',
+    changes: [
+      'DHVANI now starts even when another program on the computer is already using its usual connection port. It quietly picks a free one, and your saved projects and settings stay as they were.',
+    ],
+  },
+  {
     version: '1.3.48',
     changes: [
       'DHVANI now always uses its dark look. The Theme option has been removed from the menu.',

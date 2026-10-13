@@ -2,7 +2,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
 const { fork, execFile } = require('node:child_process');
-const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session } = require('electron');
+const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session, net: electronNet } = require('electron');
 
 /**
  * DHVANI desktop shell.
@@ -13,8 +13,16 @@ const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session } = require('e
  * no desktop-only code path to keep in sync.
  */
 
-const PORT = Number(process.env.PORT) || 8788; // Offset from the dev default.
-const APP_URL = `http://127.0.0.1:${PORT}`;
+/**
+ * The window always loads APP_URL, whatever port the engine really gets. The
+ * page's saved data (localStorage) belongs to that exact origin, port and all,
+ * so moving the page to another port would make it look lost. When APP_PORT
+ * is taken (or reserved by Windows for Hyper-V/WSL/Docker), the engine starts
+ * on a free port instead and requests to APP_URL are passed on to it.
+ */
+const APP_PORT = Number(process.env.PORT) || 8788; // Offset from the dev default.
+const APP_URL = `http://127.0.0.1:${APP_PORT}`;
+let enginePort = APP_PORT;
 const RELEASES_API = 'https://api.github.com/repos/mahadeva112/dhvani/releases/latest';
 
 /**
@@ -429,13 +437,27 @@ const systemProxyEnv = async () => {
   }
 };
 
-/** Resolves true when nothing is listening on the engine's port. */
-const portIsFree = () =>
+/**
+ * Resolves true when the port can be listened on. False also covers a port
+ * nobody holds but Windows has reserved (an "excluded port range").
+ */
+const portIsFree = (port) =>
   new Promise((resolve) => {
     const probe = net.createServer();
     probe.once('error', () => resolve(false));
     probe.once('listening', () => probe.close(() => resolve(true)));
-    probe.listen(PORT, '127.0.0.1');
+    probe.listen(port, '127.0.0.1');
+  });
+
+/** A port the OS says is free right now. */
+const anyFreePort = () =>
+  new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
   });
 
 /** Runs a command and resolves its stdout, or '' if it fails. */
@@ -447,13 +469,13 @@ const run = (file, args) =>
   });
 
 /**
- * The process listening on the engine's port, as { pid, name, path, command },
- * or null when it cannot be found out.
+ * The process listening on the port, as { pid, name, path, command }, or null
+ * when it cannot be found out.
  */
-const portOwner = async () => {
+const portOwner = async (port) => {
   if (process.platform === 'win32') {
     const script =
-      `$c = Get-NetTCPConnection -LocalPort ${PORT} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
+      `$c = Get-NetTCPConnection -LocalPort ${port} -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1; ` +
       `if ($c) { $p = Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)"; ` +
       `[pscustomobject]@{ pid = [int]$c.OwningProcess; name = $p.Name; path = $p.ExecutablePath; command = $p.CommandLine } | ConvertTo-Json -Compress }`;
     // Encoded, so the quotes in the script survive Windows argument quoting.
@@ -467,91 +489,95 @@ const portOwner = async () => {
   }
 
   // macOS and Linux: lsof prints "p<pid>" and "c<name>" lines.
-  const out = await run('lsof', ['-nP', `-iTCP:${PORT}`, '-sTCP:LISTEN', '-Fpc']);
+  const out = await run('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpc']);
   const pid = Number(/^p(\d+)/m.exec(out)?.[1]);
   return pid ? { pid, name: /^c(.+)/m.exec(out)?.[1] || null, path: null, command: null } : null;
 };
 
 /** True when a DHVANI engine (of any copy) answers on the port. */
-const dhvaniAnswers = async () => {
+const dhvaniAnswers = async (port) => {
   try {
-    const response = await fetch(`${APP_URL}/api/health`, { signal: AbortSignal.timeout(2000) });
+    const response = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: AbortSignal.timeout(2000) });
     return (await response.json())?.service === 'dhvani-backend';
   } catch {
     return false;
   }
 };
 
-const waitForPortFree = async (ms) => {
+const waitForPortFree = async (port, ms) => {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    if (await portIsFree()) return true;
+    if (await portIsFree(port)) return true;
     await new Promise((r) => setTimeout(r, 250));
   }
-  return portIsFree();
+  return portIsFree(port);
 };
 
-const stopProcess = async (pid) => {
+const stopProcess = async (pid, port) => {
   try {
     process.kill(pid);
   } catch (err) {
     appendLog(`[startup] could not stop PID ${pid}: ${err.message}\n`);
   }
-  return waitForPortFree(5000);
+  return waitForPortFree(port, 5000);
 };
 
 /**
- * Makes sure the engine's port is free before the engine starts, because the
- * engine cannot start on a taken port and the reason used to show only as a
- * timeout. An engine left behind by an earlier run of this same copy of
- * DHVANI is stopped without asking (the single-instance lock means no window
- * is using it). Any other program is named, and the user decides whether to
- * close it. Resolves when the port is free; rejects if the user chooses Quit.
+ * Picks the engine's port. APP_PORT when it is free. An engine left behind by
+ * an earlier run of this same copy of DHVANI is stopped without asking (the
+ * single-instance lock means no window is using it). Anything else holding
+ * APP_PORT, including a Windows port reservation that no program owns, is
+ * left alone and the engine takes another free port; routeToEngine() keeps
+ * the window on APP_URL, so nothing the user saved moves.
  */
-const ensurePortFree = async () => {
-  while (!(await portIsFree())) {
-    const owner = await portOwner();
-    const isDhvani = await dhvaniAnswers();
-    appendLog(
-      `[startup] port ${PORT} is in use by ${owner ? `${owner.name} (PID ${owner.pid}) ${owner.command || owner.path || ''}` : 'an unknown program'}\n`
-    );
+const pickEnginePort = async () => {
+  if (await portIsFree(APP_PORT)) return APP_PORT;
 
-    const leftover =
-      owner && isDhvani && owner.path && path.resolve(owner.path) === path.resolve(process.execPath);
-    if (leftover) {
-      appendLog(`[startup] stopping an engine left behind by an earlier run\n`);
-      if (await stopProcess(owner.pid)) return;
-    }
+  const owner = await portOwner(APP_PORT);
+  const isDhvani = await dhvaniAnswers(APP_PORT);
+  appendLog(
+    `[startup] port ${APP_PORT} is in use by ${owner ? `${owner.name} (PID ${owner.pid}) ${owner.command || owner.path || ''}` : 'no program (reserved by Windows, or unknown)'}\n`
+  );
 
-    const who = !owner
-      ? 'Another program is using it, but Windows did not say which one.'
-      : isDhvani
-        ? `Another copy of DHVANI is using it:\n${owner.path || owner.name} (PID ${owner.pid})`
-        : `The program using it:\n${owner.name} (PID ${owner.pid})${owner.command ? `\n${owner.command}` : ''}`;
-
-    const buttons = owner ? ['Close it and start DHVANI', 'Try again', 'Quit'] : ['Try again', 'Quit'];
-    const { response } = await dialog.showMessageBox(mainWindow || undefined, {
-      type: 'warning',
-      title: 'DHVANI could not start',
-      message: `DHVANI needs port ${PORT}, and another program is already using it.`,
-      detail:
-        `${who}\n\n` +
-        (owner
-          ? 'Closing it stops that program. If you still need it, choose Quit, close it yourself, then open DHVANI again.'
-          : `Close the program that uses port ${PORT}, then choose Try again.`),
-      buttons,
-      defaultId: 0,
-      cancelId: buttons.length - 1,
-      noLink: true,
-    });
-
-    const choice = buttons[response];
-    if (choice === 'Quit') throw Object.assign(new Error('Port in use'), { silent: true });
-    if (choice === 'Close it and start DHVANI') {
-      appendLog(`[startup] user chose to close PID ${owner.pid}\n`);
-      if (await stopProcess(owner.pid)) return;
-    }
+  const leftover =
+    owner && isDhvani && owner.path && path.resolve(owner.path) === path.resolve(process.execPath);
+  if (leftover) {
+    appendLog(`[startup] stopping an engine left behind by an earlier run\n`);
+    if (await stopProcess(owner.pid, APP_PORT)) return APP_PORT;
   }
+
+  const port = await anyFreePort();
+  appendLog(`[startup] the engine uses port ${port}; the window stays on ${APP_URL}\n`);
+  return port;
+};
+
+/**
+ * When the engine is not on APP_PORT, passes the window's requests for
+ * APP_URL on to the engine's real port. Every other http request goes out
+ * unchanged.
+ */
+const routeToEngine = () => {
+  if (enginePort === APP_PORT) return;
+  session.defaultSession.protocol.handle('http', (request) => {
+    const url = new URL(request.url);
+    if (url.origin !== APP_URL) return electronNet.fetch(request, { bypassCustomProtocolHandlers: true });
+    url.port = String(enginePort);
+    const headers = new Headers(request.headers);
+    // Uncompressed: a gzipped partial (Range) response cannot be decoded on
+    // its own, which broke seeking, and loopback gains nothing from gzip.
+    headers.set('Accept-Encoding', 'identity');
+    // With an Origin, net.fetch runs a CORS check the engine only answers on
+    // /api, so the page's own scripts and styles failed. The page is already
+    // same-origin; the engine allows requests without an Origin.
+    headers.delete('Origin');
+    return electronNet.fetch(url.href, {
+      method: request.method,
+      headers,
+      body: request.body,
+      duplex: 'half',
+      bypassCustomProtocolHandlers: true,
+    });
+  });
 };
 
 /** Starts the Express backend as a child Node process. */
@@ -581,7 +607,7 @@ const startBackend = async () => {
         ...process.env,
         ...proxyEnv,
         NODE_ENV: 'production',
-        PORT: String(PORT),
+        PORT: String(enginePort),
         HOST: '127.0.0.1',
         DHVANI_DESKTOP: 'true',
         // Keys and settings live in the OS user-data folder, not next to the
@@ -619,7 +645,7 @@ const startBackend = async () => {
     const probe = async () => {
       if (settled) return;
       // Only our engine counts: another server on the port must not pass for it.
-      if (await dhvaniAnswers()) {
+      if (await dhvaniAnswers(enginePort)) {
         succeed();
         return;
       }
@@ -839,7 +865,8 @@ if (!app.requestSingleInstanceLock()) {
       buildMenu();
       createWindow(); // Shows the loading page while the engine starts.
       setupAutoUpdates();
-      await ensurePortFree();
+      enginePort = await pickEnginePort();
+      routeToEngine();
       await startBackend();
       backendReady = true;
       mainWindow?.loadURL(APP_URL);
