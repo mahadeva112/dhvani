@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.52',
+    changes: [
+      'Edit timing now shows every line as a solid coloured clip with a clean, sharp waveform, in the original and in the dub.',
+      'The players are back to the familiar dense bars, and they hold still while you scroll.',
+    ],
+  },
+  {
     version: '1.3.51',
     changes: [
       'Sharper waveforms. Each bar now shows how loud the voice really is as a solid core inside its peak, and the bars hold still while you scroll the timeline.',
