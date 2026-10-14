@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { bufferSeconds } from '../services/playbackTimeline';
-import { computeWave, drawWave, type Wave } from '../services/waveform';
+import { computeWave, drawWave, drawWaveLines, type Wave } from '../services/waveform';
+import { shadeOf, tintOf } from './lineColors';
 
 /** Waveform buckets per second: finer than the closest zoom needs at any width. */
 const PEAKS_PER_SECOND = 200;
@@ -18,13 +19,14 @@ export const usePeaks = (buffer: AudioBuffer | null | undefined): PeakData | nul
     }
   }, [buffer]);
 
-/** A stretch of the track drawn in its own colour; `faded` draws it dimmed. */
+/** A stretch of the track drawn in its own colour; `faded` draws it dimmed. With `look="clips"` the colour must be a hex. */
 export type WaveSpan = { from: number; to: number; color: string; faded?: boolean };
 
 /**
  * A lane's waveform for [from, from + span]: in each span's colour, and
  * outside every span in the canvas's text colour. It fills its (positioned)
- * parent and lets clicks through.
+ * parent and lets clicks through. `look="clips"` draws each span as a video
+ * editor's clip: a solid body in its colour with a pale, crisp waveform.
  */
 export const WindowWaveform: React.FC<{
   data: PeakData | null;
@@ -32,7 +34,8 @@ export const WindowWaveform: React.FC<{
   span: number;
   spans: WaveSpan[];
   className: string;
-}> = ({ data, from, span, spans, className }) => {
+  look?: 'bars' | 'clips';
+}> = ({ data, from, span, spans, className, look = 'bars' }) => {
   const ref = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState(0);
   useEffect(() => {
@@ -57,6 +60,10 @@ export const WindowWaveform: React.FC<{
     ctx.clearRect(0, 0, w, h);
     if (!data || data.seconds <= 0 || span <= 0) return;
     const gapColor = getComputedStyle(canvas).color;
+    if (look === 'clips') {
+      drawClips(ctx, data, from, span, spans, gapColor, w, h, dpr);
+      return;
+    }
     drawWave(ctx, data, {
       x: 0,
       y: 2,
@@ -69,6 +76,40 @@ export const WindowWaveform: React.FC<{
         return line ? { color: line.color, alpha: line.faded ? 0.35 : 1 } : { color: gapColor };
       },
     });
-  }, [data, from, span, spans, size]);
+  }, [data, from, span, spans, size, look]);
   return <canvas ref={ref} aria-hidden="true" className={`absolute inset-0 w-full h-full pointer-events-none ${className}`} />;
+};
+
+/** Clip bodies, guides and pale waveforms for `look="clips"`; between clips, the wave in `gapColor`. */
+const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, span: number, spans: WaveSpan[], gapColor: string, w: number, h: number, dpr: number) => {
+  const to = from + span;
+  const x = (t: number) => ((t - from) / span) * w;
+  const top = 3;
+  const height = h - 6;
+  const mid = top + height / 2;
+  const hair = 1 / dpr;
+  const snap = (y: number) => Math.round(y * dpr) / dpr;
+  drawWaveLines(ctx, data, { x: 0, y: top, w, h: height, from, to, color: gapColor });
+  for (const s of spans) {
+    if (s.to <= from || s.from >= to) continue;
+    const a = Math.round(x(s.from) * dpr) / dpr;
+    const b = Math.round(x(s.to) * dpr) / dpr;
+    ctx.save();
+    ctx.globalAlpha = s.faded ? 0.35 : 1;
+    ctx.beginPath();
+    ctx.roundRect(a, 1, b - a, h - 2, 3);
+    ctx.fillStyle = shadeOf(s.color, 0.5);
+    ctx.fill();
+    ctx.strokeStyle = shadeOf(s.color, 0.3);
+    ctx.lineWidth = hair;
+    ctx.stroke();
+    ctx.clip();
+    ctx.fillStyle = tintOf(s.color, 0.6, 0.45);
+    ctx.fillRect(a, snap(mid), b - a, hair);
+    ctx.fillStyle = tintOf(s.color, 0.6, 0.22);
+    ctx.fillRect(a, snap(mid - height / 4), b - a, hair);
+    ctx.fillRect(a, snap(mid + height / 4), b - a, hair);
+    drawWaveLines(ctx, data, { x: a, y: top, w: b - a, h: height, from: from + (a / w) * span, to: from + (b / w) * span, color: tintOf(s.color, 0.82) });
+    ctx.restore();
+  }
 };

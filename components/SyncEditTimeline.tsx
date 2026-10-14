@@ -1784,7 +1784,7 @@ export const SyncEditTimeline: React.FC<{
   const inSync = measured.summary.inSync;
   const lineCount = measured.units.filter((u) => !u.silent || isEdited(committed, u.key)).length;
   const originalSpans = useMemo(
-    () => baseReport.units.map((unit, n) => ({ from: unit.srcStart, to: unit.srcEnd, color: withAlpha(hueOf(n), 0.75) })),
+    () => baseReport.units.map((unit, n) => ({ from: unit.srcStart, to: unit.srcEnd, color: hueOf(n) })),
     [baseReport]
   );
   const statusColor = (chunk: Chunk) => (chunk.original ? ORIGINAL_HUE : landing(chunk.unit, tolerance).color);
@@ -1956,7 +1956,7 @@ export const SyncEditTimeline: React.FC<{
             onPointerUp={onOriginalPointerUp}
             onPointerCancel={onOriginalPointerCancel}
           >
-            <WindowWaveform data={sourcePeaks} from={windowStart} span={windowSeconds} spans={originalSpans} className="text-slate-600/40" />
+            <WindowWaveform data={sourcePeaks} from={windowStart} span={windowSeconds} spans={originalSpans} className="text-slate-500/50" look="clips" />
             {pick && onScreen(pick.from, pick.to) && (
               <span
                 className="absolute top-0 bottom-0 z-10 border-x-2 border-cyan-300 bg-cyan-300/15 cursor-grab active:cursor-grabbing"
