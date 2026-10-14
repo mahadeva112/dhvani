@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.54',
+    changes: [
+      'In Edit timing you can drag a line past the lines next to it and drop it into any empty gap it fits. The gap shows green when it fits and red when it is too small.',
+    ],
+  },
+  {
     version: '1.3.53',
     changes: [
       'Retaking a line is easier. In Edit timing, pick a line and press T: its takes open in a window you can drag anywhere, and clicking the timeline does not close it.',
