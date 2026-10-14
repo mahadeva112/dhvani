@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.55',
+    changes: [
+      'Review reads in passages. Cues and Document break the script wherever the original speaker pauses (0.8, 1.2 or 2 seconds), and each passage shows how many lines are too fast, tight or end early.',
+      'Document marks lines that need work right in the text, with the speed or the gap beside them, and can save the dub script as a .txt file.',
+      'Review now has three views: Cues, Document and QA. Cards, Spotlight and Script are gone, because Cues and Document do everything they did.',
+    ],
+  },
+  {
     version: '1.3.54',
     changes: [
       'In Edit timing you can drag a line past the lines next to it and drop it into any empty gap it fits. The gap shows green when it fits and red when it is too small.',
