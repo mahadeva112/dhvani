@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.53',
+    changes: [
+      'Retaking a line is easier. In Edit timing, pick a line and press T: its takes open in a window you can drag anywhere, and clicking the timeline does not close it.',
+      'Use a take and it goes straight into the timeline. Pick another line while the window is open and it follows.',
+    ],
+  },
+  {
     version: '1.3.52',
     changes: [
       'Edit timing now shows every line as a solid coloured clip with a clean, sharp waveform, in the original and in the dub.',
