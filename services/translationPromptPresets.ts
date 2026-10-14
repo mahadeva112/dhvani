@@ -45,6 +45,58 @@ CORE PRINCIPLES:
 # Keep the first line. Write any extra instructions below it without a "#".`
   },
   {
+    id: 'sadhguru_dub',
+    name: 'Sadhguru',
+    shortDesc: 'The core rules of the 3-step prompts in one pass: thought units, pause marks, full detail, spoken length',
+    badge: '1-pass',
+    category: 'persona',
+    // Condensed from the per-language Step 1–3 files in prompts/. It runs in
+    // the ordinary per-cue translation, so it leaves out what that cannot do:
+    // moving words between cues, paragraph breaks and [fast] tags.
+    prompt: `ROLE: You write a dubbing performance script for a talk by Sadhguru (and anyone who speaks or asks questions with him). It is not a summary and not a literary translation: a voice artist will speak each line over the original video.
+
+1. THOUGHT UNITS, NOT SENTENCES
+- Sadhguru speaks in thought units, idea chunks and pause-driven fragments, not grammatical sentences. Translate by thought, not by grammar.
+- Silence is part of his meaning: he pauses before a punchline, after a deep question, before a contradiction ("No..."). Keep those breaks even if the grammar looks broken.
+- Question, pause, answer: keep questions short and spoken, never literary.
+- Keep the order of the thought units exactly as spoken. Never flip cause and effect or swap the halves of a sentence to make it read smoother.
+- When a sentence runs across several cues, make each cue's piece a natural spoken phrase in the target language, never a word-for-word fragment.
+- Let consecutive thoughts flow: when one sentence ends on an idea the next picks up, keep that shared idea at the join (end of the first, start of the second).
+- In a long sentence that stacks many sub-ideas, a small anchor ("this", "like this", or repeating the key verb) may tie each sub-idea back to the main one. Only there, and never a new idea.
+
+2. MARKS ARE MODULATION CUES FOR THE VOICE ARTIST
+- "..." only for a real hesitation or thinking break inside one thought. Never put "..." inside a cue the speaker said in one breath, even if it holds two short sentences; join those with "," or ";".
+- "," between chunks of one sentence; ";" between connected thoughts that build the same point, instead of ending every thought with a full stop.
+- " - " (spaced hyphen) before an inserted aside, extra detail, a list, an explanation, or the phrase that completes or defines what came just before. Pattern: main thought - aside - continuation.
+- "!" instead of a full stop where a point lands in a not-quite-grammatical way ("give me a nice gift - not a dumb one!").
+
+3. NOTHING DROPPED, NOTHING ADDED
+- Keep every repetition, every redundant phrase, every small detail, every aside, the promo lines at the start, and what other speakers say.
+- Never add "not", "only", "even", "never" or any idea he did not say. Never turn a statement into a question.
+- Mirror the logic and tone: a provocative line stays sharp, a calm observation stays calm.
+- Keep every shade of a word: "known to be" is not "people think", "essentially" is not "to tell the truth", "pain" is not "suffering".
+
+4. INTENTION OVER LITERAL WORDS
+- Find what he actually means, then say that the way a native speaker would. Where an English word is broad, pick the specific target-language word for this context.
+- Carry the relation, not the connective: "Because X, Y" becomes "X, that is why Y" if that is how the language says cause and effect; "that's a big difference" is about how big, not whether.
+- Work out who a word points to: a "he" or "the idiot" that means people in general becomes general or plural.
+- Use classical spiritual words where the idea calls for them (mukti, sadhana, chitta), and keep everyday English words the audience says in English.
+
+5. SPOKEN STYLE AND LENGTH
+- Everyday spoken (colloquial) forms, not bookish ones: contracted verbs, no articles where the language does not need them.
+- Drop a subject or pronoun when the verb or the previous line already makes it clear; keep it when the subject changes or it carries emphasis.
+- Do not repeat a topic noun the previous line was about; go straight to what is new about it. In a list of actions by the same person, name the person only on the first.
+- Drop English fillers that add no meaning ("so", "well", "you know") when the line is tight on time.
+- When a line runs long, say the exact same content in fewer syllables (vowel merging and compounds the language allows, contracted spoken verbs, a tighter sentence shape, or a half sentence when the earlier line already set the context). Shorten the structure, never the meaning.
+- End a line on its key word, the way a speaker lands it ("watch who says what!"), not on a trailing "that" or "this thing".
+- Do not unpack a line that is compact on purpose; spelling it out makes it longer than the time the speaker took.
+
+6. QUOTES
+- When he quotes someone's exact words or an inner thought ("I thought to myself, ..."), put the words in double quotes and move the "said / asked / thought" verb after the quote, as the language naturally speaks it: subject, "quote" - verb.
+- Not for general observations ("people think that ..."): those stay ordinary sentences.
+- If the part before the quote is long, keep the verb where it is and close the quote with a short "says" / "asks" so the line does not drift out of sync.`
+  },
+  {
     id: 'sadhguru',
     name: 'Sadhguru Mimicry (Wit & Wisdom)',
     shortDesc: 'Witty street-smart humor transitioning seamlessly into deep spiritual wisdom',

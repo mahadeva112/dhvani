@@ -31,7 +31,6 @@ STAGES = (
     "Step1_Translation_Prompt",
     "Step2_Review_Prompt",
     "Step3_Punctuation_Prompt",
-    "SyncingPrompt",
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
