@@ -8,7 +8,6 @@ import {
   RotateCcw,
   Plus,
   Download,
-  FileText,
   Check,
   AlertCircle,
   Headphones,
@@ -25,9 +24,7 @@ import {
   RefreshCw,
   Clock,
   Music,
-  LayoutGrid,
   Table,
-  Maximize2,
   Search,
   Filter,
   Copy,
@@ -133,20 +130,18 @@ import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
 import { choicesFor, rememberChoice } from '../services/wordingChoices';
 import { useSignoff } from '../services/signoffService';
-import { ContinuousDocumentView, ContinuousDocumentHandle } from './review/ContinuousDocumentView';
+import { ContinuousDocumentView, ContinuousDocumentHandle, DocumentPacing } from './review/ContinuousDocumentView';
+import { PASSAGE_PAUSES, buildPassages, loadPassagePause, savePassagePause } from './review/passages';
 import { CueEditBar, PickableWords, useCueEditing } from './review/CueEditBar';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
 import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
 import { firstWordAt, takesOf, type TakeDirection } from '../services/syncTakesService';
 import { TakesPanel } from './TakesPanel';
 
-type ReviewMode = 'grid' | 'table' | 'spotlight' | 'script' | 'document' | 'qa';
+type ReviewMode = 'table' | 'document' | 'qa';
 
 const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'table', label: 'Cues', Icon: Table },
-  { id: 'grid', label: 'Cards', Icon: LayoutGrid },
-  { id: 'spotlight', label: 'Spotlight', Icon: Maximize2 },
-  { id: 'script', label: 'Script', Icon: FileText },
   { id: 'document', label: 'Document', Icon: BookOpen },
   { id: 'qa', label: 'QA', Icon: ShieldCheck },
 ];
@@ -281,6 +276,16 @@ const OtherWordingsButton: React.FC<{ onClick: () => void }> = ({ onClick }) => 
 
 /** True when a cue's line ends well before the original speaker stops: one to make fuller. */
 const endsEarly = (seg: AudioSegment, text: string) => reviewLineOf(seg, text, '').status === 'short';
+
+/** A line's pace for the document view's marks: its speed, and how early it ends when it does. */
+const documentPacingOf = (seg: AudioSegment, text: string): DocumentPacing => {
+  const pace = getPace(text, seg.duration);
+  const line = reviewLineOf(seg, text, '');
+  return { level: pace.level, cps: pace.cps, endsEarlyBy: line.status === 'short' ? line.underflow : null };
+};
+
+/** Whether the table groups its rows into passages, kept on this computer. */
+const TABLE_PASSAGES_KEY = 'dhvani_table_passages';
 
 /** 125.4 -> "2:05", 3725 -> "1:02:05" */
 const formatClock = (seconds: number) => {
@@ -635,7 +640,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [finalScriptLayout, setFinalScriptLayout] = useState<'dialogue' | 'timecoded' | 'bilingual'>('bilingual');
   const [isVoicePickerOpen, setIsVoicePickerOpen] = useState(false);
   const { favorites: favoriteVoices } = useFavoriteVoices();
-  const [spotlightIndex, setSpotlightIndex] = useState<number>(0);
   const [reviewFontPx, setReviewFontPx] = useState<number>(() => {
     try {
       const saved = Number(localStorage.getItem(REVIEW_FONT_KEY));
@@ -650,8 +654,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [reviewFontPx]);
   const reviewTextStyle: React.CSSProperties = { fontSize: `${reviewFontPx}px` };
   const [copiedCueId, setCopiedCueId] = useState<string | number | null>(null);
-  // The views scroll inside the editor panel, so their own height caps are off.
-  const isListExpanded = true;
   const [isSrtModalOpen, setIsSrtModalOpen] = useState<boolean>(false);
   // The subtitle preview plays its own audio; the project's playback stops so the two never overlap.
   useEffect(() => {
@@ -685,6 +687,28 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scriptScrollRef = useRef<HTMLDivElement>(null);
   const documentViewRef = useRef<ContinuousDocumentHandle>(null);
+
+  /** Where the original pauses long enough to start a passage; the table and the document share it. */
+  const [passagePause, setPassagePauseState] = useState<number>(loadPassagePause);
+  const setPassagePause = (pause: number) => {
+    setPassagePauseState(pause);
+    savePassagePause(pause);
+  };
+  const [groupByPassage, setGroupByPassageState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(TABLE_PASSAGES_KEY) !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const setGroupByPassage = (on: boolean) => {
+    setGroupByPassageState(on);
+    try {
+      localStorage.setItem(TABLE_PASSAGES_KEY, on ? 'on' : 'off');
+    } catch {}
+  };
+  /** Passages folded shut in the table, by their first cue. */
+  const [foldedPassages, setFoldedPassages] = useState<Set<string>>(() => new Set());
 
   // Pagination State for Long Scripts (30m to 1h) compatibility
   const [currentPage, setCurrentPage] = useState<number>(1);
@@ -1378,7 +1402,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
   /*
     Follow the playhead: when it moves into another cue, open that cue's page
-    and spotlight it. Only a change of cue moves the view, so Prev / Next and
+    and passage. Only a change of cue moves the view, so Prev / Next and
     edits made while the playhead rests inside a cue stay where the reviewer put them.
   */
   const followedCueId = useRef<string | number | null>(null);
@@ -1389,7 +1413,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const idx = filteredSegments.findIndex((s) => s.id === activeSegmentId);
     if (idx === -1) return;
     setCurrentPage(Math.floor(idx / itemsPerPage) + 1);
-    setSpotlightIndex(idx);
+    if (groupByPassage) unfoldPassageOf(activeSegmentId);
   }, [activeSegmentId, filteredSegments]);
 
   const riskCuesCount = useMemo(() => {
@@ -1444,6 +1468,37 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return counts;
   }, [segments]);
 
+  /** The script's passages, cut where the original pauses, with what needs fixing in each. */
+  const passages = useMemo(
+    () =>
+      buildPassages(segments, passagePause).map((p) => {
+        const counts = { fast: 0, tight: 0, short: 0 };
+        p.cues.forEach((seg) => {
+          const level = getPace(getTargetText(seg), seg.duration).level;
+          if (level === 'fast') counts.fast++;
+          else if (level === 'tight') counts.tight++;
+          if (endsEarly(seg, getTargetText(seg))) counts.short++;
+        });
+        return { ...p, counts };
+      }),
+    [segments, passagePause]
+  );
+  const passageOfCue = useMemo(() => {
+    const map = new Map<string, (typeof passages)[number]>();
+    passages.forEach((p) => p.cues.forEach((seg) => map.set(String(seg.id), p)));
+    return map;
+  }, [passages]);
+  /** Opens a folded passage so one of its cues can be shown. */
+  const unfoldPassageOf = (id: string | number) => {
+    const key = passageOfCue.get(String(id))?.key;
+    if (!key || !foldedPassages.has(key)) return;
+    setFoldedPassages((folded) => {
+      const next = new Set(folded);
+      next.delete(key);
+      return next;
+    });
+  };
+
   /** Unwaived QA findings, blocking ones first, for the review panel. */
   const openFindings = useMemo(() => {
     const waived = qaSignoff?.overrides || {};
@@ -1457,14 +1512,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return qaReport.findings.filter((f) => f.severity === 'block' && !waived[f.id]).length;
   }, [qaReport.findings, qaSignoff]);
 
-  // Spotlight steps through the filtered list, so its index is a position in that list.
-  const spotlightCue = (seg: AudioSegment) => {
-    const idx = filteredSegments.findIndex((s) => s.id === seg.id);
-    if (idx !== -1) setSpotlightIndex(idx);
-  };
-
   const handleJumpToCue = (seg: AudioSegment) => {
-    spotlightCue(seg);
     seekSource(seg.startTime);
     // The document shows every cue, so it opens the cue in place.
     if (reviewMode === 'document') {
@@ -1485,6 +1533,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
     const position = listed.findIndex((s) => s.id === seg.id);
     if (position !== -1) setCurrentPage(Math.floor(position / itemsPerPage) + 1);
+    unfoldPassageOf(seg.id);
 
     // The card only exists once the grid has rendered on the right page.
     window.setTimeout(() => {
@@ -1578,35 +1627,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const subtitleLanguage =
     subtitleChoice.track === 'source' ? subtitleSourceLanguage || 'Original' : targetLanguage || 'Captions';
   const subtitleTimingLabel = { synced: 'the synced dub', dubbed: 'the dub', original: 'the original speech' }[subtitleTiming];
-
-  const getCpsInfo = (charCount: number, duration: number) => {
-    const cps = duration > 0 ? charCount / duration : 0;
-    if (cps > 18) {
-      return {
-        cps: cps.toFixed(1),
-        label: 'Too fast',
-        badgeClass: 'text-amber-300 bg-amber-950/80 border border-amber-800/80',
-        barColor: 'bg-amber-500',
-        warning: 'High text density: voice may speak quickly to fit time window.',
-      };
-    }
-    if (cps > 14) {
-      return {
-        cps: cps.toFixed(1),
-        label: 'Tight',
-        badgeClass: 'text-cyan-300 bg-cyan-950/80 border border-cyan-800/80',
-        barColor: 'bg-cyan-500',
-        warning: null,
-      };
-    }
-    return {
-      cps: cps.toFixed(1),
-      label: 'Natural',
-      badgeClass: 'text-emerald-300 bg-emerald-950/80 border border-emerald-800/80',
-      barColor: 'bg-emerald-500',
-      warning: null,
-    };
-  };
 
   /** A lane's header: the track's name, and its mute, solo, fader and meter when the player has a mixer. */
   const renderTrackHead = (track: MixerTrack, label: string, dot: string, badge?: React.ReactNode) => {
@@ -2101,7 +2121,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             onTogglePlay={onTogglePlay}
             onSeek={onSeek}
             onSelectSegment={(seg) => {
-              spotlightCue(seg);
+              unfoldPassageOf(seg.id);
               const cardEl = document.getElementById(`cue-card-${seg.id}`);
               if (cardEl) {
                 cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2393,8 +2413,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               getSourceText={getSourceText}
               getTargetText={getTargetText}
               onUpdateSegment={onUpdateSegment}
-              getPaceLevel={(seg) => getPace(getTargetText(seg), seg.duration).level}
-              isEndingEarly={(seg) => endsEarly(seg, getTargetText(seg))}
+              getPacing={(seg) => documentPacingOf(seg, getTargetText(seg))}
+              passagePause={passagePause}
+              onPassagePauseChange={setPassagePause}
               pacingFilter={pacingFilter}
               inLineToFix={(seg) => fixCueIds.has(String(seg.id))}
               searchQuery={searchQuery}
@@ -2402,6 +2423,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               isPlaying={isPlaying}
               onSeek={seekSource}
               fontSize={reviewFontPx}
+              onSaveScript={() => handleExportTargetScript('dialogue')}
             />
           )}
 
@@ -2423,164 +2445,65 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           )}
 
           {/* ========================================================================= */}
-          {/* OPTION 1: STUDIO CARDS (Side-by-Side Pro Grid) */}
-          {/* ========================================================================= */}
-          {reviewMode === 'grid' && filteredSegments.length > 0 && (
-            <div className="space-y-4">
-              <div
-                className={`space-y-3 pr-2 scroll-smooth ${
-                  isListExpanded
-                    ? 'overflow-visible pb-12'
-                    : 'max-h-[65vh] min-h-[360px] overflow-y-auto overscroll-contain pb-8 custom-scrollbar'
-                }`}
-              >
-                {paginatedSegments.map((seg, index) => {
-                  const srcText = getSourceText(seg);
-                  const tgtText = getTargetText(seg);
-                  const isCuePlaying = playingSegmentId === seg.id;
-                  const isCueActive =
-                    (sourceClockTime >= seg.startTime && sourceClockTime <= seg.endTime) || isCuePlaying;
-                  const charCount = tgtText.length;
-                  const cpsInfo = getCpsInfo(charCount, seg.duration);
-                  const isCopied = copiedCueId === seg.id;
-
-                  return (
-                    <div
-                      key={seg.id}
-                      id={`cue-card-${seg.id}`}
-                      className={`p-3.5 rounded-2xl transition-all flex flex-col gap-2.5 shadow-sm border ${
-                        isCueActive
-                          ? 'bg-slate-900 border-indigo-500 ring-2 ring-indigo-500/30 shadow-indigo-500/10'
-                          : 'bg-slate-900/70 border-slate-800 hover:border-indigo-500/50'
-                      }`}
-                    >
-                      {/* Card Header: Timing, Speaker, CPS Health, Audition Button */}
-                      <div className="flex flex-wrap items-center justify-between text-xs border-b border-slate-200 dark:border-slate-800/80 pb-2 gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-transparent flex items-center justify-center font-mono text-[10px] font-bold">
-                            {(currentPage - 1) * itemsPerPage + index + 1}
-                          </span>
-                        <span className="font-mono text-cyan-600 dark:text-cyan-400 font-bold text-[11px]">
-                          [{formatSeconds(seg.startTime)} - {formatSeconds(seg.endTime)}]
-                        </span>
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-                          ({seg.duration.toFixed(1)}s window)
-                        </span>
-                        <span className="text-slate-700 dark:text-slate-300 font-semibold bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded-md text-[10px]">
-                          {seg.speaker || 'Speaker'}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {/* Pacing health badge */}
-                        <span
-                          className={`text-[10px] font-mono px-2 py-0.5 rounded-md ${cpsInfo.badgeClass}`}
-                          title="Characters per second pacing for this cue duration"
-                        >
-                          {cpsInfo.label}
-                        </span>
-
-                        {/* Copy Translated Text Button */}
-                        <button
-                          type="button"
-                          onClick={() => handleCopyText(seg.id, tgtText)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-indigo-200 border border-slate-800 hover:border-indigo-500/40 text-[11px] transition-all shadow-2xs"
-                          title="Copy translated text"
-                        >
-                          {isCopied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                          <span>{isCopied ? 'Copied' : 'Copy'}</span>
-                        </button>
-
-                        {/* Solo play original audio button */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPlayingSegmentId(seg.id);
-                            onPlaySegmentSolo(seg);
-                            setTimeout(() => setPlayingSegmentId(null), seg.duration * 1000 + 500);
-                          }}
-                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all ${
-                            isCuePlaying
-                              ? 'bg-amber-600 text-white border-amber-500 animate-pulse'
-                              : 'bg-slate-900 text-slate-300 hover:text-indigo-200 hover:bg-slate-800 border-slate-800 hover:border-indigo-500/40'
-                          }`}
-                          title="Listen to original speech audio for this line"
-                        >
-                          {isCuePlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                          <span>{isCuePlaying ? 'Auditioning...' : 'Listen Original'}</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Side-by-Side: Original Source Dialogue vs Target Translation */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                      {/* Source Audio Transcription */}
-                      <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-mono tracking-wider text-slate-500 flex items-center justify-between">
-                          <span>Original Audio Transcription:</span>
-                          <span className="flex gap-2 normal-case tracking-normal">
-                            <CharCount text={srcText} />
-                            <SyllableCount text={srcText} />
-                          </span>
-                        </label>
-                        <div
-                          className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/80 text-slate-300 leading-relaxed font-sans min-h-[56px]"
-                          style={reviewTextStyle}
-                        >
-                          {srcText || <span className="text-slate-600 italic">No original transcription available</span>}
-                        </div>
-                      </div>
-
-                      {/* Target Translation (Editable directly with Phonetic Roman to Indic support) */}
-                      <div className="space-y-1">
-                        <label className="text-[10px] uppercase font-mono tracking-wider text-indigo-400 flex items-center justify-between">
-                          <span>{targetLanguage} Translation:</span>
-                          <span className="flex gap-2 normal-case tracking-normal">
-                            <span className="text-slate-500 font-sans text-[10px]">{charCount} characters</span>
-                            <SyllableFitNote fit={syllableFitOf(seg)} />
-                          </span>
-                        </label>
-                        <PhoneticSmartTextarea
-                          showQuickSymbols={false}
-                          value={tgtText}
-                          language={targetLanguage}
-                          onChange={(newVal) =>
-                            onUpdateSegment(seg.id, {
-                              textTarget: newVal,
-                              targetText: newVal,
-                            })
-                          }
-                          onOpenKeyboardModal={
-                            onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard(seg) : undefined
-                          }
-                          rows={2}
-                          placeholder={`Translated text in ${targetLanguage}...`}
-                          fontSize={reviewFontPx}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Fast Pacing Warning Advice */}
-                    {cpsInfo.warning && (
-                      <div className="text-[11px] text-amber-400 bg-amber-950/40 border border-amber-900/60 rounded-xl px-2.5 py-1 flex items-center gap-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400" />
-                        <span>{cpsInfo.warning} Consider tightening phrasing to maintain natural conversational cadence.</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              </div>
-              
-              {renderPaginationControls()}
-            </div>
-          )}
-
-          {/* ========================================================================= */}
           {/* OPTION 2: CUES (default): one row per cue, English beside the editable translation */}
           {/* ========================================================================= */}
           {reviewMode === 'table' && filteredSegments.length > 0 && (
             <div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-slate-800 text-[11px] text-slate-400">
+                <span>Group rows</span>
+                <div role="group" aria-label="Group rows" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+                  {[
+                    { on: false, label: 'Off' },
+                    { on: true, label: 'By passage' },
+                  ].map(({ on, label }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      aria-pressed={groupByPassage === on}
+                      onClick={() => setGroupByPassage(on)}
+                      className={`px-2 py-0.5 rounded-md cursor-pointer transition-colors ${
+                        groupByPassage === on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {groupByPassage && (
+                  <>
+                    <span title="A new passage starts where the original speaker pauses this long, or the speaker changes">
+                      Split at original pauses over
+                    </span>
+                    <div role="group" aria-label="Pause that starts a passage" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+                      {PASSAGE_PAUSES.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          aria-pressed={passagePause === p}
+                          onClick={() => setPassagePause(p)}
+                          className={`px-2 py-0.5 rounded-md font-mono tabular-nums cursor-pointer transition-colors ${
+                            passagePause === p ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          {p}s
+                        </button>
+                      ))}
+                    </div>
+                    <span className="text-slate-500 tabular-nums">
+                      {passages.length} {passages.length === 1 ? 'passage' : 'passages'}
+                    </span>
+                    {foldedPassages.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setFoldedPassages(new Set())}
+                        className="ml-auto px-2 py-0.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                      >
+                        Show all passages
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
               <div className="hidden md:grid grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-4 px-4 py-2 sticky top-0 z-10 bg-slate-900 border-b border-slate-800 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
                 <span>#</span>
                 <span>Time</span>
@@ -2598,9 +2521,77 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 // The cue's own number, so a filtered list still names cues as everywhere else.
                 const cueNumber = (cueIndexById.get(String(seg.id)) ?? (currentPage - 1) * itemsPerPage + index) + 1;
 
+                // A passage gets its header above the first of its cues on this page.
+                const passage = groupByPassage ? passageOfCue.get(String(seg.id)) : undefined;
+                const prevShown = paginatedSegments[index - 1];
+                const opensPassage =
+                  passage !== undefined && (!prevShown || passageOfCue.get(String(prevShown.id)) !== passage);
+                const folded = passage !== undefined && foldedPassages.has(passage.key);
+                const passageHeader = opensPassage && passage && (() => {
+                  const first = passage.cues[0];
+                  const last = passage.cues[passage.cues.length - 1];
+                  const firstNumber = (cueIndexById.get(String(first.id)) ?? 0) + 1;
+                  const lastNumber = (cueIndexById.get(String(last.id)) ?? 0) + 1;
+                  const continued = String(first.id) !== String(seg.id);
+                  const { fast, tight, short } = passage.counts;
+                  return (
+                    <>
+                      {passage.index > 0 && !continued && (
+                        <div className="flex items-center gap-2 px-4 pt-3 pb-1 font-mono text-[10.5px] text-slate-600">
+                          <span className="flex-1 border-t border-dashed border-slate-800" />
+                          {passage.pauseBefore.toFixed(1)}s pause in original
+                          <span className="flex-1 border-t border-dashed border-slate-800" />
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setFoldedPassages((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(passage.key)) next.delete(passage.key);
+                            else next.add(passage.key);
+                            return next;
+                          })
+                        }
+                        aria-expanded={!folded}
+                        className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 bg-slate-900/80 border-y border-slate-800 text-left text-xs hover:bg-slate-800/60 cursor-pointer"
+                        title={folded ? 'Show this passage' : 'Fold this passage'}
+                      >
+                        {folded ? (
+                          <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+                        ) : (
+                          <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+                        )}
+                        <span className="font-semibold text-slate-200">
+                          Passage {passage.index + 1}
+                          {continued && <span className="font-normal text-slate-500">, continued</span>}
+                        </span>
+                        <span className="font-mono text-[10.5px] text-slate-500 tabular-nums">
+                          {formatSeconds(first.startTime)}
+                          {first.speaker ? ` · ${first.speaker}` : ''} · {firstNumber === lastNumber ? `cue ${firstNumber}` : `cues ${firstNumber}–${lastNumber}`}
+                        </span>
+                        <span className="ml-auto flex flex-wrap gap-1.5">
+                          {fast > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-md text-[10.5px] bg-rose-500/15 text-rose-300">{fast} too fast</span>
+                          )}
+                          {tight > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-md text-[10.5px] bg-amber-500/15 text-amber-300">{tight} tight</span>
+                          )}
+                          {short > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-md text-[10.5px] bg-sky-500/15 text-sky-300">{short} ends early</span>
+                          )}
+                          {fast + tight + short === 0 && <span className="text-[10.5px] text-slate-500">All natural</span>}
+                        </span>
+                      </button>
+                    </>
+                  );
+                })();
+
                 return (
+                  <React.Fragment key={seg.id}>
+                  {passageHeader}
+                  {!folded && (
                   <div
-                    key={seg.id}
                     id={`cue-card-${seg.id}`}
                     className={`group relative grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-x-4 gap-y-2 px-4 py-3 border-b transition-colors ${
                       String(cueEditing.boundaryId) === String(seg.id) ? 'border-b-indigo-400' : 'border-slate-800'
@@ -2822,305 +2813,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       })()}
                     </div>
                   </div>
+                  )}
+                  </React.Fragment>
                 );
               })}
 
               {renderPaginationControls('px-3')}
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* OPTION 3: SPOTLIGHT LINE-BY-LINE (Focused Teleprompter Review) */}
-          {/* ========================================================================= */}
-          {reviewMode === 'spotlight' && filteredSegments.length > 0 && (() => {
-            const safeIndex = Math.min(spotlightIndex, filteredSegments.length - 1);
-            const currentSeg = filteredSegments[safeIndex] || filteredSegments[0];
-            const srcText = getSourceText(currentSeg);
-            const tgtText = getTargetText(currentSeg);
-            const isCuePlaying = playingSegmentId === currentSeg.id;
-            const charCount = tgtText.length;
-            const cpsInfo = getCpsInfo(charCount, currentSeg.duration);
-
-            return (
-              <div className="space-y-3 bg-slate-900/80 border border-slate-800 p-4 sm:p-6 rounded-2xl shadow-sm">
-                {/* Spotlight Navigation Bar: pinned, so Previous / Next stay in reach below a long line */}
-                <div className="sticky top-0 z-20 -mx-4 sm:-mx-6 -mt-4 sm:-mt-6 px-4 sm:px-6 pt-4 sm:pt-6 rounded-t-2xl bg-slate-900 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-1 rounded-xl bg-indigo-100 text-indigo-700 border border-indigo-200 dark:bg-indigo-950 dark:border-indigo-700/60 dark:text-indigo-400 font-mono text-xs font-bold">
-                      Cue {safeIndex + 1} of {filteredSegments.length}
-                    </span>
-                    <span className="font-mono text-cyan-600 dark:text-cyan-400 font-bold text-xs">
-                      [{formatSeconds(currentSeg.startTime)} - {formatSeconds(currentSeg.endTime)}] ({currentSeg.duration.toFixed(1)}s)
-                    </span>
-                    <span className="text-slate-700 dark:text-slate-300 font-semibold bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 px-2 py-0.5 rounded text-xs">
-                      {currentSeg.speaker || 'Speaker'}
-                    </span>
-                  </div>
-
-                  {/* Previous / Next Stepper & Audition Button */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSpotlightIndex((prev) => Math.max(0, prev - 1))}
-                      disabled={safeIndex === 0}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-300 hover:text-indigo-200 border border-slate-800 hover:border-indigo-500/40 text-xs font-semibold transition-all shadow-xs"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                      <span>Previous Cue</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setSpotlightIndex((prev) => Math.min(filteredSegments.length - 1, prev + 1))}
-                      disabled={safeIndex >= filteredSegments.length - 1}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-slate-300 hover:text-indigo-200 border border-slate-800 hover:border-indigo-500/40 text-xs font-semibold transition-all shadow-xs"
-                    >
-                      <span>Next Cue</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-
-                    {/* Audition Current Cue */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPlayingSegmentId(currentSeg.id);
-                        onPlaySegmentSolo(currentSeg);
-                        setTimeout(() => setPlayingSegmentId(null), currentSeg.duration * 1000 + 500);
-                      }}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                        isCuePlaying
-                          ? 'bg-amber-600 text-white border-amber-500 animate-pulse'
-                          : 'bg-indigo-600 text-white hover:bg-indigo-500 border-indigo-500'
-                      }`}
-                    >
-                      {isCuePlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                      <span>{isCuePlaying ? 'Playing Audio...' : 'Audition Line'}</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Original Transcription Display */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs uppercase font-mono tracking-wider text-slate-400">
-                      Original Speech (Source Audio):
-                    </label>
-                    <span className="text-xs text-slate-400 font-mono">
-                      {srcText.length} chars · {timeLine(srcText, 1).syllables} syl
-                    </span>
-                  </div>
-                  <div
-                    className="p-4 rounded-2xl bg-slate-950 border border-slate-800 text-slate-200 leading-relaxed font-sans"
-                    style={reviewTextStyle}
-                  >
-                    {srcText || <span className="text-slate-500 italic">No audio transcription available</span>}
-                  </div>
-                </div>
-
-                {/* Target Translation Large Input */}
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs uppercase font-mono tracking-wider text-indigo-400 font-bold">
-                      {targetLanguage} Translated Script (Editable):
-                    </label>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[11px] font-mono px-2 py-0.5 rounded-md ${cpsInfo.badgeClass}`}>
-                        {cpsInfo.label}
-                      </span>
-                      <span className="text-xs text-slate-400 font-mono">
-                        {charCount} chars
-                      </span>
-                      <SyllableFitNote fit={syllableFitOf(currentSeg)} />
-                    </div>
-                  </div>
-                  <PhoneticSmartTextarea
-                          showQuickSymbols={false}
-                    value={tgtText}
-                    language={targetLanguage}
-                    onChange={(newVal) =>
-                      onUpdateSegment(currentSeg.id, {
-                        textTarget: newVal,
-                        targetText: newVal,
-                      })
-                    }
-                    onOpenKeyboardModal={
-                      onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard(currentSeg) : undefined
-                    }
-                    rows={3}
-                    placeholder={`Type translation in ${targetLanguage}...`}
-                    fontSize={reviewFontPx}
-                  />
-                </div>
-
-                {/* Thumbnail Strip to Jump Between Cues */}
-                <div className="pt-2 border-t border-slate-800 space-y-1.5">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                    <span>Jump to Cue:</span>
-                    <span>Showing window around #{safeIndex + 1} of {filteredSegments.length}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                    {safeIndex > 7 && (
-                      <button
-                        type="button"
-                        onClick={() => setSpotlightIndex(0)}
-                        className="px-2 py-1 rounded-lg text-[10px] font-mono font-bold bg-slate-900 border border-slate-850 hover:text-white text-slate-400 shrink-0 transition-all"
-                      >
-                        &laquo; First (#1)
-                      </button>
-                    )}
-                    {filteredSegments.map((s, idx) => {
-                      if (Math.abs(idx - safeIndex) > 7) return null;
-                      return (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => setSpotlightIndex(idx)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition-all shrink-0 ${
-                            idx === safeIndex
-                              ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-500'
-                              : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
-                          }`}
-                        >
-                          #{idx + 1}
-                        </button>
-                      );
-                    })}
-                    {safeIndex < filteredSegments.length - 8 && (
-                      <button
-                        type="button"
-                        onClick={() => setSpotlightIndex(filteredSegments.length - 1)}
-                        className="px-2 py-1 rounded-lg text-[10px] font-mono font-bold bg-slate-900 border border-slate-850 hover:text-white text-slate-400 shrink-0 transition-all"
-                      >
-                        Last (#{filteredSegments.length}) &raquo;
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* ========================================================================= */}
-          {/* OPTION 4: CONTINUOUS SCRIPT (Dual-Column Full Flow Review) */}
-          {/* ========================================================================= */}
-          {reviewMode === 'script' && filteredSegments.length > 0 && (
-            <div className="space-y-4">
-              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 space-y-4">
-                <div
-                  className={`scroll-smooth pr-2 custom-scrollbar ${
-                    isListExpanded
-                      ? 'overflow-visible pb-12'
-                      : 'max-h-[65vh] min-h-[360px] overflow-y-auto overscroll-contain pb-8'
-                  }`}
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    {/* Column 1: Full Original Script */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                        <span className="text-xs font-bold text-slate-300 uppercase font-mono tracking-wider">
-                          Original Audio Script Flow
-                        </span>
-                        <span className="text-[11px] text-slate-500 font-mono">Reference</span>
-                      </div>
-
-                      <div className="space-y-3">
-                        {paginatedSegments.map((seg, idx) => (
-                          <div
-                            key={seg.id}
-                            className="p-3 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1"
-                          >
-                            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                              <span className="font-bold text-slate-400">
-                                [{(currentPage - 1) * itemsPerPage + idx + 1}] {seg.speaker || 'Speaker'}
-                              </span>
-                              <span className="text-cyan-400">
-                                {formatSeconds(seg.startTime)} - {formatSeconds(seg.endTime)}
-                              </span>
-                            </div>
-                            <p className="text-slate-200 leading-relaxed font-sans" style={reviewTextStyle}>
-                              {getSourceText(seg)}
-                            </p>
-                            <span className="flex justify-end gap-2">
-                              <CharCount text={getSourceText(seg)} />
-                              <SyllableCount text={getSourceText(seg)} />
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Column 2: Full Translated Script (Editable) */}
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-bold text-indigo-400 uppercase font-mono tracking-wider">
-                            {targetLanguage} Translated Script Flow
-                          </span>
-                          <span className="text-[11px] text-slate-500 font-mono">Direct Editing</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleExportTargetScript('dialogue')}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-700/60 text-indigo-300 hover:text-white text-[11px] font-semibold transition-all shadow-xs"
-                            title="Download translated script as .TXT file"
-                          >
-                            <Download className="w-3 h-3 text-indigo-400" />
-                            <span>Export .TXT</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleCopyFullTargetScript()}
-                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-[11px] font-semibold transition-all shadow-xs"
-                            title="Copy full translated script to clipboard"
-                          >
-                            <Copy className="w-3 h-3 text-slate-400" />
-                            <span>Copy</span>
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {paginatedSegments.map((seg, idx) => (
-                          <div
-                            key={seg.id}
-                            className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1 hover:border-indigo-500/60 transition-all"
-                          >
-                            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
-                              <span className="font-bold text-indigo-300">
-                                [{(currentPage - 1) * itemsPerPage + idx + 1}] {targetLanguage}
-                              </span>
-                              <span className="flex gap-2">
-                                <span>{getTargetText(seg).length} chars</span>
-                                <SyllableFitNote fit={syllableFitOf(seg)} />
-                              </span>
-                            </div>
-                            <PhoneticSmartTextarea
-                          showQuickSymbols={false}
-                              value={getTargetText(seg)}
-                              language={targetLanguage}
-                              onChange={(newVal) =>
-                                onUpdateSegment(seg.id, {
-                                  textTarget: newVal,
-                                  targetText: newVal,
-                                })
-                              }
-                              onOpenKeyboardModal={
-                                onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard(seg) : undefined
-                              }
-                              rows={2}
-                              placeholder={`Type translation in ${targetLanguage}...`}
-                              fontSize={reviewFontPx}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {renderPaginationControls()}
             </div>
           )}
 

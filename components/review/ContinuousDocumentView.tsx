@@ -1,11 +1,20 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronUp, Copy, Lock, PenLine } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Copy, Download, Lock, PenLine } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import { DocumentSegmentSpan, placeCaret } from './DocumentSegmentSpan';
+import { PASSAGE_PAUSES, buildPassages } from './passages';
 
 type MarkerStyle = 'off' | 'dots' | 'numbers';
 type Pane = 'source' | 'target';
 type PaceLevel = 'natural' | 'tight' | 'fast';
+type ParagraphStyle = 'one' | 'speaker' | 'pause';
+
+export interface DocumentPacing {
+  level: PaceLevel;
+  cps: number;
+  /** Seconds the line ends before the original speaker stops, when it ends early. */
+  endsEarlyBy: number | null;
+}
 
 interface DocumentSettings {
   markers: MarkerStyle;
@@ -13,7 +22,9 @@ interface DocumentSettings {
   phonetic: boolean;
   linkedScroll: boolean;
   followPlayback: boolean;
-  speakerParagraphs: boolean;
+  paragraphs: ParagraphStyle;
+  /** Too fast, tight and ends-early lines are marked in the dub text. */
+  paceMarks: boolean;
 }
 
 const SETTINGS_KEY = 'dhvani_document_view';
@@ -22,13 +33,26 @@ const DEFAULT_SETTINGS: DocumentSettings = {
   phonetic: true,
   linkedScroll: true,
   followPlayback: true,
-  speakerParagraphs: false,
+  paragraphs: 'pause',
+  paceMarks: true,
 };
+
+const PARAGRAPH_STYLES: { id: ParagraphStyle; label: string; title: string }[] = [
+  { id: 'one', label: 'One block', title: 'The whole script as one paragraph' },
+  { id: 'speaker', label: 'By speaker', title: 'A new paragraph when the speaker changes' },
+  { id: 'pause', label: 'By pause', title: 'A new paragraph where the original speaker pauses, or the speaker changes' },
+];
 
 const loadSettings = (): DocumentSettings => {
   try {
     const saved = localStorage.getItem(SETTINGS_KEY);
-    if (saved) return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Before paragraph styles there was only a per-speaker switch.
+      if (!parsed.paragraphs && parsed.speakerParagraphs) parsed.paragraphs = 'speaker';
+      delete parsed.speakerParagraphs;
+      return { ...DEFAULT_SETTINGS, ...parsed };
+    }
   } catch {}
   return DEFAULT_SETTINGS;
 };
@@ -76,9 +100,11 @@ interface ContinuousDocumentViewProps {
   getSourceText: (seg: AudioSegment) => string;
   getTargetText: (seg: AudioSegment) => string;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
-  getPaceLevel: (seg: AudioSegment) => PaceLevel;
-  /** True for a line that ends well before the original speaker stops, for the Ends early filter. */
-  isEndingEarly?: (seg: AudioSegment) => boolean;
+  /** How the dub line fits its cue, for the pace marks and the pacing filter. */
+  getPacing: (seg: AudioSegment) => DocumentPacing;
+  /** Paragraphs By pause start where the original pauses longer than this, in seconds. */
+  passagePause: number;
+  onPassagePauseChange: (pause: number) => void;
   /** The Review step's pacing filter; here it dims other sentences rather than removing them from the text. */
   pacingFilter: 'all' | 'risk' | 'tight' | 'short' | 'fix';
   /** For the Lines to fix filter: the cue is in a sync line likely too long or ending early. */
@@ -89,6 +115,8 @@ interface ContinuousDocumentViewProps {
   onSeek: (time: number) => void;
   /** Prose size in px, set by the Review step's text size control. */
   fontSize?: number;
+  /** Saves the dub script as a text file, offered beside Copy on the dub column. */
+  onSaveScript?: () => void;
 }
 
 /**
@@ -104,8 +132,9 @@ export function ContinuousDocumentView({
   getSourceText,
   getTargetText,
   onUpdateSegment,
-  getPaceLevel,
-  isEndingEarly,
+  getPacing,
+  passagePause,
+  onPassagePauseChange,
   pacingFilter,
   inLineToFix,
   searchQuery,
@@ -113,6 +142,7 @@ export function ContinuousDocumentView({
   activeSegmentId,
   isPlaying,
   onSeek,
+  onSaveScript,
 }: ContinuousDocumentViewProps) {
   const [settings, setSettings] = useState<DocumentSettings>(loadSettings);
   const updateSettings = (patch: Partial<DocumentSettings>) =>
@@ -313,7 +343,7 @@ export function ContinuousDocumentView({
     return () => {
       CSS.highlights.delete(MATCH_HIGHLIGHT);
     };
-  }, [query, segments, settings.markers, settings.speakerParagraphs, pane, highlights]);
+  }, [query, segments, settings.markers, settings.paragraphs, settings.paceMarks, passagePause, pane, highlights]);
 
   const currentMatch = matchCount > 0 ? Math.min(matchIndex, matchCount - 1) : -1;
 
@@ -371,23 +401,27 @@ export function ContinuousDocumentView({
   // ---------------------------------------------------------------------------
   // Layout
   // ---------------------------------------------------------------------------
-  /** Runs of segments shown as one paragraph: the whole script, or one run per speaker. */
+  /** Runs of segments shown as one paragraph: the whole script, one run per speaker, or one per passage. */
   const paragraphs = useMemo(() => {
-    if (!settings.speakerParagraphs) return [segments];
+    if (settings.paragraphs === 'pause') return buildPassages(segments, passagePause).map((p) => p.cues);
+    if (settings.paragraphs === 'one') return [segments];
     const runs: AudioSegment[][] = [];
     segments.forEach((seg, i) => {
       if (i > 0 && (seg.speaker || '') === (segments[i - 1].speaker || '')) runs[runs.length - 1].push(seg);
       else runs.push([seg]);
     });
     return runs;
-  }, [segments, settings.speakerParagraphs]);
+  }, [segments, settings.paragraphs, passagePause]);
+
+  const pacing = useMemo(() => new Map(segments.map((seg) => [String(seg.id), getPacing(seg)])), [segments, getPacing]);
+  const pacingOf = (seg: AudioSegment) => pacing.get(String(seg.id)) ?? getPacing(seg);
 
   const isDimmed = (seg: AudioSegment) => {
     if (pacingFilter === 'all') return false;
-    if (pacingFilter === 'short') return !isEndingEarly?.(seg);
     if (pacingFilter === 'fix') return !inLineToFix?.(seg);
-    const level = getPaceLevel(seg);
-    return pacingFilter === 'risk' ? level !== 'fast' : level !== 'tight';
+    const p = pacingOf(seg);
+    if (pacingFilter === 'short') return p.endsEarlyBy === null;
+    return pacingFilter === 'risk' ? p.level !== 'fast' : p.level !== 'tight';
   };
 
   const spanClass = (seg: AudioSegment, editable: boolean) => {
@@ -395,8 +429,63 @@ export function ContinuousDocumentView({
     classes.push(editable ? 'cursor-text text-slate-100' : 'cursor-pointer text-slate-300');
     if (seg.id === activeSegmentId) classes.push('doc-seg-active');
     if (isDimmed(seg)) classes.push('opacity-35');
+    if (editable && settings.paceMarks) {
+      const p = pacingOf(seg);
+      if (p.level === 'fast') classes.push('doc-pace-fast');
+      else if (p.level === 'tight') classes.push('doc-pace-tight');
+      else if (p.endsEarlyBy !== null) classes.push('doc-pace-early');
+    }
     return classes.join(' ');
   };
+
+  /** The number a pace mark carries after its line: how fast it reads, or how early it ends. */
+  const renderPaceChip = (seg: AudioSegment) => {
+    if (!settings.paceMarks) return null;
+    const p = pacingOf(seg);
+    const number = (indexById.get(String(seg.id)) ?? 0) + 1;
+    const duration = Math.max(0, seg.endTime - seg.startTime);
+    const chip =
+      p.level === 'fast'
+        ? {
+            text: `${Math.round(p.cps)} cps`,
+            className: 'bg-rose-500/15 text-rose-300',
+            title: `Cue ${number} is too fast: ${Math.round(p.cps)} characters a second in ${duration.toFixed(1)}s (natural is up to 14). Play from here`,
+          }
+        : p.level === 'natural' && p.endsEarlyBy !== null
+          ? {
+              text: `+${p.endsEarlyBy.toFixed(1)}s`,
+              className: 'bg-sky-500/15 text-sky-300',
+              title: `Cue ${number} ends about ${p.endsEarlyBy.toFixed(1)}s before the original speaker stops. Play from here`,
+            }
+          : null;
+    if (!chip) return null;
+    return (
+      <button
+        type="button"
+        tabIndex={-1}
+        contentEditable={false}
+        onClick={() => latest.current.onSeek(seg.startTime)}
+        className={`select-none ml-1 px-1 rounded font-mono text-[10.5px] align-[1px] leading-none py-0.5 cursor-pointer hover:brightness-125 ${chip.className}`}
+        title={chip.title}
+      >
+        {chip.text}
+      </button>
+    );
+  };
+
+  /** Where the flagged lines are across the whole script, placed by how far into the dub text they sit. */
+  const paceMap = useMemo(() => {
+    const total = segments.reduce((sum, seg) => sum + getTargetText(seg).length + 1, 0) || 1;
+    let at = 0;
+    const marks: { id: string | number; top: number; kind: 'fast' | 'tight' | 'early' }[] = [];
+    for (const seg of segments) {
+      const p = pacingOf(seg);
+      const kind = p.level === 'fast' ? 'fast' : p.level === 'tight' ? 'tight' : p.endsEarlyBy !== null ? 'early' : null;
+      if (kind) marks.push({ id: seg.id, top: (at / total) * 100, kind });
+      at += getTargetText(seg).length + 1;
+    }
+    return marks;
+  }, [segments, pacing]);
 
   const renderMarker = (seg: AudioSegment) => {
     if (settings.markers === 'off') return null;
@@ -490,15 +579,35 @@ export function ContinuousDocumentView({
               {copied === p ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
               {copied === p ? 'Copied' : 'Copy'}
             </button>
+            {editable && onSaveScript && (
+              <button
+                type="button"
+                onClick={onSaveScript}
+                className="flex items-center gap-1 px-1.5 py-0.5 -my-0.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer transition-colors"
+                title="Save the dub script as a .txt file. More formats are under the script in the Dub step."
+              >
+                <Download className="w-3 h-3" />
+                Save .txt
+              </button>
+            )}
           </span>
         </div>
         <div lang={language || undefined} className="px-5 sm:px-7 pt-4 pb-16 max-w-[68ch] space-y-5">
           {paragraphs.map((run) => (
             <div key={String(run[0].id)}>
-              {settings.speakerParagraphs && run[0].speaker && (
-                <div className="mb-1 text-[10px] uppercase tracking-wider font-semibold text-slate-500">
-                  {run[0].speaker}
-                </div>
+              {settings.paragraphs !== 'one' && (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => latest.current.onSeek(run[0].startTime)}
+                  className="mb-1 flex items-center gap-1.5 text-[10.5px] text-slate-500 hover:text-indigo-300 cursor-pointer select-none"
+                  title="Play from the start of this paragraph"
+                >
+                  <span className="font-mono tabular-nums">{formatTime(run[0].startTime)}</span>
+                  {run[0].speaker && (
+                    <span className="uppercase tracking-wider font-semibold">· {run[0].speaker}</span>
+                  )}
+                </button>
               )}
               <p className="leading-[1.9]" style={{ fontSize: `${fontSize}px` }}>
                 {run.map((seg, i) => (
@@ -518,6 +627,7 @@ export function ContinuousDocumentView({
                       onFocusChange={editable ? handleFocusChange : undefined}
                       onClick={editable ? undefined : handleSourceClick}
                     />
+                    {editable && renderPaceChip(seg)}
                   </React.Fragment>
                 ))}
               </p>
@@ -528,12 +638,21 @@ export function ContinuousDocumentView({
     );
   };
 
-  const toggles: { key: 'phonetic' | 'linkedScroll' | 'followPlayback' | 'speakerParagraphs'; label: string; title?: string }[] = [
+  const toggles: { key: 'phonetic' | 'linkedScroll' | 'followPlayback' | 'paceMarks'; label: string; title?: string }[] = [
     { key: 'phonetic', label: 'Phonetic typing', title: `Type Roman letters and get ${targetLanguage || 'the dub language'} as you go` },
     { key: 'linkedScroll', label: 'Linked scroll' },
     { key: 'followPlayback', label: 'Follow playback' },
-    { key: 'speakerParagraphs', label: 'Paragraph per speaker' },
+    {
+      key: 'paceMarks',
+      label: 'Pace marks',
+      title: 'Mark dub lines that are too fast (red wave), tight (amber dots) or end early (blue dashes)',
+    },
   ];
+
+  const segmentedClass = (on: boolean) =>
+    `px-2 py-0.5 rounded-md cursor-pointer transition-colors ${
+      on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+    }`;
 
   return (
     <div
@@ -556,14 +675,49 @@ export function ContinuousDocumentView({
                 type="button"
                 aria-pressed={settings.markers === m}
                 onClick={() => updateSettings({ markers: m })}
-                className={`px-2 py-0.5 rounded-md capitalize cursor-pointer transition-colors ${
-                  settings.markers === m ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                }`}
+                className={`capitalize ${segmentedClass(settings.markers === m)}`}
               >
                 {m}
               </button>
             ))}
           </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span>Paragraphs</span>
+          <div role="group" aria-label="Paragraphs" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+            {PARAGRAPH_STYLES.map(({ id, label, title }) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={settings.paragraphs === id}
+                onClick={() => updateSettings({ paragraphs: id })}
+                className={segmentedClass(settings.paragraphs === id)}
+                title={title}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {settings.paragraphs === 'pause' && (
+            <div
+              role="group"
+              aria-label="Pause that starts a paragraph"
+              className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5"
+              title="How long the original speaker has to pause for a new paragraph"
+            >
+              {PASSAGE_PAUSES.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  aria-pressed={passagePause === p}
+                  onClick={() => onPassagePauseChange(p)}
+                  className={`font-mono tabular-nums ${segmentedClass(passagePause === p)}`}
+                >
+                  {p}s
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {toggles.map(({ key, label, title }) => (
           <label key={key} title={title} className="flex items-center gap-1.5 cursor-pointer hover:text-slate-200">
@@ -621,9 +775,37 @@ export function ContinuousDocumentView({
         ))}
       </div>
 
-      <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2">
-        {renderColumn('source')}
-        {renderColumn('target')}
+      <div className="flex-1 min-h-0 flex">
+        <div className="flex-1 min-w-0 min-h-0 grid grid-cols-1 lg:grid-cols-2">
+          {renderColumn('source')}
+          {renderColumn('target')}
+        </div>
+        {settings.paceMarks && paceMap.length > 0 && (
+          <div
+            className="relative w-3 shrink-0 my-2 mr-1 border-l border-slate-800"
+            role="group"
+            aria-label="Flagged lines across the script"
+          >
+            {paceMap.map((m) => {
+              const number = (indexById.get(String(m.id)) ?? 0) + 1;
+              const label = m.kind === 'fast' ? 'too fast' : m.kind === 'tight' ? 'tight' : 'ends early';
+              return (
+                <button
+                  key={String(m.id)}
+                  type="button"
+                  tabIndex={-1}
+                  onClick={() => reveal(m.id, 'smooth', true)}
+                  className={`absolute left-0.5 w-2 h-1 rounded-sm cursor-pointer hover:h-1.5 ${
+                    m.kind === 'fast' ? 'bg-rose-400' : m.kind === 'tight' ? 'bg-amber-400' : 'bg-sky-400'
+                  }`}
+                  style={{ top: `${m.top}%` }}
+                  title={`Cue ${number}, ${label}`}
+                  aria-label={`Go to cue ${number}, ${label}`}
+                />
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
