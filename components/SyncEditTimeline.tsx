@@ -928,6 +928,25 @@ export const SyncEditTimeline: React.FC<{
     return { lo, hi };
   };
 
+  /**
+   * The empty stretch of a part's lane at `t`, ignoring the part itself, or the
+   * part `t` is on: a dragged line jumps over its neighbours into any gap it
+   * fits, as in REAPER and DaVinci Resolve.
+   */
+  const gapAt = (id: string, t: number, among: Chunk[] = chunks): { lo: number; hi: number } | { on: Chunk } => {
+    const me = among.find((c) => c.part.id === id);
+    const others = among
+      .filter((c) => c.part.id !== id && !c.part.muted && c.lane === me?.lane)
+      .sort((a, b) => a.part.start - b.part.start);
+    let lo = 0;
+    for (const other of others) {
+      if (t < other.part.start) return { lo, hi: other.part.start };
+      if (t < partEnd(other.part)) return { on: other };
+      lo = Math.max(lo, partEnd(other.part));
+    }
+    return { lo, hi: Math.max(total, lo) + 600 };
+  };
+
   const snapTargets = useMemo(() => {
     const list: SnapTarget[] = [];
     baseReport.units.forEach((unit, n) => {
@@ -987,8 +1006,24 @@ export const SyncEditTimeline: React.FC<{
     const { lo, hi } = roomOf(chunk.part.id, among);
     const start = chunk.part.start;
     if (!rippled) {
-      const moved = clamp(start + delta, lo, Math.max(lo, hi - partLength(chunk.part)));
-      return { edits: replacePart(base, chunk, { ...chunk.part, start: moved }), moved: moved - start, blocked: Math.abs(moved - (start + delta)) > 1e-6 };
+      const length = partLength(chunk.part);
+      const want = start + delta;
+      let moved = clamp(want, lo, Math.max(lo, hi - length));
+      let past: Chunk[] = [];
+      let refused = '';
+      if (Math.abs(moved - want) > 1e-6) {
+        // Dragged against a neighbour: the line jumps into the gap under its middle when it fits there.
+        const gap = gapAt(chunk.part.id, want + length / 2, among);
+        if ('on' in gap) refused = `over ${gap.on.original ? 'clip' : 'line'} ${gap.on.label}: keep going to a gap`;
+        else if (gap.hi - gap.lo < length - 1e-6) refused = `gap ${(gap.hi - gap.lo).toFixed(2)} s, line needs ${length.toFixed(2)} s`;
+        else if (gap.lo > hi - 1e-6 || gap.hi < lo + 1e-6) {
+          moved = clamp(want, gap.lo, gap.hi - length);
+          const from = Math.min(start, moved);
+          const to = Math.max(start, moved);
+          past = among.filter((c) => c.part.id !== chunk.part.id && !c.part.muted && c.lane === chunk.lane && c.part.start > from && c.part.start < to);
+        }
+      }
+      return { edits: replacePart(base, chunk, { ...chunk.part, start: moved }), moved: moved - start, blocked: Math.abs(moved - want) > 1e-6, past, refused };
     }
     const d = Math.max(delta, lo - start);
     let next = replacePart(base, chunk, { ...chunk.part, start: start + d });
@@ -997,7 +1032,7 @@ export const SyncEditTimeline: React.FC<{
       const parts = partsOf(next, lineOf(other), rate).map((part) => (part.id === other.part.id ? { ...part, start: Math.max(0, part.start + d) } : part));
       next = withParts(next, other.key, parts);
     }
-    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6 };
+    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6, past: [] as Chunk[], refused: '' };
   };
 
   /**
@@ -1021,7 +1056,7 @@ export const SyncEditTimeline: React.FC<{
     const d = clamp(delta, low, Math.max(low, high));
     let next = base;
     for (const m of moving) next = replacePart(next, m, { ...m.part, start: Math.max(0, m.part.start + d) });
-    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6 };
+    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6, past: [] as Chunk[], refused: '' };
   };
 
   /** `change` applied to every part in `list`, one after another, so two parts of one line both change. */
@@ -1141,6 +1176,8 @@ export const SyncEditTimeline: React.FC<{
   useEffect(() => stopDraft, []);
   const [hud, setHud] = useState<{ x: number; text: string } | null>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
+  /** The gap a dragged line would jump into, while dragging. */
+  const [gapHint, setGapHint] = useState<{ lo: number; hi: number; lane: number; fits: boolean } | null>(null);
   /** The line under the pointer and what a drag there would do; `at` is the time under it, for S. */
   const [hover, setHover] = useState<{ id: string; zone: Zone } | null>(null);
   const pointerTime = useRef<{ id: string; at: number } | null>(null);
@@ -1296,8 +1333,13 @@ export const SyncEditTimeline: React.FC<{
       const unit = baseReport.units[chunk.unitIndex];
       const newPart = partsOf(next, line, rate).find((p) => p.id === part.id) ?? part;
       const onsetNow = line.lead > newPart.from && line.lead < newPart.to ? partTime(newPart, line.lead) : newPart.start;
-      d.label = `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}`;
-      text = `Δ ${formatShift(result.moved)}${several}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}${result.blocked && !d.rippled ? ' · hold Shift to push the lines after it' : ''}`;
+      const past = result.past.length ? ` past ${result.past.map((c) => c.label).join(', ')}` : '';
+      d.label = `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}${past}`;
+      // The gap a jump lands in shows green; one too small for the line shows red.
+      const fits = result.past.length > 0;
+      const room = fits || result.refused ? gapAt(part.id, (fits ? newPart.start : part.start + delta) + partLength(part) / 2, d.among) : null;
+      setGapHint(room && !('on' in room) ? { lo: room.lo, hi: Math.min(room.hi, Math.max(total, room.lo)), lane: laneOfChunk(chunk), fits } : null);
+      text = `Δ ${formatShift(result.moved)}${several}${past ? ` · jumps${past}` : ''}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}${result.refused ? ` · ${result.refused}` : result.blocked && !d.rippled ? ' · hold Shift to push the lines after it' : ''}`;
     } else if (zone === 'slip') {
       const span = part.to - part.from;
       const from = clamp(part.from - dt * part.rate, 0, lineSeconds(chunk) - span);
@@ -1392,6 +1434,7 @@ export const SyncEditTimeline: React.FC<{
     stopDraft();
     setHud(null);
     setSnapLine(null);
+    setGapHint(null);
     // A drag that changed nothing (a slip with nothing to slip, a move against a wall) leaves no step.
     const changed =
       d?.next &&
@@ -2155,6 +2198,17 @@ export const SyncEditTimeline: React.FC<{
               <span aria-hidden="true" className="absolute top-0 bottom-0 border-x-2 border-indigo-300 bg-indigo-400/20 pointer-events-none z-30"
                 style={{ left: `${pct(takeRange.from)}%`, width: `${((takeRange.to - takeRange.from) / windowSeconds) * 100}%` }} />
             )}
+            {gapHint && (
+              <span
+                aria-hidden="true"
+                className={`absolute ${speakerLanes ? '' : 'top-0 bottom-0'} border border-dashed pointer-events-none z-10 ${gapHint.fits ? 'border-emerald-400/80 bg-emerald-400/10' : 'border-rose-400/80 bg-rose-400/10'}`}
+                style={{
+                  left: `${pct(gapHint.lo)}%`,
+                  width: `${((gapHint.hi - gapHint.lo) / windowSeconds) * 100}%`,
+                  ...(speakerLanes && { top: gapHint.lane * LANE_PX, height: LANE_PX }),
+                }}
+              />
+            )}
             {band && (
               <span
                 aria-hidden="true"
@@ -2281,7 +2335,7 @@ export const SyncEditTimeline: React.FC<{
                     ? `${group.length} lines picked: drag one to move them all · its top edge or corners set gain and fades on all · Ctrl + click adds or drops a line`
                     : pick
                       ? 'Drag the picked stretch of the original down onto a gap in the dub · Ctrl + C copies it, Ctrl + V puts it at the playhead · Esc lets go'
-                      : 'Point at a line: its middle moves it, its edges trim it, its top corners fade it, its top edge sets its gain · Ctrl + click or drag across empty lane picks several · drag across the original to fill a gap with it'}
+                      : 'Point at a line: its middle moves it (past other lines into any gap it fits), its edges trim it, its top corners fade it, its top edge sets its gain · Ctrl + click or drag across empty lane picks several · drag across the original to fill a gap with it'}
             </span>
           )}
         </span>
