@@ -699,7 +699,8 @@ export const SyncEditTimeline: React.FC<{
   /** With several speakers: one lane each, with a level, mute and solo. Without it, one dub lane. */
   speakerLanes?: SpeakerLanes;
   /** Opens the takes of a line (TakesPanel): new readings of it, voiced now, to pick from. */
-  onOpenTakes?: (key: string, phrase?: { from: number; to: number }) => void;
+  /** Opens the retake window on a line; with `follow`, only moves an open window to it. */
+  onOpenTakes?: (key: string, phrase?: { from: number; to: number }, follow?: boolean) => void;
   elApiKey?: string;
   takesUnavailableKeys?: string[];
 }> = ({
@@ -900,11 +901,12 @@ export const SyncEditTimeline: React.FC<{
     const still = selectedIds.filter((id) => chunks.some((c) => c.part.id === id));
     if (still.length !== selectedIds.length) setSelectedIds(still);
   }, [selectedIds, chunks]);
-  // Picking one line of the dub opens its takes, with its words to edit and retake. Selecting a range opens them with the words picked.
+  // An open retake window follows the picked line of the dub. T or Takes opens it; selecting a range opens it with the words picked.
   const pickedLineKey = group.length === 1 && current && !current.original ? current.key : null;
   useEffect(() => {
-    if (pickedLineKey && !rangeTool) onOpenTakes?.(pickedLineKey);
+    if (pickedLineKey && !rangeTool) onOpenTakes?.(pickedLineKey, undefined, true);
   }, [pickedLineKey]);
+  const openTakes = () => (current && !current.original ? onOpenTakes?.(current.key) : say('Pick a line of the dub to retake it'));
   /** How the picked parts are named in the history: "line 4", "clip O1", or "3 lines". */
   const groupName = (list: Chunk[]) => (list.length === 1 ? `${list[0].original ? 'clip' : 'line'} ${list[0].label}` : `${list.length} lines`);
 
@@ -1751,6 +1753,7 @@ export const SyncEditTimeline: React.FC<{
     else if (lower === 'm') act.mute();
     else if (lower === 'l') act.lock();
     else if (lower === 'n') setSnap((v) => !v);
+    else if (lower === 't' && onOpenTakes) openTakes();
     else if (key === 'Delete' || key === 'Backspace') act.remove();
     else if (key === 'Escape') {
       setSelected(null);
@@ -2253,8 +2256,9 @@ export const SyncEditTimeline: React.FC<{
           {onOpenTakes && (
             <ActionButton
               label="Takes"
-              onClick={() => (current && !current.original ? onOpenTakes(current.key) : say('Pick a line of the dub to retake it'))}
-              title="Voice new takes of the picked line, or of some of its words, and pick one"
+              shortcut="T"
+              onClick={openTakes}
+              title="Open the retake window for the picked line: voice new takes of it, or of some of its words, and use one"
             >
               <Mic className="w-4 h-4" />
             </ActionButton>

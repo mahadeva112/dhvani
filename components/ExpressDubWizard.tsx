@@ -88,6 +88,7 @@ import { timelineMapper } from '../services/playbackTimeline';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip, MiniWaveform } from './MediaStrip';
+import { FloatingWindow } from './FloatingWindow';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { TrackStrip } from './TrackStrip';
 import type { MixerLevels, MixerTrack, TrackLevel } from './useTrackMixer';
@@ -662,6 +663,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** Edit timing: the line whose takes are open under the timeline. */
   const [timingTakesKey, setTimingTakesKey] = useState<string | null>(null);
   const [timingTakesPhrase, setTimingTakesPhrase] = useState<{ from: number; to: number } | null>(null);
+  /** The retake window holds edited words not yet voiced. */
+  const [timingTakesDirty, setTimingTakesDirty] = useState(false);
   useEffect(() => {
     if (!editingTiming) setTimingTakesKey(null);
   }, [editingTiming]);
@@ -3413,7 +3416,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const takesBase = activeJob.syncBaseReport;
         const renderTakes =
           onVoiceSyncTakes && onUseSyncTake && takesBank && takesBase
-            ? (unit: SyncUnitReport, close: () => void, initialPhrase?: { from: number; to: number } | null) => {
+            ? (
+                unit: SyncUnitReport,
+                close: () => void,
+                initialPhrase?: { from: number; to: number } | null,
+                inWindow?: { onDirtyChange: (dirty: boolean) => void }
+              ) => {
                 const line = takesBank.lines.find((l) => l.key === unit.key);
                 const n = takesBase.units.findIndex((u) => u.key === unit.key);
                 if (!line || n === -1) {
@@ -3439,9 +3447,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     pending={syncPendingLines.includes(unit.key)}
                     onVoice={(options) => onVoiceSyncTakes(unit, options)}
                     onSuggestWording={suggestTakeWording(unit)}
-                    onUse={(takeId) => onUseSyncTake(unit.key, takeId)}
+                    onUse={(takeId) => {
+                      onUseSyncTake(unit.key, takeId);
+                      // In the retake window, using a take is the end of it: the take is in the timeline.
+                      if (inWindow) close();
+                    }}
                     onListenInDub={() => listenHere(Math.max(0, unit.srcStart - 0.6))}
                     onClose={close}
+                    inWindow={Boolean(inWindow)}
+                    onDirtyChange={inWindow?.onDirtyChange}
                   />
                 );
               }
@@ -3654,10 +3668,38 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   }
                   elApiKey={elApiKey}
                   takesUnavailableKeys={syncPendingLines}
-                  onOpenTakes={renderTakes ? (key, phrase) => { setTimingTakesKey(key); setTimingTakesPhrase(phrase ?? null); } : undefined}
+                  onOpenTakes={
+                    renderTakes
+                      ? (key, phrase, follow) => {
+                          // Following the picked line moves an open window only; it never opens one.
+                          if (follow && timingTakesKey === null) return;
+                          // Nor does it leave edited words that are not voiced yet.
+                          if (follow && (key === timingTakesKey || timingTakesDirty)) return;
+                          setTimingTakesKey(key);
+                          setTimingTakesPhrase(phrase ?? null);
+                        }
+                      : undefined
+                  }
                 />
               )}
-              {report && editingTiming && renderTakes && timingTakesUnit && renderTakes(timingTakesUnit, () => setTimingTakesKey(null), timingTakesPhrase)}
+              {report && editingTiming && renderTakes && timingTakesUnit && (
+                <FloatingWindow
+                  title={
+                    <>
+                      <Mic className="w-3.5 h-3.5 text-indigo-300" aria-hidden="true" />
+                      Retake · line {String(segments.findIndex((seg) => String(seg.id) === timingTakesUnit.key) + 1).padStart(2, '0')}
+                    </>
+                  }
+                  storageKey="dhvani.retakeWindow.position"
+                  confirmClose={timingTakesDirty ? 'Your edited words have not been voiced yet. Close and lose them?' : null}
+                  onClose={() => {
+                    setTimingTakesKey(null);
+                    setTimingTakesDirty(false);
+                  }}
+                >
+                  {renderTakes(timingTakesUnit, () => { setTimingTakesKey(null); setTimingTakesDirty(false); }, timingTakesPhrase, { onDirtyChange: setTimingTakesDirty })}
+                </FloatingWindow>
+              )}
               {report &&
                 !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport && onSyncEditsChange) &&
                 renderTrackLanes(

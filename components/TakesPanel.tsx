@@ -95,6 +95,10 @@ export const TakesPanel: React.FC<{
   onUse: (takeId: string) => void;
   onListenInDub: () => void;
   onClose: () => void;
+  /** Shown in a FloatingWindow, which carries the title and the close button. */
+  inWindow?: boolean;
+  /** Whether the words were edited and not yet voiced: what closing would lose. */
+  onDirtyChange?: (dirty: boolean) => void;
 }> = ({
   unit,
   lineNumber,
@@ -116,6 +120,8 @@ export const TakesPanel: React.FC<{
   onUse,
   onListenInDub,
   onClose,
+  inWindow = false,
+  onDirtyChange,
 }) => {
   const words = useMemo(() => wordsOf(unit.text), [unit.text]);
   const [direction, setDirection] = useState<TakeDirection>('same');
@@ -137,6 +143,10 @@ export const TakesPanel: React.FC<{
     asking.current += 1;
   }, [unit.key, unit.text]);
   const reworded = draft.trim() !== '' && draft.trim() !== unit.text.trim();
+  // Edited words not yet voiced in any take are what closing would lose.
+  const dirty = reworded && !lineTakes.takes.some((take) => take.text.trim() === draft.trim());
+  useEffect(() => onDirtyChange?.(dirty), [dirty]);
+  useEffect(() => () => onDirtyChange?.(false), []);
   const said = stripPauses(draft);
   // The line's own voice rate, from its take in the dub, to say how long other words would take.
   const perChar = unit.text.trim().length > 0 ? unit.speech / unit.text.trim().length : 0;
@@ -221,10 +231,13 @@ export const TakesPanel: React.FC<{
   const numbered = lineTakes.takes.filter((take) => take.id !== SYNC_TAKE_ID);
 
   return (
-    <section aria-label={`Takes for line ${lineNumber}`} className="rounded-xl border border-indigo-500/30 bg-slate-950/70 px-3.5 py-3 flex flex-col gap-3">
+    <section
+      aria-label={`Takes for line ${lineNumber}`}
+      className={inWindow ? 'flex flex-col gap-3' : 'rounded-xl border border-indigo-500/30 bg-slate-950/70 px-3.5 py-3 flex flex-col gap-3'}
+    >
       <div className="flex flex-wrap items-center gap-2">
-        <Mic className="w-3.5 h-3.5 text-indigo-300" />
-        <span className="text-[13px] font-semibold text-slate-100">Takes · line {String(lineNumber).padStart(2, '0')}</span>
+        {!inWindow && <Mic className="w-3.5 h-3.5 text-indigo-300" />}
+        {!inWindow && <span className="text-[13px] font-semibold text-slate-100">Takes · line {String(lineNumber).padStart(2, '0')}</span>}
         <span className="font-mono text-[11px] text-slate-500 tabular-nums">
           {nextStart !== null ? `slot ${Math.max(0, nextStart - firstWord).toFixed(1)} s · ` : ''}original speech {Math.max(0, unit.srcEnd - unit.srcStart).toFixed(1)} s
         </span>
@@ -233,9 +246,11 @@ export const TakesPanel: React.FC<{
             <Lock className="w-3 h-3" /> Locked · a retake keeps the lock
           </span>
         )}
-        <button type="button" onClick={onClose} aria-label="Close the takes" className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">
-          <X className="w-3.5 h-3.5" />
-        </button>
+        {!inWindow && (
+          <button type="button" onClick={onClose} aria-label="Close the takes" className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* The line's words, to change before a retake */}
