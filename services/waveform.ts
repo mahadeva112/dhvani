@@ -1,7 +1,7 @@
 /*
- * Waveforms as bars, each a stretch's peak with its RMS as a solid core, so
- * loudness reads at a glance and transients still show. Nothing here touches
- * audio.
+ * Waveforms: dense solid bars for the players and overviews, and a video
+ * editor's crisp per-pixel wave for clips in Edit timing. Nothing here
+ * touches audio.
  */
 
 /** Per-bucket signed peaks and RMS of a buffer, scaled so its loudest sample is 1. */
@@ -104,18 +104,15 @@ export type DrawWaveOptions = {
   gain?: (t: number) => number;
 };
 
-/** Bar pitch and gap, in CSS pixels: a 2 px bar with a 1 px gap. */
-const BAR_PITCH = 3;
-const BAR_GAP = 1;
-/** Opacity of a bar's peak tip; its RMS core is drawn solid inside it. */
-const PEAK_ALPHA = 0.45;
+/** Bar pitch and gap, in CSS pixels: dense 1.5 px bars, 2 px apart. */
+const BAR_PITCH = 2;
+const BAR_GAP = 0.5;
 
 /**
- * Draws `wave` into the box as bars. Each bar is its stretch's peak, with the
- * stretch's RMS as a solid core inside it, so loudness reads at a glance and
- * transients still show. Bars sit on a grid fixed in time rather than on the
- * canvas, so they hold still while the view scrolls; bars sharing a style are
- * filled as one path.
+ * Draws `wave` into the box as dense solid bars, one colour each: a bar is
+ * its stretch's loudest sample, mirrored about the centre. Bars sit on a
+ * grid fixed in time rather than on the canvas, so they hold still while the
+ * view scrolls; bars sharing a style are filled as one path.
  */
 export const drawWave = (ctx: CanvasRenderingContext2D, wave: Wave | null, o: DrawWaveOptions) => {
   if (o.w <= 0 || o.h <= 0 || o.to <= o.from) return;
@@ -125,10 +122,8 @@ export const drawWave = (ctx: CanvasRenderingContext2D, wave: Wave | null, o: Dr
   const W = o.w * dpr;
   const H = o.h * dpr;
   const mid = Y + H / 2;
-  const half = H / 2;
-  const pitch = Math.max(2, Math.round(BAR_PITCH * dpr));
-  const barW = Math.max(1, pitch - Math.max(1, Math.round(BAR_GAP * dpr)));
-  const radius = Math.min(barW / 2, dpr);
+  const pitch = BAR_PITCH * dpr;
+  const barW = Math.max(1, pitch - BAR_GAP * dpr);
   const span = o.to - o.from;
   const barSeconds = (span * pitch) / W;
   const fixed: WaveStyle = typeof o.style === 'string' ? { color: o.style } : null;
@@ -142,23 +137,14 @@ export const drawWave = (ctx: CanvasRenderingContext2D, wave: Wave | null, o: Dr
 
   let runKey = '';
   let runStyle: WaveStyle = null;
-  let peaks = new Path2D();
-  let cores = new Path2D();
+  let bars = new Path2D();
   const flush = () => {
     if (runStyle) {
-      const alpha = runStyle.alpha ?? 1;
       ctx.fillStyle = runStyle.color;
-      ctx.globalAlpha = alpha * PEAK_ALPHA;
-      ctx.fill(peaks);
-      ctx.globalAlpha = alpha;
-      ctx.fill(cores);
+      ctx.globalAlpha = runStyle.alpha ?? 1;
+      ctx.fill(bars);
     }
-    peaks = new Path2D();
-    cores = new Path2D();
-  };
-  const bar = (path: Path2D, x: number, top: number, height: number) => {
-    if (height > 2 * radius) path.roundRect(x, top, barW, height, radius);
-    else path.rect(x, top, barW, height);
+    bars = new Path2D();
   };
 
   const first = Math.floor(o.from / barSeconds);
@@ -179,16 +165,9 @@ export const drawWave = (ctx: CanvasRenderingContext2D, wave: Wave | null, o: Dr
     const s = wave ? sampleWave(wave, t0, t1) : SILENT;
     const g = o.gain ? Math.max(0, o.gain(tm)) : 1;
     const p = Math.min(1, Math.max(s.hi, -s.lo) * g);
-    const r = Math.min(p, s.rms * g);
-
-    const x = Math.round(X + ((t0 - o.from) / span) * W);
     // At least a device pixel, so silence still shows as a dotted centre line.
-    const ph = Math.max(1, 2 * p * half);
-    bar(peaks, x, mid - ph / 2, ph);
-    if (r > 0) {
-      const rh = Math.max(1, 2 * r * half);
-      bar(cores, x, mid - rh / 2, rh);
-    }
+    const bh = Math.max(1, p * H);
+    bars.rect(X + ((t0 - o.from) / span) * W, mid - bh / 2, barW, bh);
   }
   flush();
   ctx.restore();
