@@ -22,3 +22,16 @@ export const lineIndexByCue = (lines: { index: number; cueIds: (string | number)
   for (const line of lines ?? []) for (const id of line.cueIds) map.set(String(id), line.index);
   return map;
 };
+
+/** `hex` darkened to `k` of its brightness, for a solid clip body under a pale waveform. */
+export const shadeOf = (hex: string, k: number) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${Math.round((n >> 16) * k)}, ${Math.round(((n >> 8) & 255) * k)}, ${Math.round((n & 255) * k)})`;
+};
+
+/** `hex` mixed toward white by `mix` (0 to 1). */
+export const tintOf = (hex: string, mix: number, alpha = 1) => {
+  const n = parseInt(hex.slice(1), 16);
+  const up = (v: number) => Math.round(v + (255 - v) * mix);
+  return `rgba(${up(n >> 16)}, ${up((n >> 8) & 255)}, ${up(n & 255)}, ${alpha})`;
+};

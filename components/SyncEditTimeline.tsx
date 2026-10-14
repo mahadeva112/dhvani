@@ -22,8 +22,8 @@ import {
 } from 'lucide-react';
 import { TimelineRuler, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
-import { drawWave } from '../services/waveform';
-import { hueOf, withAlpha } from './lineColors';
+import { drawWaveLines } from '../services/waveform';
+import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
 import { wordsInTakeRange } from '../services/takeRange';
@@ -203,13 +203,21 @@ const originalsOf = (edits: SyncEdits | null | undefined) => JSON.stringify(Obje
 
 const sameEdits = (a: SyncEdits | null | undefined, b: SyncEdits | null | undefined) => a === b || (!hasEdits(a) && !hasEdits(b));
 
-/** A part's waveform, as it will play: its stretch of the bank, with its gain and fades. */
+/** Height of the darker band along a clip's foot that carries its name. */
+const NAME_BAND_PX = 14;
+
+/**
+ * A part's waveform, as it will play: its stretch of the bank, with its gain
+ * and fades. Drawn as a video editor's timeline draws audio: a pale wave in
+ * the clip's own colour over its solid body, with a centre line and guides
+ * at half height, above the name band.
+ */
 const PartWave: React.FC<{
   data: PeakData | null;
   bankOffset: number;
   part: SyncEditPart;
-  color: string;
-}> = React.memo(({ data, bankOffset, part, color }) => {
+  hue: string;
+}> = React.memo(({ data, bankOffset, part, hue }) => {
   const ref = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState(0);
   useEffect(() => {
@@ -233,18 +241,29 @@ const PartWave: React.FC<{
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
+    const top = 3;
+    const height = h - NAME_BAND_PX - 6;
+    if (height <= 0) return;
+    // The centre line and the half-height guides, faint, so silence still reads as part of the clip.
+    const hair = 1 / dpr;
+    const mid = top + height / 2;
+    ctx.fillStyle = tintOf(hue, 0.6, 0.45);
+    ctx.fillRect(0, Math.round(mid * dpr) / dpr, w, hair);
+    ctx.fillStyle = tintOf(hue, 0.6, 0.22);
+    ctx.fillRect(0, Math.round((mid - height / 4) * dpr) / dpr, w, hair);
+    ctx.fillRect(0, Math.round((mid + height / 4) * dpr) / dpr, w, hair);
     if (!data || data.seconds <= 0) return;
     const length = (to - from) / rate;
     const gain = 10 ** (gainDb / 20);
     const start = bankOffset + from;
-    drawWave(ctx, data, {
+    drawWaveLines(ctx, data, {
       x: 0,
-      y: 3,
+      y: top,
       w,
-      h: h - 6,
+      h: height,
       from: start,
       to: start + length * rate,
-      style: color,
+      color: tintOf(hue, 0.82),
       gain: (t) => {
         // t is in the bank; the fades are in the part's own (played) time.
         const at = (t - start) / rate;
@@ -257,19 +276,20 @@ const PartWave: React.FC<{
     // The fades, as a ramp over the waveform.
     ctx.strokeStyle = 'rgba(241,245,249,0.75)';
     ctx.lineWidth = 1;
+    const bottom = h - NAME_BAND_PX;
     if (fadeIn > 0) {
       ctx.beginPath();
-      ctx.moveTo(0, h);
+      ctx.moveTo(0, bottom);
       ctx.lineTo(Math.min(w, (fadeIn / length) * w), 0);
       ctx.stroke();
     }
     if (fadeOut > 0) {
       ctx.beginPath();
       ctx.moveTo(Math.max(0, w - (fadeOut / length) * w), 0);
-      ctx.lineTo(w, h);
+      ctx.lineTo(w, bottom);
       ctx.stroke();
     }
-  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, color, size]);
+  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size]);
   return <canvas ref={ref} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />;
 });
 
@@ -2044,13 +2064,13 @@ export const SyncEditTimeline: React.FC<{
                 <div
                   key={part.id}
                   data-part={part.id}
-                  className={`absolute ${speakerLanes ? '' : 'top-1.5 bottom-1.5'} rounded-md border overflow-hidden ${chunk.original ? 'border-dashed' : ''} ${part.muted || silencedLanes.has(chunk.lane) ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
+                  className={`absolute ${speakerLanes ? '' : 'top-1.5 bottom-1.5'} rounded-[3px] border overflow-hidden ${chunk.original ? 'border-dashed' : ''} ${part.muted || silencedLanes.has(chunk.lane) ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
                   style={{
                     ...(speakerLanes && { top: laneOfChunk(chunk) * LANE_PX + 5, height: LANE_PX - 10 }),
                     left: `${pct(part.start)}%`,
                     width: `${Math.max(0.15, (length / windowSeconds) * 100)}%`,
-                    background: withAlpha(hue, 0.16),
-                    borderColor: withAlpha(hue, 0.9),
+                    background: shadeOf(hue, 0.5),
+                    borderColor: shadeOf(hue, 0.3),
                     backgroundImage: part.muted ? 'repeating-linear-gradient(135deg, rgba(148,163,184,0.18) 0 4px, transparent 4px 8px)' : undefined,
                   }}
                   title={
@@ -2063,9 +2083,12 @@ export const SyncEditTimeline: React.FC<{
                     data={chunk.original ? sourcePeaks : bankPeaks}
                     bankOffset={chunk.original ? 0 : lineOf(chunk).bankStart / rate}
                     part={part}
-                    color={withAlpha(hue, 0.95)}
+                    hue={hue}
                   />
-                  <span className="absolute left-1 top-0.5 flex items-center gap-1 whitespace-nowrap text-[10.5px] font-semibold text-slate-100 pointer-events-none drop-shadow">
+                  <span
+                    className="absolute inset-x-0 bottom-0 flex items-center gap-1 px-1 overflow-hidden whitespace-nowrap text-[10.5px] font-medium leading-none text-white/90 pointer-events-none"
+                    style={{ height: NAME_BAND_PX, background: shadeOf(hue, 0.38) }}
+                  >
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
                     {chunk.label}
                     {showOffset && <span className="font-mono font-normal text-slate-300">{formatShift(chunk.unit!.offset as number)}</span>}
