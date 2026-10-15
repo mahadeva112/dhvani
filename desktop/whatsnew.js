@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.56',
+    changes: [
+      'A new Sadhguru translation style keeps every thought, its pauses and its spoken length, in every language.',
+      'If the window stops responding, DHVANI now notes in its log what it was busy with, so a freeze can be traced and fixed.',
+    ],
+  },
+  {
     version: '1.3.55',
     changes: [
       'Review reads in passages. Cues and Document break the script wherever the original speaker pauses (0.8, 1.2 or 2 seconds), and each passage shows how many lines are too fast, tight or end early.',
