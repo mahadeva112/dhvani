@@ -1,6 +1,35 @@
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, AudioWaveform, Check, ChevronRight, Copy, Download, Loader2, Lock, Mic, Play, RefreshCw, RotateCcw, Ruler, SlidersHorizontal, TriangleAlert, X } from 'lucide-react';
+import {
+  ArrowLeft,
+  AudioWaveform,
+  Bookmark,
+  Check,
+  ChevronRight,
+  Combine,
+  Copy,
+  Download,
+  Flag,
+  ListMusic,
+  Loader2,
+  Lock,
+  Mic,
+  MoveHorizontal,
+  Pause,
+  PencilLine,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Ruler,
+  Search,
+  Settings2,
+  ShieldCheck,
+  SlidersHorizontal,
+  Timer,
+  TrendingDown,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
 import {
   LineSuggestion,
   SYNC_JOIN_PRESETS,
@@ -20,17 +49,22 @@ import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import {
   FitCard,
+  JOIN_SECTION_INFO,
   JOIN_SECTIONS,
   joinPresetOf,
   JoinPresetPicker,
-  joinSectionChanged,
+  joinSectionChangedCount,
   joinSectionMeasured,
   joinSectionSummary,
   readJoinSettings,
+  resetJoinSection,
+  SettingsCard,
+  SettingToggle,
   SyncFitSource,
   SyncJoinSection,
   SyncJoinSectionControls,
 } from './SyncJoinSettings';
+import { SyncSettingsDiagram } from './SyncSettingsDiagram';
 import { SyncPresetLibrary } from './SyncPresetLibrary';
 
 /**
@@ -268,6 +302,8 @@ export interface SyncSettingsPanelProps {
   multiSpeaker?: boolean;
   /** What Fit to this video measures from; the card is left out without it. */
   fitSource?: SyncFitSource;
+  /** Raised by Sync settings in the header's Tools and settings menu: each new value opens the window. */
+  openRequest?: number;
   /** Lines the sync voices, from the last sync or the preview: what Verify actual word timing sends, one request each. */
   lineCount?: number;
 }
@@ -281,42 +317,89 @@ const precisionLabelOf = (options: SyncOptions) => SYNC_PRECISION_OPTIONS.find((
 const presetLabelOf = (options: SyncOptions) =>
   (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.label ?? 'Custom').replace(' (recommended)', '');
 
-/** Every section of the window, with its one-line summary and whether it differs from the default. */
+/** Every section of the window, with its one-line summary, what it is for, and how many of its settings differ from the default. */
 const settingsSections = (options: SyncOptions, multiSpeaker: boolean) => {
   const suggestions = [options.suggest && 'shorter', options.suggestLonger && 'fuller'].filter(Boolean);
+  const basicsChanged = [(!multiSpeaker && options.voicing !== 'lines'), options.precision !== 'phrase', options.preset !== 'natural'].filter(Boolean).length;
   return [
     {
       id: 'basics' as SettingsSection,
+      group: 'Setup',
+      icon: Settings2,
       title: 'Basics',
       summary: `${voicingLabel(options, multiSpeaker)} · ${precisionLabelOf(options)} · ${presetLabelOf(options)}`,
-      changed: (!multiSpeaker && options.voicing !== 'lines') || options.precision !== 'phrase' || options.preset !== 'natural',
+      description: 'How the dub is voiced, how close the timing has to be, and the line joins to start from.',
+      terms: 'voice voicing line by line continuous read narration precision phrase close-up loose line joins preset natural tight fit measure original',
+      changedCount: basicsChanged,
+    },
+    {
+      id: 'presets' as SettingsSection,
+      group: 'Setup',
+      icon: Bookmark,
+      title: 'My sync presets',
+      summary: 'Save, apply, import and export',
+      description: 'Save the settings you like, apply them to another dub, or share them as a file.',
+      terms: 'preset save apply import export file',
+      changedCount: 0,
     },
     ...JOIN_SECTIONS.map((s) => ({
       id: s.id as SettingsSection,
+      group: s.id === 'fit' || s.id === 'review' ? 'Fit and review' : 'Placement',
+      icon: JOIN_SECTION_ICONS[s.id],
       title: s.title,
       summary: joinSectionSummary(s.id, options),
-      changed: joinSectionChanged(s.id, options),
+      description: JOIN_SECTION_INFO[s.id].description,
+      terms: JOIN_SECTION_INFO[s.id].terms,
+      changedCount: joinSectionChangedCount(s.id, options),
     })),
     {
       id: 'suggestions' as SettingsSection,
+      group: 'Fit and review',
+      icon: PencilLine,
       title: 'Suggestions',
       summary: suggestions.length ? `Suggests ${suggestions.join(' and ')} lines` : 'Off',
-      changed: suggestions.length > 0,
+      description: 'Other wordings offered in Review for lines that run long or end early. Your script is never changed.',
+      terms: 'suggest shorter fuller wording reword',
+      changedCount: [options.suggest, options.suggestLonger].filter(Boolean).length,
     },
     {
       id: 'checks' as SettingsSection,
+      group: 'Fit and review',
+      icon: ShieldCheck,
       title: 'Extra checks',
       summary: options.verifyWords ? 'Verifies actual word timing' : 'Off',
-      changed: Boolean(options.verifyWords),
+      description: 'Checks only: the dub comes out the same with them on or off.',
+      terms: 'verify word timing alignment elevenlabs check',
+      changedCount: options.verifyWords ? 1 : 0,
     },
-    { id: 'presets' as SettingsSection, title: 'My sync presets', summary: 'Save, apply, import and export', changed: false },
-  ];
+  ]
+    // The order the list shows them in: setup, how lines are placed, then what happens when they don't fit.
+    .sort((a, b) => SECTION_ORDER.indexOf(a.id) - SECTION_ORDER.indexOf(b.id));
+};
+
+const SECTION_ORDER: SettingsSection[] = ['basics', 'presets', 'chunks', 'gaps', 'pauses', 'edges', 'grouping', 'fit', 'review', 'suggestions', 'checks'];
+
+const JOIN_SECTION_ICONS: Record<SyncJoinSection, typeof Settings2> = {
+  chunks: AudioWaveform,
+  gaps: MoveHorizontal,
+  pauses: Pause,
+  edges: TrendingDown,
+  fit: Timer,
+  grouping: Combine,
+  review: Flag,
+};
+
+/** "Phrase (±150 ms)" as a name and its detail, for the two-line buttons. */
+const splitLabel = (label: string) => {
+  const match = /^(.*?)\s*\((.*)\)$/.exec(label);
+  return match ? { name: match[1], detail: match[2] } : { name: label, detail: '' };
 };
 
 /**
- * Every sync setting, in a window of its own opened from the Dub step's rail:
- * a list of sections on the left, the chosen one on the right. Changes apply
- * as they are made, as they did in the rail, so the preview follows them.
+ * Every sync setting, in a window of its own opened from the Dub step's rail.
+ * It fills the screen: a grouped list of sections on the left, every one in
+ * view, the chosen one on the right, and what the sync will use in a row of
+ * chips along the top. Changes apply as they are made, so the preview follows them.
  */
 const SyncSettingsWindow: React.FC<{
   options: SyncOptions;
@@ -331,16 +414,38 @@ const SyncSettingsWindow: React.FC<{
   /** The values Fit to this video set, kept by the rail so they outlast the window. */
   fitted: Partial<SyncJoinSettings>;
   onFitted: (changes: Partial<SyncJoinSettings>) => void;
-  onSync: () => void;
+  /** Absent when the window is opened away from the Dub step: there is nothing to sync from there. */
+  onSync?: () => void;
   onClose: () => void;
 }> = ({ options, onOptionsChange, multiSpeaker, isSyncing, synced, blockedReason, previewShown, lineCount, fitSource, fitted, onFitted, onSync, onClose }) => {
   const [section, setSection] = useState<SettingsSection>('basics');
+  const [onlyChanged, setOnlyChanged] = useState(false);
+  const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const sections = settingsSections(options, multiSpeaker);
-  const current = sections.find((s) => s.id === section) ?? sections[0];
+  const changedSections = sections.filter((s) => s.changedCount > 0).length;
+  const needle = query.trim().toLowerCase();
+  const listed = sections.filter(
+    (s) =>
+      (!onlyChanged || s.changedCount > 0 || s.id === section) &&
+      (!needle || `${s.title} ${s.summary} ${s.description} ${s.terms}`.toLowerCase().includes(needle))
+  );
+  // A search that leaves the open section out opens the first section it finds.
+  const current = (needle && !listed.some((s) => s.id === section) ? listed[0] : undefined) ?? sections.find((s) => s.id === section) ?? sections[0];
   const measured = (id: SettingsSection) => id !== 'basics' && id !== 'suggestions' && id !== 'checks' && id !== 'presets' && joinSectionMeasured(id, fitted, options.join);
+  const fittedNow = JOIN_SECTIONS.some((s) => joinSectionMeasured(s.id, fitted, options.join));
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (document.activeElement === searchRef.current && searchRef.current?.value) setQuery('');
+        else onClose();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
@@ -353,23 +458,64 @@ const SyncSettingsWindow: React.FC<{
     });
   };
 
+  const open = (id: SettingsSection) => {
+    setQuery('');
+    setSection(id);
+  };
+
+  const resetSection = () => {
+    switch (current.id) {
+      case 'basics':
+        return onOptionsChange((o) => ({ ...o, voicing: 'lines', precision: 'phrase' }));
+      case 'suggestions':
+        return onOptionsChange((o) => ({ ...o, suggest: false, suggestLonger: false }));
+      case 'checks':
+        return onOptionsChange((o) => ({ ...o, verifyWords: false }));
+      case 'presets':
+        return;
+      default:
+        return onOptionsChange((o) => resetJoinSection(current.id as SyncJoinSection, o));
+    }
+  };
+  // Basics puts back the voicing and precision; the line joins are reset in their own sections or by Natural.
+  const resettable =
+    current.id === 'basics'
+      ? [(!multiSpeaker && options.voicing !== 'lines'), options.precision !== 'phrase'].filter(Boolean).length
+      : current.changedCount;
+
+  const chips: { label: string; value: string; to: SettingsSection; changed: boolean }[] = [
+    { label: 'Voice', value: voicingLabel(options, multiSpeaker), to: 'basics', changed: !multiSpeaker && options.voicing !== 'lines' },
+    { label: 'Precision', value: precisionLabelOf(options), to: 'basics', changed: options.precision !== 'phrase' },
+    { label: 'Line joins', value: presetLabelOf(options), to: 'basics', changed: options.preset !== 'natural' },
+    { label: 'Chunk sync', value: options.join.chunkSync ? 'On' : 'Off', to: 'chunks', changed: options.join.chunkSync !== SYNC_JOIN_PRESETS.natural.chunkSync },
+    { label: 'Late lines', value: options.timingProtection === 'strict' ? 'Strict' : 'Flagged', to: 'fit', changed: options.timingProtection === 'strict' },
+    {
+      label: 'Suggestions',
+      value: options.suggest || options.suggestLonger ? 'On' : 'Off',
+      to: 'suggestions',
+      changed: options.suggest || options.suggestLonger,
+    },
+    { label: 'Word check', value: options.verifyWords ? 'On' : 'Off', to: 'checks', changed: Boolean(options.verifyWords) },
+  ];
+
   const body = (() => {
-    switch (section) {
+    switch (current.id) {
       case 'basics':
         return (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-4">
             {fitSource && <FitCard source={fitSource} join={options.join} disabled={isSyncing} onApply={applyFit} />}
-            <fieldset className="flex flex-col gap-1.5" disabled={isSyncing}>
-              <legend className={`${sectionLabel} mb-1.5`}>How to voice</legend>
-              <div className="grid sm:grid-cols-2 gap-2">
+            <fieldset className="flex flex-col gap-2" disabled={isSyncing}>
+              <legend className={`${sectionLabel} mb-2`}>How to voice</legend>
+              <div className="grid lg:grid-cols-2 gap-3">
                 {VOICING_OPTIONS.map((o) => {
                   const off = o.id === 'continuous' && multiSpeaker;
                   const checked = multiSpeaker ? o.id === 'lines' : options.voicing === o.id;
+                  const Icon = o.id === 'lines' ? ListMusic : AudioWaveform;
                   return (
                     <label
                       key={o.id}
-                      className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 transition-colors ${
-                        checked ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-slate-800 hover:border-slate-700'
+                      className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${
+                        checked ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-slate-800 bg-slate-800/20 hover:border-slate-700'
                       } ${off ? 'opacity-50 cursor-default' : 'cursor-pointer'}`}
                     >
                       <input
@@ -378,15 +524,28 @@ const SyncSettingsWindow: React.FC<{
                         checked={checked}
                         disabled={off}
                         onChange={() => onOptionsChange((opts) => ({ ...opts, voicing: o.id }))}
-                        className="mt-0.5 accent-indigo-500"
+                        className="sr-only"
                       />
-                      <span>
-                        <span className="block text-[13px] text-slate-200">
+                      <span
+                        className={`w-9 h-9 shrink-0 rounded-[10px] flex items-center justify-center ${checked ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-950 text-slate-400'}`}
+                      >
+                        <Icon className="w-[18px] h-[18px]" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2 text-[13.5px] font-medium text-slate-100">
                           {o.label}
-                          {o.id === 'lines' && <span className="text-slate-500"> (default)</span>}
+                          {o.id === 'lines' && <span className="font-normal text-slate-500">default</span>}
+                          {checked && <Check className="w-4 h-4 ml-auto text-indigo-300" />}
                         </span>
                         <span className="block text-[11.5px] text-slate-400 mt-0.5">
                           {off ? 'For a dub in one voice. With several speakers each line is voiced on its own.' : o.detail}
+                        </span>
+                        <span className="flex flex-wrap gap-1.5 mt-2">
+                          {(o.id === 'lines' ? ['Any number of voices', 'Best timing'] : ['One voice only', 'Most natural flow']).map((tag) => (
+                            <span key={tag} className="px-1.5 py-px rounded-md bg-slate-800 text-[10.5px] text-slate-400">
+                              {tag}
+                            </span>
+                          ))}
                         </span>
                       </span>
                     </label>
@@ -394,171 +553,284 @@ const SyncSettingsWindow: React.FC<{
                 })}
               </div>
             </fieldset>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="sync-precision" className={sectionLabel}>
-                  Precision
-                </label>
-                <select
-                  id="sync-precision"
-                  value={options.precision}
-                  onChange={(e) => onOptionsChange((o) => ({ ...o, precision: e.target.value as SyncPrecision }))}
-                  disabled={isSyncing}
-                  className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
-                >
-                  {SYNC_PRECISION_OPTIONS.map((o) => (
-                    <option key={o.id} value={o.id} className="bg-slate-900">
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+            <SettingsCard title="Precision">
+              <div className="py-3 flex flex-col gap-2">
+                <div role="radiogroup" aria-label="Precision" className="flex gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                  {(['loose', 'phrase', 'lipsync'] as SyncPrecision[])
+                    .map((id) => SYNC_PRECISION_OPTIONS.find((o) => o.id === id))
+                    .filter((o): o is (typeof SYNC_PRECISION_OPTIONS)[number] => Boolean(o))
+                    .map((o) => {
+                      const { name, detail } = splitLabel(o.label);
+                      const on = options.precision === o.id;
+                      return (
+                        <button
+                          key={o.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={on}
+                          disabled={isSyncing}
+                          onClick={() => onOptionsChange((opts) => ({ ...opts, precision: o.id }))}
+                          className={`flex-1 rounded-lg px-2 py-2 text-center transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                            on ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-600' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+                          }`}
+                        >
+                          <span className="block text-[12.5px] font-medium">{name}</span>
+                          <span className="block text-[11px] text-slate-500 tabular-nums">
+                            {detail}
+                            {o.id === 'phrase' ? ' · default' : ''}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
                 {previewShown && <span className="text-[11.5px] text-slate-400">The preview updates when you change this.</span>}
               </div>
-              <JoinPresetPicker options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />
-            </div>
+            </SettingsCard>
+            <SettingsCard title="Line joins">
+              <div className="py-3">
+                <JoinPresetPicker options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} onShowChanged={() => setOnlyChanged(true)} />
+              </div>
+            </SettingsCard>
           </div>
         );
       case 'suggestions':
         return (
-          <div className="flex flex-col gap-4">
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={options.suggest}
-                disabled={isSyncing}
-                onChange={(e) => onOptionsChange((o) => ({ ...o, suggest: e.target.checked }))}
-                className="mt-0.5 accent-indigo-500"
-              />
-              <span>
-                <span className="block text-[13px] text-slate-200">Suggest shorter lines</span>
-                <span className="block text-[11.5px] text-slate-400 mt-0.5">For lines too long for the time the original line had. Your script is never changed.</span>
-              </span>
-            </label>
-            <label className="flex items-start gap-2.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={options.suggestLonger}
-                disabled={isSyncing}
-                onChange={(e) => onOptionsChange((o) => ({ ...o, suggestLonger: e.target.checked }))}
-                className="mt-0.5 accent-indigo-500"
-              />
-              <span>
-                <span className="block text-[13px] text-slate-200">Suggest fuller lines</span>
-                <span className="block text-[11.5px] text-slate-400 mt-0.5">
-                  For lines that end well before the original speaker stops. Same meaning, said in full. Your script is never changed.
-                </span>
-              </span>
-            </label>
-          </div>
+          <SettingsCard title="Suggest">
+            <SettingToggle
+              label="Suggest shorter lines"
+              hint="For lines too long for the time the original line had. Your script is never changed."
+              checked={options.suggest}
+              disabled={isSyncing}
+              onChange={(v) => onOptionsChange((o) => ({ ...o, suggest: v }))}
+            />
+            <SettingToggle
+              label="Suggest fuller lines"
+              hint="For lines that end well before the original speaker stops. Same meaning, said in full. Your script is never changed."
+              checked={options.suggestLonger}
+              disabled={isSyncing}
+              onChange={(v) => onOptionsChange((o) => ({ ...o, suggestLonger: v }))}
+            />
+          </SettingsCard>
         );
       case 'checks':
         return (
-          <label className="flex items-start gap-2.5 cursor-pointer">
-            <input type="checkbox" checked={Boolean(options.verifyWords)} disabled={isSyncing} className="mt-0.5 accent-indigo-500"
-              onChange={(e) => onOptionsChange((o) => ({ ...o, verifyWords: e.target.checked }))} />
-            <span><span className="block text-[13px] text-slate-200">Verify actual word timing</span>
-              <span className="block text-[11.5px] text-slate-400 mt-0.5">Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.</span>
-              {lineCount ? (
-                <span className={`block text-[11.5px] mt-0.5 ${options.verifyWords ? 'text-indigo-300' : 'text-slate-500'}`}>
-                  About {lineCount} alignment request{lineCount === 1 ? '' : 's'} for this dub, one per line.
-                </span>
-              ) : null}
-            </span>
-          </label>
+          <SettingsCard title="Word timing">
+            <SettingToggle
+              label="Verify actual word timing"
+              hint={
+                <>
+                  Only checks: the dub comes out the same with it on or off. Uses ElevenLabs alignment for each line, including Cartesia dubs. Adds
+                  requests and processing time; requires an ElevenLabs key. Checks spoken timing and cue boundaries, not mouth movements.
+                  {lineCount ? (
+                    <span className={`block mt-1 ${options.verifyWords ? 'text-indigo-300' : 'text-slate-500'}`}>
+                      About {lineCount} alignment request{lineCount === 1 ? '' : 's'} for this dub, one per line.
+                    </span>
+                  ) : null}
+                </>
+              }
+              checked={Boolean(options.verifyWords)}
+              disabled={isSyncing}
+              onChange={(v) => onOptionsChange((o) => ({ ...o, verifyWords: v }))}
+            />
+          </SettingsCard>
         );
       case 'presets':
         return <SyncPresetLibrary options={options} onChange={onOptionsChange} normalize={readOptions} disabled={isSyncing} />;
       default:
-        return <SyncJoinSectionControls section={section} options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />;
+        return (
+          <div className="flex flex-col gap-3">
+            <SyncSettingsDiagram section={current.id as SyncJoinSection} options={options} />
+            <SyncJoinSectionControls section={current.id as SyncJoinSection} options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />
+          </div>
+        );
     }
   })();
 
   // On the page itself, not in the rail: the sticky rail would keep it under the timeline's markers.
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-stretch justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="sync-settings-title"
-        className="w-full max-w-[56rem] min-h-full sm:min-h-0 sm:my-auto sm:h-[min(44rem,calc(100vh-3rem))] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
+        className="w-full max-w-[90rem] h-full flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
-          <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
+        <div className="flex items-center gap-3.5 px-4 sm:px-5 py-3 border-b border-slate-800 shrink-0">
+          <div className="w-[38px] h-[38px] rounded-[10px] bg-indigo-500/15 text-indigo-300 flex items-center justify-center shrink-0" aria-hidden="true">
             <SlidersHorizontal className="w-[18px] h-[18px]" />
           </div>
           <div className="min-w-0 flex-1">
             <h2 id="sync-settings-title" className="text-lg font-semibold text-slate-100 leading-tight">
               Sync settings
             </h2>
-            <p className="text-[12.5px] text-slate-400 mt-0.5">
+            <p className="text-[12.5px] text-slate-400 mt-0.5 truncate">
               {isSyncing ? 'Locked while the dub syncs.' : 'How each line is placed. Changes apply as you make them, for the next sync.'}
             </p>
           </div>
+          <label className="hidden sm:flex items-center gap-2 h-9 w-64 px-2.5 rounded-lg border border-slate-700 bg-slate-950 text-slate-500 focus-within:border-indigo-500">
+            <Search className="w-4 h-4 shrink-0" />
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Find a setting"
+              aria-label="Find a setting"
+              className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-200 placeholder:text-slate-500 focus:outline-none"
+            />
+            {!query && <span className="text-[10.5px] px-1 rounded border border-slate-700">Ctrl F</span>}
+          </label>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[16rem_minmax(0,1fr)]">
+        <div className="shrink-0 flex items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-slate-800 bg-slate-950/40 overflow-x-auto [scrollbar-width:none]">
+          {chips.map((chip) => (
+            <button
+              key={chip.label}
+              type="button"
+              onClick={() => open(chip.to)}
+              title={`Open ${sections.find((s) => s.id === chip.to)?.title}`}
+              className={`shrink-0 flex items-center gap-1.5 h-7 px-2.5 rounded-lg border bg-slate-900 text-[12px] text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors cursor-pointer ${
+                chip.changed ? 'border-amber-400/35' : 'border-slate-700/80'
+              }`}
+            >
+              {chip.label} <span className="text-slate-100 font-medium">{chip.value}</span>
+              {chip.changed && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+            </button>
+          ))}
+          {fittedNow && (
+            <span title="Set by Fit to this video" className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg bg-indigo-500/15 text-[12px] text-indigo-300">
+              <Ruler className="w-3.5 h-3.5" /> Fitted
+            </span>
+          )}
+          <span className="flex-1" />
+          {fitSource && current.id !== 'basics' && (
+            <button
+              type="button"
+              onClick={() => open('basics')}
+              className="shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-lg border border-indigo-500/45 bg-indigo-500/10 text-[12px] text-indigo-200 hover:bg-indigo-500/20 transition-colors cursor-pointer"
+            >
+              <Ruler className="w-3.5 h-3.5" /> Fit to this video
+            </button>
+          )}
+        </div>
+
+        <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)]">
           <nav
             aria-label="Sync settings sections"
-            className="shrink-0 flex md:flex-col gap-0.5 p-2 md:p-3 overflow-x-auto md:overflow-y-auto border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/40"
+            className="shrink-0 flex md:flex-col gap-0.5 p-2 md:px-2.5 md:py-2 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto [scrollbar-width:thin] border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/40"
           >
-            {sections.map((s, n) => (
-              <React.Fragment key={s.id}>
-                {(n === 1 || s.id === 'suggestions') && <span className="hidden md:block my-1.5 border-t border-slate-800" aria-hidden="true" />}
-                <button
-                  type="button"
-                  onClick={() => setSection(s.id)}
-                  aria-current={section === s.id ? 'true' : undefined}
-                  className={`shrink-0 md:w-full text-left rounded-lg px-2.5 py-1.5 md:py-2 transition-colors cursor-pointer ${
-                    section === s.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5 text-[13px] font-medium whitespace-nowrap">
-                    {s.title}
+            {onlyChanged && (
+              <div className="hidden md:flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-amber-400/10 text-[11.5px] text-amber-200 shrink-0">
+                Changed sections only
+                <button type="button" onClick={() => setOnlyChanged(false)} className="text-amber-100 underline underline-offset-2 cursor-pointer">
+                  Show all
+                </button>
+              </div>
+            )}
+            {listed.length === 0 && <p className="px-2 py-6 text-center text-[12px] text-slate-500">No setting matches “{query.trim()}”.</p>}
+            {listed.map((s, n) => {
+              const Icon = s.icon;
+              const on = current.id === s.id;
+              return (
+                <React.Fragment key={s.id}>
+                  {(n === 0 || listed[n - 1].group !== s.group) && (
+                    <span className="hidden md:block px-2 pt-1.5 pb-0.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{s.group}</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => open(s.id)}
+                    aria-current={on ? 'true' : undefined}
+                    className={`shrink-0 md:w-full flex items-center gap-2.5 text-left rounded-lg px-2 py-[3px] border transition-colors cursor-pointer ${
+                      on ? 'bg-slate-800 border-slate-700 text-slate-100' : 'border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                    }`}
+                  >
+                    <span
+                      className={`hidden md:flex w-6 h-6 shrink-0 rounded-md items-center justify-center ${on ? 'bg-indigo-500/15 text-indigo-300' : 'bg-slate-900 text-slate-500'}`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[13px] font-medium whitespace-nowrap md:truncate leading-tight">{s.title}</span>
+                      <span className="hidden md:block text-[11px] text-slate-500 truncate leading-tight mt-0.5">{s.summary}</span>
+                    </span>
                     {measured(s.id) && (
-                      <span title="Set by Fit to this video" className="px-1.5 py-px rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-medium">
+                      <span title="Set by Fit to this video" className="hidden lg:inline px-1.5 py-px rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-medium">
                         measured
                       </span>
                     )}
-                    {s.changed && <span title="Changed from the default" className="ml-auto w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />}
-                  </span>
-                  <span className="hidden md:block text-[11px] text-slate-500 truncate">{s.summary}</span>
-                </button>
-              </React.Fragment>
-            ))}
+                    {s.changedCount > 0 && (
+                      <span title={`${s.changedCount} changed from the default`} className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                    )}
+                  </button>
+                </React.Fragment>
+              );
+            })}
           </nav>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-5">
-            <div className="mb-4">
-              <h3 className="text-[15px] font-semibold text-slate-100">{current.title}</h3>
-              <p className="text-[12px] text-slate-500 mt-0.5">{current.summary}</p>
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-7 py-5">
+            <div className="max-w-[64rem]">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-[17px] font-semibold text-slate-100">{current.title}</h3>
+                  <p className="text-[12.5px] text-slate-400 mt-0.5">{current.description}</p>
+                  <p className="text-[11.5px] text-slate-500 mt-1">{current.summary}</p>
+                </div>
+                {resettable > 0 && (
+                  <button
+                    type="button"
+                    onClick={resetSection}
+                    disabled={isSyncing}
+                    className="shrink-0 flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> {current.id === 'basics' ? 'Reset voicing and precision' : `Reset this section (${resettable})`}
+                  </button>
+                )}
+              </div>
+              <div className={isSyncing ? 'opacity-60' : ''}>{body}</div>
             </div>
-            <div className={isSyncing ? 'opacity-60' : ''}>{body}</div>
           </div>
         </div>
 
-        <div className="shrink-0 flex flex-wrap items-center gap-2 px-5 sm:px-6 py-3.5 border-t border-slate-800 bg-slate-950/60">
+        <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3 border-t border-slate-800 bg-slate-950/60">
           <button
             type="button"
             onClick={() => onOptionsChange(defaultSyncOptions())}
             disabled={isSyncing || isDefaultOptions(options)}
             title={isDefaultOptions(options) ? 'Already on the default settings' : 'Line by line, phrase precision, Natural line joins, no suggestions'}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-lg text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-800 text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
-            <RotateCcw className="w-3.5 h-3.5" /> Reset to defaults
+            <RotateCcw className="w-3.5 h-3.5" /> Reset all to defaults
+          </button>
+          <button
+            type="button"
+            onClick={() => setOnlyChanged(changedSections > 0 && !onlyChanged)}
+            className={`hidden sm:flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] transition-colors cursor-pointer ${
+              changedSections ? 'bg-amber-400/10 text-amber-200 hover:bg-amber-400/15' : 'text-slate-500'
+            }`}
+          >
+            {changedSections ? (
+              <>
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                {changedSections} {changedSections === 1 ? 'section' : 'sections'} changed{onlyChanged ? ' · show all' : ''}
+              </>
+            ) : (
+              'All on the defaults'
+            )}
           </button>
           {blockedReason && !isSyncing && <span className="text-[11.5px] text-amber-300">{blockedReason}</span>}
           <span className="flex-1" />
+          {previewShown && <span className="hidden lg:inline text-[11.5px] text-slate-500">The preview follows your changes.</span>}
           <button
             type="button"
             onClick={onClose}
@@ -566,7 +838,7 @@ const SyncSettingsWindow: React.FC<{
           >
             Done
           </button>
-          {!isSyncing && (
+          {!isSyncing && onSync && (
             <button
               type="button"
               onClick={() => {
@@ -584,6 +856,35 @@ const SyncSettingsWindow: React.FC<{
       </section>
     </div>,
     document.body
+  );
+};
+
+/**
+ * The Sync settings window on its own, for the header's Tools and settings
+ * menu away from the Dub step: the same window and settings, for this
+ * project or, before there is one, for the next. Fit to this video and the
+ * Sync button stay in the Dub step, where there is a dub to measure and sync.
+ */
+export const SyncSettingsDialog: React.FC<{
+  options: SyncOptions;
+  onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
+  multiSpeaker?: boolean;
+  isSyncing?: boolean;
+  onClose: () => void;
+}> = ({ options, onOptionsChange, multiSpeaker = false, isSyncing = false, onClose }) => {
+  const [fitted, setFitted] = useState<Partial<SyncJoinSettings>>({});
+  return (
+    <SyncSettingsWindow
+      options={options}
+      onOptionsChange={onOptionsChange}
+      multiSpeaker={multiSpeaker}
+      isSyncing={isSyncing}
+      synced={false}
+      previewShown={false}
+      fitted={fitted}
+      onFitted={setFitted}
+      onClose={onClose}
+    />
   );
 };
 
@@ -612,12 +913,20 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   multiSpeaker = false,
   fitSource,
   lineCount,
+  openRequest = 0,
 }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Only a request made while the rail is on screen opens it, not one left from before the Dub step.
+  const seenOpenRequest = useRef(openRequest);
+  useEffect(() => {
+    if (openRequest === seenOpenRequest.current) return;
+    seenOpenRequest.current = openRequest;
+    setSettingsOpen(true);
+  }, [openRequest]);
   const closeSettings = useCallback(() => setSettingsOpen(false), []);
   /** The values Fit to this video set; a section is marked measured while it still holds one. */
   const [fitted, setFitted] = useState<Partial<SyncJoinSettings>>({});
-  const changed = settingsSections(options, multiSpeaker).filter((s) => s.changed).length;
+  const changed = settingsSections(options, multiSpeaker).filter((s) => s.changedCount > 0).length;
   const fittedNow = JOIN_SECTIONS.some((s) => joinSectionMeasured(s.id, fitted, options.join));
   const chips = [
     voicingLabel(options, multiSpeaker),

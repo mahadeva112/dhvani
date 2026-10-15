@@ -96,7 +96,7 @@ import { CustomScriptAlignModal } from './CustomScriptAlignModal';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
-import { SyncResultsPanel, SyncSettingsPanel, SyncVerdictBadge, useSyncOptions } from './SyncPanel';
+import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncVerdictBadge, useSyncOptions } from './SyncPanel';
 import {
   distributeLineText,
   expertPreview,
@@ -407,6 +407,8 @@ interface ExpressDubWizardProps {
   onSyncDub?: (options: SyncOptions) => void;
   /** The Dub step's sync settings changed, for the project they belong to. */
   onSyncOptionsChange?: (projectId: string, options: SyncOptions) => void;
+  /** Raised by Sync settings in the header's menu: each new value opens the Sync settings window. */
+  syncSettingsRequest?: number;
   /** Edit timing: the synced dub's lines changed by hand, with a name for the change. Omitted hides Edit timing. */
   onSyncEditsChange?: (edits: SyncEdits, label: string) => void;
   /** Whether the synced dub has caught up with the edits. */
@@ -550,6 +552,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onElVoiceSettingsChange,
   onSyncDub,
   onSyncOptionsChange,
+  syncSettingsRequest = 0,
   onSyncEditsChange,
   syncEditStatus = { state: 'ready' },
   syncEditLive = false,
@@ -891,6 +894,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Several speakers: who they are, labels that look like slips, and where two talk at once.
   const speakers = useMemo(() => listSpeakers(segments), [segments]);
   const multiSpeaker = useMemo(() => isMultiSpeaker(segments), [segments]);
+  // Sync settings from the header's menu: the Dub step's rail opens its own window, with Fit and Sync; any other step opens it on its own.
+  const onDubStep = activeStep === 3 && Boolean(activeJob);
+  const [syncSettingsAlone, setSyncSettingsAlone] = useState(false);
+  const seenSyncSettingsRequest = useRef(syncSettingsRequest);
+  useEffect(() => {
+    if (syncSettingsRequest === seenSyncSettingsRequest.current) return;
+    seenSyncSettingsRequest.current = syncSettingsRequest;
+    if (!onDubStep) setSyncSettingsAlone(true);
+  }, [syncSettingsRequest, onDubStep]);
   const speakerSlips = useMemo(() => {
     if (!multiSpeaker) return new Map<string, SpeakerSlip>();
     const slips = likelySlips(segments);
@@ -4038,6 +4050,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 extras={dubExtras}
                 onDownloadWav={report ? onDownloadWav : undefined}
                 onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
+                openRequest={syncSettingsRequest}
                 fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && rateBasis !== 'typical', rateSample: !multiSpeaker && rateBasis === 'sample', speakerRates: fitRates }}
                 subtitles={
                   report && syncedCues && syncedCues.length > 0 && (
@@ -4071,6 +4084,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         </div>
         );
       })()}
+
+      {syncSettingsAlone && !onDubStep && (
+        <SyncSettingsDialog
+          options={syncOptions}
+          onOptionsChange={setSyncOptions}
+          multiSpeaker={multiSpeaker}
+          isSyncing={isSyncing}
+          onClose={() => setSyncSettingsAlone(false)}
+        />
+      )}
 
       {/* The voice library over any step: the main voice, or one speaker's from the cast */}
       {isVoicePickerOpen && (

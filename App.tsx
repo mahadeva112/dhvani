@@ -361,6 +361,8 @@ export default function App() {
   const [isVoiceChangerOpen, setIsVoiceChangerOpen] = useState<boolean>(false);
   const [isTextToSpeechOpen, setIsTextToSpeechOpen] = useState<boolean>(false);
   const [isPauseSensitivityOpen, setIsPauseSensitivityOpen] = useState<boolean>(false);
+  /** Bumped by Sync settings in the header's menu; the wizard opens the window on each new value. */
+  const [syncSettingsRequest, setSyncSettingsRequest] = useState(0);
   /** API & translation engine dialog, opened from the header's API Settings button. */
   const [isApiSettingsOpen, setIsApiSettingsOpen] = useState<boolean>(false);
 
@@ -3102,6 +3104,7 @@ export default function App() {
         onOpenVoiceChanger={() => setIsVoiceChangerOpen(true)}
         onOpenTextToSpeech={() => setIsTextToSpeechOpen(true)}
         onOpenPauseSensitivity={() => setIsPauseSensitivityOpen(true)}
+        onOpenSyncSettings={() => setSyncSettingsRequest((n) => n + 1)}
         pauseSensitivity={activeJob?.analysisSensitivity ?? 50}
         projects={queue}
         onSelectProject={handleSelectJob}
@@ -3193,6 +3196,7 @@ export default function App() {
           onStepChange={handleStepChange}
           activeJob={activeJob}
           onSyncOptionsChange={(projectId, options) => updateJob(projectId, { syncOptions: options })}
+          syncSettingsRequest={syncSettingsRequest}
           onFileSelect={handleFilesUpload}
           onLoadSampleSession={handleLoadSampleSession}
           targetLanguage={activeJob?.language || selectedLanguage}

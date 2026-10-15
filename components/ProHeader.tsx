@@ -99,6 +99,8 @@ export interface ProHeaderProps {
   /** Opens the standalone text-to-speech studio. */
   onOpenTextToSpeech?: () => void;
   onOpenPauseSensitivity?: () => void;
+  /** Opens the Sync settings window: how each dub line is placed. */
+  onOpenSyncSettings?: () => void;
   pauseSensitivity?: number;
   onResetSession?: () => void;
   /** Opens Your projects, the full list. */
@@ -275,6 +277,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   onOpenVoiceChanger,
   onOpenTextToSpeech,
   onOpenPauseSensitivity,
+  onOpenSyncSettings,
   pauseSensitivity = 50,
   onResetSession,
   onOpenQueue,
@@ -755,7 +758,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                   </>
                 )}
 
-                {(onOpenApiSettings || onOpenSettings || onOpenCustomPrompt) && (
+                {(onOpenApiSettings || onOpenSettings || onOpenCustomPrompt || onOpenSyncSettings) && (
                   <>
                     <MenuHeading>Settings</MenuHeading>
                     {onOpenApiSettings && (
@@ -772,6 +775,14 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                         label="Voice settings"
                         hint={voiceSummary || 'ElevenLabs voice engine'}
                         onClick={runAndClose(onOpenSettings)}
+                      />
+                    )}
+                    {onOpenSyncSettings && (
+                      <MenuItem
+                        icon={<SlidersHorizontal className="w-4 h-4" />}
+                        label="Sync settings"
+                        hint="How each dub line is placed"
+                        onClick={runAndClose(onOpenSyncSettings)}
                       />
                     )}
                     {onOpenCustomPrompt && (

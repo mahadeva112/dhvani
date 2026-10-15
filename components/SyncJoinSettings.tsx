@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Check, Loader2, Ruler, X } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Check, ChevronRight, Loader2, RotateCcw, Ruler, X } from 'lucide-react';
 import {
   fitJoinSettings,
   SYNC_JOIN_PRESETS,
@@ -56,8 +56,51 @@ export const readJoinSettings = (saved: unknown): SyncJoinSettings => {
 };
 
 const ChangesAudio = () => (
-  <span className="ml-1.5 px-1.5 py-px rounded-md bg-amber-500/15 text-amber-300 text-[10.5px] font-medium align-middle">Changes audio</span>
+  <span className="px-1.5 py-px rounded-md bg-amber-500/15 text-amber-300 text-[10.5px] font-medium">Changes audio</span>
 );
+
+const UsesAlignment = () => (
+  <span
+    title="Uses ElevenLabs forced alignment: one request per line, and an ElevenLabs key"
+    className="px-1.5 py-px rounded-md bg-indigo-500/15 text-indigo-300 text-[10.5px] font-medium"
+  >
+    Uses alignment
+  </span>
+);
+
+type Badge = 'audio' | 'alignment';
+const Badges: React.FC<{ badge?: Badge }> = ({ badge }) =>
+  badge === 'audio' ? <ChangesAudio /> : badge === 'alignment' ? <UsesAlignment /> : null;
+
+/** Puts one setting back to its default; shown only while it differs. */
+const ResetOne: React.FC<{ show: boolean; label: string; onClick: () => void }> = ({ show, label, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={`Back to the default: ${label}`}
+    aria-label={`Back to the default: ${label}`}
+    tabIndex={show ? 0 : -1}
+    className={`w-6 h-6 shrink-0 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer ${
+      show ? '' : 'invisible'
+    }`}
+  >
+    <RotateCcw className="w-3.5 h-3.5" />
+  </button>
+);
+
+/** A setting's name and what it does, on the left of its row. */
+const RowText: React.FC<{ htmlFor: string; label: React.ReactNode; hint?: React.ReactNode; badge?: Badge }> = ({ htmlFor, label, hint, badge }) => (
+  <div className="min-w-0">
+    <label htmlFor={htmlFor} className="flex flex-wrap items-center gap-1.5 text-[13px] text-slate-200 cursor-pointer">
+      {label}
+      <Badges badge={badge} />
+    </label>
+    {hint && <span className="block text-[11.5px] text-slate-400 mt-0.5">{hint}</span>}
+  </div>
+);
+
+const rowClass = (disabled?: boolean) =>
+  `grid gap-x-6 gap-y-2 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(15rem,21rem)] lg:items-center transition-opacity ${disabled ? 'opacity-45' : ''}`;
 
 const Slider: React.FC<{
   id: string;
@@ -67,45 +110,140 @@ const Slider: React.FC<{
   max: number;
   step: number;
   format: (value: number) => string;
-  hint?: string;
+  hint?: React.ReactNode;
   disabled?: boolean;
+  /** The default, marked on the track; the setting can be put back to it. */
+  def?: number;
+  badge?: Badge;
   onChange: (value: number) => void;
-}> = ({ id, label, value, min, max, step, format, hint, disabled, onChange }) => (
-  <div className="flex flex-col gap-1">
-    <label htmlFor={id} className="flex items-baseline justify-between gap-2 text-[13px] text-slate-200">
-      <span>{label}</span>
-      <span className="tabular-nums text-indigo-300 text-[12.5px]">{format(value)}</span>
-    </label>
-    <input
-      id={id}
-      type="range"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="w-full accent-indigo-500 cursor-pointer disabled:cursor-not-allowed"
-    />
-    {hint && <span className="text-[11.5px] text-slate-400">{hint}</span>}
+}> = ({ id, label, value, min, max, step, format, hint, disabled, def, badge, onChange }) => {
+  const changed = def !== undefined && value !== def;
+  const at = def === undefined ? 0 : Math.min(1, Math.max(0, (def - min) / (max - min || 1)));
+  return (
+    <div className={rowClass(disabled)}>
+      <RowText htmlFor={id} label={label} hint={hint} badge={badge} />
+      <div className="flex items-center gap-2.5">
+        <span className="relative flex-1 flex items-center">
+          <input
+            id={id}
+            type="range"
+            min={min}
+            max={max}
+            step={step}
+            value={value}
+            disabled={disabled}
+            onChange={(e) => onChange(Number(e.target.value))}
+            className="w-full accent-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+          />
+          {def !== undefined && (
+            <span
+              aria-hidden="true"
+              title={`Default: ${format(def)}`}
+              className="absolute -top-1 w-0.5 h-1.5 rounded-full bg-slate-500"
+              style={{ left: `calc(${at * 100}% + ${(0.5 - at) * 14}px - 1px)` }}
+            />
+          )}
+        </span>
+        <span
+          className={`min-w-[4.5rem] h-7 px-1.5 flex items-center justify-center rounded-md border bg-slate-950 tabular-nums text-[12px] ${
+            changed ? 'border-amber-400/40 text-amber-200' : 'border-slate-700 text-slate-300'
+          }`}
+        >
+          {format(value)}
+        </span>
+        <ResetOne show={changed && !disabled} label={def === undefined ? '' : format(def)} onClick={() => def !== undefined && onChange(def)} />
+      </div>
+    </div>
+  );
+};
+
+const Toggle: React.FC<{
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  checked: boolean;
+  disabled?: boolean;
+  def?: boolean;
+  badge?: Badge;
+  onChange: (checked: boolean) => void;
+}> = ({ label, hint, checked, disabled, def, badge, onChange }) => {
+  const id = useId();
+  const changed = def !== undefined && checked !== def;
+  return (
+    <div className={`flex items-start gap-4 py-3 transition-opacity ${disabled ? 'opacity-45' : ''}`}>
+      <div className="flex-1 min-w-0">
+        <RowText htmlFor={id} label={label} hint={hint} badge={badge} />
+      </div>
+      <div className="flex items-center gap-2.5 shrink-0 pt-0.5">
+        <button
+          id={id}
+          type="button"
+          role="switch"
+          aria-checked={checked}
+          disabled={disabled}
+          onClick={() => onChange(!checked)}
+          className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer disabled:cursor-not-allowed ${checked ? 'bg-indigo-500' : 'bg-slate-700'}`}
+        >
+          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-slate-100 transition-transform ${checked ? 'translate-x-4' : ''}`} />
+        </button>
+        <ResetOne show={changed && !disabled} label={def ? 'On' : 'Off'} onClick={() => def !== undefined && onChange(def)} />
+      </div>
+    </div>
+  );
+};
+
+/** A setting picked from a short list, laid out as a row like the sliders. */
+const SelectRow: React.FC<{
+  id: string;
+  label: React.ReactNode;
+  hint?: React.ReactNode;
+  badge?: Badge;
+  value: string | number;
+  disabled?: boolean;
+  /** Shown while the value differs from the default, to put it back. */
+  reset?: { show: boolean; label: string; onClick: () => void };
+  onChange: (value: string) => void;
+  children: React.ReactNode;
+}> = ({ id, label, hint, badge, value, disabled, reset, onChange, children }) => (
+  <div className={rowClass(disabled)}>
+    <RowText htmlFor={id} label={label} hint={hint} badge={badge} />
+    <div className="flex items-center gap-2.5">
+      <select
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        className="flex-1 min-w-0 h-9 bg-slate-950 border border-slate-700 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+      >
+        {children}
+      </select>
+      <ResetOne show={Boolean(reset?.show) && !disabled} label={reset?.label ?? ''} onClick={() => reset?.onClick()} />
+    </div>
   </div>
 );
 
-const Toggle: React.FC<{ label: string; hint?: string; checked: boolean; disabled?: boolean; onChange: (checked: boolean) => void }> = ({
-  label,
-  hint,
-  checked,
-  disabled,
-  onChange,
-}) => (
-  <label className="flex items-start gap-2.5 cursor-pointer">
-    <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 accent-indigo-500" />
-    <span>
-      <span className="block text-[13px] text-slate-200">{label}</span>
-      {hint && <span className="block text-[11.5px] text-slate-400 mt-0.5">{hint}</span>}
-    </span>
-  </label>
-);
+/** A titled group of settings in a section. An advanced group starts folded. */
+export const SettingsCard: React.FC<{ title: string; advanced?: boolean; changed?: boolean; children: React.ReactNode }> = ({
+  title,
+  advanced,
+  changed,
+  children,
+}) =>
+  advanced ? (
+    <details className="group rounded-xl border border-slate-800 bg-slate-800/20">
+      <summary className="flex items-center gap-2 px-4 py-2.5 list-none cursor-pointer text-[12px] font-semibold text-slate-300 hover:text-slate-100 [&::-webkit-details-marker]:hidden">
+        <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
+        {title}
+        <span className="font-normal text-slate-500">· advanced</span>
+        {changed && <span title="Changed from the default" className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+      </summary>
+      <div className="px-4 border-t border-slate-800 divide-y divide-slate-800/70">{children}</div>
+    </details>
+  ) : (
+    <div className="rounded-xl border border-slate-800 bg-slate-800/20">
+      <div className="px-4 py-2.5 border-b border-slate-800 text-[12px] font-semibold text-slate-300">{title}</div>
+      <div className="px-4 divide-y divide-slate-800/70">{children}</div>
+    </div>
+  );
 
 /** What Fit to this video measures from: the cues, and the dub's speaking rate. */
 export interface SyncFitSource {
@@ -307,48 +445,118 @@ export const joinSectionSummary = (section: SyncJoinSection, options: SyncOption
   }
 };
 
-/** True when a section's settings differ from Natural, the default. */
-export const joinSectionChanged = (section: SyncJoinSection, options: SyncOptions) =>
-  SECTION_KEYS[section].some((key) => options.join[key] !== SYNC_JOIN_PRESETS.natural[key]) ||
-  (section === 'fit' && options.timingProtection === 'strict');
-
 /** True while a section still holds a value Fit to this video set. */
 export const joinSectionMeasured = (section: SyncJoinSection, fitted: Partial<SyncJoinSettings>, join: SyncJoinSettings) =>
   section in GROUP_KEYS && GROUP_KEYS[section as keyof typeof GROUP_KEYS].some((key) => key in fitted && fitted[key] === join[key]);
+
+/** How many of a section's settings differ from Natural, the default. */
+export const joinSectionChangedCount = (section: SyncJoinSection, options: SyncOptions) =>
+  SECTION_KEYS[section].filter((key) => options.join[key] !== SYNC_JOIN_PRESETS.natural[key]).length +
+  (section === 'fit' && options.timingProtection === 'strict' ? 1 : 0);
+
+/** A section's settings put back to Natural, the default; the others stay as they are. */
+export const resetJoinSection = (section: SyncJoinSection, options: SyncOptions): SyncOptions => {
+  const join = { ...options.join };
+  SECTION_KEYS[section].forEach((key) => {
+    (join as Record<string, unknown>)[key] = SYNC_JOIN_PRESETS.natural[key];
+  });
+  return {
+    ...options,
+    join,
+    preset: joinPresetOf(join),
+    ...(section === 'fit' ? { timingProtection: 'warn' as const } : {}),
+  };
+};
+
+/** What each section is for, under its title, and the words a search of the window finds it by. */
+export const JOIN_SECTION_INFO: Record<SyncJoinSection, { description: string; terms: string }> = {
+  chunks: {
+    description: "Splits each dub line where it goes quiet and places every chunk on the original's words. The voice is never stretched.",
+    terms: 'chunks split word timing alignment read faster fastest speed pauses comma sentence threshold hysteresis slice silence pad reaper samanvaya',
+  },
+  gaps: {
+    description: 'The silence between one line and the next, long pauses that stay clear, and what happens to breaths there.',
+    terms: 'minimum gap speaker change original pause protect long pauses breaths breath reduction',
+  },
+  pauses: {
+    description: 'Pauses the original never made are cut, and when a line runs long its silence is taken out. Words are never cut.',
+    terms: 'pause original shorten shortest kept tighten silences room tone around words cut word timing alignment splice crossfade',
+  },
+  edges: {
+    description: 'Where a line counts as finished, so the next one can start, and a fade for a line that stops abruptly.',
+    terms: 'tail decay hold fade abrupt edge',
+  },
+  fit: {
+    description: 'What Sync does with a line too long for its time, and how late it may start before it is flagged or held.',
+    terms: 'late start latest strict warn timing protection locked',
+  },
+  grouping: {
+    description: 'Close cues by the same speaker are voiced as one line, so the voice flows across them.',
+    terms: 'join cues group longest joined line unit',
+  },
+  review: {
+    description: 'What is listed under Worth a listen after a sync.',
+    terms: 'flag joins tight review',
+  },
+};
 
 /** The line-join preset: picking one fills in every join setting; changing any setting makes it Custom. */
 export const JoinPresetPicker: React.FC<{
   options: SyncOptions;
   onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
   disabled?: boolean;
-}> = ({ options, onOptionsChange, disabled }) => {
+  /** Lists only the sections changed from the default, from the note under Custom. */
+  onShowChanged?: () => void;
+}> = ({ options, onOptionsChange, disabled, onShowChanged }) => {
   const pickPreset = (preset: SyncJoinPreset) =>
     onOptionsChange((o) => (preset === 'custom' ? { ...o, preset } : { ...o, preset, join: { ...SYNC_JOIN_PRESETS[preset] } }));
   const hint = SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint;
   return (
-    <div className="flex flex-col gap-1.5">
-      <label htmlFor="sync-join-preset" className={sectionLabel}>
-        Line joins
-      </label>
-      <select
-        id="sync-join-preset"
-        value={options.preset}
-        onChange={(e) => pickPreset(e.target.value as SyncJoinPreset)}
-        disabled={disabled}
-        className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
-      >
-        {SYNC_JOIN_PRESET_OPTIONS.map((p) => (
-          <option key={p.id} value={p.id} className="bg-slate-900">
-            {p.label}
-          </option>
-        ))}
-      </select>
-      {hint && <span className="text-[11.5px] text-slate-400">{hint}</span>}
+    <div className="flex flex-col gap-2">
+      <div role="radiogroup" aria-label="Line joins" className="grid grid-cols-2 lg:grid-cols-4 gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+        {SYNC_JOIN_PRESET_OPTIONS.map((p) => {
+          const match = /^(.*?)\s*\((.*)\)$/.exec(p.label);
+          const on = options.preset === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              disabled={disabled}
+              title={p.hint}
+              onClick={() => pickPreset(p.id)}
+              className={`rounded-lg px-2 py-2 text-center transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                on ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-600' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+              }`}
+            >
+              <span className="block text-[12.5px] font-medium">{match ? match[1] : p.label}</span>
+              <span className="block text-[11px] text-slate-500 truncate">{match ? match[2] : p.id === 'custom' ? 'your settings' : ' '}</span>
+            </button>
+          );
+        })}
+      </div>
+      {hint && (
+        <span className="text-[11.5px] text-slate-400">
+          {hint}
+          {options.preset === 'custom' && onShowChanged && (
+            <>
+              {' '}
+              <button type="button" onClick={onShowChanged} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-pointer">
+                Show what changed
+              </button>
+            </>
+          )}
+        </span>
+      )}
     </div>
   );
 };
 
-/** The settings of one join section. Changing any of them makes the preset Custom. */
+/** One on/off setting, laid out as the join sections lay theirs out. */
+export const SettingToggle = Toggle;
+
+/** The settings of one join section, in titled groups. Changing any of them makes the preset Custom. */
 export const SyncJoinSectionControls: React.FC<{
   section: SyncJoinSection;
   options: SyncOptions;
@@ -356,397 +564,283 @@ export const SyncJoinSectionControls: React.FC<{
   disabled?: boolean;
 }> = ({ section, options, onOptionsChange, disabled }) => {
   const { join } = options;
+  const D = SYNC_JOIN_PRESETS.natural;
   const strict = options.timingProtection === 'strict';
   const set = <K extends keyof SyncJoinSettings>(key: K, value: SyncJoinSettings[K]) =>
     onOptionsChange((o) => {
       const next = { ...o.join, [key]: value };
       return { ...o, join: next, preset: joinPresetOf(next) };
     });
+  const changed = (...keys: (keyof SyncJoinSettings)[]) => keys.some((key) => join[key] !== D[key]);
 
   const db = (value: number) => `${Math.round(value)} dB`;
   const chunksOff = disabled || !join.chunkSync;
+  const wrap = (children: React.ReactNode) => <div className="flex flex-col gap-3">{children}</div>;
 
   switch (section) {
     case 'chunks':
-      return (
-        <div className="flex flex-col gap-4">
-          <Toggle
-            label="Place each line as chunks"
-            hint="Splits each dub line where it goes quiet, as REAPER's Dynamic split does, and places every chunk on the original's words, as Samanvaya does. The voice is never stretched; only silence between chunks is left out. Off: each line is placed whole."
-            checked={join.chunkSync}
-            disabled={disabled}
-            onChange={(v) => set('chunkSync', v)}
-          />
-          <Toggle
-            label="Check splits against word timing"
-            hint="Times each line's words with ElevenLabs forced alignment, one request per line, so no split falls inside a word. A line whose words can't be timed is placed whole."
-            checked={join.checkCutWords}
-            disabled={chunksOff}
-            onChange={(v) => set('checkCutWords', v)}
-          />
-          <Toggle
-            label="Read a line that still runs long faster"
-            hint="When a line has more words than time even with every pause shrunk, it is voiced again with the voice's own speed raised just enough to fit. The voice reads faster; the audio is never stretched. Only those lines are voiced again. Eleven v3 and v4 ignore the speed setting, so their lines are not voiced again."
-            checked={join.speedFit}
-            disabled={chunksOff}
-            onChange={(v) => set('speedFit', v)}
-          />
-          <Slider id="sync-max-voice-speed" label="Fastest read" value={join.maxVoiceSpeed} {...bounds('maxVoiceSpeed')} step={0.01}
-            format={(v) => `${v.toFixed(2)}×`} disabled={chunksOff || !join.speedFit}
-            onChange={(v) => set('maxVoiceSpeed', v)} hint="Of the voice's own speed. Past about 1.15× a read starts to sound hurried." />
-          <span className={sectionLabel}>Split, as REAPER Dynamic split</span>
-          <Slider id="sync-gate-open" label="Threshold" value={join.gateOpenDb} {...bounds('gateOpenDb')} step={1} format={db} disabled={chunksOff}
-            onChange={(v) => set('gateOpenDb', v)} hint="A chunk starts when the voice rises above this." />
-          <Slider id="sync-gate-hysteresis" label="Hysteresis" value={join.gateHysteresisDb} {...bounds('gateHysteresisDb')} step={1} format={db} disabled={chunksOff}
-            onChange={(v) => set('gateHysteresisDb', v)} hint={`It ends only when the voice falls below ${Math.round(join.gateOpenDb + join.gateHysteresisDb)} dB, so a word's dying sound stays in.`} />
-          <Slider id="sync-min-slice" label="Min slice length" value={join.minSliceLength} {...bounds('minSliceLength')} step={0.01} format={ms} disabled={chunksOff}
-            onChange={(v) => set('minSliceLength', v)} />
-          <Slider id="sync-min-silence" label="Min silence length" value={join.minSilenceLength} {...bounds('minSilenceLength')} step={0.01} format={ms} disabled={chunksOff}
-            onChange={(v) => set('minSilenceLength', v)} hint="A shorter silence doesn't split." />
-          <Slider id="sync-lead-pad" label="Leading pad" value={join.leadPad} {...bounds('leadPad')} step={0.005} format={ms} disabled={chunksOff}
-            onChange={(v) => set('leadPad', v)} />
-          <Slider id="sync-trail-pad" label="Trailing pad" value={join.trailPad} {...bounds('trailPad')} step={0.005} format={ms} disabled={chunksOff}
-            onChange={(v) => set('trailPad', v)} />
-          <span className={sectionLabel}>Pauses between chunks</span>
-          <Slider id="sync-chunk-share" label="Shrink a pause to" value={join.chunkGapShare} {...bounds('chunkGapShare')} step={0.05} format={percent} disabled={chunksOff}
-            onChange={(v) => set('chunkGapShare', v)} hint="Of what the voice left, at least. A pause also grows where the original pauses longer." />
-          <Toggle
-            label="Shrink in punctuation order"
-            hint="Pauses between words first, then at commas, and a sentence end's only when the line still doesn't fit."
-            checked={join.punctuationPriority}
-            disabled={chunksOff}
-            onChange={(v) => set('punctuationPriority', v)}
-          />
-          <Slider id="sync-word-gap" label="Shortest pause between words" value={join.wordGap} {...bounds('wordGap')} step={0.01} format={ms} disabled={chunksOff}
-            onChange={(v) => set('wordGap', v)} />
-          <Slider id="sync-comma-gap" label="Shortest pause at a comma" value={join.commaGap} {...bounds('commaGap')} step={0.01} format={ms} disabled={chunksOff}
-            onChange={(v) => set('commaGap', v)} />
-          <Slider id="sync-stop-gap" label="Shortest pause at a sentence end" value={join.stopGap} {...bounds('stopGap')} step={0.01} format={ms} disabled={chunksOff}
-            onChange={(v) => set('stopGap', v)} />
-          <Slider id="sync-max-chunk-gap" label="Longest a chunk need wait" value={join.maxChunkGap} {...bounds('maxChunkGap')} step={0.05} format={ms} disabled={chunksOff}
-            onChange={(v) => set('maxChunkGap', v)} />
-        </div>
+      return wrap(
+        <>
+          <SettingsCard title="Chunks">
+            <Toggle
+              label="Place each line as chunks"
+              hint="Splits each dub line where it goes quiet, as REAPER's Dynamic split does, and places every chunk on the original's words, as Samanvaya does. The voice is never stretched; only silence between chunks is left out. Off: each line is placed whole."
+              checked={join.chunkSync}
+              disabled={disabled}
+              def={D.chunkSync}
+              onChange={(v) => set('chunkSync', v)}
+            />
+            <Toggle
+              label="Check splits against word timing"
+              hint="Times each line's words with ElevenLabs forced alignment, one request per line, so no split falls inside a word. A line whose words can't be timed is placed whole."
+              checked={join.checkCutWords}
+              disabled={chunksOff}
+              def={D.checkCutWords}
+              badge="alignment"
+              onChange={(v) => set('checkCutWords', v)}
+            />
+          </SettingsCard>
+          <SettingsCard title="A line that still runs long">
+            <Toggle
+              label="Read a line that still runs long faster"
+              hint="When a line has more words than time even with every pause shrunk, it is voiced again with the voice's own speed raised just enough to fit. The voice reads faster; the audio is never stretched. Only those lines are voiced again. Eleven v3 and v4 ignore the speed setting, so their lines are not voiced again."
+              checked={join.speedFit}
+              disabled={chunksOff}
+              def={D.speedFit}
+              onChange={(v) => set('speedFit', v)}
+            />
+            <Slider id="sync-max-voice-speed" label="Fastest read" value={join.maxVoiceSpeed} {...bounds('maxVoiceSpeed')} step={0.01}
+              format={(v) => `${v.toFixed(2)}×`} disabled={chunksOff || !join.speedFit} def={D.maxVoiceSpeed}
+              onChange={(v) => set('maxVoiceSpeed', v)} hint="Of the voice's own speed. Past about 1.15× a read starts to sound hurried." />
+          </SettingsCard>
+          <SettingsCard title="Pauses between chunks">
+            <Slider id="sync-chunk-share" label="Shrink a pause to" value={join.chunkGapShare} {...bounds('chunkGapShare')} step={0.05} format={percent} disabled={chunksOff}
+              def={D.chunkGapShare} onChange={(v) => set('chunkGapShare', v)} hint="Of what the voice left, at least. A pause also grows where the original pauses longer." />
+            <Toggle
+              label="Shrink in punctuation order"
+              hint="Pauses between words first, then at commas, and a sentence end's only when the line still doesn't fit."
+              checked={join.punctuationPriority}
+              disabled={chunksOff}
+              def={D.punctuationPriority}
+              onChange={(v) => set('punctuationPriority', v)}
+            />
+            <Slider id="sync-word-gap" label="Shortest pause between words" value={join.wordGap} {...bounds('wordGap')} step={0.01} format={ms} disabled={chunksOff}
+              def={D.wordGap} onChange={(v) => set('wordGap', v)} />
+            <Slider id="sync-comma-gap" label="Shortest pause at a comma" value={join.commaGap} {...bounds('commaGap')} step={0.01} format={ms} disabled={chunksOff}
+              def={D.commaGap} onChange={(v) => set('commaGap', v)} />
+            <Slider id="sync-stop-gap" label="Shortest pause at a sentence end" value={join.stopGap} {...bounds('stopGap')} step={0.01} format={ms} disabled={chunksOff}
+              def={D.stopGap} onChange={(v) => set('stopGap', v)} />
+            <Slider id="sync-max-chunk-gap" label="Longest a chunk need wait" value={join.maxChunkGap} {...bounds('maxChunkGap')} step={0.05} format={ms} disabled={chunksOff}
+              def={D.maxChunkGap} onChange={(v) => set('maxChunkGap', v)} />
+          </SettingsCard>
+          <SettingsCard title="Split, as REAPER Dynamic split" advanced changed={changed('gateOpenDb', 'gateHysteresisDb', 'minSliceLength', 'minSilenceLength', 'leadPad', 'trailPad')}>
+            <Slider id="sync-gate-open" label="Threshold" value={join.gateOpenDb} {...bounds('gateOpenDb')} step={1} format={db} disabled={chunksOff}
+              def={D.gateOpenDb} onChange={(v) => set('gateOpenDb', v)} hint="A chunk starts when the voice rises above this." />
+            <Slider id="sync-gate-hysteresis" label="Hysteresis" value={join.gateHysteresisDb} {...bounds('gateHysteresisDb')} step={1} format={db} disabled={chunksOff}
+              def={D.gateHysteresisDb} onChange={(v) => set('gateHysteresisDb', v)} hint={`It ends only when the voice falls below ${Math.round(join.gateOpenDb + join.gateHysteresisDb)} dB, so a word's dying sound stays in.`} />
+            <Slider id="sync-min-slice" label="Min slice length" value={join.minSliceLength} {...bounds('minSliceLength')} step={0.01} format={ms} disabled={chunksOff}
+              def={D.minSliceLength} onChange={(v) => set('minSliceLength', v)} />
+            <Slider id="sync-min-silence" label="Min silence length" value={join.minSilenceLength} {...bounds('minSilenceLength')} step={0.01} format={ms} disabled={chunksOff}
+              def={D.minSilenceLength} onChange={(v) => set('minSilenceLength', v)} hint="A shorter silence doesn't split." />
+            <Slider id="sync-lead-pad" label="Leading pad" value={join.leadPad} {...bounds('leadPad')} step={0.005} format={ms} disabled={chunksOff}
+              def={D.leadPad} onChange={(v) => set('leadPad', v)} />
+            <Slider id="sync-trail-pad" label="Trailing pad" value={join.trailPad} {...bounds('trailPad')} step={0.005} format={ms} disabled={chunksOff}
+              def={D.trailPad} onChange={(v) => set('trailPad', v)} />
+          </SettingsCard>
+        </>
       );
     case 'gaps':
-      return (
-        <div className="flex flex-col gap-4">
-          <Toggle label="Protect long pauses" checked={join.preserveLongPauses} disabled={disabled}
-            onChange={(v) => set('preserveLongPauses', v)} hint="Keeps long breaks between source lines clear and preserves long silence inside the dub. A line too long to finish before a protected break is flagged in the results." />
-          <Slider id="sync-protected-pause" label="Protect pauses at least" value={join.protectedPause} {...bounds('protectedPause')} step={0.1}
-            format={(v) => `${v.toFixed(1)} s`} disabled={disabled || !join.preserveLongPauses} onChange={(v) => set('protectedPause', v)}
-            hint="Protects breaks by duration. It does not detect scene cuts in the video." />
-          <Slider
-            id="sync-min-gap"
-            label="Minimum gap"
-            value={join.minGap}
-            {...bounds('minGap')}
-            step={0.01}
-            format={ms}
-            disabled={disabled}
-            onChange={(v) => set('minGap', v)}
-            hint="The least silence between one line's tail and the next line, however little the original speaker paused."
-          />
-          <Slider
-            id="sync-speaker-gap"
-            label="Gap at a speaker change"
-            value={join.speakerGap}
-            {...bounds('speakerGap')}
-            step={0.01}
-            format={ms}
-            disabled={disabled}
-            onChange={(v) => set('speakerGap', v)}
-          />
-          <Slider
-            id="sync-gap-share"
-            label="Keep of the original pause"
-            value={join.gapShare}
-            {...bounds('gapShare')}
-            step={0.05}
-            format={percent}
-            disabled={disabled}
-            onChange={(v) => set('gapShare', v)}
-            hint="Up to 0.6 s. A longer original pause lends the rest of its time to a line that runs long."
-          />
-          <Toggle
-            label="Keep breaths clear"
-            hint="A breath before a line's first word never plays over the end of the line before."
-            checked={join.breathClear}
-            disabled={disabled}
-            onChange={(v) => set('breathClear', v)}
-          />
-          <Toggle
-            label="Reduce or remove breaths — changes audio"
-            hint="Reduces detected breaths before, between and after words. Use 100% to silence them."
-            checked={join.removeBreaths}
-            disabled={disabled}
-            onChange={(v) => set('removeBreaths', v)}
-          />
-          <Slider id="sync-breath-reduction" label="Breath reduction" value={join.breathReduction} {...bounds('breathReduction')} step={0.05} format={percent}
-            disabled={disabled || !join.removeBreaths} onChange={(v) => set('breathReduction', v)} hint="0% keeps breaths; 100% removes detected breaths. Lower values keep a softer breath." />
-        </div>
+      return wrap(
+        <>
+          <SettingsCard title="Gaps">
+            <Slider id="sync-min-gap" label="Minimum gap" value={join.minGap} {...bounds('minGap')} step={0.01} format={ms} disabled={disabled}
+              def={D.minGap} onChange={(v) => set('minGap', v)}
+              hint="The least silence between one line's tail and the next line, however little the original speaker paused." />
+            <Slider id="sync-speaker-gap" label="Gap at a speaker change" value={join.speakerGap} {...bounds('speakerGap')} step={0.01} format={ms} disabled={disabled}
+              def={D.speakerGap} onChange={(v) => set('speakerGap', v)} />
+            <Slider id="sync-gap-share" label="Keep of the original pause" value={join.gapShare} {...bounds('gapShare')} step={0.05} format={percent} disabled={disabled}
+              def={D.gapShare} onChange={(v) => set('gapShare', v)}
+              hint="Up to 0.6 s. A longer original pause lends the rest of its time to a line that runs long." />
+          </SettingsCard>
+          <SettingsCard title="Long pauses">
+            <Toggle label="Protect long pauses" checked={join.preserveLongPauses} disabled={disabled} def={D.preserveLongPauses}
+              onChange={(v) => set('preserveLongPauses', v)} hint="Keeps long breaks between source lines clear and preserves long silence inside the dub. A line too long to finish before a protected break is flagged in the results." />
+            <Slider id="sync-protected-pause" label="Protect pauses at least" value={join.protectedPause} {...bounds('protectedPause')} step={0.1}
+              format={(v) => `${v.toFixed(1)} s`} disabled={disabled || !join.preserveLongPauses} def={D.protectedPause} onChange={(v) => set('protectedPause', v)}
+              hint="Protects breaks by duration. It does not detect scene cuts in the video." />
+          </SettingsCard>
+          <SettingsCard title="Breaths">
+            <Toggle
+              label="Keep breaths clear"
+              hint="A breath before a line's first word never plays over the end of the line before."
+              checked={join.breathClear}
+              disabled={disabled}
+              def={D.breathClear}
+              onChange={(v) => set('breathClear', v)}
+            />
+            <Toggle
+              label="Reduce or remove breaths"
+              hint="Reduces detected breaths before, between and after words. Use 100% to silence them."
+              checked={join.removeBreaths}
+              disabled={disabled}
+              def={D.removeBreaths}
+              badge="audio"
+              onChange={(v) => set('removeBreaths', v)}
+            />
+            <Slider id="sync-breath-reduction" label="Breath reduction" value={join.breathReduction} {...bounds('breathReduction')} step={0.05} format={percent}
+              disabled={disabled || !join.removeBreaths} def={D.breathReduction} onChange={(v) => set('breathReduction', v)} hint="0% keeps breaths; 100% removes detected breaths. Lower values keep a softer breath." />
+          </SettingsCard>
+        </>
       );
     case 'pauses':
-      return (
-        <div className="flex flex-col gap-4">
+      return wrap(
+        <>
           {join.chunkSync && (
-            <p className="text-[12px] text-slate-400 rounded-lg border border-slate-800 px-2.5 py-1.5">
+            <p className="text-[12px] text-indigo-200 rounded-lg bg-indigo-500/10 border border-indigo-500/25 px-3 py-2">
               Chunk sync is on: pauses are shrunk between chunks instead (see Chunk sync). These apply when it is off.
             </p>
           )}
-          <Toggle
-            label="Pause only where the original pauses"
-            hint="A pause the original speaker never made is cut down to a word gap, even when the line fits. Needs the original's word timestamps."
-            checked={join.matchSourcePauses}
-            disabled={disabled}
-            onChange={(v) => set('matchSourcePauses', v)}
-          />
-          <Slider
-            id="sync-unmatched-pause"
-            label="Cut such a pause to"
-            value={join.unmatchedPause}
-            {...bounds('unmatchedPause')}
-            step={0.01}
-            format={ms}
-            disabled={disabled || !join.matchSourcePauses}
-            onChange={(v) => set('unmatchedPause', v)}
-          />
-          <Toggle
-            label="Shorten pauses when a line runs long"
-            hint="Only silence between words is taken out."
-            checked={join.shortenPauses}
-            disabled={disabled}
-            onChange={(v) => set('shortenPauses', v)}
-          />
-          <Slider
-            id="sync-min-inner-pause"
-            label="Shortest pause kept"
-            value={join.minInnerPause}
-            {...bounds('minInnerPause')}
-            step={0.01}
-            format={ms}
-            disabled={disabled || !join.shortenPauses}
-            onChange={(v) => set('minInnerPause', v)}
-          />
-          <Slider
-            id="sync-max-pause-take"
-            label="Most taken from one pause"
-            value={join.maxPauseTake}
-            {...bounds('maxPauseTake')}
-            step={0.05}
-            format={percent}
-            disabled={disabled || !join.shortenPauses}
-            onChange={(v) => set('maxPauseTake', v)}
-          />
-          <Toggle
-            label="Tighten silences when a line still runs long"
-            hint="Measures each line's own room tone, then takes silence from its end and from its pauses, longest first, until it fits. Words are never cut."
-            checked={join.tightenSilences}
-            disabled={disabled}
-            onChange={(v) => set('tightenSilences', v)}
-          />
-          <Slider
-            id="sync-tight-min-pause"
-            label="Shortest pause left"
-            value={join.tightMinPause}
-            {...bounds('tightMinPause')}
-            step={0.01}
-            format={ms}
-            disabled={disabled || !join.tightenSilences}
-            onChange={(v) => set('tightMinPause', v)}
-          />
-          <Slider
-            id="sync-tight-margin"
-            label="Silence kept around words"
-            value={join.tightMargin}
-            {...bounds('tightMargin')}
-            step={0.01}
-            format={ms}
-            disabled={disabled || !join.tightenSilences}
-            onChange={(v) => set('tightMargin', v)}
-            hint="Left before and after every sound, so a word's start and its dying sound stay whole."
-          />
-          <Toggle
-            label="Check cuts against word timing"
-            hint="Times the words of each line it tightens with ElevenLabs forced alignment, and keeps every cut clear of them. One request per tightened line; a line whose words can't be timed is left as it is."
-            checked={join.checkCutWords}
-            disabled={disabled || !join.tightenSilences}
-            onChange={(v) => set('checkCutWords', v)}
-          />
-          <Slider
-            id="sync-splice-crossfade"
-            label={
-              <>
-                Splice crossfade
-                <ChangesAudio />
-              </>
-            }
-            value={join.spliceCrossfade}
-            {...bounds('spliceCrossfade')}
-            step={0.001}
-            format={(v) => (v === 0 ? 'Off' : ms(v))}
-            disabled={disabled || (!join.shortenPauses && !join.matchSourcePauses)}
-            onChange={(v) => set('spliceCrossfade', v)}
-            hint="Smooths room tone where a pause is shortened. Off keeps every sample as voiced."
-          />
-        </div>
+          <SettingsCard title="Match the original">
+            <Toggle
+              label="Pause only where the original pauses"
+              hint="A pause the original speaker never made is cut down to a word gap, even when the line fits. Needs the original's word timestamps."
+              checked={join.matchSourcePauses}
+              disabled={disabled}
+              def={D.matchSourcePauses}
+              onChange={(v) => set('matchSourcePauses', v)}
+            />
+            <Slider id="sync-unmatched-pause" label="Cut such a pause to" value={join.unmatchedPause} {...bounds('unmatchedPause')} step={0.01} format={ms}
+              disabled={disabled || !join.matchSourcePauses} def={D.unmatchedPause} onChange={(v) => set('unmatchedPause', v)} />
+          </SettingsCard>
+          <SettingsCard title="When a line runs long">
+            <Toggle
+              label="Shorten pauses when a line runs long"
+              hint="Only silence between words is taken out."
+              checked={join.shortenPauses}
+              disabled={disabled}
+              def={D.shortenPauses}
+              onChange={(v) => set('shortenPauses', v)}
+            />
+            <Slider id="sync-min-inner-pause" label="Shortest pause kept" value={join.minInnerPause} {...bounds('minInnerPause')} step={0.01} format={ms}
+              disabled={disabled || !join.shortenPauses} def={D.minInnerPause} onChange={(v) => set('minInnerPause', v)} />
+            <Slider id="sync-max-pause-take" label="Most taken from one pause" value={join.maxPauseTake} {...bounds('maxPauseTake')} step={0.05} format={percent}
+              disabled={disabled || !join.shortenPauses} def={D.maxPauseTake} onChange={(v) => set('maxPauseTake', v)} />
+          </SettingsCard>
+          <SettingsCard title="Tighten silences">
+            <Toggle
+              label="Tighten silences when a line still runs long"
+              hint="Measures each line's own room tone, then takes silence from its end and from its pauses, longest first, until it fits. Words are never cut."
+              checked={join.tightenSilences}
+              disabled={disabled}
+              def={D.tightenSilences}
+              onChange={(v) => set('tightenSilences', v)}
+            />
+            <Slider id="sync-tight-min-pause" label="Shortest pause left" value={join.tightMinPause} {...bounds('tightMinPause')} step={0.01} format={ms}
+              disabled={disabled || !join.tightenSilences} def={D.tightMinPause} onChange={(v) => set('tightMinPause', v)} />
+            <Slider id="sync-tight-margin" label="Silence kept around words" value={join.tightMargin} {...bounds('tightMargin')} step={0.01} format={ms}
+              disabled={disabled || !join.tightenSilences} def={D.tightMargin} onChange={(v) => set('tightMargin', v)}
+              hint="Left before and after every sound, so a word's start and its dying sound stay whole." />
+            <Toggle
+              label="Check cuts against word timing"
+              hint="Times the words of each line it tightens with ElevenLabs forced alignment, and keeps every cut clear of them. One request per tightened line; a line whose words can't be timed is left as it is."
+              checked={join.checkCutWords}
+              disabled={disabled || !join.tightenSilences}
+              def={D.checkCutWords}
+              badge="alignment"
+              onChange={(v) => set('checkCutWords', v)}
+            />
+          </SettingsCard>
+          <SettingsCard title="Splices">
+            <Slider id="sync-splice-crossfade" label="Splice crossfade" badge="audio" value={join.spliceCrossfade} {...bounds('spliceCrossfade')} step={0.001}
+              format={(v) => (v === 0 ? 'Off' : ms(v))} disabled={disabled || (!join.shortenPauses && !join.matchSourcePauses)} def={D.spliceCrossfade}
+              onChange={(v) => set('spliceCrossfade', v)} hint="Smooths room tone where a pause is shortened. Off keeps every sample as voiced." />
+          </SettingsCard>
+        </>
       );
     case 'edges':
-      return (
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <label htmlFor="sync-tail-floor" className="text-[13px] text-slate-200">
-              Tail ends below
-            </label>
-            <select
-              id="sync-tail-floor"
-              value={join.tailFloorDb}
-              onChange={(e) => set('tailFloorDb', Number(e.target.value))}
-              disabled={disabled}
-              className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
-            >
-              {![-60, -70, -80].includes(join.tailFloorDb) && <option value={join.tailFloorDb}>{join.tailFloorDb} dB, custom</option>}
-              <option value={-60} className="bg-slate-900">
-                -60 dB, shortest tail
-              </option>
-              <option value={-70} className="bg-slate-900">
-                -70 dB, keeps the full decay
-              </option>
-              <option value={-80} className="bg-slate-900">
-                -80 dB, longest tail
-              </option>
-            </select>
-          </div>
-          <Slider
-            id="sync-tail-hold"
-            label="Tail hold"
-            value={join.tailHold}
-            {...bounds('tailHold')}
-            step={0.005}
-            format={ms}
+      return wrap(
+        <SettingsCard title="Where a line ends">
+          <SelectRow
+            id="sync-tail-floor"
+            label="Tail ends below"
+            value={join.tailFloorDb}
             disabled={disabled}
-            onChange={(v) => set('tailHold', v)}
-            hint="Extra silence kept after the last word before the line counts as finished."
-          />
-          <div className="flex flex-col gap-1">
-            <label htmlFor="sync-edge-fade" className="text-[13px] text-slate-200">
-              Fade for a line that stops abruptly
-              <ChangesAudio />
-            </label>
-            <select
-              id="sync-edge-fade"
-              value={join.edgeFade}
-              onChange={(e) => set('edgeFade', Number(e.target.value))}
-              disabled={disabled}
-              className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
-            >
-              {![0, 0.01, 0.02].includes(join.edgeFade) && <option value={join.edgeFade}>{ms(join.edgeFade)}, custom</option>}
-              <option value={0} className="bg-slate-900">
-                Off, 3 ms micro-fade only where needed
-              </option>
-              <option value={0.01} className="bg-slate-900">
-                10 ms
-              </option>
-              <option value={0.02} className="bg-slate-900">
-                20 ms
-              </option>
-            </select>
-          </div>
-        </div>
+            reset={{ show: join.tailFloorDb !== D.tailFloorDb, label: `${D.tailFloorDb} dB`, onClick: () => set('tailFloorDb', D.tailFloorDb) }}
+            onChange={(v) => set('tailFloorDb', Number(v))}
+          >
+            {![-60, -70, -80].includes(join.tailFloorDb) && <option value={join.tailFloorDb}>{join.tailFloorDb} dB, custom</option>}
+            <option value={-60} className="bg-slate-900">-60 dB, shortest tail</option>
+            <option value={-70} className="bg-slate-900">-70 dB, keeps the full decay</option>
+            <option value={-80} className="bg-slate-900">-80 dB, longest tail</option>
+          </SelectRow>
+          <Slider id="sync-tail-hold" label="Tail hold" value={join.tailHold} {...bounds('tailHold')} step={0.005} format={ms} disabled={disabled}
+            def={D.tailHold} onChange={(v) => set('tailHold', v)} hint="Extra silence kept after the last word before the line counts as finished." />
+          <SelectRow
+            id="sync-edge-fade"
+            label="Fade for a line that stops abruptly"
+            badge="audio"
+            value={join.edgeFade}
+            disabled={disabled}
+            reset={{ show: join.edgeFade !== D.edgeFade, label: D.edgeFade === 0 ? 'Off' : ms(D.edgeFade), onClick: () => set('edgeFade', D.edgeFade) }}
+            onChange={(v) => set('edgeFade', Number(v))}
+          >
+            {![0, 0.01, 0.02].includes(join.edgeFade) && <option value={join.edgeFade}>{ms(join.edgeFade)}, custom</option>}
+            <option value={0} className="bg-slate-900">Off, 3 ms micro-fade only where needed</option>
+            <option value={0.01} className="bg-slate-900">10 ms</option>
+            <option value={0.02} className="bg-slate-900">20 ms</option>
+          </SelectRow>
+        </SettingsCard>
       );
     case 'fit':
-      return (
-        <div className="flex flex-col gap-4">
-          <ol className="flex flex-col gap-1.5 text-[12.5px] text-slate-300">
-            {['Shorten the pauses inside it, then tighten its silences', 'Move the lines around it, never over each other', 'Flag it with a shorter wording, never squeeze it'].map(
-              (step, n) => (
-                <li key={step} className="flex items-center gap-2 rounded-lg border border-slate-800 px-2.5 py-1.5">
-                  <span className="w-[18px] h-[18px] shrink-0 rounded-full bg-indigo-500/20 text-indigo-300 text-[10.5px] flex items-center justify-center">{n + 1}</span>
-                  {step}
-                </li>
-              )
-            )}
-          </ol>
-          <Slider
-            id="sync-max-late"
-            label="Latest a line may start"
-            value={join.maxLateStart}
-            {...bounds('maxLateStart')}
-            step={0.01}
-            format={ms}
-            disabled={disabled}
-            onChange={(v) => set('maxLateStart', v)}
-            hint={
-              strict
-                ? 'Strict keeps every line within this of its original line.'
-                : 'A line pushed later than this after its original line is listed for review.'
-            }
-          />
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="sync-timing-protection" className="text-[13px] text-slate-200">
-              Timing protection
-            </label>
-            <select
+      return wrap(
+        <>
+          <SettingsCard title="What Sync tries, in order">
+            <ol className="flex flex-col gap-1.5 py-3 text-[12.5px] text-slate-300">
+              {['Shorten the pauses inside it, then tighten its silences', 'Move the lines around it, never over each other', 'Flag it with a shorter wording, never squeeze it'].map(
+                (step, n) => (
+                  <li key={step} className="flex items-center gap-2.5">
+                    <span className="w-5 h-5 shrink-0 rounded-full bg-indigo-500/20 text-indigo-300 text-[10.5px] flex items-center justify-center">{n + 1}</span>
+                    {step}
+                  </li>
+                )
+              )}
+            </ol>
+          </SettingsCard>
+          <SettingsCard title="Late starts">
+            <Slider id="sync-max-late" label="Latest a line may start" value={join.maxLateStart} {...bounds('maxLateStart')} step={0.01} format={ms} disabled={disabled}
+              def={D.maxLateStart} onChange={(v) => set('maxLateStart', v)}
+              hint={strict ? 'Strict keeps every line within this of its original line.' : 'A line pushed later than this after its original line is listed for review.'} />
+            <SelectRow
               id="sync-timing-protection"
+              label="Timing protection"
+              hint="With Strict, a line that still can't fit is placed as early as it can go and flagged, never left out. Locked lines keep their place unless the lines before them need the room, and are flagged when they move."
               value={strict ? 'strict' : 'warn'}
               disabled={disabled}
+              reset={{ show: strict, label: 'Warn', onClick: () => onOptionsChange((o) => ({ ...o, timingProtection: 'warn' })) }}
               // Not a line-join setting: changing it keeps the preset.
-              onChange={(e) => onOptionsChange((o) => ({ ...o, timingProtection: e.target.value === 'strict' ? 'strict' : 'warn' }))}
-              className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+              onChange={(v) => onOptionsChange((o) => ({ ...o, timingProtection: v === 'strict' ? 'strict' : 'warn' }))}
             >
-              <option value="warn" className="bg-slate-900">
-                Warn: list lines that start later than this
-              </option>
-              <option value="strict" className="bg-slate-900">
-                Strict: keep every line within this
-              </option>
-            </select>
-            <span className="text-[11.5px] text-slate-400">
-              With Strict, a line that still can't fit is placed as early as it can go and flagged, never left out. Locked lines keep their
-              place unless the lines before them need the room, and are flagged when they move.
-            </span>
-          </div>
-        </div>
+              <option value="warn" className="bg-slate-900">Warn: list lines that start later than this</option>
+              <option value="strict" className="bg-slate-900">Strict: keep every line within this</option>
+            </SelectRow>
+          </SettingsCard>
+        </>
       );
     case 'grouping':
-      return (
-        <div className="flex flex-col gap-4">
-          <Slider
-            id="sync-unit-gap"
-            label="Join cues closer than"
-            value={join.unitGap}
-            {...bounds('unitGap')}
-            step={0.05}
-            format={ms}
-            disabled={disabled}
-            onChange={(v) => set('unitGap', v)}
-            hint="Cues this close, by the same speaker, are voiced as one line so the voice flows across them."
-          />
-          <Slider
-            id="sync-max-unit"
-            label="Longest joined line"
-            value={join.maxUnit}
-            {...bounds('maxUnit')}
-            step={1}
-            format={(v) => `${v} s`}
-            disabled={disabled}
-            onChange={(v) => set('maxUnit', v)}
-            hint="An unfinished sentence may stay together for up to 30 s, even past this limit."
-          />
-        </div>
+      return wrap(
+        <SettingsCard title="Joining cues">
+          <Slider id="sync-unit-gap" label="Join cues closer than" value={join.unitGap} {...bounds('unitGap')} step={0.05} format={ms} disabled={disabled}
+            def={D.unitGap} onChange={(v) => set('unitGap', v)} hint="Cues this close, by the same speaker, are voiced as one line so the voice flows across them." />
+          <Slider id="sync-max-unit" label="Longest joined line" value={join.maxUnit} {...bounds('maxUnit')} step={1} format={(v) => `${v} s`} disabled={disabled}
+            def={D.maxUnit} onChange={(v) => set('maxUnit', v)} hint="An unfinished sentence may stay together for up to 30 s, even past this limit." />
+        </SettingsCard>
       );
     case 'review':
-      return (
-        <Slider
-          id="sync-flag-join"
-          label="Flag joins tighter than"
-          value={join.flagJoin}
-          {...bounds('flagJoin')}
-          step={0.01}
-          format={(v) => (v === 0 ? 'Off' : ms(v))}
-          disabled={disabled}
-          onChange={(v) => set('flagJoin', v)}
-          hint="Silence between one line's last word and the next line's first."
-        />
+      return wrap(
+        <SettingsCard title="Flags">
+          <Slider id="sync-flag-join" label="Flag joins tighter than" value={join.flagJoin} {...bounds('flagJoin')} step={0.01} format={(v) => (v === 0 ? 'Off' : ms(v))}
+            disabled={disabled} def={D.flagJoin} onChange={(v) => set('flagJoin', v)} hint="Silence between one line's last word and the next line's first." />
+        </SettingsCard>
       );
   }
 };
