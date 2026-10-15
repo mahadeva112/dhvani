@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.58',
+    changes: [
+      'Sync now places each line in chunks, split where the voice goes quiet, and puts every chunk on the original\'s words. Pauses shrink between words first and at sentence ends last, and no word is ever cut.',
+      'A line that is still too long is voiced again a little faster, up to 1.15×. Eleven v3 and v4 voices ignore speed, so Review says to shorten those lines instead.',
+      'In Edit timing, pick lines and press Q to take out long silences: see in red what will be cut, listen, then apply or undo.',
+    ],
+  },
+  {
     version: '1.3.57',
     changes: ['DHVANI now notices on its own when the window freezes and notes in its log what it was busy with, so the freeze can be found and fixed.'],
   },
