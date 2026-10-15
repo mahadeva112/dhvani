@@ -5,6 +5,10 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.57',
+    changes: ['DHVANI now notices on its own when the window freezes and notes in its log what it was busy with, so the freeze can be found and fixed.'],
+  },
+  {
     version: '1.3.56',
     changes: [
       'A new Sadhguru translation style keeps every thought, its pauses and its spoken length, in every language.',
