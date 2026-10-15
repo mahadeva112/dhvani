@@ -661,6 +661,54 @@ const startBackend = async () => {
   });
 };
 
+/** A page that hasn't answered a ping for this long is frozen. */
+const FREEZE_AFTER_MS = 5000;
+/** While a page stays frozen, its call stack is logged again this often. */
+const FREEZE_RELOG_MS = 10_000;
+
+/**
+ * Logs a frozen page with the script it is stuck in, so a freeze can be
+ * traced. The page is pinged every 2 s, so a freeze is caught whether or not
+ * the user clicks; Chromium's own unresponsive event needs input to fire.
+ */
+const watchForFreezes = (win) => {
+  const contents = win.webContents;
+  let pingSent = 0;
+  let frozenSince = 0;
+  let lastLogged = 0;
+  const logStack = async (seconds) => {
+    try {
+      const stack = await contents.mainFrame.collectJavaScriptCallStack();
+      appendLog(`[hang] ${new Date().toISOString()} the page has not answered for ${seconds} s; it is running:\n${stack || '(not available)'}\n`);
+    } catch (err) {
+      appendLog(`[hang] ${new Date().toISOString()} the page has not answered for ${seconds} s; its call stack could not be read: ${err?.message || err}\n`);
+    }
+  };
+  const timer = setInterval(() => {
+    if (contents.isDestroyed() || contents.isLoading()) return;
+    const now = Date.now();
+    if (!pingSent) {
+      pingSent = now;
+      contents
+        .executeJavaScript('1', false)
+        .then(() => {
+          if (frozenSince) appendLog(`[hang] ${new Date().toISOString()} the page answers again after ${Math.round((Date.now() - frozenSince) / 1000)} s\n`);
+          pingSent = 0;
+          frozenSince = 0;
+        })
+        .catch(() => {
+          pingSent = 0;
+        });
+      return;
+    }
+    if (now - pingSent < FREEZE_AFTER_MS || now - lastLogged < FREEZE_RELOG_MS) return;
+    frozenSince ||= pingSent;
+    lastLogged = now;
+    logStack(Math.round((now - pingSent) / 1000));
+  }, 2000);
+  win.on('closed', () => clearInterval(timer));
+};
+
 const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -701,17 +749,7 @@ const createWindow = () => {
     }
   });
 
-  // A window that stops answering is logged with the script its page was stuck in, so a freeze can be traced.
-  mainWindow.webContents.on('unresponsive', async () => {
-    appendLog(`[hang] ${new Date().toISOString()} the window stopped responding\n`);
-    try {
-      const stack = await mainWindow?.webContents.mainFrame.collectJavaScriptCallStack();
-      appendLog(`[hang] page call stack:\n${stack || '(not available)'}\n`);
-    } catch (err) {
-      appendLog(`[hang] the page call stack could not be read: ${err?.message || err}\n`);
-    }
-  });
-  mainWindow.webContents.on('responsive', () => appendLog(`[hang] ${new Date().toISOString()} the window responds again\n`));
+  watchForFreezes(mainWindow);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
