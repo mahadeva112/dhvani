@@ -701,6 +701,18 @@ const createWindow = () => {
     }
   });
 
+  // A window that stops answering is logged with the script its page was stuck in, so a freeze can be traced.
+  mainWindow.webContents.on('unresponsive', async () => {
+    appendLog(`[hang] ${new Date().toISOString()} the window stopped responding\n`);
+    try {
+      const stack = await mainWindow?.webContents.mainFrame.collectJavaScriptCallStack();
+      appendLog(`[hang] page call stack:\n${stack || '(not available)'}\n`);
+    } catch (err) {
+      appendLog(`[hang] the page call stack could not be read: ${err?.message || err}\n`);
+    }
+  });
+  mainWindow.webContents.on('responsive', () => appendLog(`[hang] ${new Date().toISOString()} the window responds again\n`));
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });

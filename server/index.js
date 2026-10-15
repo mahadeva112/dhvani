@@ -195,6 +195,11 @@ const distDir = path.join(ROOT_DIR, 'dist');
 const hasBuild = fs.existsSync(path.join(distDir, 'index.html'));
 
 if (hasBuild) {
+  // Lets the desktop app read what a frozen page was running, for the log (see desktop/main.cjs).
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api/')) res.setHeader('Document-Policy', 'include-js-call-stacks-in-crash-reports');
+    next();
+  });
   app.use(
     express.static(distDir, {
       // Hashed asset filenames are safe to cache forever; index.html is not.
