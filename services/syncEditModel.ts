@@ -31,7 +31,7 @@ export interface SyncBankLine {
   gain: number;
   /** What a later sync needs to recognise this take and cut it the same way. */
   hash: string;
-  cuts: { start: number; end: number }[];
+  cuts: { start: number; end: number; blend?: number }[];
   crossfade: number;
   /** Samples dropped before 0:00 from the line's start. */
   dropped: number;
@@ -39,6 +39,12 @@ export interface SyncBankLine {
   locked: boolean;
   /** Not a bank line: the original, for a clip of it on the dub (see originalLine). */
   original?: boolean;
+  /**
+   * Chunk sync: the chunks of speech the line was split into and where each
+   * plays (samples into the line, and on the timeline). Edit timing shows
+   * them as the line's parts; without them the line plays whole.
+   */
+  chunks?: { from: number; to: number; startSample: number }[];
 }
 
 /** A bank: the lines' samples live in a WAV kept with the project (`syncBankBlob`). */
@@ -135,9 +141,25 @@ export const basePart = (line: SyncBankLine, sampleRate: number): SyncEditPart =
   muted: false,
 });
 
+/** The line as Sync placed it: its chunks, each a part where Chunk sync put it, or the whole line. */
+export const syncedParts = (line: SyncBankLine, sampleRate: number): SyncEditPart[] =>
+  line.chunks?.length
+    ? line.chunks.map((chunk, n) => ({
+        id: `${line.key}#c${n}`,
+        start: chunk.startSample / sampleRate,
+        from: chunk.from / sampleRate,
+        to: chunk.to / sampleRate,
+        rate: 1,
+        gainDb: 0,
+        fadeIn: 0,
+        fadeOut: 0,
+        muted: false,
+      }))
+    : [basePart(line, sampleRate)];
+
 /** The parts a line plays: its edits, or the line as placed. */
 export const partsOf = (edits: SyncEdits | null | undefined, line: SyncBankLine, sampleRate: number): SyncEditPart[] =>
-  edits?.[line.key]?.parts ?? [basePart(line, sampleRate)];
+  edits?.[line.key]?.parts ?? syncedParts(line, sampleRate);
 
 /** Seconds a part takes on the timeline. */
 export const partLength = (part: SyncEditPart) => (part.to - part.from) / part.rate;
@@ -264,7 +286,7 @@ export const measureEdits = (base: SyncReport, bank: SyncBank, edits: SyncEdits 
  * the same take (see rebaseEdits).
  */
 export const lockedLines = (bank: SyncBank | null | undefined, edits: SyncEdits | null | undefined) => {
-  const out: Record<string, { hash: string; cuts: { start: number; end: number }[]; crossfade: number; start: number; end: number }> = {};
+  const out: Record<string, { hash: string; cuts: { start: number; end: number; blend?: number }[]; crossfade: number; start: number; end: number }> = {};
   if (!bank || !edits) return out;
   for (const line of bank.lines) {
     const edit = edits[line.key];

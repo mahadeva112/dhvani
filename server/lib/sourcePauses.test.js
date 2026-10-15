@@ -106,7 +106,7 @@ test('Sync takes out a pause the original speaker never made, and reports it', a
     encode: async (samples) => ({ buffer: Buffer.from(new Uint8Array(samples.buffer)), contentType: 'audio/test' }),
   };
   const voice = { voiceId: 'v', modelId: 'm', outputFormat: 'pcm_8000' };
-  const { report, bank } = await runSync({ segments, sourceDuration: 12, sampleRate: RATE, voice, join: { removeBreaths: false } }, deps);
+  const { report, bank } = await runSync({ segments, sourceDuration: 12, sampleRate: RATE, voice, join: { removeBreaths: false, chunkSync: false } }, deps);
   near(report.units[0].sourcePauseTrimmed, 0.85);
   near(report.units[0].speech, 2.55);
   assert.equal(report.units[1].sourcePauseTrimmed, 0);

@@ -189,6 +189,12 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
     return `The voice stops before the last word is finished${unit.retakes ? `, in all ${unit.retakes + 1} takes` : ''}: retake it or reword the line`;
   if (unit.exceeded && unit.deepCut)
     return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Fewer words would cut over a third of it and lose what it says: give it more time in Edit timing, or join it with the line beside it`;
+  if (unit.exceeded && unit.cutCheckError)
+    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Its silences were not tightened, as its words could not be timed: ${unit.cutCheckError}`;
+  if (unit.exceeded && unit.speedFitUnsupported)
+    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Its voice's model (Eleven v3 or v4) ignores the speed setting, so it couldn't be read faster: shorten it, or voice the dub with Multilingual v2`;
+  if (unit.exceeded && unit.speedFit)
+    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had, even read ${unit.speedFit.toFixed(2)}× faster: shorten it`;
   if (unit.exceeded) return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had`;
   if (unit.short)
     return `Ends ${unit.shortBy.toFixed(1)} s before the original speaker stops: ${unit.speech.toFixed(1)} s said, ${(unit.srcEnd - unit.srcStart).toFixed(1)} s spoken`;
@@ -928,7 +934,9 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
         </div>
         <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1.5">
           <Lock className="w-3 h-3 shrink-0" />
-          Each line is placed near its original timing; a long line can move the lines around it. Sync does not stretch the voice. Breath reduction, loudness matching and fades follow the options you choose. A line that cannot meet Strict timing or a protected pause is flagged below, never left out.
+          {report?.summary.chunkSync
+            ? `Each line is split where it goes quiet into ${report.summary.chunks ?? 0} chunks in all, and every chunk is placed on the original's words; pauses shrink between words first, sentence ends last. Sync does not stretch the voice.`
+            : 'Each line is placed near its original timing; a long line can move the lines around it. Sync does not stretch the voice.'} Breath reduction, loudness matching and fades follow the options you choose. A line that cannot meet Strict timing or a protected pause is flagged below, never left out.
           {handEdits > 0 && ' Your hand edits in Edit timing are in this dub: there, only the speed, level and fades you set change a line, and Sync again keeps every locked line where you put it.'}
         </p>
       </div>
@@ -1275,6 +1283,7 @@ const ReviewRow: React.FC<{
         <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
         {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
         <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : unit.short ? 'text-sky-300' : 'text-slate-400'}`}>{reason}</p>
+        {unit.speedFit && <p className="text-[11.5px] mt-1 text-indigo-300">Read {unit.speedFit.toFixed(2)}× faster to fit: its words ran longer than the original line had, even with every pause shrunk</p>}
         {unit.wordTiming?.status === 'measured' && <p className="text-[11.5px] mt-1 text-indigo-300">Measured words · start {formatOffset(unit.wordTiming.startError ?? 0)} · end {formatOffset(unit.wordTiming.endError ?? 0)}{unit.wordTiming.boundaryMaxError != null && ` · internal boundary ${unit.wordTiming.boundaryMaxError.toFixed(2)} s`}</p>}
 
         {pending ? (

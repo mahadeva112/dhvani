@@ -324,11 +324,170 @@ export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INN
   return { samples: output, removed: (samples.length - output.length) / sampleRate, cuts, matched: matched / sampleRate };
 };
 
+/** Tighten silences reads a clip's levels in frames this long. */
+const TIGHT_FRAME_SECONDS = 0.01;
+
+/** Frames quieter than this (dBFS) are digital silence, a silenced breath, and say nothing of the room. */
+const TIGHT_DIGITAL_SILENCE_DB = -90;
+
+/** Silence sits at most this far above a clip's own noise floor, so a word's dying sound stays above it. */
+const TIGHT_FLOOR_MARGIN_DB = 6;
+
+/** Never louder than this, however noisy the clip: anything louder may be part of a word. */
+const TIGHT_MAX_THRESHOLD_DB = -45;
+
+/**
+ * The noise floor is trusted only this far below the clip's speech level. A
+ * line with hardly any pause has no floor to measure: its quietest frames are
+ * words, and there Tighten silences falls back to true silence (QUIET).
+ */
+const TIGHT_MIN_RANGE_DB = 25;
+
+/** The blend at each cut Tighten silences makes, for room tone that differs either side. Too short to hear as a fade. */
+export const TIGHT_BLEND_SECONDS = 0.005;
+
+/**
+ * The level (linear) below which a clip is silent for Tighten silences: a
+ * little above the clip's own noise floor (its quietest tenth of frames), but
+ * never louder than TIGHT_MAX_THRESHOLD_DB, and true silence (QUIET) when the
+ * clip has no floor clearly below its speech. A voice cloned from a recording
+ * pauses on room tone around -55 to -70 dBFS, which QUIET alone never counts
+ * as silence.
+ */
+export const silenceLevel = (samples, sampleRate) => {
+  const hop = Math.max(1, Math.round(TIGHT_FRAME_SECONDS * sampleRate));
+  const levels = [];
+  for (let i = 0; i + hop <= samples.length; i += hop) {
+    let peak = 0;
+    for (let j = i; j < i + hop; j++) peak = Math.max(peak, Math.abs(samples[j]));
+    const db = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+    if (db > TIGHT_DIGITAL_SILENCE_DB) levels.push(db);
+  }
+  if (levels.length < 10) return QUIET;
+  levels.sort((a, b) => a - b);
+  const floor = levels[Math.floor(levels.length * 0.1)];
+  const speech = levels[Math.floor(levels.length * 0.9)];
+  if (speech - floor < TIGHT_MIN_RANGE_DB) return QUIET;
+  return Math.max(QUIET, 10 ** (Math.min(floor + TIGHT_FLOOR_MARGIN_DB, TIGHT_MAX_THRESHOLD_DB) / 20));
+};
+
+/**
+ * Tighten silences: takes up to `seconds` of silence out of a clip that runs
+ * long, as a sound engineer would, where Shorten pauses could not, because the
+ * voice pauses on room tone rather than true silence (see silenceLevel).
+ *
+ * Silence is audio below the clip's silence level for at least
+ * QUIET_RUN_SECONDS, from the first word (`firstWord`, a sample index) on:
+ * nothing before the first word is touched. The tail, silence running to the
+ * clip's end, is taken first, keeping `margin` seconds after the last sound;
+ * then the pauses between words, longest first, each keeping
+ * max(`minPause`, 2 × `margin`) so `margin` is left either side of every
+ * sound. `protect` (`[{ start, end }]` sample ranges, the words as forced
+ * alignment hears them) is never cut into, nor `margin` either side of it.
+ * Every cut lies inside audio below the silence level, so a word's start and
+ * its dying sound are never cut; a cut inside a pause blends its two sides
+ * over `blend` samples (each cut carries its own `blend`), one at the end of
+ * the clip is a plain cut.
+ *
+ * Returns `{ samples, removed, tail, inner, cuts, level }`: seconds taken in all,
+ * from the tail and from between words, the cuts in order, and the silence level used.
+ */
+export const tightenSilences = (samples, sampleRate, seconds, { firstWord = 0, minPause = 0.15, margin = 0.08, protect = [], blend = 0 } = {}) => {
+  const none = (level) => ({ samples, removed: 0, tail: 0, inner: 0, cuts: [], level });
+  let budget = Math.round(Math.max(0, seconds) * sampleRate);
+  const level = silenceLevel(samples, sampleRate);
+  if (budget <= 0) return none(level);
+  const run = Math.max(1, Math.round(QUIET_RUN_SECONDS * sampleRate));
+  const keepEdge = Math.round(Math.max(0, margin) * sampleRate);
+  const keepInner = Math.max(Math.round(Math.max(0, minPause) * sampleRate), 2 * keepEdge);
+  const guarded = protect
+    .filter((word) => Number.isFinite(word?.start) && Number.isFinite(word?.end) && word.end > word.start)
+    .map((word) => ({ start: Math.max(0, word.start - keepEdge), end: word.end + keepEdge }));
+
+  // Stretches below the silence level from the first word on, less any guarded word.
+  const stretches = [];
+  let runStart = -1;
+  for (let i = Math.max(0, firstWord); i <= samples.length; i++) {
+    const quiet = i < samples.length && Math.abs(samples[i]) < level;
+    if (quiet && runStart === -1) runStart = i;
+    if (!quiet && runStart !== -1) {
+      let pieces = [{ start: runStart, end: i }];
+      for (const word of guarded) {
+        pieces = pieces.flatMap((piece) =>
+          word.end <= piece.start || word.start >= piece.end
+            ? [piece]
+            : [{ start: piece.start, end: word.start }, { start: word.end, end: piece.end }].filter((part) => part.end > part.start)
+        );
+      }
+      // Silence touching the first word's side is its lead-in: kept, like everything before the first word.
+      for (const piece of pieces) if (piece.start > firstWord && piece.end - piece.start >= run) stretches.push({ ...piece, tail: piece.end === samples.length });
+      runStart = -1;
+    }
+  }
+
+  const cuts = [];
+  let tail = 0;
+  let inner = 0;
+  const end = stretches.find((stretch) => stretch.tail);
+  if (end) {
+    const take = Math.min(budget, end.end - end.start - keepEdge);
+    if (take > 0) {
+      cuts.push({ start: end.end - take, end: end.end, blend: 0 });
+      tail = take;
+      budget -= take;
+    }
+  }
+  for (const pause of stretches.filter((stretch) => !stretch.tail).sort((a, b) => b.end - b.start - (a.end - a.start))) {
+    if (budget <= 0) break;
+    const take = Math.min(budget, pause.end - pause.start - keepInner);
+    if (take <= 0) continue;
+    const start = Math.round((pause.start + pause.end - take) / 2);
+    cuts.push({ start, end: start + take, blend: Math.max(0, Math.round(blend)) });
+    inner += take;
+    budget -= take;
+  }
+  if (cuts.length === 0) return none(level);
+  cuts.sort((a, b) => a.start - b.start);
+  const output = applyCuts(samples, cuts);
+  return { samples: output, removed: (tail + inner) / sampleRate, tail: tail / sampleRate, inner: inner / sampleRate, cuts, level };
+};
+
+/**
+ * `added` cuts, made on `applyCuts(samples, base)`, as cuts of `samples`
+ * itself, merged with `base` into one list in order: what a later sync needs
+ * to rebuild the line in one go. Cuts that meet or overlap become one, with
+ * the larger blend; a cut of `base` without its own blend has `baseBlend`.
+ */
+export const composeCuts = (base, added, baseBlend = 0) => {
+  const toSource = (at) => {
+    let position = at;
+    for (const cut of base) {
+      if (cut.start <= position) position += cut.end - cut.start;
+      else break;
+    }
+    return position;
+  };
+  const all = [
+    ...base.map((cut) => ({ start: cut.start, end: cut.end, blend: cut.blend ?? baseBlend })),
+    ...added.map((cut) => ({ start: toSource(cut.start), end: toSource(cut.end), blend: cut.blend ?? 0 })),
+  ].sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const cut of all) {
+    const last = merged.at(-1);
+    if (last && cut.start <= last.end) {
+      last.end = Math.max(last.end, cut.end);
+      last.blend = Math.max(last.blend, cut.blend);
+    } else merged.push({ ...cut });
+  }
+  return merged;
+};
+
 /**
  * Takes `cuts` (sample ranges in order, as shortenPauses returns them) out of
- * `samples`, blending each join over `blend` samples (0 for a plain cut). The
- * same cuts and blend on the same samples give the same samples, so a sync can
- * rebuild a line exactly as an earlier one cut it.
+ * `samples`, blending each join over `blend` samples (0 for a plain cut), or
+ * over the cut's own `blend` where it has one. The same cuts and blend on the
+ * same samples give the same samples, so a sync can rebuild a line exactly as
+ * an earlier one cut it.
  */
 export const applyCuts = (samples, cuts, blend = 0) => {
   if (cuts.length === 0) return samples;
@@ -338,7 +497,7 @@ export const applyCuts = (samples, cuts, blend = 0) => {
   let to = 0;
   for (const cut of cuts) {
     // The last `fade` samples before the cut fade out over the last `fade` samples it removes, which fade in.
-    const fade = Math.min(blend, cut.end - cut.start, cut.start - from);
+    const fade = Math.min(Number.isInteger(cut.blend) ? cut.blend : blend, cut.end - cut.start, cut.start - from);
     output.set(samples.subarray(from, cut.start - fade), to);
     to += cut.start - fade - from;
     for (let k = 0; k < fade; k++) {

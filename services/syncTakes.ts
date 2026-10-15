@@ -42,7 +42,7 @@ export interface SyncTake {
   hash: string;
   cutOff: boolean;
   /** As the bank line had them: only Sync's own take has pause cuts or samples dropped before 0:00. */
-  cuts: { start: number; end: number }[];
+  cuts: { start: number; end: number; blend?: number }[];
   crossfade: number;
   dropped: number;
   maxStartShift?: number;

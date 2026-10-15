@@ -13,6 +13,40 @@
  */
 
 export const DEFAULT_JOIN_SETTINGS = Object.freeze({
+  /**
+   * Chunk sync: each line is split where it goes quiet, as REAPER's Dynamic
+   * split does, and its chunks placed one by one on the original's words, as
+   * Samanvaya places them (see chunkSync.js). Off: each line is placed whole.
+   */
+  chunkSync: true,
+  /** The gate opens at this level (dBFS)... */
+  gateOpenDb: -40,
+  /** ...and closes this far below it, so a word's dying sound stays in its chunk. */
+  gateHysteresisDb: -15,
+  /** A slice shorter than this is not cut out on its own. */
+  minSliceLength: 0.1,
+  /** A silence shorter than this doesn't split. */
+  minSilenceLength: 0.15,
+  /** Kept before each chunk's first sound, and after its last. */
+  leadPad: 0.01,
+  trailPad: 0.02,
+  /** A pause between chunks may shrink to this share of what the voice left (Samanvaya: half)... */
+  chunkGapShare: 0.5,
+  /** ...but never below this between words, at a comma, or at a sentence end... */
+  wordGap: 0.12,
+  commaGap: 0.18,
+  stopGap: 0.25,
+  /** ...and no chunk need wait longer than this after the one before. */
+  maxChunkGap: 1,
+  /** Shrink pauses between words first, then at commas, sentence ends last. */
+  punctuationPriority: true,
+  /**
+   * Fit by voice speed: a line still too long with every pause shrunk is
+   * voiced again, read faster by the voice itself (its speed setting, not a
+   * stretch), up to `maxVoiceSpeed` times its own speed. Chunk sync only.
+   */
+  speedFit: true,
+  maxVoiceSpeed: 1.15,
   /** Smallest silence between one line's tail and the next line's first sound. */
   minGap: 0.18,
   /** The same, where the speaker changes. */
@@ -42,6 +76,18 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   matchSourcePauses: true,
   /** What a pause the original doesn't have is cut to. */
   unmatchedPause: 0.15,
+  /**
+   * A line still too long once its pauses are shortened loses silence measured
+   * against its own room tone: its tail, then its pauses (see tightenSilences).
+   * Words are never cut. Blends each cut inside a pause over 5 ms.
+   */
+  tightenSilences: true,
+  /** A pause Tighten silences shortens keeps at least this. */
+  tightMinPause: 0.15,
+  /** Silence Tighten silences leaves either side of every sound. */
+  tightMargin: 0.08,
+  /** Time the words of a line with forced alignment before Tighten silences cuts it, and keep every cut clear of them. */
+  checkCutWords: true,
   /** Equal-power crossfade at each pause cut; 0 is a plain cut inside silence. Changes the audio. */
   spliceCrossfade: 0,
   /** A line's tail runs until the audio stays below this level, in dBFS. */
@@ -77,6 +123,20 @@ export const JOIN_SETTING_RANGES = {
   minInnerPause: [0.08, 0.6],
   maxPauseTake: [0.05, 1],
   unmatchedPause: [0.06, 0.6],
+  gateOpenDb: [-70, -10],
+  gateHysteresisDb: [-40, 0],
+  minSliceLength: [0.02, 1],
+  minSilenceLength: [0.05, 1],
+  leadPad: [0, 0.2],
+  trailPad: [0, 0.3],
+  chunkGapShare: [0, 1],
+  wordGap: [0.03, 0.5],
+  commaGap: [0.03, 0.8],
+  stopGap: [0.03, 1],
+  maxChunkGap: [0.2, 3],
+  maxVoiceSpeed: [1, 1.2],
+  tightMinPause: [0.06, 0.4],
+  tightMargin: [0.03, 0.2],
   spliceCrossfade: [0, 0.02],
   tailFloorDb: [-90, -50],
   tailHold: [0, 0.2],
@@ -99,7 +159,7 @@ export const resolveJoinSettings = (requested) => {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }
-  for (const key of ['breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'preserveLongPauses']) {
+  for (const key of ['chunkSync', 'punctuationPriority', 'speedFit', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
     if (typeof requested[key] === 'boolean') settings[key] = requested[key];
   }
   return settings;

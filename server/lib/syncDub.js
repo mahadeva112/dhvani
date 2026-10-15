@@ -24,13 +24,14 @@ import { cancelledError } from './http.js';
 import { buildSyncUnits, unitGapAfter } from './syncUnits.js';
 import { resolveJoinSettings, dbToAmplitude } from './syncSettings.js';
 import { placeClips, measureSync } from './syncPlace.js';
-import { prepareClip, removeBreaths, shortenPauses, applyCuts, renderTimeline, startAfterCut } from './syncRender.js';
+import { prepareClip, removeBreaths, shortenPauses, tightenSilences, composeCuts, applyCuts, renderTimeline, startAfterCut, TIGHT_BLEND_SECONDS } from './syncRender.js';
 import { matchingGains } from './loudness.js';
 import { TTS_CONTEXT_CHARS, withSentenceEnd } from './ttsText.js';
 import { mixSpeakers, speakerGains } from './speakerMix.js';
 import { tooDeepCut } from './syncRewrite.js';
 import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
 import { sourcePausesOf } from './sourcePauses.js';
+import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, RIGID_GAP_SECONDS } from './chunkSync.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -81,13 +82,30 @@ const validCuts = (cuts, length) => {
   let last = 0;
   for (const cut of cuts) {
     if (!Number.isInteger(cut?.start) || !Number.isInteger(cut?.end) || cut.start < last || cut.end <= cut.start || cut.end > length) return null;
+    if (cut.blend !== undefined && !(Number.isInteger(cut.blend) && cut.blend >= 0)) return null;
     last = cut.end;
   }
-  return cuts.map(({ start, end }) => ({ start, end }));
+  return cuts.map(({ start, end, blend }) => (blend === undefined ? { start, end } : { start, end, blend }));
 };
 
 /** A speaker's line may start this close to the end of their previous one before it counts as talking over themself. */
 const SELF_OVERLAP_SLACK = 0.01;
+
+/** Fit by voice speed: a line this much too long (seconds) is voiced faster... */
+const SPEED_FIT_MIN_OVER = 0.05;
+/** ...aiming this far under its time, since a faster read rarely lands exactly... */
+const SPEED_FIT_MARGIN = 1.03;
+/** ...and not for less than this: a read barely faster is not worth a new take. */
+const SPEED_FIT_MIN = 1.02;
+
+/**
+ * Whether `voice` reads faster when its speed is raised. Measured 2026-10-15
+ * on one Hindi line: Eleven v3, v4 and v4 Turbo take the same 5.26 s at
+ * speed 1 and 1.15 (they ignore it), Multilingual v2 goes from 3.22 s to
+ * 2.74 s; v1 models reject speed, and of Cartesia's only sonic-3 takes it.
+ */
+export const followsSpeed = (voice) =>
+  voice?.cartesia ? !voice.modelId || /^sonic-3/.test(voice.modelId) : !/^eleven_v[34]/.test(voice?.modelId || '') && !/_v1$/.test(voice?.modelId || '');
 
 /** Times a line the voice cut off mid-word is voiced again before it is reported instead. */
 export const MAX_RETAKES = 2;
@@ -141,6 +159,8 @@ const cacheKey = (voice, text) =>
         voice.seed ?? null,
         voice.tuneStability === false,
         text,
+        // A line read faster to fit (speedScale) is a take of its own; one read as voiced keeps its old key.
+        ...(Number.isFinite(voice.speedScale) && voice.speedScale !== 1 ? [voice.speedScale] : []),
       ])
     )
     .digest('hex');
@@ -253,6 +273,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
   const join = resolveJoinSettings(params.join);
+  // Chunk sync: each line placed as the chunks of speech between its pauses (see chunkSync.js).
+  const chunked = join.chunkSync;
   const checkCancelled = () => {
     if (signal?.aborted) throw cancelledError('Sync');
   };
@@ -510,7 +532,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       pauseCuts.set(i, cuts);
       return;
     }
-    if (!clips[i]) return;
+    // With Chunk sync the pauses are left out between chunks instead.
+    if (!clips[i] || chunked) return;
     const excess = join.shortenPauses ? Math.max(0, overflow(i)) : 0;
     const source = sourcePauses[i] ? { lead: clips[i].lead, speech: clips[i].speech, pauses: sourcePauses[i], keep: join.unmatchedPause } : null;
     if (excess <= 0 && !source) return;
@@ -529,10 +552,243 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
   });
 
-  const wordTimings = new Map();
+  // A line still too long once its pauses are shortened tightens its silences:
+  // its tail, then the pauses between its words, measured against its own
+  // room tone (see tightenSilences). With checkCutWords, forced alignment
+  // first says where its words are, and no cut comes near one; a line whose
+  // words can't be timed is left as it is rather than cut blind.
+  const silenceTightened = new Map();
+  const cutCheckErrors = new Map();
+  if (join.tightenSilences && !chunked) {
+    const tightOptions = (i, protect = []) => ({
+      firstWord: Math.round(clips[i].lead * sampleRate),
+      minPause: join.tightMinPause,
+      margin: join.tightMargin,
+      blend: Math.round(Math.max(TIGHT_BLEND_SECONDS, join.spliceCrossfade) * sampleRate),
+      protect,
+    });
+    // Only lines with silence to give: a line that has none needs no alignment request.
+    const toTighten = units
+      .map((_, i) => i)
+      .filter((i) => clips[i] && !lockOf[i] && overflow(i) > 1 / sampleRate && tightenSilences(clips[i].samples, sampleRate, overflow(i), tightOptions(i)).removed > 0);
+    await mapLimit(toTighten, 2, async (i) => {
+      checkCancelled();
+      let protect = [];
+      if (join.checkCutWords) {
+        try {
+          if (!deps.align) throw new Error('Word alignment is unavailable.');
+          const { words } = await deps.align({ samples: clips[i].samples, text: units[i].text, sampleRate });
+          checkCancelled();
+          protect = validateAlignedWords(words, units[i].text, clips[i].samples.length / sampleRate)
+            .filter((word) => /[\p{L}\p{N}]/u.test(String(word.text ?? '')))
+            .map((word) => ({ start: Math.floor(word.start * sampleRate), end: Math.ceil(word.end * sampleRate) }));
+        } catch (error) {
+          checkCancelled();
+          cutCheckErrors.set(i, error.message || 'Word timing could not be checked.');
+          return;
+        }
+      }
+      const { samples, removed, cuts } = tightenSilences(clips[i].samples, sampleRate, overflow(i), tightOptions(i, protect));
+      if (removed <= 0) return;
+      // What came out between the first word and the last sound shortens the speech.
+      const from = clips[i].lead * sampleRate;
+      const to = from + clips[i].speech * sampleRate;
+      const inSpeech = cuts.reduce((sum, cut) => sum + Math.max(0, Math.min(cut.end, to) - Math.max(cut.start, from)), 0) / sampleRate;
+      clips[i] = { ...clips[i], samples, speech: clips[i].speech - inSpeech };
+      pauseCuts.set(i, composeCuts(pauseCuts.get(i) || [], cuts, Math.round(join.spliceCrossfade * sampleRate)));
+      pauseTrimmed.set(i, (pauseTrimmed.get(i) || 0) + removed);
+      silenceTightened.set(i, removed);
+    });
+  }
+
+  // Chunk sync times every line's words once, with checkCutWords: no split is
+  // made inside a word, and a line whose words can't be timed stays whole.
+  const chunkWords = new Map();
+  if (chunked && join.checkCutWords) {
+    const toAlign = units.map((_, i) => i).filter((i) => clips[i] && !lockOf[i]);
+    let aligned = 0;
+    report({ phase: 'placing', step: 4, wordChecksTotal: toAlign.length, wordChecksDone: 0 });
+    await mapLimit(toAlign, 3, async (i) => {
+      checkCancelled();
+      try {
+        if (!deps.align) throw new Error('Word alignment is unavailable.');
+        const { words } = await deps.align({ samples: clips[i].samples, text: units[i].text, sampleRate });
+        checkCancelled();
+        chunkWords.set(i, validateAlignedWords(words, units[i].text, clips[i].samples.length / sampleRate));
+      } catch (error) {
+        checkCancelled();
+        cutCheckErrors.set(i, error.message || 'Word timing could not be checked.');
+      }
+      report({ wordChecksDone: ++aligned });
+    });
+    report({ phase: 'placing', step: 4 });
+  }
+
+  // Chunk sync, line by line (see chunkSync.js and placeChunks below).
+  const spokenWord = (word) => /[\p{L}\p{N}]/u.test(String(word?.text ?? ''));
+  const chunkGaps = { gapShare: join.chunkGapShare, wordGap: join.wordGap, commaGap: join.commaGap, stopGap: join.stopGap, maxGap: join.maxChunkGap };
+  /**
+   * Line `i` as Chunk sync splits it: its chunks in blocks said in one breath,
+   * each chunk with its first sound (`onset`, seconds into the line) and where
+   * that should land (`target`), each block with the pause before it and how
+   * the script reads there. A locked line is one block, the whole line.
+   */
+  const chunkLineOf = (i) => {
+    const unit = units[i];
+    const clip = clips[i];
+    if (lockOf[i]) return { i, locked: true, blocks: [{ from: 0, to: clip.samples.length, chunks: [{ from: 0, to: clip.samples.length }] }] };
+    const words = chunkWords.get(i) || null;
+    // Without the words, and asked to check against them, the line isn't split blind: it stays whole.
+    const whole = join.checkCutWords && !words;
+    const protect = words ? words.filter(spokenWord).map((word) => ({ start: Math.floor(word.start * sampleRate), end: Math.ceil(word.end * sampleRate) })) : [];
+    const split = splitChunks(clip.samples, sampleRate, {
+      openDb: join.gateOpenDb,
+      hysteresisDb: join.gateHysteresisDb,
+      minSlice: join.minSliceLength,
+      minSilence: join.minSilenceLength,
+      leadPad: join.leadPad,
+      trailPad: join.trailPad,
+      protect,
+    });
+    // Only the silence before its first sound and after its last goes from a line kept whole.
+    const chunks = whole ? [{ from: split[0].from, to: split.at(-1).to }] : split;
+    // Where each chunk's first sound is, in seconds into the line: its first word, or past its leading pad.
+    const onsets = chunks.map((chunk, k) => {
+      const word = words?.find((w) => spokenWord(w) && w.end * sampleRate > chunk.from && w.start * sampleRate < chunk.to);
+      if (word) return Math.max(chunk.from / sampleRate, word.start);
+      return k === 0 ? Math.max(chunk.from / sampleRate, clip.lead) : Math.min(chunk.to, chunk.from + Math.round(join.leadPad * sampleRate)) / sampleRate;
+    });
+    const cues = unit.cueIds.map((id) => segmentById.get(id)).filter(Boolean).sort((a, b) => a.startTime - b.startTime);
+    const targets = chunkTargets({ onsets, words, cues, lead: clip.lead, speech: clip.speech });
+    const kinds = words ? wordKinds(unit.text, words) : null;
+    // How the script reads at the pause before the chunk starting at `from`: after the last word before it.
+    const kindBefore = (from) => {
+      if (!words) return 'word';
+      let kind = 'word';
+      words.forEach((word, w) => {
+        if (spokenWord(word) && word.end * sampleRate <= from + 0.02 * sampleRate) kind = kinds[w];
+      });
+      return kind;
+    };
+    // Chunks said in one breath move as one block.
+    const blocks = [];
+    chunks.forEach((chunk, k) => {
+      const last = blocks.at(-1);
+      const member = { ...chunk, onset: onsets[k], target: targets[k] };
+      if (last && (chunk.from - last.to) / sampleRate <= RIGID_GAP_SECONDS) {
+        last.chunks.push(member);
+        last.to = chunk.to;
+      } else {
+        blocks.push({
+          from: chunk.from,
+          to: chunk.to,
+          chunks: [member],
+          kindBefore: last ? kindBefore(chunk.from) : null,
+          pauseBefore: last ? (chunk.from - last.to) / sampleRate : 0,
+        });
+      }
+    });
+    return { i, blocks };
+  };
+
+  /** The last line with a take: no pause after it. */
+  const lastVoiced = () => clips.findLastIndex(Boolean);
+  /** The least pause after block `b` of `line` at priority `tier`; after its last block, the join to the next line. */
+  const chunkGapAfter = (line, b, tier) => {
+    const next = line.blocks[b + 1];
+    if (next) return pauseFloor(next.kindBefore, next.pauseBefore, tier, chunkGaps);
+    if (line.i === lastVoiced()) return 0;
+    const unit = units[line.i];
+    if (overlapAfter(line.i) > 0) return -overlapAfter(line.i);
+    const sourceGap = Math.max(0, unit.gapAfter ?? 0);
+    const gap = pauseFloor(kindOf(unit.text.trim().split(/\s+/).at(-1) || ''), sourceGap, tier, chunkGaps);
+    return unit.speakerChangeAfter ? Math.max(gap, join.speakerGap) : gap;
+  };
+
+  /**
+   * How far `line`'s words run past the time to the next line with every
+   * pause it has as short as it may go: what no placement can win back.
+   */
+  const chunkLineOverflow = (line) => {
+    const clip = clips[line.i];
+    const unit = units[line.i];
+    let packed = 0;
+    line.blocks.forEach((block, b) => {
+      packed += (block.to - block.from) / sampleRate + (b < line.blocks.length - 1 ? chunkGapAfter(line, b, 2) : 0);
+    });
+    const lead = (Math.max(clip.lead * sampleRate, line.blocks[0].from) - line.blocks[0].from) / sampleRate;
+    const room = unit.nextStart !== null ? unit.nextStart - unit.srcStart - Math.max(0, chunkGapAfter(line, line.blocks.length - 1, 2)) : Infinity;
+    return { over: packed - lead - room, packed: packed - lead };
+  };
+
+  // Fit by voice speed (Chunk sync): a line still too long with every pause
+  // as short as it may go has more words than time, which no placement wins
+  // back. It is voiced again, read that much faster by the voice itself (its
+  // speed setting, never a stretch of the audio), up to maxVoiceSpeed. The
+  // faster take is kept only if it finishes its last word and runs less long;
+  // a line the user picked, took from the dub or locked is left as it is.
+  const speedFits = new Map();
+  // Lines that needed it, on a voice that doesn't read faster when asked (see followsSpeed): not voiced again.
+  const speedUnfollowed = new Set();
+  if (chunked && join.speedFit) {
+    const tooLong = units
+      .map((_, i) => i)
+      .filter((i) => clips[i] && !lockOf[i] && !taken[i] && !(join.checkCutWords && !chunkWords.has(i)))
+      .map((i) => ({ i, ...chunkLineOverflow(chunkLineOf(i)) }))
+      .filter(({ over }) => over > SPEED_FIT_MIN_OVER)
+      .filter(({ i }) => followsSpeed(baseVoiceOf(units[i])) || (speedUnfollowed.add(i), false));
+    if (tooLong.length > 0) {
+      report({ phase: 'voicing', step: 2, unitsToVoice: progress.unitsToVoice + tooLong.length });
+      let voicedNow = progress.unitsVoiced;
+      await mapLimit(tooLong, 2, async ({ i, over, packed }) => {
+        checkCancelled();
+        const speed = Math.min(join.maxVoiceSpeed, (packed / Math.max(0.1, packed - over)) * SPEED_FIT_MARGIN);
+        if (speed < SPEED_FIT_MIN) return;
+        const unit = units[i];
+        const voice = { ...voiceOf(unit), speedScale: Math.round(speed * 100) / 100 };
+        const before = { buffer: buffers[i], clip: clips[i], length: voicedLength[i], breaths: breathsRemoved[i], words: chunkWords.get(i) };
+        try {
+          const key = cacheKey(voice, spoken[i]);
+          let buffer = clipCache.get(key);
+          if (!buffer) {
+            [buffer] = await deps.voiceLines(
+              [{ text: spoken[i], previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS), nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS), seed: voice.seed }],
+              { voice, onLine: () => {}, readCount: units.length }
+            );
+            remember(key, buffer);
+          }
+          checkCancelled();
+          buffers[i] = buffer;
+          await fit(i);
+          if (!clips[i] || clips[i].cutOff) throw new Error('cut off');
+          if (join.checkCutWords) {
+            const { words } = await deps.align({ samples: clips[i].samples, text: unit.text, sampleRate });
+            checkCancelled();
+            chunkWords.set(i, validateAlignedWords(words, unit.text, clips[i].samples.length / sampleRate));
+          }
+          if (chunkLineOverflow(chunkLineOf(i)).over >= over) throw new Error('no shorter');
+          hashes[i] = clipHash(clips[i].samples);
+          speedFits.set(i, voice.speedScale);
+        } catch (error) {
+          checkCancelled();
+          // The take as first voiced stays: the faster one failed, stopped mid-word, or was no shorter.
+          buffers[i] = before.buffer;
+          clips[i] = before.clip;
+          voicedLength[i] = before.length;
+          breathsRemoved[i] = before.breaths;
+          if (before.words) chunkWords.set(i, before.words);
+        }
+        report({ unitsVoiced: ++voicedNow });
+      });
+      report({ phase: 'placing', step: 4 });
+    }
+  }
+
+  const wordTimings = new Map(chunkWords);
   const wordErrors = new Map();
   if (verifyWords) {
-    const toCheck = units.map((_, i) => i).filter((i) => clips[i]);
+    // Lines Chunk sync timed already are not asked about again.
+    const toCheck = units.map((_, i) => i).filter((i) => clips[i] && !chunkWords.has(i));
     let checksDone = 0;
     report({ phase: 'placing', step: 4, wordChecksTotal: toCheck.length, wordChecksDone: 0 });
     await mapLimit(toCheck, 2, async (i) => {
@@ -557,7 +813,118 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // Lines whose timing limits could not be met, with why: the dub is still made, and they are flagged for review.
   const timingConflicts = new Map();
   const placeConflicts = [];
-  const positions = placeClips(
+
+  // Chunk sync. Each line's chunks, by placed line: `{ from, to }` samples of
+  // its clip and, once placed, `start` seconds on the timeline.
+  const chunkPlan = new Map();
+  // How far each line runs past its slot with every pause it has shrunk as far as it may.
+  const chunkOverflow = new Map();
+  const placeChunks = () => {
+    const lines = placedIndex.map((i, n) => ({ ...chunkLineOf(i), n }));
+    const gapAfter = chunkGapAfter;
+
+    const solve = (tier) => {
+      const items = [];
+      for (const line of lines) {
+        const unit = units[line.i];
+        line.blocks.forEach((block, b) => {
+          if (line.locked) {
+            const lock = lockOf[line.i];
+            if (tier === 2 && join.preserveLongPauses && ((unit.gapBefore >= join.protectedPause && lock.start < unit.srcStart - 1 / sampleRate) ||
+              (unit.gapAfter >= join.protectedPause && lock.end > unit.srcEnd + 1 / sampleRate))) {
+              timingConflicts.set(line.i, 'Your locked edit of this line runs into a protected pause. It is kept where you put it.');
+            }
+            items.push({ line, block, want: lock.start, length: lock.end - lock.start, gapAfter: gapAfter(line, b, tier), weight: LOCK_WEIGHT, fixed: true, earliest: lock.start, floor: 0 });
+            return;
+          }
+          // Each chunk pulls by its length (Samanvaya: 0.3 to 3) towards the start that puts its first sound on its target.
+          let sum = 0;
+          let weight = 0;
+          for (const chunk of block.chunks) {
+            const w = Math.max(0.3, Math.min(3, (chunk.to - chunk.from) / sampleRate));
+            sum += w * (chunk.target - (chunk.onset - block.from / sampleRate));
+            weight += w;
+          }
+          const want = sum / weight;
+          const length = (block.to - block.from) / sampleRate;
+          // A protected pause: the line's first chunk starts no sooner than the original line, its last ends no later.
+          const preserveBefore = b === 0 && join.preserveLongPauses && unit.gapBefore >= join.protectedPause;
+          const preserveAfter = b === line.blocks.length - 1 && join.preserveLongPauses && unit.gapAfter >= join.protectedPause;
+          const strict = b === 0 && timingProtection === 'strict' ? want + join.maxLateStart : Infinity;
+          const latest = Math.min(strict, preserveAfter ? unit.srcEnd - length : Infinity);
+          items.push({
+            line,
+            block,
+            want,
+            length,
+            ...(preserveBefore && { earliest: want }),
+            ...(Number.isFinite(latest) && { latest }),
+            gapAfter: gapAfter(line, b, tier),
+            weight: Math.max(0.3, Math.min(3, weight)) * (b === 0 && unit.hardAnchor ? HARD_ANCHOR_WEIGHT : 1),
+            // Only its first sound has to be inside the track: the pad before it may go before 0:00.
+            floor: -(block.chunks[0].onset - block.from / sampleRate),
+          });
+        });
+      }
+      const conflicts = [];
+      const at = placeClips(items, { conflicts });
+      let worst = 0;
+      items.forEach((item, k) => {
+        if (item.line.locked) return;
+        for (const chunk of item.block.chunks) worst = Math.max(worst, Math.abs(at[k] + (chunk.onset - item.block.from / sampleRate) - chunk.target));
+      });
+      return { items, at, conflicts, worst };
+    };
+    // Pauses between words shrink first, then those at a comma, a sentence end's last, while any chunk is still out.
+    let solved = solve(2);
+    if (join.punctuationPriority) {
+      for (const tier of [0, 1]) {
+        const tried = solve(tier);
+        if (tried.worst <= tolerance) {
+          solved = tried;
+          break;
+        }
+      }
+    }
+    const { items, at, conflicts } = solved;
+    for (const k of conflicts) {
+      const { line } = items[k];
+      if (!placeConflicts.includes(line.n)) placeConflicts.push(line.n);
+    }
+    items.forEach((item, k) => {
+      for (const chunk of item.block.chunks) {
+        chunk.start = at[k] + (chunk.from - item.block.from) / sampleRate;
+        // What would play before 0:00 is the pad before its first sound: it is left out.
+        if (chunk.start < 0) {
+          chunk.from = Math.min(chunk.to - 1, chunk.from + Math.round(-chunk.start * sampleRate));
+          chunk.start = 0;
+        }
+      }
+    });
+
+    return lines.map((line) => {
+      const { i, n } = line;
+      const clip = clips[i];
+      const chunks = line.blocks.flatMap((block) => block.chunks.map(({ from, to, start }) => ({ from, to, start })));
+      chunkPlan.set(i, chunks);
+      // The line's first sample, had it been placed whole: what its words are measured from.
+      const origin = chunks[0].start - chunks[0].from / sampleRate;
+      const timeOf = (t) => {
+        const chunk = chunks.findLast((c) => c.from <= t * sampleRate) ?? chunks[0];
+        return chunk.start + (Math.min(Math.max(t, chunk.from / sampleRate), chunk.to / sampleRate) - chunk.from / sampleRate);
+      };
+      const first = timeOf(clip.lead);
+      const last = timeOf(clip.lead + clip.speech);
+      const end = chunks.at(-1).start + (chunks.at(-1).to - chunks.at(-1).from) / sampleRate;
+      cores[n] = { head: 0, lead: first - origin, speech: Math.max(0, last - first), length: end - origin };
+      if (!line.locked) {
+        chunkOverflow.set(i, chunkLineOverflow(line).over);
+      }
+      return origin;
+    });
+  };
+
+  const positions = chunked ? placeChunks() : placeClips(
     placedIndex.map((i, n) => {
       const unit = units[i];
       const lock = lockOf[i];
@@ -615,6 +982,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const rendered = [];
   const placedClips = placedIndex.map((i, n) => {
     const speaker = speakerOf(units[i]);
+    // Chunk sync: the whole line goes to the bank; its chunks are what the render places (renderClips).
+    if (chunked) return { samples: clips[i].samples, startSample: Math.max(0, Math.round(positions[n] * sampleRate)), speaker };
     // A locked line's position is its first sample's: it has no pre-roll spaced out on its own.
     const start = positions[n] - (lockOf[i] ? 0 : cores[n].head);
     if (start >= 0) return { samples: clips[i].samples, position: start, speaker };
@@ -625,7 +994,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     positions[n] += cut.delay / sampleRate;
     return { samples: clips[i].samples.subarray(cut.from), startSample: 0, maxStartShift: 0, speaker };
   });
-  const log = debug || verifyWords ? (entry) => rendered.push(entry) : undefined;
+  const log = (debug || verifyWords) && !chunked ? (entry) => rendered.push(entry) : undefined;
   if (timingProtection === 'strict') {
     // A line that still starts past the Strict limit once its audio edge is placed is flagged, never dropped.
     placedIndex.forEach((i, n) => {
@@ -640,15 +1009,17 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // carry them, and an edit render of the same lines comes out the same.
   const lineGains = !multiSpeaker && matchLoudness ? matchingGains(placedClips.map((clip) => clip.samples), sampleRate) : placedClips.map(() => 1);
   const voiceGains = multiSpeaker && matchLoudness ? speakerGains(placedClips, sampleRate) : new Map();
+  // Chunk sync renders each chunk where it was placed, as views of its line, as Edit timing renders split parts.
+  const chunkStart = (chunk) => Math.max(0, Math.round(chunk.start * sampleRate));
+  const renderClips = chunked
+    ? placedIndex.flatMap((i, n) =>
+        chunkPlan.get(i).map((chunk) => ({ samples: clips[i].samples.subarray(chunk.from, chunk.to), startSample: chunkStart(chunk), speaker: placedClips[n].speaker, gain: lineGains[n] }))
+      )
+    : placedClips.map((clip, n) => ({ ...clip, gain: lineGains[n] }));
   const mixed = multiSpeaker
-    ? mixSpeakers(placedClips, { sampleRate, length: sourceDuration, fadeSeconds: join.edgeFade, peak, gains: voiceGains, log })
+    ? mixSpeakers(renderClips, { sampleRate, length: sourceDuration, fadeSeconds: join.edgeFade, peak, gains: voiceGains, log })
     : null;
-  const track = mixed
-    ? mixed.mix
-    : renderTimeline(
-        placedClips.map((clip, n) => ({ ...clip, gain: lineGains[n] })),
-        { sampleRate, length: sourceDuration, fadeSeconds: join.edgeFade, log }
-      );
+  const track = mixed ? mixed.mix : renderTimeline(renderClips, { sampleRate, length: sourceDuration, fadeSeconds: join.edgeFade, log });
   const float = Boolean(mixed) && mixed.report.peak === 'float';
   const { buffer, contentType } = await deps.encode(track, { float });
   const stems = [];
@@ -681,12 +1052,14 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       crossfade: lockOf[i] ? lockOf[i].crossfade : join.spliceCrossfade,
       dropped: dropped[n],
       locked: Boolean(lockOf[i]),
+      // Chunk sync: where each chunk of the line plays, which Edit timing shows as the line's parts.
+      ...(chunked && { chunks: chunkPlan.get(i).map((chunk) => ({ from: chunk.from, to: chunk.to, startSample: chunkStart(chunk) })) }),
     };
   });
   const bank = { sampleRate, samples: bankSamples, lines: bankLines, speakerGains: Object.fromEntries(voiceGains) };
 
   // Where every sample of every line came from and where it went, for tracing an artifact to the step that made it.
-  const audioDebug = debug
+  const audioDebug = debug && !chunked
     ? {
         sampleRate,
         channels: 1,
@@ -726,8 +1099,20 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // 6. Checking
   report({ phase: 'checking', step: 6 });
   const { lines, summary } = measureSync(placedIndex.map((i) => units[i]), cores, positions, { tolerance });
+  if (chunked) {
+    // Chunks of one line playing over another's, as the chunks lie rather than as each line would whole.
+    const spans = placedIndex
+      .flatMap((i) => chunkPlan.get(i).map((chunk) => ({ i, start: chunkStart(chunk) / sampleRate, end: chunkStart(chunk) / sampleRate + (chunk.to - chunk.from) / sampleRate })))
+      .sort((a, b) => a.start - b.start);
+    let reach = null;
+    summary.overlaps = 0;
+    for (const span of spans) {
+      if (reach && reach.i !== span.i && span.start < reach.end - 1e-6) summary.overlaps++;
+      if (!reach || span.end > reach.end) reach = span;
+    }
+  }
   const lineFor = new Map(placedIndex.map((i, n) => [i, lines[n]]));
-  const exceededBy = units.map((_, i) => Math.max(0, overflow(i)));
+  const exceededBy = units.map((_, i) => Math.max(0, chunkOverflow.has(i) ? chunkOverflow.get(i) : overflow(i)));
   const exceeded = units.map((_, i) => {
     const line = lineFor.get(i);
     return Boolean(line) && (exceededBy[i] > allowedOverflow || (!line.inSync && exceededBy[i] > 0));
@@ -824,6 +1209,17 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   if (verifyWords) placedIndex.forEach((i, n) => {
     const words = wordTimings.get(i);
     if (!words) return;
+    const cuesOf = () => units[i].cueIds.map((id) => cueById.get(id)).filter(Boolean).sort((a, b) => a.startTime - b.startTime);
+    if (chunked) {
+      // Each word where its chunk put it: no split is made inside a word.
+      const chunks = chunkPlan.get(i);
+      const at = (t) => {
+        const chunk = chunks.findLast((c) => c.from <= t * sampleRate + 1) ?? chunks[0];
+        return chunkStart(chunk) / sampleRate + t - chunk.from / sampleRate;
+      };
+      verifiedTiming.set(i, measureWordTiming(words.map((word) => ({ ...word, start: at(word.start), end: at(word.end) })), units[i], cuesOf(), 0, tolerance));
+      return;
+    }
     const retainedFrom = (dropped[n] + rendered[n].edgeTrimStartSamples) / sampleRate;
     const retainedTo = (dropped[n] + placedClips[n].samples.length - rendered[n].edgeTrimEndSamples) / sampleRate;
     if (words[0].start < retainedFrom - 1 / sampleRate || words.at(-1).end > retainedTo + 1 / sampleRate) {
@@ -862,6 +1258,15 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       pauseTrimmed: pauseTrimmed.get(i) || 0,
       // Of that, what the original has no pause for (matchSourcePauses); null where its words are untimed.
       sourcePauseTrimmed: sourcePauses[i] ? sourcePauseTrimmed.get(i) || 0 : null,
+      // Of that, what Tighten silences took from its tail and pauses.
+      silenceTightened: silenceTightened.get(i) || 0,
+      // Chunk sync: the chunks the line was placed as, and how much faster it was read to fit (Fit by voice speed).
+      ...(chunkPlan.has(i) && { chunks: chunkPlan.get(i).length }),
+      ...(speedFits.has(i) && { speedFit: speedFits.get(i) }),
+      // Too long, but its voice's model ignores speed: Fit by voice speed could not help.
+      ...(speedUnfollowed.has(i) && { speedFitUnsupported: true }),
+      // Why Tighten silences left the line as it was: its words could not be timed to check the cuts.
+      cutCheckError: cutCheckErrors.get(i) || null,
       late: late[i],
       joinAfter: joinAfter.has(i) ? joinAfter.get(i) : null,
       tightJoin: tightJoin[i],
@@ -906,6 +1311,11 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         suggestionError,
         pauseTrimmed: pauseTrimmed.size,
         sourcePauseTrimmed: [...sourcePauseTrimmed.values()].reduce((sum, seconds) => sum + seconds, 0),
+        // Lines Tighten silences shortened, the seconds it took, and lines it left because their words could not be timed.
+        silenceTightened: silenceTightened.size,
+        silenceTightenedSeconds: [...silenceTightened.values()].reduce((sum, seconds) => sum + seconds, 0),
+        cutChecksFailed: cutCheckErrors.size,
+        ...(chunked && { chunkSync: true, chunks: [...chunkPlan.values()].reduce((sum, chunks) => sum + chunks.length, 0), speedFitted: speedFits.size, speedFitUnsupported: speedUnfollowed.size }),
         // Lines Match source pauses could not check, their original having no word timestamps.
         sourcePausesUnknown: join.matchSourcePauses ? sourcePauses.filter((pauses, i) => !pauses && clips[i]).length : 0,
         late: late.filter(Boolean).length,

@@ -34,6 +34,28 @@ export const SYNC_PRECISION_OPTIONS: { id: SyncPrecision; label: string }[] = [
  * Breath reduction, `spliceCrossfade` and `edgeFade` change the audio itself.
  */
 export interface SyncJoinSettings {
+  /** Chunk sync: each line split where it goes quiet (REAPER Dynamic split) and its chunks placed one by one (Samanvaya). */
+  chunkSync: boolean;
+  /** The split's gate: opens at this level (dBFS) and closes `gateHysteresisDb` below it. */
+  gateOpenDb: number;
+  gateHysteresisDb: number;
+  /** A slice shorter than this isn't cut out alone; a silence shorter than this doesn't split. */
+  minSliceLength: number;
+  minSilenceLength: number;
+  /** Kept before each chunk's first sound and after its last. */
+  leadPad: number;
+  trailPad: number;
+  /** A pause between chunks may shrink to this share of what the voice left, never below its floor, never needing more than `maxChunkGap`. */
+  chunkGapShare: number;
+  wordGap: number;
+  commaGap: number;
+  stopGap: number;
+  maxChunkGap: number;
+  /** Shrink pauses between words first, then at commas, sentence ends last. */
+  punctuationPriority: boolean;
+  /** Fit by voice speed: a line still too long is voiced again read faster by the voice, up to `maxVoiceSpeed` times its speed. */
+  speedFit: boolean;
+  maxVoiceSpeed: number;
   /** Smallest silence between one line's tail and the next line's first sound. */
   minGap: number;
   /** The same, where the speaker changes. */
@@ -54,6 +76,14 @@ export interface SyncJoinSettings {
   /** Pause only where the original speaker did: other pauses inside a line are cut to `unmatchedPause`, even when it fits. */
   matchSourcePauses: boolean;
   unmatchedPause: number;
+  /** A line still too long once its pauses are shortened loses silence measured against its own room tone. Words are never cut. */
+  tightenSilences: boolean;
+  /** A pause Tighten silences shortens keeps at least this. */
+  tightMinPause: number;
+  /** Silence Tighten silences leaves either side of every sound. */
+  tightMargin: number;
+  /** Time a line's words with forced alignment before Tighten silences cuts it. */
+  checkCutWords: boolean;
   /** Equal-power crossfade at each pause cut; 0 is a plain cut inside silence. Changes the audio. */
   spliceCrossfade: number;
   /** A line's tail runs until the audio stays below this level, in dBFS. */
@@ -79,6 +109,21 @@ export type SyncJoinPreset = 'natural' | 'tight' | 'lipsync' | 'custom';
 /** Natural is also what the server syncs with when no settings are sent. */
 export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJoinSettings> = {
   natural: {
+    chunkSync: true,
+    gateOpenDb: -40,
+    gateHysteresisDb: -15,
+    minSliceLength: 0.1,
+    minSilenceLength: 0.15,
+    leadPad: 0.01,
+    trailPad: 0.02,
+    chunkGapShare: 0.5,
+    wordGap: 0.12,
+    commaGap: 0.18,
+    stopGap: 0.25,
+    maxChunkGap: 1,
+    punctuationPriority: true,
+    speedFit: true,
+    maxVoiceSpeed: 1.15,
     minGap: 0.18,
     speakerGap: 0.25,
     gapShare: 0.3,
@@ -90,6 +135,10 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     maxPauseTake: 0.4,
     matchSourcePauses: true,
     unmatchedPause: 0.15,
+    tightenSilences: true,
+    tightMinPause: 0.15,
+    tightMargin: 0.08,
+    checkCutWords: true,
     spliceCrossfade: 0,
     tailFloorDb: -70,
     tailHold: 0.04,
@@ -102,6 +151,21 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     protectedPause: 1.2,
   },
   tight: {
+    chunkSync: true,
+    gateOpenDb: -40,
+    gateHysteresisDb: -15,
+    minSliceLength: 0.1,
+    minSilenceLength: 0.15,
+    leadPad: 0.01,
+    trailPad: 0.02,
+    chunkGapShare: 0.5,
+    wordGap: 0.12,
+    commaGap: 0.18,
+    stopGap: 0.25,
+    maxChunkGap: 1,
+    punctuationPriority: true,
+    speedFit: true,
+    maxVoiceSpeed: 1.15,
     minGap: 0.12,
     speakerGap: 0.22,
     gapShare: 0.35,
@@ -113,6 +177,10 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     maxPauseTake: 0.6,
     matchSourcePauses: true,
     unmatchedPause: 0.15,
+    tightenSilences: true,
+    tightMinPause: 0.12,
+    tightMargin: 0.08,
+    checkCutWords: true,
     spliceCrossfade: 0,
     tailFloorDb: -70,
     tailHold: 0.025,
@@ -125,6 +193,21 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     protectedPause: 1.2,
   },
   lipsync: {
+    chunkSync: true,
+    gateOpenDb: -40,
+    gateHysteresisDb: -15,
+    minSliceLength: 0.1,
+    minSilenceLength: 0.15,
+    leadPad: 0.01,
+    trailPad: 0.02,
+    chunkGapShare: 0.5,
+    wordGap: 0.12,
+    commaGap: 0.18,
+    stopGap: 0.25,
+    maxChunkGap: 1,
+    punctuationPriority: true,
+    speedFit: true,
+    maxVoiceSpeed: 1.15,
     minGap: 0.09,
     speakerGap: 0.18,
     gapShare: 0.3,
@@ -136,6 +219,10 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
     maxPauseTake: 0.7,
     matchSourcePauses: true,
     unmatchedPause: 0.12,
+    tightenSilences: true,
+    tightMinPause: 0.1,
+    tightMargin: 0.08,
+    checkCutWords: true,
     spliceCrossfade: 0,
     tailFloorDb: -70,
     tailHold: 0.015,
@@ -280,6 +367,16 @@ export interface SyncUnitReport {
   pauseTrimmed: number;
   /** Of that, the pauses the original speaker never made (Match source pauses); null when its words have no timestamps. */
   sourcePauseTrimmed?: number | null;
+  /** Chunk sync: the chunks the line was placed as. */
+  chunks?: number;
+  /** Fit by voice speed: how much faster than its voice's own speed the line was read to fit. */
+  speedFit?: number;
+  /** Too long, but its voice's model ignores speed (Eleven v3 and v4), so it was not voiced again. */
+  speedFitUnsupported?: boolean;
+  /** Of `pauseTrimmed`, what Tighten silences took from the line's tail and pauses (absent in older reports). */
+  silenceTightened?: number;
+  /** Why Tighten silences left the line as it was: its words could not be timed to check the cuts. */
+  cutCheckError?: string | null;
   /** The line's first word landed later after its source line than the join settings allow. */
   late: boolean;
   /** Seconds from this line's last word to the next line's first; null for the last line. */
@@ -342,6 +439,17 @@ export interface SyncReport {
     sourcePauseTrimmed?: number;
     /** Lines it could not check, their original having no word timestamps. */
     sourcePausesUnknown?: number;
+    /** Chunk sync: on, and how many chunks the lines were placed as. */
+    chunkSync?: boolean;
+    chunks?: number;
+    /** Lines Fit by voice speed read faster, and lines it couldn't help because their voice's model ignores speed. */
+    speedFitted?: number;
+    speedFitUnsupported?: number;
+    /** Lines Tighten silences shortened, and the seconds it took from them all. */
+    silenceTightened?: number;
+    silenceTightenedSeconds?: number;
+    /** Lines Tighten silences left as they were because their words could not be timed. */
+    cutChecksFailed?: number;
     /** Lines pushed later than the join settings allow. */
     late: number;
     /** Joins with less silence between the words than the review limit. */

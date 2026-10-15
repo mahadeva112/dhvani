@@ -1,4 +1,5 @@
 import type { SyncBank, SyncEditPart, SyncEdits } from './syncEditService';
+import { syncedParts } from './syncEditModel.ts';
 
 /**
  * Live playback for Edit timing, the way a DAW plays its clips: the synced
@@ -77,10 +78,8 @@ export const liveClips = (
     const lineGain = Number.isFinite(line.gain) ? line.gain : 1;
     const speakerGain = multiSpeaker ? (Number.isFinite(bank.speakerGains?.[line.speaker]) ? bank.speakerGains[line.speaker] : 1) : 1;
     const seconds = line.length / rate;
-    // A line nobody edited plays whole, where Sync put it (syncEditService's basePart).
-    const parts: SyncEditPart[] = edits?.[line.key]?.parts ?? [
-      { id: `${line.key}#0`, start: line.startSample / rate, from: 0, to: seconds, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false },
-    ];
+    // A line nobody edited plays as Sync placed it: whole, or as its chunks (syncEditModel's syncedParts).
+    const parts: SyncEditPart[] = edits?.[line.key]?.parts ?? syncedParts(line, rate);
     for (const part of parts) {
       if (part.muted) continue;
       const from = Math.max(0, Math.min(seconds, part.from));

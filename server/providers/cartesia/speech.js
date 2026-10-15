@@ -263,10 +263,12 @@ export const synthesizeScript = async (
  * line. Returns `[{ buffer }]` in the same order.
  */
 export const synthesizeLines = async (
-  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings, performanceTags = false },
+  { voiceId, lines, modelId, outputFormat = 'mp3_44100_128', language, voiceSettings: saved, performanceTags = false, speedScale = 1 },
   { apiKey, signal, onLine = () => {} } = {}
 ) => {
   requireVoiceId(voiceId);
+  // Fit by voice speed: the set speed (1 when none is) read that much faster; sonic-3 only, as generationConfig says.
+  const voiceSettings = Number.isFinite(speedScale) && speedScale !== 1 ? { ...(saved || {}), speed: (saved?.speed ?? 1) * speedScale } : saved;
   const results = new Array(lines.length);
   let done = 0;
   let next = 0;

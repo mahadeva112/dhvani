@@ -623,7 +623,8 @@ test('with breaths kept clear, a breath never plays over the line before', async
   clearClipCache();
   const { deps } = breathyDeps(0.6);
   const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 2.5, 3.5, 'bbbbbbbbbb')];
-  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice, debug: true }, deps);
+  // Line sync: the breath stays in the line, spaced clear of the line before (Chunk sync leaves it out with the silence).
+  const { report } = await runSync({ segments, sourceDuration: 5, sampleRate: RATE, voice, debug: true, join: { chunkSync: false } }, deps);
   const [first, second] = report.audioDebug.lines;
   const gap = (second.timelineStartSample - first.timelineEndSample) / RATE;
   assert.ok(gap >= minimumGap(0.5) - 2 / RATE, `gap ${gap}`);
@@ -853,7 +854,7 @@ test('audio debug accounts for every sample of every line, and the dub is each c
   };
   // Line 2 is too long for its slot, so its inner pause is shortened.
   const segments = [cue(1, 0, 1, 'aaaaaaaaaa'), cue(2, 3, 4, 'x'.repeat(30)), cue(3, 5.5, 6.5, 'cccccccccc')];
-  const { report } = await runSync({ segments, sourceDuration: 10, sampleRate: RATE, voice, suggest: false, debug: true }, deps);
+  const { report } = await runSync({ segments, sourceDuration: 10, sampleRate: RATE, voice, suggest: false, debug: true, join: { chunkSync: false } }, deps);
   const { audioDebug } = report;
 
   assert.equal(audioDebug.sampleRate, RATE);

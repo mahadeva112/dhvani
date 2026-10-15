@@ -257,9 +257,10 @@ export const FitCard: React.FC<{
 };
 
 /** The groups of join settings, each a section of the Sync settings window. */
-export type SyncJoinSection = 'gaps' | 'pauses' | 'edges' | 'fit' | 'grouping' | 'review';
+export type SyncJoinSection = 'chunks' | 'gaps' | 'pauses' | 'edges' | 'fit' | 'grouping' | 'review';
 
 export const JOIN_SECTIONS: { id: SyncJoinSection; title: string }[] = [
+  { id: 'chunks', title: 'Chunk sync' },
   { id: 'gaps', title: 'Gaps between lines' },
   { id: 'pauses', title: 'Pauses inside a line' },
   { id: 'edges', title: 'Line edges' },
@@ -270,8 +271,9 @@ export const JOIN_SECTIONS: { id: SyncJoinSection; title: string }[] = [
 
 /** The join settings each section holds, to mark a section changed from the default. */
 const SECTION_KEYS: Record<SyncJoinSection, (keyof SyncJoinSettings)[]> = {
+  chunks: ['chunkSync', 'speedFit', 'maxVoiceSpeed', 'gateOpenDb', 'gateHysteresisDb', 'minSliceLength', 'minSilenceLength', 'leadPad', 'trailPad', 'chunkGapShare', 'wordGap', 'commaGap', 'stopGap', 'maxChunkGap', 'punctuationPriority'],
   gaps: ['preserveLongPauses', 'protectedPause', 'minGap', 'speakerGap', 'gapShare', 'breathClear', 'removeBreaths', 'breathReduction'],
-  pauses: ['matchSourcePauses', 'unmatchedPause', 'shortenPauses', 'minInnerPause', 'maxPauseTake', 'spliceCrossfade'],
+  pauses: ['matchSourcePauses', 'unmatchedPause', 'shortenPauses', 'minInnerPause', 'maxPauseTake', 'tightenSilences', 'tightMinPause', 'tightMargin', 'checkCutWords', 'spliceCrossfade'],
   edges: ['tailFloorDb', 'tailHold', 'edgeFade'],
   fit: ['maxLateStart'],
   grouping: ['unitGap', 'maxUnit'],
@@ -282,12 +284,17 @@ const SECTION_KEYS: Record<SyncJoinSection, (keyof SyncJoinSettings)[]> = {
 export const joinSectionSummary = (section: SyncJoinSection, options: SyncOptions): string => {
   const { join } = options;
   switch (section) {
+    case 'chunks':
+      return join.chunkSync
+        ? `Split below ${join.gateOpenDb} dB · pauses to ${percent(join.chunkGapShare)}${join.punctuationPriority ? ' · words, then commas, then sentence ends' : ''}${join.speedFit ? ` · long lines read up to ${join.maxVoiceSpeed.toFixed(2)}×` : ''}`
+        : 'Off: each line is placed whole';
     case 'gaps':
       return `${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`;
     case 'pauses':
       return [
         join.matchSourcePauses && `Only where the original pauses`,
         join.shortenPauses ? `${join.matchSourcePauses ? 's' : 'S'}hortened to ${ms(join.minInnerPause)} at least when long` : !join.matchSourcePauses && 'Never shortened',
+        join.tightenSilences && 'silences tightened when still long',
       ].filter(Boolean).join(' · ');
     case 'edges':
       return `Tail to ${join.tailFloorDb} dB, held ${ms(join.tailHold)}`;
@@ -356,7 +363,70 @@ export const SyncJoinSectionControls: React.FC<{
       return { ...o, join: next, preset: joinPresetOf(next) };
     });
 
+  const db = (value: number) => `${Math.round(value)} dB`;
+  const chunksOff = disabled || !join.chunkSync;
+
   switch (section) {
+    case 'chunks':
+      return (
+        <div className="flex flex-col gap-4">
+          <Toggle
+            label="Place each line as chunks"
+            hint="Splits each dub line where it goes quiet, as REAPER's Dynamic split does, and places every chunk on the original's words, as Samanvaya does. The voice is never stretched; only silence between chunks is left out. Off: each line is placed whole."
+            checked={join.chunkSync}
+            disabled={disabled}
+            onChange={(v) => set('chunkSync', v)}
+          />
+          <Toggle
+            label="Check splits against word timing"
+            hint="Times each line's words with ElevenLabs forced alignment, one request per line, so no split falls inside a word. A line whose words can't be timed is placed whole."
+            checked={join.checkCutWords}
+            disabled={chunksOff}
+            onChange={(v) => set('checkCutWords', v)}
+          />
+          <Toggle
+            label="Read a line that still runs long faster"
+            hint="When a line has more words than time even with every pause shrunk, it is voiced again with the voice's own speed raised just enough to fit. The voice reads faster; the audio is never stretched. Only those lines are voiced again. Eleven v3 and v4 ignore the speed setting, so their lines are not voiced again."
+            checked={join.speedFit}
+            disabled={chunksOff}
+            onChange={(v) => set('speedFit', v)}
+          />
+          <Slider id="sync-max-voice-speed" label="Fastest read" value={join.maxVoiceSpeed} {...bounds('maxVoiceSpeed')} step={0.01}
+            format={(v) => `${v.toFixed(2)}×`} disabled={chunksOff || !join.speedFit}
+            onChange={(v) => set('maxVoiceSpeed', v)} hint="Of the voice's own speed. Past about 1.15× a read starts to sound hurried." />
+          <span className={sectionLabel}>Split, as REAPER Dynamic split</span>
+          <Slider id="sync-gate-open" label="Threshold" value={join.gateOpenDb} {...bounds('gateOpenDb')} step={1} format={db} disabled={chunksOff}
+            onChange={(v) => set('gateOpenDb', v)} hint="A chunk starts when the voice rises above this." />
+          <Slider id="sync-gate-hysteresis" label="Hysteresis" value={join.gateHysteresisDb} {...bounds('gateHysteresisDb')} step={1} format={db} disabled={chunksOff}
+            onChange={(v) => set('gateHysteresisDb', v)} hint={`It ends only when the voice falls below ${Math.round(join.gateOpenDb + join.gateHysteresisDb)} dB, so a word's dying sound stays in.`} />
+          <Slider id="sync-min-slice" label="Min slice length" value={join.minSliceLength} {...bounds('minSliceLength')} step={0.01} format={ms} disabled={chunksOff}
+            onChange={(v) => set('minSliceLength', v)} />
+          <Slider id="sync-min-silence" label="Min silence length" value={join.minSilenceLength} {...bounds('minSilenceLength')} step={0.01} format={ms} disabled={chunksOff}
+            onChange={(v) => set('minSilenceLength', v)} hint="A shorter silence doesn't split." />
+          <Slider id="sync-lead-pad" label="Leading pad" value={join.leadPad} {...bounds('leadPad')} step={0.005} format={ms} disabled={chunksOff}
+            onChange={(v) => set('leadPad', v)} />
+          <Slider id="sync-trail-pad" label="Trailing pad" value={join.trailPad} {...bounds('trailPad')} step={0.005} format={ms} disabled={chunksOff}
+            onChange={(v) => set('trailPad', v)} />
+          <span className={sectionLabel}>Pauses between chunks</span>
+          <Slider id="sync-chunk-share" label="Shrink a pause to" value={join.chunkGapShare} {...bounds('chunkGapShare')} step={0.05} format={percent} disabled={chunksOff}
+            onChange={(v) => set('chunkGapShare', v)} hint="Of what the voice left, at least. A pause also grows where the original pauses longer." />
+          <Toggle
+            label="Shrink in punctuation order"
+            hint="Pauses between words first, then at commas, and a sentence end's only when the line still doesn't fit."
+            checked={join.punctuationPriority}
+            disabled={chunksOff}
+            onChange={(v) => set('punctuationPriority', v)}
+          />
+          <Slider id="sync-word-gap" label="Shortest pause between words" value={join.wordGap} {...bounds('wordGap')} step={0.01} format={ms} disabled={chunksOff}
+            onChange={(v) => set('wordGap', v)} />
+          <Slider id="sync-comma-gap" label="Shortest pause at a comma" value={join.commaGap} {...bounds('commaGap')} step={0.01} format={ms} disabled={chunksOff}
+            onChange={(v) => set('commaGap', v)} />
+          <Slider id="sync-stop-gap" label="Shortest pause at a sentence end" value={join.stopGap} {...bounds('stopGap')} step={0.01} format={ms} disabled={chunksOff}
+            onChange={(v) => set('stopGap', v)} />
+          <Slider id="sync-max-chunk-gap" label="Longest a chunk need wait" value={join.maxChunkGap} {...bounds('maxChunkGap')} step={0.05} format={ms} disabled={chunksOff}
+            onChange={(v) => set('maxChunkGap', v)} />
+        </div>
+      );
     case 'gaps':
       return (
         <div className="flex flex-col gap-4">
@@ -418,6 +488,11 @@ export const SyncJoinSectionControls: React.FC<{
     case 'pauses':
       return (
         <div className="flex flex-col gap-4">
+          {join.chunkSync && (
+            <p className="text-[12px] text-slate-400 rounded-lg border border-slate-800 px-2.5 py-1.5">
+              Chunk sync is on: pauses are shrunk between chunks instead (see Chunk sync). These apply when it is off.
+            </p>
+          )}
           <Toggle
             label="Pause only where the original pauses"
             hint="A pause the original speaker never made is cut down to a word gap, even when the line fits. Needs the original's word timestamps."
@@ -461,6 +536,41 @@ export const SyncJoinSectionControls: React.FC<{
             format={percent}
             disabled={disabled || !join.shortenPauses}
             onChange={(v) => set('maxPauseTake', v)}
+          />
+          <Toggle
+            label="Tighten silences when a line still runs long"
+            hint="Measures each line's own room tone, then takes silence from its end and from its pauses, longest first, until it fits. Words are never cut."
+            checked={join.tightenSilences}
+            disabled={disabled}
+            onChange={(v) => set('tightenSilences', v)}
+          />
+          <Slider
+            id="sync-tight-min-pause"
+            label="Shortest pause left"
+            value={join.tightMinPause}
+            {...bounds('tightMinPause')}
+            step={0.01}
+            format={ms}
+            disabled={disabled || !join.tightenSilences}
+            onChange={(v) => set('tightMinPause', v)}
+          />
+          <Slider
+            id="sync-tight-margin"
+            label="Silence kept around words"
+            value={join.tightMargin}
+            {...bounds('tightMargin')}
+            step={0.01}
+            format={ms}
+            disabled={disabled || !join.tightenSilences}
+            onChange={(v) => set('tightMargin', v)}
+            hint="Left before and after every sound, so a word's start and its dying sound stay whole."
+          />
+          <Toggle
+            label="Check cuts against word timing"
+            hint="Times the words of each line it tightens with ElevenLabs forced alignment, and keeps every cut clear of them. One request per tightened line; a line whose words can't be timed is left as it is."
+            checked={join.checkCutWords}
+            disabled={disabled || !join.tightenSilences}
+            onChange={(v) => set('checkCutWords', v)}
           />
           <Slider
             id="sync-splice-crossfade"
@@ -547,7 +657,7 @@ export const SyncJoinSectionControls: React.FC<{
       return (
         <div className="flex flex-col gap-4">
           <ol className="flex flex-col gap-1.5 text-[12.5px] text-slate-300">
-            {['Shorten the pauses inside it', 'Move the lines around it, never over each other', 'Flag it with a shorter wording, never squeeze it'].map(
+            {['Shorten the pauses inside it, then tighten its silences', 'Move the lines around it, never over each other', 'Flag it with a shorter wording, never squeeze it'].map(
               (step, n) => (
                 <li key={step} className="flex items-center gap-2 rounded-lg border border-slate-800 px-2.5 py-1.5">
                   <span className="w-[18px] h-[18px] shrink-0 rounded-full bg-indigo-500/20 text-indigo-300 text-[10.5px] flex items-center justify-center">{n + 1}</span>

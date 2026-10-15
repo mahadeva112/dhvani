@@ -550,6 +550,7 @@ export const synthesizeLines = async (
     steady = false,
     tuneStability = true,
     readCount,
+    speedScale = 1,
   },
   { apiKey, signal, onLine = () => {}, onStabilityAdjustment = () => {} } = {}
 ) => {
@@ -564,6 +565,8 @@ export const synthesizeLines = async (
   });
   logAdjustment(stabilityAdjustment);
   onStabilityAdjustment(stabilityAdjustment);
+  // Fit by voice speed: the voice's own speed, saved or set, read that much faster (normalizeSettings keeps it inside 0.7-1.2).
+  const voiced = Number.isFinite(speedScale) && speedScale !== 1 ? { ...settings, speed: (settings.speed ?? DEFAULT_VOICE_SETTINGS.speed) * speedScale } : settings;
   const takeSeed = Number.isInteger(seed) && seed >= 0 && seed < 2 ** 32 ? seed : randomInt(0, 2 ** 32 - 1);
 
   const results = new Array(lines.length);
@@ -578,7 +581,7 @@ export const synthesizeLines = async (
       text: line.text,
       modelId: resolvedModel,
       outputFormat,
-      voiceSettings: settings,
+      voiceSettings: voiced,
       seed: Number.isInteger(line.seed) && line.seed >= 0 && line.seed < 2 ** 32 ? line.seed : takeSeed,
       performanceTags,
     };

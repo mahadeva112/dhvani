@@ -3,6 +3,7 @@ import {
   AlignStartVertical,
   ArrowRightToLine,
   Check,
+  FoldHorizontal,
   Link2,
   Loader2,
   Lock,
@@ -10,6 +11,7 @@ import {
   Magnet,
   Maximize2,
   Mic,
+  Play,
   Redo2,
   RotateCcw,
   Scissors,
@@ -26,10 +28,11 @@ import { drawWaveLines } from '../services/waveform';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
-import { wordsInTakeRange } from '../services/takeRange';
+import { wordsInTakeRange, type TakeWord } from '../services/takeRange';
+import { tightenPart, tightenLevelDb, DEFAULT_TIGHTEN, type TightenSettings } from '../services/tightenEdit';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import {
-  basePart,
+  syncedParts,
   hasEdits,
   isEdited,
   isOriginalClip,
@@ -122,8 +125,11 @@ const pauseJoins = (line: SyncBankLine, sampleRate: number): number[] => {
 const pauseNote = (unit: SyncUnitReport | null | undefined) => {
   if (!unit || !(unit.pauseTrimmed > 0)) return '';
   const unmatched = unit.sourcePauseTrimmed ?? 0;
+  const tightened = unit.silenceTightened ?? 0;
   return `
-Pauses shortened by ${unit.pauseTrimmed.toFixed(2)} s${unmatched > 0 ? `, ${unmatched.toFixed(2)} s of it where the original doesn't pause` : ''}`;
+Pauses shortened by ${unit.pauseTrimmed.toFixed(2)} s${unmatched > 0 ? `, ${unmatched.toFixed(2)} s of it where the original doesn't pause` : ''}${
+    tightened > 0 ? `${unmatched > 0 ? ' and' : ','} ${tightened.toFixed(2)} s of it silence tightened` : ''
+  }`;
 };
 
 /** How a line lands, in the colours the sync report uses. */
@@ -1446,6 +1452,133 @@ export const SyncEditTimeline: React.FC<{
     setDraft(null);
   };
 
+  // ---- Tighten silences (Q) ----
+  // By hand, on the picked lines (every line when none is picked): each part is
+  // split where its line goes quiet and the silence taken out, shown in red on
+  // the timeline as the settings change and heard with Listen, before Apply.
+
+  const [tighten, setTighten] = useState<{
+    settings: TightenSettings;
+    /** The slider's level while it is on Auto: the first line's own. */
+    manualDb: number;
+    moveLater: boolean;
+    checkWords: boolean;
+    targets: string[];
+    listening: boolean;
+  } | null>(null);
+  /** Each line's words as forced alignment hears them, by line key, for this bank. */
+  const [tightenWords, setTightenWords] = useState<Record<string, TakeWord[] | 'loading' | 'failed'>>({});
+  const tightenRequest = useRef<AbortController | null>(null);
+  useEffect(() => {
+    tightenRequest.current?.abort();
+    setTightenWords({});
+    setTighten(null);
+  }, [bank]);
+  useEffect(() => () => tightenRequest.current?.abort(), []);
+
+  /** The line's samples as decoded, and their rate. */
+  const lineSamples = (chunk: Chunk) => {
+    if (!bankBuffer) return null;
+    const sr = bankBuffer.sampleRate;
+    const line = lineOf(chunk);
+    const from = Math.round((line.bankStart / rate) * sr);
+    return { samples: bankBuffer.getChannelData(0).subarray(from, from + Math.round((line.length / rate) * sr)), sr };
+  };
+
+  const tightenTargets = tighten ? chunks.filter((c) => !c.original && tighten.targets.includes(c.part.id)) : [];
+
+  /** The edits with the picked parts tightened, what is cut from each, and in all. */
+  const tightenPreview = useMemo(() => {
+    if (!tighten || !bankBuffer) return null;
+    let next: SyncEdits = committed;
+    const cutsByPart = new Map<string, { from: number; to: number }[]>();
+    let cuts = 0;
+    let removed = 0;
+    let waiting = 0;
+    let failed = 0;
+    // Latest first, so moving later lines up never moves a part still to be tightened.
+    for (const chunk of [...tightenTargets].sort((a, b) => b.part.start - a.part.start)) {
+      const words = tightenWords[chunk.key];
+      if (tighten.checkWords && words === 'failed') { failed++; continue; }
+      if (tighten.checkWords && !Array.isArray(words)) { waiting++; continue; }
+      const audio = lineSamples(chunk);
+      if (!audio) continue;
+      const result = tightenPart(audio.samples, audio.sr, chunk.part, tighten.settings, Array.isArray(words) ? words : []);
+      if (result.cuts.length === 0) continue;
+      cutsByPart.set(chunk.part.id, result.cuts);
+      cuts += result.cuts.length;
+      removed += result.removed;
+      const end = partEnd(chunk.part);
+      const line = lineOf(chunk);
+      next = withParts(next, chunk.key, partsOf(next, line, rate).flatMap((p) => (p.id === chunk.part.id ? result.parts : [p])));
+      if (tighten.moveLater && result.removed > 0) {
+        for (const other of lines) {
+          if (other.key === chunk.key) continue;
+          const parts = partsOf(next, other, rate);
+          if (parts.some((p) => p.start >= end - 1e-6)) next = withParts(next, other.key, parts.map((p) => (p.start >= end - 1e-6 ? { ...p, start: p.start - result.removed } : p)));
+        }
+      }
+    }
+    return { next, cutsByPart, cuts, removed, waiting, failed };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tighten, bankBuffer, committed, tightenWords, chunks]);
+
+  // What is heard follows the settings while Listen is on.
+  useEffect(() => {
+    if (tighten?.listening && tightenPreview) onDraftRef.current?.(tightenPreview.next);
+  }, [tighten?.listening, tightenPreview]);
+
+  const askWords = (targets: Chunk[]) => {
+    if (!bankBlob) return;
+    const missing = [...new Map(targets.filter((c) => c.unit && tightenWords[c.key] === undefined).map((c) => [c.key, c])).values()];
+    if (missing.length === 0) return;
+    tightenRequest.current?.abort();
+    const controller = new AbortController();
+    tightenRequest.current = controller;
+    setTightenWords((w) => ({ ...w, ...Object.fromEntries(missing.map((c) => [c.key, 'loading' as const])) }));
+    for (const chunk of missing) {
+      void alignTakeWords(bank, bankBlob, lineOf(chunk), chunk.unit!.text, { apiKey: elApiKey, signal: controller.signal })
+        .then((words) => !controller.signal.aborted && setTightenWords((w) => ({ ...w, [chunk.key]: words })))
+        .catch(() => !controller.signal.aborted && setTightenWords((w) => ({ ...w, [chunk.key]: 'failed' })));
+    }
+  };
+
+  const openTighten = () => {
+    if (!bankBuffer) return say('The lines are still loading.');
+    const targets = (group.length > 0 ? group : chunks).filter((c) => !c.original);
+    if (targets.length === 0) return say('Pick a dub line to tighten: clips of the original are left as they are.');
+    const first = lineSamples(targets[0]);
+    const manualDb = first ? Math.round(tightenLevelDb(first.samples, first.sr, DEFAULT_TIGHTEN)) : -50;
+    setTighten({ settings: DEFAULT_TIGHTEN, manualDb, moveLater: false, checkWords: true, targets: targets.map((c) => c.part.id), listening: false });
+    askWords(targets);
+  };
+
+  const closeTighten = () => {
+    if (tighten?.listening) onDraftRef.current?.(null);
+    setTighten(null);
+  };
+
+  const applyTighten = () => {
+    if (!tighten || !tightenPreview) return;
+    if (tightenPreview.cuts === 0) {
+      closeTighten();
+      return say('Nothing to tighten: no pause is that long or that quiet.');
+    }
+    const keys = [...new Set(tightenTargets.filter((c) => tightenPreview.cutsByPart.has(c.part.id)).map((c) => c.unitIndex + 1))];
+    const label = `Tighten silences in ${keys.length === 1 ? `line ${keys[0]}` : `${keys.length} lines`}`;
+    commit(tightenPreview.next, label);
+    say(`${tightenPreview.cuts} cut${tightenPreview.cuts === 1 ? '' : 's'} · −${tightenPreview.removed.toFixed(2)} s · Ctrl + Z undoes it`);
+    setTighten(null);
+  };
+
+  const listenTighten = () => {
+    if (!tighten || !tightenPreview) return;
+    setTighten({ ...tighten, listening: true });
+    onDraftRef.current?.(tightenPreview.next);
+    const start = Math.min(...tightenTargets.map((c) => c.part.start));
+    onPlayFrom(Math.max(0, start - 0.3));
+  };
+
   // ---- Actions ----
 
   const act = {
@@ -1518,7 +1651,7 @@ export const SyncEditTimeline: React.FC<{
       if (keys.length === 0) return say('A clip of the original always stays where you put it.');
       const locked = keys.some((key) => !(committed[key]?.locked ?? false));
       const next = { ...committed };
-      for (const c of group) if (!c.original) next[c.key] = { parts: committed[c.key]?.parts ?? [basePart(lineOf(c), rate)], locked };
+      for (const c of group) if (!c.original) next[c.key] = { parts: committed[c.key]?.parts ?? syncedParts(lineOf(c), rate), locked };
       const one = keys.length === 1;
       commit(next, `${locked ? 'Lock' : 'Unlock'} ${one ? `line ${group[0].label}` : `${keys.length} lines`}`);
       say(
@@ -1768,7 +1901,8 @@ export const SyncEditTimeline: React.FC<{
     const lower = key.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     let done = true;
-    if (mod && lower === 'c') done = copyPick();
+    if (tighten && !mod && (key === 'Enter' || key === 'Escape')) (key === 'Enter' ? applyTighten : closeTighten)();
+    else if (mod && lower === 'c') done = copyPick();
     else if (mod && lower === 'v') pasteOriginal();
     else if (mod && lower === 'z') (e.shiftKey ? act.redo : act.undo)();
     else if (mod && lower === 'y') act.redo();
@@ -1797,6 +1931,7 @@ export const SyncEditTimeline: React.FC<{
     else if (lower === 'l') act.lock();
     else if (lower === 'n') setSnap((v) => !v);
     else if (lower === 't' && onOpenTakes) openTakes();
+    else if (lower === 'q') (tighten ? closeTighten : openTighten)();
     else if (key === 'Delete' || key === 'Backspace') act.remove();
     else if (key === 'Escape') {
       setSelected(null);
@@ -2155,6 +2290,15 @@ export const SyncEditTimeline: React.FC<{
                           style={{ left: `${(((at - part.from) / part.rate) / length) * 100}%` }}
                         />
                       ))}
+                  {/* Tighten silences: what would be cut */}
+                  {tightenPreview?.cutsByPart.get(part.id)?.map((cut) => (
+                    <span
+                      key={cut.from}
+                      aria-hidden="true"
+                      className="absolute top-0 bottom-0 bg-rose-500/45 border-x border-rose-300/70 pointer-events-none"
+                      style={{ left: `${(((cut.from - part.from) / part.rate) / length) * 100}%`, width: `${(((cut.to - cut.from) / part.rate) / length) * 100}%` }}
+                    />
+                  ))}
                   {/* What a drag here does: shown where the pointer is, and on the picked line */}
                   {(() => {
                     const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;
@@ -2286,6 +2430,120 @@ export const SyncEditTimeline: React.FC<{
         onScroll={(start) => zoom.scrollTo(start)}
       />
 
+      {/* Tighten silences: its settings, what they cut, Listen and Apply */}
+      {tighten && (
+        <div role="group" aria-label="Tighten silences" className="rounded-xl border border-slate-700 bg-slate-900/95 px-3.5 py-3 flex flex-col gap-2.5">
+          <div className="flex items-center gap-2">
+            <FoldHorizontal className="w-4 h-4 text-slate-300" />
+            <span className="text-[13px] font-semibold text-slate-100">Tighten silences</span>
+            <span className="text-[11.5px] text-slate-500">
+              {tightenTargets.length === 1 ? `line ${tightenTargets[0].label}` : `${tightenTargets.length} parts`} · red is cut · Enter applies, Esc cancels
+            </span>
+          </div>
+          <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+            <label className="flex items-center gap-2 text-[12.5px] text-slate-300">
+              <span className="w-[8.5rem] shrink-0">Silence below</span>
+              <button
+                type="button"
+                onClick={() => setTighten({ ...tighten, settings: { ...tighten.settings, levelDb: 'auto' } })}
+                className={`h-6 px-2 rounded-md text-[11.5px] border cursor-pointer ${tighten.settings.levelDb === 'auto' ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                title="A little above each line's own room tone"
+              >
+                Auto
+              </button>
+              <input
+                type="range"
+                min={-70}
+                max={-30}
+                step={1}
+                value={tighten.settings.levelDb === 'auto' ? tighten.manualDb : tighten.settings.levelDb}
+                onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, levelDb: Number(e.target.value) } })}
+                className="flex-1 min-w-0 accent-indigo-400 cursor-pointer"
+              />
+              <span className="w-12 text-right tabular-nums text-indigo-300">
+                {tighten.settings.levelDb === 'auto' ? 'Auto' : `${tighten.settings.levelDb} dB`}
+              </span>
+            </label>
+            <label className="flex items-center gap-2 text-[12.5px] text-slate-300">
+              <span className="w-[8.5rem] shrink-0">Shortest pause kept</span>
+              <input
+                type="range"
+                min={0.04}
+                max={0.6}
+                step={0.01}
+                value={tighten.settings.minPause}
+                onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, minPause: Number(e.target.value) } })}
+                className="flex-1 min-w-0 accent-indigo-400 cursor-pointer"
+              />
+              <span className="w-12 text-right tabular-nums text-indigo-300">{Math.round(tighten.settings.minPause * 1000)} ms</span>
+            </label>
+            <label className="flex items-center gap-2 text-[12.5px] text-slate-300">
+              <span className="w-[8.5rem] shrink-0">Margin around words</span>
+              <input
+                type="range"
+                min={0.01}
+                max={0.2}
+                step={0.01}
+                value={tighten.settings.margin}
+                onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, margin: Number(e.target.value) } })}
+                className="flex-1 min-w-0 accent-indigo-400 cursor-pointer"
+              />
+              <span className="w-12 text-right tabular-nums text-indigo-300">{Math.round(tighten.settings.margin * 1000)} ms</span>
+            </label>
+            <div className="flex items-center gap-2 text-[12.5px] text-slate-300">
+              <span className="w-[8.5rem] shrink-0">Later lines</span>
+              {[false, true].map((move) => (
+                <button
+                  key={String(move)}
+                  type="button"
+                  onClick={() => setTighten({ ...tighten, moveLater: move })}
+                  className={`h-6 px-2 rounded-md text-[11.5px] border cursor-pointer ${tighten.moveLater === move ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                  title={move ? 'Everything after a tightened line moves up by what it lost' : 'Only the tightened lines change'}
+                >
+                  {move ? 'Move up' : 'Stay put'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-[12px] text-slate-400 cursor-pointer w-fit">
+            <input
+              type="checkbox"
+              checked={tighten.checkWords}
+              onChange={(e) => {
+                setTighten({ ...tighten, checkWords: e.target.checked });
+                if (e.target.checked) askWords(tightenTargets);
+              }}
+              className="accent-indigo-500"
+            />
+            Check words first: forced alignment, one request per line, so nothing said is cut
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <span aria-live="polite" className="text-[12.5px] text-slate-200">
+              {!tightenPreview
+                ? 'Loading the lines…'
+                : tightenPreview.waiting > 0
+                  ? `Checking the words of ${tightenPreview.waiting} line${tightenPreview.waiting === 1 ? '' : 's'}…`
+                  : tightenPreview.cuts === 0
+                    ? 'Nothing to cut at these settings.'
+                    : `${tightenPreview.cuts} cut${tightenPreview.cuts === 1 ? '' : 's'} · −${tightenPreview.removed.toFixed(2)} s`}
+              {tightenPreview && tightenPreview.failed > 0 && (
+                <span className="text-amber-300"> · {tightenPreview.failed} line{tightenPreview.failed === 1 ? '' : 's'} left as they are: their words couldn't be checked</span>
+              )}
+            </span>
+            <span className="flex-1" />
+            <button type="button" onClick={listenTighten} disabled={!tightenPreview || tightenPreview.cuts === 0} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5">
+              <Play className="w-3.5 h-3.5" /> Listen
+            </button>
+            <button type="button" onClick={applyTighten} disabled={!tightenPreview || tightenPreview.waiting > 0} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5" /> Apply
+            </button>
+            <button type="button" onClick={closeTighten} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-pointer">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Actions on the picked line */}
       {rangeTool && <p role="status" className="text-[12px] text-indigo-200">
         {aligningRange ? 'Matching the selected audio to its words…' : rangeWords ? `Selected: “${rangeWords.text}” · word boundaries matched. Choose a direction and Retake below.` : 'Drag inside one dub waveform to select words. For keyboard selection, open Takes, click a word, then Shift-click another.'}
@@ -2306,6 +2564,9 @@ export const SyncEditTimeline: React.FC<{
           </ActionButton>
           <ActionButton label={currentLocked ? 'Unlock' : 'Lock'} shortcut="L" onClick={act.lock} title="A locked line stays where it is when Sync runs again">
             {currentLocked ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+          </ActionButton>
+          <ActionButton label="Tighten" shortcut="Q" onClick={tighten ? closeTighten : openTighten} title="Take the long silences out of the picked lines (every line when none is picked): see what is cut, listen, then apply">
+            <FoldHorizontal className="w-4 h-4" />
           </ActionButton>
           {onOpenTakes && (
             <ActionButton
