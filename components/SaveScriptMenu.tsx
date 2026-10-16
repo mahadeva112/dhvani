@@ -11,18 +11,26 @@ const FORMATS: { id: TargetScriptFormat; tag: string; title: string; hint: strin
   { id: 'csv', tag: 'CSV', title: 'Spreadsheet', hint: 'For Excel or Google Sheets' },
 ];
 
+/** As heard: the synced dub's lines, at their times in it. Full: every cue. */
+export type ScriptScope = 'heard' | 'full';
+
 interface SaveScriptMenuProps {
   onSave: (format: TargetScriptFormat) => void;
   /** The row's name, e.g. "Hindi script". */
   title: string;
   disabled?: boolean;
+  /** Set once there is a synced dub: whether the text formats follow it. */
+  scope?: ScriptScope;
+  onScopeChange?: (scope: ScriptScope) => void;
+  /** Lines the synced dub left out, for the choice's hint. */
+  removedCount?: number;
 }
 
 /**
  * The script's row in the Dub step's downloads, as a split button: the row
  * saves the script file, the arrow offers every other format.
  */
-export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, disabled }) => {
+export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, disabled, scope, onScopeChange, removedCount = 0 }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -120,6 +128,33 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
           style={{ position: 'fixed', right: place?.right ?? 8, top: place?.top, bottom: place?.bottom, visibility: place ? 'visible' : 'hidden' }}
           className="z-[60] w-72 max-w-[calc(100vw-1rem)] p-1 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl animate-in fade-in duration-100"
         >
+          {scope && onScopeChange && (
+            <div className="px-1.5 pt-1.5 pb-2 mb-1 border-b border-slate-800">
+              <div role="group" aria-label="Which lines" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950 border border-slate-800">
+                {([
+                  ['heard', 'As heard in the dub'],
+                  ['full', 'Full script'],
+                ] as [ScriptScope, string][]).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={scope === id}
+                    onClick={() => onScopeChange(id)}
+                    className={`flex-1 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors cursor-pointer ${
+                      scope === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 leading-snug mt-1.5 px-0.5">
+                {scope === 'heard'
+                  ? `${removedCount > 0 ? `Leaves out ${removedCount} ${removedCount === 1 ? 'cue' : 'cues'} removed in Edit timing; times` : 'Times'} as in the synced dub. The script file is always whole.`
+                  : 'Every cue at its time in the original, removed ones too.'}
+              </p>
+            </div>
+          )}
           {FORMATS.map((f, i) => (
             <React.Fragment key={f.id}>
               {i === 1 && <div className="h-px bg-slate-800 mx-1.5 my-1" />}

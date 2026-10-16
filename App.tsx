@@ -2786,11 +2786,11 @@ export default function App() {
 
   // Download Targeted Language Script
   const handleDownloadMasterScript = useCallback(
-    (format: TargetScriptFormat = 'dialogue') => {
+    (format: TargetScriptFormat = 'dialogue', lines?: AudioSegment[]) => {
       if (!activeJob || !activeJob.segments || activeJob.segments.length === 0) return;
       const targetLang = activeJob.language || selectedLanguage || 'Target Language';
       const scriptContent = generateTargetLanguageScript(
-        activeJob.segments,
+        lines ?? activeJob.segments,
         targetLang,
         format,
         activeJob.file?.name ? `Dhvani Dub - ${activeJob.file.name}` : undefined,
@@ -3294,6 +3294,7 @@ export default function App() {
           onDownloadStem={handleDownloadStem}
           onDownloadSrt={handleDownloadMasterSrt}
           onDownloadScript={handleDownloadMasterScript}
+          onUpdateJobFields={(patch) => activeJob && updateJob(activeJob.id, patch)}
           customPrompt={activeJob?.customPrompt || customPrompt}
           promptPresetId={activeJob?.promptPresetId || promptPresetId}
           onUpdateTranslationPrompt={handleUpdateTranslationPrompt}

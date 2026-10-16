@@ -3,6 +3,7 @@ import {
   AlignStartVertical,
   ArrowRightToLine,
   Check,
+  Flag,
   FoldHorizontal,
   Link2,
   Loader2,
@@ -23,6 +24,8 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { TimelineRuler, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
+import { MarkerFlags, MarkerLines, MarkerList, newMarker, sortMarkers } from './TimelineMarkers';
+import type { TimelineNote } from '../types';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
 import { drawWaveLines } from '../services/waveform';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
@@ -709,6 +712,9 @@ export const SyncEditTimeline: React.FC<{
   onOpenTakes?: (key: string, phrase?: { from: number; to: number }, follow?: boolean) => void;
   elApiKey?: string;
   takesUnavailableKeys?: string[];
+  /** The editor's own markers with notes; Shift + M adds one at the playhead. */
+  markers?: TimelineNote[];
+  onMarkersChange?: (markers: TimelineNote[]) => void;
 }> = ({
   bank,
   bankBlob,
@@ -734,6 +740,8 @@ export const SyncEditTimeline: React.FC<{
   onOpenTakes,
   elApiKey,
   takesUnavailableKeys = [],
+  markers = [],
+  onMarkersChange,
 }) => {
   const rate = bank.sampleRate;
   const committed = edits ?? {};
@@ -895,6 +903,18 @@ export const SyncEditTimeline: React.FC<{
     toastTimer.current = window.setTimeout(() => setToast(null), 3200);
   };
   useEffect(() => () => void (toastTimer.current && window.clearTimeout(toastTimer.current)), []);
+
+  /** The marker whose note is open. */
+  const [editingMarker, setEditingMarker] = useState<string | null>(null);
+  const addMarker = () => {
+    if (!onMarkersChange) return;
+    const time = getLiveTime?.() ?? currentTime;
+    const near = markers.find((m) => Math.abs(m.time - time) < 0.05);
+    if (near) return setEditingMarker(near.id);
+    const marker = newMarker(time);
+    onMarkersChange(sortMarkers([...markers, marker]));
+    setEditingMarker(marker.id);
+  };
 
   const chunkOf = (id: string | null) => (id ? chunks.find((c) => c.part.id === id) ?? null : null);
   const current = chunkOf(selected);
@@ -1927,7 +1947,10 @@ export const SyncEditTimeline: React.FC<{
     else if (lower === 's') act.split();
     else if (lower === 'g') act.join();
     else if (lower === 'a') act.align();
-    else if (lower === 'm') act.mute();
+    else if (lower === 'm' && e.shiftKey) {
+      if (onMarkersChange) addMarker();
+      else done = false;
+    } else if (lower === 'm') act.mute();
     else if (lower === 'l') act.lock();
     else if (lower === 'n') setSnap((v) => !v);
     else if (lower === 't' && onOpenTakes) openTakes();
@@ -2030,6 +2053,16 @@ export const SyncEditTimeline: React.FC<{
         </span>
       </div>
       {status.notice && <p className="text-[12px] text-amber-300">{status.notice}</p>}
+      {onMarkersChange && (
+        <MarkerList
+          markers={markers}
+          onJump={(m) => {
+            zoom.setFollow(true);
+            onSeek(m.time);
+            setEditingMarker(m.id);
+          }}
+        />
+      )}
 
       {/* Tools: names and shortcuts show on hover */}
       <div className="flex flex-wrap items-center gap-2">
@@ -2055,6 +2088,12 @@ export const SyncEditTimeline: React.FC<{
             <ArrowRightToLine className="w-4 h-4" />
             Ripple
           </ToolButton>
+          {onMarkersChange && (
+            <ToolButton label="Marker" shortcut="Shift + M" hint="Puts a marker with a note at the playhead, for you to come back to. It doesn't change the dub." pressed={false} onClick={addMarker}>
+              <Flag className="w-4 h-4" />
+              Marker
+            </ToolButton>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5" role="group" aria-label="Zoom">
           <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-pointer disabled:cursor-default">
@@ -2124,9 +2163,22 @@ export const SyncEditTimeline: React.FC<{
           className="relative min-w-0 select-none"
           onWheel={wheelScroll(windowSeconds, (s) => zoom.scrollTo(windowStart + s))}
         >
-          <div className="h-6 px-0 pt-1 border-b border-slate-800 bg-slate-950/40">
+          <div className="relative z-20 h-6 px-0 pt-1 border-b border-slate-800 bg-slate-950/40">
             <TimelineRuler zoom={zoom} />
+            {onMarkersChange && (
+              <MarkerFlags
+                markers={markers}
+                onChange={onMarkersChange}
+                windowStart={windowStart}
+                windowSeconds={windowSeconds}
+                total={total}
+                editingId={editingMarker}
+                onEditingChange={setEditingMarker}
+                onSeek={onSeek}
+              />
+            )}
           </div>
+          <MarkerLines markers={markers} windowStart={windowStart} windowSeconds={windowSeconds} />
 
           {/* Original: a click seeks, a drag picks a stretch to put on the dub */}
           <div

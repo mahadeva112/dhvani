@@ -122,7 +122,7 @@ import { VoiceRateCard } from './VoiceRateCard';
 import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix, pauseAdvice } from './FinalScriptFit';
-import { SaveScriptMenu } from './SaveScriptMenu';
+import { SaveScriptMenu, type ScriptScope } from './SaveScriptMenu';
 import { hueOf, lineIndexByCue, withAlpha } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
@@ -148,6 +148,7 @@ const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{
 
 /** Review text size: the reviewer scales the script with − and +, remembered per machine. */
 const REVIEW_FONT_KEY = 'dhvani_review_font_px';
+const SCRIPT_SCOPE_KEY = 'dhvani_script_scope';
 /** Quick or Expert: how the Sync preview times the dub lines. */
 const ESTIMATE_METHOD_KEY = 'dhvani_estimate_method';
 /** A speaker's rate from a sync is used once that many of their lines were voiced, as Fit to this video asks. */
@@ -468,7 +469,10 @@ interface ExpressDubWizardProps {
   onResetSession?: () => void;
   onDownloadWav: () => void;
   onDownloadSrt: () => void;
-  onDownloadScript?: (format?: TargetScriptFormat) => void;
+  /** Saves the script; `lines` replaces the cues when the script follows the synced dub. */
+  onDownloadScript?: (format?: TargetScriptFormat, lines?: AudioSegment[]) => void;
+  /** Saves the project's subtitle edits and Edit timing markers. */
+  onUpdateJobFields?: (patch: Partial<Pick<BatchJob, 'subtitleEdits' | 'syncMarkers'>>) => void;
   isCompact?: boolean;
   customPrompt?: string;
   promptPresetId?: string;
@@ -595,6 +599,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onDownloadWav,
   onDownloadSrt,
   onDownloadScript,
+  onUpdateJobFields,
   isCompact = true,
   customPrompt,
   promptPresetId,
@@ -641,6 +646,20 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // The speaker whose voice the library picks, or null for the main voice.
   const [castPickFor, setCastPickFor] = useState<string | null>(null);
   const [finalScriptLayout, setFinalScriptLayout] = useState<'dialogue' | 'timecoded' | 'bilingual'>('bilingual');
+  /** The script as the synced dub has it (lines removed in Edit timing left out, its times), or every cue. */
+  const [scriptScope, setScriptScopeState] = useState<ScriptScope>(() => {
+    try {
+      return localStorage.getItem(SCRIPT_SCOPE_KEY) === 'full' ? 'full' : 'heard';
+    } catch {
+      return 'heard';
+    }
+  });
+  const setScriptScope = (scope: ScriptScope) => {
+    setScriptScopeState(scope);
+    try {
+      localStorage.setItem(SCRIPT_SCOPE_KEY, scope);
+    } catch {}
+  };
   const [isVoicePickerOpen, setIsVoicePickerOpen] = useState(false);
   const { favorites: favoriteVoices } = useFavoriteVoices();
   const [reviewFontPx, setReviewFontPx] = useState<number>(() => {
@@ -998,6 +1017,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     () => (hasSyncReport && activeJob?.syncReport ? syncedSegments(segments, activeJob.syncReport) : undefined),
     [hasSyncReport, activeJob?.syncReport, segments]
   );
+  /** Cues the synced dub no longer says: their whole line was removed or muted in Edit timing. */
+  const removedCueIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (!hasSyncReport) return ids;
+    for (const unit of activeJob?.syncReport?.units || []) {
+      if (unit.placedStart === null || unit.placedEnd === null) for (const id of unit.cueIds) ids.add(String(id));
+    }
+    return ids;
+  }, [hasSyncReport, activeJob?.syncReport]);
+  const scriptFollowsDub = scriptScope === 'heard' && Boolean(syncedCues);
+  /** Each cue's start in the synced dub, for the script's times as heard. */
+  const syncedStartOf = useMemo(() => new Map((syncedCues || []).map((cue) => [String(cue.id), cue.startTime])), [syncedCues]);
   /*
    * Each track's own clock. The original's cues are the segments. The dub's
    * are where Sync placed them, which is the original's clock; before a sync
@@ -1586,9 +1617,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
   };
 
+  /**
+   * The cues a script is made from. As heard: the synced dub's, so a line
+   * removed or muted in Edit timing is left out and each keeps its time in
+   * the dub. The script file stays whole: Paste script puts it back on cues.
+   */
+  const scriptLinesFor = (format: TargetScriptFormat) =>
+    scriptFollowsDub && format !== 'json' && syncedCues ? syncedCues : segments;
+
   const handleExportTargetScript = (format: TargetScriptFormat = 'dialogue') => {
     if (onDownloadScript) {
-      onDownloadScript(format);
+      onDownloadScript(format, scriptLinesFor(format));
       setExportSuccessMessage(`Saved the ${targetLanguage} script`);
       setTimeout(() => setExportSuccessMessage(null), 3000);
       return;
@@ -1596,7 +1635,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
     if (!activeJob || !segments || segments.length === 0) return;
     const scriptContent = generateTargetLanguageScript(
-      segments,
+      scriptLinesFor(format),
       targetLanguage,
       format,
       activeJob.file?.name ? `Dhvani Studio - ${activeJob.file.name}` : undefined,
@@ -1623,7 +1662,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
   const handleCopyFullTargetScript = (format: TargetScriptFormat = 'dialogue') => {
     if (!segments || segments.length === 0) return;
-    const scriptContent = generateTargetLanguageScript(segments, targetLanguage, format);
+    const scriptContent = generateTargetLanguageScript(scriptLinesFor(format), targetLanguage, format);
     try {
       navigator.clipboard.writeText(scriptContent);
       setExportSuccessMessage(`Copied the ${targetLanguage} script`);
@@ -3279,7 +3318,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         /** Files and tools under the settings: the script, a dub from before, and the other studios. */
         const dubExtras = (
           <>
-            <SaveScriptMenu title={`${targetLanguage} script`} onSave={handleExportTargetScript} disabled={segments.length === 0} />
+            <SaveScriptMenu
+              title={`${targetLanguage} script`}
+              onSave={handleExportTargetScript}
+              disabled={segments.length === 0}
+              scope={syncedCues ? scriptScope : undefined}
+              onScopeChange={setScriptScope}
+              removedCount={removedCueIds.size}
+            />
             {legacyDub && onDownloadWav && (
               <button
                 type="button"
@@ -3378,6 +3424,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   }
                   elApiKey={elApiKey}
                   takesUnavailableKeys={syncPendingLines}
+                  markers={activeJob.syncMarkers || []}
+                  onMarkersChange={onUpdateJobFields && ((markers) => onUpdateJobFields({ syncMarkers: markers.length > 0 ? markers : null }))}
                   onOpenTakes={
                     renderTakes
                       ? (key, phrase, follow) => {
@@ -3609,6 +3657,27 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           </button>
                         ))}
                       </div>
+                      {syncedCues && (
+                        <div role="group" aria-label="Which lines" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+                          {([
+                            ['heard', 'As heard', 'The lines the synced dub says, at their times in it'],
+                            ['full', 'Full', 'Every cue at its time in the original, removed ones too'],
+                          ] as [ScriptScope, string, string][]).map(([id, label, hint]) => (
+                            <button
+                              key={id}
+                              type="button"
+                              aria-pressed={scriptScope === id}
+                              onClick={() => setScriptScope(id)}
+                              title={hint}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                                scriptScope === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                       <button
                         type="button"
                         onClick={() => handleCopyFullTargetScript(finalScriptLayout)}
@@ -3669,12 +3738,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                               <div className="flex-1 min-w-0">
                                 {group.cues.map(({ seg, index: i }) => {
                                   const isNow = seg.id === activeSegmentId;
+                                  // Removed in Edit timing: the synced dub doesn't say it, and the script as heard leaves it out.
+                                  const removed = removedCueIds.has(String(seg.id));
+                                  const shownStart = scriptFollowsDub ? syncedStartOf.get(String(seg.id)) : seg.startTime;
                                   return (
                                     <button
                                       key={seg.id}
                                       type="button"
                                       onClick={() => seekSource(seg.startTime)}
-                                      className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${
+                                      title={removed ? 'Removed in Edit timing: not in the synced dub' : undefined}
+                                      className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${removed ? 'opacity-50' : ''} ${
                                         finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
                                       } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
                                     >
@@ -3685,7 +3758,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                         {String(i + 1).padStart(2, '0')}
                                       </span>
                                       {finalScriptLayout !== 'dialogue' && (
-                                        <span className="font-mono text-[11.5px] text-slate-400 pt-1 tabular-nums">{formatClock(seg.startTime)}</span>
+                                        <span className="font-mono text-[11.5px] text-slate-400 pt-1 tabular-nums">{shownStart == null ? '—' : formatClock(shownStart)}</span>
                                       )}
                                       <span className="min-w-0">
                                         {seg.speaker && (i === 0 || segments[i - 1].speaker !== seg.speaker) && (
@@ -3696,7 +3769,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                             {seg.speaker}
                                           </span>
                                         )}
-                                        <span className="block text-[15px] text-slate-100 leading-relaxed">{getTargetText(seg)}</span>
+                                        <span className={`block text-[15px] text-slate-100 leading-relaxed ${removed ? 'line-through decoration-slate-500' : ''}`}>{getTargetText(seg)}</span>
+                                        {removed && <span className="block text-[11px] text-slate-400 mt-0.5">Removed in Edit timing{scriptFollowsDub ? ' · left out of the script' : ''}</span>}
                                         {finalScriptLayout === 'bilingual' && (
                                           <span className="block text-xs text-slate-500 mt-0.5">{getSourceText(seg)}</span>
                                         )}
@@ -4168,6 +4242,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         syncedSegments={syncedCues}
         audio={{ original: activeJob?.file, synced: activeJob?.syncedAudioUrl, dubbed: activeJob?.synthesizedAudioUrl }}
         syncStale={syncPendingLines.length > 0}
+        subtitleEdits={activeJob?.subtitleEdits}
+        onSubtitleEditChange={
+          onUpdateJobFields &&
+          ((key, edit) => {
+            const next = { ...(activeJob?.subtitleEdits || {}) };
+            if (edit) next[key] = edit;
+            else delete next[key];
+            onUpdateJobFields({ subtitleEdits: Object.keys(next).length > 0 ? next : null });
+          })
+        }
         exportChoice={subtitleChoice}
         onExportChoiceChange={(choice) => {
           setSubtitleChoice(choice);

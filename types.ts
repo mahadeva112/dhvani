@@ -274,6 +274,13 @@ export interface BatchJob {
 
   /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
   cast?: Record<string, SpeakerVoice>;
+  /**
+   * Subtitles edited by hand in Export subtitles, by track and timing
+   * ("target:synced"): they replace the automatic cuts for that export.
+   */
+  subtitleEdits?: Record<string, SubtitleEdit> | null;
+  /** The editor's own notes on the Edit timing timeline. Nothing renders or exports them. */
+  syncMarkers?: TimelineNote[] | null;
   /** Each speaker's level in dB, set on their lane in Edit timing; the synced dub is rendered with it (services/speakerLevels.ts). */
   syncSpeakerLevels?: Record<string, number> | null;
   /** Set when the dub was voiced by several speakers: one track per speaker, and what the mix did. */
@@ -290,4 +297,24 @@ export interface BatchJob {
    * data is preserved so the user can retry translation alone.
    */
   translationWarning?: string | null;
+}
+
+/** One subtitle as edited by hand: its times in seconds, its text (a line break per subtitle line). */
+export interface EditedSubtitle {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface SubtitleEdit {
+  cues: EditedSubtitle[];
+  /** A fingerprint of the automatic subtitles they were edited from: when it no longer matches, the dub or the settings changed since. */
+  basis: string;
+}
+
+/** A marker on the Edit timing timeline: a time and the editor's note. */
+export interface TimelineNote {
+  id: string;
+  time: number;
+  note: string;
 }
