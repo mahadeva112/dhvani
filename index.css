@@ -194,3 +194,18 @@
   color: #64748b;
 }
 
+
+/* Tools and settings (components/ToolsHub.tsx): a short fade and zoom on open and close. */
+@keyframes tools-hub-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tools-hub-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes tools-hub-zoom-in { from { opacity: 0; transform: translateY(6px) scale(0.965); } to { opacity: 1; transform: none; } }
+@keyframes tools-hub-zoom-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(4px) scale(0.975); } }
+@keyframes tools-hub-preview { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
+.tools-hub-veil-in { animation: tools-hub-fade-in 160ms ease-out both; }
+.tools-hub-veil-out { animation: tools-hub-fade-out 150ms ease-in both; }
+.tools-hub-panel-in { animation: tools-hub-zoom-in 200ms cubic-bezier(0.2, 0.9, 0.3, 1.05) both; }
+.tools-hub-panel-out { animation: tools-hub-zoom-out 150ms ease-in both; }
+.tools-hub-preview-in { animation: tools-hub-preview 160ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .tools-hub-veil-in, .tools-hub-veil-out, .tools-hub-panel-in, .tools-hub-panel-out, .tools-hub-preview-in { animation: none; }
+}

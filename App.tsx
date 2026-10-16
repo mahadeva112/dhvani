@@ -11,7 +11,7 @@ import { TranslationPromptModal } from './components/TranslationPromptModal';
 import { VoiceChangerModal } from './components/VoiceChangerModal';
 import { TextToSpeechModal } from './components/TextToSpeechModal';
 import { PauseSensitivityModal } from './components/PauseSensitivityModal';
-import type { VoiceEngine } from './components/VoiceSelectorCard';
+import { POPULAR_ELEVENLABS_VOICES, type VoiceEngine } from './components/VoiceSelectorCard';
 import { getCartesiaUsage, getGatewayUsage, type CartesiaUsage, type GatewayUsage } from './services/usageService';
 import { languageFit } from './services/indianVoices';
 import {
@@ -3086,6 +3086,11 @@ export default function App() {
             : elModels.find((m) => m.model_id === elModelId)?.name || elModelId
         }
         translationStyleName={getPresetById(activeJob?.promptPresetId || promptPresetId).name}
+        voiceName={
+          availableVoices.find((voice) => voice.voice_id === elVoiceId)?.name ??
+          POPULAR_ELEVENLABS_VOICES.find((voice) => voice.id === elVoiceId)?.name ??
+          null
+        }
         onOpenSettings={() => setIsVoiceSettingsOpen(true)}
         /*
          * Only offered when the backend will actually accept a change. Behind a

@@ -20,6 +20,9 @@ import {
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported } from './UpdateControl';
 import { ProjectsMenu } from './ProjectsMenu';
+import { HubMeter, ToolsHub, type ToolsHubItem } from './ToolsHub';
+import { readOptions } from './SyncPanel';
+import { SYNC_JOIN_PRESET_OPTIONS, SYNC_PRECISION_OPTIONS, type SyncJoinPreset } from '../services/syncService';
 import { projectName } from '../services/projects';
 import type { CartesiaUsage, GatewayUsage } from '../services/usageService';
 
@@ -89,6 +92,8 @@ export interface ProHeaderProps {
   /** One line describing where translation runs. */
   translationSummary?: string | null;
   voiceSummary?: string | null;
+  /** The voice the dub is spoken in, for Tools and settings. */
+  voiceName?: string | null;
   translationStyleName?: string | null;
   onOpenSettings?: () => void;
   /** Opens the API & translation engine dialog. Hidden when keys are env-managed. */
@@ -136,6 +141,10 @@ const shareTone = (share: number | null) =>
 
 const shortDate = (when: number | string) =>
   new Date(when).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+/** A line-join preset's name, as Sync settings shows it. */
+const presetName = (preset: SyncJoinPreset) =>
+  (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === preset)?.label ?? 'Custom').replace(' (recommended)', '');
 
 const money = (n: number) => `$${Math.max(0, n).toFixed(2)}`;
 
@@ -217,35 +226,6 @@ const useDismiss = (open: boolean, close: () => void, ref: React.RefObject<HTMLE
   }, [open, close, ref]);
 };
 
-/** One row in the Tools menu: icon, label, the current value and an optional trailing hint. */
-const MenuItem: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  hint?: string | null;
-  end?: React.ReactNode;
-  onClick: () => void;
-}> = ({ icon, label, hint, end, onClick }) => (
-  <button
-    type="button"
-    role="menuitem"
-    onClick={onClick}
-    className="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-left hover:bg-slate-800/70 transition-colors cursor-pointer"
-  >
-    <span className="w-8 h-8 rounded-lg bg-slate-950/70 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
-      {icon}
-    </span>
-    <span className="min-w-0 flex-1">
-      <span className="block text-[13px] font-semibold text-slate-100 leading-tight">{label}</span>
-      {hint && <span className="block text-[11.5px] text-slate-400 truncate mt-0.5">{hint}</span>}
-    </span>
-    {end}
-  </button>
-);
-
-const MenuHeading: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <p className="px-2.5 pt-2 pb-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{children}</p>
-);
-
 export const ProHeader: React.FC<ProHeaderProps> = ({
   activeJob,
   activeStep,
@@ -269,6 +249,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   translationReady = true,
   translationSummary,
   voiceSummary,
+  voiceName,
   translationStyleName,
   onOpenSettings,
   onOpenApiSettings,
@@ -295,14 +276,9 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const closeTools = React.useCallback(() => setToolsOpen(false), []);
   const closeServices = React.useCallback(() => setServicesOpen(false), []);
   const closeProjects = React.useCallback(() => setProjectsOpen(false), []);
-  useDismiss(toolsOpen, closeTools, toolsRef);
   useDismiss(servicesOpen, closeServices, servicesRef);
   useDismiss(projectsOpen, closeProjects, projectsRef);
 
-  const runAndClose = (fn?: () => void) => () => {
-    setToolsOpen(false);
-    fn?.();
-  };
 
   const hasCues = Boolean(activeJob && activeJob.segments.length > 0);
   const hasDub = Boolean(activeJob?.synthesizedAudioUrl || activeJob?.syncedAudioUrl);
@@ -327,6 +303,155 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
     elevenLabsReady && quotaShare !== null && { key: 'elevenlabs', share: quotaShare },
     gatewayShare !== null && { key: 'gateway', share: gatewayShare },
   ].filter(Boolean) as { key: string; share: number }[];
+
+  // Ctrl K opens Tools and settings from anywhere, unless another window is open over the page.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'k') return;
+      if (!toolsOpen && document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      e.preventDefault();
+      setServicesOpen(false);
+      setProjectsOpen(false);
+      setToolsOpen((o) => !o);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [toolsOpen]);
+
+  /** The sync settings this project will use, read the way the Dub step reads them. */
+  const sync = readOptions(activeJob?.syncOptions);
+  const engineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
+  const lineCount = activeJob?.segments.length ?? 0;
+  const hubItems: ToolsHubItem[] = [
+    onOpenPhoneticKeyboard && {
+      id: 'keyboard',
+      group: 'Studio',
+      label: 'Phonetic keyboard',
+      hint: 'Type Roman, get Indian script',
+      summary: targetLanguage || DEFAULT_TARGET_LANGUAGE,
+      icon: Keyboard,
+      tone: 'indigo',
+      facts: [
+        { label: 'Script', value: targetLanguage || DEFAULT_TARGET_LANGUAGE },
+        { label: "In a line's text box", value: 'Ctrl G' },
+      ],
+      onOpen: onOpenPhoneticKeyboard,
+    },
+    onOpenTextToSpeech && {
+      id: 'tts',
+      group: 'Studio',
+      label: 'Text to speech',
+      hint: 'Voice any text, compare both engines',
+      summary: engineName,
+      icon: Speech,
+      tone: 'teal',
+      facts: [
+        { label: 'Engine', value: engineName },
+        { label: 'Model', value: voiceSummary || '—' },
+      ],
+      onOpen: onOpenTextToSpeech,
+    },
+    onOpenVoiceChanger && {
+      id: 'voice-changer',
+      group: 'Studio',
+      label: 'Voice changer',
+      hint: 'Keep the delivery, swap the voice',
+      summary: hasSync ? 'Synced dub ready' : null,
+      icon: AudioWaveform,
+      tone: 'pink',
+      facts: [
+        { label: 'Keeps', value: 'Timing and delivery' },
+        { label: 'Synced dub', value: hasSync ? 'Ready to change' : 'Not synced yet', status: hasSync ? 'ok' : 'off' },
+      ],
+      onOpen: onOpenVoiceChanger,
+    },
+    onOpenPauseSensitivity && {
+      id: 'pauses',
+      group: 'Studio',
+      label: 'Pause detection',
+      hint: 'How lines are split at pauses',
+      summary: `${pauseSensitivity}${hasCues ? ` · ${lineCount} lines` : ''}`,
+      icon: Activity,
+      tone: 'amber',
+      facts: [
+        { label: 'Sensitivity', value: String(pauseSensitivity) },
+        { label: 'Lines now', value: hasCues ? lineCount.toLocaleString() : 'No transcript yet' },
+      ],
+      extra: <HubMeter share={pauseSensitivity / 100} left="Fewer, longer lines" right="More, shorter lines" tone="amber" />,
+      onOpen: onOpenPauseSensitivity,
+    },
+    onOpenApiSettings && {
+      id: 'api',
+      group: 'Settings',
+      label: 'API settings',
+      hint: 'ElevenLabs, Cartesia and your translation engine',
+      summary: translationSummary,
+      icon: KeyRound,
+      tone: 'slate',
+      facts: [
+        { label: 'ElevenLabs', value: elevenLabsReady ? 'Connected' : 'Not set up', status: elevenLabsReady ? 'ok' : 'off' },
+        { label: 'Cartesia', value: cartesiaReady ? 'Connected' : 'Not set up', status: cartesiaReady ? 'ok' : 'off' },
+        { label: 'Translation', value: translationSummary || (translationReady ? 'Ready' : 'Not set up'), status: translationReady ? 'ok' : 'off' },
+      ],
+      extra:
+        quota && quotaShare !== null ? (
+          <HubMeter
+            share={quotaShare}
+            left={`ElevenLabs: ${compact(quotaLeft!)} of ${compact(quota.limit)} characters left`}
+            right={quota.resetUnix ? `Resets ${shortDate(quota.resetUnix * 1000)}` : undefined}
+            tone={quotaShare < 0.1 ? 'rose' : quotaShare < 0.25 ? 'amber' : 'emerald'}
+          />
+        ) : undefined,
+      onOpen: onOpenApiSettings,
+    },
+    onOpenSettings && {
+      id: 'voice',
+      group: 'Settings',
+      label: 'Voice settings',
+      hint: 'The voice engine and how the voice sounds',
+      summary: [voiceName, voiceSummary].filter(Boolean).join(' · ') || null,
+      icon: Mic,
+      tone: 'blue',
+      facts: [
+        { label: 'Voice', value: voiceName || '—' },
+        { label: 'Engine', value: voiceSummary || engineName },
+      ],
+      note: 'Used for the dub, Sync and text to speech.',
+      onOpen: onOpenSettings,
+    },
+    onOpenSyncSettings && {
+      id: 'sync',
+      group: 'Settings',
+      label: 'Sync settings',
+      hint: 'How each dub line is placed',
+      summary: `${sync.voicing === 'continuous' ? 'Continuous read' : 'Line by line'} · ${presetName(sync.preset)}`,
+      icon: SlidersHorizontal,
+      tone: 'violet',
+      facts: [
+        { label: 'How to voice', value: sync.voicing === 'continuous' ? 'One continuous read' : 'Line by line' },
+        { label: 'Precision', value: SYNC_PRECISION_OPTIONS.find((o) => o.id === sync.precision)?.label ?? sync.precision },
+        { label: 'Line joins', value: presetName(sync.preset) },
+        { label: 'Chunk sync', value: sync.join.chunkSync ? 'On' : 'Off', status: sync.join.chunkSync ? 'ok' : 'off' },
+      ],
+      note: activeJob ? 'For this project. Changes apply to the next sync.' : 'For your next project.',
+      onOpen: onOpenSyncSettings,
+    },
+    onOpenCustomPrompt && {
+      id: 'style',
+      group: 'Settings',
+      label: 'Translation style',
+      hint: 'The prompt and persona translation follows',
+      summary: translationStyleName,
+      icon: AlignLeft,
+      tone: 'emerald',
+      facts: [
+        { label: 'Style', value: translationStyleName || '—' },
+        { label: 'Dub language', value: targetLanguage || DEFAULT_TARGET_LANGUAGE },
+      ],
+      note: 'Used for the next translation.',
+      onOpen: onOpenCustomPrompt,
+    },
+  ].filter(Boolean) as ToolsHubItem[];
 
   // Balances go stale between dubs; opening the popover fetches them again.
   React.useEffect(() => {
@@ -695,120 +820,20 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                 setProjectsOpen(false);
                 setToolsOpen((o) => !o);
               }}
-              aria-haspopup="menu"
+              aria-haspopup="dialog"
               aria-expanded={toolsOpen}
               className={`w-[34px] h-[34px] flex items-center justify-center rounded-[9px] border transition-colors cursor-pointer ${
                 toolsOpen
                   ? 'bg-slate-800 border-slate-700 text-slate-100'
                   : 'border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
               }`}
-              title="Tools and settings"
+              title="Tools and settings (Ctrl K)"
               aria-label="Tools and settings"
             >
               <SlidersHorizontal className="w-4 h-4" />
             </button>
 
-            {toolsOpen && (
-              <div
-                role="menu"
-                className="fixed sm:absolute left-4 right-4 sm:left-auto sm:right-0 top-28 sm:top-auto sm:mt-2 sm:w-80 p-1.5 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl z-50 animate-in fade-in zoom-in-95"
-              >
-                {(onOpenPhoneticKeyboard || onOpenTextToSpeech || onOpenVoiceChanger || onOpenPauseSensitivity) && (
-                  <>
-                    <MenuHeading>Studio</MenuHeading>
-                    {onOpenPhoneticKeyboard && (
-                      <MenuItem
-                        icon={<Keyboard className="w-4 h-4" />}
-                        label="Phonetic keyboard"
-                        hint="Type Roman, get Indian script"
-                        end={<span className="font-mono text-[10.5px] text-slate-500 shrink-0">Ctrl G</span>}
-                        onClick={runAndClose(onOpenPhoneticKeyboard)}
-                      />
-                    )}
-                    {onOpenTextToSpeech && (
-                      <MenuItem
-                        icon={<Speech className="w-4 h-4" />}
-                        label="Text to speech"
-                        hint="Voice any text, compare both engines"
-                        onClick={runAndClose(onOpenTextToSpeech)}
-                      />
-                    )}
-                    {onOpenVoiceChanger && (
-                      <MenuItem
-                        icon={<AudioWaveform className="w-4 h-4" />}
-                        label="Voice changer"
-                        hint="Keep the delivery, swap the voice"
-                        onClick={runAndClose(onOpenVoiceChanger)}
-                      />
-                    )}
-                    {onOpenPauseSensitivity && (
-                      <MenuItem
-                        icon={<Activity className="w-4 h-4" />}
-                        label="Pause detection"
-                        hint="How lines are split at pauses"
-                        end={
-                          <span className="font-mono text-[10.5px] px-1.5 py-px rounded-md bg-slate-950 border border-slate-800 text-slate-300 shrink-0">
-                            {pauseSensitivity}
-                          </span>
-                        }
-                        onClick={runAndClose(onOpenPauseSensitivity)}
-                      />
-                    )}
-                    <div className="h-px bg-slate-800 my-1.5 mx-1" />
-                  </>
-                )}
-
-                {(onOpenApiSettings || onOpenSettings || onOpenCustomPrompt || onOpenSyncSettings) && (
-                  <>
-                    <MenuHeading>Settings</MenuHeading>
-                    {onOpenApiSettings && (
-                      <MenuItem
-                        icon={<KeyRound className="w-4 h-4" />}
-                        label="API settings"
-                        hint={translationSummary || 'ElevenLabs, Gemini or your own gateway'}
-                        onClick={runAndClose(onOpenApiSettings)}
-                      />
-                    )}
-                    {onOpenSettings && (
-                      <MenuItem
-                        icon={<Mic className="w-4 h-4" />}
-                        label="Voice settings"
-                        hint={voiceSummary || 'ElevenLabs voice engine'}
-                        onClick={runAndClose(onOpenSettings)}
-                      />
-                    )}
-                    {onOpenSyncSettings && (
-                      <MenuItem
-                        icon={<SlidersHorizontal className="w-4 h-4" />}
-                        label="Sync settings"
-                        hint="How each dub line is placed"
-                        onClick={runAndClose(onOpenSyncSettings)}
-                      />
-                    )}
-                    {onOpenCustomPrompt && (
-                      <MenuItem
-                        icon={<AlignLeft className="w-4 h-4" />}
-                        label="Translation style"
-                        hint={translationStyleName || 'Prompt and persona'}
-                        onClick={runAndClose(onOpenCustomPrompt)}
-                      />
-                    )}
-                  </>
-                )}
-
-                {updatesSupported() && (
-                  <>
-                    <div className="h-px bg-slate-800 my-1.5 mx-1" />
-                    <MenuItem
-                      icon={<Download className="w-4 h-4" />}
-                      label="Check for updates"
-                      hint="Get the latest version"
-                      onClick={runAndClose(openUpdates)}
-                    />
-                  </>
-                )}
-              </div>
-            )}
+            <ToolsHub open={toolsOpen} onClose={closeTools} items={hubItems} onCheckUpdates={updatesSupported() ? openUpdates : undefined} />
           </div>
 
           {activeJob && onResetSession && (
