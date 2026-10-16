@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.60',
+    changes: [
+      'The script follows the synced dub: a line you remove or mute in Edit timing is left out, and each line keeps its time in the dub. Choose Full script to keep every line.',
+      'In Export subtitles, press Edit subtitles to change the words or times of any subtitle by hand, or remove one. Your edits are kept, and the subtitles also save as a script.',
+      'In Edit timing, press Shift M to put a marker with a note at the playhead, for a spot to check again. Markers never change the dub.',
+    ],
+  },
+  {
     version: '1.3.59',
     changes: [
       'Tools and settings opens in the middle of the screen: point at any tool or setting to see what it is set to now, then open it. Search it, use the arrow keys, or press Ctrl K from anywhere.',
