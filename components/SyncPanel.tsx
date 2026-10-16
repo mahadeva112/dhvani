@@ -728,6 +728,7 @@ const SyncSettingsWindow: React.FC<{
         <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)]">
           <nav
             aria-label="Sync settings sections"
+            // Each row grows into the room the window has, up to a comfortable height, and shrinks back to its content when it is short.
             className="shrink-0 flex md:flex-col gap-0.5 p-2 md:px-2.5 md:py-2 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto [scrollbar-width:thin] border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/40"
           >
             {onlyChanged && (
@@ -745,13 +746,13 @@ const SyncSettingsWindow: React.FC<{
               return (
                 <React.Fragment key={s.id}>
                   {(n === 0 || listed[n - 1].group !== s.group) && (
-                    <span className="hidden md:block px-2 pt-1.5 pb-0.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{s.group}</span>
+                    <span className="hidden md:flex md:grow md:max-h-9 items-end px-2 pt-1.5 pb-0.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{s.group}</span>
                   )}
                   <button
                     type="button"
                     onClick={() => open(s.id)}
                     aria-current={on ? 'true' : undefined}
-                    className={`shrink-0 md:w-full flex items-center gap-2.5 text-left rounded-lg px-2 py-[3px] border transition-colors cursor-pointer ${
+                    className={`shrink-0 md:w-full md:grow md:max-h-[3.5rem] flex items-center gap-2.5 text-left rounded-lg px-2 py-[3px] border transition-colors cursor-pointer ${
                       on ? 'bg-slate-800 border-slate-700 text-slate-100' : 'border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
                     }`}
                   >
