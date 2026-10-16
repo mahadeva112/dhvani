@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.59',
+    changes: [
+      'Tools and settings opens in the middle of the screen: point at any tool or setting to see what it is set to now, then open it. Search it, use the arrow keys, or press Ctrl K from anywhere.',
+      'Sync settings fills the screen with every section in view, a search, a small picture of what each setting does, and a reset for each setting. It also opens from Tools and settings on any step.',
+    ],
+  },
+  {
     version: '1.3.58',
     changes: [
       'Sync now places each line in chunks, split where the voice goes quiet, and puts every chunk on the original\'s words. Pauses shrink between words first and at sentence ends last, and no word is ever cut.',
