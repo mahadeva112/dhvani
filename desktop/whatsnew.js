@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.62',
+    changes: [
+      'Phonetic typing works in the Script view too: type Roman letters and get the script as you go, pick another spelling with 1 to 5, or press Esc to keep a word in English. Ctrl G turns it on or off.',
+      'The mini player comes up as soon as the play button starts to scroll out of sight, and Esc in a Script cell now really undoes your changes.',
+    ],
+  },
+  {
     version: '1.3.61',
     changes: [
       'Review has a Script view: each passage is one row, the original beside the dub text, which you edit like a table cell, one line per cue. It replaces the Document view.',
