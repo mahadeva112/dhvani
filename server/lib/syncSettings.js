@@ -98,6 +98,15 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   edgeFade: 0,
   /** A line whose first word lands later than this after its source line is flagged. */
   maxLateStart: 0.25,
+  /**
+   * How much harder a line after a long pause, or by a new speaker, pulls to
+   * start on time than a line in the middle of a thought: the lines around it
+   * take up the difference.
+   */
+  anchorWeight: 3,
+  /** Must end by: the dub's last line ends by the original's end, give or take `endSlack` seconds. */
+  endByVideo: false,
+  endSlack: 0.5,
   /** Cues closer together than this, by the same speaker, are voiced as one line. */
   unitGap: 0.4,
   /** A joined line is never longer than this. */
@@ -142,6 +151,8 @@ export const JOIN_SETTING_RANGES = {
   tailHold: [0, 0.2],
   edgeFade: [0, 0.03],
   maxLateStart: [0.05, 1.5],
+  anchorWeight: [1, 20],
+  endSlack: [0, 5],
   unitGap: [0, 1.2],
   maxUnit: [3, 30],
   flagJoin: [0, 0.5],
@@ -159,7 +170,7 @@ export const resolveJoinSettings = (requested) => {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }
-  for (const key of ['chunkSync', 'punctuationPriority', 'speedFit', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
+  for (const key of ['chunkSync', 'punctuationPriority', 'speedFit', 'endByVideo', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
     if (typeof requested[key] === 'boolean') settings[key] = requested[key];
   }
   return settings;

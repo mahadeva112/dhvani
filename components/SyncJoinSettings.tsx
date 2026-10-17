@@ -2,12 +2,16 @@ import React, { useEffect, useId, useRef, useState } from 'react';
 import { Check, ChevronRight, Loader2, RotateCcw, Ruler, X } from 'lucide-react';
 import {
   fitJoinSettings,
+  presetExtras,
+  syncJoinPreset,
   SYNC_JOIN_PRESETS,
   SYNC_JOIN_PRESET_OPTIONS,
+  SYNC_SCREEN_OPTIONS,
   SyncFit,
   SyncJoinPreset,
   SyncJoinSettings,
   SyncOptions,
+  SyncScreen,
   type SpeakerFitRates,
 } from '../services/syncService';
 import { AudioSegment } from '../types';
@@ -25,12 +29,15 @@ const sectionLabel = 'text-[10.5px] uppercase tracking-wider font-semibold text-
 const ms = (seconds: number) => `${Math.round(seconds * 1000)} ms`;
 const percent = (share: number) => `${Math.round(share * 100)}%`;
 
-/** The preset `join` matches exactly, or Custom. */
-export const joinPresetOf = (join: SyncJoinSettings): SyncJoinPreset => {
+const LENGTH_PRESETS = Object.keys(SYNC_JOIN_PRESETS) as Exclude<SyncJoinPreset, 'custom'>[];
+
+/** The length preset `join` matches exactly with `screen`, or Custom. */
+export const joinPresetOf = (join: SyncJoinSettings, screen: SyncScreen = 'any'): SyncJoinPreset => {
   const keys = Object.keys(SYNC_JOIN_PRESETS.natural) as (keyof SyncJoinSettings)[];
-  const match = (Object.keys(SYNC_JOIN_PRESETS) as Exclude<SyncJoinPreset, 'custom'>[]).find((id) =>
-    keys.every((key) => SYNC_JOIN_PRESETS[id][key] === join[key])
-  );
+  const match = LENGTH_PRESETS.find((id) => {
+    const preset = syncJoinPreset(id, screen);
+    return keys.every((key) => preset[key] === join[key]);
+  });
   return match ?? 'custom';
 };
 
@@ -413,7 +420,7 @@ const SECTION_KEYS: Record<SyncJoinSection, (keyof SyncJoinSettings)[]> = {
   gaps: ['preserveLongPauses', 'protectedPause', 'minGap', 'speakerGap', 'gapShare', 'breathClear', 'removeBreaths', 'breathReduction'],
   pauses: ['matchSourcePauses', 'unmatchedPause', 'shortenPauses', 'minInnerPause', 'maxPauseTake', 'tightenSilences', 'tightMinPause', 'tightMargin', 'checkCutWords', 'spliceCrossfade'],
   edges: ['tailFloorDb', 'tailHold', 'edgeFade'],
-  fit: ['maxLateStart'],
+  fit: ['maxLateStart', 'anchorWeight', 'endByVideo', 'endSlack'],
   grouping: ['unitGap', 'maxUnit'],
   review: ['flagJoin'],
 };
@@ -437,7 +444,10 @@ export const joinSectionSummary = (section: SyncJoinSection, options: SyncOption
     case 'edges':
       return `Tail to ${join.tailFloorDb} dB, held ${ms(join.tailHold)}`;
     case 'fit':
-      return `${options.timingProtection === 'strict' ? 'Strict' : 'Flagged'} when it starts over ${ms(join.maxLateStart)} late`;
+      return [
+        `${options.timingProtection === 'strict' ? 'Strict' : 'Flagged'} when it starts over ${ms(join.maxLateStart)} late`,
+        join.endByVideo && 'ends with the original',
+      ].filter(Boolean).join(' · ');
     case 'grouping':
       return `Cues under ${ms(join.unitGap)} apart are one line, usually up to ${join.maxUnit} s`;
     case 'review':
@@ -463,7 +473,7 @@ export const resetJoinSection = (section: SyncJoinSection, options: SyncOptions)
   return {
     ...options,
     join,
-    preset: joinPresetOf(join),
+    preset: joinPresetOf(join, options.screen),
     ...(section === 'fit' ? { timingProtection: 'warn' as const } : {}),
   };
 };
@@ -500,7 +510,69 @@ export const JOIN_SECTION_INFO: Record<SyncJoinSection, { description: string; t
   },
 };
 
-/** The line-join preset: picking one fills in every join setting; changing any setting makes it Custom. */
+/** A length preset with what is on screen, as one choice: its join settings and the options it sets with them. */
+export const applyJoinPreset = (o: SyncOptions, preset: SyncJoinPreset, screen: SyncScreen): SyncOptions =>
+  preset === 'custom' ? { ...o, preset, screen } : { ...o, preset, screen, join: syncJoinPreset(preset, screen), ...presetExtras(preset, screen) };
+
+/** A preset's name with what is on screen: "Long dub · Narration". */
+export const joinPresetLabel = (options: Pick<SyncOptions, 'preset' | 'screen'>) =>
+  [
+    (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.label ?? 'Custom').replace(' (recommended)', ''),
+    options.screen && options.screen !== 'any' && SYNC_SCREEN_OPTIONS.find((s) => s.id === options.screen)?.label,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+/** What a preset sets, in words, for the table under the picker. */
+const presetRows = (join: SyncJoinSettings, options: SyncOptions): [string, string][] => [
+  ['Shrink a pause to', join.chunkGapShare >= 1 ? 'Kept as voiced' : percent(join.chunkGapShare)],
+  ['Shortest pause · word / comma / sentence end', `${Math.round(join.wordGap * 1000)} / ${Math.round(join.commaGap * 1000)} / ${ms(join.stopGap)}`],
+  ['Longest a chunk need wait', `${join.maxChunkGap} s`],
+  ['Read a long line faster', join.speedFit ? `Up to ${join.maxVoiceSpeed.toFixed(2)}×` : 'Off'],
+  ['The dub ends with the original', join.endByVideo ? `Yes, within ${join.endSlack} s` : 'No'],
+  ['Every paragraph starts on time', join.preserveLongPauses ? `After pauses over ${join.protectedPause} s` : 'No'],
+  ['Lines after a long pause or a new speaker', join.anchorWeight > 3 ? 'Pull hard to start on time' : 'Pull a little harder'],
+  ['A line starting late', options.timingProtection === 'strict' ? `Held within ${ms(join.maxLateStart)} (Strict)` : `Flagged past ${ms(join.maxLateStart)}`],
+  ['Wordings suggested', [options.suggest && 'shorter', options.suggestLonger && 'fuller'].filter(Boolean).join(' and ') || 'None'],
+];
+
+/** One row of choices, as Basics lays its pickers out. */
+const ChoiceRow: React.FC<{
+  label: string;
+  choices: { id: string; label: string; sub: string; hint: string }[];
+  value: string;
+  disabled?: boolean;
+  onPick: (id: string) => void;
+}> = ({ label, choices, value, disabled, onPick }) => (
+  <div role="radiogroup" aria-label={label} className="grid gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800" style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}>
+    {choices.map((choice) => {
+      const on = value === choice.id;
+      return (
+        <button
+          key={choice.id}
+          type="button"
+          role="radio"
+          aria-checked={on}
+          disabled={disabled}
+          title={choice.hint || undefined}
+          onClick={() => onPick(choice.id)}
+          className={`rounded-lg px-2 py-2 text-center transition-colors cursor-pointer disabled:cursor-not-allowed ${
+            on ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-600' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
+          }`}
+        >
+          <span className="block text-[12.5px] font-medium">{choice.label.replace(' (recommended)', '')}</span>
+          <span className="block text-[11px] text-slate-500 truncate">{choice.id === 'natural' ? 'about even · recommended' : choice.sub}</span>
+        </button>
+      );
+    })}
+  </div>
+);
+
+/**
+ * The line-join presets: one by how long the dub runs against the original,
+ * and on top of it, what is on screen. Picking either fills in every join
+ * setting; changing any setting makes it Custom.
+ */
 export const JoinPresetPicker: React.FC<{
   options: SyncOptions;
   onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
@@ -508,33 +580,22 @@ export const JoinPresetPicker: React.FC<{
   /** Lists only the sections changed from the default, from the note under Custom. */
   onShowChanged?: () => void;
 }> = ({ options, onOptionsChange, disabled, onShowChanged }) => {
-  const pickPreset = (preset: SyncJoinPreset) =>
-    onOptionsChange((o) => (preset === 'custom' ? { ...o, preset } : { ...o, preset, join: { ...SYNC_JOIN_PRESETS[preset] } }));
-  const hint = SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint;
+  const screen = options.screen ?? 'any';
+  const pickLength = (preset: string) => onOptionsChange((o) => applyJoinPreset(o, preset as SyncJoinPreset, o.screen ?? 'any'));
+  const pickScreen = (next: string) =>
+    onOptionsChange((o) => (o.preset === 'custom' ? { ...o, screen: next as SyncScreen } : applyJoinPreset(o, o.preset, next as SyncScreen)));
+  const hint = [SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint, SYNC_SCREEN_OPTIONS.find((s) => s.id === screen)?.hint].filter(Boolean).join(' ');
   return (
-    <div className="flex flex-col gap-2">
-      <div role="radiogroup" aria-label="Line joins" className="grid grid-cols-2 lg:grid-cols-4 gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
-        {SYNC_JOIN_PRESET_OPTIONS.map((p) => {
-          const match = /^(.*?)\s*\((.*)\)$/.exec(p.label);
-          const on = options.preset === p.id;
-          return (
-            <button
-              key={p.id}
-              type="button"
-              role="radio"
-              aria-checked={on}
-              disabled={disabled}
-              title={p.hint}
-              onClick={() => pickPreset(p.id)}
-              className={`rounded-lg px-2 py-2 text-center transition-colors cursor-pointer disabled:cursor-not-allowed ${
-                on ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-600' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-              }`}
-            >
-              <span className="block text-[12.5px] font-medium">{match ? match[1] : p.label}</span>
-              <span className="block text-[11px] text-slate-500 truncate">{match ? match[2] : p.id === 'custom' ? 'your settings' : ' '}</span>
-            </button>
-          );
-        })}
+    <div className="flex flex-col gap-2.5">
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11.5px] text-slate-400">By how long the dub runs</span>
+        <ChoiceRow label="Line joins by the dub's length" choices={SYNC_JOIN_PRESET_OPTIONS} value={options.preset} disabled={disabled} onPick={pickLength} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11.5px] text-slate-400">
+          By what is on screen <span className="text-slate-500">· adds to the length preset</span>
+        </span>
+        <ChoiceRow label="Line joins by what is on screen" choices={SYNC_SCREEN_OPTIONS} value={screen} disabled={disabled} onPick={pickScreen} />
       </div>
       {hint && (
         <span className="text-[11.5px] text-slate-400">
@@ -549,6 +610,21 @@ export const JoinPresetPicker: React.FC<{
           )}
         </span>
       )}
+      <details className="rounded-lg border border-slate-800 bg-slate-950/40">
+        <summary className="px-3 py-2 text-[12px] text-slate-300 cursor-pointer select-none">
+          What <span className="font-semibold text-slate-100">{joinPresetLabel(options)}</span> sets
+        </summary>
+        <table className="w-full text-[12px]">
+          <tbody>
+            {presetRows(options.join, options).map(([what, value]) => (
+              <tr key={what} className="border-t border-slate-800/80">
+                <td className="px-3 py-1.5 text-slate-400">{what}</td>
+                <td className="px-3 py-1.5 text-right text-slate-100">{value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </details>
     </div>
   );
 };
@@ -569,7 +645,7 @@ export const SyncJoinSectionControls: React.FC<{
   const set = <K extends keyof SyncJoinSettings>(key: K, value: SyncJoinSettings[K]) =>
     onOptionsChange((o) => {
       const next = { ...o.join, [key]: value };
-      return { ...o, join: next, preset: joinPresetOf(next) };
+      return { ...o, join: next, preset: joinPresetOf(next, o.screen) };
     });
   const changed = (...keys: (keyof SyncJoinSettings)[]) => keys.some((key) => join[key] !== D[key]);
 
@@ -823,6 +899,21 @@ export const SyncJoinSectionControls: React.FC<{
               <option value="warn" className="bg-slate-900">Warn: list lines that start later than this</option>
               <option value="strict" className="bg-slate-900">Strict: keep every line within this</option>
             </SelectRow>
+          </SettingsCard>
+          <SettingsCard title="Anchors and the end">
+            <Slider id="sync-anchor-weight" label="Lines that must start on time" value={join.anchorWeight} {...bounds('anchorWeight')} step={1}
+              format={(v) => `${v}× pull`} disabled={disabled} def={D.anchorWeight} onChange={(v) => set('anchorWeight', v)}
+              hint="How much harder a line after a long pause, or by a new speaker, pulls to start with its original. The lines around it take up the difference." />
+            <Toggle
+              label="The dub ends with the original"
+              hint="The last line ends by the original's end, so a long dub's extra time is shared across every line instead of piling up at the end. If it still can't, the last line is flagged."
+              checked={join.endByVideo}
+              disabled={disabled}
+              def={D.endByVideo}
+              onChange={(v) => set('endByVideo', v)}
+            />
+            <Slider id="sync-end-slack" label="May run past the end by" value={join.endSlack} {...bounds('endSlack')} step={0.1}
+              format={(v) => `${v.toFixed(1)} s`} disabled={disabled || !join.endByVideo} def={D.endSlack} onChange={(v) => set('endSlack', v)} />
           </SettingsCard>
         </>
       );

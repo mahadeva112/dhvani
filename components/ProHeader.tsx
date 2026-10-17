@@ -22,7 +22,7 @@ import { UpdateControl, openUpdates, updatesSupported } from './UpdateControl';
 import { ProjectsMenu } from './ProjectsMenu';
 import { HubMeter, ToolsHub, type ToolsHubItem } from './ToolsHub';
 import { readOptions } from './SyncPanel';
-import { SYNC_JOIN_PRESET_OPTIONS, SYNC_PRECISION_OPTIONS, type SyncJoinPreset } from '../services/syncService';
+import { SYNC_JOIN_PRESET_OPTIONS, SYNC_PRECISION_OPTIONS, SYNC_SCREEN_OPTIONS, type SyncJoinPreset, type SyncScreen } from '../services/syncService';
 import { projectName } from '../services/projects';
 import type { CartesiaUsage, GatewayUsage } from '../services/usageService';
 
@@ -143,8 +143,11 @@ const shortDate = (when: number | string) =>
   new Date(when).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 
 /** A line-join preset's name, as Sync settings shows it. */
-const presetName = (preset: SyncJoinPreset) =>
-  (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === preset)?.label ?? 'Custom').replace(' (recommended)', '');
+const presetName = (sync: { preset: SyncJoinPreset; screen?: SyncScreen }) =>
+  [
+    (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === sync.preset)?.label ?? 'Custom').replace(' (recommended)', ''),
+    sync.screen && sync.screen !== 'any' && SYNC_SCREEN_OPTIONS.find((s) => s.id === sync.screen)?.label,
+  ].filter(Boolean).join(' · ');
 
 const money = (n: number) => `$${Math.max(0, n).toFixed(2)}`;
 
@@ -424,13 +427,13 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       group: 'Settings',
       label: 'Sync settings',
       hint: 'How each dub line is placed',
-      summary: `${sync.voicing === 'continuous' ? 'Continuous read' : 'Line by line'} · ${presetName(sync.preset)}`,
+      summary: `${sync.voicing === 'continuous' ? 'Continuous read' : 'Line by line'} · ${presetName(sync)}`,
       icon: SlidersHorizontal,
       tone: 'violet',
       facts: [
         { label: 'How to voice', value: sync.voicing === 'continuous' ? 'One continuous read' : 'Line by line' },
         { label: 'Precision', value: SYNC_PRECISION_OPTIONS.find((o) => o.id === sync.precision)?.label ?? sync.precision },
-        { label: 'Line joins', value: presetName(sync.preset) },
+        { label: 'Line joins', value: presetName(sync) },
         { label: 'Chunk sync', value: sync.join.chunkSync ? 'On' : 'Off', status: sync.join.chunkSync ? 'ok' : 'off' },
       ],
       note: activeJob ? 'For this project. Changes apply to the next sync.' : 'For your next project.',

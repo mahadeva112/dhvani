@@ -297,3 +297,37 @@ test('a voice whose model ignores speed is not voiced again for nothing, and the
   assert.equal(report.units[0].speedFitUnsupported, true);
   assert.equal(report.summary.speedFitUnsupported, 1);
 });
+
+// ---- The dub ends with the original ----
+
+const plainVoice = async (lines, { onLine }) =>
+  lines.map((line, n) => {
+    onLine(n + 1);
+    const seconds = line.text.replace(/[.।]$/u, '').length * 0.08;
+    const samples = new Float32Array(Math.round((seconds + 0.3) * RATE));
+    tone(samples, 0.15, 0.15 + seconds);
+    return samples;
+  });
+const endDeps = { ...deps(0.3), voiceLines: plainVoice };
+/** A dub too long for the video: placed freely, its last line ends half a second past the original's end. */
+const TOO_LONG = [cue(1, 0.5, 1.7, 'a'.repeat(20)), cue(2, 2, 3.2, 'b'.repeat(20)), cue(3, 3.5, 4.7, 'c'.repeat(20)), cue(4, 5.6, 6.8, 'd'.repeat(20))];
+const endOf = (bank) => Math.max(...bank.lines.flatMap((line) => line.chunks.map((chunk) => (chunk.startSample + chunk.to - chunk.from) / RATE)));
+const endSync = (join) => {
+  clearClipCache();
+  return runSync({ segments: TOO_LONG, sourceDuration: 7, sampleRate: RATE, voice, join: { checkCutWords: false, speedFit: false, ...join } }, endDeps);
+};
+
+test('with Must end by, a long dub shares its extra time across its lines instead of running past the end', async () => {
+  const free = await endSync({ endByVideo: false });
+  assert.ok(endOf(free.bank) > 7.3, `placed freely it ends at ${endOf(free.bank)}`);
+
+  const ends = await endSync({ endByVideo: true, endSlack: 0.2 });
+  assert.ok(endOf(ends.bank) <= 7.2 + 1 / RATE, `it ends by 7.2 s: ${endOf(ends.bank)}`);
+  assert.ok(ends.report.units[0].offset < free.report.units[0].offset - 0.1, 'the lines before start earlier to make the room');
+  assert.equal(ends.report.units.at(-1).timingConflict, null);
+
+  // Too long to end in time at all: it ends as soon as it can, and the last line says so.
+  const late = await endSync({ endByVideo: true, endSlack: 0 });
+  assert.match(late.report.units.at(-1).timingConflict, /past the original's end/);
+  assert.ok(late.report.summary.endsPastVideo > 0);
+});

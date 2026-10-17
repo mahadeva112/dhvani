@@ -67,9 +67,6 @@ export const LENGTHEN_FILL = 0.95;
 /** True when `speech` seconds of dub leave too much of `spoken` seconds of original unsaid. */
 export const isShortLine = (speech, spoken) => speech < spoken * SHORT_SHARE && spoken - speech >= MIN_SHORT_GAP;
 
-/** Hard anchors (after long pauses and speaker changes) pull this much harder in the solve. */
-const HARD_ANCHOR_WEIGHT = 3;
-
 /** A line the user locked in Edit timing pulls so hard that the solve leaves it where it is. */
 const LOCK_WEIGHT = 1e6;
 
@@ -813,6 +810,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // Lines whose timing limits could not be met, with why: the dub is still made, and they are flagged for review.
   const timingConflicts = new Map();
   const placeConflicts = [];
+  // Must end by: no later than this may the dub's last line end (see endByVideo).
+  const endLimit = join.endByVideo && sourceDuration > 0 ? sourceDuration + join.endSlack : Infinity;
 
   // Chunk sync. Each line's chunks, by placed line: `{ from, to }` samples of
   // its clip and, once placed, `start` seconds on the timeline.
@@ -851,7 +850,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           const preserveBefore = b === 0 && join.preserveLongPauses && unit.gapBefore >= join.protectedPause;
           const preserveAfter = b === line.blocks.length - 1 && join.preserveLongPauses && unit.gapAfter >= join.protectedPause;
           const strict = b === 0 && timingProtection === 'strict' ? want + join.maxLateStart : Infinity;
-          const latest = Math.min(strict, preserveAfter ? unit.srcEnd - length : Infinity);
+          // Must end by: the dub's last chunk ends by the original's end, give or take endSlack.
+          const last = line.n === placedIndex.length - 1 && b === line.blocks.length - 1;
+          const latest = Math.min(strict, preserveAfter ? unit.srcEnd - length : Infinity, last ? endLimit - length : Infinity);
           items.push({
             line,
             block,
@@ -860,7 +861,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
             ...(preserveBefore && { earliest: want }),
             ...(Number.isFinite(latest) && { latest }),
             gapAfter: gapAfter(line, b, tier),
-            weight: Math.max(0.3, Math.min(3, weight)) * (b === 0 && unit.hardAnchor ? HARD_ANCHOR_WEIGHT : 1),
+            weight: Math.max(0.3, Math.min(3, weight)) * (b === 0 && unit.hardAnchor ? join.anchorWeight : 1),
             // Only its first sound has to be inside the track: the pad before it may go before 0:00.
             floor: -(block.chunks[0].onset - block.from / sampleRate),
           });
@@ -951,9 +952,13 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         want,
         length: cores[n].length,
         gapAfter: n < placedIndex.length - 1 ? gapAfterUnit(i) : 0,
-        weight: unit.hardAnchor ? HARD_ANCHOR_WEIGHT : 1,
+        weight: unit.hardAnchor ? join.anchorWeight : 1,
         earliest: preserveBefore ? want : want - tolerance,
-        latest: Math.min(timingProtection === 'strict' ? want + join.maxLateStart : Infinity, preserveAfter ? unit.srcEnd - cores[n].length : Infinity),
+        latest: Math.min(
+          timingProtection === 'strict' ? want + join.maxLateStart : Infinity,
+          preserveAfter ? unit.srcEnd - cores[n].length : Infinity,
+          n === placedIndex.length - 1 ? endLimit - cores[n].length : Infinity
+        ),
         // Only the first word has to be inside the track; what comes before it may be dropped.
         floor: -cores[n].lead,
       };
@@ -1004,6 +1009,13 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         timingConflicts.set(i, `It starts ${late.toFixed(2)} s after the original line, past the Strict limit. Shorten or retake the line before it, or relax the limit.`);
       }
     });
+  }
+  // How far the dub runs past the original's end; with Must end by, a dub that still does is flagged on its last line.
+  const dubEnd = placedIndex.reduce((end, i, n) => Math.max(end, positions[n] + cores[n].length), 0);
+  const endsPastVideo = sourceDuration > 0 ? Math.max(0, dubEnd - sourceDuration) : 0;
+  if (Number.isFinite(endLimit) && dubEnd > endLimit + 1 / sampleRate && placedIndex.length > 0) {
+    // Said in place of the solve's own note, which can't tell the end was the limit it missed.
+    timingConflicts.set(placedIndex.at(-1), `The dub still runs ${endsPastVideo.toFixed(2)} s past the original's end. Shorten a long line or read it faster, then sync again.`);
   }
   // The gains are worked out here rather than inside the render so the bank can
   // carry them, and an edit render of the same lines comes out the same.
@@ -1315,6 +1327,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         silenceTightened: silenceTightened.size,
         silenceTightenedSeconds: [...silenceTightened.values()].reduce((sum, seconds) => sum + seconds, 0),
         cutChecksFailed: cutCheckErrors.size,
+        // Seconds the dub runs past the original's end (0 when it ends in time).
+        endsPastVideo,
         ...(chunked && { chunkSync: true, chunks: [...chunkPlan.values()].reduce((sum, chunks) => sum + chunks.length, 0), speedFitted: speedFits.size, speedFitUnsupported: speedUnfollowed.size }),
         // Lines Match source pauses could not check, their original having no word timestamps.
         sourcePausesUnknown: join.matchSourcePauses ? sourcePauses.filter((pauses, i) => !pauses && clips[i]).length : 0,

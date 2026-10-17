@@ -33,7 +33,9 @@ import {
 import {
   LineSuggestion,
   SYNC_JOIN_PRESETS,
-  SYNC_JOIN_PRESET_OPTIONS,
+  SYNC_SCREEN_OPTIONS,
+  syncJoinPreset,
+  type SyncScreen,
   SYNC_PRECISION_OPTIONS,
   SYNC_STEPS,
   SyncOptions,
@@ -52,6 +54,7 @@ import {
   JOIN_SECTION_INFO,
   JOIN_SECTIONS,
   joinPresetOf,
+  joinPresetLabel,
   JoinPresetPicker,
   joinSectionChangedCount,
   joinSectionMeasured,
@@ -97,6 +100,7 @@ export const defaultSyncOptions = (): SyncOptions => ({
   voicing: 'lines',
   precision: 'phrase',
   preset: 'natural',
+  screen: 'any',
   join: readJoinSettings(null),
   suggest: false,
   suggestLonger: false,
@@ -109,10 +113,11 @@ const isDefaultOptions = (options: SyncOptions) => {
     options.voicing === defaults.voicing &&
     options.precision === defaults.precision &&
     options.preset === defaults.preset &&
+    (options.screen ?? 'any') === 'any' &&
     options.suggest === defaults.suggest &&
     options.suggestLonger === defaults.suggestLonger &&
     !options.verifyWords && options.timingProtection !== 'strict' &&
-    joinPresetOf(options.join) === 'natural'
+    joinPresetOf(options.join, options.screen) === 'natural'
   );
 };
 
@@ -120,15 +125,20 @@ export const readOptions = (value?: unknown): SyncOptions => {
   try {
     const saved = (value ?? JSON.parse(localStorage.getItem(OPTIONS_KEY) || '{}')) as Partial<SyncOptions>;
     // A saved preset is read as the preset is now, so a retuned preset reaches everyone who picked it.
-    const preset = (Object.keys(SYNC_JOIN_PRESETS) as (keyof typeof SYNC_JOIN_PRESETS)[]).find((id) => id === saved.preset);
-    const join = preset ? { ...SYNC_JOIN_PRESETS[preset] } : readJoinSettings(saved.join);
+    // Tight became Long dub, and Close-up Natural with faces on screen.
+    const savedPreset = String(saved.preset ?? '');
+    const renamed = savedPreset === 'tight' ? 'long' : savedPreset === 'lipsync' ? 'natural' : savedPreset;
+    const screen: SyncScreen = savedPreset === 'lipsync' ? 'camera' : SYNC_SCREEN_OPTIONS.some((s) => s.id === saved.screen) ? (saved.screen as SyncScreen) : 'any';
+    const preset = (Object.keys(SYNC_JOIN_PRESETS) as (keyof typeof SYNC_JOIN_PRESETS)[]).find((id) => id === renamed);
+    const join = preset ? syncJoinPreset(preset, screen) : readJoinSettings(saved.join);
     return {
       verifyWords: saved.verifyWords === true,
-      timingProtection: saved.timingProtection === 'strict' ? 'strict' : 'warn',
+      timingProtection: saved.timingProtection === 'strict' || savedPreset === 'lipsync' ? 'strict' : 'warn',
       voicing: saved.voicing === 'continuous' ? 'continuous' : 'lines',
       precision: SYNC_PRECISION_OPTIONS.some((o) => o.id === saved.precision) ? saved.precision : 'phrase',
       // A saved Custom stays Custom even when it happens to match a preset.
-      preset: preset ?? (saved.preset === 'custom' ? 'custom' : joinPresetOf(join)),
+      preset: preset ?? (saved.preset === 'custom' ? 'custom' : joinPresetOf(join, screen)),
+      screen,
       join,
       suggest: saved.suggest === true,
       suggestLonger: saved.suggestLonger === true,
@@ -314,8 +324,7 @@ type SettingsSection = 'basics' | SyncJoinSection | 'suggestions' | 'checks' | '
 const voicingLabel = (options: SyncOptions, multiSpeaker: boolean) =>
   VOICING_OPTIONS.find((o) => o.id === (multiSpeaker ? 'lines' : options.voicing))?.label ?? 'Line by line';
 const precisionLabelOf = (options: SyncOptions) => SYNC_PRECISION_OPTIONS.find((o) => o.id === options.precision)?.label ?? options.precision;
-const presetLabelOf = (options: SyncOptions) =>
-  (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.label ?? 'Custom').replace(' (recommended)', '');
+const presetLabelOf = joinPresetLabel;
 
 /** Every section of the window, with its one-line summary, what it is for, and how many of its settings differ from the default. */
 const settingsSections = (options: SyncOptions, multiSpeaker: boolean) => {
@@ -454,7 +463,7 @@ const SyncSettingsWindow: React.FC<{
     onFitted(changes);
     onOptionsChange((o) => {
       const next = { ...o.join, ...changes };
-      return { ...o, join: next, preset: joinPresetOf(next) };
+      return { ...o, join: next, preset: joinPresetOf(next, o.screen) };
     });
   };
 
@@ -486,7 +495,7 @@ const SyncSettingsWindow: React.FC<{
   const chips: { label: string; value: string; to: SettingsSection; changed: boolean }[] = [
     { label: 'Voice', value: voicingLabel(options, multiSpeaker), to: 'basics', changed: !multiSpeaker && options.voicing !== 'lines' },
     { label: 'Precision', value: precisionLabelOf(options), to: 'basics', changed: options.precision !== 'phrase' },
-    { label: 'Line joins', value: presetLabelOf(options), to: 'basics', changed: options.preset !== 'natural' },
+    { label: 'Line joins', value: presetLabelOf(options), to: 'basics', changed: options.preset !== 'natural' || (options.screen ?? 'any') !== 'any' },
     { label: 'Chunk sync', value: options.join.chunkSync ? 'On' : 'Off', to: 'chunks', changed: options.join.chunkSync !== SYNC_JOIN_PRESETS.natural.chunkSync },
     { label: 'Late lines', value: options.timingProtection === 'strict' ? 'Strict' : 'Flagged', to: 'fit', changed: options.timingProtection === 'strict' },
     {

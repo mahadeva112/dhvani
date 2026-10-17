@@ -94,6 +94,11 @@ export interface SyncJoinSettings {
   edgeFade: number;
   /** A line starting later than this after its source line is flagged. */
   maxLateStart: number;
+  /** How much harder a line after a long pause, or by a new speaker, pulls to start on time. */
+  anchorWeight: number;
+  /** Must end by: the dub's last line ends by the original's end, give or take `endSlack` seconds. */
+  endByVideo: boolean;
+  endSlack: number;
   /** Cues closer than this, by the same speaker, are voiced as one line. */
   unitGap: number;
   /** A joined line is never longer than this. */
@@ -104,144 +109,8 @@ export interface SyncJoinSettings {
   protectedPause: number;
 }
 
-export type SyncJoinPreset = 'natural' | 'tight' | 'lipsync' | 'custom';
-
-/** Natural is also what the server syncs with when no settings are sent. */
-export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJoinSettings> = {
-  natural: {
-    chunkSync: true,
-    gateOpenDb: -40,
-    gateHysteresisDb: -15,
-    minSliceLength: 0.1,
-    minSilenceLength: 0.15,
-    leadPad: 0.01,
-    trailPad: 0.02,
-    chunkGapShare: 0.5,
-    wordGap: 0.12,
-    commaGap: 0.18,
-    stopGap: 0.25,
-    maxChunkGap: 1,
-    punctuationPriority: true,
-    speedFit: true,
-    maxVoiceSpeed: 1.15,
-    minGap: 0.18,
-    speakerGap: 0.25,
-    gapShare: 0.3,
-    breathClear: true,
-    removeBreaths: true,
-    breathReduction: 1,
-    shortenPauses: true,
-    minInnerPause: 0.25,
-    maxPauseTake: 0.4,
-    matchSourcePauses: true,
-    unmatchedPause: 0.15,
-    tightenSilences: true,
-    tightMinPause: 0.15,
-    tightMargin: 0.08,
-    checkCutWords: true,
-    spliceCrossfade: 0,
-    tailFloorDb: -70,
-    tailHold: 0.04,
-    edgeFade: 0,
-    maxLateStart: 0.25,
-    unitGap: 0.4,
-    maxUnit: 12,
-    flagJoin: 0.15,
-    preserveLongPauses: false,
-    protectedPause: 1.2,
-  },
-  tight: {
-    chunkSync: true,
-    gateOpenDb: -40,
-    gateHysteresisDb: -15,
-    minSliceLength: 0.1,
-    minSilenceLength: 0.15,
-    leadPad: 0.01,
-    trailPad: 0.02,
-    chunkGapShare: 0.5,
-    wordGap: 0.12,
-    commaGap: 0.18,
-    stopGap: 0.25,
-    maxChunkGap: 1,
-    punctuationPriority: true,
-    speedFit: true,
-    maxVoiceSpeed: 1.15,
-    minGap: 0.12,
-    speakerGap: 0.22,
-    gapShare: 0.35,
-    breathClear: true,
-    removeBreaths: true,
-    breathReduction: 1,
-    shortenPauses: true,
-    minInnerPause: 0.2,
-    maxPauseTake: 0.6,
-    matchSourcePauses: true,
-    unmatchedPause: 0.15,
-    tightenSilences: true,
-    tightMinPause: 0.12,
-    tightMargin: 0.08,
-    checkCutWords: true,
-    spliceCrossfade: 0,
-    tailFloorDb: -70,
-    tailHold: 0.025,
-    edgeFade: 0,
-    maxLateStart: 0.18,
-    unitGap: 0.3,
-    maxUnit: 12,
-    flagJoin: 0.11,
-    preserveLongPauses: false,
-    protectedPause: 1.2,
-  },
-  lipsync: {
-    chunkSync: true,
-    gateOpenDb: -40,
-    gateHysteresisDb: -15,
-    minSliceLength: 0.1,
-    minSilenceLength: 0.15,
-    leadPad: 0.01,
-    trailPad: 0.02,
-    chunkGapShare: 0.5,
-    wordGap: 0.12,
-    commaGap: 0.18,
-    stopGap: 0.25,
-    maxChunkGap: 1,
-    punctuationPriority: true,
-    speedFit: true,
-    maxVoiceSpeed: 1.15,
-    minGap: 0.09,
-    speakerGap: 0.18,
-    gapShare: 0.3,
-    breathClear: true,
-    removeBreaths: true,
-    breathReduction: 1,
-    shortenPauses: true,
-    minInnerPause: 0.18,
-    maxPauseTake: 0.7,
-    matchSourcePauses: true,
-    unmatchedPause: 0.12,
-    tightenSilences: true,
-    tightMinPause: 0.1,
-    tightMargin: 0.08,
-    checkCutWords: true,
-    spliceCrossfade: 0,
-    tailFloorDb: -70,
-    tailHold: 0.015,
-    edgeFade: 0,
-    maxLateStart: 0.1,
-    unitGap: 0.25,
-    maxUnit: 12,
-    flagJoin: 0.09,
-    preserveLongPauses: false,
-    protectedPause: 1.2,
-  },
-};
-
-export const SYNC_JOIN_PRESET_OPTIONS: { id: SyncJoinPreset; label: string; hint: string }[] = [
-  { id: 'natural', label: 'Natural (recommended)', hint: 'Room to breathe between lines.' },
-  { id: 'tight', label: 'Tight', hint: 'Follows the original pauses closely.' },
-  { id: 'lipsync', label: 'Close-up (tight joins)', hint: 'Smallest gaps, for on-screen faces. Visual lip-sync is not verified.' },
-  { id: 'custom', label: 'Custom', hint: 'Your own settings, in the sections of this window.' },
-];
+export * from './syncPresets.ts';
+import type { SyncJoinPreset, SyncScreen } from './syncPresets.ts';
 
 /** What the user picks before a sync. */
 /**
@@ -258,6 +127,8 @@ export interface SyncOptions {
   precision: SyncPrecision;
   /** Which preset `join` came from; 'custom' once any of it is changed. */
   preset: SyncJoinPreset;
+  /** What is on screen, which the preset is tuned for on top of the dub's length. */
+  screen: SyncScreen;
   join: SyncJoinSettings;
   /** Ask the text model for shorter wordings of lines that run long. */
   suggest: boolean;
