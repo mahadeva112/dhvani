@@ -97,6 +97,8 @@ import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncVerdictBadge, useSyncOptions } from './SyncPanel';
+import { applyJoinPreset, joinPresetLabel } from './SyncJoinSettings';
+import { presetSuggestion, type SyncJoinPreset } from '../services/syncPresets';
 import {
   distributeLineText,
   expertPreview,
@@ -3154,6 +3156,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const blockedReason = !onSyncDub ? 'Dubbing is not available.' : segments.length === 0 ? 'There are no cues to dub yet.' : null;
         // One Even out loudness, on the voice panel, for every dub.
         const runSync = () => onSyncDub?.({ ...syncOptions, matchLoudness: dubMatchLoudness });
+        // The length preset this dub's lines suit, from the last sync; picking it syncs again with it.
+        const lengthSuggestion = presetSuggestion(report?.units);
+        const syncWithPreset = (preset: Exclude<SyncJoinPreset, 'custom'>) => {
+          const next = applyJoinPreset(syncOptions, preset, syncOptions.screen ?? 'any');
+          setSyncOptions(next);
+          onSyncDub?.({ ...next, matchLoudness: dubMatchLoudness });
+        };
         const canEditTiming = Boolean(onSyncEditsChange);
         // Clips of the original put on the dub are hand edits too, but not lines.
         const editedLineCount = Object.keys(activeJob.syncEdits || {}).filter((key) => !isOriginalClip(key)).length;
@@ -3592,6 +3601,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 duration={totalLength}
                 blockedReason={blockedReason}
                 onSync={runSync}
+                presetNow={joinPresetLabel(syncOptions)}
+                presetSuggestion={lengthSuggestion}
+                onUsePreset={syncWithPreset}
                 preview={prepPanel}
                 currentTime={sourceClockTime}
                 isPlaying={isPlaying}
@@ -4114,6 +4126,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 previewLongCount={syncPreview.preview?.summary.long ?? 0}
                 previewShortCount={syncPreview.preview?.summary.short ?? 0}
                 lineCount={report ? report.units.length : syncPreview.preview?.summary.lines}
+                presetSuggestion={lengthSuggestion}
                 onSync={runSync}
                 onCancel={() => onCancelSync?.()}
                 onBack={() => {

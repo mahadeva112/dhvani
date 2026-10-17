@@ -46,3 +46,14 @@ test('the pickers list every preset and every screen', () => {
   assert.deepEqual(SYNC_JOIN_PRESET_OPTIONS.map((p) => p.id), [...LENGTHS, 'custom']);
   assert.deepEqual(SYNC_SCREEN_OPTIONS.map((s) => s.id), SCREENS);
 });
+
+test("a synced dub's length against the original picks its preset", async () => {
+  const { dubLengthRatio, presetForRatio, presetSuggestion } = await import('./syncPresets.ts');
+  const line = (speech: number, from: number, to: number, silent = false) => ({ speech, srcStart: from, srcEnd: to, silent });
+  // 10 s of original, 12.5 s of dub: 25% longer.
+  assert.equal(dubLengthRatio([line(5, 0, 4), line(7.5, 5, 11)]), 1.25);
+  assert.equal(dubLengthRatio([line(3, 0, 3, true)]), null, 'a silent line says nothing');
+  assert.deepEqual([0.9, 1, 1.1, 1.25].map(presetForRatio), ['short', 'natural', 'long', 'vlong']);
+  assert.deepEqual(presetSuggestion([line(5, 0, 4), line(7.5, 5, 11)]), { preset: 'vlong', change: 0.25 });
+  assert.equal(presetSuggestion(null), null);
+});

@@ -36,6 +36,7 @@ import {
   SYNC_SCREEN_OPTIONS,
   syncJoinPreset,
   type SyncScreen,
+  type SyncJoinPreset,
   SYNC_PRECISION_OPTIONS,
   SYNC_STEPS,
   SyncOptions,
@@ -47,6 +48,7 @@ import {
   SyncVoicing,
 } from '../services/syncService';
 import type { DubProgress } from '../services/elevenLabsService';
+import type { presetSuggestion } from '../services/syncPresets';
 import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import {
@@ -56,6 +58,8 @@ import {
   joinPresetOf,
   joinPresetLabel,
   JoinPresetPicker,
+  presetName,
+  describeChange,
   joinSectionChangedCount,
   joinSectionMeasured,
   joinSectionSummary,
@@ -275,9 +279,13 @@ const sectionLabel ='text-[10.5px] uppercase tracking-wider font-semibold text-s
 const downloadRow =
   'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
 
+type PresetSuggestion = NonNullable<ReturnType<typeof presetSuggestion>>;
+
 export interface SyncSettingsPanelProps {
   options: SyncOptions;
   onOptionsChange: React.Dispatch<React.SetStateAction<SyncOptions>>;
+  /** The length preset the last sync suits, shown on the Line joins picker. */
+  presetSuggestion?: PresetSuggestion | null;
   /** True once this dub has been synced: the button reads Sync again. */
   synced: boolean;
   /** True when there is a dub for the sync to replace. */
@@ -426,7 +434,8 @@ const SyncSettingsWindow: React.FC<{
   /** Absent when the window is opened away from the Dub step: there is nothing to sync from there. */
   onSync?: () => void;
   onClose: () => void;
-}> = ({ options, onOptionsChange, multiSpeaker, isSyncing, synced, blockedReason, previewShown, lineCount, fitSource, fitted, onFitted, onSync, onClose }) => {
+  presetSuggestion?: PresetSuggestion | null;
+}> = ({ options, onOptionsChange, multiSpeaker, isSyncing, synced, blockedReason, previewShown, lineCount, fitSource, fitted, onFitted, onSync, onClose, presetSuggestion }) => {
   const [section, setSection] = useState<SettingsSection>('basics');
   const [onlyChanged, setOnlyChanged] = useState(false);
   const [query, setQuery] = useState('');
@@ -597,7 +606,7 @@ const SyncSettingsWindow: React.FC<{
             </SettingsCard>
             <SettingsCard title="Line joins">
               <div className="py-3">
-                <JoinPresetPicker options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} onShowChanged={() => setOnlyChanged(true)} />
+                <JoinPresetPicker options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} onShowChanged={() => setOnlyChanged(true)} suggestion={presetSuggestion} />
               </div>
             </SettingsCard>
           </div>
@@ -924,6 +933,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   fitSource,
   lineCount,
   openRequest = 0,
+  presetSuggestion,
 }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Only a request made while the rail is on screen opens it, not one left from before the Dub step.
@@ -1000,6 +1010,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         onFitted={setFitted}
         onSync={onSync}
         onClose={closeSettings}
+        presetSuggestion={presetSuggestion}
       />
     )}
 
@@ -1096,6 +1107,10 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
 
 export interface SyncResultsPanelProps {
   report: SyncReport | null;
+  /** The line joins the dub was synced with ("Natural"), and the preset its length suits better, with Use to sync with it. */
+  presetNow?: string;
+  presetSuggestion?: PresetSuggestion | null;
+  onUsePreset?: (preset: Exclude<SyncJoinPreset, 'custom'>) => void;
   /** Lines changed by hand in Edit timing; the report and the dub include them. */
   handEdits?: number;
   progress: SyncProgress | null;
@@ -1145,12 +1160,61 @@ export interface SyncResultsPanelProps {
   reading?: DubProgress | null;
 }
 
+/**
+ * How long the synced dub ran against the original, and the length preset
+ * that suits it when it isn't the one used: a suggestion with Use, never a
+ * change on its own. Keep puts it away until the next sync.
+ */
+const PresetBanner: React.FC<{ suggestion: PresetSuggestion; presetNow: string; onUse?: (preset: Exclude<SyncJoinPreset, 'custom'>) => void }> = ({
+  suggestion,
+  presetNow,
+  onUse,
+}) => {
+  const [kept, setKept] = useState(false);
+  useEffect(() => setKept(false), [suggestion.preset, suggestion.change]);
+  const suits = presetNow.split(' · ')[0] === presetName(suggestion.preset);
+  if (suits) {
+    return (
+      <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-[12.5px] text-emerald-200">
+        <Check className="w-4 h-4 shrink-0" />
+        {presetNow} suits this dub: its lines run {describeChange(suggestion.change)} than the original's.
+      </div>
+    );
+  }
+  if (kept) return <p className="text-[12px] text-slate-500">Kept {presetNow}.</p>;
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-950/20 px-3.5 py-2.5">
+      <Ruler className="w-4 h-4 text-amber-300 shrink-0" />
+      <span className="text-[12.5px] text-slate-200">
+        The dub's lines run <span className="font-semibold">{describeChange(suggestion.change)}</span> than the original's.{' '}
+        <span className="font-semibold">{presetName(suggestion.preset)}</span> suits it better than {presetNow}.
+      </span>
+      <span className="flex-1" />
+      {onUse && (
+        <button
+          type="button"
+          onClick={() => onUse(suggestion.preset)}
+          className="shrink-0 h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-[12.5px] font-medium flex items-center gap-1.5 cursor-pointer"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Use {presetName(suggestion.preset)} and sync again
+        </button>
+      )}
+      <button type="button" onClick={() => setKept(true)} className="shrink-0 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-pointer">
+        Keep {presetNow}
+      </button>
+    </div>
+  );
+};
+
 /** Takes voiced of a retaken line, the best fitting one kept (RETAKE_TAKES in server/lib/syncDub.js). */
 const RETAKE_TAKES = 3;
 
 /** The Dub step's main panel: what the dub will take, its progress, then how every line landed. */
 export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   report,
+  presetNow,
+  presetSuggestion,
+  onUsePreset,
   handEdits = 0,
   progress,
   isSyncing,
@@ -1259,6 +1323,10 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           {handEdits > 0 && ' Your hand edits in Edit timing are in this dub: there, only the speed, level and fades you set change a line, and Sync again keeps every locked line where you put it.'}
         </p>
       </div>
+
+      {report && !isSyncing && presetSuggestion && presetNow && (
+        <PresetBanner suggestion={presetSuggestion} presetNow={presetNow} onUse={onUsePreset} />
+      )}
 
       {idle && preview}
 

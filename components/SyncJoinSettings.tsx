@@ -14,6 +14,9 @@ import {
   SyncScreen,
   type SpeakerFitRates,
 } from '../services/syncService';
+import type { presetSuggestion } from '../services/syncPresets';
+
+type PresetSuggestion = NonNullable<ReturnType<typeof presetSuggestion>>;
 import { AudioSegment } from '../types';
 import { JOIN_SETTING_RANGES } from '../server/lib/syncSettings.js';
 
@@ -514,6 +517,13 @@ export const JOIN_SECTION_INFO: Record<SyncJoinSection, { description: string; t
 export const applyJoinPreset = (o: SyncOptions, preset: SyncJoinPreset, screen: SyncScreen): SyncOptions =>
   preset === 'custom' ? { ...o, preset, screen } : { ...o, preset, screen, join: syncJoinPreset(preset, screen), ...presetExtras(preset, screen) };
 
+/** A length preset's name, without "(recommended)". */
+export const presetName = (preset: SyncJoinPreset) => (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === preset)?.label ?? 'Custom').replace(' (recommended)', '');
+
+/** "25% longer", "8% shorter", "about as long". */
+export const describeChange = (change: number) =>
+  Math.abs(change) < 0.01 ? 'about as long' : `${Math.round(Math.abs(change) * 100)}% ${change > 0 ? 'longer' : 'shorter'}`;
+
 /** A preset's name with what is on screen: "Long dub · Narration". */
 export const joinPresetLabel = (options: Pick<SyncOptions, 'preset' | 'screen'>) =>
   [
@@ -541,9 +551,11 @@ const ChoiceRow: React.FC<{
   label: string;
   choices: { id: string; label: string; sub: string; hint: string }[];
   value: string;
+  /** The choice the last sync suggests, marked under its name. */
+  suggested?: string;
   disabled?: boolean;
   onPick: (id: string) => void;
-}> = ({ label, choices, value, disabled, onPick }) => (
+}> = ({ label, choices, value, suggested, disabled, onPick }) => (
   <div role="radiogroup" aria-label={label} className="grid gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800" style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}>
     {choices.map((choice) => {
       const on = value === choice.id;
@@ -561,7 +573,11 @@ const ChoiceRow: React.FC<{
           }`}
         >
           <span className="block text-[12.5px] font-medium">{choice.label.replace(' (recommended)', '')}</span>
-          <span className="block text-[11px] text-slate-500 truncate">{choice.id === 'natural' ? 'about even · recommended' : choice.sub}</span>
+          {choice.id === suggested ? (
+            <span className="block text-[11px] text-emerald-300 truncate">suits this dub</span>
+          ) : (
+            <span className="block text-[11px] text-slate-500 truncate">{choice.id === 'natural' ? 'about even · recommended' : choice.sub}</span>
+          )}
         </button>
       );
     })}
@@ -579,7 +595,9 @@ export const JoinPresetPicker: React.FC<{
   disabled?: boolean;
   /** Lists only the sections changed from the default, from the note under Custom. */
   onShowChanged?: () => void;
-}> = ({ options, onOptionsChange, disabled, onShowChanged }) => {
+  /** The length preset the last sync suits, and how much longer (+) or shorter its dub ran. */
+  suggestion?: PresetSuggestion | null;
+}> = ({ options, onOptionsChange, disabled, onShowChanged, suggestion }) => {
   const screen = options.screen ?? 'any';
   const pickLength = (preset: string) => onOptionsChange((o) => applyJoinPreset(o, preset as SyncJoinPreset, o.screen ?? 'any'));
   const pickScreen = (next: string) =>
@@ -589,8 +607,33 @@ export const JoinPresetPicker: React.FC<{
     <div className="flex flex-col gap-2.5">
       <div className="flex flex-col gap-1.5">
         <span className="text-[11.5px] text-slate-400">By how long the dub runs</span>
-        <ChoiceRow label="Line joins by the dub's length" choices={SYNC_JOIN_PRESET_OPTIONS} value={options.preset} disabled={disabled} onPick={pickLength} />
+        <ChoiceRow
+          label="Line joins by the dub's length"
+          choices={SYNC_JOIN_PRESET_OPTIONS}
+          value={options.preset}
+          suggested={suggestion?.preset}
+          disabled={disabled}
+          onPick={pickLength}
+        />
       </div>
+      {suggestion && suggestion.preset !== options.preset && (
+        <div className="flex flex-wrap items-center gap-2.5 rounded-lg border border-amber-400/35 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-100">
+          <Ruler className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+          <span>
+            In the last sync the dub ran {describeChange(suggestion.change)} than the original.{' '}
+            <span className="font-semibold">{presetName(suggestion.preset)}</span> suits it better.
+          </span>
+          <span className="flex-1" />
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => pickLength(suggestion.preset)}
+            className="shrink-0 h-7 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Use {presetName(suggestion.preset)}
+          </button>
+        </div>
+      )}
       <div className="flex flex-col gap-1.5">
         <span className="text-[11.5px] text-slate-400">
           By what is on screen <span className="text-slate-500">· adds to the length preset</span>

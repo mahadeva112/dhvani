@@ -147,3 +147,31 @@ export const SYNC_SCREEN_OPTIONS: { id: SyncScreen; label: string; sub: string; 
   { id: 'narration', label: 'Narration', sub: 'voice-over', hint: 'A voice-over: after a long pause every paragraph starts on time, and the lines between take up the slack.' },
   { id: 'camera', label: 'On-camera', sub: 'faces on screen', hint: 'Faces on screen: lines must start within 200 ms of the original (Strict), with tight joins. Visual lip-sync is not checked.' },
 ];
+
+/** The dub's lines can run this much longer (or shorter) than the original's before another preset suits it better. */
+const PRESET_RATIOS: [Exclude<SyncJoinPreset, 'custom'>, number][] = [
+  ['short', 0.97],
+  ['natural', 1.05],
+  ['long', 1.15],
+  ['vlong', Infinity],
+];
+
+/**
+ * How long the dub's lines run against the original's, from a sync report:
+ * the seconds each line takes as voiced, from its first word to its last,
+ * over the seconds the original speaker took for it. Null with nothing voiced.
+ */
+export const dubLengthRatio = (units: { silent?: boolean; speech: number; srcStart: number; srcEnd: number }[]) => {
+  const voiced = units.filter((unit) => !unit.silent && unit.speech > 0 && unit.srcEnd > unit.srcStart);
+  const original = voiced.reduce((sum, unit) => sum + unit.srcEnd - unit.srcStart, 0);
+  return original > 0 ? voiced.reduce((sum, unit) => sum + unit.speech, 0) / original : null;
+};
+
+/** The length preset for a dub that runs `ratio` times as long as the original. */
+export const presetForRatio = (ratio: number): Exclude<SyncJoinPreset, 'custom'> => PRESET_RATIOS.find(([, below]) => ratio < below)![0];
+
+/** The preset a synced dub suits, and how much longer or shorter it runs (+0.25 for 25% longer); null before a sync. */
+export const presetSuggestion = (units: Parameters<typeof dubLengthRatio>[0] | null | undefined) => {
+  const ratio = units ? dubLengthRatio(units) : null;
+  return ratio === null ? null : { preset: presetForRatio(ratio), change: ratio - 1 };
+};
