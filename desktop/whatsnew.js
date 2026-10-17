@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.61',
+    changes: [
+      'Review has a Script view: each passage is one row, the original beside the dub text, which you edit like a table cell, one line per cue. It replaces the Document view.',
+      'Sync presets now go by how long the dub runs against the original, and what is on screen. After a sync, Dub suggests the preset that suits the dub.',
+      'A line that is still too long can get the best of 3 takes or a calm, faster read. Review lets you compare old and new, or Sync uses the new one at once.',
+    ],
+  },
+  {
     version: '1.3.60',
     changes: [
       'The script follows the synced dub: a line you remove or mute in Edit timing is left out, and each line keeps its time in the dub. Choose Full script to keep every line.',
