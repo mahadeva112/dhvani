@@ -2386,6 +2386,8 @@ export default function App() {
           verifyWords,
           timingProtection,
           lineSeeds: activeJob.syncLineSeeds || undefined,
+          ...(activeJob.syncTakeChoices && { takeChoices: activeJob.syncTakeChoices }),
+          ...(activeJob.syncDeclinedTakes?.length && { declinedTakes: activeJob.syncDeclinedTakes }),
           debug: audioDebugEnabled(),
           cartesia: cartesiaDub,
           ...(voiceTexts && { voiceTexts }),
@@ -2496,6 +2498,35 @@ export default function App() {
     updateJob(activeJob.id, {
       syncLineSeeds: seeds,
       syncPendingLines: withPendingLines(activeJob.syncPendingLines, keys),
+    });
+  };
+
+  /**
+   * Uses the take Sync offered for a line that ran long (Review: Use new):
+   * the next sync voices the line with it, from the cache, so it costs
+   * nothing more.
+   */
+  const handleUseOfferedTake = (unit: SyncUnitReport) => {
+    if (!activeJob || !unit.takeFit) return;
+    updateJob(activeJob.id, {
+      syncTakeChoices: { ...activeJob.syncTakeChoices, [unit.key]: { ...unit.takeFit.choice, text: unit.text } },
+      syncDeclinedTakes: (activeJob.syncDeclinedTakes || []).filter((key) => key !== unit.key),
+      syncPendingLines: withPendingLines(activeJob.syncPendingLines, [unit.key]),
+    });
+  };
+
+  /**
+   * Keeps a line's take as it was (Review: Keep old, or Use the first take
+   * on one Auto put in): it is not voiced again to fit, and a take put in
+   * comes out at the next sync.
+   */
+  const handleKeepOfferedTake = (unit: SyncUnitReport) => {
+    if (!activeJob) return;
+    const { [unit.key]: _dropped, ...choices } = activeJob.syncTakeChoices || {};
+    updateJob(activeJob.id, {
+      syncTakeChoices: choices,
+      syncDeclinedTakes: [...new Set([...(activeJob.syncDeclinedTakes || []), unit.key])],
+      ...((unit.takeFit?.used || unit.takeChosen) && { syncPendingLines: withPendingLines(activeJob.syncPendingLines, [unit.key]) }),
     });
   };
 
@@ -3256,6 +3287,8 @@ export default function App() {
           syncPendingLines={activeJob?.syncPendingLines || []}
           onApplySyncLine={handleApplySyncLine}
           onRetakeSyncLines={handleRetakeSyncLines}
+          onUseOfferedTake={handleUseOfferedTake}
+          onKeepOfferedTake={handleKeepOfferedTake}
           onVoiceSyncTakes={handleVoiceSyncTakes}
           onUseSyncTake={handleUseSyncTake}
           syncTakesBusy={syncTakesBusy}

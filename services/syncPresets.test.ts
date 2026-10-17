@@ -28,7 +28,9 @@ test('the presets run from loosest to tightest, and what is on screen adds to th
   const [short, natural, long, vlong] = LENGTHS.map((id) => SYNC_JOIN_PRESETS[id]);
   assert.ok(short.chunkGapShare > natural.chunkGapShare && natural.chunkGapShare > long.chunkGapShare && long.chunkGapShare > vlong.chunkGapShare);
   assert.ok(short.stopGap > natural.stopGap && natural.stopGap > long.stopGap && long.stopGap > vlong.stopGap);
-  assert.equal(short.speedFit, false, 'a short dub is never read faster');
+  assert.equal(short.speedFit, 'off', 'a short dub is never read faster');
+  assert.equal(short.bestTakes, 'off', 'nor voiced again for a better take');
+  assert.equal(natural.bestTakes, 'ask', 'a new take is offered, not used, unless asked');
   assert.equal(natural.endByVideo, false);
   assert.ok(long.endByVideo && vlong.endByVideo, 'a long dub ends with the original');
   assert.equal(vlong.maxVoiceSpeed, 1.2);

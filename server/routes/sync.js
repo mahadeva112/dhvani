@@ -36,6 +36,27 @@ import { forceAlign } from '../providers/elevenlabs/alignment.js';
 export const syncRouter = Router();
 
 /** Only whole-number seeds ElevenLabs accepts, keyed by line. */
+/**
+ * The takes the user chose in Review for lines that ran long, by line key:
+ * `{ seed, speedScale?, pace?, text }`, `text` the line's words when it was
+ * chosen, so a line reworded since is voiced afresh.
+ */
+const cleanTakeChoices = (value) =>
+  Object.fromEntries(
+    Object.entries(value && typeof value === 'object' ? value : {})
+      .slice(0, 20000)
+      .filter(([key, choice]) => key.length <= 128 && choice && Number.isInteger(choice.seed) && choice.seed >= 0 && choice.seed < 2 ** 32 && typeof choice.text === 'string' && choice.text.length <= 5000)
+      .map(([key, choice]) => [
+        key,
+        {
+          seed: choice.seed,
+          text: choice.text,
+          ...(Number.isFinite(choice.speedScale) && choice.speedScale >= 1 && choice.speedScale <= 1.2 && { speedScale: choice.speedScale }),
+          ...(choice.pace === '[calm, fast]' && { pace: choice.pace }),
+        },
+      ])
+  );
+
 const cleanLineSeeds = (value) =>
   Object.fromEntries(
     Object.entries(value && typeof value === 'object' ? value : {}).filter(
@@ -426,6 +447,8 @@ syncRouter.post(
       steady,
       dub,
       picked,
+      takeChoices,
+      declinedTakes,
     } = req.body || {};
 
     if (!Array.isArray(segments) || segments.length === 0) {
@@ -522,6 +545,8 @@ syncRouter.post(
           multiSpeaker: several,
           peak: MIX_PEAK_MODES.includes(peak) ? peak : 'float',
           lineSeeds: cleanLineSeeds(lineSeeds),
+          takeChoices: cleanTakeChoices(takeChoices),
+          declinedTakes: Array.isArray(declinedTakes) ? declinedTakes.filter((key) => typeof key === 'string' && key.length <= 128).slice(0, 20000) : [],
           matchLoudness: matchLoudness === true,
           locked: cleanLocked(locked),
           debug: audioDebug,
@@ -561,7 +586,15 @@ syncRouter.post(
         audioId: keepResult(result.buffer, result.contentType),
         contentType: result.contentType,
         stems: (result.stems || []).map((stem) => ({ speaker: stem.speaker, audioId: keepResult(stem.buffer, stem.contentType), contentType: stem.contentType })),
-        report: { ...result.report, stabilityAdjustment },
+        report: {
+          ...result.report,
+          stabilityAdjustment,
+          // An offered take is fetched on its own, like the dub, to listen to beside the line in the dub.
+          units: result.report.units.map((unit) => {
+            const offer = (result.offers || []).find((o) => o.key === unit.key);
+            return offer && unit.takeFit ? { ...unit, takeFit: { ...unit.takeFit, audioId: keepResult(offer.buffer, offer.contentType) } } : unit;
+          }),
+        },
         bank: {
           bankId,
           audioId: keepResult(bankFile.buffer, bankFile.contentType),

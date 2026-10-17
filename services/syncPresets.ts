@@ -25,8 +25,10 @@ const NATURAL_JOIN: SyncJoinSettings = {
     stopGap: 0.25,
     maxChunkGap: 1,
     punctuationPriority: true,
-    speedFit: true,
+    speedFit: 'ask',
     maxVoiceSpeed: 1.15,
+    bestTakes: 'ask',
+    maxRevoice: 20,
     minGap: 0.18,
     speakerGap: 0.25,
     gapShare: 0.3,
@@ -59,7 +61,7 @@ const NATURAL_JOIN: SyncJoinSettings = {
 
 const LENGTH_CHANGES: Record<Exclude<SyncJoinPreset, 'custom'>, Partial<SyncJoinSettings>> = {
   // Shorter than the original: pauses keep all they have and may grow, nothing is read faster.
-  short: { chunkGapShare: 1, wordGap: 0.15, commaGap: 0.25, stopGap: 0.4, maxChunkGap: 2, speedFit: false, minGap: 0.25, gapShare: 0.5 },
+  short: { chunkGapShare: 1, wordGap: 0.15, commaGap: 0.25, stopGap: 0.4, maxChunkGap: 2, speedFit: 'off', bestTakes: 'off', minGap: 0.25, gapShare: 0.5 },
   natural: {},
   // 5-15% longer: pauses shrink further, and the dub must end with the original.
   long: {

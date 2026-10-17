@@ -32,6 +32,7 @@ import { tooDeepCut } from './syncRewrite.js';
 import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
 import { sourcePausesOf } from './sourcePauses.js';
 import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, RIGID_GAP_SECONDS } from './chunkSync.js';
+import { takeDiffers } from './takeChecks.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -104,6 +105,24 @@ const SPEED_FIT_MIN = 1.02;
 export const followsSpeed = (voice) =>
   voice?.cartesia ? !voice.modelId || /^sonic-3/.test(voice.modelId) : !/^eleven_v[34]/.test(voice?.modelId || '') && !/_v1$/.test(voice?.modelId || '');
 
+/**
+ * Whether `voice` reads faster when asked to in words: Eleven v3 and v4,
+ * which ignore speed, perform PACE_DIRECTION (measured 2026-10-17 on one
+ * Hindi line: 5.27 s plain, 4.66 s with it, same pitch).
+ */
+export const followsPace = (voice) => !voice?.cartesia && /^eleven_v[34]/.test(voice?.modelId || '');
+
+/** The pace direction a v3 or v4 voice reads a line faster with: faster, still calm. */
+export const PACE_DIRECTION = '[calm, fast]';
+
+/** Takes of a line that runs long compared to find one that fits (Best of 3 takes), and where their seeds start. */
+export const BEST_TAKES = 3;
+const BEST_TAKE_OFFSET = 200;
+
+/** Forced alignments by take and text: a take aligned once isn't sent again on the next sync. */
+const ALIGNMENT_CACHE_LIMIT = 2000;
+const alignmentCache = new Map();
+
 /** Times a line the voice cut off mid-word is voiced again before it is reported instead. */
 export const MAX_RETAKES = 2;
 
@@ -169,7 +188,11 @@ const remember = (key, buffer) => {
 };
 
 /** Forgets every cached clip. For tests. */
-export const clearClipCache = () => clipCache.clear();
+/** Forgets every voiced clip and every alignment of one. */
+export const clearClipCache = () => {
+  clipCache.clear();
+  alignmentCache.clear();
+};
 
 /** A clip voiced before with exactly this voice and text, or null; for takes (see syncTakes.js). */
 export const cachedClip = (voice, text) => clipCache.get(cacheKey(voice, text)) || null;
@@ -266,6 +289,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     debug = false,
     verifyWords = false,
     timingProtection = 'warn',
+    takeChoices = {},
+    declinedTakes = [],
   } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
@@ -292,10 +317,27 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
 
   // 2. Voicing. A retaken line is voiced with its own seed, which is a new take of it.
   report({ phase: 'voicing', step: 2 });
-  const seedOf = (unit) => (Number.isInteger(lineSeeds[lineKey(unit)]) ? lineSeeds[lineKey(unit)] : voice.seed);
+  /**
+   * The take the user chose for a line in Review (a better fitting take, or
+   * one read faster): its seed and how it was read. Gone once the line is
+   * retaken or its words change.
+   */
+  const choiceOf = (unit) => {
+    if (Number.isInteger(lineSeeds[lineKey(unit)])) return null;
+    const choice = takeChoices && typeof takeChoices === 'object' ? takeChoices[lineKey(unit)] : null;
+    return choice && choice.text === unit.text ? choice : null;
+  };
+  const seedOf = (unit) =>
+    Number.isInteger(lineSeeds[lineKey(unit)]) ? lineSeeds[lineKey(unit)] : Number.isInteger(choiceOf(unit)?.seed) ? choiceOf(unit).seed : voice.seed;
+  /** How a chosen take was read: faster by speed, or by a pace direction. */
+  const readOf = (unit) => {
+    const choice = choiceOf(unit);
+    if (!choice) return {};
+    return { ...(Number.isFinite(choice.speedScale) && choice.speedScale !== 1 && { speedScale: choice.speedScale }), ...(choice.pace && { performanceTags: true }) };
+  };
   const speakerOf = (unit) => unit.speaker || 'Speaker';
   const baseVoiceOf = (unit) => (multiSpeaker && voiceFor ? voiceFor(speakerOf(unit)) || voice : voice);
-  const voiceOf = (unit) => ({ ...baseVoiceOf(unit), seed: seedOf(unit) });
+  const voiceOf = (unit) => ({ ...baseVoiceOf(unit), ...readOf(unit), seed: seedOf(unit) });
   // The lines a line is told about: its neighbours, by the same speaker when there are several.
   const neighbour = (i, step) => {
     for (let j = i + step; j >= 0 && j < units.length; j += step) {
@@ -342,6 +384,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
   }
   const spoken = voiceTexts.map(withSentenceEnd);
+  /** What line `i` is voiced from: with the pace direction of a take chosen read faster. */
+  const textOf = (i) => (choiceOf(units[i])?.pace ? `${choiceOf(units[i]).pace} ${spoken[i]}` : spoken[i]);
   const buffers = new Array(units.length);
   const clips = new Array(units.length);
   const voicedLength = new Array(units.length);
@@ -367,37 +411,38 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
    */
   let voicedSoFar = 0;
   const voiceAndFit = async (indexes, seedFor) => {
-    const voiceWith = (i) => ({ ...baseVoiceOf(units[i]), seed: seedFor(units[i]) });
+    const voiceWith = (i) => ({ ...baseVoiceOf(units[i]), ...readOf(units[i]), seed: seedFor(units[i]) });
     const missing = [];
     for (const i of indexes) {
-      const cached = clipCache.get(cacheKey(voiceWith(i), spoken[i]));
+      const cached = clipCache.get(cacheKey(voiceWith(i), textOf(i)));
       if (cached) buffers[i] = cached;
       else missing.push(i);
     }
     report({ unitsToVoice: progress.unitsToVoice + missing.length });
     const groups = new Map();
     for (const i of missing) {
-      const key = multiSpeaker ? speakerOf(units[i]) : '';
+      // A chosen take read faster is voiced on its own: its speed is the voice's for that request.
+      const key = `${multiSpeaker ? speakerOf(units[i]) : ''}|${JSON.stringify(readOf(units[i]))}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(i);
     }
     for (const group of groups.values()) {
       checkCancelled();
       const lines = group.map((i) => ({
-        text: spoken[i],
+        text: textOf(i),
         previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS),
         nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS),
         seed: seedFor(units[i]),
       }));
       const before = voicedSoFar;
       const voiced = await deps.voiceLines(lines, {
-        voice: baseVoiceOf(units[group[0]]),
+        voice: { ...baseVoiceOf(units[group[0]]), ...readOf(units[group[0]]) },
         onLine: (done) => report({ unitsVoiced: before + done }),
         readCount: units.length,
       });
       group.forEach((i, n) => {
         buffers[i] = voiced[n];
-        remember(cacheKey(voiceWith(i), spoken[i]), voiced[n]);
+        remember(cacheKey(voiceWith(i), textOf(i)), voiced[n]);
       });
       voicedSoFar += group.length;
     }
@@ -600,18 +645,29 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
 
   // Chunk sync times every line's words once, with checkCutWords: no split is
   // made inside a word, and a line whose words can't be timed stays whole.
+  /** Line `samples`' words, by forced alignment, checked to cover `text`; from the cache when this take was aligned before. */
+  const alignedWords = async (samples, text) => {
+    const key = `${clipHash(samples)}|${text}`;
+    if (alignmentCache.has(key)) return alignmentCache.get(key);
+    if (!deps.align) throw new Error('Word alignment is unavailable.');
+    const { words } = await deps.align({ samples, text, sampleRate });
+    const checked = validateAlignedWords(words, text, samples.length / sampleRate);
+    alignmentCache.delete(key);
+    alignmentCache.set(key, checked);
+    if (alignmentCache.size > ALIGNMENT_CACHE_LIMIT) alignmentCache.delete(alignmentCache.keys().next().value);
+    return checked;
+  };
   const chunkWords = new Map();
   if (chunked && join.checkCutWords) {
     const toAlign = units.map((_, i) => i).filter((i) => clips[i] && !lockOf[i]);
     let aligned = 0;
     report({ phase: 'placing', step: 4, wordChecksTotal: toAlign.length, wordChecksDone: 0 });
-    await mapLimit(toAlign, 3, async (i) => {
+    await mapLimit(toAlign, 6, async (i) => {
       checkCancelled();
       try {
-        if (!deps.align) throw new Error('Word alignment is unavailable.');
-        const { words } = await deps.align({ samples: clips[i].samples, text: units[i].text, sampleRate });
+        const words = await alignedWords(clips[i].samples, units[i].text);
         checkCancelled();
-        chunkWords.set(i, validateAlignedWords(words, units[i].text, clips[i].samples.length / sampleRate));
+        chunkWords.set(i, words);
       } catch (error) {
         checkCancelled();
         cutCheckErrors.set(i, error.message || 'Word timing could not be checked.');
@@ -718,63 +774,124 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     return { over: packed - lead - room, packed: packed - lead };
   };
 
-  // Fit by voice speed (Chunk sync): a line still too long with every pause
-  // as short as it may go has more words than time, which no placement wins
-  // back. It is voiced again, read that much faster by the voice itself (its
-  // speed setting, never a stretch of the audio), up to maxVoiceSpeed. The
-  // faster take is kept only if it finishes its last word and runs less long;
-  // a line the user picked, took from the dub or locked is left as it is.
+  // When a line still runs long (Chunk sync): with every pause as short as it
+  // may go, it has more words than time, which no placement wins back. It is
+  // voiced again, the words as they are, in two ways: two more takes of it
+  // (bestTakes), and a faster read (speedFit) by the voice itself, its speed
+  // raised on Multilingual v2 and Cartesia, a calm pace direction on Eleven v3
+  // and v4 (which ignore speed). A new take must finish every word, be the
+  // same read (see takeDiffers) and run shorter; the shortest is kept at once
+  // ('auto') or offered beside the old one for the user to choose ('ask').
+  // Lines the user picked, took from the dub, locked, chose a take for or
+  // kept as they were are left alone, and at most maxRevoice lines are tried.
   const speedFits = new Map();
-  // Lines that needed it, on a voice that doesn't read faster when asked (see followsSpeed): not voiced again.
+  // Lines that needed it, on a voice that reads no faster either way: not voiced again.
   const speedUnfollowed = new Set();
-  if (chunked && join.speedFit) {
+  /** By line: the take used or offered: `{ kind, saved, used, choice: { seed, speedScale?, pace? }, take?, speed? }`. */
+  const takeFits = new Map();
+  /** By line: an offered take's samples, for the user to listen to. */
+  const offeredTakes = new Map();
+  /** By line: why no new take was used or offered, when every one tried fell short. */
+  const takeRejects = new Map();
+  const declined = new Set(Array.isArray(declinedTakes) ? declinedTakes : []);
+  if (chunked && (join.speedFit !== 'off' || join.bestTakes !== 'off')) {
     const tooLong = units
       .map((_, i) => i)
-      .filter((i) => clips[i] && !lockOf[i] && !taken[i] && !(join.checkCutWords && !chunkWords.has(i)))
+      .filter((i) => clips[i] && !lockOf[i] && !taken[i] && !choiceOf(units[i]) && !declined.has(lineKey(units[i])) && !(join.checkCutWords && !chunkWords.has(i)))
       .map((i) => ({ i, ...chunkLineOverflow(chunkLineOf(i)) }))
       .filter(({ over }) => over > SPEED_FIT_MIN_OVER)
-      .filter(({ i }) => followsSpeed(baseVoiceOf(units[i])) || (speedUnfollowed.add(i), false));
+      .sort((a, b) => b.over - a.over)
+      .slice(0, join.maxRevoice);
     if (tooLong.length > 0) {
       report({ phase: 'voicing', step: 2, unitsToVoice: progress.unitsToVoice + tooLong.length });
       let voicedNow = progress.unitsVoiced;
       await mapLimit(tooLong, 2, async ({ i, over, packed }) => {
         checkCancelled();
-        const speed = Math.min(join.maxVoiceSpeed, (packed / Math.max(0.1, packed - over)) * SPEED_FIT_MARGIN);
-        if (speed < SPEED_FIT_MIN) return;
         const unit = units[i];
-        const voice = { ...voiceOf(unit), speedScale: Math.round(speed * 100) / 100 };
+        const base = baseVoiceOf(unit);
+        const tries = [];
+        if (join.bestTakes !== 'off') {
+          for (let take = 2; take <= BEST_TAKES; take++) {
+            tries.push({ kind: 'take', take, voice: { ...voiceOf(unit), seed: retakeSeed(seedOf(unit), BEST_TAKE_OFFSET + take) }, text: spoken[i] });
+          }
+        }
+        if (join.speedFit !== 'off') {
+          const speed = Math.round(Math.min(join.maxVoiceSpeed, (packed / Math.max(0.1, packed - over)) * SPEED_FIT_MARGIN) * 100) / 100;
+          if (speed < SPEED_FIT_MIN) {
+            // Barely too long: not worth a faster read.
+          } else if (followsSpeed(base)) {
+            tries.push({ kind: 'faster', speed, voice: { ...voiceOf(unit), speedScale: speed }, text: spoken[i] });
+          } else if (followsPace(base)) {
+            tries.push({ kind: 'faster', pace: PACE_DIRECTION, voice: { ...voiceOf(unit), performanceTags: true }, text: `${PACE_DIRECTION} ${spoken[i]}` });
+          } else speedUnfollowed.add(i);
+        }
+        if (tries.length === 0) return;
         const before = { buffer: buffers[i], clip: clips[i], length: voicedLength[i], breaths: breathsRemoved[i], words: chunkWords.get(i) };
-        try {
-          const key = cacheKey(voice, spoken[i]);
-          let buffer = clipCache.get(key);
-          if (!buffer) {
-            [buffer] = await deps.voiceLines(
-              [{ text: spoken[i], previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS), nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS), seed: voice.seed }],
-              { voice, onLine: () => {}, readCount: units.length }
-            );
-            remember(key, buffer);
-          }
-          checkCancelled();
-          buffers[i] = buffer;
-          await fit(i);
-          if (!clips[i] || clips[i].cutOff) throw new Error('cut off');
-          if (join.checkCutWords) {
-            const { words } = await deps.align({ samples: clips[i].samples, text: unit.text, sampleRate });
-            checkCancelled();
-            chunkWords.set(i, validateAlignedWords(words, unit.text, clips[i].samples.length / sampleRate));
-          }
-          if (chunkLineOverflow(chunkLineOf(i)).over >= over) throw new Error('no shorter');
-          hashes[i] = clipHash(clips[i].samples);
-          speedFits.set(i, voice.speedScale);
-        } catch (error) {
-          checkCancelled();
-          // The take as first voiced stays: the faster one failed, stopped mid-word, or was no shorter.
+        const restore = () => {
           buffers[i] = before.buffer;
           clips[i] = before.clip;
           voicedLength[i] = before.length;
           breathsRemoved[i] = before.breaths;
           if (before.words) chunkWords.set(i, before.words);
+        };
+        let best = null;
+        const reasons = [];
+        for (const attempt of tries) {
+          checkCancelled();
+          try {
+            const key = cacheKey(attempt.voice, attempt.text);
+            let buffer = clipCache.get(key);
+            if (!buffer) {
+              [buffer] = await deps.voiceLines(
+                [{ text: attempt.text, previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS), nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS), seed: attempt.voice.seed }],
+                { voice: attempt.voice, onLine: () => {}, readCount: units.length }
+              );
+              remember(key, buffer);
+            }
+            checkCancelled();
+            buffers[i] = buffer;
+            await fit(i);
+            if (!clips[i] || clips[i].cutOff) throw new Error('It stops before its last word is finished.');
+            // The same read: louder or softer only matters when the dub isn't evened out afterwards.
+            const differs = takeDiffers(before.clip.samples, clips[i].samples, sampleRate, { level: !matchLoudness });
+            if (differs) throw new Error(differs);
+            let words = null;
+            if (join.checkCutWords) {
+              const aligned = await alignedWords(clips[i].samples, unit.text);
+              checkCancelled();
+              words = aligned;
+              chunkWords.set(i, words);
+            }
+            const after = chunkLineOverflow(chunkLineOf(i)).over;
+            if (after > over - SPEED_FIT_MIN_OVER) throw new Error('It came out no shorter.');
+            if (!best || after < best.after) {
+              best = { ...attempt, after, buffer, clip: clips[i], length: voicedLength[i], breaths: breathsRemoved[i], words };
+            }
+          } catch (error) {
+            checkCancelled();
+            reasons.push(error.message || 'It could not be voiced.');
+          } finally {
+            restore();
+          }
         }
+        if (!best) {
+          if (reasons.length) takeRejects.set(i, reasons[0]);
+          report({ unitsVoiced: ++voicedNow });
+          return;
+        }
+        const mode = best.kind === 'take' ? join.bestTakes : join.speedFit;
+        const choice = { seed: best.voice.seed, ...(best.speed && { speedScale: best.speed }), ...(best.pace && { pace: best.pace }) };
+        const fitted = { kind: best.kind, saved: over - best.after, used: mode === 'auto', choice, ...(best.take && { take: best.take }), ...(best.speed && { speed: best.speed }), ...(best.pace && { pace: best.pace }) };
+        takeFits.set(i, fitted);
+        if (mode === 'auto') {
+          buffers[i] = best.buffer;
+          clips[i] = best.clip;
+          voicedLength[i] = best.length;
+          breathsRemoved[i] = best.breaths;
+          if (best.words) chunkWords.set(i, best.words);
+          hashes[i] = clipHash(clips[i].samples);
+          if (best.speed) speedFits.set(i, best.speed);
+        } else offeredTakes.set(i, best.clip.samples);
         report({ unitsVoiced: ++voicedNow });
       });
       report({ phase: 'placing', step: 4 });
@@ -791,10 +908,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     await mapLimit(toCheck, 2, async (i) => {
       checkCancelled();
       try {
-        if (!deps.align) throw new Error('Word alignment is unavailable.');
-        const { words } = await deps.align({ samples: clips[i].samples, text: units[i].text, sampleRate });
+        const words = await alignedWords(clips[i].samples, units[i].text);
         checkCancelled();
-        wordTimings.set(i, validateAlignedWords(words, units[i].text, clips[i].samples.length / sampleRate));
+        wordTimings.set(i, words);
         // Only checked: the line is placed exactly as it would be with the check off.
       } catch (error) {
         checkCancelled();
@@ -1275,6 +1391,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       // Chunk sync: the chunks the line was placed as, and how much faster it was read to fit (Fit by voice speed).
       ...(chunkPlan.has(i) && { chunks: chunkPlan.get(i).length }),
       ...(speedFits.has(i) && { speedFit: speedFits.get(i) }),
+      // A new take of a line too long: used, or offered for the user to choose; or why none was.
+      ...(takeFits.has(i) && { takeFit: takeFits.get(i) }),
+      ...(takeRejects.has(i) && { takeRejected: takeRejects.get(i) }),
+      ...(choiceOf(unit) && { takeChosen: true }),
       // Too long, but its voice's model ignores speed: Fit by voice speed could not help.
       ...(speedUnfollowed.has(i) && { speedFitUnsupported: true }),
       // Why Tighten silences left the line as it was: its words could not be timed to check the cuts.
@@ -1298,10 +1418,15 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     };
   });
 
+  // Takes offered for the user to choose, to listen to beside the ones in the dub.
+  const offers = [];
+  for (const [i, samples] of offeredTakes) offers.push({ key: lineKey(units[i]), ...(await deps.encode(samples, { float: false })) });
+
   return {
     buffer,
     contentType,
     bank,
+    offers,
     ...(mixed && { stems }),
     report: {
       precision,
@@ -1329,7 +1454,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         cutChecksFailed: cutCheckErrors.size,
         // Seconds the dub runs past the original's end (0 when it ends in time).
         endsPastVideo,
-        ...(chunked && { chunkSync: true, chunks: [...chunkPlan.values()].reduce((sum, chunks) => sum + chunks.length, 0), speedFitted: speedFits.size, speedFitUnsupported: speedUnfollowed.size }),
+        ...(chunked && { chunkSync: true, chunks: [...chunkPlan.values()].reduce((sum, chunks) => sum + chunks.length, 0), speedFitted: speedFits.size, speedFitUnsupported: speedUnfollowed.size,
+          takesUsed: [...takeFits.values()].filter((fitted) => fitted.used).length,
+          takesOffered: [...takeFits.values()].filter((fitted) => !fitted.used).length }),
         // Lines Match source pauses could not check, their original having no word timestamps.
         sourcePausesUnknown: join.matchSourcePauses ? sourcePauses.filter((pauses, i) => !pauses && clips[i]).length : 0,
         late: late.filter(Boolean).length,

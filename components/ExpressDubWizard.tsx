@@ -440,6 +440,9 @@ interface ExpressDubWizardProps {
   onApplySyncLine?: (unit: SyncUnitReport, text: string) => void;
   /** Asks for a new take of each of these synced lines. */
   onRetakeSyncLines?: (units: SyncUnitReport[]) => void;
+  /** Uses, or turns down, the take Sync offered for a line that ran long. */
+  onUseOfferedTake?: (unit: SyncUnitReport) => void;
+  onKeepOfferedTake?: (unit: SyncUnitReport) => void;
   /** Voices new takes of a synced line now, of the whole line or of some of its words (TakesPanel). */
   onVoiceSyncTakes?: (unit: SyncUnitReport, options: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }) => void;
   /** Puts one of a line's takes in the dub. */
@@ -577,6 +580,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   syncPendingLines = [],
   onApplySyncLine,
   onRetakeSyncLines,
+  onUseOfferedTake,
+  onKeepOfferedTake,
   onVoiceSyncTakes,
   onUseSyncTake,
   syncTakesBusy = null,
@@ -3623,6 +3628,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 }
                 onRetakeLine={onRetakeSyncLines && ((unit) => onRetakeSyncLines([unit]))}
                 onRetakeLines={onRetakeSyncLines}
+                onUseTake={onUseOfferedTake}
+                onKeepTake={onKeepOfferedTake}
                 renderTakes={renderTakes}
                 lockedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => activeJob.syncEdits?.[key]?.locked)}
                 onSuggestLine={(unit, avoid) =>

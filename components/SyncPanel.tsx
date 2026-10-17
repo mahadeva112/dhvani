@@ -48,6 +48,7 @@ import {
   SyncVoicing,
 } from '../services/syncService';
 import type { DubProgress } from '../services/elevenLabsService';
+import { apiGetAudio } from '../services/apiClient';
 import type { presetSuggestion } from '../services/syncPresets';
 import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
@@ -240,7 +241,7 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
   if (unit.exceeded && unit.cutCheckError)
     return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Its silences were not tightened, as its words could not be timed: ${unit.cutCheckError}`;
   if (unit.exceeded && unit.speedFitUnsupported)
-    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Its voice's model (Eleven v3 or v4) ignores the speed setting, so it couldn't be read faster: shorten it, or voice the dub with Multilingual v2`;
+    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Its voice's model takes neither a speed nor a pace direction, so it couldn't be read faster: shorten it, or voice the dub with Multilingual v2`;
   if (unit.exceeded && unit.speedFit)
     return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had, even read ${unit.speedFit.toFixed(2)}× faster: shorten it`;
   if (unit.exceeded) return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had`;
@@ -251,6 +252,7 @@ const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null =>
     return `Only ${Math.max(0, Math.round(unit.joinAfter * 1000))} ms before the next line starts: it may sound cut off`;
   if (unit.late && unit.offset !== null) return `Starts ${unit.offset.toFixed(2)} s late: the line before it runs long`;
   if (unit.offset !== null && Math.abs(unit.offset) > tolerance) return unit.offset > 0 ? 'Starts late: the line before it runs long' : 'Starts early to make room';
+  if (unit.takeFit?.used) return `A new take was put in to fit (${unit.takeFit.saved.toFixed(2)} s shorter): listen to it, or use the first take`;
   if (unit.wordTiming?.status === 'unavailable') return `Word timing not verified: ${unit.wordTiming.reason || 'check again after Sync'}`;
   if (unit.wordTiming?.boundaryMismatch) return `An internal cue boundary is off by ${(unit.wordTiming.boundaryMaxError ?? 0).toFixed(2)} s: review this phrase's pacing`;
   if (unit.wordTiming?.endMismatch) return `The measured last word ends ${Math.abs(unit.wordTiming.endError ?? 0).toFixed(2)} s ${(unit.wordTiming.endError ?? 0) < 0 ? 'before' : 'after'} the source line: review its wording or take`;
@@ -1111,6 +1113,9 @@ export interface SyncResultsPanelProps {
   presetNow?: string;
   presetSuggestion?: PresetSuggestion | null;
   onUsePreset?: (preset: Exclude<SyncJoinPreset, 'custom'>) => void;
+  /** Uses the take Sync offered for a line that ran long, or keeps the take it has (see TakeOffer). */
+  onUseTake?: (unit: SyncUnitReport) => void;
+  onKeepTake?: (unit: SyncUnitReport) => void;
   /** Lines changed by hand in Edit timing; the report and the dub include them. */
   handEdits?: number;
   progress: SyncProgress | null;
@@ -1215,6 +1220,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   presetNow,
   presetSuggestion,
   onUsePreset,
+  onUseTake,
+  onKeepTake,
   handEdits = 0,
   progress,
   isSyncing,
@@ -1572,6 +1579,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                     takesOpen={takesKey === unit.key}
                     onToggleTakes={renderTakes && (() => setTakesKey((key) => (key === unit.key ? null : unit.key)))}
                     takes={renderTakes && takesKey === unit.key ? renderTakes(unit, () => setTakesKey(null)) : null}
+                    onUseTake={onUseTake}
+                    onKeepTake={onKeepTake}
                   />
                 ))}
               </ul>
@@ -1591,6 +1600,99 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
  * retaken. Neither is heard until the next
  * Sync, so the row shows it is waiting for one.
  */
+/** What a new take of a line is: "Take 2 of 3", "Read 1.12× faster", "Read with a calm pace". */
+const takeWhat = (fit: NonNullable<SyncUnitReport['takeFit']>) =>
+  fit.kind === 'take' ? `Take ${fit.take ?? 2} of 3` : fit.speed ? `Read ${fit.speed.toFixed(2)}× faster` : 'Read with a calm, faster pace';
+
+/**
+ * A new take Sync made for a line that ran long: offered beside the one in
+ * the dub (Ask) to listen to and choose, or put in already (Auto) with the
+ * first take a click away; or why none was usable. The words are the same.
+ */
+const TakeOffer: React.FC<{
+  unit: SyncUnitReport;
+  pending: boolean;
+  onListen: (time: number) => void;
+  onUse?: (unit: SyncUnitReport) => void;
+  onKeep?: (unit: SyncUnitReport) => void;
+}> = ({ unit, pending, onListen, onUse, onKeep }) => {
+  const fit = unit.takeFit;
+  const [playing, setPlaying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const audio = useRef<{ url: string; element: HTMLAudioElement } | null>(null);
+  useEffect(() => () => {
+    audio.current?.element.pause();
+    if (audio.current) URL.revokeObjectURL(audio.current.url);
+  }, []);
+  if (pending) return null;
+  if (!fit) {
+    return unit.takeRejected ? (
+      <p className="text-[11.5px] mt-1 text-slate-400">New takes were tried to fit it, but none is used: {unit.takeRejected}</p>
+    ) : null;
+  }
+  const playNew = async () => {
+    setError(null);
+    try {
+      if (!audio.current) {
+        if (!fit.audioId) throw new Error('The new take is no longer on the server. Sync again to hear it.');
+        const blob = await apiGetAudio(`/sync/audio/${encodeURIComponent(fit.audioId)}`);
+        const url = URL.createObjectURL(blob);
+        const element = new Audio(url);
+        element.onended = () => setPlaying(false);
+        audio.current = { url, element };
+      }
+      audio.current.element.currentTime = 0;
+      await audio.current.element.play();
+      setPlaying(true);
+    } catch (err: any) {
+      setError(err?.message || 'The new take could not be played.');
+    }
+  };
+  const button = 'h-7 px-2.5 rounded-lg border text-[12px] flex items-center gap-1.5 cursor-pointer';
+  return (
+    <div className="mt-2 rounded-lg border border-indigo-500/30 bg-indigo-500/[0.07] px-3 py-2 flex flex-wrap items-center gap-2">
+      <span className="text-[12px] font-semibold text-indigo-200">
+        {fit.used ? (fit.kind === 'take' ? 'Better-fitting take used' : 'Read faster to fit') : fit.kind === 'take' ? 'Better-fitting take ready' : 'Faster take ready'}
+      </span>
+      <span className="text-[11.5px] text-slate-400">
+        {takeWhat(fit)} · −{fit.saved.toFixed(2)} s · same words, same voice
+      </span>
+      <span className="flex-1" />
+      {fit.used ? (
+        onKeep && (
+          <button type="button" onClick={() => onKeep(unit)} className={`${button} border-slate-700 text-slate-300 hover:bg-slate-800`}>
+            Use the first take
+          </button>
+        )
+      ) : (
+        <>
+          <button type="button" onClick={() => onListen(Math.max(0, (unit.placedStart ?? unit.srcStart) - 0.3))} className={`${button} border-slate-700 text-slate-200 hover:bg-slate-800`}>
+            <Play className="w-3 h-3" /> Old
+          </button>
+          <button
+            type="button"
+            onClick={() => (playing ? (audio.current?.element.pause(), setPlaying(false)) : void playNew())}
+            className={`${button} border-indigo-500/50 text-indigo-200 hover:bg-indigo-500/15`}
+          >
+            {playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />} New
+          </button>
+          {onUse && (
+            <button type="button" onClick={() => onUse(unit)} className={`${button} border-transparent bg-indigo-500 hover:bg-indigo-400 text-white font-medium`}>
+              Use new
+            </button>
+          )}
+          {onKeep && (
+            <button type="button" onClick={() => onKeep(unit)} className={`${button} border-slate-700 text-slate-300 hover:bg-slate-800`}>
+              Keep old
+            </button>
+          )}
+        </>
+      )}
+      {error && <span className="basis-full text-[11.5px] text-amber-300">{error}</span>}
+    </div>
+  );
+};
+
 const ReviewRow: React.FC<{
   unit: SyncUnitReport;
   reason: string;
@@ -1603,7 +1705,9 @@ const ReviewRow: React.FC<{
   takesOpen?: boolean;
   onToggleTakes?: () => void;
   takes?: React.ReactNode;
-}> = ({ unit, reason, pending, onListen, onApply, onRetake, onSuggest, takesOpen = false, onToggleTakes, takes }) => {
+  onUseTake?: (unit: SyncUnitReport) => void;
+  onKeepTake?: (unit: SyncUnitReport) => void;
+}> = ({ unit, reason, pending, onListen, onApply, onRetake, onSuggest, takesOpen = false, onToggleTakes, takes, onUseTake, onKeepTake }) => {
   const [draft, setDraft] = useState(unit.suggestion || unit.text);
   const [suggested, setSuggested] = useState(Boolean(unit.suggestion));
   const [copied, setCopied] = useState(false);
@@ -1670,7 +1774,8 @@ const ReviewRow: React.FC<{
         <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
         {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
         <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : unit.short ? 'text-sky-300' : 'text-slate-400'}`}>{reason}</p>
-        {unit.speedFit && <p className="text-[11.5px] mt-1 text-indigo-300">Read {unit.speedFit.toFixed(2)}× faster to fit: its words ran longer than the original line had, even with every pause shrunk</p>}
+        {unit.speedFit && !unit.takeFit && <p className="text-[11.5px] mt-1 text-indigo-300">Read {unit.speedFit.toFixed(2)}× faster to fit: its words ran longer than the original line had, even with every pause shrunk</p>}
+        <TakeOffer unit={unit} pending={pending} onListen={onListen} onUse={onUseTake} onKeep={onKeepTake} />
         {unit.wordTiming?.status === 'measured' && <p className="text-[11.5px] mt-1 text-indigo-300">Measured words · start {formatOffset(unit.wordTiming.startError ?? 0)} · end {formatOffset(unit.wordTiming.endError ?? 0)}{unit.wordTiming.boundaryMaxError != null && ` · internal boundary ${unit.wordTiming.boundaryMaxError.toFixed(2)} s`}</p>}
 
         {pending ? (

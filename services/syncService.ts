@@ -33,6 +33,9 @@ export const SYNC_PRECISION_OPTIONS: { id: SyncPrecision; label: string }[] = [
  * the server keeps every value inside its range (server/lib/syncSettings.js).
  * Breath reduction, `spliceCrossfade` and `edgeFade` change the audio itself.
  */
+/** How a line that still runs long is fitted: not at all, offered to choose, or at once. */
+export type SyncFitMode = 'off' | 'ask' | 'auto';
+
 export interface SyncJoinSettings {
   /** Chunk sync: each line split where it goes quiet (REAPER Dynamic split) and its chunks placed one by one (Samanvaya). */
   chunkSync: boolean;
@@ -53,9 +56,16 @@ export interface SyncJoinSettings {
   maxChunkGap: number;
   /** Shrink pauses between words first, then at commas, sentence ends last. */
   punctuationPriority: boolean;
-  /** Fit by voice speed: a line still too long is voiced again read faster by the voice, up to `maxVoiceSpeed` times its speed. */
-  speedFit: boolean;
+  /**
+   * A line still too long: read faster by the voice (speed, or a calm pace
+   * direction on Eleven v3 and v4, up to `maxVoiceSpeed`), and voiced twice
+   * more for the take that fits best. Each is off, offered to choose in
+   * Review ('ask'), or used at once ('auto'); at most `maxRevoice` lines a sync.
+   */
+  speedFit: SyncFitMode;
   maxVoiceSpeed: number;
+  bestTakes: SyncFitMode;
+  maxRevoice: number;
   /** Smallest silence between one line's tail and the next line's first sound. */
   minGap: number;
   /** The same, where the speaker changes. */
@@ -240,6 +250,26 @@ export interface SyncUnitReport {
   sourcePauseTrimmed?: number | null;
   /** Chunk sync: the chunks the line was placed as. */
   chunks?: number;
+  /**
+   * A new take of a line too long with every pause shrunk: a better fitting
+   * take ('take', of 3) or one read faster ('faster', by speed or a pace
+   * direction), the seconds it wins back, and whether it is in the dub
+   * (Auto) or offered beside it (Ask), with its audio to listen to.
+   */
+  takeFit?: {
+    kind: 'take' | 'faster';
+    saved: number;
+    used: boolean;
+    choice: { seed: number; speedScale?: number; pace?: string };
+    take?: number;
+    speed?: number;
+    pace?: string;
+    audioId?: string;
+  };
+  /** Why no new take was used or offered, when every one tried fell short. */
+  takeRejected?: string;
+  /** The line is voiced with a take chosen in Review. */
+  takeChosen?: boolean;
   /** Fit by voice speed: how much faster than its voice's own speed the line was read to fit. */
   speedFit?: number;
   /** Too long, but its voice's model ignores speed (Eleven v3 and v4), so it was not voiced again. */
@@ -313,6 +343,9 @@ export interface SyncReport {
     /** Chunk sync: on, and how many chunks the lines were placed as. */
     chunkSync?: boolean;
     chunks?: number;
+    /** New takes of lines too long: put in the dub (Auto), and offered to choose (Ask). */
+    takesUsed?: number;
+    takesOffered?: number;
     /** Lines Fit by voice speed read faster, and lines it couldn't help because their voice's model ignores speed. */
     speedFitted?: number;
     speedFitUnsupported?: number;
@@ -390,6 +423,9 @@ export interface SyncRequest {
   tuneStability?: boolean;
   /** Retaken lines, by key: each is voiced again with its own seed. */
   lineSeeds?: Record<string, number>;
+  /** Takes chosen in Review for lines that ran long, by key, and lines whose old take was kept. */
+  takeChoices?: Record<string, { seed: number; speedScale?: number; pace?: string; text: string }>;
+  declinedTakes?: string[];
   /** Report what the render did to every line (SyncReport.audioDebug). */
   debug?: boolean;
   /** How a Cartesia voice is voiced; used in place of modelId and voiceSettings for one. */

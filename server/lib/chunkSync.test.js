@@ -258,7 +258,7 @@ const LONG = [
 test('a line too long with every pause shrunk is voiced again, read faster by the voice, and then fits', async () => {
   clearClipCache();
   const { asked, deps: d } = speedDeps();
-  const { report } = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice }, d);
+  const { report } = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice, join: { speedFit: 'auto', bestTakes: 'off' } }, d);
   const fitted = asked.filter((a) => a.speed !== 1);
   assert.equal(fitted.length, 1, 'only the line too long is voiced again');
   assert.equal(fitted[0].text.replace(/[.।]$/u, ''), 'aaaaaaa bbbbbbb ccccccc dddddd');
@@ -272,27 +272,27 @@ test('a line too long with every pause shrunk is voiced again, read faster by th
 test('Fit by voice speed never goes past its limit, keeps a take that finishes its words, and can be turned off', async () => {
   clearClipCache();
   const capped = speedDeps();
-  await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice, join: { maxVoiceSpeed: 1.05 } }, capped.deps);
+  await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice, join: { maxVoiceSpeed: 1.05, speedFit: 'auto', bestTakes: 'off' } }, capped.deps);
   assert.ok(capped.asked.every((a) => a.speed <= 1.05));
 
   clearClipCache();
   const cut = speedDeps({ cutOffAbove: 1 });
-  const { report } = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice }, cut.deps);
+  const { report } = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice, join: { speedFit: 'auto', bestTakes: 'off' } }, cut.deps);
   assert.ok(cut.asked.some((a) => a.speed > 1), 'a faster read was tried');
   assert.ok(!report.units[0].speedFit, 'one that stops mid-word is not used');
   assert.equal(report.units[0].cutOff, false, 'the first take stays');
 
   clearClipCache();
   const off = speedDeps();
-  const plain = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice, join: { speedFit: false } }, off.deps);
+  const plain = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice, join: { speedFit: 'off', bestTakes: 'off' } }, off.deps);
   assert.ok(off.asked.every((a) => a.speed === 1));
   assert.equal(plain.report.units[0].exceeded, true, 'without it the line is flagged too long');
 });
 
-test('a voice whose model ignores speed is not voiced again for nothing, and the line says why', async () => {
+test('a voice whose model reads no faster either way is not voiced again for nothing, and the line says why', async () => {
   clearClipCache();
   const { asked, deps: d } = speedDeps();
-  const { report } = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice: { ...voice, modelId: 'eleven_v4' } }, d);
+  const { report } = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice: { ...voice, modelId: 'eleven_monolingual_v1' }, join: { bestTakes: 'off' } }, d);
   assert.ok(asked.every((a) => a.speed === 1), 'no faster take is asked for');
   assert.equal(report.units[0].speedFitUnsupported, true);
   assert.equal(report.summary.speedFitUnsupported, 1);
@@ -330,4 +330,100 @@ test('with Must end by, a long dub shares its extra time across its lines instea
   const late = await endSync({ endByVideo: true, endSlack: 0 });
   assert.match(late.report.units.at(-1).timingConflict, /past the original's end/);
   assert.ok(late.report.summary.endsPastVideo > 0);
+});
+
+// ---- Best of 3 takes, Ask and Auto ----
+
+/**
+ * A voice whose takes differ by seed: each seed reads a little faster or
+ * slower (as real takes do), `pitchOf(seed)` can move a take's voice, and a
+ * pace direction reads it 12% faster.
+ */
+const takeDeps = ({ pitchOf = () => 220 } = {}) => {
+  const asked = [];
+  return {
+    asked,
+    deps: deps(0.3, {
+      align: alignOf(),
+      voiceLines: async (lines, { onLine, voice: v }) =>
+        lines.map((line, n) => {
+          onLine(n + 1);
+          const seed = line.seed ?? 0;
+          const paced = /^\[calm, fast\] /.test(line.text);
+          const text = line.text.replace(/^\[[^\]]+\] /, '').replace(/[.।]$/u, '');
+          asked.push({ text, seed, speed: v.speedScale ?? 1, paced, tags: Boolean(v.performanceTags) });
+          const pace = (v.speedScale ?? 1) * (paced ? 1.12 : 1) * (1 + (seed % 7) * 0.02);
+          const pitch = pitchOf(seed);
+          const words = text.split(' ');
+          const length = 0.15 + words.reduce((sum, w) => sum + (w.length * 0.08 + 0.3) / pace, 0);
+          const samples = new Float32Array(Math.round(length * RATE));
+          let at = 0.15;
+          for (const w of words) {
+            const seconds = (w.length * 0.08) / pace;
+            for (let i = Math.round(at * RATE); i < Math.round((at + seconds) * RATE); i++) samples[i] = 0.3 * Math.sin((2 * Math.PI * pitch * i) / RATE);
+            at += seconds + 0.3 / pace;
+          }
+          return samples;
+        }),
+    }),
+  };
+};
+const takeSync = (d, params = {}) => {
+  clearClipCache();
+  return runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice: { ...voice, seed: 1 }, ...params }, d);
+};
+
+test('Ask offers the best of 3 takes beside the one in the dub; Use puts it in, cached, and Keep stops asking', async () => {
+  const first = takeDeps();
+  const asked = await takeSync(first.deps, { join: { bestTakes: 'ask', speedFit: 'off' } });
+  const fitted = asked.report.units[0].takeFit;
+  assert.equal(fitted.kind, 'take');
+  assert.equal(fitted.used, false, 'Ask keeps the dub as it was');
+  assert.ok(fitted.saved > 0);
+  assert.equal(asked.offers.length, 1, 'the offered take comes back to listen to');
+  assert.equal(asked.offers[0].key, asked.report.units[0].key);
+  assert.equal(asked.report.summary.takesOffered, 1);
+  assert.equal(first.asked.filter((a) => a.text.startsWith('aaaa')).length, 3, 'three takes of the long line');
+
+  // Use: the next sync voices the line with the chosen take, from the cache, and offers nothing more.
+  const before = first.asked.length;
+  const takeChoices = { [asked.report.units[0].key]: { ...fitted.choice, text: asked.report.units[0].text } };
+  const used = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice: { ...voice, seed: 1 }, join: { bestTakes: 'ask', speedFit: 'off' }, takeChoices }, first.deps);
+  assert.equal(used.report.units[0].takeChosen, true);
+  assert.equal(used.report.units[0].takeFit, undefined);
+  assert.ok(first.asked.length - before <= 1, 'the chosen take was voiced before');
+  assert.ok(used.report.units[0].exceededBy < asked.report.units[0].exceededBy);
+
+  // Keep: the line is not tried again.
+  const kept = takeDeps();
+  const again = await takeSync(kept.deps, { join: { bestTakes: 'ask', speedFit: 'off' }, declinedTakes: [asked.report.units[0].key] });
+  assert.equal(again.report.units[0].takeFit, undefined);
+  assert.equal(kept.asked.filter((a) => a.text.startsWith('aaaa')).length, 1);
+});
+
+test('Auto uses the shortest new take at once, and Review can tell which', async () => {
+  const { deps: d } = takeDeps();
+  const { report, offers } = await takeSync(d, { join: { bestTakes: 'auto', speedFit: 'off' } });
+  assert.equal(report.units[0].takeFit.used, true);
+  assert.equal(offers.length, 0);
+  assert.equal(report.summary.takesUsed, 1);
+});
+
+test('Eleven v4 reads a long line faster with a calm pace direction, as speed does nothing on it', async () => {
+  const { asked, deps: d } = takeDeps();
+  const { report } = await takeSync(d, { voice: { ...voice, seed: 1, modelId: 'eleven_v4' }, join: { bestTakes: 'off', speedFit: 'auto' } });
+  const paced = asked.filter((a) => a.paced);
+  assert.equal(paced.length, 1);
+  assert.equal(paced[0].speed, 1, 'no speed is sent to v4');
+  assert.equal(paced[0].tags, true, 'the direction reaches the voice');
+  assert.equal(report.units[0].takeFit.pace, '[calm, fast]');
+  assert.equal(report.units[0].takeFit.used, true);
+});
+
+test('a new take whose voice sits higher or lower is not used, and the line says why', async () => {
+  // Every take but the first comes out a fifth higher.
+  const { deps: d } = takeDeps({ pitchOf: (seed) => (seed === 1 ? 220 : 270) });
+  const { report } = await takeSync(d, { join: { bestTakes: 'auto', speedFit: 'off' } });
+  assert.equal(report.units[0].takeFit, undefined);
+  assert.match(report.units[0].takeRejected, /higher than the take it would replace/);
 });

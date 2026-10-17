@@ -45,8 +45,17 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
    * voiced again, read faster by the voice itself (its speed setting, not a
    * stretch), up to `maxVoiceSpeed` times its own speed. Chunk sync only.
    */
-  speedFit: true,
+  speedFit: 'ask',
   maxVoiceSpeed: 1.15,
+  /**
+   * Best of 3 takes: a line still too long is voiced twice more, the same
+   * words, voice and settings, and the take that fits best is kept ('auto')
+   * or offered to choose in Review ('ask'); 'off' tries nothing. Read faster
+   * (speedFit) takes the same three.
+   */
+  bestTakes: 'ask',
+  /** At most this many lines are voiced again in one sync to fit; Review lists the rest. */
+  maxRevoice: 20,
   /** Smallest silence between one line's tail and the next line's first sound. */
   minGap: 0.18,
   /** The same, where the speaker changes. */
@@ -144,6 +153,7 @@ export const JOIN_SETTING_RANGES = {
   stopGap: [0.03, 1],
   maxChunkGap: [0.2, 3],
   maxVoiceSpeed: [1, 1.2],
+  maxRevoice: [0, 200],
   tightMinPause: [0.06, 0.4],
   tightMargin: [0.03, 0.2],
   spliceCrossfade: [0, 0.02],
@@ -162,6 +172,10 @@ export const JOIN_SETTING_RANGES = {
 
 const clamp = (value, [low, high]) => Math.min(high, Math.max(low, value));
 
+/** How a line that still runs long is fitted: not at all, offered to choose, or at once. */
+export const FIT_MODES = ['off', 'ask', 'auto'];
+export const FIT_MODE_KEYS = ['speedFit', 'bestTakes'];
+
 /** The join settings to sync with: `requested` where it gives a usable value, the default everywhere else. */
 export const resolveJoinSettings = (requested) => {
   const settings = { ...DEFAULT_JOIN_SETTINGS };
@@ -170,8 +184,13 @@ export const resolveJoinSettings = (requested) => {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }
-  for (const key of ['chunkSync', 'punctuationPriority', 'speedFit', 'endByVideo', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
+  for (const key of ['chunkSync', 'punctuationPriority', 'endByVideo', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
     if (typeof requested[key] === 'boolean') settings[key] = requested[key];
+  }
+  // Off, ask or auto; a speedFit from before it had modes reads as it did: on is auto.
+  for (const key of FIT_MODE_KEYS) {
+    const value = requested[key] === true ? 'auto' : requested[key] === false ? 'off' : requested[key];
+    if (FIT_MODES.includes(value)) settings[key] = value;
   }
   return settings;
 };

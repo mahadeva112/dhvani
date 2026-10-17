@@ -263,6 +263,10 @@ export interface BatchJob {
   syncBaseReport?: SyncReport | null;
   /** Retaken lines, by line key: each keeps its own seed, so its new take survives later Syncs and reloads. */
   syncLineSeeds?: Record<string, number> | null;
+  /** Takes chosen in Review for lines that ran long (a better fitting take, or one read faster), by line key. */
+  syncTakeChoices?: Record<string, { seed: number; speedScale?: number; pace?: string; text: string }> | null;
+  /** Lines whose offered take the user kept the old take over: not voiced again to fit. */
+  syncDeclinedTakes?: string[] | null;
   /** Lines changed since the last Sync (reworded, cut, joined or retaken), by line key: the next Sync re-voices them. */
   syncPendingLines?: string[] | null;
   /**
