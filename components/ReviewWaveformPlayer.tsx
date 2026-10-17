@@ -350,17 +350,20 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   /*
     Mini player: shown once the play button has scrolled up out of sight. Not
     the whole player: with one speaker the page can end before the player's
-    last strip leaves the window, and then no play button was in reach.
+    last strip leaves the window, and then no play button was in reach. Nor
+    the whole row: in the compact player with one speaker, the page ends with
+    that row only partly clipped at the top, so the bar shows as soon as any
+    of it is cut off above.
   */
   useEffect(() => {
     const el = transportEl;
     if (!el) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
-        const above = !entry.isIntersecting && entry.boundingClientRect.bottom < 0;
-        setShowMini(above);
+        const clippedAbove = entry.intersectionRatio < 1 && entry.boundingClientRect.top < 0;
+        setShowMini(clippedAbove);
       },
-      { threshold: 0 }
+      { threshold: [0, 1] }
     );
     observer.observe(el);
     return () => observer.disconnect();
