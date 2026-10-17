@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.63',
+    changes: [
+      'Sync voices no line again on its own: Pick the best of 3 takes and Read it faster start off. Turn either to Ask or Auto under When a line still runs long.',
+      'Picking a preset no longer turns wording suggestions on. They stay off until you turn them on.',
+    ],
+  },
+  {
     version: '1.3.62',
     changes: [
       'Phonetic typing works in the Script view too: type Roman letters and get the script as you go, pick another spelling with 1 to 5, or press Esc to keep a word in English. Ctrl G turns it on or off.',
