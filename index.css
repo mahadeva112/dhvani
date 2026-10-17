@@ -145,55 +145,6 @@
   100% { transform: translateX(300%); }
 }
 
-/* ========================================================================= */
-/* REVIEW: CONTINUOUS DOCUMENT VIEW                                           */
-/* ========================================================================= */
-
-/* Search matches, painted with the CSS Custom Highlight API so the editable text is left untouched. */
-::highlight(dhvani-doc-match) {
-  background-color: rgba(250, 204, 21, 0.3);
-}
-::highlight(dhvani-doc-match-current) {
-  background-color: rgba(250, 204, 21, 0.85);
-  color: #0f172a;
-}
-
-/* The cue under the playhead. */
-.doc-seg-active {
-  background-color: rgba(34, 211, 238, 0.12);
-}
-/* A sentence and its pair in the other language, while hovered or edited. */
-.doc-seg[data-pair] {
-  background-color: rgba(99, 102, 241, 0.16);
-}
-.doc-seg[contenteditable]:focus {
-  background-color: rgba(99, 102, 241, 0.22);
-  box-shadow: 0 0 0 1px rgba(129, 140, 248, 0.6);
-}
-/* Pace marks on dub lines: too fast, tight, ends early. */
-.doc-pace-fast {
-  text-decoration: underline wavy rgba(251, 113, 133, 0.9);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 5px;
-  text-decoration-skip-ink: none;
-}
-.doc-pace-tight {
-  text-decoration: underline dotted rgba(251, 191, 36, 0.9);
-  text-decoration-thickness: 2px;
-  text-underline-offset: 5px;
-}
-.doc-pace-early {
-  text-decoration: underline dashed rgba(56, 189, 248, 0.85);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 5px;
-}
-/* An empty cue keeps a visible, clickable place in the text. */
-.doc-seg[contenteditable]:empty::before {
-  content: attr(data-placeholder);
-  font-style: italic;
-  color: #64748b;
-}
-
 
 /* Tools and settings (components/ToolsHub.tsx): a short fade and zoom on open and close. */
 @keyframes tools-hub-fade-in { from { opacity: 0; } to { opacity: 1; } }
