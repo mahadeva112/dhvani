@@ -181,6 +181,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const activeIndexRef = useRef(activeIndex);
 
   const sectionRef = useRef<HTMLElement>(null);
+  /** The row with the play button, full or compact: the mini player stands in for it once it is out of sight. */
+  const [transportEl, transportRef] = useState<HTMLDivElement | null>(null);
   const waveRef = useRef<HTMLCanvasElement>(null);
   const wavePlayedRef = useRef<HTMLCanvasElement>(null);
   const waveHeadRef = useRef<HTMLDivElement>(null);
@@ -345,9 +347,13 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Mini player: shown once the player has scrolled up out of sight.
+  /*
+    Mini player: shown once the play button has scrolled up out of sight. Not
+    the whole player: with one speaker the page can end before the player's
+    last strip leaves the window, and then no play button was in reach.
+  */
   useEffect(() => {
-    const el = sectionRef.current;
+    const el = transportEl;
     if (!el) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -358,7 +364,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [transportEl]);
 
   // Redraw when any canvas changes size.
   useEffect(() => {
@@ -681,7 +687,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
         </div>
 
         {compact ? (
-          <div className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
+          <div ref={transportRef} className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
             <button type="button" onClick={prevCue} className={roundBtn} aria-label="Previous cue">
               <SkipBack className="w-3.5 h-3.5 fill-current" />
             </button>
@@ -790,7 +796,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             </div>
 
             {/* Transport and the live caption */}
-            <div className="flex flex-wrap items-center gap-3 px-3.5 py-3">
+            <div ref={transportRef} className="flex flex-wrap items-center gap-3 px-3.5 py-3">
               <div className="flex items-center gap-1">
                 <button type="button" onClick={() => seekTo(timeNow() - 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer" aria-label="Back 5 seconds" title="Back 5 seconds (←)">
                   <RotateCcw className="w-4 h-4" />
