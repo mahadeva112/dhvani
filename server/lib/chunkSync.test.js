@@ -292,7 +292,7 @@ test('Fit by voice speed never goes past its limit, keeps a take that finishes i
 test('a voice whose model reads no faster either way is not voiced again for nothing, and the line says why', async () => {
   clearClipCache();
   const { asked, deps: d } = speedDeps();
-  const { report } = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice: { ...voice, modelId: 'eleven_monolingual_v1' }, join: { bestTakes: 'off' } }, d);
+  const { report } = await runSync({ segments: LONG, sourceDuration: 5, sampleRate: RATE, voice: { ...voice, modelId: 'eleven_monolingual_v1' }, join: { bestTakes: 'off', speedFit: 'auto' } }, d);
   assert.ok(asked.every((a) => a.speed === 1), 'no faster take is asked for');
   assert.equal(report.units[0].speedFitUnsupported, true);
   assert.equal(report.summary.speedFitUnsupported, 1);

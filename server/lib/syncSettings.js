@@ -45,15 +45,15 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
    * voiced again, read faster by the voice itself (its speed setting, not a
    * stretch), up to `maxVoiceSpeed` times its own speed. Chunk sync only.
    */
-  speedFit: 'ask',
+  speedFit: 'off',
   maxVoiceSpeed: 1.15,
   /**
    * Best of 3 takes: a line still too long is voiced twice more, the same
    * words, voice and settings, and the take that fits best is kept ('auto')
-   * or offered to choose in Review ('ask'); 'off' tries nothing. Read faster
-   * (speedFit) takes the same three.
+   * or offered to choose in Review ('ask'); 'off' (the default) tries
+   * nothing, until the user asks for it. Read faster (speedFit) takes the same three.
    */
-  bestTakes: 'ask',
+  bestTakes: 'off',
   /** At most this many lines are voiced again in one sync to fit; Review lists the rest. */
   maxRevoice: 20,
   /** Smallest silence between one line's tail and the next line's first sound. */
