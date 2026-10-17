@@ -38,10 +38,8 @@ test('the presets run from loosest to tightest, and what is on screen adds to th
   assert.equal(syncJoinPreset('long', 'narration').preserveLongPauses, true, 'narration starts every paragraph on time');
   assert.ok(syncJoinPreset('long', 'narration').anchorWeight > long.anchorWeight);
   assert.equal(syncJoinPreset('long', 'narration').chunkGapShare, long.chunkGapShare, 'and keeps the length preset');
-  assert.equal(presetExtras('natural', 'camera').timingProtection, 'strict', 'faces on screen hold lines to Strict');
-  assert.equal(presetExtras('vlong', 'any').suggest, true);
-  assert.equal(presetExtras('short', 'any').suggestLonger, true);
-  assert.deepEqual(presetExtras('natural', 'any'), { suggest: false, suggestLonger: false, timingProtection: 'warn' });
+  assert.equal(presetExtras('camera').timingProtection, 'strict', 'faces on screen hold lines to Strict');
+  assert.deepEqual(presetExtras('any'), { timingProtection: 'warn' }, 'no preset turns wording suggestions on');
 });
 
 test('the pickers list every preset and every screen', () => {

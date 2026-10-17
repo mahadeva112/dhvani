@@ -129,18 +129,19 @@ export const SYNC_JOIN_PRESETS: Record<Exclude<SyncJoinPreset, 'custom'>, SyncJo
   vlong: syncJoinPreset('vlong'),
 };
 
-/** What else a preset sets: wordings to suggest, and for faces on screen, Strict timing. */
-export const presetExtras = (preset: Exclude<SyncJoinPreset, 'custom'>, screen: SyncScreen) => ({
-  suggest: preset === 'long' || preset === 'vlong',
-  suggestLonger: preset === 'short',
+/**
+ * What else a preset sets: for faces on screen, Strict timing. Wording
+ * suggestions are left as the user set them (off unless turned on).
+ */
+export const presetExtras = (screen: SyncScreen) => ({
   timingProtection: screen === 'camera' ? ('strict' as const) : ('warn' as const),
 });
 
 export const SYNC_JOIN_PRESET_OPTIONS: { id: SyncJoinPreset; label: string; sub: string; hint: string }[] = [
-  { id: 'short', label: 'Short dub', sub: 'dub shorter', hint: 'The dub runs shorter than the original. Pauses keep all they have and may grow; fuller wordings are suggested.' },
+  { id: 'short', label: 'Short dub', sub: 'dub shorter', hint: 'The dub runs shorter than the original. Pauses keep all they have and may grow.' },
   { id: 'natural', label: 'Natural (recommended)', sub: 'about even', hint: 'The dub runs about as long as the original. Room to breathe between lines.' },
-  { id: 'long', label: 'Long dub', sub: '5-15% longer', hint: 'The dub runs 5-15% longer. Pauses shrink further, the dub ends with the original, and shorter wordings are suggested.' },
-  { id: 'vlong', label: 'Very long dub', sub: 'over 15% longer', hint: 'The dub runs over 15% longer. The tightest pauses, a long line may be read up to 1.2x, and shorter wordings are suggested.' },
+  { id: 'long', label: 'Long dub', sub: '5-15% longer', hint: 'The dub runs 5-15% longer. Pauses shrink further, and the dub ends with the original.' },
+  { id: 'vlong', label: 'Very long dub', sub: 'over 15% longer', hint: 'The dub runs over 15% longer. The tightest pauses, and a long line may be read up to 1.2x.' },
   { id: 'custom', label: 'Custom', sub: 'your settings', hint: 'Your own settings, in the sections of this window.' },
 ];
 

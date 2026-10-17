@@ -539,7 +539,7 @@ export const JOIN_SECTION_INFO: Record<SyncJoinSection, { description: string; t
 
 /** A length preset with what is on screen, as one choice: its join settings and the options it sets with them. */
 export const applyJoinPreset = (o: SyncOptions, preset: SyncJoinPreset, screen: SyncScreen): SyncOptions =>
-  preset === 'custom' ? { ...o, preset, screen } : { ...o, preset, screen, join: syncJoinPreset(preset, screen), ...presetExtras(preset, screen) };
+  preset === 'custom' ? { ...o, preset, screen } : { ...o, preset, screen, join: syncJoinPreset(preset, screen), ...presetExtras(screen) };
 
 /** A length preset's name, without "(recommended)". */
 export const presetName = (preset: SyncJoinPreset) => (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === preset)?.label ?? 'Custom').replace(' (recommended)', '');
