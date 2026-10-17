@@ -97,7 +97,7 @@ import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncVerdictBadge, useSyncOptions } from './SyncPanel';
-import { applyJoinPreset, joinPresetLabel } from './SyncJoinSettings';
+import { applyJoinPreset, describeChange, joinPresetLabel, presetName } from './SyncJoinSettings';
 import { presetSuggestion, type SyncJoinPreset } from '../services/syncPresets';
 import {
   distributeLineText,
@@ -3380,6 +3380,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Player</span>
                   <SyncVerdictBadge report={report} />
+                  {lengthSuggestion && Math.abs(lengthSuggestion.change) >= 0.03 && (
+                    <span
+                      title={`${presetName(lengthSuggestion.preset)} suits a dub this long`}
+                      className={`text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full ${lengthSuggestion.preset === syncOptions.preset ? 'bg-slate-800 text-slate-300' : 'bg-amber-400/12 text-amber-300'}`}
+                    >
+                      Dub {describeChange(lengthSuggestion.change)} than the original
+                    </span>
+                  )}
                   {hasEditedTiming && (
                     <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
                       {editedLineCount} line{editedLineCount === 1 ? '' : 's'} edited by hand

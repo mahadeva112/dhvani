@@ -303,7 +303,9 @@ export const FitCard: React.FC<{
   join: SyncJoinSettings;
   disabled?: boolean;
   onApply: (changes: Partial<SyncJoinSettings>) => void;
-}> = ({ source, join, disabled, onApply }) => {
+  /** What the last sync measured: how much longer the dub's lines ran, and the length preset that suits it. */
+  suggestion?: PresetSuggestion | null;
+}> = ({ source, join, disabled, onApply, suggestion }) => {
   const [fit, setFit] = useState<SyncFit | null>(null);
   const [measuring, setMeasuring] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -349,6 +351,12 @@ export const FitCard: React.FC<{
           {measuring ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ruler className="w-3.5 h-3.5" />}
           {measuring ? 'Measuring…' : 'Measure the original'}
         </button>
+        {suggestion && (
+          <span className="text-[12px] text-slate-400">
+            Last sync: the dub's lines ran {describeChange(suggestion.change)} than the original's ·{' '}
+            <span className="text-emerald-300">{presetName(suggestion.preset)} suits it</span>
+          </span>
+        )}
         {error && <span className="text-[11.5px] text-rose-300">{error}</span>}
       </div>
     );
@@ -411,12 +419,13 @@ export const FitCard: React.FC<{
 };
 
 /** The groups of join settings, each a section of the Sync settings window. */
-export type SyncJoinSection = 'chunks' | 'gaps' | 'pauses' | 'edges' | 'fit' | 'grouping' | 'review';
+export type SyncJoinSection = 'chunks' | 'long' | 'gaps' | 'pauses' | 'edges' | 'fit' | 'grouping' | 'review';
 
 export const JOIN_SECTIONS: { id: SyncJoinSection; title: string }[] = [
   { id: 'chunks', title: 'Chunk sync' },
   { id: 'gaps', title: 'Gaps between lines' },
   { id: 'pauses', title: 'Pauses inside a line' },
+  { id: 'long', title: 'When a line still runs long' },
   { id: 'edges', title: 'Line edges' },
   { id: 'fit', title: "When a line doesn't fit" },
   { id: 'grouping', title: 'Grouping' },
@@ -425,7 +434,8 @@ export const JOIN_SECTIONS: { id: SyncJoinSection; title: string }[] = [
 
 /** The join settings each section holds, to mark a section changed from the default. */
 const SECTION_KEYS: Record<SyncJoinSection, (keyof SyncJoinSettings)[]> = {
-  chunks: ['chunkSync', 'bestTakes', 'speedFit', 'maxVoiceSpeed', 'maxRevoice', 'gateOpenDb', 'gateHysteresisDb', 'minSliceLength', 'minSilenceLength', 'leadPad', 'trailPad', 'chunkGapShare', 'wordGap', 'commaGap', 'stopGap', 'maxChunkGap', 'punctuationPriority'],
+  long: ['bestTakes', 'speedFit', 'maxVoiceSpeed', 'maxRevoice'],
+  chunks: ['chunkSync', 'gateOpenDb', 'gateHysteresisDb', 'minSliceLength', 'minSilenceLength', 'leadPad', 'trailPad', 'chunkGapShare', 'wordGap', 'commaGap', 'stopGap', 'maxChunkGap', 'punctuationPriority'],
   gaps: ['preserveLongPauses', 'protectedPause', 'minGap', 'speakerGap', 'gapShare', 'breathClear', 'removeBreaths', 'breathReduction'],
   pauses: ['matchSourcePauses', 'unmatchedPause', 'shortenPauses', 'minInnerPause', 'maxPauseTake', 'tightenSilences', 'tightMinPause', 'tightMargin', 'checkCutWords', 'spliceCrossfade'],
   edges: ['tailFloorDb', 'tailHold', 'edgeFade'],
@@ -440,8 +450,12 @@ export const joinSectionSummary = (section: SyncJoinSection, options: SyncOption
   switch (section) {
     case 'chunks':
       return join.chunkSync
-        ? `Split below ${join.gateOpenDb} dB · pauses to ${percent(join.chunkGapShare)}${join.punctuationPriority ? ' · words, then commas, then sentence ends' : ''}${join.bestTakes !== 'off' || join.speedFit !== 'off' ? ` · long lines: ${[join.bestTakes !== 'off' && 'best of 3', join.speedFit !== 'off' && 'read faster'].filter(Boolean).join(' and ')}` : ''}`
+        ? `Split below ${join.gateOpenDb} dB · pauses to ${percent(join.chunkGapShare)}${join.punctuationPriority ? ' · words, then commas, then sentence ends' : ''}`
         : 'Off: each line is placed whole';
+    case 'long':
+      return join.bestTakes === 'off' && join.speedFit === 'off'
+        ? 'Nothing is voiced again'
+        : [join.bestTakes !== 'off' && `Best of 3 takes: ${FIT_MODE_LABEL[join.bestTakes]}`, join.speedFit !== 'off' && `Read faster: ${FIT_MODE_LABEL[join.speedFit]}`].filter(Boolean).join(' · ');
     case 'gaps':
       return `${ms(join.minGap)} at least · ${ms(join.speakerGap)} at a new speaker`;
     case 'pauses':
@@ -492,6 +506,10 @@ export const JOIN_SECTION_INFO: Record<SyncJoinSection, { description: string; t
   chunks: {
     description: "Splits each dub line where it goes quiet and places every chunk on the original's words. The voice is never stretched.",
     terms: 'chunks split word timing alignment read faster fastest speed pauses comma sentence threshold hysteresis slice silence pad reaper samanvaya',
+  },
+  long: {
+    description: 'With every pause shrunk a line still has more words than time: it is voiced again, the words as they are, for a take that fits.',
+    terms: 'long line best of 3 takes take read faster speed pace direction ask auto off voiced again revoice shorter wording suggest',
   },
   gaps: {
     description: 'The silence between one line and the next, long pauses that stay clear, and what happens to breaths there.',
@@ -740,6 +758,8 @@ export const SyncJoinSectionControls: React.FC<{
 
   const db = (value: number) => `${Math.round(value)} dB`;
   const chunksOff = disabled || !join.chunkSync;
+  // A line still too long is fitted only with Chunk sync.
+  const longOff = chunksOff;
   const wrap = (children: React.ReactNode) => <div className="flex flex-col gap-3">{children}</div>;
 
   switch (section) {
@@ -764,39 +784,6 @@ export const SyncJoinSectionControls: React.FC<{
               badge="alignment"
               onChange={(v) => set('checkCutWords', v)}
             />
-          </SettingsCard>
-          <SettingsCard title="A line that still runs long">
-            <p className="text-[12px] text-slate-400 py-2">
-              Tried in this order, only on lines that don't fit with every pause shrunk. The words never change. Ask makes the new take and keeps it aside: you listen in Review and choose. Auto uses it at once, and Review can put the first take back.
-            </p>
-            <ModeRow
-              label="Pick the best of 3 takes"
-              hint="Voices the line twice more, with the same voice, settings and lines around it, and keeps the take that fits its slot. Takes of one line differ by 5-10% on their own."
-              value={join.bestTakes}
-              def={D.bestTakes}
-              disabled={chunksOff}
-              onChange={(v) => set('bestTakes', v)}
-            />
-            <ModeRow
-              label="Read it faster"
-              hint="Only as much faster as the line needs. Multilingual v2 and Cartesia sonic-3 raise the voice's speed; Eleven v3 and v4 ignore speed and read with a calm pace direction instead (about 12% shorter). The audio is never stretched."
-              value={join.speedFit}
-              def={D.speedFit}
-              disabled={chunksOff}
-              onChange={(v) => set('speedFit', v)}
-            />
-            <Slider id="sync-max-voice-speed" label="Fastest read" value={join.maxVoiceSpeed} {...bounds('maxVoiceSpeed')} step={0.01}
-              format={(v) => `${v.toFixed(2)}×`} disabled={chunksOff || join.speedFit === 'off'} def={D.maxVoiceSpeed}
-              onChange={(v) => set('maxVoiceSpeed', v)} hint="Of the voice's own speed, on voices that take speed. Past about 1.15× a read starts to sound hurried." />
-            <Slider id="sync-max-revoice" label="Lines voiced again per sync, at most" value={join.maxRevoice} {...bounds('maxRevoice')} step={1}
-              format={(v) => (v === 0 ? 'None' : `${v}`)} disabled={chunksOff || (join.speedFit === 'off' && join.bestTakes === 'off')} def={D.maxRevoice}
-              onChange={(v) => set('maxRevoice', v)} hint="The longest lines first. Each costs its characters again for every take tried." />
-            <div className="py-2.5 text-[11.5px] text-slate-400 flex flex-col gap-1">
-              <span className="text-[12px] text-slate-200 font-medium">Always, in every mode</span>
-              <span>Locked lines, takes you picked and takes you chose or kept are never voiced again.</span>
-              <span>A new take whose voice sits more than 6% higher or lower than the one it would replace is not used; with Even out loudness off, nor one more than 2 dB louder or softer.</span>
-              <span>A new take must finish every word, and with the word check on, every word is found where it should be.</span>
-            </div>
           </SettingsCard>
           <SettingsCard title="Pauses between chunks">
             <Slider id="sync-chunk-share" label="Shrink a pause to" value={join.chunkGapShare} {...bounds('chunkGapShare')} step={0.05} format={percent} disabled={chunksOff}
@@ -831,6 +818,67 @@ export const SyncJoinSectionControls: React.FC<{
               def={D.leadPad} onChange={(v) => set('leadPad', v)} />
             <Slider id="sync-trail-pad" label="Trailing pad" value={join.trailPad} {...bounds('trailPad')} step={0.005} format={ms} disabled={chunksOff}
               def={D.trailPad} onChange={(v) => set('trailPad', v)} />
+          </SettingsCard>
+        </>
+      );
+    case 'long':
+      return wrap(
+        <>
+          <SettingsCard title="Tried in this order">
+            <p className="text-[12px] text-slate-400 py-2">
+              Tried in this order, only on lines that don't fit with every pause shrunk. The words never change. Ask makes the new take and keeps it aside: you listen in Review and choose. Auto uses it at once, and Review can put the first take back.
+            </p>
+            <ModeRow
+              label="Pick the best of 3 takes"
+              hint="Voices the line twice more, with the same voice, settings and lines around it, and keeps the take that fits its slot. Takes of one line differ by 5-10% on their own."
+              value={join.bestTakes}
+              def={D.bestTakes}
+              disabled={longOff}
+              onChange={(v) => set('bestTakes', v)}
+            />
+            <ModeRow
+              label="Read it faster"
+              hint="Only as much faster as the line needs. Multilingual v2 and Cartesia sonic-3 raise the voice's speed; Eleven v3 and v4 ignore speed and read with a calm pace direction instead (about 12% shorter). The audio is never stretched."
+              value={join.speedFit}
+              def={D.speedFit}
+              disabled={longOff}
+              onChange={(v) => set('speedFit', v)}
+            />
+            <Slider id="sync-max-voice-speed" label="Fastest read" value={join.maxVoiceSpeed} {...bounds('maxVoiceSpeed')} step={0.01}
+              format={(v) => `${v.toFixed(2)}×`} disabled={longOff || join.speedFit === 'off'} def={D.maxVoiceSpeed}
+              onChange={(v) => set('maxVoiceSpeed', v)} hint="Of the voice's own speed, on voices that take speed. Past about 1.15× a read starts to sound hurried." />
+            <Slider id="sync-max-revoice" label="Lines voiced again per sync, at most" value={join.maxRevoice} {...bounds('maxRevoice')} step={1}
+              format={(v) => (v === 0 ? 'None' : `${v}`)} disabled={longOff || (join.speedFit === 'off' && join.bestTakes === 'off')} def={D.maxRevoice}
+              onChange={(v) => set('maxRevoice', v)} hint="The longest lines first. Each costs its characters again for every take tried." />
+            <div className={`flex items-start gap-4 py-3 ${disabled ? 'opacity-45' : ''}`}>
+              <div className="flex-1 min-w-0">
+                <span className="block text-[13px] text-slate-200">Suggest a shorter wording</span>
+                <span className="block text-[11.5px] text-slate-400 mt-0.5">Shown in Review for you to take or leave. The script never changes on its own.</span>
+              </div>
+              <div role="radiogroup" aria-label="Suggest a shorter wording" className="shrink-0 flex rounded-lg border border-slate-800 bg-slate-950 p-0.5">
+                {[false, true].map((on) => (
+                  <button
+                    key={String(on)}
+                    type="button"
+                    role="radio"
+                    aria-checked={options.suggest === on}
+                    disabled={disabled}
+                    onClick={() => onOptionsChange((o) => ({ ...o, suggest: on }))}
+                    className={`h-7 px-2.5 rounded-md text-[11.5px] cursor-pointer disabled:cursor-not-allowed ${
+                      options.suggest === on ? (on ? 'bg-indigo-500/25 text-indigo-100 font-medium' : 'bg-slate-800 text-slate-200') : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {on ? 'Suggest' : 'Off'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="py-2.5 text-[11.5px] text-slate-400 flex flex-col gap-1">
+              <span className="text-[12px] text-slate-200 font-medium">Always, in every mode</span>
+              <span>Locked lines, takes you picked and takes you chose or kept are never voiced again.</span>
+              <span>A new take whose voice sits more than 6% higher or lower than the one it would replace is not used; with Even out loudness off, nor one more than 2 dB louder or softer.</span>
+              <span>A new take must finish every word, and with the word check on, every word is found where it should be.</span>
+            </div>
           </SettingsCard>
         </>
       );

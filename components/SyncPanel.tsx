@@ -15,6 +15,7 @@ import {
   Lock,
   Mic,
   MoveHorizontal,
+  Layers,
   Pause,
   PencilLine,
   Play,
@@ -396,10 +397,11 @@ const settingsSections = (options: SyncOptions, multiSpeaker: boolean) => {
     .sort((a, b) => SECTION_ORDER.indexOf(a.id) - SECTION_ORDER.indexOf(b.id));
 };
 
-const SECTION_ORDER: SettingsSection[] = ['basics', 'presets', 'chunks', 'gaps', 'pauses', 'edges', 'grouping', 'fit', 'review', 'suggestions', 'checks'];
+const SECTION_ORDER: SettingsSection[] = ['basics', 'presets', 'chunks', 'gaps', 'pauses', 'long', 'edges', 'grouping', 'fit', 'review', 'suggestions', 'checks'];
 
 const JOIN_SECTION_ICONS: Record<SyncJoinSection, typeof Settings2> = {
   chunks: AudioWaveform,
+  long: Layers,
   gaps: MoveHorizontal,
   pauses: Pause,
   edges: TrendingDown,
@@ -523,7 +525,7 @@ const SyncSettingsWindow: React.FC<{
       case 'basics':
         return (
           <div className="flex flex-col gap-4">
-            {fitSource && <FitCard source={fitSource} join={options.join} disabled={isSyncing} onApply={applyFit} />}
+            {fitSource && <FitCard source={fitSource} join={options.join} disabled={isSyncing} onApply={applyFit} suggestion={presetSuggestion} />}
             <fieldset className="flex flex-col gap-2" disabled={isSyncing}>
               <legend className={`${sectionLabel} mb-2`}>How to voice</legend>
               <div className="grid lg:grid-cols-2 gap-3">
@@ -611,6 +613,11 @@ const SyncSettingsWindow: React.FC<{
                 <JoinPresetPicker options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} onShowChanged={() => setOnlyChanged(true)} suggestion={presetSuggestion} />
               </div>
             </SettingsCard>
+            {/* The same settings as their own section, here too: what Sync does once pauses can't make a line fit. */}
+            <div className="flex flex-col gap-1.5">
+              <span className={sectionLabel}>When a line still runs long</span>
+              <SyncJoinSectionControls section="long" options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />
+            </div>
           </div>
         );
       case 'suggestions':
@@ -659,7 +666,7 @@ const SyncSettingsWindow: React.FC<{
       default:
         return (
           <div className="flex flex-col gap-3">
-            <SyncSettingsDiagram section={current.id as SyncJoinSection} options={options} />
+            {current.id !== 'long' && <SyncSettingsDiagram section={current.id as SyncJoinSection} options={options} />}
             <SyncJoinSectionControls section={current.id as SyncJoinSection} options={options} onOptionsChange={onOptionsChange} disabled={isSyncing} />
           </div>
         );
@@ -1442,10 +1449,23 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                 value: String(report.summary.short ?? 0),
                 tone: (report.summary.short ?? 0) > 0 ? 'text-sky-300' : 'text-slate-100',
               },
-            ].map((m) => (
+              // New takes of lines too long: shown once a sync has tried any.
+              ...(['faster', 'take'] as const).flatMap((kind) => {
+                const fits = report.units.filter((unit) => unit.takeFit?.kind === kind);
+                if (fits.length === 0) return [];
+                const used = fits.filter((unit) => unit.takeFit?.used).length;
+                return [{
+                  label: kind === 'faster' ? 'Read faster' : 'Best of 3 takes',
+                  value: `${fits.length} line${fits.length === 1 ? '' : 's'}`,
+                  tone: 'text-indigo-200',
+                  note: used === fits.length ? 'in the dub' : used === 0 ? 'to choose in Review' : `${used} in the dub, ${fits.length - used} to choose`,
+                }];
+              }),
+            ].map((m: { label: string; value: string; tone?: string; note?: string }) => (
               <div key={m.label} className="rounded-xl bg-slate-950/60 border border-slate-800 px-3.5 py-2.5">
                 <span className="block text-[11.5px] text-slate-400">{m.label}</span>
                 <span className={`block text-xl font-semibold tabular-nums ${m.tone || 'text-slate-100'}`}>{m.value}</span>
+                {m.note && <span className="block text-[11px] text-slate-500">{m.note}</span>}
               </div>
             ))}
           </div>
@@ -1625,17 +1645,13 @@ const TakeOffer: React.FC<{
     if (audio.current) URL.revokeObjectURL(audio.current.url);
   }, []);
   if (pending) return null;
-  if (!fit) {
-    return unit.takeRejected ? (
-      <p className="text-[11.5px] mt-1 text-slate-400">New takes were tried to fit it, but none is used: {unit.takeRejected}</p>
-    ) : null;
-  }
+  const audioId = fit ? fit.audioId : unit.takeRejectedAudioId;
   const playNew = async () => {
     setError(null);
     try {
       if (!audio.current) {
-        if (!fit.audioId) throw new Error('The new take is no longer on the server. Sync again to hear it.');
-        const blob = await apiGetAudio(`/sync/audio/${encodeURIComponent(fit.audioId)}`);
+        if (!audioId) throw new Error('The new take is no longer on the server. Sync again to hear it.');
+        const blob = await apiGetAudio(`/sync/audio/${encodeURIComponent(audioId)}`);
         const url = URL.createObjectURL(blob);
         const element = new Audio(url);
         element.onended = () => setPlaying(false);
@@ -1649,6 +1665,23 @@ const TakeOffer: React.FC<{
     }
   };
   const button = 'h-7 px-2.5 rounded-lg border text-[12px] flex items-center gap-1.5 cursor-pointer';
+  const toggleNew = () => (playing ? (audio.current?.element.pause(), setPlaying(false)) : void playNew());
+  if (!fit) {
+    if (!unit.takeRejected) return null;
+    return (
+      <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-950/20 px-3 py-2 flex flex-wrap items-center gap-2">
+        <span className="text-[12px] font-semibold text-amber-300">New take not used</span>
+        <span className="text-[11.5px] text-slate-400">{unit.takeRejected} The first take stays.</span>
+        <span className="flex-1" />
+        {unit.takeRejectedAudioId && (
+          <button type="button" onClick={toggleNew} className={`${button} border-slate-700 text-slate-300 hover:bg-slate-800`}>
+            {playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />} Listen to it anyway
+          </button>
+        )}
+        {error && <span className="basis-full text-[11.5px] text-amber-300">{error}</span>}
+      </div>
+    );
+  }
   return (
     <div className="mt-2 rounded-lg border border-indigo-500/30 bg-indigo-500/[0.07] px-3 py-2 flex flex-wrap items-center gap-2">
       <span className="text-[12px] font-semibold text-indigo-200">
@@ -1671,7 +1704,7 @@ const TakeOffer: React.FC<{
           </button>
           <button
             type="button"
-            onClick={() => (playing ? (audio.current?.element.pause(), setPlaying(false)) : void playNew())}
+            onClick={toggleNew}
             className={`${button} border-indigo-500/50 text-indigo-200 hover:bg-indigo-500/15`}
           >
             {playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />} New

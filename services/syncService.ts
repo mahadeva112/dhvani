@@ -266,8 +266,9 @@ export interface SyncUnitReport {
     pace?: string;
     audioId?: string;
   };
-  /** Why no new take was used or offered, when every one tried fell short. */
+  /** Why no new take was used or offered, when every one tried fell short; with the take turned down for how it sounds, to listen to anyway. */
   takeRejected?: string;
+  takeRejectedAudioId?: string;
   /** The line is voiced with a take chosen in Review. */
   takeChosen?: boolean;
   /** Fit by voice speed: how much faster than its voice's own speed the line was read to fit. */

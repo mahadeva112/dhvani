@@ -423,7 +423,8 @@ test('Eleven v4 reads a long line faster with a calm pace direction, as speed do
 test('a new take whose voice sits higher or lower is not used, and the line says why', async () => {
   // Every take but the first comes out a fifth higher.
   const { deps: d } = takeDeps({ pitchOf: (seed) => (seed === 1 ? 220 : 270) });
-  const { report } = await takeSync(d, { join: { bestTakes: 'auto', speedFit: 'off' } });
+  const { report, offers } = await takeSync(d, { join: { bestTakes: 'auto', speedFit: 'off' } });
   assert.equal(report.units[0].takeFit, undefined);
   assert.match(report.units[0].takeRejected, /higher than the take it would replace/);
+  assert.ok(offers.some((offer) => offer.rejected && offer.key === report.units[0].key), 'the take turned down comes back to listen to anyway');
 });

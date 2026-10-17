@@ -791,8 +791,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const takeFits = new Map();
   /** By line: an offered take's samples, for the user to listen to. */
   const offeredTakes = new Map();
-  /** By line: why no new take was used or offered, when every one tried fell short. */
+  /** By line: why no new take was used or offered, when every one tried fell short, and the first one turned down for how it sounds. */
   const takeRejects = new Map();
+  const rejectedTakes = new Map();
   const declined = new Set(Array.isArray(declinedTakes) ? declinedTakes : []);
   if (chunked && (join.speedFit !== 'off' || join.bestTakes !== 'off')) {
     const tooLong = units
@@ -854,7 +855,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
             if (!clips[i] || clips[i].cutOff) throw new Error('It stops before its last word is finished.');
             // The same read: louder or softer only matters when the dub isn't evened out afterwards.
             const differs = takeDiffers(before.clip.samples, clips[i].samples, sampleRate, { level: !matchLoudness });
-            if (differs) throw new Error(differs);
+            if (differs) {
+              if (!rejectedTakes.has(i)) rejectedTakes.set(i, clips[i].samples);
+              throw new Error(differs);
+            }
             let words = null;
             if (join.checkCutWords) {
               const aligned = await alignedWords(clips[i].samples, unit.text);
@@ -875,7 +879,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           }
         }
         if (!best) {
-          if (reasons.length) takeRejects.set(i, reasons[0]);
+          // A take turned down for how it sounds is said first, so its audio and its reason go together.
+          if (reasons.length) takeRejects.set(i, reasons.find((reason) => / than the take it would replace\.$/.test(reason)) ?? reasons[0]);
           report({ unitsVoiced: ++voicedNow });
           return;
         }
@@ -892,6 +897,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           hashes[i] = clipHash(clips[i].samples);
           if (best.speed) speedFits.set(i, best.speed);
         } else offeredTakes.set(i, best.clip.samples);
+        rejectedTakes.delete(i);
         report({ unitsVoiced: ++voicedNow });
       });
       report({ phase: 'placing', step: 4 });
@@ -1421,6 +1427,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // Takes offered for the user to choose, to listen to beside the ones in the dub.
   const offers = [];
   for (const [i, samples] of offeredTakes) offers.push({ key: lineKey(units[i]), ...(await deps.encode(samples, { float: false })) });
+  // A take turned down for how it sounds, to listen to anyway.
+  for (const [i, samples] of rejectedTakes) offers.push({ key: lineKey(units[i]), rejected: true, ...(await deps.encode(samples, { float: false })) });
 
   return {
     buffer,

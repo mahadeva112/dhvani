@@ -591,8 +591,13 @@ syncRouter.post(
           stabilityAdjustment,
           // An offered take is fetched on its own, like the dub, to listen to beside the line in the dub.
           units: result.report.units.map((unit) => {
-            const offer = (result.offers || []).find((o) => o.key === unit.key);
-            return offer && unit.takeFit ? { ...unit, takeFit: { ...unit.takeFit, audioId: keepResult(offer.buffer, offer.contentType) } } : unit;
+            const offer = (result.offers || []).find((o) => o.key === unit.key && !o.rejected);
+            const rejected = (result.offers || []).find((o) => o.key === unit.key && o.rejected);
+            return {
+              ...unit,
+              ...(offer && unit.takeFit && { takeFit: { ...unit.takeFit, audioId: keepResult(offer.buffer, offer.contentType) } }),
+              ...(rejected && unit.takeRejected && { takeRejectedAudioId: keepResult(rejected.buffer, rejected.contentType) }),
+            };
           }),
         },
         bank: {
