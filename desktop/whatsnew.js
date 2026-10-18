@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.65',
+    changes: [
+      'The review video now floats over the Dub page, also while you edit timing: drag it by its title, resize it from any edge or corner, and it settles into a corner when you drop it near one. Reels and wide videos both fit, with black bars.',
+      'The floating video has its own play, line jumps and Listen to. The ✕ hides it, and Show video in the player brings it back.',
+    ],
+  },
+  {
     version: '1.3.64',
     changes: [
       'Watch your video while you review the dub: Add video in the Dub player shows a silent video that follows playback. It is not saved with the project or used in the render.',
