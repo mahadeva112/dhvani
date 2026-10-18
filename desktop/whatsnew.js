@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.64',
+    changes: [
+      'Watch your video while you review the dub: Add video in the Dub player shows a silent video that follows playback. It is not saved with the project or used in the render.',
+      'Your projects and Balance now open in the middle of the screen, like Tools and settings. Click outside or press Esc to close them.',
+    ],
+  },
+  {
     version: '1.3.63',
     changes: [
       'Sync voices no line again on its own: Pick the best of 3 takes and Read it faster start off. Turn either to Ask or Auto under When a line still runs long.',
