@@ -743,6 +743,7 @@ export const SyncEditTimeline: React.FC<{
   markers = [],
   onMarkersChange,
 }) => {
+  const [showHelp, setShowHelp] = useState(false);
   const rate = bank.sampleRate;
   const committed = edits ?? {};
   const [draft, setDraft] = useState<SyncEdits | null>(null);
@@ -2735,6 +2736,13 @@ export const SyncEditTimeline: React.FC<{
                 </button>
               </div>
             </>
+          ) : !showHelp ? (
+            <p className="text-[12.5px] text-slate-400">
+              <span className="font-medium text-slate-200">Click a line on the dub lane to pick it.</span> Its start, speed, gain and fades show here.{' '}
+              <button type="button" onClick={() => setShowHelp(true)} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-pointer">
+                How editing works
+              </button>
+            </p>
           ) : (
             <p className="text-[12.5px] text-slate-400">
               Click a line on the dub lane to pick it. Drag its middle to move it, an edge to trim it (Alt: stretch), a top corner to fade it, its top edge up or down for gain; Alt + drag the middle slips the audio inside. The arrow keys go from line to line, and{' '}
@@ -2765,13 +2773,14 @@ export const SyncEditTimeline: React.FC<{
               </li>
             ))}
           </ol>
-          <p className="mt-2 border-t border-slate-800 pt-2 text-[10.5px] leading-relaxed text-slate-500">
+          <details className="mt-2 border-t border-slate-800 pt-2 text-[10.5px] leading-relaxed text-slate-500">
+            <summary className="cursor-pointer text-[11px] text-slate-400 hover:text-slate-200">Shortcuts</summary>
             <kbd className="font-mono text-slate-400">Space</kbd> play · <kbd className="font-mono text-slate-400">/</kbd> play from the line ·{' '}
             <kbd className="font-mono text-slate-400">Del</kbd> remove · <kbd className="font-mono text-slate-400">Esc</kbd> deselect ·{' '}
             <kbd className="font-mono text-slate-400">Ctrl + A</kbd> pick all · <kbd className="font-mono text-slate-400">Ctrl</kbd> + click add ·{' '}
             <kbd className="font-mono text-slate-400">Ctrl + C / V</kbd> copy the original onto the dub ·{' '}
             <kbd className="font-mono text-slate-400">= −</kbd> zoom · scroll to move · <kbd className="font-mono text-slate-400">Ctrl</kbd> + scroll to zoom
-          </p>
+          </details>
         </section>
       </div>
     </div>

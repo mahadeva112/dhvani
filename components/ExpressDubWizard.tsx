@@ -87,7 +87,8 @@ import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip, MiniWaveform } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
-import { ReviewVideoPanel, useReviewVideo } from './ReviewVideoPanel';
+import { useReviewVideo } from './ReviewVideoPanel';
+import { ReviewVideoFloat } from './ReviewVideoFloat';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { TrackStrip } from './TrackStrip';
 import type { MixerLevels, MixerTrack, TrackLevel } from './useTrackMixer';
@@ -695,6 +696,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [editingTiming, setEditingTiming] = useState(false);
   /** A local video to watch the dub against; it is only looked at, never part of the project. */
   const reviewVideo = useReviewVideo(activeJob?.id);
+  /** The floating video's ✕ hides it; a new video shows again. */
+  const [reviewVideoHidden, setReviewVideoHidden] = useState(false);
+  useEffect(() => setReviewVideoHidden(false), [reviewVideo.video]);
   /** Edit timing: the line whose takes are open under the timeline. */
   const [timingTakesKey, setTimingTakesKey] = useState<string | null>(null);
   const [timingTakesPhrase, setTimingTakesPhrase] = useState<{ from: number; to: number } | null>(null);
@@ -3374,6 +3378,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           </>
         );
 
+        // The review video floats over the page, so it stays in view wherever the page is scrolled.
+        const reviewClock = { currentTime: sourceClockTime, isPlaying, getLiveTime: getSourceLiveTime, playbackRate };
+
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
@@ -3576,19 +3583,34 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <Video className="w-3.5 h-3.5" /> Add video
                 </button>
               )}
+              {reviewVideo.video && reviewVideoHidden && (
+                <button
+                  type="button"
+                  onClick={() => setReviewVideoHidden(false)}
+                  className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Video className="w-3.5 h-3.5" /> Show video
+                </button>
+              )}
               {reviewVideo.input}
               </div>
             </section>
           )}
-          {hasDub && reviewVideo.video && (
-            <ReviewVideoPanel
+          {hasDub && reviewVideo.video && !reviewVideoHidden && (
+            <ReviewVideoFloat
               video={reviewVideo.video}
-              currentTime={sourceClockTime}
-              isPlaying={isPlaying}
-              getLiveTime={getSourceLiveTime}
-              playbackRate={playbackRate}
+              {...reviewClock}
+              onTogglePlay={onTogglePlay}
+              onPrevLine={() => activeCueIndex > 0 && seekSource(segments[activeCueIndex - 1].startTime)}
+              onNextLine={() => {
+                const next = segments.find((s) => s.startTime > sourceClockTime + 0.05);
+                if (next) seekSource(next.startTime);
+              }}
+              trackMode={trackMode}
+              onTrackMode={(mode) => switchTrack(mode)}
               onReplace={reviewVideo.pick}
               onRemove={reviewVideo.clear}
+              onHide={() => setReviewVideoHidden(true)}
             />
           )}
 
