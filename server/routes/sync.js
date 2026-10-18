@@ -190,12 +190,24 @@ const encodeWav = (sampleRate) => async (samples, { float = false } = {}) =>
  * own (GET /api/sync/audio/:audioId) and dropped once sent or after RESULT_TTL_MS.
  */
 const RESULT_TTL_MS = 10 * 60 * 1000;
+const RESULT_BYTES_LIMIT = 256 * 1024 * 1024;
+const RESULT_GRACE_MS = 60 * 1000;
 const results = new Map();
-const keepResult = (buffer, contentType) => {
+export const keepResult = (buffer, contentType, now = Date.now()) => {
   const id = randomUUID();
   const timer = setTimeout(() => results.delete(id), RESULT_TTL_MS);
   timer.unref?.();
-  results.set(id, { buffer, contentType, timer });
+  results.set(id, { buffer, contentType, timer, at: now });
+  // Edit renders the app has since replaced are never fetched; keep only the newest few within a byte budget.
+  // Results younger than RESULT_GRACE_MS stay: one reply keeps its mix, stems and bank together and the app fetches them next.
+  let bytes = 0;
+  for (const entry of results.values()) bytes += entry.buffer.byteLength;
+  for (const [oldId, entry] of results) {
+    if (bytes <= RESULT_BYTES_LIMIT || now - entry.at < RESULT_GRACE_MS) break;
+    bytes -= entry.buffer.byteLength;
+    clearTimeout(entry.timer);
+    results.delete(oldId);
+  }
   return id;
 };
 
@@ -209,6 +221,7 @@ const keepResult = (buffer, contentType) => {
 const BANK_TTL_MS = 3 * 60 * 60 * 1000;
 const BANK_BYTES_LIMIT = 768 * 1024 * 1024;
 const STRETCH_CACHE_LIMIT = 200;
+const STRETCH_CACHE_BYTES = 128 * 1024 * 1024;
 const banks = new Map();
 
 const BANK_ID = /^[A-Za-z0-9-]{8,64}$/;
@@ -1202,9 +1215,22 @@ syncRouter.put(
  * report with several speakers. A bank this server no longer has is a 404
  * with code `edit_bank_missing`: send it again and retry.
  */
+let renderQueue = Promise.resolve();
+/** One edit render at a time: the app fires one per change, and overlapping ones each hold a whole dub in memory. */
+const oneRenderAtATime = (task) => {
+  const run = renderQueue.then(task, task);
+  renderQueue = run.catch(() => {});
+  return run;
+};
+
 syncRouter.post(
   '/sync/edit/render',
-  asyncHandler(async (req, res) => {
+  asyncHandler((req, res) => {
+    // A render the app replaced while it waited is skipped: the app aborted it and nobody reads the reply.
+    let gone = false;
+    res.on('close', () => { gone = true; });
+    return oneRenderAtATime(async () => {
+    if (gone) return;
     const { bankId, sampleRate, lines, speakerGains, parts, sourceDuration, edgeFade, multiSpeaker, peak, original } = req.body || {};
     const entry = typeof bankId === 'string' ? bankFor(bankId) : null;
     if (!entry) throw new ApiError('The saved lines of this sync are not on the server.', { status: 404, code: 'edit_bank_missing' });
@@ -1280,7 +1306,13 @@ syncRouter.post(
       if (hit) return hit;
       const out = await timeStretch(samples, entry.sampleRate, rate);
       cache.set(key, out);
-      if (cache.size > STRETCH_CACHE_LIMIT) cache.delete(cache.keys().next().value);
+      let cached = 0;
+      for (const kept of cache.values()) cached += kept.byteLength;
+      while (cache.size > 1 && (cache.size > STRETCH_CACHE_LIMIT || cached > STRETCH_CACHE_BYTES)) {
+        const oldest = cache.keys().next().value;
+        cached -= cache.get(oldest).byteLength;
+        cache.delete(oldest);
+      }
       return out;
     };
     const result = await renderEdits(
@@ -1304,6 +1336,7 @@ syncRouter.post(
       stems.push({ speaker: stem.speaker, audioId: keepResult(encoded.buffer, encoded.contentType), contentType: encoded.contentType });
     }
     res.json({ audioId: keepResult(mix.buffer, mix.contentType), contentType: mix.contentType, stems, report: result.report ? { mix: result.report } : {} });
+    });
   })
 );
 
