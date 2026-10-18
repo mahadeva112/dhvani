@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.66',
+    changes: [
+      'Editing a long dub no longer runs DHVANI out of memory: edits render one at a time, and renders you have already replaced are skipped. This fixes "Could not reach the local DHVANI backend" after many quick edits.',
+    ],
+  },
+  {
     version: '1.3.65',
     changes: [
       'The review video now floats over the Dub page, also while you edit timing: drag it by its title, resize it from any edge or corner, and it settles into a corner when you drop it near one. Reels and wide videos both fit, with black bars.',
