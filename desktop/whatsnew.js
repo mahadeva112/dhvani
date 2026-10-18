@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.67',
+    changes: [
+      'When ElevenLabs splits one person into two speakers, Review now notices: it compares the voices and offers to merge speakers that sound alike and never talk over each other, with Hear first.',
+      'Cues that sound like another speaker than their label are flagged, with Relabel by voice to fix them all. Tick cues (Shift-click for a range) and set them to one speaker in one go.',
+      'In the Script view each passage has its own play button and stops at its end, and a white bar glides along the playing line in the original and the dub.',
+    ],
+  },
+  {
     version: '1.3.66',
     changes: [
       'Editing a long dub no longer runs DHVANI out of memory: edits render one at a time, and renders you have already replaced are skipped. This fixes "Could not reach the local DHVANI backend" after many quick edits.',
