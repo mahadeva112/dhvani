@@ -51,9 +51,10 @@ import {
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
+import { useVoiceMatches } from '../services/useVoiceMatches';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
-import { SpeakerBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
+import { SpeakerBar, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
 import { retranslateCues, type RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import {
@@ -950,6 +951,52 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     for (const id of keptSlips) slips.delete(id);
     return slips;
   }, [segments, multiSpeaker, keptSlips]);
+  const voiceReading = useVoiceMatches(activeJob?.audioBuffer, segments, multiSpeaker && activeStep === 2);
+  const voiceMatches = voiceReading.matches;
+  /** Cues that sound like another speaker, by cue id: who they sound like and how well they fit their own label. */
+  const voiceFlags = useMemo(() => {
+    const flags = new Map<string, { match: number; suggested: string }>();
+    const names = new Set(segments.map(speakerOf));
+    for (const seg of segments) {
+      const id = String(seg.id);
+      const found = voiceReading.cues.get(id);
+      if (found?.suggested && names.has(found.suggested) && found.suggested !== speakerOf(seg) && !keptSlips.has(id)) {
+        flags.set(id, { match: found.match, suggested: found.suggested });
+      }
+    }
+    return flags;
+  }, [segments, voiceReading.cues, keptSlips]);
+  const [voiceOnly, setVoiceOnly] = useState(false);
+  useEffect(() => {
+    if (voiceFlags.size === 0) setVoiceOnly(false);
+  }, [voiceFlags.size]);
+  // Ticked cues, to hand to one speaker at once. Shift-click ticks everything between two cues.
+  const [selectedCues, setSelectedCues] = useState<Set<string>>(() => new Set());
+  const lastTicked = useRef<string | null>(null);
+  useEffect(() => setSelectedCues(new Set()), [activeJob?.id]);
+  useEffect(() => {
+    // A cue that was split, joined or removed is no longer ticked.
+    setSelectedCues((prev) => {
+      const live = new Set(segments.map((s) => String(s.id)));
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [segments]);
+  const assignSpeaker = useCallback(
+    (ids: Set<string>, speaker: string) => {
+      if (ids.size === 0) return;
+      onReplaceSegments(latestSegments.current.map((seg) => (ids.has(String(seg.id)) && speakerOf(seg) !== speaker ? { ...seg, speaker } : seg)));
+    },
+    [onReplaceSegments]
+  );
+  /** Plays a speaker's longest cue, so a suggested merge can be heard first. */
+  const hearSpeaker = useCallback(
+    (name: string) => {
+      const cue = segments.filter((seg) => speakerOf(seg) === name).sort((a, b) => b.endTime - b.startTime - (a.endTime - a.startTime))[0];
+      if (cue) onPlaySegmentSolo(cue);
+    },
+    [segments, onPlaySegmentSolo]
+  );
   const speakerOverlaps = useMemo(() => (multiSpeaker ? overlapsBefore(segments) : new Map<string, { speaker: string; seconds: number }>()), [segments, multiSpeaker]);
   const overlapIds = useMemo(() => new Set(speakerOverlaps.keys()), [speakerOverlaps]);
   const speakerByName = useMemo(() => new Map(speakers.map((s) => [s.name, s])), [speakers]);
@@ -1480,6 +1527,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
       if (speakerFilter.length > 0 && !speakerFilter.includes(speakerOf(seg))) return false;
       if (slipsOnly && !speakerSlips.has(String(seg.id))) return false;
+      if (voiceOnly && !voiceFlags.has(String(seg.id))) return false;
 
       if (q && !srcText.includes(q) && !tgtText.includes(q) && !speaker.includes(q)) {
         return false;
@@ -1494,7 +1542,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       if (pacingFilter === 'fix') return fixCueIds.has(String(seg.id));
       return true;
     });
-  }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips, fixCueIds]);
+  }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips, voiceOnly, voiceFlags, fixCueIds]);
   const filteredIds = useMemo(() => new Set(filteredSegments.map((seg) => String(seg.id))), [filteredSegments]);
 
 
@@ -2281,6 +2329,33 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               }}
               onRenameSpeaker={onRenameSpeaker}
               overlapIds={overlapIds}
+              voiceMatches={voiceMatches}
+              onHearSpeaker={!hearingDub ? hearSpeaker : undefined}
+              voiceFlagCount={voiceFlags.size}
+              voiceShown={voiceOnly}
+              onShowVoice={() => {
+                setVoiceOnly((on) => !on);
+                setReviewMode('table');
+                setCurrentPage(1);
+              }}
+              onFixByVoice={() => {
+                const target = new Map([...voiceFlags].map(([id, flag]) => [id, flag.suggested]));
+                onReplaceSegments(latestSegments.current.map((seg) => (target.has(String(seg.id)) ? { ...seg, speaker: target.get(String(seg.id)) } : seg)));
+              }}
+            />
+          )}
+
+          {multiSpeaker && selectedCues.size > 0 && (
+            <CueSelectionBar
+              count={selectedCues.size}
+              speakers={speakers}
+              shownCount={filteredSegments.length}
+              onAssign={(speaker) => {
+                assignSpeaker(selectedCues, speaker);
+                setSelectedCues(new Set());
+              }}
+              onSelectShown={() => setSelectedCues(new Set(filteredSegments.map((seg) => String(seg.id))))}
+              onClear={() => setSelectedCues(new Set())}
             />
           )}
 
@@ -2706,6 +2781,32 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
                     {/* Number and audition */}
                     <div className="flex items-start gap-2">
+                      {multiSpeaker && (
+                        <input
+                          type="checkbox"
+                          checked={selectedCues.has(String(seg.id))}
+                          onChange={() => undefined}
+                          onClick={(e) => {
+                            const id = String(seg.id);
+                            const turnOn = !selectedCues.has(id);
+                            const from = e.shiftKey && lastTicked.current ? filteredSegments.findIndex((s) => String(s.id) === lastTicked.current) : -1;
+                            const to = filteredSegments.findIndex((s) => String(s.id) === id);
+                            const ids = from >= 0 && to >= 0 ? filteredSegments.slice(Math.min(from, to), Math.max(from, to) + 1).map((s) => String(s.id)) : [id];
+                            setSelectedCues((prev) => {
+                              const next = new Set(prev);
+                              for (const one of ids) {
+                                if (turnOn) next.add(one);
+                                else next.delete(one);
+                              }
+                              return next;
+                            });
+                            lastTicked.current = id;
+                          }}
+                          aria-label={`Select cue ${cueNumber}. Shift-click selects a range.`}
+                          title="Select. Shift-click to select a range."
+                          className="w-3.5 h-3.5 mt-2 accent-indigo-500 cursor-pointer shrink-0"
+                        />
+                      )}
                       <button
                         type="button"
                         onClick={() => {
@@ -2820,6 +2921,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <SpeakerCueNotes
                           current={speakerOf(seg)}
                           slip={speakerSlips.get(String(seg.id))}
+                          voice={voiceFlags.get(String(seg.id))}
                           overlap={speakerOverlaps.get(String(seg.id))}
                           onHear={() => {
                             setPlayingSegmentId(seg.id);

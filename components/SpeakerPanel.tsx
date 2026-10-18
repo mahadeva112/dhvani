@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowLeftRight, Check, CheckCircle2, Download, Layers, Play, Users, X } from 'lucide-react';
 import { AudioSegment, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
 import { SpeakerSummary, SpeakerSlip, speakerOf } from '../services/speakers';
+import { mergeSuggestions, type VoiceMatch } from '../services/voiceMatch';
 import type { Voice } from '../services/elevenLabsService';
 import type { VoiceRateState } from '../services/voiceRate';
 
@@ -54,6 +55,15 @@ interface SpeakerBarProps {
   onRenameSpeaker?: (from: string, to: string) => void;
   /** Cue ids that start over another speaker in the original. */
   overlapIds: Set<string>;
+  /** How alike each pair of speakers sounds (services/voiceMatch.ts); the alike ones are offered as a merge. */
+  voiceMatches?: VoiceMatch[];
+  /** Plays a stretch of the original, to hear a speaker before merging. */
+  onHearSpeaker?: (speaker: string) => void;
+  /** Cues whose voice fits another speaker better than their own label; a button shows only those, and one relabels them all. */
+  voiceFlagCount?: number;
+  voiceShown?: boolean;
+  onShowVoice?: () => void;
+  onFixByVoice?: () => void;
 }
 
 /**
@@ -74,8 +84,20 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
   onShowSlips,
   onRenameSpeaker,
   overlapIds,
+  voiceMatches = [],
+  onHearSpeaker,
+  voiceFlagCount = 0,
+  voiceShown = false,
+  onShowVoice,
+  onFixByVoice,
 }) => {
   const [managing, setManaging] = useState(false);
+  const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
+  const names = useMemo(() => new Set(speakers.map((s) => s.name)), [speakers]);
+  const suggestions = useMemo(
+    () => mergeSuggestions(voiceMatches).filter((m) => names.has(m.from) && names.has(m.into) && !dismissed.has(`${m.from}|${m.into}`)),
+    [voiceMatches, names, dismissed]
+  );
   const colorOf = useMemo(() => new Map(speakers.map((s) => [s.name, s.color])), [speakers]);
   const length = Math.max(duration, segments.reduce((max, s) => Math.max(max, s.endTime), 0), 0.001);
 
@@ -121,6 +143,20 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
             <AlertTriangle className="w-3.5 h-3.5" /> {slipCount === 1 ? '1 label to check' : `${slipCount} labels to check`}
             {slipsShown && <span className="text-slate-400">· show all</span>}
           </button>
+        )}
+        {voiceFlagCount > 0 && onShowVoice && (
+          <span className={`flex items-center rounded-md text-xs ${voiceShown ? 'bg-amber-950/50 ring-1 ring-amber-700' : ''}`}>
+            <button type="button" onClick={onShowVoice} aria-pressed={voiceShown} className="flex items-center gap-1 px-2 py-0.5 text-amber-300 hover:text-amber-200 cursor-pointer">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              {voiceFlagCount === 1 ? '1 cue sounds like someone else' : `${voiceFlagCount} cues sound like someone else`}
+              {voiceShown && <span className="text-slate-400">· show all</span>}
+            </button>
+            {onFixByVoice && (
+              <button type="button" onClick={onFixByVoice} className="px-2 py-0.5 text-slate-200 hover:text-white border-l border-amber-900/70 cursor-pointer">
+                Relabel by voice
+              </button>
+            )}
+          </span>
         )}
         {onRenameSpeaker && (
           <button
@@ -176,6 +212,36 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
           ))}
         <span className="absolute -top-1 -bottom-1 w-px bg-white/80" style={{ left: `${(Math.min(currentTime, length) / length) * 100}%` }} />
       </div>
+
+      {onRenameSpeaker &&
+        suggestions.map((m) => (
+          <div key={`${m.from}|${m.into}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-900/70 bg-amber-950/30 px-3 py-2 text-[12.5px] text-amber-200">
+            <Users className="w-4 h-4 shrink-0" />
+            <span className="flex-1 min-w-[12rem]">
+              {m.from} sounds like {m.into} ({m.match}% voice match) and they never talk over each other. Probably one person.
+            </span>
+            {onHearSpeaker && (
+              <>
+                <button type="button" onClick={() => onHearSpeaker(m.from)} className="flex items-center gap-1 h-7 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-pointer">
+                  <Play className="w-3 h-3 fill-current" /> {m.from}
+                </button>
+                <button type="button" onClick={() => onHearSpeaker(m.into)} className="flex items-center gap-1 h-7 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-pointer">
+                  <Play className="w-3 h-3 fill-current" /> {m.into}
+                </button>
+              </>
+            )}
+            <button type="button" onClick={() => onRenameSpeaker(m.from, m.into)} className="flex items-center gap-1 h-7 px-2.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 cursor-pointer">
+              <Check className="w-3 h-3" /> Merge into {m.into}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDismissed((d) => new Set(d).add(`${m.from}|${m.into}`))}
+              className="h-7 px-2.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer"
+            >
+              Keep separate
+            </button>
+          </div>
+        ))}
 
       {managing && onRenameSpeaker && (
         <div className="border-t border-slate-800 pt-3 grid gap-2">
@@ -237,6 +303,44 @@ const SpeakerManageRow: React.FC<{ speaker: SpeakerSummary; others: SpeakerSumma
   );
 };
 
+/**
+ * The bar that appears when cues are ticked: hand them all to one speaker,
+ * tick everything the list shows, or let go. It sticks to the top while the
+ * list scrolls, so a long selection can be made and applied without scrolling back.
+ */
+export const CueSelectionBar: React.FC<{
+  count: number;
+  speakers: SpeakerSummary[];
+  onAssign: (speaker: string) => void;
+  onSelectShown: () => void;
+  shownCount: number;
+  onClear: () => void;
+}> = ({ count, speakers, onAssign, onSelectShown, shownCount, onClear }) => (
+  <div
+    role="toolbar"
+    aria-label="Selected cues"
+    className="sticky top-2 z-20 flex flex-wrap items-center gap-2 rounded-xl border border-indigo-500/50 bg-slate-900/95 px-3 py-2 text-[12.5px] text-slate-200"
+  >
+    <span className="font-medium tabular-nums">{count === 1 ? '1 cue selected' : `${count} cues selected`}</span>
+    <span className="text-slate-500">Set speaker to</span>
+    {speakers.map((s) => (
+      <button key={s.name} type="button" onClick={() => onAssign(s.name)} className="rounded-md cursor-pointer hover:brightness-125" title={`Make all ${count} cues ${s.name}`}>
+        <SpeakerChip speaker={s} name={s.name} />
+      </button>
+    ))}
+    <span className="ml-auto flex items-center gap-2">
+      {count < shownCount && (
+        <button type="button" onClick={onSelectShown} className="text-slate-300 hover:text-white cursor-pointer">
+          Select all {shownCount} shown
+        </button>
+      )}
+      <button type="button" onClick={onClear} className="flex items-center gap-1 h-7 px-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer">
+        <X className="w-3.5 h-3.5" /> Clear
+      </button>
+    </span>
+  </div>
+);
+
 /** Who says a cue, with a menu to hand it to another speaker. */
 export const SpeakerPicker: React.FC<{
   value: string;
@@ -272,13 +376,40 @@ export const SpeakerCueNotes: React.FC<{
   onAccept?: (speaker: string) => void;
   onKeep?: () => void;
   current: string;
-}> = ({ slip, overlap, onHear, onAccept, onKeep, current }) => (
+  /** This cue's voice fits another speaker better than its label (services/voiceMatch.ts). */
+  voice?: { match: number; suggested: string };
+}> = ({ slip, overlap, onHear, onAccept, onKeep, current, voice }) => (
   <>
     {overlap && (
       <p className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-amber-300/90">
         <ArrowLeftRight className="w-3.5 h-3.5 shrink-0" />
         Starts {overlap.seconds.toFixed(1)} s before {overlap.speaker} finishes. A synced dub keeps this overlap.
       </p>
+    )}
+    {voice && !slip && (
+      <div className="mt-2 rounded-lg border border-amber-900/70 bg-amber-950/30 px-2.5 py-2 text-[11.5px] text-amber-200">
+        <p className="flex items-start gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+          This sounds more like {voice.suggested} than {current} ({voice.match}% match to {current}).
+        </p>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {onHear && (
+            <button type="button" onClick={onHear} className="flex items-center gap-1 h-6 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-pointer">
+              <Play className="w-3 h-3 fill-current" /> Hear
+            </button>
+          )}
+          {onAccept && (
+            <button type="button" onClick={() => onAccept(voice.suggested)} className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 cursor-pointer">
+              <Check className="w-3 h-3" /> Make it {voice.suggested}
+            </button>
+          )}
+          {onKeep && (
+            <button type="button" onClick={onKeep} className="h-6 px-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer">
+              Keep {current}
+            </button>
+          )}
+        </div>
+      </div>
     )}
     {slip && (
       <div className="mt-2 rounded-lg border border-amber-900/70 bg-amber-950/30 px-2.5 py-2 text-[11.5px] text-amber-200">
