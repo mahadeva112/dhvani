@@ -20,6 +20,7 @@ import {
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported } from './UpdateControl';
 import { ProjectsMenu } from './ProjectsMenu';
+import { CenteredPanel } from './CenteredPanel';
 import { HubMeter, ToolsHub, type ToolsHubItem } from './ToolsHub';
 import { readOptions } from './SyncPanel';
 import { SYNC_JOIN_PRESET_OPTIONS, SYNC_PRECISION_OPTIONS, SYNC_SCREEN_OPTIONS, type SyncJoinPreset, type SyncScreen } from '../services/syncService';
@@ -208,27 +209,6 @@ const Balance: React.FC<{ value: string; unit: string; share: number; left: stri
   </>
 );
 
-/** Closes a popover on an outside click or Escape. */
-const useDismiss = (open: boolean, close: () => void, ref: React.RefObject<HTMLElement>) => {
-  React.useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (e: MouseEvent | TouchEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) close();
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close();
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('touchstart', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('touchstart', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, close, ref]);
-};
-
 export const ProHeader: React.FC<ProHeaderProps> = ({
   activeJob,
   activeStep,
@@ -274,13 +254,9 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const [servicesOpen, setServicesOpen] = React.useState(false);
   const [projectsOpen, setProjectsOpen] = React.useState(false);
   const toolsRef = React.useRef<HTMLDivElement>(null);
-  const servicesRef = React.useRef<HTMLDivElement>(null);
-  const projectsRef = React.useRef<HTMLDivElement>(null);
   const closeTools = React.useCallback(() => setToolsOpen(false), []);
   const closeServices = React.useCallback(() => setServicesOpen(false), []);
   const closeProjects = React.useCallback(() => setProjectsOpen(false), []);
-  useDismiss(servicesOpen, closeServices, servicesRef);
-  useDismiss(projectsOpen, closeProjects, projectsRef);
 
 
   const hasCues = Boolean(activeJob && activeJob.segments.length > 0);
@@ -618,7 +594,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
           {/* Desktop app only. A running dub or sync holds back the restart. */}
           <UpdateControl busy={Boolean(activity)} />
 
-          <div className="relative" ref={servicesRef}>
+          <div className="relative">
             <button
               type="button"
               onClick={() => {
@@ -646,135 +622,129 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               )}
             </button>
 
-            {servicesOpen && (
-              <div
-                role="dialog"
-                aria-label="Balance and connections"
-                className="fixed sm:absolute left-4 right-4 sm:left-auto sm:right-0 top-28 sm:top-auto sm:mt-2 sm:w-[21rem] p-3.5 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl z-50 flex flex-col gap-2.5 animate-in fade-in zoom-in-95"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[13.5px] font-semibold text-slate-100">Balance and connections</span>
-                  <span className="text-[11px] text-slate-500">{usageLoading ? 'Checking…' : updatedLabel(usageUpdatedAt)}</span>
-                </div>
+            <CenteredPanel open={servicesOpen} onClose={closeServices} label="Balance and connections" className="max-w-[26rem] p-4 gap-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[13.5px] font-semibold text-slate-100">Balance and connections</span>
+                <span className="text-[11px] text-slate-500">{usageLoading ? 'Checking…' : updatedLabel(usageUpdatedAt)}</span>
+              </div>
 
-                <UsageCard
-                  name="ElevenLabs"
-                  role={roleOf('elevenlabs')}
-                  chip={elevenLabsReady && quota?.tier ? quota.tier.charAt(0).toUpperCase() + quota.tier.slice(1) : undefined}
-                  ok={elevenLabsReady}
-                  share={quotaShare}
-                >
-                  {!elevenLabsReady ? (
-                    <p className="text-[11.5px] text-amber-300">No key set up yet</p>
-                  ) : quota && quotaShare !== null ? (
-                    <Balance
-                      value={compact(quotaLeft!)}
-                      unit="characters left"
-                      share={quotaShare}
-                      left={`${quotaLeft!.toLocaleString()} of ${quota.limit.toLocaleString()}`}
-                      right={quota.resetUnix ? `Resets ${shortDate(quota.resetUnix * 1000)}` : undefined}
-                    />
+              <UsageCard
+                name="ElevenLabs"
+                role={roleOf('elevenlabs')}
+                chip={elevenLabsReady && quota?.tier ? quota.tier.charAt(0).toUpperCase() + quota.tier.slice(1) : undefined}
+                ok={elevenLabsReady}
+                share={quotaShare}
+              >
+                {!elevenLabsReady ? (
+                  <p className="text-[11.5px] text-amber-300">No key set up yet</p>
+                ) : quota && quotaShare !== null ? (
+                  <Balance
+                    value={compact(quotaLeft!)}
+                    unit="characters left"
+                    share={quotaShare}
+                    left={`${quotaLeft!.toLocaleString()} of ${quota.limit.toLocaleString()}`}
+                    right={quota.resetUnix ? `Resets ${shortDate(quota.resetUnix * 1000)}` : undefined}
+                  />
+                ) : (
+                  <p className="text-[11.5px] text-slate-400">{usageLoading ? 'Checking…' : 'Connected'}</p>
+                )}
+              </UsageCard>
+
+              {cartesiaReady && (
+                <UsageCard name="Cartesia" role={roleOf('cartesia')} ok={roleOf('cartesia') !== 'Off'} share={null}>
+                  {cartesiaUsage?.creditsUsed !== undefined ? (
+                    <>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="font-mono tabular-nums text-xl font-semibold text-slate-100">
+                          {compact(cartesiaUsage.creditsUsed)}
+                        </span>
+                        <span className="text-xs text-slate-400">credits used this month</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        {cartesiaUsage.creditsUsed.toLocaleString()} since{' '}
+                        {cartesiaUsage.since ? shortDate(cartesiaUsage.since) : 'the 1st'}. Cartesia doesn't share the balance.
+                      </p>
+                    </>
                   ) : (
-                    <p className="text-[11.5px] text-slate-400">{usageLoading ? 'Checking…' : 'Connected'}</p>
+                    <p className="text-[11.5px] text-slate-400">
+                      {cartesiaUsage?.needsAdminKey
+                        ? 'Connected. Add a Cartesia admin key in API settings to see credits used.'
+                        : cartesiaUsage?.error || (usageLoading ? 'Checking…' : 'Connected')}
+                    </p>
                   )}
                 </UsageCard>
+              )}
 
-                {cartesiaReady && (
-                  <UsageCard name="Cartesia" role={roleOf('cartesia')} ok={roleOf('cartesia') !== 'Off'} share={null}>
-                    {cartesiaUsage?.creditsUsed !== undefined ? (
-                      <>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="font-mono tabular-nums text-xl font-semibold text-slate-100">
-                            {compact(cartesiaUsage.creditsUsed)}
-                          </span>
-                          <span className="text-xs text-slate-400">credits used this month</span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-1">
-                          {cartesiaUsage.creditsUsed.toLocaleString()} since{' '}
-                          {cartesiaUsage.since ? shortDate(cartesiaUsage.since) : 'the 1st'}. Cartesia doesn't share the balance.
-                        </p>
-                      </>
+              {gatewayUsage?.configured ? (
+                <UsageCard
+                  name="Your LLM gateway"
+                  role="Translation"
+                  chip={gatewayUsage.model || undefined}
+                  ok={translationReady}
+                  share={gatewayShare}
+                >
+                  {typeof gatewayUsage.spent === 'number' ? (
+                    gatewayShare !== null ? (
+                      <Balance
+                        value={money(gatewayUsage.limit! - gatewayUsage.spent)}
+                        unit={`of ${money(gatewayUsage.limit!)} budget left`}
+                        share={gatewayShare}
+                        left={`${money(gatewayUsage.spent)} spent`}
+                        right={gatewayReset(gatewayUsage)}
+                      />
                     ) : (
-                      <p className="text-[11.5px] text-slate-400">
-                        {cartesiaUsage?.needsAdminKey
-                          ? 'Connected. Add a Cartesia admin key in API settings to see credits used.'
-                          : cartesiaUsage?.error || (usageLoading ? 'Checking…' : 'Connected')}
-                      </p>
-                    )}
-                  </UsageCard>
-                )}
-
-                {gatewayUsage?.configured ? (
-                  <UsageCard
-                    name="Your LLM gateway"
-                    role="Translation"
-                    chip={gatewayUsage.model || undefined}
-                    ok={translationReady}
-                    share={gatewayShare}
-                  >
-                    {typeof gatewayUsage.spent === 'number' ? (
-                      gatewayShare !== null ? (
-                        <Balance
-                          value={money(gatewayUsage.limit! - gatewayUsage.spent)}
-                          unit={`of ${money(gatewayUsage.limit!)} budget left`}
-                          share={gatewayShare}
-                          left={`${money(gatewayUsage.spent)} spent`}
-                          right={gatewayReset(gatewayUsage)}
-                        />
-                      ) : (
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="font-mono tabular-nums text-xl font-semibold text-slate-100">
-                            {money(gatewayUsage.spent)}
-                          </span>
-                          <span className="text-xs text-slate-400">spent, no budget limit</span>
-                        </div>
-                      )
-                    ) : (
-                      <p className="text-[11.5px] text-slate-400">Connected. Your gateway doesn't share a budget.</p>
-                    )}
-                  </UsageCard>
-                ) : (
-                  <UsageCard
-                    name="Translation"
-                    role={translationReady ? translationSummary || 'Ready' : 'No engine set up yet'}
-                    ok={translationReady}
-                    share={null}
-                  >
-                    <p className="text-[11.5px] text-slate-400">{translationReady ? 'Working' : 'Not set'}</p>
-                  </UsageCard>
-                )}
-
-                <div className="flex items-center gap-2">
-                  {onRefreshUsage && (
-                    <button
-                      type="button"
-                      onClick={onRefreshUsage}
-                      disabled={usageLoading}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer disabled:opacity-60 disabled:cursor-default"
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${usageLoading ? 'animate-spin' : ''}`} />
-                      Refresh
-                    </button>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="font-mono tabular-nums text-xl font-semibold text-slate-100">
+                          {money(gatewayUsage.spent)}
+                        </span>
+                        <span className="text-xs text-slate-400">spent, no budget limit</span>
+                      </div>
+                    )
+                  ) : (
+                    <p className="text-[11.5px] text-slate-400">Connected. Your gateway doesn't share a budget.</p>
                   )}
-                  {onOpenApiSettings && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setServicesOpen(false);
-                        onOpenApiSettings();
-                      }}
-                      className="px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
-                    >
-                      API settings
-                    </button>
-                  )}
-                </div>
+                </UsageCard>
+              ) : (
+                <UsageCard
+                  name="Translation"
+                  role={translationReady ? translationSummary || 'Ready' : 'No engine set up yet'}
+                  ok={translationReady}
+                  share={null}
+                >
+                  <p className="text-[11.5px] text-slate-400">{translationReady ? 'Working' : 'Not set'}</p>
+                </UsageCard>
+              )}
+
+              <div className="flex items-center gap-2">
+                {onRefreshUsage && (
+                  <button
+                    type="button"
+                    onClick={onRefreshUsage}
+                    disabled={usageLoading}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer disabled:opacity-60 disabled:cursor-default"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${usageLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </button>
+                )}
+                {onOpenApiSettings && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setServicesOpen(false);
+                      onOpenApiSettings();
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+                  >
+                    API settings
+                  </button>
+                )}
               </div>
-            )}
+            </CenteredPanel>
           </div>
 
           {onSelectProject && (
-            <div className="relative" ref={projectsRef}>
+            <div className="relative">
               <button
                 type="button"
                 onClick={() => {
@@ -800,7 +770,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                   </span>
                 )}
               </button>
-              {projectsOpen && (
+              <CenteredPanel open={projectsOpen} onClose={closeProjects} label="Your projects" className="max-w-[28rem] p-2.5">
                 <ProjectsMenu
                   projects={projects}
                   activeJobId={activeJob?.id ?? null}
@@ -811,7 +781,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                   onSeeAll={onOpenQueue}
                   onClose={closeProjects}
                 />
-              )}
+              </CenteredPanel>
             </div>
           )}
 

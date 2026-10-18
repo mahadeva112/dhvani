@@ -26,7 +26,7 @@ interface ProjectsMenuProps {
   onClose: () => void;
 }
 
-/** The header's projects menu: switch, rename or delete a recent project, or start a new one. */
+/** The header's projects window (shown in a CenteredPanel): switch, rename or delete a recent project, or start a new one. */
 export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
   projects,
   activeJobId,
@@ -43,11 +43,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
   const shown = projects.slice(0, MENU_LIMIT);
 
   return (
-    <div
-      role="dialog"
-      aria-label="Your projects"
-      className="fixed sm:absolute left-4 right-4 sm:left-auto sm:right-0 top-28 sm:top-auto sm:mt-2 sm:w-[23rem] p-2 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl z-50 flex flex-col animate-in fade-in zoom-in-95"
-    >
+    <div className="flex flex-col min-h-0">
       <div className="flex items-center justify-between gap-2 px-2 pt-1 pb-2">
         <span className="text-[13px] font-semibold text-slate-100">
           Your projects <span className="font-normal text-slate-500 tabular-nums">· {projects.length}</span>

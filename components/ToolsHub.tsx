@@ -1,14 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowUp, CornerDownLeft, Download, ExternalLink, Search, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CornerDownLeft, Download, ExternalLink, Search } from 'lucide-react';
 
 /**
  * Tools and settings, opened from the header: one window in the middle of the
  * screen. The tools and settings are listed on the left; the one pointed at,
  * or picked with the arrow keys, is previewed on the right with what it is set
  * to now, and Open (or Enter) opens its own window. Ctrl K opens it from
- * anywhere. Opening and closing are a short fade and zoom, none when the
- * system asks for reduced motion.
+ * anywhere; a click outside it or Escape closes it. Opening and closing are
+ * a short fade and zoom, none when the system asks for reduced motion.
  */
 
 export interface ToolsHubFact {
@@ -238,17 +238,9 @@ export const ToolsHub: React.FC<{
             aria-hidden="true"
             className={`pointer-events-none absolute -top-40 -right-32 w-[26rem] h-[26rem] rounded-full blur-3xl opacity-20 transition-colors duration-300 ${tone.glow}`}
           />
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-lg border border-slate-700/80 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
           {current ? (
             <div key={current.id} className="relative flex-1 min-h-0 flex flex-col tools-hub-preview-in">
-              <div className="flex items-center gap-4 pr-10">
+              <div className="flex items-center gap-4">
                 <span className={`w-14 h-14 shrink-0 rounded-2xl bg-gradient-to-b ${tone.tile} text-white flex items-center justify-center shadow-lg shadow-black/30`}>
                   <current.icon className="w-7 h-7" />
                 </span>
