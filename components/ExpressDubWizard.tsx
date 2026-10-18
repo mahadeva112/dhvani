@@ -47,6 +47,7 @@ import {
   Combine,
   SeparatorVertical,
   FileText,
+  Video,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
@@ -86,6 +87,7 @@ import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip, MiniWaveform } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
+import { ReviewVideoPanel, useReviewVideo } from './ReviewVideoPanel';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { TrackStrip } from './TrackStrip';
 import type { MixerLevels, MixerTrack, TrackLevel } from './useTrackMixer';
@@ -691,6 +693,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [isAlignModalOpen, setIsAlignModalOpen] = useState<boolean>(false);
   /** Dub step: the player's lanes are the Edit timing timeline. */
   const [editingTiming, setEditingTiming] = useState(false);
+  /** A local video to watch the dub against; it is only looked at, never part of the project. */
+  const reviewVideo = useReviewVideo(activeJob?.id);
   /** Edit timing: the line whose takes are open under the timeline. */
   const [timingTakesKey, setTimingTakesKey] = useState<string | null>(null);
   const [timingTakesPhrase, setTimingTakesPhrase] = useState<{ from: number; to: number } | null>(null);
@@ -3562,8 +3566,30 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </option>
                 ))}
               </select>
+              {!reviewVideo.video && (
+                <button
+                  type="button"
+                  onClick={reviewVideo.pick}
+                  title="Watch a local video while the dub plays. It stays silent and is not saved with the project."
+                  className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Video className="w-3.5 h-3.5" /> Add video
+                </button>
+              )}
+              {reviewVideo.input}
               </div>
             </section>
+          )}
+          {hasDub && reviewVideo.video && (
+            <ReviewVideoPanel
+              video={reviewVideo.video}
+              currentTime={sourceClockTime}
+              isPlaying={isPlaying}
+              getLiveTime={getSourceLiveTime}
+              playbackRate={playbackRate}
+              onReplace={reviewVideo.pick}
+              onRemove={reviewVideo.clear}
+            />
           )}
 
           {multiSpeaker && (
