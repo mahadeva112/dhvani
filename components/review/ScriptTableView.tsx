@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard } from 'lucide-react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Keyboard, Pause, Play } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import { SCRIPT_PALETTES, getIndicLanguageConfig } from '../../services/indicTransliteration';
 import { PASSAGE_PAUSES, buildPassages } from './passages';
@@ -24,6 +24,45 @@ const asLine = (text: string) => text.replace(/\s*\n\s*/g, ' ');
 // Shared by the textarea and the copy behind it, so the pace marks sit exactly under the words.
 const CELL_TEXT = 'px-3 py-2.5 leading-[1.75] whitespace-pre-wrap break-words [overflow-wrap:anywhere]';
 
+/**
+ * The bar on the playing line of a cell. It glides from line to line, and
+ * measures the lines of its sibling marked data-lines, so it fits a line that wraps.
+ */
+function PlayingLineBar({ index, text }: { index: number; text: string }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const placed = useRef(false);
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const lines = bar?.parentElement?.querySelector<HTMLElement>('[data-lines]');
+    if (!bar || !lines) return;
+    const place = () => {
+      const line = lines.children[index] as HTMLElement | undefined;
+      if (!line) return;
+      bar.style.transform = `translateY(${line.offsetTop}px)`;
+      bar.style.height = `${line.offsetHeight}px`;
+    };
+    if (placed.current) place();
+    else {
+      // Lands on the first line it shows without gliding in from the top.
+      bar.style.transition = 'none';
+      place();
+      void bar.offsetHeight;
+      bar.style.transition = '';
+      placed.current = true;
+    }
+    const observer = new ResizeObserver(place);
+    observer.observe(lines);
+    return () => observer.disconnect();
+  }, [index, text]);
+  return (
+    <div
+      ref={barRef}
+      aria-hidden
+      className="absolute inset-x-0 top-0 pointer-events-none border-l-[3px] border-slate-200 bg-white/[0.07] transition-[transform,height] duration-[450ms] ease-[cubic-bezier(.22,1,.36,1)] motion-reduce:transition-none"
+    />
+  );
+}
+
 interface ScriptTableViewProps {
   segments: AudioSegment[];
   /** Passages shown: those with at least one of these cues, so search and the pacing filter still narrow the table. */
@@ -41,6 +80,9 @@ interface ScriptTableViewProps {
   activeSegmentId: string | number | null;
   isPlaying: boolean;
   onSeek: (time: number) => void;
+  /** Plays the original from a passage's start and stops at its end. */
+  onPlayPassage: (start: number, end: number) => void;
+  onTogglePlay: () => void;
   fontSize?: number;
 }
 
@@ -63,6 +105,8 @@ export function ScriptTableView({
   activeSegmentId,
   isPlaying,
   onSeek,
+  onPlayPassage,
+  onTogglePlay,
   fontSize = 15,
 }: ScriptTableViewProps) {
   const passages = useMemo(() => buildPassages(segments, passagePause), [segments, passagePause]);
@@ -190,10 +234,27 @@ export function ScriptTableView({
             const tight = paces.filter((p) => p.level === 'tight').length;
             const start = cues[0].startTime;
             const end = cues[cues.length - 1].endTime;
+            const playingIndex = key === activeKey ? cues.findIndex((seg) => seg.id === activeSegmentId) : -1;
+            const playingHere = playingIndex !== -1 && isPlaying;
             return (
               <tr key={key} data-passage={key} className={key === activeKey ? 'bg-indigo-500/[0.06]' : ''}>
                 <td className="border border-slate-700/70 px-3 py-2.5 align-top text-[11px] text-slate-500">
-                  <div className="text-[13px] font-semibold text-slate-200">{passage.index + 1}</div>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[13px] font-semibold text-slate-200">{passage.index + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => (playingHere ? onTogglePlay() : onPlayPassage(start, end))}
+                      aria-label={playingHere ? `Pause passage ${passage.index + 1}` : `Play passage ${passage.index + 1}`}
+                      title={playingHere ? 'Pause' : 'Play this passage'}
+                      className={`w-7 h-7 rounded-full border flex items-center justify-center transition-colors cursor-pointer ${
+                        playingHere
+                          ? 'border-slate-300 bg-slate-100 text-slate-900'
+                          : 'border-slate-700 text-slate-300 hover:border-slate-400 hover:text-white'
+                      }`}
+                    >
+                      {playingHere ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-px" />}
+                    </button>
+                  </div>
                   <button
                     type="button"
                     onClick={() => onSeek(start)}
@@ -212,31 +273,34 @@ export function ScriptTableView({
                 </td>
 
                 <td className="border border-slate-700/70 align-top text-slate-400">
-                  <div className={CELL_TEXT} lang={sourceLanguage || undefined}>
+                  <div className="relative">
+                  {playingIndex !== -1 && <PlayingLineBar index={playingIndex} text={value} />}
+                  <div data-lines className={CELL_TEXT} lang={sourceLanguage || undefined}>
                     {cues.map((seg) => (
                       <div
                         key={String(seg.id)}
                         onClick={() => window.getSelection()?.isCollapsed && onSeek(seg.startTime)}
-                        className={`cursor-pointer hover:text-slate-200 ${seg.id === activeSegmentId ? 'text-indigo-200' : ''}`}
+                        className={`relative cursor-pointer transition-colors duration-[450ms] hover:text-slate-200 ${seg.id === activeSegmentId ? 'text-white' : ''}`}
                         title={`${formatTime(seg.startTime)} · play from here`}
                       >
                         {asLine(getSourceText(seg)) || ' '}
                       </div>
                     ))}
                   </div>
+                  </div>
                 </td>
 
                 <td className="border border-slate-700/70 align-top p-0 focus-within:outline focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-indigo-500">
-                  <div className="grid" lang={targetLanguage || undefined}>
-                    {/* The same text, invisible, behind the textarea: it sizes the cell and carries the pace marks. */}
-                    <div aria-hidden className={`${CELL_TEXT} [grid-area:1/1] text-transparent pointer-events-none select-none`}>
+                  <div className="relative grid" lang={targetLanguage || undefined}>
+                    {playingIndex !== -1 && <PlayingLineBar index={playingIndex} text={value} />}
+                    {/* The same text, invisible, behind the textarea: it sizes the cell, carries the pace marks and places the playing bar. */}
+                    <div data-lines aria-hidden className={`${CELL_TEXT} [grid-area:1/1] text-transparent pointer-events-none select-none`}>
                       {lines.map((line, i) => (
-                        <React.Fragment key={i}>
-                          {i > 0 && '\n'}
-                          <span className={i < cues.length ? markClass(paces[i]) : ''}>{line}</span>
-                        </React.Fragment>
+                        <div key={i}>
+                          {/* An empty line still takes a line's height, as it does in the textarea. */}
+                          <span className={i < cues.length ? markClass(paces[i]) : ''}>{line || '\u200b'}</span>
+                        </div>
                       ))}
-                      {'​'}
                     </div>
                     <textarea
                       value={value}
@@ -263,7 +327,7 @@ export function ScriptTableView({
                         }
                       }}
                       aria-label={`Passage ${passage.index + 1}, ${targetLanguage || 'dub script'}, one line per cue`}
-                      className={`${CELL_TEXT} [grid-area:1/1] w-full h-full resize-none overflow-hidden bg-transparent text-slate-100 outline-none caret-indigo-300`}
+                      className={`${CELL_TEXT} relative [grid-area:1/1] w-full h-full resize-none overflow-hidden bg-transparent text-slate-100 outline-none caret-indigo-300`}
                     />
                   </div>
                   {mismatch && (

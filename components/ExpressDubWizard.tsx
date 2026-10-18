@@ -1088,6 +1088,42 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   );
   /** Seeks to a time on the original's clock, wherever that is on the heard track. */
   const seekSource = useCallback((t: number) => onSeek(toHeardClock(t)), [onSeek, toHeardClock]);
+
+  /*
+    A passage played from the Script view stops at its end, on the original's
+    clock. Seeking or playing elsewhere drops the stop, so it never pauses later playback.
+  */
+  const passageStopRef = useRef<{ start: number; end: number; armedAt: number } | null>(null);
+  const sourceClockTimeRef = useRef(sourceClockTime);
+  sourceClockTimeRef.current = sourceClockTime;
+  const handlePlayPassage = (start: number, end: number) => {
+    passageStopRef.current = { start, end, armedAt: performance.now() };
+    seekSource(start);
+    if (!isPlaying) onTogglePlay();
+  };
+  useEffect(() => {
+    if (!isPlaying) {
+      passageStopRef.current = null;
+      return;
+    }
+    let frame = 0;
+    const watch = () => {
+      const stop = passageStopRef.current;
+      // The clock can still read the old place for a moment after the seek.
+      if (stop && performance.now() - stop.armedAt > 300) {
+        const t = getSourceLiveTime?.() ?? sourceClockTimeRef.current;
+        if (t >= stop.end && t < stop.end + 1) {
+          passageStopRef.current = null;
+          onTogglePlay();
+          return;
+        }
+        if (t < stop.start - 1 || t >= stop.end + 1) passageStopRef.current = null;
+      }
+      frame = requestAnimationFrame(watch);
+    };
+    frame = requestAnimationFrame(watch);
+    return () => cancelAnimationFrame(frame);
+  }, [isPlaying, getSourceLiveTime, onTogglePlay]);
   const heardCues = hearingDub ? dubCues : segments;
 
   // Split and join by hand, on the original's clock.
@@ -2488,6 +2524,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               activeSegmentId={activeSegmentId}
               isPlaying={isPlaying}
               onSeek={seekSource}
+              onPlayPassage={handlePlayPassage}
+              onTogglePlay={onTogglePlay}
               fontSize={reviewFontPx}
             />
           )}
