@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
-import { syncRouter, keepResult } from './sync.js';
+import { syncRouter, keepResult, keptResultCount } from './sync.js';
 import { pcmToWav } from '../lib/wav.js';
 
 const listen = async () => {
@@ -58,12 +58,43 @@ test('edit renders sent together all finish, one at a time, and a failed one doe
     const replies = await Promise.all([render('render-queue-bank'), render('missing-bank-id'), render('render-queue-bank', 1.1), render('render-queue-bank', 0.9)]);
     assert.deepEqual(replies.map(reply => reply.status), [200, 404, 200, 200]);
     assert.equal((await replies[1].json()).error.code, 'edit_bank_missing');
+    // Only the newest render's audio is kept: the app aborts the older ones and never fetches them.
+    const fetched = [];
     for (const reply of [replies[0], replies[2], replies[3]]) {
       const { audioId } = await reply.json();
-      const audio = await fetch(`${local}/api/sync/audio/${audioId}`);
-      assert.equal(audio.status, 200);
-      assert.ok((await audio.arrayBuffer()).byteLength > 44);
+      fetched.push(await fetch(`${local}/api/sync/audio/${audioId}`));
     }
+    assert.deepEqual(fetched.map(audio => audio.status), [404, 404, 200]);
+    assert.ok((await fetched[2].arrayBuffer()).byteLength > 44);
+  } finally {
+    await close();
+  }
+});
+
+test('an edit render the app aborted keeps no audio on the server', async () => {
+  const { local, close } = await listen();
+  const sampleRate = 8000;
+  const samples = Buffer.alloc(sampleRate * 2 * 2, 1);
+  try {
+    await fetch(`${local}/api/sync/edit/banks/aborted-render-bank`, { method: 'PUT', headers: { 'content-type': 'audio/wav' }, body: pcmToWav(samples, { sampleRate }) });
+    const render = (signal) => fetch(`${local}/api/sync/edit/render`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        bankId: 'aborted-render-bank', sampleRate, lines: [{ bankStart: 0, length: sampleRate * 2 }], sourceDuration: 2,
+        parts: [{ line: 0, from: 0, to: sampleRate * 2, startSample: 0, rate: 1.2 }],
+      }),
+      signal,
+    });
+    const before = keptResultCount();
+    const controller = new AbortController();
+    const aborted = render(controller.signal).catch(() => null);
+    controller.abort();
+    await aborted;
+    // The next render waits behind the aborted one, so by its reply that one has finished or been skipped.
+    const { audioId } = await (await render()).json();
+    assert.equal((await fetch(`${local}/api/sync/audio/${audioId}`)).status, 200);
+    assert.equal(keptResultCount(), before, 'nothing is left behind once the newest render is fetched');
   } finally {
     await close();
   }

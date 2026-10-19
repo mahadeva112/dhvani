@@ -4355,6 +4355,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 isSyncing={isSyncing}
                 isCancelling={isCancellingSync}
                 error={syncError}
+                interrupted={Boolean(activeJob?.syncInterrupted)}
                 blockedReason={blockedReason}
                 pendingCount={syncPendingLines.length}
                 previewShown={!report && Boolean(syncPreview.preview)}

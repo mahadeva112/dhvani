@@ -50,8 +50,11 @@ const isBackendUp = async (healthUrl) => {
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Where the backend listens when no usable port was configured. */
+const DEFAULT_BACKEND_PORT = 8787;
+
 export const autoStartBackend = ({ root, port, host = '127.0.0.1', watch = false }) => {
-  const healthUrl = `http://${host}:${port}/api/health`;
+  let healthUrl = `http://${host}:${port}/api/health`;
   const entry = path.join(root, 'server', 'index.js');
 
   let child = null;
@@ -235,8 +238,39 @@ export const autoStartBackend = ({ root, port, host = '127.0.0.1', watch = false
     process.once('SIGTERM', stop);
   };
 
+  /**
+   * Refuses to proxy /api to Vite's own port.
+   *
+   * Launchers set PORT to the port the dev server should bind (`PORT=5199 vite
+   * --port 5199`), while our .env uses PORT for the backend. Read that way,
+   * /api is proxied back into Vite itself, the request loops until it dies,
+   * and the app reports "Could not reach the local DHVANI backend: Failed to
+   * fetch" with a perfectly healthy backend on 8787. Only the resolved config
+   * knows the port Vite really binds — CLI flag, config file or default — so
+   * the check lives here rather than in vite.config.ts.
+   */
+  const avoidOwnPort = (config) => {
+    const ownPort = Number(config.command === 'serve' ? config.server.port : config.preview.port);
+    if (!ownPort || ownPort !== port) return;
+
+    const target = `http://${host}:${DEFAULT_BACKEND_PORT}`;
+    for (const proxy of [config.server.proxy, config.preview.proxy]) {
+      const api = proxy?.['/api'];
+      if (typeof api === 'string') proxy['/api'] = target;
+      else if (api) api.target = target;
+    }
+    config.logger.warn(
+      `[backend] port ${port} is this dev server's own port — sending /api to ${target} instead. ` +
+        'Set BACKEND_PORT to choose another.'
+    );
+    port = DEFAULT_BACKEND_PORT;
+    healthUrl = `${target}/api/health`;
+  };
+
   return {
     name: 'dhvani:auto-start-backend',
+
+    configResolved: avoidOwnPort,
 
     configureServer(server) {
       bindCleanup(server);

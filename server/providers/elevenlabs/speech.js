@@ -533,7 +533,7 @@ export const synthesizeScript = async (
  * source-matched tags in the lines are kept (see sourceCues.js); with `steady`
  * the lines are held calm and even (see NEUTRAL_VOICE). `readCount` is how
  * many lines the whole read has (default: `lines.length`), so a retake of a
- * few lines gets the settings the rest were voiced with. `onLine(done)` reports
+ * few lines gets the settings the rest were voiced with. `onLine(done, index, buffer)` reports
  * each finished line, and `onStabilityAdjustment` what readSettings changed
  * (once, before any line is voiced). Returns `[{ buffer, requestId }]` in the
  * same order.
@@ -612,7 +612,7 @@ export const synthesizeLines = async (
       buffer: Buffer.from(await response.arrayBuffer()),
       requestId: response.headers.get('request-id') || null,
     };
-    onLine(++done);
+    onLine(++done, index, results[index].buffer);
   };
 
   if (supportsStitching(resolvedModel)) {

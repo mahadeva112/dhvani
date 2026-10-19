@@ -263,6 +263,10 @@ export interface BatchJob {
   syncBaseReport?: SyncReport | null;
   /** Retaken lines, by line key: each keeps its own seed, so its new take survives later Syncs and reloads. */
   syncLineSeeds?: Record<string, number> | null;
+  /** The seed every line of this project's dub is read with, kept so a dub run after a restart finds the lines it already voiced. */
+  syncSeed?: number | null;
+  /** A dub was running when Dhvani closed; Dub offers to resume it. */
+  syncInterrupted?: boolean;
   /** Takes chosen in Review for lines that ran long (a better fitting take, or one read faster), by line key. */
   syncTakeChoices?: Record<string, { seed: number; speedScale?: number; pace?: string; text: string }> | null;
   /** Lines whose offered take the user kept the old take over: not voiced again to fit. */

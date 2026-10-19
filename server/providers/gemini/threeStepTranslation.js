@@ -35,7 +35,7 @@ const MARKER_PATTERN = /^\s*#\s*pipeline\s*:\s*3-step\b/im;
 
 export const isThreeStepPrompt = (customPrompt) => MARKER_PATTERN.test(String(customPrompt || ''));
 
-/** Lines not starting with `#` are the user's own additions, sent with Step 1. */
+/** Lines not starting with `#` are the user's own additions, sent with Steps 1 and 2. */
 export const extraInstructions = (customPrompt) =>
   String(customPrompt || '')
     .split(/\r?\n/)
@@ -268,16 +268,15 @@ const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, mo
   const [translation, review, punctuation] = stages;
   const language = translation.language;
   const voice = voiceRate ? `\n\n---\n${voiceSpeedNote(language, voiceRate)}` : '';
+  // Step 2 gets them too, or its review would undo what they asked of Step 1.
+  const extra = notes ? `\n\n---\nADDITIONAL INSTRUCTIONS (apply throughout):\n${notes}` : '';
 
   report(0, `Step 1 of 3 — translating to ${language}`);
   const step1 = await runStage({
     label: translation.label,
     apiKey,
     models,
-    prompt:
-      `${translation.text}\n\n${english}` +
-      voice +
-      (notes ? `\n\n---\nADDITIONAL INSTRUCTIONS (apply throughout):\n${notes}` : ''),
+    prompt: `${translation.text}\n\n${english}` + voice + extra,
   });
 
   report(1, 'Step 2 of 3 — reviewing the translation');
@@ -288,7 +287,8 @@ const translateChunk = async ({ chunk, stages, notes, targetLanguage, apiKey, mo
     prompt:
       `${review.text}\n\nFORMATTED ENGLISH SCRIPT:\n\n${english}\n\n` +
       `${language.toUpperCase()} TRANSLATION:\n\n${step1.script}` +
-      voice,
+      voice +
+      extra,
   });
 
   report(2, 'Step 3 of 3 — refining punctuation');

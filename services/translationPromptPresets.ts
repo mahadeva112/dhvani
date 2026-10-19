@@ -32,7 +32,7 @@ CORE PRINCIPLES:
     category: 'persona',
     // The first line is what switches the backend to the 3-step pipeline
     // (server/providers/gemini/threeStepTranslation.js). Lines starting with
-    // "#" are notes; anything else is sent with Step 1 as extra instructions.
+    // "#" are notes; anything else is sent with Steps 1 and 2 as extra instructions.
     prompt: `#pipeline: 3-step
 # Runs three passes with the prompts for the target language:
 #   Step 1 — Translation: thought-unit mapping onto the English timing
@@ -43,6 +43,42 @@ CORE PRINCIPLES:
 # Marathi, Nepali, Odia, Tamil and Telugu; other languages get the
 # standard translation.
 # Keep the first line. Write any extra instructions below it without a "#".`
+  },
+  {
+    id: 'three_step_full_meaning',
+    name: 'Sadhguru 3-Step (Full Meaning)',
+    shortDesc: 'The 3-step passes, shortening by word choice and joined lines instead of cutting detail or [fast] tags',
+    badge: '3-step',
+    category: 'persona',
+    // Same pipeline as "Sadhguru 3-Step Dubbing". The lines without "#" go to
+    // Step 1 and Step 2 and override their "cut details + [fast]" rule.
+    prompt: `#pipeline: 3-step
+# The same three passes as Sadhguru 3-Step Dubbing, with these rules on top:
+# nothing is cut to fit the time, no [fast] tags, and long lines are
+# shortened by word choice, then by rewriting 2-3 adjacent lines together.
+# Keep the first line. Write any extra instructions below it without a "#".
+PRIORITY: These instructions override any earlier rule in this prompt that conflicts with them. In particular, ignore any rule that asks you to cut details or "convey only the main point" to fit the time, and never add [fast] tags. They are removed before dubbing and do not speed up the voice.
+
+MEANING COMES FIRST
+Keep every idea, example, condition, negation, qualification, comparison, number, name and cause-and-effect link. Keep certainty and scope exactly: "may" stays "may", "some" stays "some", a possibility never becomes a promise, a question stays a question, a quotation keeps its speaker. Keep distinctions Sadhguru draws (pain/suffering, belief/knowing, attention/awareness) with the same words each time. Keep deliberate repetition, humor (setup and landing), irony and intended ambiguity. Add nothing: no explanation, interpretation or stronger claim.
+
+USING THE TIMING DATA
+Each English segment carries [Segment duration][Gap after][Gap %][Total duration available] [Syllables] [Syllables/sec] [Relative syllables/sec] [Words].
+When a VOICE SPEED note is given: aim each segment near [Segment duration] x rate in target-language syllables, and never exceed [Total duration available] x rate. Count spoken syllables, not words or letters. Long vowels, conjuncts and pauses cost time.
+When no VOICE SPEED note is given: write compact spoken wording and do not guess a speed.
+Do not shorten by a fixed percentage. Segments with a large gap after them need no shortening.
+
+HOW TO SHORTEN, IN THIS ORDER
+1. Same line: choose shorter common words, a leaner construction, drop empty auxiliaries and fillers. Keep a pronoun or repeated word when it marks contrast, a new subject, emphasis, or prevents ambiguity.
+2. Two or three adjacent segments of the same speaker together: share a subject or verb, merge related statements into one tight sentence, state a relationship the source already makes. Every proposition and its logic must survive. Never turn specific statements into one general one. Keep key ideas, contrasts and punchlines near their original position. Check that each part between pauses fits, not only the group total. When reviewing a translation, keep the paragraph count you were given and join only within a paragraph.
+3. If it still does not fit, keep the clearest complete wording. A slightly long line is acceptable. A missing idea is not.
+Never shorten with broken grammar, unusual abbreviations or invented compounds.
+
+DELIVERY
+Natural, contemporary spoken language in native script, with that language's own word order. No English sentence structure or Hindi grammar carried into another language. Reflective passages stay reflective, sharp lines keep their force, other speakers keep their own register. Never place a question and its answer in one sentence. Do not treat a meaningful silence as spare speaking time.
+
+FINAL CHECK BEFORE ANSWERING
+Every idea present? Sounds natural aloud? Long lines rewritten, groups of 2-3 considered? No [fast] tags, no hidden omissions? Output only the script in the format this step asks for: no notes, alternatives or timing claims.`
   },
   {
     id: 'sadhguru_dub',

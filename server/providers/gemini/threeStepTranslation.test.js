@@ -9,7 +9,9 @@ import {
   stripPaceTags,
   voiceSpeedNote,
   chunkRate,
+  extraInstructions,
 } from './threeStepTranslation.js';
+import { TRANSLATION_PRESETS } from '../../../services/translationPromptPresets.ts';
 import { cleanVoiceRate, cleanSpeakerRates, rateForCue, syllableTarget } from './translation.js';
 
 test('the preset marker switches translation to the 3-step pipeline', () => {
@@ -17,6 +19,17 @@ test('the preset marker switches translation to the 3-step pipeline', () => {
   assert.equal(isThreeStepPrompt('  # Pipeline : 3-step'), true);
   assert.equal(isThreeStepPrompt('Translate naturally. Mention the 3-step idea.'), false);
   assert.equal(isThreeStepPrompt(''), false);
+});
+
+test('the full-meaning preset runs the 3-step passes and keeps every rule line', () => {
+  const preset = TRANSLATION_PRESETS.find((p) => p.id === 'three_step_full_meaning');
+  assert.ok(preset);
+  assert.equal(isThreeStepPrompt(preset.prompt), true);
+  const notes = extraInstructions(preset.prompt);
+  for (const heading of ['PRIORITY:', 'MEANING COMES FIRST', 'USING THE TIMING DATA', 'HOW TO SHORTEN', 'DELIVERY', 'FINAL CHECK']) {
+    assert.ok(notes.includes(heading), heading);
+  }
+  assert.ok(!notes.includes('#pipeline'));
 });
 
 test('every language with prompts has all three steps', () => {
