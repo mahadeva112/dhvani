@@ -33,6 +33,7 @@ import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
 import { sourcePausesOf } from './sourcePauses.js';
 import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, RIGID_GAP_SECONDS } from './chunkSync.js';
 import { takeDiffers } from './takeChecks.js';
+import { readStoredClip, storeClip } from './clipStore.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -158,7 +159,8 @@ export const SYNC_STEPS = ['units', 'voicing', 'fitting', 'placing', 'rendering'
 /**
  * Clips already voiced, by everything that decides how they sound, so a second
  * Sync (after a precision change, or a failed run) doesn't pay for lines it
- * already has. Oldest entries are dropped first.
+ * already has. Oldest entries are dropped first. Each is also kept on disk
+ * (clipStore.js), so a dub cut short by a closed or crashed app resumes too.
  */
 const CLIP_CACHE_LIMIT = 2000;
 const clipCache = new Map();
@@ -181,10 +183,26 @@ const cacheKey = (voice, text) =>
     )
     .digest('hex');
 
-const remember = (key, buffer) => {
+const keep = (key, buffer) => {
   clipCache.delete(key);
   clipCache.set(key, buffer);
   if (clipCache.size > CLIP_CACHE_LIMIT) clipCache.delete(clipCache.keys().next().value);
+};
+
+const remember = (key, buffer) => {
+  const stored = clipCache.get(key) === buffer;
+  keep(key, buffer);
+  if (stored) return;
+  storeClip(key, buffer).catch(() => {});
+};
+
+/** A clip voiced before under `key`, from memory or else from disk, or null. */
+const recall = async (key) => {
+  const held = clipCache.get(key);
+  if (held) return held;
+  const stored = await readStoredClip(key);
+  if (stored) keep(key, stored);
+  return stored;
 };
 
 /** Forgets every cached clip. For tests. */
@@ -195,7 +213,7 @@ export const clearClipCache = () => {
 };
 
 /** A clip voiced before with exactly this voice and text, or null; for takes (see syncTakes.js). */
-export const cachedClip = (voice, text) => clipCache.get(cacheKey(voice, text)) || null;
+export const cachedClip = (voice, text) => recall(cacheKey(voice, text));
 /** Keeps a clip a take voiced, as Sync keeps its own. */
 export const rememberClip = (voice, text, buffer) => remember(cacheKey(voice, text), buffer);
 
@@ -414,7 +432,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     const voiceWith = (i) => ({ ...baseVoiceOf(units[i]), ...readOf(units[i]), seed: seedFor(units[i]) });
     const missing = [];
     for (const i of indexes) {
-      const cached = clipCache.get(cacheKey(voiceWith(i), textOf(i)));
+      const cached = await recall(cacheKey(voiceWith(i), textOf(i)));
       if (cached) buffers[i] = cached;
       else missing.push(i);
     }
@@ -437,7 +455,11 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       const before = voicedSoFar;
       const voiced = await deps.voiceLines(lines, {
         voice: { ...baseVoiceOf(units[group[0]]), ...readOf(units[group[0]]) },
-        onLine: (done) => report({ unitsVoiced: before + done }),
+        onLine: (done, n, buffer) => {
+          report({ unitsVoiced: before + done });
+          // Kept as each line arrives, so a run that stops part way has paid for no line twice.
+          if (Number.isInteger(n) && buffer) remember(cacheKey(voiceWith(group[n]), textOf(group[n])), buffer);
+        },
         readCount: units.length,
       });
       group.forEach((i, n) => {
@@ -841,7 +863,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           checkCancelled();
           try {
             const key = cacheKey(attempt.voice, attempt.text);
-            let buffer = clipCache.get(key);
+            let buffer = await recall(key);
             if (!buffer) {
               [buffer] = await deps.voiceLines(
                 [{ text: attempt.text, previousText: neighbour(i, -1)?.text.slice(-TTS_CONTEXT_CHARS), nextText: neighbour(i, 1)?.text.slice(0, TTS_CONTEXT_CHARS), seed: attempt.voice.seed }],

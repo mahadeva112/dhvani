@@ -7,7 +7,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
-import { config, ROOT_DIR, CONFIG_FILE, keySource, translationSetup } from './env.js';
+import { config, ROOT_DIR, CONFIG_DIR, CONFIG_FILE, keySource, translationSetup } from './env.js';
 import { logger } from './logger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { healthRouter } from './routes/health.js';
@@ -24,6 +24,7 @@ import { usageRouter } from './routes/usage.js';
 import { deliveryRouter } from './routes/delivery.js';
 import { subtitlesRouter } from './routes/subtitles.js';
 import { ffmpegAvailable } from './lib/media.js';
+import { openClipStore } from './lib/clipStore.js';
 
 const app = express();
 
@@ -217,6 +218,9 @@ if (hasBuild) {
 
 app.use('/api', notFoundHandler);
 app.use(errorHandler);
+
+// Voiced lines kept on disk, so a dub cut short resumes without paying for them again.
+openClipStore(path.join(CONFIG_DIR, 'voiced-clips'));
 
 const server = app.listen(config.port, config.host, () => {
   const url = `http://${config.host === '0.0.0.0' ? 'localhost' : config.host}:${config.port}`;

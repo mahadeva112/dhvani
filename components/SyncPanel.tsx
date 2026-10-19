@@ -297,6 +297,8 @@ export interface SyncSettingsPanelProps {
   isCancelling: boolean;
   /** Why the last sync failed. */
   error?: string | null;
+  /** A dub was running when Dhvani closed: the button resumes it. */
+  interrupted?: boolean;
   /** Set when Sync can't run right now, with the reason shown under the button. */
   blockedReason?: string | null;
   /** Lines reworded or retaken since the last sync. */
@@ -925,6 +927,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   isSyncing,
   isCancelling,
   error,
+  interrupted = false,
   blockedReason,
   pendingCount = 0,
   previewShown = false,
@@ -1077,15 +1080,21 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           disabled={Boolean(blockedReason)}
           className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
         >
-          {synced ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-          {synced ? 'Sync again' : 'Dub & sync'}
+          {synced || error || interrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+          {interrupted ? 'Resume dub' : error ? 'Try again' : synced ? 'Sync again' : 'Dub & sync'}
         </button>
       )}
       {blockedReason && !isSyncing ? (
         <p className="text-center text-[11.5px] text-amber-300">{blockedReason}</p>
       ) : error && !isSyncing ? (
         <p role="alert" className="text-center text-[11.5px] text-rose-300">
-          Dub failed: {error}
+          Dub failed: {error}{' '}
+          <span className="text-slate-400">Lines already voiced are kept, so trying again voices only the rest.</span>
+        </p>
+      ) : interrupted && !isSyncing ? (
+        <p role="status" className="text-center text-[11.5px] text-amber-300">
+          The last dub stopped before it finished.{' '}
+          <span className="text-slate-400">The lines it voiced are kept: with the same voice and settings, resuming voices only the rest.</span>
         </p>
       ) : (
         <p className="text-center text-[11.5px] text-slate-500">
