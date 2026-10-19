@@ -638,6 +638,11 @@ export const STS_OUTPUT_FORMATS = [
   'mp3_44100_128',
   'mp3_44100_192',
   'opus_48000_128',
+  'pcm_16000',
+  'pcm_22050',
+  'pcm_24000',
+  'pcm_44100',
+  'pcm_48000',
   'wav_16000',
   'wav_22050',
   'wav_24000',
@@ -645,10 +650,13 @@ export const STS_OUTPUT_FORMATS = [
   'wav_48000',
 ];
 
-/** Speech-to-speech voice conversion. */
+/**
+ * Speech-to-speech voice conversion. `file` is an upload (`path`) or a clip
+ * already in memory (`buffer`); `signal` cancels it.
+ */
 export const speechToSpeech = async (
   { voiceId, file, modelId = 'eleven_multilingual_sts_v2', voiceSettings, removeBackgroundNoise, outputFormat, seed },
-  { apiKey } = {}
+  { apiKey, signal } = {}
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
   if (!file) {
@@ -661,7 +669,7 @@ export const speechToSpeech = async (
   const form = new FormData();
   form.append(
     'audio',
-    new Blob([await fs.promises.readFile(file.path)], { type: file.mimetype || 'audio/wav' }),
+    new Blob([file.buffer ?? (await fs.promises.readFile(file.path))], { type: file.mimetype || 'audio/wav' }),
     file.originalname || 'audio.wav'
   );
   form.append('model_id', modelId);
@@ -677,7 +685,7 @@ export const speechToSpeech = async (
   return elevenLabsMultipart(
     `/speech-to-speech/${encodeURIComponent(cleanVoiceId)}?output_format=${encodeURIComponent(format)}`,
     form,
-    { apiKey }
+    { apiKey, signal }
   );
 };
 

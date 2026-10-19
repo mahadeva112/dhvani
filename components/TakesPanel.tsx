@@ -440,7 +440,7 @@ export const TakesPanel: React.FC<{
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="text-[12.5px] font-medium text-slate-100">{takeName(take, n)}</span>
-                  {take.kind !== 'sync' && <span className="text-[11px] text-slate-400">{directionLabel(take.direction)}</span>}
+                  {take.kind !== 'sync' && <span className="text-[11px] text-slate-400">{take.voice ? `Voice changed · ${take.voice}` : directionLabel(take.direction)}</span>}
                   {take.phrase && <span className="text-[11px] text-indigo-300 truncate max-w-[16rem]">only “{take.phrase}”</span>}
                   <span className="font-mono text-[11px] text-slate-500 tabular-nums">{take.speech.toFixed(2)} s</span>
                   {best?.id === take.id && <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-indigo-400/15 text-indigo-200">Best fit</span>}

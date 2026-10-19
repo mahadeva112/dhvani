@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendToBank, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
+import { appendManyToBank, appendToBank, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
 import { measureEdits } from './syncEditModel.ts';
@@ -115,6 +115,15 @@ test('takes are added after the bank, its own bytes untouched', async () => {
   assert.equal(head.getUint32(40, true), 12, 'the header counts every sample');
   await assert.rejects(appendToBank(bank, added, { sampleRate: RATE, float: false, baseLength: 5 }), /match/);
   assert.deepEqual(await samplesOf(takeWav(next, { bankStart: 4, length: 2 }, { sampleRate: RATE, float: false })), [9, 8]);
+});
+
+test('voice-changed lines go after the bank in order, its own bytes untouched', async () => {
+  const bank = wav([1, 2, 3, 4]);
+  const next = await appendManyToBank(bank, [wav([9, 8]), wav([7])], { sampleRate: RATE, float: false, baseLength: 4 });
+  assert.deepEqual(await samplesOf(next), [1, 2, 3, 4, 9, 8, 7]);
+  const head = new DataView(await next.slice(0, 44).arrayBuffer());
+  assert.equal(head.getUint32(40, true), 14, 'the header counts every sample');
+  await assert.rejects(appendManyToBank(bank, [wav([9])], { sampleRate: RATE, float: false, baseLength: 3 }), /match/);
 });
 
 test('a phrase splits the line around the words picked, in either order', () => {

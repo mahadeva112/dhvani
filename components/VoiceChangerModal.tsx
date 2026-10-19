@@ -59,6 +59,11 @@ const extensionOf = (blob: Blob) =>
 import { MiniWaveform } from './MediaStrip';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { cloneCartesiaVoice, isCartesiaVoice } from '../services/cartesiaService';
+import type { LaneClip, LineProgress, SpeakerVoices, VoiceChangeSettings } from '../services/voiceChangeService';
+import { EditRenderChip, KEEP, LineLanes, LineRunSummary, SpeakerVoiceRows } from './VoiceChangeLines';
+
+/** Formats the whole-file voice change is asked again in when the plan refuses one (as a dub's are). */
+const STS_FALLBACK: Record<string, string> = { wav_48000: 'mp3_44100_192', mp3_44100_192: 'mp3_44100_128' };
 
 /** The effects the audio engine offers, in the order shown. */
 const EFFECTS: { id: VoiceEffectPreset; label: string; desc: string; Icon: React.ComponentType<{ className?: string }> }[] = [
@@ -105,6 +110,19 @@ interface VoiceChangerModalProps {
   targetLanguage?: string;
   /** True when a Cartesia key is set up, which offers Cartesia for cloning. */
   cartesiaAvailable?: boolean;
+  /** A synced dub, which can be changed line by line, every line keeping its place and edits; null otherwise. */
+  lineByLine?: {
+    speakers: { name: string; lines: number }[];
+    clips: LaneClip[];
+    duration: number;
+  } | null;
+  onChangeLines?: (
+    voices: SpeakerVoices,
+    settings: VoiceChangeSettings,
+    run: { keys: string[]; onLine: (key: string, progress: LineProgress) => void; signal: AbortSignal }
+  ) => Promise<{ changed: number; error: string | null }>;
+  /** Where the latest Edit timing edits are: the dub is changed once they are rendered. */
+  editRender?: 'ready' | 'pending' | 'rendering' | 'error';
 }
 
 type ModeTab = 'sts' | 'clone' | 'effects';
@@ -125,6 +143,9 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   onRefreshVoices,
   targetLanguage = 'Hindi',
   cartesiaAvailable = false,
+  lineByLine = null,
+  onChangeLines,
+  editRender = 'ready',
 }) => {
   const [activeTab, setActiveTab] = useState<ModeTab>('sts');
   // Cartesia retired its voice changer, so only ElevenLabs voices can be changed into.
@@ -149,10 +170,29 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const [removeBackgroundNoise, setRemoveBackgroundNoise] = useState<boolean>(false);
   const [styleExaggeration, setStyleExaggeration] = useState<number>(0);
   const [speakerBoost, setSpeakerBoost] = useState<boolean>(true);
-  const [stsOutputFormat, setStsOutputFormat] = useState<string>('mp3_44100_128');
+  const [stsOutputFormat, setStsOutputFormat] = useState<string>('wav_48000');
+  const [formatNotice, setFormatNotice] = useState<string | null>(null);
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   /** Empty means a fresh take each time. */
   const [stsSeed, setStsSeed] = useState<string>('');
+
+  // Replacing a synced dub: line by line (each line keeps its place and edits) or the whole file
+  const [replaceMode, setReplaceMode] = useState<'line' | 'whole'>('line');
+  const lineMode = Boolean(lineByLine && onChangeLines && inputIsProjectDub) && replaceMode === 'line';
+  const severalSpeakers = (lineByLine?.speakers.length ?? 0) > 1;
+  /** Who each speaker is changed into, when there are several; one speaker is changed into the voice chosen above. */
+  const [speakerVoices, setSpeakerVoices] = useState<Record<string, string>>({});
+  /** The speaker the voice library is open for; null when it is open for the voice above. */
+  const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [lineProgress, setLineProgress] = useState<Record<string, LineProgress>>({});
+  const [linesRunning, setLinesRunning] = useState(false);
+  const [linesError, setLinesError] = useState<string | null>(null);
+  const lineRunRef = useRef<AbortController | null>(null);
+  // A run stops when the voice changer closes.
+  useEffect(() => {
+    if (!isOpen) lineRunRef.current?.abort();
+    return () => lineRunRef.current?.abort();
+  }, [isOpen]);
 
   // Favourites, shared with the text-to-speech voice picker
   const { favorites } = useFavoriteVoices();
@@ -286,6 +326,38 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     }
   }, [selectedVoiceId]);
 
+  /** The voice each speaker is changed into: one speaker the voice chosen above, several each their own. */
+  const chosenVoices = useMemo<SpeakerVoices>(() => {
+    if (!lineByLine) return {};
+    const nameOf = (id: string) => (allAvailableVoices.find((v) => v.voice_id === id)?.name || POPULAR_ELEVENLABS_VOICES.find((v) => v.id === id)?.name || 'Chosen voice').trim().split(/\s+[-–—|]\s+/)[0];
+    const out: SpeakerVoices = {};
+    for (const speaker of lineByLine.speakers) {
+      const id = severalSpeakers ? speakerVoices[speaker.name] : targetVoiceId;
+      if (id && id !== KEEP && !isCartesiaVoice(id)) out[speaker.name] = { voiceId: id, name: nameOf(id) };
+    }
+    return out;
+  }, [lineByLine, severalSpeakers, speakerVoices, targetVoiceId, allAvailableVoices]);
+  /** The lines the run changes: every line of a speaker given a voice, but none already changed into it. */
+  const linesToRun = useMemo(
+    () =>
+      (lineByLine?.clips ?? [])
+        .filter((clip) => chosenVoices[clip.speaker])
+        .map((clip) => clip.key)
+        .filter((key) => !['done', 'flag', 'silent'].includes(lineProgress[key]?.state ?? '')),
+    [lineByLine, chosenVoices, lineProgress]
+  );
+  const chosenKey = JSON.stringify(chosenVoices);
+  const lastChosenKey = useRef(chosenKey);
+  // Another voice for anyone starts the lines afresh.
+  useEffect(() => {
+    if (lastChosenKey.current === chosenKey) return;
+    lastChosenKey.current = chosenKey;
+    if (!linesRunning) {
+      setLineProgress({});
+      setLinesError(null);
+    }
+  }, [chosenKey, linesRunning]);
+
   if (!isOpen) return null;
 
   // Handle custom file upload for source
@@ -412,15 +484,27 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       };
 
       const seed = stsSeed.trim() === '' ? undefined : Number(stsSeed);
-      const resultBlob = await speechToSpeech(
-        elApiKey,
-        targetVoiceId,
-        audioBlob,
-        stsModelId,
-        settings,
-        removeBackgroundNoise,
-        { outputFormat: stsOutputFormat, seed: Number.isInteger(seed) ? seed : undefined }
-      );
+      // A format the plan refuses is asked again in the next one down, as a dub is.
+      let format = stsOutputFormat;
+      let resultBlob: Blob;
+      setFormatNotice(null);
+      for (;;) {
+        try {
+          resultBlob = await speechToSpeech(elApiKey, targetVoiceId, audioBlob, stsModelId, settings, removeBackgroundNoise, {
+            outputFormat: format,
+            seed: Number.isInteger(seed) ? seed : undefined,
+          });
+          break;
+        } catch (err: any) {
+          const next = STS_FALLBACK[format];
+          if (err?.code !== 'output_format_not_allowed' || !next) throw err;
+          format = next;
+        }
+      }
+      if (format !== stsOutputFormat) {
+        const label = (id: string) => STS_OUTPUT_FORMATS.find((f) => f.id === id)?.label ?? id;
+        setFormatNotice(`Your ElevenLabs plan doesn't include ${label(stsOutputFormat)}, so this came back as ${label(format)}.`);
+      }
 
       const url = URL.createObjectURL(resultBlob);
       setOutputBlob(resultBlob);
@@ -545,6 +629,42 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     onSetDubbedMaster(outputBlob, outputBuffer);
     onClose();
   };
+
+  const handleChangeLines = async () => {
+    if (!onChangeLines || linesRunning || linesToRun.length === 0 || editRender !== 'ready') return;
+    const controller = new AbortController();
+    lineRunRef.current = controller;
+    const keys = linesToRun;
+    setLinesRunning(true);
+    setLinesError(null);
+    setErrorMessage(null);
+    setLineProgress((prev) => ({ ...prev, ...Object.fromEntries(keys.map((key) => [key, { state: 'waiting' as const }])) }));
+    const seed = stsSeed.trim() === '' ? undefined : Number(stsSeed);
+    try {
+      const { error } = await onChangeLines(
+        chosenVoices,
+        {
+          modelId: stsModelId,
+          voiceSettings: { stability, similarity_boost: similarity, style: styleExaggeration, use_speaker_boost: speakerBoost },
+          removeBackgroundNoise,
+          ...(Number.isInteger(seed) && { seed }),
+        },
+        { keys, onLine: (key, progress) => setLineProgress((prev) => ({ ...prev, [key]: progress })), signal: controller.signal }
+      );
+      if (error) setLinesError(error);
+    } catch (err: any) {
+      if (!controller.signal.aborted) setLinesError(err?.message || 'The lines could not be changed.');
+    } finally {
+      if (lineRunRef.current === controller) lineRunRef.current = null;
+      // Lines a stop never reached, or left half way, are as they were: the next run takes them.
+      setLineProgress((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([, progress]) => progress.state !== 'waiting' && progress.state !== 'changing'))
+      );
+      setLinesRunning(false);
+    }
+  };
+
+  const handleStopLines = () => lineRunRef.current?.abort();
 
   const handleDownloadOutput = () => {
     if (!outputBlob) return;
@@ -757,9 +877,62 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
           <div className="px-5 sm:px-6 py-5 flex flex-col gap-4 min-w-0">
             {activeTab === 'sts' && (
               <>
-                <p className="text-[13px] text-slate-400 max-w-[60ch]">
-                  The new voice follows the original's timing, pauses and emotion, so it lines up with the video.
-                </p>
+                {lineByLine && onChangeLines && inputIsProjectDub && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Replace the dub</span>
+                      <EditRenderChip state={editRender} />
+                    </div>
+                    <div role="radiogroup" aria-label="How to replace the dub" className="grid grid-cols-2 p-[3px] gap-[3px] rounded-[11px] bg-slate-950/60 border border-slate-800">
+                      {([
+                        ['line', 'Line by line', 'Keeps your edits'],
+                        ['whole', 'Whole file', 'One take of everything'],
+                      ] as const).map(([id, label, sub]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          role="radio"
+                          aria-checked={replaceMode === id}
+                          disabled={linesRunning || isProcessing}
+                          onClick={() => setReplaceMode(id)}
+                          className={`px-3 py-2 rounded-lg text-left transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                            replaceMode === id ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <span className="block text-[13px] font-semibold">{label}</span>
+                          <span className="block text-[11px] opacity-80">{sub}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <p className={`text-[12px] ${lineMode ? 'text-slate-400' : 'text-amber-300/90'}`}>
+                      {lineMode
+                        ? 'Each line is changed on its own and fitted to its old length, so it lands exactly where it was, with every edit you made.'
+                        : `${severalSpeakers ? 'Every speaker becomes one voice and overlapping lines blur together. ' : ''}Edit timing is cleared, and lines can drift from where you put them.`}
+                    </p>
+                  </div>
+                )}
+                {!lineMode && (
+                  <p className="text-[13px] text-slate-400 max-w-[60ch]">
+                    The new voice follows the original's timing, pauses and emotion, so it lines up with the video.
+                  </p>
+                )}
+                {lineMode && severalSpeakers && lineByLine ? (
+                  <div className="flex flex-col gap-2">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Change each speaker into</span>
+                    <SpeakerVoiceRows
+                      speakers={lineByLine.speakers}
+                      voices={stsVoices}
+                      chosen={speakerVoices}
+                      onChoose={(speaker, id) => setSpeakerVoices((prev) => ({ ...prev, [speaker]: id }))}
+                      onBrowse={(speaker) => {
+                        setPickerFor(speaker);
+                        setIsPickerOpen(true);
+                      }}
+                      hasOriginalClips={lineByLine.clips.some((c) => c.speaker === 'Original audio')}
+                      disabled={linesRunning}
+                    />
+                  </div>
+                ) : (
                 <div className="flex flex-col gap-2">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Change into</span>
                   <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800">
@@ -782,7 +955,10 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     )}
                     <button
                       type="button"
-                      onClick={() => setIsPickerOpen(true)}
+                      onClick={() => {
+                        setPickerFor(null);
+                        setIsPickerOpen(true);
+                      }}
                       className="h-8 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-pointer"
                     >
                       Change
@@ -813,6 +989,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     </div>
                   )}
                 </div>
+                )}
 
                 <div className="flex items-center justify-between -mb-2">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice settings</span>
@@ -857,6 +1034,9 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       <option value="eleven_english_sts_v2" className="bg-slate-900">English only</option>
                     </select>
                   </div>
+                  {lineMode ? (
+                    <p className="text-[11.5px] text-slate-400 pb-2">Each line comes back in the dub's own format and rate; nothing is resampled.</p>
+                  ) : (
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="sts-output-format" className="text-xs text-slate-400">Output Format</label>
                     <select
@@ -870,6 +1050,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       ))}
                     </select>
                   </div>
+                  )}
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-x-4 gap-y-3">
@@ -904,6 +1085,36 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                   )}
                 </div>
 
+                {lineMode ? (
+                  <div className="mt-auto flex flex-wrap items-center gap-3 pt-1">
+                    {linesRunning ? (
+                      <button type="button" onClick={handleStopLines} className={`${primaryButton} bg-slate-700 hover:bg-slate-600`}>
+                        <Square className="w-3.5 h-3.5 fill-current" /> Stop
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleChangeLines}
+                        disabled={isRecording || linesToRun.length === 0 || editRender !== 'ready'}
+                        className={primaryButton}
+                      >
+                        <ArrowLeftRight className="w-4 h-4" />
+                        {linesToRun.length === 0 && Object.keys(chosenVoices).length > 0
+                          ? 'All lines changed'
+                          : `Replace ${linesToRun.length} line${linesToRun.length === 1 ? '' : 's'}`}
+                      </button>
+                    )}
+                    <span className="text-[11.5px] text-slate-500">
+                      {Object.keys(chosenVoices).length === 0
+                        ? severalSpeakers
+                          ? 'Pick a voice for at least one speaker.'
+                          : 'Choose an ElevenLabs voice to change into.'
+                        : editRender !== 'ready'
+                          ? 'Waits for your latest edits, so it changes the dub as it is now.'
+                          : "Uses ElevenLabs credits for those lines only. The old voice stays in each line's takes."}
+                    </span>
+                  </div>
+                ) : (
                 <div className="mt-auto flex flex-wrap items-center gap-3 pt-1">
                   <button
                     type="button"
@@ -911,7 +1122,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       setOutputLabel(targetName);
                       handleRunSpeechToSpeech();
                     }}
-                    disabled={isProcessing || isRecording || !hasTarget || (!sourceAudioFile && !sourceAudioBuffer)}
+                    disabled={isProcessing || isRecording || !hasTarget || (!sourceAudioFile && !sourceAudioBuffer) || (inputIsProjectDub && editRender !== 'ready')}
                     className={primaryButton}
                   >
                     <ArrowLeftRight className="w-4 h-4" /> {hasTarget ? `Change to ${targetName}` : 'Change voice'}
@@ -919,9 +1130,13 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                   <span className="text-[11.5px] text-slate-500">
                     {targetIsCartesia
                       ? 'Cartesia no longer offers voice changing. Choose an ElevenLabs voice.'
-                      : `Uses ElevenLabs credits${sourceLength ? ` for ${sourceLength} of audio` : ''}.`}
+                      : inputIsProjectDub && editRender !== 'ready'
+                        ? 'Waits for your latest edits, so it changes the dub as it is now.'
+                        : `Uses ElevenLabs credits${sourceLength ? ` for ${sourceLength} of audio` : ''}.`}
                   </span>
                 </div>
+                )}
+                {formatNotice && !lineMode && <p className="text-[11.5px] text-amber-300/90">{formatNotice}</p>}
               </>
             )}
 
@@ -1129,18 +1344,45 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               </>
             )}
 
-            {errorMessage && (
+            {(errorMessage || (lineMode && linesError)) && (
               <p className="flex items-start gap-2 px-3 py-2.5 rounded-[10px] bg-rose-500/10 border border-rose-500/30 text-[12.5px] text-slate-200" role="alert">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-px" /> {errorMessage}
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-px" /> {errorMessage || linesError}
               </p>
             )}
           </div>
 
           {/* Result */}
           <aside aria-label="Result" className="px-5 py-5 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/40 flex flex-col gap-3.5 min-w-0">
-            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Result</span>
+            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{lineMode ? 'Edit timing' : 'Result'}</span>
 
-            {isProcessing ? (
+            {lineMode && lineByLine ? (
+              <>
+                <p className="text-[11.5px] text-slate-400 -mt-1.5">Every line stays where it is. Changed lines turn green; amber ones are worth a listen.</p>
+                <LineLanes
+                  speakers={lineByLine.speakers.map((sp) => sp.name)}
+                  clips={lineByLine.clips}
+                  duration={lineByLine.duration}
+                  progress={lineProgress}
+                  changing={(speaker) => Boolean(chosenVoices[speaker])}
+                />
+                {Object.keys(lineProgress).length > 0 ? (
+                  <LineRunSummary
+                    keys={lineByLine.clips.filter((c) => chosenVoices[c.speaker]).map((c) => c.key)}
+                    clips={lineByLine.clips}
+                    progress={lineProgress}
+                    running={linesRunning}
+                  />
+                ) : (
+                  <p className="text-[12px] text-slate-400">
+                    {linesToRun.length} line{linesToRun.length === 1 ? '' : 's'} will change
+                    {lineByLine.clips.filter((c) => c.speaker !== 'Original audio').length - linesToRun.length > 0
+                      ? ` · ${lineByLine.clips.filter((c) => c.speaker !== 'Original audio').length - linesToRun.length} kept as they are`
+                      : ''}
+                    .
+                  </p>
+                )}
+              </>
+            ) : isProcessing ? (
               <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-slate-900 border border-slate-800" role="status" aria-live="polite">
                 <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-100">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" /> {runLabel}
@@ -1265,8 +1507,8 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               </button>
             </div>
             <VoiceSelectorCard
-              elVoiceId={targetVoiceId}
-              onElVoiceIdChange={setTargetVoiceId}
+              elVoiceId={pickerFor ? speakerVoices[pickerFor] ?? '' : targetVoiceId}
+              onElVoiceIdChange={(id) => (pickerFor ? setSpeakerVoices((prev) => ({ ...prev, [pickerFor]: id })) : setTargetVoiceId(id))}
               availableVoices={stsVoices}
               targetLanguage={targetLanguage}
               className="h-[78vh]"

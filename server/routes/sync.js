@@ -10,6 +10,7 @@ import {
   getVoiceSettings,
   readSettings,
   DEFAULT_VOICE_SETTINGS,
+  speechToSpeech,
 } from '../providers/elevenlabs/speech.js';
 import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } from '../providers/cartesia/speech.js';
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch } from '../lib/media.js';
@@ -32,6 +33,7 @@ import { config } from '../env.js';
 import { addDeliveryCuesToPassages } from '../lib/deliveryCues.js';
 import { alignmentText, cueSpans, cutDubTakes } from '../lib/dubTakes.js';
 import { forceAlign } from '../providers/elevenlabs/alignment.js';
+import { fitToLength, STS_PCM_RATES } from '../lib/voiceChange.js';
 
 export const syncRouter = Router();
 
@@ -889,6 +891,91 @@ syncRouter.post(
         at += take.samples.length;
         return out;
       }),
+    });
+  })
+);
+
+/**
+ * POST /api/sync/voice-change — one line of the bank put through the voice
+ * changer and fitted back to its old length (see voiceChange.js), so every
+ * edit of it still fits. Body: `{ bankId, line: { bankStart, length, gain },
+ * voiceId, modelId, voiceSettings, removeBackgroundNoise, seed, matchLoudness }`.
+ * Nothing in the bank changes: replies `{ audioId, length, change, gain, hash }`,
+ * the new take (a WAV in the bank's own format, fetched from
+ * /api/sync/audio/:audioId), how much longer or shorter the voice changer gave
+ * it back as a share, the gain that keeps it at the line's level, and its hash.
+ * `{ silent: true }` when the voice changer gave back no sound. A bank this
+ * server no longer has is a 404 with code `edit_bank_missing`.
+ */
+syncRouter.post(
+  '/sync/voice-change',
+  asyncHandler(async (req, res) => {
+    const { bankId, line, voiceId, modelId, voiceSettings, removeBackgroundNoise, seed, matchLoudness } = req.body || {};
+    const entry = typeof bankId === 'string' ? bankFor(bankId) : null;
+    if (!entry) throw new ApiError('The saved lines of this sync are not on the server.', { status: 404, code: 'edit_bank_missing' });
+    const bankStart = Number(line?.bankStart);
+    const length = Number(line?.length);
+    if (!Number.isInteger(bankStart) || !Number.isInteger(length) || bankStart < 0 || length <= 0 || bankStart + length > entry.samples.length) {
+      throw new ApiError('That line is not in the saved lines of this sync.', { status: 400, code: 'bad_bank_line' });
+    }
+    if (typeof voiceId !== 'string' || !voiceId.trim()) throw new ApiError('Pick a voice to change into.', { status: 400, code: 'no_voice' });
+    if (isCartesiaVoice(voiceId)) {
+      throw new ApiError('Cartesia retired its voice changer. Pick an ElevenLabs voice.', { status: 400, code: 'sts_cartesia' });
+    }
+    const { sampleRate } = entry;
+    if (!STS_PCM_RATES.includes(sampleRate)) {
+      throw new ApiError(`The voice changer can't give a voice back at ${sampleRate} Hz, the rate this dub was synced at, and DHVANI never resamples a voice.`, {
+        status: 400,
+        code: 'sts_sample_rate',
+      });
+    }
+
+    const controller = new AbortController();
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort();
+    });
+    const { signal } = controller;
+    const apiKey = req.get('x-elevenlabs-key') || undefined;
+
+    const lineSamples = entry.samples.subarray(bankStart, bankStart + length);
+    const input = await encodeWav(sampleRate)(lineSamples);
+    // Raw PCM at the bank's own rate: nothing to decode with ffmpeg and nothing resampled.
+    const format = `pcm_${sampleRate}`;
+    const response = await speechToSpeech(
+      {
+        voiceId,
+        file: { buffer: input.buffer, mimetype: 'audio/wav', originalname: 'line.wav' },
+        modelId: typeof modelId === 'string' && modelId ? modelId : undefined,
+        voiceSettings: voiceSettings && typeof voiceSettings === 'object' ? voiceSettings : undefined,
+        removeBackgroundNoise: removeBackgroundNoise === true,
+        outputFormat: format,
+        seed: Number.isInteger(seed) ? seed : undefined,
+      },
+      { apiKey, signal }
+    );
+    const decoded = await decodeAudio(Buffer.from(await response.arrayBuffer()), format);
+    if (signal.aborted) throw cancelledError('Voice change');
+    if (decoded.length === 0 || !decoded.some((sample) => Math.abs(sample) > 1e-4)) {
+      res.json({ silent: true });
+      return;
+    }
+    if (decoded.length !== length && !(await ffmpegAvailable())) {
+      throw new ApiError('Fitting a changed line to its old length needs ffmpeg. Install ffmpeg and try again.', { status: 501, code: 'ffmpeg_missing' });
+    }
+    const fitted = await fitToLength(decoded, length, (samples, rate) => timeStretch(samples, sampleRate, rate));
+
+    // Written once in the bank's own format and read back, as a take is, so its hash is of what the bank will hold.
+    const file = await encodeWav(sampleRate)(fitted.samples, { float: entry.float });
+    const written = parseWav(file.buffer).samples;
+    const lineGain = Number(line?.gain) > 0 ? Number(line.gain) : 1;
+    // The line stays at the level it had in the dub: the voice changer gives some voices back louder or quieter.
+    const gain = matchLoudness === true ? takeGain(written, lineSamples, lineGain, sampleRate) : lineGain;
+    res.json({
+      audioId: keepResult(file.buffer, file.contentType),
+      length: written.length,
+      change: fitted.change,
+      gain,
+      hash: clipHash(written),
     });
   })
 );

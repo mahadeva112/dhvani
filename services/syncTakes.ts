@@ -50,6 +50,8 @@ export interface SyncTake {
   direction?: TakeDirection;
   /** The words voiced again, for a phrase take. */
   phrase?: string;
+  /** The voice a voice-changed take was changed into (the voice changer, line by line). */
+  voice?: string;
   /** What the line said when the take was voiced. */
   text: string;
   /** What the voice read, when that was new words with pause marks ([pause 0.4s]): `text` is those words without them. */
@@ -143,6 +145,20 @@ export const appendToBank = async (bankBlob: Blob, takesWav: Blob, { sampleRate,
   }
   const bytes = float ? 4 : 2;
   return new Blob([wavHeader((had + added) * bytes, sampleRate, float), bankBlob.slice(HEADER_BYTES), takesWav.slice(HEADER_BYTES)], { type: 'audio/wav' });
+};
+
+/** The bank with several WAVs' samples after its own, in order: the old bytes copied as they are, one header for all. */
+export const appendManyToBank = async (bankBlob: Blob, wavs: Blob[], { sampleRate, float, baseLength }: { sampleRate: number; float: boolean; baseLength: number }) => {
+  const had = await samplesIn(bankBlob, float);
+  if (had !== baseLength) {
+    throw new Error("The saved lines of this dub don't match. Sync again to change its voice line by line.");
+  }
+  let added = 0;
+  for (const wav of wavs) added += await samplesIn(wav, float);
+  const bytes = float ? 4 : 2;
+  return new Blob([wavHeader((had + added) * bytes, sampleRate, float), bankBlob.slice(HEADER_BYTES), ...wavs.map((wav) => wav.slice(HEADER_BYTES))], {
+    type: 'audio/wav',
+  });
 };
 
 /** One take on its own, as a WAV, for listening to it: its samples copied out of the bank. */

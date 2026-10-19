@@ -144,6 +144,16 @@ import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
 import { pickedTakes, putTake, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
 import { stripPauses } from './server/lib/linePauses.js';
+import {
+  laneClips,
+  linesToChange,
+  putChangedLines,
+  speakersOf,
+  voiceChangeLines,
+  type LineProgress,
+  type SpeakerVoices,
+  type VoiceChangeSettings,
+} from './services/voiceChangeService';
 import { LiveDubEngine, liveClips } from './services/liveDubEngine';
 import { cleanSpeakerLevels, silencedSpeakers, withSpeakerLevels, type SpeakerMonitor } from './services/speakerLevels';
 import type { SyncEditStatus } from './components/SyncEditTimeline';
@@ -3189,6 +3199,65 @@ export default function App() {
     [activeJob, playsSynced, updateJob]
   );
 
+  /**
+   * Voice changer, line by line: each line of the synced dub changed on its
+   * own and fitted to its old length, then put in the bank as a take of that
+   * line, so every line keeps its place and its edits. The dub is rendered
+   * again with them; the old voice stays in each line's takes.
+   */
+  const handleVoiceChangeLines = async (
+    voices: SpeakerVoices,
+    settings: VoiceChangeSettings,
+    { keys, onLine, signal }: { keys: string[]; onLine: (key: string, progress: LineProgress) => void; signal: AbortSignal }
+  ): Promise<{ changed: number; error: string | null }> => {
+    const job = activeJob;
+    if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport) return { changed: 0, error: 'This dub has no synced lines to change.' };
+    const bank = job.syncBank;
+    // Only the lines asked for: one changed already isn't changed again.
+    const lines = linesToChange(bank, voices).filter((line) => keys.includes(line.key));
+    const { changed, error } = await voiceChangeLines(
+      { bank, bankBlob: job.syncBankBlob, lines, voices, settings },
+      { apiKey: elApiKey, signal, onLine }
+    );
+    refreshQuota();
+    // Lines finished before a stop are kept: they are paid for.
+    if (changed.length === 0) return { changed: 0, error: error?.message ?? null };
+    // A Sync or a take picked meanwhile made a new bank: these lines belong to the old one.
+    const now = queueRef.current.find((j) => j.id === job.id);
+    if (!now?.syncBank || now.syncBank.bankId !== bank.bankId || !now.syncBankBlob || !now.syncBaseReport) {
+      return { changed: 0, error: 'The dub changed while its voice was being changed. Try again.' };
+    }
+    const put = await putChangedLines(
+      { bank: now.syncBank, bankBlob: now.syncBankBlob, takes: now.syncTakes, report: now.syncBaseReport, changed }
+    );
+    // Edits stay exactly as they were: each line is as long as before, so they fit it.
+    updateJob(job.id, { syncBank: put.bank, syncBankBlob: put.bankBlob, syncTakes: put.takes });
+    scheduleSyncEditRender(
+      job.id,
+      {
+        bank: put.bank,
+        bankBlob: put.bankBlob,
+        baseReport: now.syncBaseReport,
+        edits: now.syncEdits || null,
+        sourceDuration: sourceDurationOf(now),
+        source: now.audioBuffer,
+      },
+      0
+    );
+    return { changed: changed.length, error: error?.message ?? null };
+  };
+
+  /** What the voice changer needs to change the synced dub line by line; null for a dub that isn't synced. */
+  const voiceChangeLineByLine = useMemo(() => {
+    if (!isVoiceChangerOpen || !activeJob?.syncBank || !activeJob.syncBankBlob || !activeJob.syncBaseReport) return null;
+    return {
+      speakers: speakersOf(activeJob.syncBank),
+      clips: laneClips(activeJob.syncBank, activeJob.syncEdits, sourceDurationOf(activeJob)),
+      duration: sourceDurationOf(activeJob),
+      cast: Object.fromEntries(Object.entries(activeJob.cast || {}).map(([speaker, voice]) => [speaker, voice.voiceId])),
+    };
+  }, [isVoiceChangerOpen, activeJob?.syncBank, activeJob?.syncBankBlob, activeJob?.syncBaseReport, activeJob?.syncEdits, activeJob?.cast]);
+
   /** The finished dub (the synced one once there is one), which is what the voice changer works on (not the source speech). */
   const voiceChangerBuffer = (playsSynced ? activeJob?.syncedAudioBuffer : activeJob?.synthAudioBuffer) || null;
   const voiceChangerBlob = (playsSynced ? activeJob?.syncedBlob : activeJob?.synthesizedBlob) || null;
@@ -3570,6 +3639,9 @@ export default function App() {
         onRefreshVoices={fetchVoices}
         targetLanguage={activeJob?.language || selectedLanguage}
         cartesiaAvailable={cartesiaConfigured}
+        lineByLine={voiceChangeLineByLine}
+        onChangeLines={handleVoiceChangeLines}
+        editRender={playsSynced && activeJob?.syncBank ? syncEditStatus.state : 'ready'}
       />
 
       {/* Standalone text-to-speech studio, both engines */}
