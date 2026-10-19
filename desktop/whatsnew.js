@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.69',
+    changes: [
+      'A dub that stops part way (DHVANI closed, crashed, or a request failed) now picks up where it left off: Resume dub voices only the lines it never got, so you do not pay for the rest twice.',
+      'If a project cannot be saved to this computer, a notice now says so, with Save again, instead of losing the latest changes silently.',
+      'New Audio quality setting on the Dub step: WAV 48 kHz by default, or MP3 192 / 128. If your ElevenLabs plan refuses a format, the next one down is used and a note says why.',
+    ],
+  },
+  {
     version: '1.3.68',
     changes: [
       'The Dub step no longer freezes for several seconds when it opens or when you zoom the Rythmo view on a long script.',
