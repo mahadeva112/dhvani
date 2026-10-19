@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { silenceLevel, tightenSilences, composeCuts, applyCuts } from './syncRender.js';
+import { silenceLevel, tightenSilences, composeCuts, applyCuts, shortenPauses, quietStretches } from './syncRender.js';
 import { resolveJoinSettings, DEFAULT_JOIN_SETTINGS } from './syncSettings.js';
 import { runSync, clearClipCache } from './syncDub.js';
 
@@ -237,4 +237,30 @@ test('a tightened line locked in Edit timing is rebuilt sample for sample in the
     second.bank.samples.subarray(kept.bankStart, kept.bankStart + kept.length),
     first.bank.samples.subarray(line.bankStart, line.bankStart + line.length)
   );
+});
+
+test('a pause on room tone with clicks in it is still one pause, read in short windows', () => {
+  const { samples, spans } = line({ words: 2, pause: 0.8, tail: 0.3 });
+  // A click every 25 ms, twice the silence level: sample by sample, the pause would be slivers too short to cut.
+  const level = silenceLevel(samples, RATE);
+  for (let i = spans[0].end + 100; i < spans[1].start - 100; i += 200) samples[i] = 2 * level;
+  const inside = quietStretches(samples, RATE, level).filter((s) => s.end > spans[0].end && s.start < spans[1].start);
+  assert.equal(inside.length, 1, 'one stretch');
+  assert.ok((inside[0].end - inside[0].start) / RATE > 0.7, `nearly all of the pause: ${(inside[0].end - inside[0].start) / RATE}`);
+
+  const result = tightenSilences(samples, RATE, 1, { firstWord: spans[0].start, minPause: 0.15, margin: 0.08 });
+  assert.ok(result.inner > 0.5, `the pause is cut: ${result.inner}`);
+  // The words come through sample for sample.
+  assert.deepEqual(sounds(result.samples, 0.05), sounds(samples, 0.05));
+});
+
+test('Match source pauses finds a pause on room tone, where true silence alone found none', () => {
+  const { samples, spans } = line({ words: 2, pause: 0.8, tail: 0.3 });
+  const lead = spans[0].start / RATE;
+  const speech = (spans[1].end - spans[0].start) / RATE;
+  // The original runs straight through: the pause goes down to 0.15 s, blended over 5 ms in room tone.
+  const { removed, cuts, samples: out } = shortenPauses(samples, RATE, 0, { source: { lead, speech, pauses: [], keep: 0.15 } });
+  assert.ok(Math.abs(removed - 0.65) < 0.02, `took ${removed}`);
+  assert.equal(cuts[0].blend, Math.round(0.005 * RATE));
+  assert.deepEqual(sounds(out, 0.05), sounds(samples, 0.05));
 });

@@ -31,7 +31,7 @@ import { mixSpeakers, speakerGains } from './speakerMix.js';
 import { tooDeepCut } from './syncRewrite.js';
 import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
 import { sourcePausesOf } from './sourcePauses.js';
-import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, RIGID_GAP_SECONDS } from './chunkSync.js';
+import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, linePauses, joinSpokenBlocks, RIGID_GAP_SECONDS } from './chunkSync.js';
 import { takeDiffers } from './takeChecks.js';
 import { readStoredClip, storeClip } from './clipStore.js';
 
@@ -596,9 +596,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       pauseCuts.set(i, cuts);
       return;
     }
-    // With Chunk sync the pauses are left out between chunks instead.
-    if (!clips[i] || chunked) return;
-    const excess = join.shortenPauses ? Math.max(0, overflow(i)) : 0;
+    if (!clips[i]) return;
+    // With Chunk sync a line that runs long gives up the pauses between its chunks instead;
+    // a pause the original never made goes all the same, chunk or no chunk.
+    const excess = join.shortenPauses && !chunked ? Math.max(0, overflow(i)) : 0;
     const source = sourcePauses[i] ? { lead: clips[i].lead, speech: clips[i].speech, pauses: sourcePauses[i], keep: join.unmatchedPause } : null;
     if (excess <= 0 && !source) return;
     const { samples, removed, cuts, matched } = shortenPauses(clips[i].samples, sampleRate, excess, {
@@ -623,7 +624,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // words can't be timed is left as it is rather than cut blind.
   const silenceTightened = new Map();
   const cutCheckErrors = new Map();
-  if (join.tightenSilences && !chunked) {
+  if (join.tightenSilences) {
     const tightOptions = (i, protect = []) => ({
       firstWord: Math.round(clips[i].lead * sampleRate),
       minPause: join.tightMinPause,
@@ -707,11 +708,14 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
    * each chunk with its first sound (`onset`, seconds into the line) and where
    * that should land (`target`), each block with the pause before it and how
    * the script reads there. A locked line is one block, the whole line.
+   * Every block has its `length` in seconds and each chunk its `at`, seconds
+   * from its block's start; with joinSpokenChunks, blocks the original says
+   * in one go are one block (see joinSpokenBlocks).
    */
   const chunkLineOf = (i) => {
     const unit = units[i];
     const clip = clips[i];
-    if (lockOf[i]) return { i, locked: true, blocks: [{ from: 0, to: clip.samples.length, chunks: [{ from: 0, to: clip.samples.length }] }] };
+    if (lockOf[i]) return { i, locked: true, blocks: [{ from: 0, to: clip.samples.length, length: clip.samples.length / sampleRate, chunks: [{ from: 0, to: clip.samples.length, at: 0 }] }] };
     const words = chunkWords.get(i) || null;
     // Without the words, and asked to check against them, the line isn't split blind: it stays whole.
     const whole = join.checkCutWords && !words;
@@ -751,19 +755,24 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       const last = blocks.at(-1);
       const member = { ...chunk, onset: onsets[k], target: targets[k] };
       if (last && (chunk.from - last.to) / sampleRate <= RIGID_GAP_SECONDS) {
-        last.chunks.push(member);
+        last.chunks.push({ ...member, at: (chunk.from - last.from) / sampleRate });
         last.to = chunk.to;
+        last.length = (last.to - last.from) / sampleRate;
       } else {
         blocks.push({
           from: chunk.from,
           to: chunk.to,
-          chunks: [member],
+          length: (chunk.to - chunk.from) / sampleRate,
+          chunks: [{ ...member, at: 0 }],
           kindBefore: last ? kindBefore(chunk.from) : null,
           pauseBefore: last ? (chunk.from - last.to) / sampleRate : 0,
         });
       }
     });
-    return { i, blocks };
+    if (!join.joinSpokenChunks) return { i, blocks };
+    // Said in one go in the original: the dub doesn't stop there either.
+    const floorOf = (kind) => (kind === 'stop' ? join.stopGap : kind === 'comma' ? join.commaGap : join.wordGap);
+    return { i, blocks: joinSpokenBlocks(blocks, linePauses(cues), floorOf) };
   };
 
   /** The last line with a take: no pause after it. */
@@ -789,7 +798,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     const unit = units[line.i];
     let packed = 0;
     line.blocks.forEach((block, b) => {
-      packed += (block.to - block.from) / sampleRate + (b < line.blocks.length - 1 ? chunkGapAfter(line, b, 2) : 0);
+      packed += block.length + (b < line.blocks.length - 1 ? chunkGapAfter(line, b, 2) : 0);
     });
     const lead = (Math.max(clip.lead * sampleRate, line.blocks[0].from) - line.blocks[0].from) / sampleRate;
     const room = unit.nextStart !== null ? unit.nextStart - unit.srcStart - Math.max(0, chunkGapAfter(line, line.blocks.length - 1, 2)) : Infinity;
@@ -917,6 +926,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           breathsRemoved[i] = best.breaths;
           if (best.words) chunkWords.set(i, best.words);
           hashes[i] = clipHash(clips[i].samples);
+          // A new take: the pauses cut from the old one say nothing of it.
+          for (const cut of [pauseCuts, pauseTrimmed, sourcePauseTrimmed, silenceTightened]) cut.delete(i);
           if (best.speed) speedFits.set(i, best.speed);
         } else offeredTakes.set(i, best.clip.samples);
         rejectedTakes.delete(i);
@@ -981,15 +992,16 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
             return;
           }
           // Each chunk pulls by its length (Samanvaya: 0.3 to 3) towards the start that puts its first sound on its target.
+          // A block joined from several (joinSpokenChunks) moves as one: every chunk in it pulls, so its error is shared out.
           let sum = 0;
           let weight = 0;
           for (const chunk of block.chunks) {
             const w = Math.max(0.3, Math.min(3, (chunk.to - chunk.from) / sampleRate));
-            sum += w * (chunk.target - (chunk.onset - block.from / sampleRate));
+            sum += w * (chunk.target - (chunk.at + chunk.onset - chunk.from / sampleRate));
             weight += w;
           }
           const want = sum / weight;
-          const length = (block.to - block.from) / sampleRate;
+          const { length } = block;
           // A protected pause: the line's first chunk starts no sooner than the original line, its last ends no later.
           const preserveBefore = b === 0 && join.preserveLongPauses && unit.gapBefore >= join.protectedPause;
           const preserveAfter = b === line.blocks.length - 1 && join.preserveLongPauses && unit.gapAfter >= join.protectedPause;
@@ -1007,7 +1019,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
             gapAfter: gapAfter(line, b, tier),
             weight: Math.max(0.3, Math.min(3, weight)) * (b === 0 && unit.hardAnchor ? join.anchorWeight : 1),
             // Only its first sound has to be inside the track: the pad before it may go before 0:00.
-            floor: -(block.chunks[0].onset - block.from / sampleRate),
+            floor: -(block.chunks[0].onset - block.chunks[0].from / sampleRate),
           });
         });
       }
@@ -1016,7 +1028,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       let worst = 0;
       items.forEach((item, k) => {
         if (item.line.locked) return;
-        for (const chunk of item.block.chunks) worst = Math.max(worst, Math.abs(at[k] + (chunk.onset - item.block.from / sampleRate) - chunk.target));
+        // A chunk joined on was moved off its word on purpose: it doesn't keep the pauses from shrinking in punctuation order.
+        for (const chunk of item.block.chunks) if (!chunk.follows) worst = Math.max(worst, Math.abs(at[k] + chunk.at + chunk.onset - chunk.from / sampleRate - chunk.target));
       });
       return { items, at, conflicts, worst };
     };
@@ -1038,7 +1051,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
     items.forEach((item, k) => {
       for (const chunk of item.block.chunks) {
-        chunk.start = at[k] + (chunk.from - item.block.from) / sampleRate;
+        chunk.start = at[k] + chunk.at;
         // What would play before 0:00 is the pad before its first sound: it is left out.
         if (chunk.start < 0) {
           chunk.from = Math.min(chunk.to - 1, chunk.from + Math.round(-chunk.start * sampleRate));

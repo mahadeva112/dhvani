@@ -41,6 +41,14 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   /** Shrink pauses between words first, then at commas, sentence ends last. */
   punctuationPriority: true,
   /**
+   * Chunks of a line the original speaker says in one go, with no pause
+   * between them, play back to back at the least pause their punctuation
+   * allows (wordGap, commaGap, stopGap), instead of each waiting for its own
+   * word in the original. A line's first chunk, and a chunk after a pause
+   * the original has, still land on their own word.
+   */
+  joinSpokenChunks: true,
+  /**
    * Fit by voice speed: a line still too long with every pause shrunk is
    * voiced again, read faster by the voice itself (its speed setting, not a
    * stretch), up to `maxVoiceSpeed` times its own speed. Chunk sync only.
@@ -184,7 +192,7 @@ export const resolveJoinSettings = (requested) => {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }
-  for (const key of ['chunkSync', 'punctuationPriority', 'endByVideo', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
+  for (const key of ['chunkSync', 'punctuationPriority', 'joinSpokenChunks', 'endByVideo', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
     if (typeof requested[key] === 'boolean') settings[key] = requested[key];
   }
   // Off, ask or auto; a speedFit from before it had modes reads as it did: on is auto.

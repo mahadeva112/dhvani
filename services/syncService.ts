@@ -56,6 +56,8 @@ export interface SyncJoinSettings {
   maxChunkGap: number;
   /** Shrink pauses between words first, then at commas, sentence ends last. */
   punctuationPriority: boolean;
+  /** Chunks the original says in one go play back to back, at the least pause their punctuation allows. */
+  joinSpokenChunks: boolean;
   /**
    * A line still too long: read faster by the voice (speed, or a calm pace
    * direction on Eleven v3 and v4, up to `maxVoiceSpeed`), and voiced twice

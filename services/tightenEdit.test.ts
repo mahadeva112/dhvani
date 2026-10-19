@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tightenPart, DEFAULT_TIGHTEN } from './tightenEdit.ts';
+import { tightenPart, closeUpParts, DEFAULT_TIGHTEN } from './tightenEdit.ts';
 import type { SyncEditPart } from './syncEditModel.ts';
 
 const RATE = 8000;
@@ -67,4 +67,29 @@ test('a stretched part keeps its speed, and a part with nothing to cut comes bac
   assert.deepEqual(tightenPart(solid, RATE, same, DEFAULT_TIGHTEN).parts, [same]);
   // A higher setting than every pause has: nothing to cut either.
   assert.equal(tightenPart(samples, RATE, part(), { ...DEFAULT_TIGHTEN, minPause: 2 }).cuts.filter((c) => c.from > 1 && c.to < 2).length, 0);
+});
+
+test('Close up: picked parts play back to back, and the first part after them keeps its place', () => {
+  const at = (id: string, start: number, length = 1) => part({ id, start, from: 0, to: length, fadeIn: 0, fadeOut: 0 });
+  const lines = [
+    { key: '11', parts: [at('11#c0', 0)] },
+    { key: '12', parts: [at('12#c0', 2), at('12#c1~0', 4), at('12#c1~1', 5)] },
+    { key: '13', parts: [at('13#c0', 9)] },
+  ];
+  const picked = ['12#c0', '12#c1'];
+  const among = (id: string) => picked.some((p) => id === p || id.startsWith(`${p}~`));
+  const { parts, moved, shift } = closeUpParts(lines, (p) => among(p.id), 0.12);
+  // 12a stays (11 isn't picked), 12b's two pieces move up behind it, 13 stays where it was.
+  assert.deepEqual(parts.get('12')?.map((p) => +p.start.toFixed(2)), [2, 3.12, 4.12]);
+  assert.equal(parts.has('11'), false);
+  assert.equal(parts.has('13'), false);
+  assert.equal(moved, 2);
+  assert.ok(Math.abs(shift - 0.88) < 1e-9);
+
+  // Every line: each part follows the one before, from the first.
+  const all = closeUpParts(lines, () => true, 0.12);
+  assert.deepEqual(all.parts.get('12')?.map((p) => +p.start.toFixed(2)), [1.12, 2.24, 3.24]);
+  assert.deepEqual(all.parts.get('13')?.map((p) => +p.start.toFixed(2)), [4.36]);
+  // A part only ever moves earlier, and one already closer stays.
+  assert.equal(closeUpParts([{ key: 'a', parts: [at('a', 0), at('b', 1.05)] }], () => true, 0.12).moved, 0);
 });

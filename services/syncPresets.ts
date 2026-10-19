@@ -25,6 +25,7 @@ const NATURAL_JOIN: SyncJoinSettings = {
     stopGap: 0.25,
     maxChunkGap: 1,
     punctuationPriority: true,
+    joinSpokenChunks: true,
     speedFit: 'off',
     maxVoiceSpeed: 1.15,
     bestTakes: 'off',

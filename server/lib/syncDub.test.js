@@ -267,10 +267,11 @@ test('a deeper tail floor and a tail hold keep more of what follows the last wor
 
 test('shortenPauses never cuts into a breath inside a pause', () => {
   const samples = prepareClip(clip({ lead: 0, tone: 1, gap: 0.8, tail: 0 }), RATE).samples;
-  // A soft breath (about -55 dBFS) in the middle of the pause.
+  // A breath (about -40 dBFS) in the middle of the pause. Pauses are read against the clip's own
+  // room tone (silenceLevel), never louder than -45 dBFS, so a breath above that is never silence.
   const pauseStart = Math.round(0.5 * RATE);
   for (let i = pauseStart + Math.round(0.3 * RATE); i < pauseStart + Math.round(0.5 * RATE); i++) {
-    samples[i] = 0.0018 * Math.sin((2 * Math.PI * 90 * i) / RATE);
+    samples[i] = 0.01 * Math.sin((2 * Math.PI * 90 * i) / RATE);
   }
   const { samples: shorter } = shortenPauses(samples, RATE, 5);
   assert.equal(audible(shorter), audible(samples), 'every audible sample, the breath included, is kept');

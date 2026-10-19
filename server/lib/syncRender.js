@@ -4,9 +4,10 @@
  *
  * Nothing here changes the voice. A clip's audio is copied sample for sample:
  * no speed change, no pitch change, no gain and no fades. The only edits are
- * cuts, and every cut is made inside true silence (QUIET for at least
- * QUIET_RUN_SECONDS), so a word's natural decay and every breath are kept
- * whole and no cut can be heard as a click. A word is never cut off to make
+ * cuts, and every cut is made inside silence (below the clip's own room tone
+ * level, read in short windows: see quietStretches), so a word's natural
+ * decay and every breath are kept whole; a cut in room tone rather than true
+ * silence blends its two sides over 5 ms, so it can't be heard as a click. A word is never cut off to make
  * room.
  *
  * The one place a clip can meet the track somewhere that isn't silent is its
@@ -233,25 +234,67 @@ export const prepareClip = (samples, sampleRate, { tailQuiet = QUIET, tailHold =
   };
 };
 
+/** Silence is read in windows this long... */
+export const QUIET_WINDOW_SECONDS = 0.02;
+/** ...one every this often. */
+const QUIET_HOP_SECONDS = 0.005;
+
 /**
- * Stretches of true silence between the words of a clip, as `{ start, end }`
- * sample ranges, longest first. A breath inside a pause is not silence, so it
- * splits the pause in two and is never cut.
+ * The stretches of `samples` (from `from` to `to`) below `level` (linear), as
+ * `{ start, end }` sample ranges in order. Each QUIET_HOP_SECONDS is quiet
+ * when the RMS of the QUIET_WINDOW_SECONDS around it is below `level`, so a
+ * pause on room tone with a little hiss or a click in it is still one pause,
+ * not a string of slivers too short to count. A window reaching into a word
+ * is loud, so a stretch ends a little before the word, never inside it. A
+ * stretch running to `to` ends exactly there; one from `from` starts there.
  */
-const innerPauses = (samples, sampleRate) => {
-  const run = Math.max(1, Math.round(QUIET_RUN_SECONDS * sampleRate));
-  const pauses = [];
+export const quietStretches = (samples, sampleRate, level, { from = 0, to = samples.length } = {}) => {
+  const start = Math.max(0, Math.min(samples.length, Math.round(from)));
+  const end = Math.max(start, Math.min(samples.length, Math.round(to)));
+  const hop = Math.max(1, Math.round(QUIET_HOP_SECONDS * sampleRate));
+  const half = Math.max(1, Math.round((QUIET_WINDOW_SECONDS * sampleRate) / 2));
+  // Running sum of squares, for any window's RMS in one step.
+  const energy = new Float64Array(end - start + 1);
+  for (let i = start; i < end; i++) energy[i - start + 1] = energy[i - start] + samples[i] * samples[i];
+  const limit = level * level;
+  const quietAt = (a, b) => {
+    const mid = Math.floor((a + b) / 2);
+    const lo = Math.max(start, mid - half);
+    const hi = Math.min(end, mid + half);
+    return hi > lo && (energy[hi - start] - energy[lo - start]) / (hi - lo) < limit;
+  };
+  const stretches = [];
+  // Each edge then moves out sample by sample to the last quiet one, so a pause is as long as it really is.
+  const push = (a, b) => {
+    while (a > start && Math.abs(samples[a - 1]) < level) a--;
+    while (b < end && Math.abs(samples[b]) < level) b++;
+    stretches.push({ start: a, end: b });
+  };
   let runStart = -1;
-  for (let i = 0; i <= samples.length; i++) {
-    const quiet = i < samples.length && Math.abs(samples[i]) < QUIET;
-    if (quiet && runStart === -1) runStart = i;
+  for (let a = start; a < end; a += hop) {
+    const quiet = quietAt(a, Math.min(end, a + hop));
+    if (quiet && runStart === -1) runStart = a;
     if (!quiet && runStart !== -1) {
-      // Silence touching the clip's start or end is its lead-in or tail, not a pause between words.
-      if (runStart > 0 && i < samples.length && i - runStart >= run) pauses.push({ start: runStart, end: i });
+      push(runStart, a);
       runStart = -1;
     }
   }
-  return pauses.sort((a, b) => b.end - b.start - (a.end - a.start));
+  if (runStart !== -1) push(runStart, end);
+  return stretches;
+};
+
+/**
+ * Stretches of silence between the words of a clip, as `{ start, end }`
+ * sample ranges, longest first: below `level` (see quietStretches), true
+ * silence (QUIET) unless given. A breath inside a pause is louder, so it
+ * splits the pause in two and is never cut.
+ */
+const innerPauses = (samples, sampleRate, level = QUIET) => {
+  const run = Math.max(1, Math.round(QUIET_RUN_SECONDS * sampleRate));
+  // Silence touching the clip's start or end is its lead-in or tail, not a pause between words.
+  return quietStretches(samples, sampleRate, level)
+    .filter((pause) => pause.start > 0 && pause.end < samples.length && pause.end - pause.start >= run)
+    .sort((a, b) => b.end - b.start - (a.end - a.start));
 };
 
 /**
@@ -276,7 +319,10 @@ const innerPauses = (samples, sampleRate) => {
  */
 export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INNER_PAUSE_SECONDS, maxTake = 1, crossfade = 0, protectAbove = Infinity, source = null } = {}) => {
   const floor = Math.round(minPause * sampleRate);
-  const pauses = innerPauses(samples, sampleRate).map((pause) => ({ ...pause, take: 0 }));
+  const fade = Math.round(Math.max(0, crossfade) * sampleRate);
+  // A voice cloned from a recording pauses on room tone: measured against the clip's own floor (see silenceLevel).
+  const level = silenceLevel(samples, sampleRate);
+  const pauses = innerPauses(samples, sampleRate, level).map((pause) => ({ ...pause, take: 0 }));
   let matched = 0;
   if (source && source.speech > 0) {
     const firstWord = source.lead * sampleRate;
@@ -315,12 +361,13 @@ export const shortenPauses = (samples, sampleRate, seconds, { minPause = MIN_INN
     .filter((pause) => pause.take > 0)
     .map((pause) => {
       const start = Math.round((pause.start + pause.end - pause.take) / 2);
-      return { start, end: start + pause.take };
+      // A cut in room tone rather than true silence blends its two sides, as Tighten silences does.
+      return { start, end: start + pause.take, ...(level > QUIET && { blend: Math.max(fade, Math.round(TIGHT_BLEND_SECONDS * sampleRate)) }) };
     });
   if (cuts.length === 0) return { samples, removed: 0, cuts, matched: 0 };
 
   cuts.sort((a, b) => a.start - b.start);
-  const output = applyCuts(samples, cuts, Math.round(Math.max(0, crossfade) * sampleRate));
+  const output = applyCuts(samples, cuts, fade);
   return { samples: output, removed: (samples.length - output.length) / sampleRate, cuts, matched: matched / sampleRate };
 };
 
@@ -406,23 +453,17 @@ export const tightenSilences = (samples, sampleRate, seconds, { firstWord = 0, m
 
   // Stretches below the silence level from the first word on, less any guarded word.
   const stretches = [];
-  let runStart = -1;
-  for (let i = Math.max(0, firstWord); i <= samples.length; i++) {
-    const quiet = i < samples.length && Math.abs(samples[i]) < level;
-    if (quiet && runStart === -1) runStart = i;
-    if (!quiet && runStart !== -1) {
-      let pieces = [{ start: runStart, end: i }];
-      for (const word of guarded) {
-        pieces = pieces.flatMap((piece) =>
-          word.end <= piece.start || word.start >= piece.end
-            ? [piece]
-            : [{ start: piece.start, end: word.start }, { start: word.end, end: piece.end }].filter((part) => part.end > part.start)
-        );
-      }
-      // Silence touching the first word's side is its lead-in: kept, like everything before the first word.
-      for (const piece of pieces) if (piece.start > firstWord && piece.end - piece.start >= run) stretches.push({ ...piece, tail: piece.end === samples.length });
-      runStart = -1;
+  for (const quiet of quietStretches(samples, sampleRate, level, { from: Math.max(0, firstWord) })) {
+    let pieces = [quiet];
+    for (const word of guarded) {
+      pieces = pieces.flatMap((piece) =>
+        word.end <= piece.start || word.start >= piece.end
+          ? [piece]
+          : [{ start: piece.start, end: word.start }, { start: word.end, end: piece.end }].filter((part) => part.end > part.start)
+      );
     }
+    // Silence touching the first word's side is its lead-in: kept, like everything before the first word.
+    for (const piece of pieces) if (piece.start > firstWord && piece.end - piece.start >= run) stretches.push({ ...piece, tail: piece.end === samples.length });
   }
 
   const cuts = [];
