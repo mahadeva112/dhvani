@@ -51,6 +51,8 @@ export interface SyncBankLine {
 export interface SyncBank {
   bankId: string;
   sampleRate: number;
+  /** The format its lines were voiced in, so new takes come back at its rate. Older banks were all `mp3_44100_128`. */
+  outputFormat?: string;
   float: boolean;
   lines: SyncBankLine[];
   speakerGains: Record<string, number>;

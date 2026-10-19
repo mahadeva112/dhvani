@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Audio quality, on the Dub step.** Dubs are now voiced as **WAV 48 kHz** by default, instead
+  of always MP3 44.1 kHz 128 kbps. If your ElevenLabs plan doesn't allow a format, the dub is
+  voiced in MP3 192 kbps, then 128 kbps, and a note says why. The refusal comes before anything
+  is voiced, so it costs no credits.
 - **Timing protection, in Sync settings.** **Warn** (the default) reports lines that start late,
   as before. **Strict** holds every line within **Latest a line may start**; a line that still
   cannot fit is placed as early as it can go and flagged with what to do. Sync never fails over
