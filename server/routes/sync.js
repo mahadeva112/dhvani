@@ -211,6 +211,9 @@ export const keepResult = (buffer, contentType, now = Date.now()) => {
   return id;
 };
 
+/** How many results are waiting to be fetched (for tests). */
+export const keptResultCount = () => results.size;
+
 /**
  * Banks for Edit timing, by id: every placed line of a sync, exactly as the
  * render took it (see runSync). The app keeps its own copy with the project
@@ -1215,6 +1218,23 @@ syncRouter.put(
  * report with several speakers. A bank this server no longer has is a 404
  * with code `edit_bank_missing`: send it again and retry.
  */
+/**
+ * Results of the newest edit render. The app aborts a render, fetches and all,
+ * when the next edit comes, so an older render's mix and stems are never
+ * fetched; left to keepResult's grace they piled up a whole dub per second of
+ * editing until the engine ran out of memory.
+ */
+let editResultIds = [];
+const replaceEditResults = (ids) => {
+  for (const id of editResultIds) {
+    const result = results.get(id);
+    if (!result) continue;
+    clearTimeout(result.timer);
+    results.delete(id);
+  }
+  editResultIds = ids;
+};
+
 let renderQueue = Promise.resolve();
 /** One edit render at a time: the app fires one per change, and overlapping ones each hold a whole dub in memory. */
 const oneRenderAtATime = (task) => {
@@ -1327,15 +1347,18 @@ syncRouter.post(
       },
       { stretch }
     );
+    // Replaced while it rendered: nobody will fetch it, so don't encode or keep it.
+    if (gone) return;
     const float = several && result.report.peak === 'float';
     const encode = encodeWav(entry.sampleRate);
     const mix = await encode(result.track, { float });
-    const stems = [];
-    for (const stem of result.stems || []) {
-      const encoded = await encode(stem.samples, { float });
-      stems.push({ speaker: stem.speaker, audioId: keepResult(encoded.buffer, encoded.contentType), contentType: encoded.contentType });
-    }
-    res.json({ audioId: keepResult(mix.buffer, mix.contentType), contentType: mix.contentType, stems, report: result.report ? { mix: result.report } : {} });
+    const encodedStems = [];
+    for (const stem of result.stems || []) encodedStems.push({ speaker: stem.speaker, ...(await encode(stem.samples, { float })) });
+    if (gone) return;
+    const audioId = keepResult(mix.buffer, mix.contentType);
+    const stems = encodedStems.map((stem) => ({ speaker: stem.speaker, audioId: keepResult(stem.buffer, stem.contentType), contentType: stem.contentType }));
+    replaceEditResults([audioId, ...stems.map((stem) => stem.audioId)]);
+    res.json({ audioId, contentType: mix.contentType, stems, report: result.report ? { mix: result.report } : {} });
     });
   })
 );
