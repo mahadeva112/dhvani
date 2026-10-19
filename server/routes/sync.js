@@ -1130,8 +1130,10 @@ const rewordRoute = (direction) =>
       });
       return;
     }
-    const { line, reason, flagged, backTranslation } = await suggestLine(request, options);
-    res.json({ options: line ? [backTranslation ? { line, backTranslation } : { line }] : flagged ? [flagged] : [], line, reason, flagged });
+    const { line, reason, flagged, backTranslation, over } = await suggestLine(request, options);
+    // `over`: the syllables a shorter wording still runs past its target, when no try fit.
+    const offered = line ? { line, ...(backTranslation && { backTranslation }), ...(over > 0 && { over }) } : null;
+    res.json({ options: offered ? [offered] : flagged ? [flagged] : [], line, reason, flagged });
   });
 
 /**

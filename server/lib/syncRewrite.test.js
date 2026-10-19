@@ -12,6 +12,8 @@ import {
   missingTerms,
   rewordLimit,
   acceptReword,
+  acceptRewrite,
+  shorterFit,
 } from './syncRewrite.js';
 
 /**
@@ -356,4 +358,72 @@ test('a retake may keep its words and add pauses, within the time its slot has t
   assert.ok(prompts.check[0].includes('कल सुबह दस बजे मैं बाज़ार'), 'the check reads the words without the pause marks');
   assert.match(prompts.options[0], /\[pause 0\.3s\]/);
   assert.match(prompts.options[0], /at most 0\.5 s/);
+});
+
+// Shorter wordings are judged against their target in syllables: 20 in the line, so 40 of its 57 characters is about 14.
+const LONG_BY_FIVE = 'कल सुबह दस बजे बाज़ार नहीं जाऊँगा, क्योंकि बारिश होगी';
+const LONG_BY_THREE = 'कल सुबह दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
+const FITS = 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
+
+test('a wording shorter than the line but well past its target is no fix, and is never offered', () => {
+  assert.equal(acceptRewrite(request.text, LONG_BY_FIVE, 40), null);
+  assert.equal(acceptRewrite(request.text, LONG_BY_THREE, 40), null);
+  assert.equal(acceptRewrite(request.text, FITS, 40), FITS);
+  assert.deepEqual(shorterFit(request.text, FITS, 40), { syllables: 15, target: 14, fits: true, usable: true, over: 0 });
+});
+
+test('a try after a wording of the wrong length is told how long it was and how long it must be', async () => {
+  const { generate, prompts } = fakeModel({ lines: [LONG_BY_FIVE, FITS], checks: [{ sameMeaning: true, issues: [] }] });
+  const { line } = await suggestLine({ ...request, direction: 'shorter' }, { generate });
+  assert.equal(line, FITS);
+  assert.match(prompts.rewrite[0], /at most 40 characters, about 14 syllables \(it is now 57 characters, 20 syllables\)/);
+  assert.doesNotMatch(prompts.rewrite[0], /rejected as too/);
+  assert.match(prompts.rewrite[1], /rejected as too long: it was 53 characters \(19 syllables\), and it must be at most 40 characters \(about 14 syllables\)/);
+  assert.ok(prompts.rewrite[1].includes(LONG_BY_FIVE));
+});
+
+test('a wording cut too far is told so on the next try', async () => {
+  const { generate, prompts } = fakeModel({ lines: ['नहीं', FITS], checks: [{ sameMeaning: true, issues: [] }] });
+  await suggestLine({ ...request, direction: 'shorter' }, { generate });
+  assert.match(prompts.rewrite[1], /rejected as too short/);
+  assert.match(prompts.rewrite[1], /keep every idea/);
+});
+
+test('when no try fits, the closest one a little long is offered with the syllables still to cut', async () => {
+  // 43 of 57 characters: about 15 syllables, so 17 is a little long, still offered.
+  const { generate, prompts } = fakeModel({ lines: [LONG_BY_THREE, LONG_BY_THREE + ' भी'], checks: [{ sameMeaning: true, issues: [] }] });
+  const result = await suggestLine({ ...request, targetChars: 43, direction: 'shorter' }, { generate });
+  assert.equal(result.line, LONG_BY_THREE);
+  assert.equal(result.over, 2);
+  assert.equal(prompts.rewrite.length, 2, 'a wording that does not fit gets a second try first');
+  assert.equal(prompts.check.length, 1, 'only the wording offered is checked for meaning');
+});
+
+test('a wording that fits is offered without any mark', async () => {
+  const { generate } = fakeModel({ lines: [FITS], checks: [{ sameMeaning: true, issues: [] }] });
+  const result = await suggestLine({ ...request, direction: 'shorter' }, { generate });
+  assert.equal(result.line, FITS);
+  assert.equal(result.over, undefined);
+});
+
+test('among several, wordings that fit come first; one a little long is marked, and the next round hears how long', async () => {
+  const fitsToo = 'कल सुबह बाज़ार नहीं जाऊँगा, बारिश होगी';
+  const { generate, prompts } = optionsModel({ rounds: [[LONG_BY_THREE, FITS, LONG_BY_FIVE], [fitsToo]] });
+  const { options } = await suggestLines({ ...request, targetChars: 43, direction: 'shorter', count: 3 }, { generate });
+  assert.deepEqual(
+    options.map((o) => [o.line, o.over]),
+    [
+      [FITS, undefined],
+      [fitsToo, undefined],
+      [LONG_BY_THREE, 2],
+    ]
+  );
+  assert.equal(prompts.options.length, 2);
+  assert.match(prompts.options[0], /each at most 43 characters, about 15 syllables/);
+  assert.match(prompts.options[1], /Write 2 shorter wordings/);
+  assert.match(prompts.options[1], /still too long/);
+  assert.ok(prompts.options[1].includes(`${LONG_BY_FIVE}
+  53 characters, 19 syllables`));
+  assert.ok(prompts.options[1].includes(`${LONG_BY_THREE}
+  45 characters, 17 syllables`));
 });

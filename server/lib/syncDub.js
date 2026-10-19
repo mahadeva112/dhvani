@@ -1318,6 +1318,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // one for each line that ends early, for the user to take or leave.
   report({ phase: 'suggesting', step: 7 });
   const suggestions = new Map();
+  // Syllables a suggested shorter wording still runs past its target, when no wording fit.
+  const suggestionOver = new Map();
   let suggestionError = null;
   // Suggestions held back because every wording changed what the source line says.
   let meaningRejected = 0;
@@ -1350,7 +1352,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           keep,
         });
         const line = typeof answer === 'string' || answer === null ? answer : answer?.line;
-        if (line && line !== units[i].text) suggestions.set(i, line);
+        if (line && line !== units[i].text) {
+          suggestions.set(i, line);
+          if (answer?.over > 0) suggestionOver.set(i, answer.over);
+        }
         else if (answer?.reason === 'meaning') meaningRejected++;
       } catch (err) {
         // The dub is finished either way; a missing suggestion must not fail the sync.
@@ -1410,6 +1415,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       speech: clips[i] ? clips[i].speech : 0,
       targetChars: targetChars[i],
       suggestion: suggestions.get(i) || null,
+      suggestionOver: suggestionOver.get(i) || null,
       deepCut: deepCut[i],
       pauseTrimmed: pauseTrimmed.get(i) || 0,
       // Of that, what the original has no pause for (matchSourcePauses); null where its words are untimed.

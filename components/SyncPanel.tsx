@@ -52,6 +52,7 @@ import type { DubProgress } from '../services/elevenLabsService';
 import { apiGetAudio } from '../services/apiClient';
 import type { presetSuggestion } from '../services/syncPresets';
 import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
+import { timeLine } from '../services/speechTiming';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import {
   FitCard,
@@ -1170,10 +1171,10 @@ export interface SyncResultsPanelProps {
   /** Keys of lines locked in Edit timing: Sync keeps their take, so they aren't retaken. */
   lockedKeys?: string[];
   /**
-   * Another wording of a line that is too long (shorter) or ends early (fuller),
-   * different from `avoid`; null when the text model had nothing usable.
+   * Other wordings of a line that is too long (shorter) or ends early (fuller),
+   * different from `avoid`, each of a different kind; empty when the text model had nothing usable.
    */
-  onSuggestLine?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion | null>;
+  onSuggestLine?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion[]>;
   /** The original and the synced dub, drawn behind the lines of the alignment view. */
   sourceBuffer?: AudioBuffer | null;
   dubBuffer?: AudioBuffer | null;
@@ -1506,7 +1507,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             <p className="text-xs text-slate-400">
               {report.summary.meaningRejected === 1 ? '1 suggestion was' : `${report.summary.meaningRejected} suggestions were`} held back: every
               wording the text model offered changed the meaning of the original line. Edit {report.summary.meaningRejected === 1 ? 'that line' : 'those lines'}{' '}
-              yourself, or press Suggest one to try again.
+              yourself, or press Suggest 3 to try again.
             </p>
           )}
           {report.summary.suggestionError && (
@@ -1742,7 +1743,7 @@ const ReviewRow: React.FC<{
   onListen: (time: number) => void;
   onApply?: (unit: SyncUnitReport, text: string) => void;
   onRetake?: (unit: SyncUnitReport) => void;
-  onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion | null>;
+  onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion[]>;
   /** The takes panel: a toggle in the row, and the panel under it while open. */
   takesOpen?: boolean;
   onToggleTakes?: () => void;
@@ -1759,6 +1760,10 @@ const ReviewRow: React.FC<{
   const [issues, setIssues] = useState<string[] | null>(null);
   // The shown suggestion translated back into English, without the original line in view.
   const [says, setSays] = useState<string | null>(null);
+  // Syllables the shown shorter suggestion still runs past its target, when no wording fit.
+  const [over, setOver] = useState<number | null>(unit.suggestionOver ?? null);
+  // The wordings the last request brought, best fit first, to pick from.
+  const [options, setOptions] = useState<LineSuggestion[]>([]);
   // Wordings already offered for this line, so another try reads differently.
   const tried = useRef<string[]>([]);
   useEffect(() => {
@@ -1766,25 +1771,49 @@ const ReviewRow: React.FC<{
     setSuggested(Boolean(unit.suggestion));
     setIssues(null);
     setSays(null);
+    setOver(unit.suggestionOver ?? null);
+    setOptions([]);
     tried.current = unit.suggestion ? [unit.suggestion] : [];
-  }, [unit.suggestion, unit.text]);
+  }, [unit.suggestion, unit.suggestionOver, unit.text]);
   const changed = draft.trim() !== '' && draft.trim() !== unit.text.trim();
   const fuller = unit.short && !unit.exceeded;
-  // The line's own voiced rate, to estimate how long a new wording takes.
+  // The line's own voiced rate, to estimate how long a new wording takes: in syllables, which is how
+  // long a line takes to say (one syllable can be three or four characters in an Indian script).
   const spoken = unit.srcEnd - unit.srcStart;
-  const draftSeconds = unit.text.trim().length > 0 ? (draft.trim().length * unit.speech) / unit.text.trim().length : 0;
+  const lineSyllables = useMemo(() => timeLine(unit.text, 1).syllables, [unit.text]);
+  const bySyllables = lineSyllables > 0;
+  const secondsOf = (text: string) =>
+    bySyllables
+      ? (timeLine(text, 1).syllables * unit.speech) / lineSyllables
+      : unit.text.trim().length > 0
+        ? (text.trim().length * unit.speech) / unit.text.trim().length
+        : 0;
+  const draftSyllables = timeLine(draft, 1).syllables;
+  const draftSeconds = secondsOf(draft);
+  // What a shorter wording has to fit in: the line's speech, less what it ran past its slot.
+  const room = Math.max(0, unit.speech - unit.exceededBy);
+  /** Whether a wording, as estimated, does what this line needs: fits its time, or fills the original speech. */
+  const fitsLine = (seconds: number) => (fuller ? !isShort(seconds, spoken) : seconds <= room);
+  const pick = (line: LineSuggestion) => {
+    setDraft(line.text);
+    setSuggested(true);
+    setIssues(line.issues ?? null);
+    setSays(line.backTranslation ?? null);
+    setOver(line.over ?? null);
+  };
   const tryAnother = async () => {
     if (!onSuggest || asking) return;
     setAsking(true);
     setAskError(null);
     try {
-      const line = await onSuggest(unit, tried.current);
-      if (line) {
-        tried.current = [...tried.current, line.text].slice(-MAX_TRIED);
-        setDraft(line.text);
-        setSuggested(true);
-        setIssues(line.issues ?? null);
-        setSays(line.backTranslation ?? null);
+      const lines = await onSuggest(unit, tried.current);
+      if (lines.length > 0) {
+        tried.current = [...tried.current, ...lines.map((l) => l.text)].slice(-MAX_TRIED);
+        // Best fit first: wordings that keep the meaning and do what the line needs, then the closest of the rest.
+        const rank = (l: LineSuggestion) => (l.issues ? 2 : fitsLine(secondsOf(l.text)) ? 0 : 1);
+        const sorted = [...lines].sort((a, b) => rank(a) - rank(b) || (fuller ? 0 : secondsOf(a.text) - secondsOf(b.text)));
+        setOptions(sorted);
+        pick(sorted[0]);
       } else setAskError(`No usable ${fuller ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`);
     } catch (err: any) {
       setAskError(err?.message || 'The text model did not answer.');
@@ -1839,7 +1868,55 @@ const ReviewRow: React.FC<{
                       ? 'Make this line fuller'
                       : 'Shorten this line'}
               </label>
+              {options.length > 1 && (
+                <div role="radiogroup" aria-label="Suggested wordings" className="mb-2 flex flex-col gap-1">
+                  {options.map((option, i) => {
+                    const picked = suggested && option.text === draft;
+                    const seconds = secondsOf(option.text);
+                    const good = !option.issues && fitsLine(seconds);
+                    return (
+                      <button
+                        key={option.text}
+                        type="button"
+                        role="radio"
+                        aria-checked={picked}
+                        onClick={() => pick(option)}
+                        className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-pointer ${
+                          picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/70'
+                        }`}
+                      >
+                        <span
+                          className={`shrink-0 mt-0.5 w-4 h-4 rounded-full border text-[9.5px] font-semibold flex items-center justify-center tabular-nums ${
+                            picked ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-slate-600 text-slate-400'
+                          }`}
+                        >
+                          {i + 1}
+                        </span>
+                        <span className="flex-1 min-w-0">
+                          <span className="block text-[13px] text-slate-100 leading-snug">{option.text}</span>
+                          {option.backTranslation && <span className="block mt-0.5 text-[11.5px] text-slate-500 leading-snug">Says: {option.backTranslation}</span>}
+                        </span>
+                        <span className="shrink-0 flex flex-col items-end gap-0.5">
+                          <span
+                            className={`text-[10.5px] font-semibold px-1.5 rounded tabular-nums ${good ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}
+                            title="Estimated from how fast this voice said the line"
+                          >
+                            ≈{seconds.toFixed(1)} s · {fitsLine(seconds) ? (fuller ? 'fills' : 'fits') : fuller ? 'ends early' : 'long'}
+                          </span>
+                          {bySyllables && <span className="text-[10.5px] text-slate-500 tabular-nums">{timeLine(option.text, 1).syllables} syllables</span>}
+                          {option.issues && <span className="text-[10.5px] text-amber-300">check meaning</span>}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               {suggested && issues && <MeaningWarning issues={issues} />}
+              {suggested && !fuller && over != null && over > 0 && (
+                <p className="mb-1 text-[11.5px] text-amber-300 leading-snug">
+                  Still about {over} syllable{over === 1 ? '' : 's'} long: no wording fit, so this is the closest. Trim a word or two.
+                </p>
+              )}
               {suggested && says && (
                 <p className="mb-1 text-[11.5px] text-slate-500 leading-snug" title="This wording translated back into English, without the original line in view">
                   Says: {says}
@@ -1852,6 +1929,7 @@ const ReviewRow: React.FC<{
                   setDraft(e.target.value);
                   setSuggested(false);
                   setIssues(null);
+                  setOver(null);
                 }}
                 rows={2}
                 className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
@@ -1882,12 +1960,22 @@ const ReviewRow: React.FC<{
                     className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 disabled:opacity-60 cursor-pointer"
                   >
                     {asking ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    {asking ? 'Asking…' : suggested ? 'Try another' : 'Suggest one'}
+                    {asking ? 'Asking…' : suggested ? '3 more' : 'Suggest 3'}
                   </button>
                 )}
                 <span className="text-[11px] text-slate-500 tabular-nums">
-                  {draft.trim().length} / {unit.text.trim().length} characters
+                  {bySyllables ? `${draftSyllables} / ${lineSyllables} syllables` : `${draft.trim().length} / ${unit.text.trim().length} characters`}
                 </span>
+                {!fuller && unit.exceeded && draftSeconds > 0 && (
+                  <span
+                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-md tabular-nums ${
+                      draftSeconds <= room ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+                    }`}
+                    title="Estimated from how fast this voice said the line"
+                  >
+                    about {draftSeconds.toFixed(1)} s of {room.toFixed(1)} s · {draftSeconds <= room ? 'fits' : 'still long'}
+                  </span>
+                )}
                 {fuller && draftSeconds > 0 && (
                   <span
                     className={`text-[11px] font-semibold px-2 py-0.5 rounded-md tabular-nums ${
