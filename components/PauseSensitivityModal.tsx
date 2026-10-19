@@ -1,7 +1,7 @@
-import React, { useRef } from 'react';
-import { X, Info, Activity } from 'lucide-react';
-import { getSensitivityProfile } from '../services/audioService';
-import { AudioSegment } from '../types';
+import React, { useMemo, useRef, useState } from 'react';
+import { X, Info, Activity, ChevronRight } from 'lucide-react';
+import { gateFromSensitivity, PAUSE_GATE_RANGES } from '../services/audioService';
+import { AudioSegment, PauseGate } from '../types';
 import { MiniWaveform } from './MediaStrip';
 
 export interface PauseSensitivityModalProps {
@@ -9,6 +9,9 @@ export interface PauseSensitivityModalProps {
   onClose: () => void;
   sensitivity: number;
   onSensitivityChange: (val: number) => void;
+  /** The gate as set by hand in Advanced gate, or null when it follows the sensitivity. */
+  gate?: PauseGate | null;
+  onGateChange?: (gate: PauseGate | null) => void;
   segmentCount?: number;
   hasAudioBuffer?: boolean;
   /** The audio and its cues, to show where the cuts fall. */
@@ -23,11 +26,28 @@ const LOOKS = [
   { value: 90, label: 'Every breath', hint: 'about 50 ms' },
 ];
 
+const ms = (seconds: number) => `${Math.round(seconds * 1000)} ms`;
+
+/** The Advanced gate rows: REAPER's Dynamic split settings, one slider each. */
+const GATE_ROWS: {
+  key: 'openDb' | 'hysteresisDb' | 'minSilence' | 'minSlice' | 'leadPad';
+  label: string;
+  show: (gate: PauseGate) => string;
+}[] = [
+  { key: 'openDb', label: 'Opens above', show: (g) => `${g.openDb} dB` },
+  { key: 'hysteresisDb', label: 'Hysteresis', show: (g) => `${g.hysteresisDb} dB` },
+  { key: 'minSilence', label: 'Shortest pause', show: (g) => ms(g.minSilence) },
+  { key: 'minSlice', label: 'Shortest cue', show: (g) => ms(g.minSlice) },
+  { key: 'leadPad', label: 'Pad lead / tail', show: (g) => `${Math.round(g.leadPad * 1000)}/${Math.round(g.trailPad * 1000)} ms` },
+];
+
 export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
   isOpen,
   onClose,
   sensitivity = 50,
   onSensitivityChange,
+  gate = null,
+  onGateChange,
   segmentCount = 0,
   hasAudioBuffer = false,
   audioBuffer = null,
@@ -38,11 +58,22 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
   const wasOpen = useRef(false);
   if (isOpen && !wasOpen.current) openedWith.current = segmentCount;
   wasOpen.current = isOpen;
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  // The waveform lit where a cue is, dim in the pauses between, so the gate's cuts can be seen.
+  const speechSpans = useMemo(
+    () => segments.map((seg) => ({ from: seg.startTime, to: seg.endTime, color: 'rgba(34, 211, 238, 0.75)' })),
+    [segments]
+  );
 
   if (!isOpen) return null;
 
-  const profile = getSensitivityProfile(sensitivity);
-  const silenceDb = Math.round(20 * Math.log10(Math.max(0.0001, profile.silenceThreshold)));
+  const effective = gate ?? gateFromSensitivity(sensitivity);
+  const showAdvanced = advancedOpen || Boolean(gate);
+  const setGate = (key: (typeof GATE_ROWS)[number]['key'], value: number) =>
+    onGateChange?.(
+      key === 'leadPad' ? { ...effective, leadPad: value, trailPad: value * 2 } : { ...effective, [key]: value }
+    );
   const delta = segmentCount - openedWith.current;
   const total = audioBuffer?.duration || segments[segments.length - 1]?.endTime || 0;
 
@@ -92,7 +123,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
               {audioBuffer && total > 0 && (
                 <div className="relative h-[70px] rounded-[10px] bg-slate-950/60 overflow-hidden" aria-hidden="true">
                   <div className="absolute inset-x-0 top-2 bottom-2">
-                    <MiniWaveform buffer={audioBuffer} className="text-cyan-400/70" />
+                    <MiniWaveform buffer={audioBuffer} className="text-slate-600" spans={speechSpans} />
                   </div>
                   {segments.slice(1).map((seg) => (
                     <span
@@ -108,7 +139,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
 
           <div role="group" aria-label="Starting points" className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
             {LOOKS.map((look) => {
-              const on = sensitivity === look.value;
+              const on = !gate && sensitivity === look.value;
               return (
                 <button
                   key={look.value}
@@ -150,11 +181,57 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
             </div>
           </div>
 
+          {onGateChange && (
+            <div className="rounded-[10px] border border-slate-800">
+              <button
+                type="button"
+                aria-expanded={showAdvanced}
+                aria-controls="pause-gate"
+                onClick={() => setAdvancedOpen(!showAdvanced)}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-left cursor-pointer"
+              >
+                <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${showAdvanced ? 'rotate-90' : ''}`} />
+                <span className="text-[13px] font-semibold text-slate-100">Advanced gate</span>
+                <span className="text-[11px] text-slate-500">open, close, hold, pad</span>
+                {gate && <span className="ml-auto font-mono text-[11px] text-orange-400">Custom</span>}
+              </button>
+              {showAdvanced && (
+                <div id="pause-gate" className="px-3 pt-1 pb-3 border-t border-slate-800 flex flex-col gap-1.5">
+                  {GATE_ROWS.map((row) => {
+                    const [min, max, step] = PAUSE_GATE_RANGES[row.key];
+                    return (
+                      <div key={row.key} className="grid grid-cols-[7.5rem_minmax(0,1fr)_4.75rem] items-center gap-2.5">
+                        <label htmlFor={`gate-${row.key}`} className="text-xs text-slate-400">
+                          {row.label}
+                        </label>
+                        <input
+                          id={`gate-${row.key}`}
+                          type="range"
+                          min={min}
+                          max={max}
+                          step={step}
+                          value={effective[row.key]}
+                          onChange={(e) => setGate(row.key, Number(e.target.value))}
+                          className="w-full accent-indigo-500 cursor-pointer"
+                        />
+                        <span className="font-mono text-xs text-slate-100 tabular-nums text-right">{row.show(effective)}</span>
+                      </div>
+                    );
+                  })}
+                  <p className="text-[11px] text-slate-500 leading-relaxed mt-1">
+                    A cue opens when the sound rises above the open level, and closes only once it stays the hysteresis below
+                    that for the shortest pause, so a breath or a soft consonant doesn't split it.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-3 gap-2">
             {[
-              ['Shortest pause', `${Math.round(profile.minSilenceDuration * 1000)} ms`],
-              ['Silence below', `${silenceDb} dB`],
-              ['Shortest cue', `${profile.minSpeechDuration.toFixed(2)} s`],
+              ['Shortest pause', ms(effective.minSilence)],
+              ['Silence below', `${effective.openDb - effective.hysteresisDb} dB`],
+              ['Shortest cue', `${effective.minSlice.toFixed(2)} s`],
             ].map(([k, v]) => (
               <div key={k} className="px-2.5 py-2 rounded-[10px] bg-slate-950/60 border border-slate-800">
                 <span className="block text-[11px] text-slate-500">{k}</span>
@@ -166,7 +243,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
           <p className="flex items-start gap-2 px-3 py-2.5 rounded-[10px] border border-dashed border-slate-700 text-xs text-slate-400 leading-relaxed">
             <Info className="w-3.5 h-3.5 text-cyan-400 shrink-0 mt-0.5" />
             {hasAudioBuffer
-              ? 'Moving the slider re-splits the cues straight away. Text already in a cue is carried over to the new cues where it lines up.'
+              ? 'Moving any control re-splits the cues straight away. Text already in a cue is carried over to the new cues where it lines up.'
               : 'Add an audio or video file first. The cues are split from its audio.'}
           </p>
         </div>
@@ -175,7 +252,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
           <button
             type="button"
             onClick={() => onSensitivityChange(50)}
-            disabled={sensitivity === 50}
+            disabled={sensitivity === 50 && !gate}
             className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-default px-1 cursor-pointer"
           >
             Reset to natural
