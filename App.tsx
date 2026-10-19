@@ -132,6 +132,14 @@ import {
   SyncProgress,
   SyncUnitReport,
 } from './services/syncService';
+import {
+  DEFAULT_DUB_AUDIO_QUALITY,
+  dubAudioQualityLabel,
+  fallbackNotice,
+  isDubAudioQuality,
+  voiceInAllowedQuality,
+  type DubAudioQuality,
+} from './services/dubAudioQuality';
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
 import { pickedTakes, putTake, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
@@ -418,7 +426,42 @@ export default function App() {
     }
   });
   const [elModels, setElModels] = useState<ElevenLabsModel[]>(ALL_ELEVENLABS_MODELS);
-  const [elOutputFormat, setElOutputFormat] = useState<string>('mp3_44100_128');
+  // The format a dub is voiced in (Dub step: Audio quality). WAV 48 kHz unless the user picks another.
+  const [dubAudioQuality, setDubAudioQuality] = useState<DubAudioQuality>(() => {
+    try {
+      const saved = localStorage.getItem('dhvani_dub_audio_quality');
+      return isDubAudioQuality(saved) ? saved : DEFAULT_DUB_AUDIO_QUALITY;
+    } catch {
+      return DEFAULT_DUB_AUDIO_QUALITY;
+    }
+  });
+  // Formats the ElevenLabs plan refused, so the next dub starts in one it allows. Picking a quality again tries it again.
+  const [refusedQualities, setRefusedQualities] = useState<ReadonlySet<string>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('dhvani_dub_refused_qualities') || '[]');
+      return new Set(Array.isArray(saved) ? saved.filter(isDubAudioQuality) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const refuseQuality = useCallback((format: string) => {
+    setRefusedQualities((prev) => {
+      const next = new Set(prev).add(format);
+      try {
+        localStorage.setItem('dhvani_dub_refused_qualities', JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  }, []);
+  const handleDubAudioQualityChange = useCallback((quality: DubAudioQuality) => {
+    setDubAudioQuality(quality);
+    setRefusedQualities(new Set());
+    setDubQualityNotice(null);
+    try {
+      localStorage.setItem('dhvani_dub_audio_quality', quality);
+      localStorage.removeItem('dhvani_dub_refused_qualities');
+    } catch {}
+  }, []);
   // Null means "use the voice's own ElevenLabs settings", as the website does;
   // only a deliberate change in Voice Settings stores an override.
   const [elVoiceSettings, setElVoiceSettings] = useState<ElevenLabsVoiceSettings | null>(() => {
@@ -444,6 +487,8 @@ export default function App() {
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isCancellingSync, setIsCancellingSync] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  // Why the last dub came out in another format than the one chosen in Audio quality.
+  const [dubQualityNotice, setDubQualityNotice] = useState<string | null>(null);
   /** The synced line whose takes are being voiced (one at a time), and why asking for takes last failed. */
   const [syncTakesBusy, setSyncTakesBusy] = useState<string | null>(null);
   const [syncTakesError, setSyncTakesError] = useState<{ key: string; message: string } | null>(null);
@@ -2236,7 +2281,7 @@ export default function App() {
   const expressionTakesTags = () =>
     isCartesiaVoice(elVoiceId) ? cartesiaTakesControls(cartesiaVoice.modelId) : performsAudioTags(elModelId);
 
-  const readScript = async (job: BatchJob, language: string, readKey: string, matchLoudness: boolean, signal: AbortSignal) => {
+  const readScript = async (job: BatchJob, language: string, readKey: string, matchLoudness: boolean, outputFormat: string, signal: AbortSignal) => {
     const readJobId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
@@ -2263,7 +2308,7 @@ export default function App() {
         );
         script = buildSpeechScript(tagged);
       }
-      const blob = await synthesizeSpeech(elApiKey, elVoiceId, script, elModelId, elOutputFormat, elVoiceSettings, {
+      const blob = await synthesizeSpeech(elApiKey, elVoiceId, script, elModelId, outputFormat, elVoiceSettings, {
         expressive: expression === 'expressive',
         audioTags: matchSource,
         performanceTags: matchSource,
@@ -2352,54 +2397,74 @@ export default function App() {
         voiceTexts = Object.fromEntries(tagged.map((segment) => [String(segment.id), segment.textTarget || segment.targetText || '']));
       }
       /*
+       * Picked takes are kept from the last bank, and nothing is resampled,
+       * so while there are any the dub stays in the format they were made in.
+       */
+      const keptFormat = picked && priorBank ? priorBank.outputFormat || 'mp3_44100_128' : null;
+      // Cartesia has no plan tiers: a Cartesia voice is asked for the chosen format as it is.
+      const refused = isCartesiaVoice(elVoiceId) ? new Set<string>() : refusedQualities;
+      /*
        * One continuous read (one voice only): the script is read in one take,
        * or the last read is reused while it was voiced the same way, and its
        * lines are cut from it rather than voiced again. A dub made before Dub
        * and Sync were one step counts as a read by its voice.
        */
-      let dub: { blob: Blob; lines: DubLines } | undefined;
-      if (voicing === 'continuous' && !several) {
-        const readKey = JSON.stringify([elVoiceId, elModelId, elVoiceSettings ?? null, expression, matchLoudness, cartesiaDub]);
-        const last = activeJob.dubLines;
-        const lastFits =
-          activeJob.synthesizedBlob && last && last.voiceId === elVoiceId && last.modelId === elModelId && (last.readKey ?? readKey) === readKey;
-        dub =
-          lastFits && activeJob.synthesizedBlob && last
-            ? { blob: activeJob.synthesizedBlob, lines: last }
-            : await readScript(activeJob, language, readKey, matchLoudness, controller.signal);
-      }
-      const { blob, stems, report, bank, bankBlob } = await syncDub(
-        {
-          segments: activeJob.segments,
-          sourceDuration,
-          voiceId: elVoiceId,
-          modelId: elModelId,
-          outputFormat: elOutputFormat,
-          voiceSettings: elVoiceSettings,
-          language,
-          seed,
-          precision,
-          join,
-          suggest,
-          suggestLonger,
-          matchLoudness,
-          verifyWords,
-          timingProtection,
-          lineSeeds: activeJob.syncLineSeeds || undefined,
-          ...(activeJob.syncTakeChoices && { takeChoices: activeJob.syncTakeChoices }),
-          ...(activeJob.syncDeclinedTakes?.length && { declinedTakes: activeJob.syncDeclinedTakes }),
-          debug: audioDebugEnabled(),
-          cartesia: cartesiaDub,
-          ...(voiceTexts && { voiceTexts }),
-          ...(expression === 'expressive' && { expressive: true }),
-          ...(expression === 'neutral' && { steady: true }),
-          ...(dub && { dub }),
-          ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
-          ...(Object.keys(locked).length > 0 && { locked }),
-          ...(picked && { picked, pickedBankBlob: activeJob.syncBankBlob }),
-          tuneStability,
-        },
-        { apiKey: elApiKey, jobId, signal: controller.signal }
+      const voiceDub = async (outputFormat: string) => {
+        let dub: { blob: Blob; lines: DubLines } | undefined;
+        if (voicing === 'continuous' && !several) {
+          const readKey = JSON.stringify([elVoiceId, elModelId, elVoiceSettings ?? null, expression, matchLoudness, cartesiaDub, outputFormat]);
+          const last = activeJob.dubLines;
+          const lastFits =
+            activeJob.synthesizedBlob && last && last.voiceId === elVoiceId && last.modelId === elModelId && (last.readKey ?? readKey) === readKey;
+          dub =
+            lastFits && activeJob.synthesizedBlob && last
+              ? { blob: activeJob.synthesizedBlob, lines: last }
+              : await readScript(activeJob, language, readKey, matchLoudness, outputFormat, controller.signal);
+        }
+        return syncDub(
+          {
+            segments: activeJob.segments,
+            sourceDuration,
+            voiceId: elVoiceId,
+            modelId: elModelId,
+            outputFormat,
+            voiceSettings: elVoiceSettings,
+            language,
+            seed,
+            precision,
+            join,
+            suggest,
+            suggestLonger,
+            matchLoudness,
+            verifyWords,
+            timingProtection,
+            lineSeeds: activeJob.syncLineSeeds || undefined,
+            ...(activeJob.syncTakeChoices && { takeChoices: activeJob.syncTakeChoices }),
+            ...(activeJob.syncDeclinedTakes?.length && { declinedTakes: activeJob.syncDeclinedTakes }),
+            debug: audioDebugEnabled(),
+            cartesia: cartesiaDub,
+            ...(voiceTexts && { voiceTexts }),
+            ...(expression === 'expressive' && { expressive: true }),
+            ...(expression === 'neutral' && { steady: true }),
+            ...(dub && { dub }),
+            ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
+            ...(Object.keys(locked).length > 0 && { locked }),
+            ...(picked && { picked, pickedBankBlob: activeJob.syncBankBlob }),
+            tuneStability,
+          },
+          { apiKey: elApiKey, jobId, signal: controller.signal }
+        );
+      };
+      const { result: voiced, format: voicedFormat } = keptFormat
+        ? { result: await voiceDub(keptFormat), format: keptFormat }
+        : await voiceInAllowedQuality(dubAudioQuality, refused, voiceDub, refuseQuality);
+      const { blob, stems, report, bank: syncedBank, bankBlob } = voiced;
+      // The bank remembers its format, so takes voiced for it later come back at its rate.
+      const bank = { ...syncedBank, outputFormat: voicedFormat };
+      setDubQualityNotice(
+        keptFormat && keptFormat !== dubAudioQuality
+          ? `This dub stays in ${dubAudioQualityLabel(keptFormat)}, the format its picked takes were voiced in. Take them out and Sync again for ${dubAudioQualityLabel(dubAudioQuality)}.`
+          : fallbackNotice(dubAudioQuality, voicedFormat)
       );
       const { edits: keptEdits, dropped } = rebaseEdits(priorEdits, priorBank, bank);
       const edited = hasEdits(keptEdits);
@@ -2594,7 +2659,8 @@ export default function App() {
           matchLoudness: !several && bank.lines.some((l) => l.gain !== 1),
           voiceId: elVoiceId,
           modelId: elModelId,
-          outputFormat: elOutputFormat,
+          // Takes come back in the format the bank was voiced in; nothing is resampled.
+          outputFormat: bank.outputFormat || 'mp3_44100_128',
           voiceSettings: elVoiceSettings,
           cartesia: cartesiaForExpression(cartesiaVoice, expression),
           language,
@@ -3312,6 +3378,9 @@ export default function App() {
           cartesiaModelId={cartesiaVoice.modelId}
           dubMatchLoudness={dubMatchLoudness}
           onDubMatchLoudnessChange={handleDubMatchLoudnessChange}
+          dubAudioQuality={dubAudioQuality}
+          onDubAudioQualityChange={handleDubAudioQualityChange}
+          dubQualityNotice={dubQualityNotice}
           playbackRate={playbackRate}
           onPlaybackRateChange={setPlaybackRate}
           onResetSession={handleResetSession}

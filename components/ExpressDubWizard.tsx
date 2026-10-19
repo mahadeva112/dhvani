@@ -118,6 +118,7 @@ import {
   TYPICAL_CHARS_PER_SECOND,
   withLineTargets,
 } from '../services/syncService';
+import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS } from './SyncPreviewPanel';
@@ -405,6 +406,10 @@ interface ExpressDubWizardProps {
   /** Brings a dub's lines (or, with several speakers, each speaker) to one loudness; off keeps each at the level it was voiced at. */
   dubMatchLoudness?: boolean;
   onDubMatchLoudnessChange?: (enabled: boolean) => void;
+  /** The format the dub is voiced in; a plan that refuses it gets the next one down, and `dubQualityNotice` says why. */
+  dubAudioQuality?: DubAudioQuality;
+  onDubAudioQualityChange?: (quality: DubAudioQuality) => void;
+  dubQualityNotice?: string | null;
   /** Used to load the voice's own ElevenLabs settings, which the sliders start from. */
   elApiKey?: string;
   /** Null means the voice's own ElevenLabs settings are used. */
@@ -558,6 +563,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   cartesiaModelId,
   dubMatchLoudness = false,
   onDubMatchLoudnessChange,
+  dubAudioQuality = DEFAULT_DUB_AUDIO_QUALITY,
+  onDubAudioQualityChange,
+  dubQualityNotice = null,
   onElModelIdChange,
   elModels = [],
   elApiKey = '',
@@ -4221,6 +4229,31 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             </span>
                           </span>
                         </label>
+                      )}
+                      {onDubAudioQualityChange && (
+                        <fieldset className="flex flex-col gap-1.5 pt-1" disabled={isSyncing} title={hasDub ? 'Applies the next time you sync.' : undefined}>
+                          <legend className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">Audio quality</legend>
+                          {DUB_AUDIO_QUALITIES.map((q) => (
+                            <label key={q.id} className="flex items-start gap-2.5 text-xs cursor-pointer">
+                              <input
+                                type="radio"
+                                name="dub-audio-quality"
+                                checked={dubAudioQuality === q.id}
+                                onChange={() => onDubAudioQualityChange(q.id)}
+                                className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                              />
+                              <span className="flex flex-col gap-0.5">
+                                <span className="text-slate-200 font-medium">{q.label}</span>
+                                <span className="text-[11px] text-slate-500 leading-snug">{q.hint}</span>
+                              </span>
+                            </label>
+                          ))}
+                          {dubQualityNotice && (
+                            <p role="status" className="text-[11px] text-amber-300/90 leading-snug">
+                              {dubQualityNotice}
+                            </p>
+                          )}
+                        </fieldset>
                       )}
                       {multiSpeaker && onMixPeakChange && (
                         <div className="pt-1" title={hasDub ? 'Applies the next time you sync.' : undefined}>

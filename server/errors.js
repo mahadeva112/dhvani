@@ -51,6 +51,21 @@ export const fromProviderResponse = (provider, status, body) => {
   // sentence we append does not run into theirs.
   const detailText = raw.trim() ? raw.trim().replace(/[.!?]*$/, '.') : '';
 
+  /*
+   * ElevenLabs keeps the better output formats (WAV 44.1/48 kHz, MP3 192 kbps)
+   * for higher plans and refuses the request before voicing anything, so the
+   * app can ask again in a format the plan allows.
+   */
+  const detailStatus = typeof body?.detail?.status === 'string' ? body.detail.status : '';
+  if (status >= 400 && status < 500 && (/output_format/i.test(detailStatus) || /output[_ ]format/i.test(raw))) {
+    return new ApiError(detailText || `${provider} did not allow this output format.`, {
+      status: 403,
+      code: 'output_format_not_allowed',
+      provider,
+      details: detailText || null,
+    });
+  }
+
   if (status === 401 || status === 403) {
     /*
      * A gateway answers 401 for two very different situations: the credential
