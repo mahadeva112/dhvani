@@ -528,7 +528,14 @@ export const PreviewCards: React.FC<{ preview: SyncPreview }> = ({ preview: { su
  */
 export const fitOf = (text: string, unit: SyncPreviewUnit, cps: number) => {
   // A line the Expert estimate timed is judged by it too, so a suggestion reads the same as the line.
-  const seconds = unit.expert ? timeLine(text, unit.expert.rate).seconds : text.trim().length / cps;
+  // Otherwise a wording takes the line's own estimate scaled by syllables, which is how long words take
+  // to say: one syllable can be three or four characters in an Indian script (प्र, क्ष्म).
+  const lineSyllables = timeLine(unit.text, 1).syllables;
+  const seconds = unit.expert
+    ? timeLine(text, unit.expert.rate).seconds
+    : lineSyllables > 0 && unit.estimate > 0
+      ? (unit.estimate * timeLine(text, 1).syllables) / lineSyllables
+      : text.trim().length / cps;
   const over = seconds - unit.slot;
   const short = isShort(seconds, unit.spoken);
   return { seconds, over, fits: over <= 0, short, fills: over <= 0 && !short };
@@ -745,8 +752,13 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                             good ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
                           }`}
                         >
-                          ≈{fit.seconds.toFixed(1)} s
+                          ≈{fit.seconds.toFixed(1)} s · {!fit.fits ? 'long' : good ? (longer ? 'fills' : 'fits') : want !== undefined ? 'off your trim' : 'ends early'}
                         </span>
+                        {option.over && !fit.fits && (
+                          <span className="text-[10.5px] text-amber-300" title="No wording fit its time; this one is closest. Trim a word or two.">
+                            ~{option.over} syllable{option.over === 1 ? '' : 's'} long
+                          </span>
+                        )}
                         {option.issues && <span className="text-[10.5px] text-amber-300">check meaning</span>}
                       </span>
                     </button>

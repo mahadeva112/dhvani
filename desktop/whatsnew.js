@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.70',
+    changes: [
+      'Shorter wording suggestions now really fit: they are measured in syllables, not letters, and one that is still a little long says how many syllables to cut.',
+      'Suggest 3 in the Sync report offers three wordings at once, best fit first, each with its estimated time.',
+      'Pause detection and cue starts catch soft sounds (a quiet "s" or "h") better, with an Advanced gate section in the pause settings.',
+    ],
+  },
+  {
     version: '1.3.69',
     changes: [
       'A dub that stops part way (DHVANI closed, crashed, or a request failed) now picks up where it left off: Resume dub voices only the lines it never got, so you do not pay for the rest twice.',

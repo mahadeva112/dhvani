@@ -242,6 +242,8 @@ export interface SyncUnitReport {
   targetChars: number | null;
   /** A shorter (or, for a short line, fuller) wording to use instead, or null. Never applied automatically. */
   suggestion: string | null;
+  /** Syllables a shorter `suggestion` still runs past its target, when no wording fit: offered marked as a little long. */
+  suggestionOver?: number | null;
   /** Too long by more than a third: no shorter wording was asked for, since it would lose meaning; its timing should change. */
   deepCut?: boolean;
   /** Seconds taken out of the pauses inside the line. */
@@ -908,6 +910,8 @@ export interface LineSuggestion {
   issues?: string[];
   /** The wording translated literally back into English, without the original line in view: what it actually says. */
   backTranslation?: string;
+  /** Syllables a shorter wording still runs past its target: offered only when none fit, to trim by a word. */
+  over?: number;
 }
 
 /**
@@ -918,10 +922,10 @@ export interface LineSuggestion {
  */
 const askForLines = async (path: string, request: LineRequest, signal?: AbortSignal): Promise<LineSuggestion[]> => {
   const { options, line, flagged } = await apiJson<{
-    options?: { line: string; issues?: string[]; backTranslation?: string }[];
+    options?: { line: string; issues?: string[]; backTranslation?: string; over?: number }[];
     line: string | null;
     reason?: 'unusable' | 'meaning' | null;
-    flagged?: { line: string; issues: string[]; backTranslation?: string } | null;
+    flagged?: { line: string; issues: string[]; backTranslation?: string; over?: number } | null;
   }>(path, { body: { ...request, keep: keepTermsFor(request.language || '') }, signal });
   const list = Array.isArray(options) ? options : line ? [{ line }] : flagged?.line ? [flagged] : [];
   return list
@@ -930,6 +934,7 @@ const askForLines = async (path: string, request: LineRequest, signal?: AbortSig
       text: o.line,
       ...(o.issues && { issues: o.issues.length ? o.issues : ['The meaning may differ from the original line.'] }),
       ...(typeof o.backTranslation === 'string' && o.backTranslation.trim() && { backTranslation: o.backTranslation.trim() }),
+      ...(typeof o.over === 'number' && o.over > 0 && { over: Math.round(o.over) }),
     }));
 };
 

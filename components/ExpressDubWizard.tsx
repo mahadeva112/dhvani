@@ -3837,7 +3837,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 lockedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => activeJob.syncEdits?.[key]?.locked)}
                 onSuggestLine={(unit, avoid) =>
                   unit.targetChars == null
-                    ? Promise.resolve(null)
+                    ? Promise.resolve([])
                     : (unit.short && !unit.exceeded ? suggestLongerLine : suggestShorterLine)({
                         text: unit.text,
                         sourceText: unit.sourceText,
@@ -3846,7 +3846,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         avoid,
                         context: lineContextOf(unit.cueIds, unit.speaker),
                         examples: choicesFor(activeJob?.id, unit.text),
-                      }).then((options) => options[0] ?? null)
+                        count: LINE_OPTIONS,
+                      })
                 }
               />
               {!report && (

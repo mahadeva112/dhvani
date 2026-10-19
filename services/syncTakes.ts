@@ -257,6 +257,7 @@ export const putTake = ({
           shortBy: short ? spoken - take.speech : 0,
           // A suggestion was for the take it was made for, and only while the line still needs one.
           suggestion: exceeded || short ? u.suggestion : null,
+          suggestionOver: exceeded || short ? u.suggestionOver ?? null : null,
           pauseTrimmed: 0,
           retakes: 0,
           fromDub: false,
