@@ -835,7 +835,7 @@ syncRouter.post(
     for (const seed of takeSeeds) {
       if (signal.aborted) throw cancelledError('Takes');
       const seeded = { ...voice, seed };
-      let buffer = cachedClip(seeded, cacheText);
+      let buffer = await cachedClip(seeded, cacheText);
       if (!buffer) {
         [buffer] = await voiceWith([{ text: spoken, previousText, nextText, seed }], { voice: seeded, readCount, onLine: () => {} });
         rememberClip(seeded, cacheText, buffer);

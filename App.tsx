@@ -190,6 +190,15 @@ const describePipelineError = (err: unknown): string => {
 /** How long Edit timing waits after an edit before rendering the dub again, so a run of edits renders once. */
 const SYNC_EDIT_RENDER_DELAY_MS = 600;
 
+/** Why a project could not be saved to this computer, in words a user can act on. */
+const saveFailureMessage = (err: unknown): string => {
+  const name = (err as { name?: string } | null)?.name;
+  if (name === 'QuotaExceededError') return 'This computer has no room left for it. Free some disk space, then save again.';
+  if (name === 'InvalidStateError' || name === 'UnknownError') return 'The project store could not be opened. Save again, or restart Dhvani.';
+  const message = (err as { message?: string } | null)?.message;
+  return message ? `${message}.`.replace(/\.\.$/, '.') : 'The project store refused it.';
+};
+
 /** The source's length, which the synced dub is as long as. */
 const sourceDurationOf = (job: BatchJob) =>
   job.audioBuffer?.duration || job.audioMetadata?.duration || job.segments[job.segments.length - 1]?.endTime || 0;
@@ -444,6 +453,8 @@ export default function App() {
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isCancellingSync, setIsCancellingSync] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  /** The last save to this computer that failed, until one succeeds or the user closes the notice. */
+  const [saveFailure, setSaveFailure] = useState<{ jobId: string; message: string } | null>(null);
   /** The synced line whose takes are being voiced (one at a time), and why asking for takes last failed. */
   const [syncTakesBusy, setSyncTakesBusy] = useState<string | null>(null);
   const [syncTakesError, setSyncTakesError] = useState<{ key: string; message: string } | null>(null);
@@ -826,7 +837,9 @@ export default function App() {
               synthesizedAudioUrl: job.synthesizedBlob ? URL.createObjectURL(job.synthesizedBlob) : null,
               syncedAudioUrl: job.syncedBlob ? URL.createObjectURL(job.syncedBlob) : null,
               srtUrl: job.srtBlob ? URL.createObjectURL(job.srtBlob) : null,
-              // A dub or sync in flight ended with the page; it leaves what there was, as a cancel does.
+              // A dub or sync in flight ended with the page; it leaves what there was, as a cancel does,
+              // and Dub offers to resume it: the lines it voiced were kept on disk.
+              ...(job.status === ProcessingStatus.SYNTHESIZING_AUDIO && { syncInterrupted: true }),
               status:
                 job.status === ProcessingStatus.SYNTHESIZING_AUDIO
                   ? job.synthesizedBlob || job.syncedBlob
@@ -866,13 +879,32 @@ export default function App() {
       prev.map((job) => {
         if (job.id === id) {
           const updatedJob = { ...job, ...updates, ...(worksOnIt ? { updatedAt: Date.now() } : {}) };
-          saveJobToStorage(updatedJob).catch((err) => console.error('Storage Save Error:', err));
+          saveJobToStorage(updatedJob).then(
+            () => setSaveFailure((failure) => (failure?.jobId === id ? null : failure)),
+            (err) => {
+              console.error('Storage Save Error:', err);
+              setSaveFailure({ jobId: id, message: saveFailureMessage(err) });
+            }
+          );
           return updatedJob;
         }
         return job;
       })
     );
   }, []);
+
+  /** Saves the project whose save failed again, as it is now. */
+  const retrySave = useCallback(() => {
+    const job = saveFailure && queueRef.current.find((j) => j.id === saveFailure.jobId);
+    if (!job) {
+      setSaveFailure(null);
+      return;
+    }
+    saveJobToStorage(job).then(
+      () => setSaveFailure(null),
+      (err) => setSaveFailure({ jobId: job.id, message: saveFailureMessage(err) })
+    );
+  }, [saveFailure]);
 
   const handleStepChange = useCallback(
     (step: number) => {
@@ -2307,9 +2339,11 @@ export default function App() {
     if (activeJob.targetSource === 'pending') return;
 
     const hadDub = Boolean(activeJob.synthesizedAudioUrl || activeJob.syncedAudioUrl);
+    // Kept with the project, so a dub run again after a restart asks for the same reads and finds the lines it already voiced.
+    const seed = (syncSeedRef.current[activeJob.id] ??= activeJob.syncSeed ?? Math.floor(Math.random() * 2 ** 31));
     setIsSyncing(true);
     setSyncError(null);
-    updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null });
+    updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null, syncSeed: seed, syncInterrupted: false });
 
     const jobId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -2327,7 +2361,6 @@ export default function App() {
         .catch(() => {});
     }, 700);
 
-    const seed = (syncSeedRef.current[activeJob.id] ??= Math.floor(Math.random() * 2 ** 31));
     const sourceDuration = sourceDurationOf(activeJob);
 
     // Locked lines in Edit timing stay where the user put them.
@@ -3211,6 +3244,36 @@ export default function App() {
               Open API settings
             </button>
           )}
+        </div>
+      )}
+
+      {/* A save to this computer failed: the work is only in this window until one succeeds. */}
+      {saveFailure && (
+        <div
+          className="px-4 sm:px-6 lg:px-8 py-2.5 bg-rose-500/10 border-b border-rose-500/30 text-xs sm:text-[13px] flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2"
+          role="alert"
+        >
+          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+          <p className="min-w-0 flex-1 text-slate-200 leading-snug">
+            <span className="font-semibold">
+              {queue.find((j) => j.id === saveFailure.jobId)?.file?.name || 'This project'} could not be saved.
+            </span>{' '}
+            <span className="text-slate-400">{saveFailure.message} Until it saves, closing Dhvani loses the latest changes.</span>
+          </p>
+          <button
+            type="button"
+            onClick={retrySave}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-400 hover:bg-rose-300 text-rose-950 text-xs font-semibold cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Save again
+          </button>
+          <button
+            type="button"
+            onClick={() => setSaveFailure(null)}
+            className="shrink-0 px-2 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 text-xs cursor-pointer"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

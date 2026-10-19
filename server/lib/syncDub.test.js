@@ -1081,3 +1081,30 @@ test('removeBreaths finds a breath on a voice with room noise, and keeps an "s" 
   const s = Math.round(1.66 * BREATH_RATE);
   for (let i = s; i < Math.round(1.79 * BREATH_RATE); i++) assert.equal(samples[i], clip[i], 'the "s" is kept');
 });
+
+test('a sync that fails part way keeps the lines it voiced, so running it again voices only the rest', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 4, 5, 'bbbbbbbbbb'), cue(3, 7, 8, 'cccccccccc')];
+  const voiced = [];
+  let failAt = 2;
+  const deps = {
+    voiceLines: async (lines, { onLine }) => {
+      const out = [];
+      for (const [n, line] of lines.entries()) {
+        if (voiced.length === failAt) throw new Error('The voice service stopped answering.');
+        voiced.push(line.text);
+        out.push(clip({ lead: 0.15, tone: line.text.replace(/[.।]$/u, '').length * SECONDS_PER_CHAR, tail: 0.15 }));
+        onLine(n + 1, n, out[n]);
+      }
+      return out;
+    },
+    decode: async (samples) => samples,
+    encode: async (samples) => ({ buffer: Buffer.from(new Uint8Array(samples.buffer)), contentType: 'audio/test' }),
+  };
+  await assert.rejects(runSync({ segments, sourceDuration: 10, sampleRate: RATE, voice }, deps), /stopped answering/);
+  assert.equal(voiced.length, 2);
+  failAt = Infinity;
+  const { report } = await runSync({ segments, sourceDuration: 10, sampleRate: RATE, voice }, deps);
+  assert.equal(voiced.length, 3, 'only the line that was never voiced is voiced again');
+  assert.equal(report.summary.lines, 3);
+});

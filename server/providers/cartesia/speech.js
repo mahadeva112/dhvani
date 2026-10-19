@@ -259,7 +259,7 @@ export const synthesizeScript = async (
  *
  * `lines[i]` is `{ text }`; `outputFormat` should already be one Cartesia
  * produces (see toCartesiaOutputFormat). With `performanceTags`, each line
- * takes its emotion from its source-matched tags (see cartesiaEmotionOf). `onLine(done)` reports each finished
+ * takes its emotion from its source-matched tags (see cartesiaEmotionOf). `onLine(done, index, buffer)` reports each finished
  * line. Returns `[{ buffer }]` in the same order.
  */
 export const synthesizeLines = async (
@@ -281,7 +281,7 @@ export const synthesizeLines = async (
         { apiKey, signal }
       );
       results[index] = { buffer: Buffer.from(await response.arrayBuffer()) };
-      onLine(++done);
+      onLine(++done, index, results[index].buffer);
     }
   };
   await Promise.all(Array.from({ length: Math.min(SCRIPT_CONCURRENCY, lines.length) }, worker));
