@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.68',
+    changes: [
+      'The Dub step no longer freezes for several seconds when it opens or when you zoom the Rythmo view on a long script.',
+      'Editing timing stays light on memory: renders you have already replaced are no longer kept, and dragging lines is smoother with many lines on screen.',
+      'New translation style, Sadhguru 3-Step (Full Meaning): long lines are shortened by word choice and by rewording neighbouring lines together, not by cutting detail.',
+    ],
+  },
+  {
     version: '1.3.67',
     changes: [
       'When ElevenLabs splits one person into two speakers, Review now notices: it compares the voices and offers to merge speakers that sound alike and never talk over each other, with Hear first.',
