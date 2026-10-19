@@ -57,6 +57,28 @@ const STATUS_HEX: Record<SyncPreviewUnit['status'], string> = { fits: '#34d399',
 /** Bars or Rythmo, for the Expert estimate's dub lane. */
 const PREVIEW_VIEW_KEY = 'dhvani_preview_view';
 /**
+ * Every Rythmo word's box, to the span holding its text. One observer fits
+ * them all: a band can hold thousands of words, and fitting each on its own
+ * (a style write, then a layout read) laid the page out once per word and
+ * froze the window for seconds when the Dub step opened or zoomed.
+ */
+const rythmoText = new Map<Element, HTMLElement>();
+let rythmoObserver: ResizeObserver | null = null;
+const fitRythmoWords = (entries: ResizeObserverEntry[]) => {
+  // All reads first, then all writes, so the page is laid out once. A scale
+  // doesn't change the layout width scrollWidth reads, so it needn't be cleared.
+  const fits: [HTMLElement, number][] = [];
+  for (const { target } of entries) {
+    const text = rythmoText.get(target);
+    if (!text) continue;
+    const room = (target as HTMLElement).clientWidth;
+    const need = text.scrollWidth;
+    if (room > 0 && need > 0) fits.push([text, Math.min(1.8, room / need)]);
+  }
+  for (const [text, scale] of fits) text.style.transform = `scaleX(${scale})`;
+};
+
+/**
  * A word on a Rythmo band, squeezed or stretched to the time it takes, as a
  * dubbing studio's band writes it: a squeezed word has to be said fast, a
  * stretched one has room. Never clipped, so a word stays readable.
@@ -65,17 +87,16 @@ const RythmoWord: React.FC<{ text: string; left: string; width: string; late: bo
   const box = useRef<HTMLSpanElement>(null);
   const inner = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
-    const fit = () => {
-      if (!box.current || !inner.current) return;
-      inner.current.style.transform = '';
-      const room = box.current.clientWidth;
-      const need = inner.current.scrollWidth;
-      if (room > 0 && need > 0) inner.current.style.transform = `scaleX(${Math.min(1.8, room / need)})`;
+    const el = box.current;
+    if (!el || !inner.current) return;
+    rythmoObserver ??= new ResizeObserver(fitRythmoWords);
+    rythmoText.set(el, inner.current);
+    // Observing reports the box once straight away, so a new word or new text is fitted too.
+    rythmoObserver.observe(el);
+    return () => {
+      rythmoObserver?.unobserve(el);
+      rythmoText.delete(el);
     };
-    fit();
-    const observer = new ResizeObserver(fit);
-    if (box.current) observer.observe(box.current);
-    return () => observer.disconnect();
   }, [text]);
   return (
     <span
