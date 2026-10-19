@@ -166,6 +166,7 @@ import {
   DubLines,
   DubMixReport,
   MixPeakMode,
+  PauseGate,
 } from './types';
 
 /**
@@ -1364,7 +1365,7 @@ export default function App() {
   // Re-decode audio buffers if needed
   useEffect(() => {
     if (activeJob && !activeJob.audioBuffer && activeJob.file) {
-      analyzeAudio(activeJob.file)
+      analyzeAudio(activeJob.file, { sensitivity: activeJob.analysisSensitivity ?? 50, gate: activeJob.analysisGate })
         .then(({ buffer, segments }) => {
           updateJob(activeJob.id, {
             audioBuffer: buffer,
@@ -3154,27 +3155,28 @@ export default function App() {
     activeJob?.segments?.some((seg) => (seg.textSource || seg.textTarget || '').trim())
   );
 
-  // Resegment Audio based on Pause Sensitivity Slider
-  const handleSensitivityChange = useCallback(
-    (newSensitivity: number) => {
+  // Resegment Audio based on Pause Sensitivity Slider. A sensitivity (or a
+  // starting point) sets the whole gate again, so it drops any Advanced gate.
+  const resegmentActiveJob = useCallback(
+    (newSensitivity: number, gate: PauseGate | null) => {
       if (!activeJob) return;
-      if (activeJob.audioBuffer) {
-        const updatedSegments = resegmentAudioBuffer(
-          activeJob.audioBuffer,
-          newSensitivity,
-          activeJob.segments
-        );
-        updateJob(activeJob.id, {
-          segments: updatedSegments,
-          analysisSensitivity: newSensitivity,
-        });
-      } else {
-        updateJob(activeJob.id, {
-          analysisSensitivity: newSensitivity,
-        });
-      }
+      updateJob(activeJob.id, {
+        ...(activeJob.audioBuffer
+          ? { segments: resegmentAudioBuffer(activeJob.audioBuffer, newSensitivity, activeJob.segments, gate) }
+          : {}),
+        analysisSensitivity: newSensitivity,
+        analysisGate: gate,
+      });
     },
     [activeJob, updateJob]
+  );
+  const handleSensitivityChange = useCallback(
+    (newSensitivity: number) => resegmentActiveJob(newSensitivity, null),
+    [resegmentActiveJob]
+  );
+  const handlePauseGateChange = useCallback(
+    (gate: PauseGate | null) => resegmentActiveJob(activeJob?.analysisSensitivity ?? 50, gate),
+    [resegmentActiveJob, activeJob?.analysisSensitivity]
   );
 
   return (
@@ -3612,6 +3614,8 @@ export default function App() {
         onClose={() => setIsPauseSensitivityOpen(false)}
         sensitivity={activeJob?.analysisSensitivity ?? 50}
         onSensitivityChange={handleSensitivityChange}
+        gate={activeJob?.analysisGate ?? null}
+        onGateChange={handlePauseGateChange}
         segmentCount={activeJob?.segments?.length || 0}
         hasAudioBuffer={Boolean(activeJob?.audioBuffer)}
         audioBuffer={activeJob?.audioBuffer || null}

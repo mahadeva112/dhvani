@@ -58,3 +58,29 @@ test('without a waveform, only words after a pause get a fixed lead', () => {
   );
   assert.deepEqual(out.map((w) => w.start), [0.92, 1.3, 1.92]);
 });
+
+/** envelopeOf, with each [start, end, level] range at its own level. */
+const levelsOf = (seconds, ranges) => {
+  const env = new Float32Array(Math.round(seconds / ENVELOPE_HOP));
+  for (const [start, end, level] of ranges) {
+    for (let i = Math.round(start / ENVELOPE_HOP); i < Math.round(end / ENVELOPE_HOP); i += 1) env[i] = level;
+  }
+  return env;
+};
+
+test('a soft consonant between the close and open levels is part of the word', () => {
+  // A soft "s" at 0.03 of peak from 0.90 s, the vowel from 1.00 s; Scribe said 1.07 s.
+  const env = levelsOf(3, [[0.9, 1.0, 0.03], [1.0, 1.6, 0.8]]);
+  assert.ok(Math.abs(onsetBefore(env, 1.07) - 0.9) < 1e-9);
+});
+
+test('a dip that stays above the close level is not a gap', () => {
+  // Two words joined by a 60 ms dip at 0.025 of peak: still continuous speech.
+  const env = levelsOf(3, [[0.5, 1.0, 0.8], [1.0, 1.06, 0.025], [1.06, 1.6, 0.8]]);
+  assert.equal(onsetBefore(env, 1.1), null);
+});
+
+test('a start that is only above the close level does not snap', () => {
+  const env = levelsOf(3, [[0.9, 1.6, 0.03]]);
+  assert.equal(onsetBefore(env, 1.07), null);
+});

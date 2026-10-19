@@ -12,10 +12,21 @@
  * in the waveform. Only ever earlier, never past the previous word, never more
  * than SNAP_MAX_PULL — the worst case is that a word stays where Scribe put it.
  * Words inside continuous speech have no onset to snap to and are left alone.
+ *
+ * The walk back uses the same gate as pause detection and Chunk sync
+ * (silenceGate.js): a word has to be above the open level where Scribe put
+ * it, the walk carries on over anything still above the close level (a soft
+ * "s" or "h" the word starts with), and only a run below the close level is
+ * a gap. With one level, a soft consonant between the two read as silence
+ * and the start stayed late.
  */
 
+import { dbToGain } from './silenceGate.js';
+
 export const ENVELOPE_HOP = 0.005; // 5 ms, about 1/8 of a frame
-const ENV_THRESH = 0.04; // fraction of peak that counts as not-silence
+const ENV_OPEN = 0.04; // fraction of peak a word start has to reach (about -28 dB)
+const ENV_HYSTERESIS_DB = 6; // the walk back stops only below this much under ENV_OPEN
+const ENV_CLOSE = ENV_OPEN * dbToGain(-ENV_HYSTERESIS_DB);
 const SNAP_MAX_PULL = 0.3; // never drag a start back further than this
 const SNAP_DIP = 0.04; // quiet shorter than this is inside a word, not a gap
 const SNAP_MIN_KEEP = 0.08; // never trim the previous word shorter than this
@@ -30,14 +41,14 @@ const round3 = (value) => Math.round(value * 1000) / 1000;
  */
 export const onsetBefore = (envelope, t, { hop = ENVELOPE_HOP, maxPull = SNAP_MAX_PULL } = {}) => {
   const i = Math.floor(t / hop);
-  if (i <= 0 || i >= envelope.length || envelope[i] <= ENV_THRESH) return null;
+  if (i <= 0 || i >= envelope.length || envelope[i] <= ENV_OPEN) return null;
 
   const limit = Math.max(0, i - Math.round(maxPull / hop));
   const dip = Math.max(1, Math.round(SNAP_DIP / hop));
   let quiet = 0;
   let onset = i;
   for (let j = i - 1; j >= limit; j -= 1) {
-    if (envelope[j] > ENV_THRESH) {
+    if (envelope[j] >= ENV_CLOSE) {
       quiet = 0;
       onset = j;
     } else {
