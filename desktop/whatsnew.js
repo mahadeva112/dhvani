@@ -7,8 +7,8 @@ window.WHATS_NEW = [
   {
     version: '1.3.70',
     changes: [
-      'Shorter wording suggestions now really fit: they are measured in syllables, not letters, and one that is still a little long says how many syllables to cut.',
-      'Suggest 3 in the Sync report offers three wordings at once, best fit first, each with its estimated time.',
+      'Shorter wording suggestions are measured in syllables, so they really fit, and Suggest 3 in the Sync report offers three at once, best fit first.',
+      'Chunk sync closes up pauses the original never made, even inside a line, and Close up in Edit timing works on picked lines or on all lines.',
       'Pause detection and cue starts catch soft sounds (a quiet "s" or "h") better, with an Advanced gate section in the pause settings.',
     ],
   },
