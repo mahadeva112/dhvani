@@ -1912,7 +1912,8 @@ const ReviewRow: React.FC<{
                 </div>
               )}
               {suggested && issues && <MeaningWarning issues={issues} />}
-              {suggested && !fuller && over != null && over > 0 && (
+              {/* The server aims a little under the slot, so a wording it marks long may still fit as estimated here: only say so when both agree. */}
+              {suggested && !fuller && over != null && over > 0 && !fitsLine(draftSeconds) && (
                 <p className="mb-1 text-[11.5px] text-amber-300 leading-snug">
                   Still about {over} syllable{over === 1 ? '' : 's'} long: no wording fit, so this is the closest. Trim a word or two.
                 </p>

@@ -754,7 +754,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                         >
                           ≈{fit.seconds.toFixed(1)} s · {!fit.fits ? 'long' : good ? (longer ? 'fills' : 'fits') : want !== undefined ? 'off your trim' : 'ends early'}
                         </span>
-                        {option.over && (
+                        {option.over && !fit.fits && (
                           <span className="text-[10.5px] text-amber-300" title="No wording fit its time; this one is closest. Trim a word or two.">
                             ~{option.over} syllable{option.over === 1 ? '' : 's'} long
                           </span>
