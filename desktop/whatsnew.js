@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.71',
+    changes: [
+      'Voice changer: Replace the dub now works line by line, so every line keeps its place and your Edit timing edits. Each speaker can get their own voice.',
+      'When a translation misses a few lines, the notice now has a button that translates just those lines, leaving every other line and the dub as they are.',
+    ],
+  },
+  {
     version: '1.3.70',
     changes: [
       'Shorter wording suggestions are measured in syllables, so they really fit, and Suggest 3 in the Sync report offers three at once, best fit first.',
