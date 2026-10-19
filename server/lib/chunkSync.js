@@ -25,11 +25,10 @@
  * the silence between them is left out.
  */
 
+import { GATE_FRAME_SECONDS, gateSounds, peakLevels } from './silenceGate.js';
+
 /** Chunks closer than this were said in one breath and move together (Samanvaya's _ISO_RIGID_GAP). */
 export const RIGID_GAP_SECONDS = 0.15;
-
-/** The gate reads the line's level in frames this long. */
-const GATE_FRAME_SECONDS = 0.005;
 
 /** A split may not cut into a word by more than this, where forced alignment puts the word's edge. */
 const WORD_EDGE_SECONDS = 0.02;
@@ -59,42 +58,13 @@ export const splitChunks = (
   { openDb = -40, hysteresisDb = -15, minSlice = 0.1, minSilence = 0.15, leadPad = 0.01, trailPad = 0.02, protect = [] } = {}
 ) => {
   const whole = [{ from: 0, to: samples.length }];
-  const hop = Math.max(1, Math.round(GATE_FRAME_SECONDS * sampleRate));
-  const open = 10 ** (openDb / 20);
-  const close = 10 ** ((openDb - Math.abs(hysteresisDb)) / 20);
-  const silenceFrames = Math.max(1, Math.round(minSilence / GATE_FRAME_SECONDS));
-  const levelOf = (frame) => {
-    let peak = 0;
-    const end = Math.min(samples.length, (frame + 1) * hop);
-    for (let i = frame * hop; i < end; i++) peak = Math.max(peak, Math.abs(samples[i]));
-    return peak;
-  };
-  const sounds = [];
-  let on = false;
-  let start = 0;
-  let lastLoud = 0;
-  let below = 0;
-  for (let frame = 0; frame * hop < samples.length; frame++) {
-    const peak = levelOf(frame);
-    if (!on) {
-      if (peak >= open) {
-        on = true;
-        // Back over a soft start, as far as the close level and SOFT_ONSET_SECONDS allow, never into the chunk before.
-        const earliest = Math.max(sounds.length ? Math.ceil(sounds.at(-1).to / hop) : 0, frame - Math.round(SOFT_ONSET_SECONDS / GATE_FRAME_SECONDS));
-        start = frame;
-        while (start > earliest && levelOf(start - 1) >= close) start--;
-        lastLoud = frame;
-        below = 0;
-      }
-    } else if (peak >= close) {
-      lastLoud = frame;
-      below = 0;
-    } else if (++below >= silenceFrames) {
-      sounds.push({ from: start * hop, to: Math.min(samples.length, (lastLoud + 1) * hop) });
-      on = false;
-    }
-  }
-  if (on) sounds.push({ from: start * hop, to: Math.min(samples.length, (lastLoud + 1) * hop) });
+  const { levels, hop } = peakLevels(samples, sampleRate, GATE_FRAME_SECONDS);
+  const sounds = gateSounds(levels, {
+    openDb,
+    hysteresisDb,
+    minSilenceFrames: minSilence / GATE_FRAME_SECONDS,
+    softOnsetFrames: Math.round(SOFT_ONSET_SECONDS / GATE_FRAME_SECONDS),
+  }).map(({ from, to }) => ({ from: from * hop, to: Math.min(samples.length, to * hop) }));
   if (sounds.length === 0) return whole;
 
   // A slice shorter than minSlice is not cut out on its own: it joins the one before it (or after, at the start).

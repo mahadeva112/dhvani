@@ -1,12 +1,14 @@
 
 
-import { AudioMetadata, AudioSegment } from '../types';
+import type { AudioMetadata, AudioSegment, PauseGate } from '../types';
+import { GATE_FRAME_SECONDS, gateSounds, peakLevels } from '../server/lib/silenceGate.js';
+
+export type { PauseGate };
 
 export interface AudioAnalysisOptions {
   sensitivity?: number; // 0 to 100 (Default: 50)
-  silenceThreshold?: number; // Custom override for amplitude threshold
-  minSilenceDuration?: number; // Custom override for min silence in seconds
-  minSpeechDuration?: number; // Custom override for min speech in seconds
+  /** The gate as set by hand in Pause detection's Advanced gate; wins over `sensitivity`. */
+  gate?: PauseGate | null;
 }
 
 export interface SensitivityProfile {
@@ -72,6 +74,33 @@ export const getSensitivityProfile = (sensitivity: number = 50): SensitivityProf
     minSilenceDuration,
     minSpeechDuration,
     description,
+  };
+};
+
+/** What each Advanced gate control can be set to: [min, max, step]. */
+export const PAUSE_GATE_RANGES = {
+  openDb: [-60, -20, 1],
+  hysteresisDb: [0, 30, 1],
+  minSilence: [0.03, 0.6, 0.01],
+  minSlice: [0.03, 0.5, 0.01],
+  leadPad: [0, 0.08, 0.005],
+} as const;
+
+/**
+ * The gate a sensitivity stands for. Its open and close levels sit 6 dB
+ * either side of the single level pause detection used before the gate had
+ * hysteresis, so a sensitivity still splits about where it used to.
+ */
+export const gateFromSensitivity = (sensitivity: number = 50): PauseGate => {
+  const profile = getSensitivityProfile(sensitivity);
+  const levelDb = 20 * Math.log10(profile.silenceThreshold);
+  return {
+    openDb: Math.round(levelDb + 6),
+    hysteresisDb: 12,
+    minSilence: profile.minSilenceDuration,
+    minSlice: profile.minSpeechDuration,
+    leadPad: 0.01,
+    trailPad: 0.02,
   };
 };
 
@@ -272,87 +301,53 @@ function writeString(view: DataView, offset: number, string: string){
   }
 }
 
+/** Each AudioBuffer's 5 ms peaks, read once: moving a slider re-runs only the gate. */
+const levelCache = new WeakMap<AudioBuffer, { levels: Float32Array; hop: number }>();
+
+const levelsOf = (buffer: AudioBuffer) => {
+  const cached = levelCache.get(buffer);
+  if (cached) return cached;
+  let merged: { levels: Float32Array; hop: number } | null = null;
+  // The loudest channel in each frame, so a voice panned to one side still opens the gate.
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const read = peakLevels(buffer.getChannelData(channel), buffer.sampleRate, GATE_FRAME_SECONDS);
+    if (!merged) merged = read;
+    else for (let i = 0; i < merged.levels.length; i++) merged.levels[i] = Math.max(merged.levels[i], read.levels[i]);
+  }
+  const result = merged ?? { levels: new Float32Array(0), hop: 1 };
+  levelCache.set(buffer, result);
+  return result;
+};
+
 /**
- * Detects speech segments by analyzing PCM data amplitude with customizable sensitivity.
+ * Splits the audio into speech segments with REAPER's Dynamic split gate
+ * (server/lib/silenceGate.js): a segment opens above `openDb`, closes once the
+ * level stays `hysteresisDb` below that for `minSilence`, anything shorter
+ * than `minSlice` is dropped, and each segment keeps its pads where they
+ * don't run into the next one.
  */
 export const detectSpeechSegments = (
   buffer: AudioBuffer,
   options?: AudioAnalysisOptions
 ): AudioSegment[] => {
-  const profile = getSensitivityProfile(options?.sensitivity ?? 50);
+  const gate = options?.gate ?? gateFromSensitivity(options?.sensitivity ?? 50);
+  const { levels, hop } = levelsOf(buffer);
+  const frameSeconds = hop / buffer.sampleRate;
+  const sounds = gateSounds(levels, {
+    openDb: gate.openDb,
+    hysteresisDb: gate.hysteresisDb,
+    minSilenceFrames: gate.minSilence / frameSeconds,
+  })
+    .map(({ from, to }) => ({ start: from * frameSeconds, end: Math.min(buffer.duration, to * frameSeconds) }))
+    .filter((sound) => sound.end - sound.start >= gate.minSlice);
 
-  const silenceThreshold = options?.silenceThreshold ?? profile.silenceThreshold;
-  const minSilenceDuration = options?.minSilenceDuration ?? profile.minSilenceDuration;
-  const minSpeechDuration = options?.minSpeechDuration ?? profile.minSpeechDuration;
-
-  const channelData = buffer.getChannelData(0); // Analyze first channel (mono)
-  const sampleRate = buffer.sampleRate;
-
-  const segments: AudioSegment[] = [];
-  let isSpeech = false;
-  let speechStartSample = 0;
-
-  // Stride helps performance on large files while maintaining high accuracy
-  const stride = 100;
-
-  for (let i = 0; i < channelData.length; i += stride) {
-    const amplitude = Math.abs(channelData[i]);
-
-    if (amplitude > silenceThreshold) {
-      if (!isSpeech) {
-        // Potential start of speech
-        isSpeech = true;
-        speechStartSample = i;
-      }
-    } else {
-      if (isSpeech) {
-        // Potential end of speech
-        // Look ahead to see if it's just a brief dip in volume or actual silence
-        let isActuallySilence = true;
-        const lookAheadSamples = Math.floor(minSilenceDuration * sampleRate);
-        const checkLimit = Math.min(channelData.length, i + lookAheadSamples);
-
-        for (let j = i; j < checkLimit; j += stride) {
-          if (Math.abs(channelData[j]) > silenceThreshold) {
-            isActuallySilence = false;
-            break;
-          }
-        }
-
-        if (isActuallySilence) {
-          isSpeech = false;
-          const endTime = i / sampleRate;
-          const startTime = speechStartSample / sampleRate;
-          const duration = endTime - startTime;
-
-          if (duration >= minSpeechDuration) {
-            segments.push({
-              id: segments.length + 1,
-              startTime: Number(startTime.toFixed(3)),
-              endTime: Number(endTime.toFixed(3)),
-              duration: Number(duration.toFixed(3)),
-            });
-          }
-        }
-      }
-    }
-  }
-
-  // Handle case where file ends with speech
-  if (isSpeech) {
-    const startTime = speechStartSample / sampleRate;
-    const endTime = channelData.length / sampleRate;
-    if (endTime - startTime >= minSpeechDuration) {
-      segments.push({
-        id: segments.length + 1,
-        startTime: Number(startTime.toFixed(3)),
-        endTime: Number(endTime.toFixed(3)),
-        duration: Number((endTime - startTime).toFixed(3)),
-      });
-    }
-  }
-
-  return segments;
+  return sounds.map((sound, index) => {
+    const before = index > 0 ? sounds[index - 1].end : 0;
+    const after = index < sounds.length - 1 ? sounds[index + 1].start : buffer.duration;
+    const startTime = Number(Math.max(before, sound.start - gate.leadPad).toFixed(3));
+    const endTime = Number(Math.min(after, sound.end + gate.trailPad).toFixed(3));
+    return { id: index + 1, startTime, endTime, duration: Number((endTime - startTime).toFixed(3)) };
+  });
 };
 
 /**
@@ -362,7 +357,8 @@ export const detectSpeechSegments = (
 export const resegmentAudioBuffer = (
   buffer: AudioBuffer,
   sensitivity: number,
-  previousSegments: AudioSegment[] = []
+  previousSegments: AudioSegment[] = [],
+  gate: PauseGate | null = null
 ): AudioSegment[] => {
   // Transcribed cues are timed by ElevenLabs word timestamps. Re-cutting them
   // on local VAD boundaries keeps only one cue's text per new segment and
@@ -372,7 +368,7 @@ export const resegmentAudioBuffer = (
   );
   if (hasTranscript) return previousSegments;
 
-  const newSegments = detectSpeechSegments(buffer, { sensitivity });
+  const newSegments = detectSpeechSegments(buffer, { sensitivity, gate });
 
   if (previousSegments.length === 0 || newSegments.length === 0) {
     return newSegments;
