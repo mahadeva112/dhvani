@@ -317,6 +317,8 @@ export interface BatchJob {
    * data is preserved so the user can retry translation alone.
    */
   translationWarning?: string | null;
+  /** The cues the last translation left with their previous text, so only they can be translated again. */
+  untranslatedCueIds?: string[] | null;
 }
 
 /** One subtitle as edited by hand: its times in seconds, its text (a line break per subtitle line). */

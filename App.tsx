@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, startTransition } from 'react';
-import { RefreshCw, AlertTriangle } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Languages } from 'lucide-react';
 import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, HeaderQuota } from './components/ProHeader';
 import { ExpressDubWizard, stepForJob } from './components/ExpressDubWizard';
 import { useTrackMixer } from './components/useTrackMixer';
@@ -197,6 +197,10 @@ const describePipelineError = (err: unknown): string => {
 };
 
 /** How long Edit timing waits after an edit before rendering the dub again, so a run of edits renders once. */
+/** The notice for cues a translation left with their previous text; null when it missed none. */
+const untranslatedWarning = (count: number) =>
+  count ? `${count} cue(s) kept their previous text. Timestamps are unchanged — translate just those again.` : null;
+
 const SYNC_EDIT_RENDER_DELAY_MS = 600;
 
 /** Why a project could not be saved to this computer, in words a user can act on. */
@@ -1019,9 +1023,8 @@ export default function App() {
               segments: translatedSegments,
               script: newScript,
               translatedSrt,
-              translationWarning: untranslatedCueIds.length
-                ? `${untranslatedCueIds.length} cue(s) kept their previous text. Timestamps are unchanged — you can retry the translation.`
-                : null,
+              translationWarning: untranslatedWarning(untranslatedCueIds.length),
+              untranslatedCueIds: untranslatedCueIds.length ? untranslatedCueIds : null,
               synthesizedAudioUrl: null,
               synthesizedBlob: null,
               synthAudioBuffer: null,
@@ -1108,9 +1111,8 @@ export default function App() {
           customPrompt: promptToUse,
           targetSource: 'translated',
           translatedSrt,
-          translationWarning: untranslatedCueIds.length
-            ? `${untranslatedCueIds.length} cue(s) kept their previous text. Timestamps are unchanged — you can retry.`
-            : null,
+          translationWarning: untranslatedWarning(untranslatedCueIds.length),
+          untranslatedCueIds: untranslatedCueIds.length ? untranslatedCueIds : null,
           synthesizedAudioUrl: null,
           synthesizedBlob: null,
           synthAudioBuffer: null,
@@ -1145,6 +1147,58 @@ export default function App() {
   );
 
   /**
+   * Translates only the cues the last translation missed. Every other line,
+   * any hand edit and the dub stay as they are; a synced line that changes is
+   * left for Sync to place again, the same as a hand edit.
+   */
+  const handleTranslateMissing = useCallback(async () => {
+    const ids = new Set(activeJob?.untranslatedCueIds || []);
+    if (!activeJob || ids.size === 0) return;
+    const jobId = activeJob.id;
+    const missing = activeJob.segments.filter((s) => ids.has(String(s.id)));
+    if (missing.length === 0) {
+      updateJob(jobId, { translationWarning: null, untranslatedCueIds: null });
+      return;
+    }
+    setIsTranslatingLanguage(true);
+    setTranslationProgress(null);
+    try {
+      const { segments: done, untranslatedCueIds } = await retranslateCues(missing, {
+        sourceLanguage: activeJob.detectedLanguage || sourceLanguage,
+        targetLanguage: activeJob.language || selectedLanguage,
+        customPrompt: activeJob.customPrompt || customPrompt,
+        ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
+        ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
+        onProgress: setTranslationProgress,
+      });
+      // Applied to the job as it is now, in case anything changed while it ran.
+      const job = queueRef.current.find((j) => j.id === jobId);
+      if (!job) return;
+      const stillMissing = new Set(untranslatedCueIds.map(String));
+      const byId = new Map(done.filter((s) => !stillMissing.has(String(s.id))).map((s) => [String(s.id), s]));
+      const segments = job.segments.map((seg) => {
+        const fresh = byId.get(String(seg.id));
+        if (!fresh) return seg;
+        const text = fresh.textTarget || (fresh as any).targetText || '';
+        return { ...seg, textTarget: text, targetText: text };
+      });
+      updateJob(jobId, {
+        segments,
+        script: segments.map((s) => s.textTarget || (s as any).targetText || '').filter(Boolean).join(' '),
+        translationWarning: untranslatedWarning(stillMissing.size),
+        untranslatedCueIds: stillMissing.size ? [...stillMissing] : null,
+        ...syncPendingAfter(job, segments),
+      });
+    } catch (err: any) {
+      updateJob(jobId, {
+        translationWarning: `${ids.size} cue(s) still have their previous text — translating them failed: ${err?.message || err}`,
+      });
+    } finally {
+      setIsTranslatingLanguage(false);
+    }
+  }, [activeJob, customPrompt, selectedLanguage, updateJob, fitTranslationToVoice, voiceRate.rate, voiceRates.speakers]);
+
+  /**
    * The transcript's "Translate" choice. The only place a waiting transcript
    * is sent to the translation engine, and only on the user's click. When the
    * transcript is already in the dub language it becomes the script as-is,
@@ -1164,6 +1218,7 @@ export default function App() {
         script: segments.map((s) => s.textTarget).filter(Boolean).join(' '),
         targetSource: 'translated',
         translationWarning: null,
+        untranslatedCueIds: null,
       });
       return;
     }
@@ -1177,7 +1232,7 @@ export default function App() {
       updateJob(activeJob.id, {
         targetSource,
         // A pasted script replaces whatever the translation reported.
-        ...(targetSource === 'custom' ? { translationWarning: null, translatedSrt: '' } : {}),
+        ...(targetSource === 'custom' ? { translationWarning: null, untranslatedCueIds: null, translatedSrt: '' } : {}),
       });
     },
     [activeJob, updateJob]
@@ -1239,6 +1294,7 @@ export default function App() {
           originalSrt: result.originalSrt,
           translatedSrt: '',
           translationWarning: null,
+          untranslatedCueIds: null,
           targetSource: 'pending',
           errorMsg: null,
           xmlOutput: '',
@@ -2136,6 +2192,7 @@ export default function App() {
         originalSrt: result.originalSrt,
         translatedSrt: '',
         translationWarning: null,
+        untranslatedCueIds: null,
         targetSource: 'pending',
         errorMsg: null,
         xmlOutput: '',
@@ -3352,7 +3409,18 @@ export default function App() {
           role="status"
         >
           <AlertTriangle className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-          <p className="min-w-0 leading-relaxed">{activeJob.translationWarning}</p>
+          <p className="min-w-0 flex-1 leading-relaxed">{activeJob.translationWarning}</p>
+          {(activeJob.untranslatedCueIds?.length ?? 0) > 0 && (
+            <button
+              type="button"
+              onClick={handleTranslateMissing}
+              disabled={isTranslatingLanguage}
+              className="shrink-0 -my-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-default text-white text-xs font-medium cursor-pointer inline-flex items-center gap-1.5"
+            >
+              <Languages className="w-3.5 h-3.5" />
+              {isTranslatingLanguage ? 'Translating…' : `Translate ${activeJob.untranslatedCueIds!.length} missed line(s)`}
+            </button>
+          )}
         </div>
       )}
 
