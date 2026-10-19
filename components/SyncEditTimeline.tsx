@@ -302,6 +302,135 @@ const PartWave: React.FC<{
   return <canvas ref={ref} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />;
 });
 
+type ClipBoxProps = {
+  chunk: Chunk;
+  /** The line it is cut from; undefined for a clip of the original. */
+  line: SyncBankLine | undefined;
+  rate: number;
+  data: PeakData | null;
+  bankOffset: number;
+  left: number;
+  width: number;
+  /** With several speakers, the px top of its lane; undefined with one dub lane. */
+  laneTop: number | undefined;
+  hue: string;
+  color: string;
+  chosen: boolean;
+  picked: boolean;
+  silenced: boolean;
+  locked: boolean;
+  edited: boolean;
+  cuts: { from: number; to: number }[] | undefined;
+  /** What a drag here does, lit on the part under the pointer or being dragged. */
+  zone: string | null;
+  /** Blade or range is on: no trim or fade handles. */
+  tool: boolean;
+};
+
+/** Two parts with the same fields draw the same, whichever object holds them. */
+const samePart = (a: SyncEditPart, b: SyncEditPart) =>
+  a === b ||
+  (a.id === b.id && a.start === b.start && a.from === b.from && a.to === b.to && a.rate === b.rate &&
+    a.gainDb === b.gainDb && a.fadeIn === b.fadeIn && a.fadeOut === b.fadeOut && a.muted === b.muted);
+
+/**
+ * One part on the dub lane. Drawn again only when something it shows
+ * changed, so a drag redraws the part being dragged and leaves the rest.
+ */
+const ClipBox = React.memo<ClipBoxProps>(
+  ({ chunk, line, rate, data, bankOffset, left, width, laneTop, hue, color, chosen, picked, silenced, locked, edited, cuts, zone, tool }) => {
+    const { part } = chunk;
+    const length = partLength(part);
+    const showOffset = chunk.unit && chunk.unit.offset !== null && line && part.from <= line.lead + 1e-6;
+    const tags = [part.rate !== 1 && `${Math.round(part.rate * 100)}%`, part.gainDb !== 0 && `${part.gainDb > 0 ? '+' : ''}${part.gainDb.toFixed(1)} dB`].filter(Boolean).join(' · ');
+    const lit = (picked || zone !== null) && !tool;
+    const edgeClass = (on: boolean, stretch: boolean) =>
+      `absolute top-0 bottom-0 w-[3px] pointer-events-none ${on ? (stretch ? 'bg-indigo-300' : 'bg-slate-100') : 'bg-slate-100/25'}`;
+    return (
+      <div
+        data-part={part.id}
+        className={`absolute ${laneTop !== undefined ? '' : 'top-1.5 bottom-1.5'} rounded-[3px] border overflow-hidden ${chunk.original ? 'border-dashed' : ''} ${part.muted || silenced ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
+        style={{
+          ...(laneTop !== undefined && { top: laneTop, height: LANE_PX - 10 }),
+          left: `${left}%`,
+          width: `${width}%`,
+          background: shadeOf(hue, 0.5),
+          borderColor: shadeOf(hue, 0.3),
+          backgroundImage: part.muted ? 'repeating-linear-gradient(135deg, rgba(148,163,184,0.18) 0 4px, transparent 4px 8px)' : undefined,
+        }}
+        title={
+          chunk.original
+            ? `Clip ${chunk.label}: the original from ${formatTime(part.from)} to ${formatTime(part.to)}`
+            : `Line ${chunk.label}${chunk.unit?.text ? `: ${chunk.unit.text}` : ''}${pauseNote(chunk.unit)}`
+        }
+      >
+        <PartWave data={data} bankOffset={bankOffset} part={part} hue={hue} />
+        <span
+          className="absolute inset-x-0 bottom-0 flex items-center gap-1 px-1 overflow-hidden whitespace-nowrap text-[10.5px] font-medium leading-none text-white/90 pointer-events-none"
+          style={{ height: NAME_BAND_PX, background: shadeOf(hue, 0.38) }}
+        >
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
+          {chunk.label}
+          {showOffset && <span className="font-mono font-normal text-slate-300">{formatShift(chunk.unit!.offset as number)}</span>}
+          {tags && <span className="font-normal text-slate-300">· {tags}</span>}
+          {locked && <Lock className="w-2.5 h-2.5 text-slate-300" aria-label="Locked" />}
+          {part.muted && <VolumeX className="w-3 h-3 text-slate-300" aria-label="Muted" />}
+        </span>
+        {edited && <span className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />}
+        {/* Where Sync took silence out of a pause: a tick at each join */}
+        {line &&
+          pauseJoins(line, rate)
+            .filter((at) => at > part.from && at < part.to)
+            .map((at) => (
+              <span
+                key={at}
+                aria-hidden="true"
+                className="absolute bottom-0 h-2 w-px bg-slate-100/70 pointer-events-none"
+                style={{ left: `${(((at - part.from) / part.rate) / length) * 100}%` }}
+              />
+            ))}
+        {/* Tighten silences: what would be cut */}
+        {cuts?.map((cut) => (
+          <span
+            key={cut.from}
+            aria-hidden="true"
+            className="absolute top-0 bottom-0 bg-rose-500/45 border-x border-rose-300/70 pointer-events-none"
+            style={{ left: `${(((cut.from - part.from) / part.rate) / length) * 100}%`, width: `${(((cut.to - cut.from) / part.rate) / length) * 100}%` }}
+          />
+        ))}
+        {/* What a drag here does: shown where the pointer is, and on the picked line */}
+        {lit && (
+          <>
+            <span aria-hidden="true" className={`${edgeClass(zone === 'trimLeft' || zone === 'stretchLeft', zone === 'stretchLeft')} left-0`} />
+            <span aria-hidden="true" className={`${edgeClass(zone === 'trimRight' || zone === 'stretchRight', zone === 'stretchRight')} right-0`} />
+            <span
+              aria-hidden="true"
+              className={`absolute top-0 -ml-1 w-2.5 h-2.5 rounded-[2px] pointer-events-none ${zone === 'fadeIn' ? 'bg-amber-300' : 'bg-slate-100/80'}`}
+              style={{ left: `${Math.min(90, (part.fadeIn / length) * 100)}%`, marginLeft: part.fadeIn > 0 ? undefined : 0 }}
+            />
+            <span
+              aria-hidden="true"
+              className={`absolute top-0 -mr-1 w-2.5 h-2.5 rounded-[2px] pointer-events-none ${zone === 'fadeOut' ? 'bg-amber-300' : 'bg-slate-100/80'}`}
+              style={{ right: `${Math.min(90, (part.fadeOut / length) * 100)}%`, marginRight: part.fadeOut > 0 ? undefined : 0 }}
+            />
+            {zone === 'gain' && <span aria-hidden="true" className="absolute left-2 right-2 top-0 h-[3px] rounded-full bg-sky-300 pointer-events-none" />}
+          </>
+        )}
+      </div>
+    );
+  },
+  (a, b) => {
+    for (const key of Object.keys(a) as (keyof ClipBoxProps)[]) {
+      if (key === 'chunk') {
+        const x = a.chunk;
+        const y = b.chunk;
+        if (x !== y && (x.label !== y.label || x.original !== y.original || x.unit !== y.unit || !samePart(x.part, y.part))) return false;
+      } else if (a[key] !== b[key]) return false;
+    }
+    return true;
+  }
+);
+
 /** A toolbar button whose name and shortcut show on hover or keyboard focus. */
 const ToolButton: React.FC<{
   label: string;
@@ -745,7 +874,7 @@ export const SyncEditTimeline: React.FC<{
 }) => {
   const [showHelp, setShowHelp] = useState(false);
   const rate = bank.sampleRate;
-  const committed = edits ?? {};
+  const committed = useMemo(() => edits ?? {}, [edits]);
   const [draft, setDraft] = useState<SyncEdits | null>(null);
   const view = draft ?? committed;
 
@@ -802,7 +931,8 @@ export const SyncEditTimeline: React.FC<{
   const sourcePeaks = usePeaks(sourceBuffer);
 
   const unitIndexByKey = useMemo(() => new Map(baseReport.units.map((unit, n) => [unit.key, n])), [baseReport]);
-  const measured = useMemo(() => measureEdits(baseReport, bank, view), [baseReport, bank, view]);
+  // Measured on the committed edits: a drag moves its parts on every frame, and how they land is worked out once, when it is dropped.
+  const measured = useMemo(() => measureEdits(baseReport, bank, committed), [baseReport, bank, committed]);
   const unitByKey = useMemo(() => new Map(measured.units.map((unit) => [unit.key, unit])), [measured]);
   const tolerance = baseReport.tolerance;
 
@@ -1276,7 +1406,27 @@ export const SyncEditTimeline: React.FC<{
     capture(e);
   };
 
+  /*
+   * The pointer moves more often than the screen draws: only its last move
+   * before each frame is worked out, and a drop works out the one waiting.
+   */
+  type LaneMove = { clientX: number; clientY: number; altKey: boolean; target: EventTarget | null };
+  const pendingMove = useRef<LaneMove | null>(null);
+  const moveFrame = useRef<number | null>(null);
+  const moveOnLaneRef = useRef<(e: LaneMove) => void>(() => {});
+  const flushMove = () => {
+    if (moveFrame.current !== null) cancelAnimationFrame(moveFrame.current);
+    moveFrame.current = null;
+    const move = pendingMove.current;
+    pendingMove.current = null;
+    if (move) moveOnLaneRef.current(move);
+  };
+  useEffect(() => () => void (moveFrame.current !== null && cancelAnimationFrame(moveFrame.current)), []);
   const onLanePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    pendingMove.current = { clientX: e.clientX, clientY: e.clientY, altKey: e.altKey, target: e.target };
+    if (moveFrame.current === null) moveFrame.current = requestAnimationFrame(flushMove);
+  };
+  const moveOnLane = (e: LaneMove) => {
     const range = rangeDrag.current;
     if (range) {
       range.end = clamp(timeAt(e.clientX), range.chunk.part.start, partEnd(range.chunk.part));
@@ -1416,7 +1566,11 @@ export const SyncEditTimeline: React.FC<{
     setHud({ x: clamp(e.clientX - laneBox.left + 12, 0, Math.max(0, laneBox.width - 260)), text });
   };
 
+  moveOnLaneRef.current = moveOnLane;
+
   const endDrag = () => {
+    // Where the pointer was let go, not where the last frame drew it.
+    flushMove();
     const range = rangeDrag.current;
     if (range) {
       rangeDrag.current = null;
@@ -2267,6 +2421,12 @@ export const SyncEditTimeline: React.FC<{
             onPointerMove={onLanePointerMove}
             onPointerLeave={() => {
               if (drag.current) return;
+              // A hover waiting for the next frame would light the part again after the pointer left.
+              if (!marquee.current && !rangeDrag.current) {
+                if (moveFrame.current !== null) cancelAnimationFrame(moveFrame.current);
+                moveFrame.current = null;
+                pendingMove.current = null;
+              }
               setHover(null);
               pointerTime.current = null;
             }}
@@ -2287,97 +2447,29 @@ export const SyncEditTimeline: React.FC<{
               ))}
             {visible.map((chunk) => {
               const { part } = chunk;
-              const chosen = chunk.part.id === selected;
-              const picked = selectedSet.has(chunk.part.id);
-              const hue = laneHue(chunk);
-              const color = statusColor(chunk);
-              const length = partLength(part);
-              const showOffset = chunk.unit && chunk.unit.offset !== null && part.from <= lineOf(chunk).lead + 1e-6;
-              const tags = [part.rate !== 1 && `${Math.round(part.rate * 100)}%`, part.gainDb !== 0 && `${part.gainDb > 0 ? '+' : ''}${part.gainDb.toFixed(1)} dB`].filter(Boolean).join(' · ');
+              const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;
               return (
-                <div
+                <ClipBox
                   key={part.id}
-                  data-part={part.id}
-                  className={`absolute ${speakerLanes ? '' : 'top-1.5 bottom-1.5'} rounded-[3px] border overflow-hidden ${chunk.original ? 'border-dashed' : ''} ${part.muted || silencedLanes.has(chunk.lane) ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
-                  style={{
-                    ...(speakerLanes && { top: laneOfChunk(chunk) * LANE_PX + 5, height: LANE_PX - 10 }),
-                    left: `${pct(part.start)}%`,
-                    width: `${Math.max(0.15, (length / windowSeconds) * 100)}%`,
-                    background: shadeOf(hue, 0.5),
-                    borderColor: shadeOf(hue, 0.3),
-                    backgroundImage: part.muted ? 'repeating-linear-gradient(135deg, rgba(148,163,184,0.18) 0 4px, transparent 4px 8px)' : undefined,
-                  }}
-                  title={
-                    chunk.original
-                      ? `Clip ${chunk.label}: the original from ${formatTime(part.from)} to ${formatTime(part.to)}`
-                      : `Line ${chunk.label}${chunk.unit?.text ? `: ${chunk.unit.text}` : ''}${pauseNote(chunk.unit)}`
-                  }
-                >
-                  <PartWave
-                    data={chunk.original ? sourcePeaks : bankPeaks}
-                    bankOffset={chunk.original ? 0 : lineOf(chunk).bankStart / rate}
-                    part={part}
-                    hue={hue}
-                  />
-                  <span
-                    className="absolute inset-x-0 bottom-0 flex items-center gap-1 px-1 overflow-hidden whitespace-nowrap text-[10.5px] font-medium leading-none text-white/90 pointer-events-none"
-                    style={{ height: NAME_BAND_PX, background: shadeOf(hue, 0.38) }}
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: color }} />
-                    {chunk.label}
-                    {showOffset && <span className="font-mono font-normal text-slate-300">{formatShift(chunk.unit!.offset as number)}</span>}
-                    {tags && <span className="font-normal text-slate-300">· {tags}</span>}
-                    {!chunk.original && committed[chunk.key]?.locked && <Lock className="w-2.5 h-2.5 text-slate-300" aria-label="Locked" />}
-                    {part.muted && <VolumeX className="w-3 h-3 text-slate-300" aria-label="Muted" />}
-                  </span>
-                  {!chunk.original && isEdited(committed, chunk.key) && <span className="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-amber-400 pointer-events-none" aria-hidden="true" />}
-                  {/* Where Sync took silence out of a pause: a tick at each join */}
-                  {!chunk.original &&
-                    pauseJoins(lineOf(chunk), rate)
-                      .filter((at) => at > part.from && at < part.to)
-                      .map((at) => (
-                        <span
-                          key={at}
-                          aria-hidden="true"
-                          className="absolute bottom-0 h-2 w-px bg-slate-100/70 pointer-events-none"
-                          style={{ left: `${(((at - part.from) / part.rate) / length) * 100}%` }}
-                        />
-                      ))}
-                  {/* Tighten silences: what would be cut */}
-                  {tightenPreview?.cutsByPart.get(part.id)?.map((cut) => (
-                    <span
-                      key={cut.from}
-                      aria-hidden="true"
-                      className="absolute top-0 bottom-0 bg-rose-500/45 border-x border-rose-300/70 pointer-events-none"
-                      style={{ left: `${(((cut.from - part.from) / part.rate) / length) * 100}%`, width: `${(((cut.to - cut.from) / part.rate) / length) * 100}%` }}
-                    />
-                  ))}
-                  {/* What a drag here does: shown where the pointer is, and on the picked line */}
-                  {(() => {
-                    const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;
-                    const lit = picked || zone !== null;
-                    if (!lit || blade || rangeTool) return null;
-                    const edgeClass = (on: boolean, stretch: boolean) =>
-                      `absolute top-0 bottom-0 w-[3px] pointer-events-none ${on ? (stretch ? 'bg-indigo-300' : 'bg-slate-100') : 'bg-slate-100/25'}`;
-                    return (
-                      <>
-                        <span aria-hidden="true" className={`${edgeClass(zone === 'trimLeft' || zone === 'stretchLeft', zone === 'stretchLeft')} left-0`} />
-                        <span aria-hidden="true" className={`${edgeClass(zone === 'trimRight' || zone === 'stretchRight', zone === 'stretchRight')} right-0`} />
-                        <span
-                          aria-hidden="true"
-                          className={`absolute top-0 -ml-1 w-2.5 h-2.5 rounded-[2px] pointer-events-none ${zone === 'fadeIn' ? 'bg-amber-300' : 'bg-slate-100/80'}`}
-                          style={{ left: `${Math.min(90, (part.fadeIn / length) * 100)}%`, marginLeft: part.fadeIn > 0 ? undefined : 0 }}
-                        />
-                        <span
-                          aria-hidden="true"
-                          className={`absolute top-0 -mr-1 w-2.5 h-2.5 rounded-[2px] pointer-events-none ${zone === 'fadeOut' ? 'bg-amber-300' : 'bg-slate-100/80'}`}
-                          style={{ right: `${Math.min(90, (part.fadeOut / length) * 100)}%`, marginRight: part.fadeOut > 0 ? undefined : 0 }}
-                        />
-                        {zone === 'gain' && <span aria-hidden="true" className="absolute left-2 right-2 top-0 h-[3px] rounded-full bg-sky-300 pointer-events-none" />}
-                      </>
-                    );
-                  })()}
-                </div>
+                  chunk={chunk}
+                  line={chunk.original ? undefined : lineOf(chunk)}
+                  rate={rate}
+                  data={chunk.original ? sourcePeaks : bankPeaks}
+                  bankOffset={chunk.original ? 0 : lineOf(chunk).bankStart / rate}
+                  left={pct(part.start)}
+                  width={Math.max(0.15, (partLength(part) / windowSeconds) * 100)}
+                  laneTop={speakerLanes ? laneOfChunk(chunk) * LANE_PX + 5 : undefined}
+                  hue={laneHue(chunk)}
+                  color={statusColor(chunk)}
+                  chosen={part.id === selected}
+                  picked={selectedSet.has(part.id)}
+                  silenced={silencedLanes.has(chunk.lane)}
+                  locked={!chunk.original && (committed[chunk.key]?.locked ?? false)}
+                  edited={!chunk.original && isEdited(committed, chunk.key)}
+                  cuts={tightenPreview?.cutsByPart.get(part.id)}
+                  zone={zone}
+                  tool={blade || rangeTool}
+                />
               );
             })}
             {carry && (
