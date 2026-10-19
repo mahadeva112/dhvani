@@ -13,6 +13,16 @@ export interface WordTimestamp {
   end: number; // seconds, from ElevenLabs
 }
 
+/** REAPER-style silence gate for pause detection (server/lib/silenceGate.js). Times in seconds. */
+export interface PauseGate {
+  openDb: number;
+  hysteresisDb: number;
+  minSilence: number;
+  minSlice: number;
+  leadPad: number;
+  trailPad: number;
+}
+
 export interface AudioSegment {
   id: number | string;
   startTime: number; // in seconds
@@ -207,6 +217,8 @@ export interface BatchJob {
   audioBuffer: AudioBuffer | null;
   segments: AudioSegment[];
   analysisSensitivity?: number; // 0 to 100 sensitivity threshold for pause detection (default: 50)
+  /** Pause detection's gate set by hand (Advanced gate); unset = taken from analysisSensitivity. */
+  analysisGate?: PauseGate | null;
   
   // Outputs
   xmlOutput: string;
