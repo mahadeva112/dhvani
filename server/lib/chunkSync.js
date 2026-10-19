@@ -20,6 +20,13 @@
  *    first, then one at a comma, a sentence end last.
  * 4. Every block of the dub is placed in one solve (placeClips), its error
  *    shared with the blocks around it, early as well as late.
+ * 5. With `joinSpokenChunks`, blocks of one line that the original speaker
+ *    says in one go, with no pause between them, are joined first
+ *    (joinSpokenBlocks): the later one follows the earlier at the least pause
+ *    its punctuation allows instead of waiting for its own word in the
+ *    original, so the dub doesn't stop where the speaker didn't. The line's
+ *    first block, and every block after a pause the original has, still
+ *    lands on its own word.
  *
  * Nothing changes the voice: the chunks are the line's own samples, and only
  * the silence between them is left out.
@@ -148,6 +155,56 @@ const sourceSpans = (cue) => {
     else spans.push([word.start, word.end]);
   }
   return spans;
+};
+
+/**
+ * The pauses the original speaker makes inside a line of `cues`, as
+ * `[[start, end]]` seconds in order: the gaps between its speech (see
+ * sourceSpans), between its cues as well as inside them.
+ */
+export const linePauses = (cues) => {
+  const spans = cues.flatMap(sourceSpans).sort((a, b) => a[0] - b[0]);
+  const pauses = [];
+  let end = spans.length ? spans[0][1] : 0;
+  for (const [a, b] of spans.slice(1)) {
+    if (a - end >= SOURCE_SPAN_GAP_SECONDS) pauses.push([end, a]);
+    end = Math.max(end, b);
+  }
+  return pauses;
+};
+
+/**
+ * Joins the `blocks` of one line (see chunkLineOf in syncDub.js: each
+ * `{ length, chunks, kindBefore, pauseBefore }`, each chunk with `at`, its
+ * seconds from its block's start, and `target`) that the original says in
+ * one go: where none of `pauses` (linePauses) falls between where one
+ * block's last chunk and the next block's first chunk should land, the next
+ * block joins the one before, `floorOf(kindBefore)` seconds after it (or
+ * the pause the voice left, when that is shorter). Returns the blocks, the
+ * joined ones as one block, its chunks' `at` counted from its own start
+ * and the chunks joined on marked `follows`.
+ */
+export const joinSpokenBlocks = (blocks, pauses, floorOf) => {
+  const joined = [];
+  for (const block of blocks) {
+    const last = joined.at(-1);
+    const from = last?.chunks.at(-1).target;
+    const to = block.chunks[0].target;
+    if (!last || !finite(from) || !finite(to) || pauses.some(([a, b]) => a < to && b > from)) {
+      joined.push(block);
+      continue;
+    }
+    const offset = last.length + Math.max(0, Math.min(block.pauseBefore, floorOf(block.kindBefore)));
+    joined[joined.length - 1] = {
+      ...last,
+      to: block.to,
+      length: offset + block.length,
+      // A joined chunk follows the one before it, wherever its own word is.
+      chunks: [...last.chunks, ...block.chunks.map((chunk) => ({ ...chunk, at: chunk.at + offset, follows: true }))],
+      joined: (last.joined ?? 1) + 1,
+    };
+  }
+  return joined;
 };
 
 /** The moment `share` (0-1) of the way through `spans`' speech. */

@@ -1,5 +1,5 @@
-import { silenceLevel } from '../server/lib/syncRender.js';
-import type { SyncEditPart } from './syncEditModel.ts';
+import { silenceLevel, quietStretches } from '../server/lib/syncRender.js';
+import { partEnd, type SyncEditPart } from './syncEditModel.ts';
 
 /**
  * Tighten silences in Edit timing: by hand, on the lines the user picks.
@@ -9,7 +9,9 @@ import type { SyncEditPart } from './syncEditModel.ts';
  * where it was. Only silence is cut: every piece is the line's own samples,
  * at the part's own speed, gain and fades, so nothing the voice said changes.
  * Words forced alignment heard (`protect`) are never cut into, nor `margin`
- * either side of them.
+ * either side of them. Silence is read in short windows (quietStretches, as
+ * Sync reads it), so a pause on room tone with a little hiss or a click in it
+ * is still one pause.
  */
 
 export interface TightenSettings {
@@ -63,20 +65,14 @@ export const tightenPart = (
 
   // Quiet stretches inside the part, in seconds into the line, less any word.
   const quiet: { from: number; to: number }[] = [];
-  let start = -1;
-  for (let i = from; i <= to; i++) {
-    const silent = i < to && Math.abs(samples[i]) < level;
-    if (silent && start < 0) start = i;
-    if (!silent && start >= 0) {
-      let pieces = [{ from: start / sampleRate, to: i / sampleRate }];
-      for (const guard of guards) {
-        pieces = pieces.flatMap((p) =>
-          guard.end <= p.from || guard.start >= p.to ? [p] : [{ from: p.from, to: guard.start }, { from: guard.end, to: p.to }].filter((q) => q.to > q.from)
-        );
-      }
-      quiet.push(...pieces.filter((p) => p.to - p.from >= MIN_SILENCE_SECONDS));
-      start = -1;
+  for (const stretch of quietStretches(samples, sampleRate, level, { from, to })) {
+    let pieces = [{ from: stretch.start / sampleRate, to: stretch.end / sampleRate }];
+    for (const guard of guards) {
+      pieces = pieces.flatMap((p) =>
+        guard.end <= p.from || guard.start >= p.to ? [p] : [{ from: p.from, to: guard.start }, { from: guard.end, to: p.to }].filter((q) => q.to > q.from)
+      );
     }
+    quiet.push(...pieces.filter((p) => p.to - p.from >= MIN_SILENCE_SECONDS));
   }
 
   const head = part.from;
@@ -122,4 +118,52 @@ export const tightenPart = (
   });
   const oldEnd = part.start + (tail - head) / part.rate;
   return { parts, cuts, removed: Math.max(0, oldEnd - time), levelDb };
+};
+
+/**
+ * Close up: parts that follow one another play back to back. Going through
+ * every part that plays, in timeline order, a part `joins` says may move
+ * starts `gap` seconds after everything before it (or as far after as it
+ * was, when that was less), when the part just before it may move too; it
+ * only ever moves earlier. A part that may not
+ * move (a line not picked, a clip of the original) stays where it is, and
+ * so does the first part after it, which is where the next scene starts.
+ * Returns each line's parts that changed, by key, how many parts moved and
+ * the most any one moved, in seconds.
+ */
+export const closeUpParts = (
+  lines: { key: string; parts: SyncEditPart[] }[],
+  joins: (part: SyncEditPart, key: string) => boolean,
+  gap: number
+) => {
+  const playing = lines
+    .flatMap(({ key, parts }) => parts.filter((part) => !part.muted).map((part) => ({ key, part })))
+    .sort((a, b) => a.part.start - b.part.start);
+  const starts = new Map<string, number>();
+  // Where everything so far ends, as it was and as it is now.
+  let endBefore = -Infinity;
+  let end = -Infinity;
+  let follows = false;
+  let moved = 0;
+  let shift = 0;
+  for (const { key, part } of playing) {
+    const joined = joins(part, key);
+    let start = part.start;
+    // A pause already shorter than `gap` (the pieces of one tightened part: none) stays as it was.
+    const wanted = end + Math.min(gap, Math.max(0, part.start - endBefore));
+    if (joined && follows && wanted < start - 1e-6) {
+      start = wanted;
+      starts.set(part.id, start);
+      moved++;
+      shift = Math.max(shift, part.start - start);
+    }
+    endBefore = Math.max(endBefore, partEnd(part));
+    end = Math.max(end, partEnd({ ...part, start }));
+    follows = joined;
+  }
+  const parts = new Map<string, SyncEditPart[]>();
+  for (const line of lines) {
+    if (line.parts.some((part) => starts.has(part.id))) parts.set(line.key, line.parts.map((part) => (starts.has(part.id) ? { ...part, start: starts.get(part.id) as number } : part)));
+  }
+  return { parts, moved, shift };
 };

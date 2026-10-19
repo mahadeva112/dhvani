@@ -32,7 +32,7 @@ import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
 import { wordsInTakeRange, type TakeWord } from '../services/takeRange';
-import { tightenPart, tightenLevelDb, DEFAULT_TIGHTEN, type TightenSettings } from '../services/tightenEdit';
+import { tightenPart, tightenLevelDb, closeUpParts, DEFAULT_TIGHTEN, type TightenSettings } from '../services/tightenEdit';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import {
   syncedParts,
@@ -1631,14 +1631,18 @@ export const SyncEditTimeline: React.FC<{
   // By hand, on the picked lines (every line when none is picked): each part is
   // split where its line goes quiet and the silence taken out, shown in red on
   // the timeline as the settings change and heard with Listen, before Apply.
+  // Then Close up: the picked parts play back to back while the first part
+  // after them stays where it is ('picked'), or every part does ('all', for
+  // audio with no picture to keep in sync).
 
   const [tighten, setTighten] = useState<{
     settings: TightenSettings;
     /** The slider's level while it is on Auto: the first line's own. */
     manualDb: number;
-    moveLater: boolean;
+    closeUp: 'picked' | 'all';
     checkWords: boolean;
-    targets: string[];
+    /** The parts picked when it opened; none: Picked lines only has nothing to work on. */
+    picked: string[];
     listening: boolean;
   } | null>(null);
   /** Each line's words as forced alignment hears them, by line key, for this bank. */
@@ -1660,7 +1664,10 @@ export const SyncEditTimeline: React.FC<{
     return { samples: bankBuffer.getChannelData(0).subarray(from, from + Math.round((line.length / rate) * sr)), sr };
   };
 
-  const tightenTargets = tighten ? chunks.filter((c) => !c.original && tighten.targets.includes(c.part.id)) : [];
+  /** A part that is, or was tightened from, one of `ids`. */
+  const amongParts = (ids: string[], id: string) => ids.some((picked) => id === picked || id.startsWith(`${picked}~`));
+  const tightenAll = tighten ? tighten.closeUp === 'all' || tighten.picked.length === 0 : false;
+  const tightenTargets = tighten ? chunks.filter((c) => !c.original && (tightenAll || tighten.picked.includes(c.part.id))) : [];
 
   /** The edits with the picked parts tightened, what is cut from each, and in all. */
   const tightenPreview = useMemo(() => {
@@ -1671,8 +1678,7 @@ export const SyncEditTimeline: React.FC<{
     let removed = 0;
     let waiting = 0;
     let failed = 0;
-    // Latest first, so moving later lines up never moves a part still to be tightened.
-    for (const chunk of [...tightenTargets].sort((a, b) => b.part.start - a.part.start)) {
+    for (const chunk of tightenTargets) {
       const words = tightenWords[chunk.key];
       if (tighten.checkWords && words === 'failed') { failed++; continue; }
       if (tighten.checkWords && !Array.isArray(words)) { waiting++; continue; }
@@ -1683,20 +1689,19 @@ export const SyncEditTimeline: React.FC<{
       cutsByPart.set(chunk.part.id, result.cuts);
       cuts += result.cuts.length;
       removed += result.removed;
-      const end = partEnd(chunk.part);
       const line = lineOf(chunk);
       next = withParts(next, chunk.key, partsOf(next, line, rate).flatMap((p) => (p.id === chunk.part.id ? result.parts : [p])));
-      if (tighten.moveLater && result.removed > 0) {
-        for (const other of lines) {
-          if (other.key === chunk.key) continue;
-          const parts = partsOf(next, other, rate);
-          if (parts.some((p) => p.start >= end - 1e-6)) next = withParts(next, other.key, parts.map((p) => (p.start >= end - 1e-6 ? { ...p, start: p.start - result.removed } : p)));
-        }
-      }
     }
-    return { next, cutsByPart, cuts, removed, waiting, failed };
+    // Close up: the picked parts follow one another at the shortest pause kept.
+    const closed = closeUpParts(
+      lines.map((line) => ({ key: line.key, parts: partsOf(next, line, rate) })),
+      (part, key) => !isOriginalClip(key) && (tightenAll || amongParts(tighten.picked, part.id)),
+      tighten.settings.minPause
+    );
+    for (const [key, parts] of closed.parts) next = withParts(next, key, parts);
+    return { next, cutsByPart, cuts, removed: Math.max(removed, closed.shift), moved: closed.moved, waiting, failed };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tighten, bankBuffer, committed, tightenWords, chunks]);
+  }, [tighten, bankBuffer, committed, tightenWords, chunks, lines]);
 
   // What is heard follows the settings while Listen is on.
   useEffect(() => {
@@ -1720,12 +1725,19 @@ export const SyncEditTimeline: React.FC<{
 
   const openTighten = () => {
     if (!bankBuffer) return say('The lines are still loading.');
-    const targets = (group.length > 0 ? group : chunks).filter((c) => !c.original);
+    const picked = group.filter((c) => !c.original);
+    const targets = picked.length > 0 ? picked : chunks.filter((c) => !c.original);
     if (targets.length === 0) return say('Pick a dub line to tighten: clips of the original are left as they are.');
     const first = lineSamples(targets[0]);
     const manualDb = first ? Math.round(tightenLevelDb(first.samples, first.sr, DEFAULT_TIGHTEN)) : -50;
-    setTighten({ settings: DEFAULT_TIGHTEN, manualDb, moveLater: false, checkWords: true, targets: targets.map((c) => c.part.id), listening: false });
+    setTighten({ settings: DEFAULT_TIGHTEN, manualDb, closeUp: picked.length > 0 ? 'picked' : 'all', checkWords: true, picked: picked.map((c) => c.part.id), listening: false });
     askWords(targets);
+  };
+
+  const closeUpTighten = (closeUp: 'picked' | 'all') => {
+    if (!tighten) return;
+    setTighten({ ...tighten, closeUp });
+    if (closeUp === 'all' && tighten.checkWords) askWords(chunks.filter((c) => !c.original));
   };
 
   const closeTighten = () => {
@@ -1735,16 +1747,20 @@ export const SyncEditTimeline: React.FC<{
 
   const applyTighten = () => {
     if (!tighten || !tightenPreview) return;
-    if (tightenPreview.cuts === 0) {
+    if (tightenPreview.cuts === 0 && tightenPreview.moved === 0) {
       closeTighten();
-      return say('Nothing to tighten: no pause is that long or that quiet.');
+      return say('Nothing to tighten: no pause is that long or that quiet, and the parts already sit close.');
     }
-    const keys = [...new Set(tightenTargets.filter((c) => tightenPreview.cutsByPart.has(c.part.id)).map((c) => c.unitIndex + 1))];
-    const label = `Tighten silences in ${keys.length === 1 ? `line ${keys[0]}` : `${keys.length} lines`}`;
+    const keys = [...new Set(tightenTargets.map((c) => c.unitIndex + 1))];
+    const label = tightenAll ? 'Tighten and close up every line' : `Tighten and close up ${keys.length === 1 ? `line ${keys[0]}` : `${keys.length} lines`}`;
     commit(tightenPreview.next, label);
-    say(`${tightenPreview.cuts} cut${tightenPreview.cuts === 1 ? '' : 's'} · −${tightenPreview.removed.toFixed(2)} s · Ctrl + Z undoes it`);
+    say(`${tightenSummary(tightenPreview)} · Ctrl + Z undoes it`);
     setTighten(null);
   };
+
+  /** What Apply does, in a few words. */
+  const tightenSummary = ({ cuts, moved, removed }: { cuts: number; moved: number; removed: number }) =>
+    [cuts > 0 && `${cuts} cut${cuts === 1 ? '' : 's'}`, moved > 0 && `${moved} part${moved === 1 ? '' : 's'} moved up`, `−${removed.toFixed(2)} s`].filter(Boolean).join(' · ');
 
   const listenTighten = () => {
     if (!tighten || !tightenPreview) return;
@@ -2636,16 +2652,24 @@ export const SyncEditTimeline: React.FC<{
               <span className="w-12 text-right tabular-nums text-indigo-300">{Math.round(tighten.settings.margin * 1000)} ms</span>
             </label>
             <div className="flex items-center gap-2 text-[12.5px] text-slate-300">
-              <span className="w-[8.5rem] shrink-0">Later lines</span>
-              {[false, true].map((move) => (
+              <span className="w-[8.5rem] shrink-0">Close up</span>
+              {(['picked', 'all'] as const).map((mode) => (
                 <button
-                  key={String(move)}
+                  key={mode}
                   type="button"
-                  onClick={() => setTighten({ ...tighten, moveLater: move })}
-                  className={`h-6 px-2 rounded-md text-[11.5px] border cursor-pointer ${tighten.moveLater === move ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
-                  title={move ? 'Everything after a tightened line moves up by what it lost' : 'Only the tightened lines change'}
+                  onClick={() => closeUpTighten(mode)}
+                  disabled={mode === 'picked' && tighten.picked.length === 0}
+                  aria-pressed={(mode === 'all') === tightenAll}
+                  className={`h-6 px-2 rounded-md text-[11.5px] border cursor-pointer disabled:opacity-40 disabled:cursor-default ${(mode === 'all') === tightenAll ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                  title={
+                    mode === 'picked'
+                      ? tighten.picked.length === 0
+                        ? 'Pick the lines to join first (Shift-click), then press Q'
+                        : 'The picked parts play back to back; the first part after them keeps its place, so the next scene stays in sync'
+                      : 'Every part plays back to back from the first: for audio with no picture, as later lines drift from the video'
+                  }
                 >
-                  {move ? 'Move up' : 'Stay put'}
+                  {mode === 'picked' ? 'Picked lines only' : 'All lines'}
                 </button>
               ))}
             </div>
@@ -2668,15 +2692,18 @@ export const SyncEditTimeline: React.FC<{
                 ? 'Loading the lines…'
                 : tightenPreview.waiting > 0
                   ? `Checking the words of ${tightenPreview.waiting} line${tightenPreview.waiting === 1 ? '' : 's'}…`
-                  : tightenPreview.cuts === 0
-                    ? 'Nothing to cut at these settings.'
-                    : `${tightenPreview.cuts} cut${tightenPreview.cuts === 1 ? '' : 's'} · −${tightenPreview.removed.toFixed(2)} s`}
+                  : tightenPreview.cuts === 0 && tightenPreview.moved === 0
+                    ? 'Nothing to cut or close up at these settings.'
+                    : tightenSummary(tightenPreview)}
+              {tightenAll && tightenPreview && tightenPreview.moved > 0 && (
+                <span className="text-amber-300"> · later lines drift from the video</span>
+              )}
               {tightenPreview && tightenPreview.failed > 0 && (
                 <span className="text-amber-300"> · {tightenPreview.failed} line{tightenPreview.failed === 1 ? '' : 's'} left as they are: their words couldn't be checked</span>
               )}
             </span>
             <span className="flex-1" />
-            <button type="button" onClick={listenTighten} disabled={!tightenPreview || tightenPreview.cuts === 0} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5">
+            <button type="button" onClick={listenTighten} disabled={!tightenPreview || (tightenPreview.cuts === 0 && tightenPreview.moved === 0)} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5">
               <Play className="w-3.5 h-3.5" /> Listen
             </button>
             <button type="button" onClick={applyTighten} disabled={!tightenPreview || tightenPreview.waiting > 0} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5">
@@ -2710,7 +2737,7 @@ export const SyncEditTimeline: React.FC<{
           <ActionButton label={currentLocked ? 'Unlock' : 'Lock'} shortcut="L" onClick={act.lock} title="A locked line stays where it is when Sync runs again">
             {currentLocked ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
           </ActionButton>
-          <ActionButton label="Tighten" shortcut="Q" onClick={tighten ? closeTighten : openTighten} title="Take the long silences out of the picked lines (every line when none is picked): see what is cut, listen, then apply">
+          <ActionButton label="Tighten" shortcut="Q" onClick={tighten ? closeTighten : openTighten} title="Take the long silences out of the picked lines and close them up back to back (every line when none is picked): see what is cut, listen, then apply">
             <FoldHorizontal className="w-4 h-4" />
           </ActionButton>
           {onOpenTakes && (

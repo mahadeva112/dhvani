@@ -435,7 +435,7 @@ export const JOIN_SECTIONS: { id: SyncJoinSection; title: string }[] = [
 /** The join settings each section holds, to mark a section changed from the default. */
 const SECTION_KEYS: Record<SyncJoinSection, (keyof SyncJoinSettings)[]> = {
   long: ['bestTakes', 'speedFit', 'maxVoiceSpeed', 'maxRevoice'],
-  chunks: ['chunkSync', 'gateOpenDb', 'gateHysteresisDb', 'minSliceLength', 'minSilenceLength', 'leadPad', 'trailPad', 'chunkGapShare', 'wordGap', 'commaGap', 'stopGap', 'maxChunkGap', 'punctuationPriority'],
+  chunks: ['chunkSync', 'gateOpenDb', 'gateHysteresisDb', 'minSliceLength', 'minSilenceLength', 'leadPad', 'trailPad', 'chunkGapShare', 'wordGap', 'commaGap', 'stopGap', 'maxChunkGap', 'punctuationPriority', 'joinSpokenChunks'],
   gaps: ['preserveLongPauses', 'protectedPause', 'minGap', 'speakerGap', 'gapShare', 'breathClear', 'removeBreaths', 'breathReduction'],
   pauses: ['matchSourcePauses', 'unmatchedPause', 'shortenPauses', 'minInnerPause', 'maxPauseTake', 'tightenSilences', 'tightMinPause', 'tightMargin', 'checkCutWords', 'spliceCrossfade'],
   edges: ['tailFloorDb', 'tailHold', 'edgeFade'],
@@ -795,6 +795,14 @@ export const SyncJoinSectionControls: React.FC<{
               disabled={chunksOff}
               def={D.punctuationPriority}
               onChange={(v) => set('punctuationPriority', v)}
+            />
+            <Toggle
+              label="Join chunks said in one go"
+              hint="Where the original speaker doesn't pause, the dub doesn't either: those chunks play back to back at the shortest pause below. A line's first chunk, and one after a pause the original has, still land on their own word."
+              checked={join.joinSpokenChunks}
+              disabled={chunksOff}
+              def={D.joinSpokenChunks}
+              onChange={(v) => set('joinSpokenChunks', v)}
             />
             <Slider id="sync-word-gap" label="Shortest pause between words" value={join.wordGap} {...bounds('wordGap')} step={0.01} format={ms} disabled={chunksOff}
               def={D.wordGap} onChange={(v) => set('wordGap', v)} />
