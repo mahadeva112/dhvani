@@ -86,10 +86,10 @@ const formatLength = (seconds: number) => {
 };
 
 const primaryButton =
-  'h-[42px] px-[18px] flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer';
+  'h-[42px] px-[18px] flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default';
 
 const actionButton =
-  'w-full flex items-center gap-3 p-2.5 rounded-[11px] border border-slate-800 bg-slate-900 hover:bg-slate-800/70 text-left transition-colors cursor-pointer';
+  'w-full flex items-center gap-3 p-2.5 rounded-[11px] border border-slate-800 bg-slate-900 hover:bg-slate-800/70 text-left transition-colors cursor-default';
 
 interface VoiceChangerModalProps {
   isOpen: boolean;
@@ -709,7 +709,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
         setActiveTab(id);
         setErrorMessage(null);
       }}
-      className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-1.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+      className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-1.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default ${
         activeTab === id ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
       }`}
     >
@@ -733,7 +733,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         aria-label={label}
-        className="w-full accent-indigo-500 cursor-pointer"
+        className="w-full accent-indigo-500 cursor-default"
       />
       <div className="flex justify-between text-[10.5px] text-slate-500 mt-0.5">
         <span>{ends[0]}</span>
@@ -754,7 +754,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
         aria-checked={on}
         aria-label={label}
         onClick={() => onChange(!on)}
-        className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer ${on ? 'bg-indigo-500' : 'bg-slate-700'}`}
+        className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-default ${on ? 'bg-indigo-500' : 'bg-slate-700'}`}
       >
         <span className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${on ? 'left-[17px]' : 'left-[3px]'}`} />
       </button>
@@ -801,7 +801,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -829,7 +829,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             type="button"
             onClick={() => playTrack('source')}
             disabled={!sourceAudioUrl || isRecording}
-            className="w-[30px] h-[30px] rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center shrink-0 disabled:opacity-30 cursor-pointer"
+            className="w-[30px] h-[30px] rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center shrink-0 disabled:opacity-30 cursor-default"
             aria-label={playingTrack === 'source' ? 'Stop input' : 'Play input'}
           >
             {playingTrack === 'source' ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-px" />}
@@ -841,14 +841,14 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isRecording}
-            className="h-8 px-3 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 shrink-0 cursor-pointer"
+            className="h-8 px-3 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 shrink-0 cursor-default"
           >
             Other file
           </button>
           <button
             type="button"
             onClick={isRecording ? stopRecording : startRecording}
-            className={`h-8 px-3 flex items-center gap-2 rounded-[9px] border text-[12.5px] font-medium shrink-0 cursor-pointer ${
+            className={`h-8 px-3 flex items-center gap-2 rounded-[9px] border text-[12.5px] font-medium shrink-0 cursor-default ${
               isRecording ? 'border-rose-500/60 bg-rose-500/15 text-rose-200' : 'border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-200'
             }`}
           >
@@ -891,7 +891,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                           aria-checked={replaceMode === id}
                           disabled={linesRunning || isProcessing}
                           onClick={() => setReplaceMode(id)}
-                          className={`px-3 py-2 rounded-lg text-left transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                          className={`px-3 py-2 rounded-lg text-left transition-colors cursor-default disabled:cursor-not-allowed ${
                             replaceMode === id ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
                           }`}
                         >
@@ -943,7 +943,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleAuditionVoice(targetVoice)}
-                        className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-pointer"
+                        className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
                       >
                         {auditionVoiceId === targetVoice.voice_id ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
                         Sample
@@ -955,7 +955,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                         setPickerFor(null);
                         setIsPickerOpen(true);
                       }}
-                      className="h-8 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-pointer"
+                      className="h-8 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
                     >
                       Change
                     </button>
@@ -971,7 +971,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                             type="button"
                             aria-pressed={on}
                             onClick={() => setTargetVoiceId(v.voice_id)}
-                            className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-pointer ${
+                            className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-default ${
                               on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-slate-800 text-slate-300 hover:bg-slate-800/60'
                             }`}
                           >
@@ -1025,7 +1025,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                 <div className="grid sm:grid-cols-2 gap-4 items-end">
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="sts-model" className="text-xs text-slate-400">Model</label>
-                    <select id="sts-model" value={stsModelId} onChange={(e) => setStsModelId(e.target.value)} className={`${field} cursor-pointer`}>
+                    <select id="sts-model" value={stsModelId} onChange={(e) => setStsModelId(e.target.value)} className={`${field} cursor-default`}>
                       <option value="eleven_multilingual_sts_v2" className="bg-slate-900">Multilingual (29 languages)</option>
                       <option value="eleven_english_sts_v2" className="bg-slate-900">English only</option>
                     </select>
@@ -1039,7 +1039,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       id="sts-output-format"
                       value={stsOutputFormat}
                       onChange={(e) => setStsOutputFormat(e.target.value)}
-                      className={`${field} cursor-pointer`}
+                      className={`${field} cursor-default`}
                     >
                       {STS_OUTPUT_FORMATS.map((f) => (
                         <option key={f.id} value={f.id} className="bg-slate-900">{f.label}</option>
@@ -1059,7 +1059,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     type="button"
                     aria-expanded={isAdvancedOpen}
                     onClick={() => setIsAdvancedOpen((v) => !v)}
-                    className="self-start flex items-center gap-1.5 text-[13px] font-medium text-slate-400 hover:text-slate-200 cursor-pointer"
+                    className="self-start flex items-center gap-1.5 text-[13px] font-medium text-slate-400 hover:text-slate-200 cursor-default"
                   >
                     Advanced settings
                     <ChevronDown className={`w-4 h-4 transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`} />
@@ -1155,7 +1155,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                         role="radio"
                         aria-checked={cloneEngine === value}
                         onClick={() => setCloneEngine(value)}
-                        className={`px-3 py-1.5 rounded-[7px] text-xs font-medium transition-colors cursor-pointer ${
+                        className={`px-3 py-1.5 rounded-[7px] text-xs font-medium transition-colors cursor-default ${
                           cloneEngine === value ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                         }`}
                       >
@@ -1182,7 +1182,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                           type="button"
                           aria-pressed={cloneGender === value}
                           onClick={() => setCloneGender(value)}
-                          className={`flex-1 rounded-[7px] text-xs font-medium transition-colors cursor-pointer ${
+                          className={`flex-1 rounded-[7px] text-xs font-medium transition-colors cursor-default ${
                             cloneGender === value ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                           }`}
                         >
@@ -1221,7 +1221,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     <button
                       type="button"
                       onClick={() => cloneFileInputRef.current?.click()}
-                      className="h-8 px-3 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-pointer"
+                      className="h-8 px-3 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-default"
                     >
                       Browse
                     </button>
@@ -1253,7 +1253,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setCloneFiles((prev) => prev.filter((_, j) => j !== i))}
-                          className="p-0.5 text-slate-500 hover:text-slate-200 cursor-pointer"
+                          className="p-0.5 text-slate-500 hover:text-slate-200 cursor-default"
                           aria-label={`Remove ${f.name}`}
                         >
                           <X className="w-3.5 h-3.5" />
@@ -1302,7 +1302,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                         role="radio"
                         aria-checked={on}
                         onClick={() => setSelectedEffect(fx.id)}
-                        className={`flex flex-col items-start gap-2 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+                        className={`flex flex-col items-start gap-2 p-3 rounded-xl border text-left transition-colors cursor-default ${
                           on ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/40'
                         }`}
                       >
@@ -1415,7 +1415,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     <button
                       type="button"
                       onClick={() => playTrack(lane.track)}
-                      className="w-[30px] h-[30px] rounded-full border border-slate-700 bg-slate-950/60 text-slate-100 flex items-center justify-center shrink-0 cursor-pointer"
+                      className="w-[30px] h-[30px] rounded-full border border-slate-700 bg-slate-950/60 text-slate-100 flex items-center justify-center shrink-0 cursor-default"
                       aria-label={`${playingTrack === lane.track ? 'Stop' : 'Play'} ${lane.title.toLowerCase()}`}
                     >
                       {playingTrack === lane.track ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-px" />}
@@ -1497,7 +1497,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsPickerOpen(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-default"
               >
                 <X className="w-3.5 h-3.5" /> Done
               </button>

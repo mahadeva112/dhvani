@@ -43,7 +43,7 @@ export const PauseSensitivityControl: React.FC<PauseSensitivityControlProps> = (
         value={sensitivity}
         disabled={disabled}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-indigo-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+        className="w-full accent-indigo-500 cursor-default disabled:opacity-40 disabled:cursor-not-allowed"
         aria-valuetext={`${sensitivity}, pauses of ${Math.round(profile.minSilenceDuration * 1000)} milliseconds`}
       />
       <div className="flex justify-between text-[10.5px] text-slate-500">

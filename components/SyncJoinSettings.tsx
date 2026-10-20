@@ -97,7 +97,7 @@ const ResetOne: React.FC<{ show: boolean; label: string; onClick: () => void }> 
     title={`Back to the default: ${label}`}
     aria-label={`Back to the default: ${label}`}
     tabIndex={show ? 0 : -1}
-    className={`w-6 h-6 shrink-0 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer ${
+    className={`w-6 h-6 shrink-0 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default ${
       show ? '' : 'invisible'
     }`}
   >
@@ -108,7 +108,7 @@ const ResetOne: React.FC<{ show: boolean; label: string; onClick: () => void }> 
 /** A setting's name and what it does, on the left of its row. */
 const RowText: React.FC<{ htmlFor: string; label: React.ReactNode; hint?: React.ReactNode; badge?: Badge }> = ({ htmlFor, label, hint, badge }) => (
   <div className="min-w-0">
-    <label htmlFor={htmlFor} className="flex flex-wrap items-center gap-1.5 text-[13px] text-slate-200 cursor-pointer">
+    <label htmlFor={htmlFor} className="flex flex-wrap items-center gap-1.5 text-[13px] text-slate-200 cursor-default">
       {label}
       <Badges badge={badge} />
     </label>
@@ -150,7 +150,7 @@ const Slider: React.FC<{
             value={value}
             disabled={disabled}
             onChange={(e) => onChange(Number(e.target.value))}
-            className="w-full accent-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+            className="w-full accent-indigo-500 cursor-default disabled:cursor-not-allowed"
           />
           {def !== undefined && (
             <span
@@ -198,7 +198,7 @@ const Toggle: React.FC<{
           aria-checked={checked}
           disabled={disabled}
           onClick={() => onChange(!checked)}
-          className={`relative w-9 h-5 rounded-full transition-colors cursor-pointer disabled:cursor-not-allowed ${checked ? 'bg-indigo-500' : 'bg-slate-700'}`}
+          className={`relative w-9 h-5 rounded-full transition-colors cursor-default disabled:cursor-not-allowed ${checked ? 'bg-indigo-500' : 'bg-slate-700'}`}
         >
           <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-slate-100 transition-transform ${checked ? 'translate-x-4' : ''}`} />
         </button>
@@ -229,7 +229,7 @@ const SelectRow: React.FC<{
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        className="flex-1 min-w-0 h-9 bg-slate-950 border border-slate-700 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+        className="flex-1 min-w-0 h-9 bg-slate-950 border border-slate-700 rounded-lg px-2 text-[13px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default disabled:cursor-not-allowed"
       >
         {children}
       </select>
@@ -247,7 +247,7 @@ export const SettingsCard: React.FC<{ title: string; advanced?: boolean; changed
 }) =>
   advanced ? (
     <details className="group rounded-xl border border-slate-800 bg-slate-800/20">
-      <summary className="flex items-center gap-2 px-4 py-2.5 list-none cursor-pointer text-[12px] font-semibold text-slate-300 hover:text-slate-100 [&::-webkit-details-marker]:hidden">
+      <summary className="flex items-center gap-2 px-4 py-2.5 list-none cursor-default text-[12px] font-semibold text-slate-300 hover:text-slate-100 [&::-webkit-details-marker]:hidden">
         <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
         {title}
         <span className="font-normal text-slate-500">· advanced</span>
@@ -350,7 +350,7 @@ export const FitCard: React.FC<{
           type="button"
           onClick={measure}
           disabled={disabled || measuring || source.segments.length === 0}
-          className="self-start flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          className="self-start flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
         >
           {measuring ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ruler className="w-3.5 h-3.5" />}
           {measuring ? 'Measuring…' : 'Measure the original'}
@@ -405,7 +405,7 @@ export const FitCard: React.FC<{
               onApply(Object.fromEntries(changes.map((c) => [c.key, c.to])) as Partial<SyncJoinSettings>);
               setFit(null);
             }}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-1.5 h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
           >
             <Check className="w-3.5 h-3.5" /> Apply
           </button>
@@ -413,7 +413,7 @@ export const FitCard: React.FC<{
         <button
           type="button"
           onClick={() => setFit(null)}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 transition-colors cursor-default"
         >
           <X className="w-3.5 h-3.5" /> {changes.length > 0 ? 'Keep current' : 'Close'}
         </button>
@@ -603,7 +603,7 @@ const ModeRow: React.FC<{
           aria-checked={value === mode}
           disabled={disabled}
           onClick={() => onChange(mode)}
-          className={`h-7 px-2.5 rounded-md text-[11.5px] cursor-pointer disabled:cursor-not-allowed ${
+          className={`h-7 px-2.5 rounded-md text-[11.5px] cursor-default disabled:cursor-not-allowed ${
             value === mode ? (mode === 'off' ? 'bg-slate-800 text-slate-200' : 'bg-indigo-500/25 text-indigo-100 font-medium') : 'text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -636,7 +636,7 @@ const ChoiceRow: React.FC<{
           disabled={disabled}
           title={choice.hint || undefined}
           onClick={() => onPick(choice.id)}
-          className={`rounded-lg px-2 py-2 text-center transition-colors cursor-pointer disabled:cursor-not-allowed ${
+          className={`rounded-lg px-2 py-2 text-center transition-colors cursor-default disabled:cursor-not-allowed ${
             on ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-600' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
           }`}
         >
@@ -696,7 +696,7 @@ export const JoinPresetPicker: React.FC<{
             type="button"
             disabled={disabled}
             onClick={() => pickLength(suggestion.preset)}
-            className="shrink-0 h-7 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-medium cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            className="shrink-0 h-7 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white font-medium cursor-default disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Use {presetName(suggestion.preset)}
           </button>
@@ -714,7 +714,7 @@ export const JoinPresetPicker: React.FC<{
           {options.preset === 'custom' && onShowChanged && (
             <>
               {' '}
-              <button type="button" onClick={onShowChanged} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-pointer">
+              <button type="button" onClick={onShowChanged} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-default">
                 Show what changed
               </button>
             </>
@@ -722,7 +722,7 @@ export const JoinPresetPicker: React.FC<{
         </span>
       )}
       <details className="rounded-lg border border-slate-800 bg-slate-950/40">
-        <summary className="px-3 py-2 text-[12px] text-slate-300 cursor-pointer select-none">
+        <summary className="px-3 py-2 text-[12px] text-slate-300 cursor-default select-none">
           What <span className="font-semibold text-slate-100">{joinPresetLabel(options)}</span> sets
         </summary>
         <table className="w-full text-[12px]">
@@ -876,7 +876,7 @@ export const SyncJoinSectionControls: React.FC<{
                     aria-checked={options.suggest === on}
                     disabled={disabled}
                     onClick={() => onOptionsChange((o) => ({ ...o, suggest: on }))}
-                    className={`h-7 px-2.5 rounded-md text-[11.5px] cursor-pointer disabled:cursor-not-allowed ${
+                    className={`h-7 px-2.5 rounded-md text-[11.5px] cursor-default disabled:cursor-not-allowed ${
                       options.suggest === on ? (on ? 'bg-indigo-500/25 text-indigo-100 font-medium' : 'bg-slate-800 text-slate-200') : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >

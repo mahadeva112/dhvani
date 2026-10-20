@@ -187,7 +187,7 @@ export function ScriptTableView({
               type="button"
               aria-pressed={passagePause === p}
               onClick={() => onPassagePauseChange(p)}
-              className={`px-2 py-0.5 rounded-md font-mono tabular-nums cursor-pointer transition-colors ${
+              className={`px-2 py-0.5 rounded-md font-mono tabular-nums cursor-default transition-colors ${
                 passagePause === p ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -200,7 +200,7 @@ export function ScriptTableView({
           type="button"
           onClick={phonetic.toggle}
           aria-pressed={phonetic.enabled}
-          className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-pointer ${
+          className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-default ${
             phonetic.enabled ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
           }`}
           title={`Type Roman letters and get ${langConfig.nativeName} as you go (Ctrl+G)`}
@@ -246,7 +246,7 @@ export function ScriptTableView({
                       onClick={() => (playingHere ? onTogglePlay() : onPlayPassage(start, end))}
                       aria-label={playingHere ? `Pause passage ${passage.index + 1}` : `Play passage ${passage.index + 1}`}
                       title={playingHere ? 'Pause' : 'Play this passage'}
-                      className={`w-7 h-7 rounded-full border flex items-center justify-center transition-colors cursor-pointer ${
+                      className={`w-7 h-7 rounded-full border flex items-center justify-center transition-colors cursor-default ${
                         playingHere
                           ? 'border-slate-300 bg-slate-100 text-slate-900'
                           : 'border-slate-700 text-slate-300 hover:border-slate-400 hover:text-white'
@@ -258,7 +258,7 @@ export function ScriptTableView({
                   <button
                     type="button"
                     onClick={() => onSeek(start)}
-                    className="mt-1 block text-left font-mono tabular-nums leading-relaxed hover:text-indigo-300 cursor-pointer"
+                    className="mt-1 block text-left font-mono tabular-nums leading-relaxed hover:text-indigo-300 cursor-default"
                     title="Play this passage"
                   >
                     {formatTime(start)}
@@ -280,7 +280,7 @@ export function ScriptTableView({
                       <div
                         key={String(seg.id)}
                         onClick={() => window.getSelection()?.isCollapsed && onSeek(seg.startTime)}
-                        className={`relative cursor-pointer transition-colors duration-[450ms] hover:text-slate-200 ${seg.id === activeSegmentId ? 'text-white' : ''}`}
+                        className={`relative cursor-default transition-colors duration-[450ms] hover:text-slate-200 ${seg.id === activeSegmentId ? 'text-white' : ''}`}
                         title={`${formatTime(seg.startTime)} · play from here`}
                       >
                         {asLine(getSourceText(seg)) || ' '}
@@ -339,7 +339,7 @@ export function ScriptTableView({
                       <button
                         type="button"
                         onClick={() => dropDraft(key)}
-                        className="text-slate-300 underline underline-offset-2 hover:text-slate-100 cursor-pointer"
+                        className="text-slate-300 underline underline-offset-2 hover:text-slate-100 cursor-default"
                       >
                         Undo changes
                       </button>
@@ -365,7 +365,7 @@ export function ScriptTableView({
                 e.preventDefault(); // keeps the caret in the cell
                 insertSign(sign);
               }}
-              className="min-w-[2rem] h-8 px-1.5 rounded-md border border-slate-800 bg-slate-900 text-slate-100 text-base hover:border-indigo-500/40 hover:bg-indigo-500/10 cursor-pointer"
+              className="min-w-[2rem] h-8 px-1.5 rounded-md border border-slate-800 bg-slate-900 text-slate-100 text-base hover:border-indigo-500/40 hover:bg-indigo-500/10 cursor-default"
               lang={targetLanguage || undefined}
             >
               {/* Vowel signs sit on a placeholder circle, as on a keyboard. */}
@@ -396,7 +396,7 @@ export function ScriptTableView({
                   const typing = typingRef.current;
                   if (typing) phonetic.pick(typing.ta, setDraft(typing.key), i);
                 }}
-                className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[15px] cursor-pointer ${
+                className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[15px] cursor-default ${
                   i === phonetic.popup!.selected ? 'bg-indigo-500/25 text-white' : 'text-slate-300 hover:bg-slate-800'
                 }`}
               >

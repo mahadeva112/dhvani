@@ -54,7 +54,7 @@ export const VoiceRateCard: React.FC<{ voiceRate: VoiceRateState; language: stri
         <button
           type="button"
           onClick={measureAgain}
-          className="px-2 py-0.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[11px] font-medium text-slate-200 cursor-pointer shrink-0"
+          className="px-2 py-0.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[11px] font-medium text-slate-200 cursor-default shrink-0"
         >
           Try again
         </button>
@@ -81,7 +81,7 @@ export const VoiceRateCard: React.FC<{ voiceRate: VoiceRateState; language: stri
         onClick={measureAgain}
         title="Read the sample again and measure the rate anew. Uses a few voice credits."
         aria-label="Measure the speaking rate again"
-        className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer shrink-0"
+        className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default shrink-0"
       >
         <RefreshCw className="w-3.5 h-3.5" />
       </button>

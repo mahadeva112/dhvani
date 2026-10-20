@@ -116,7 +116,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
               aria-pressed={on}
               onClick={() => onFilterChange(on ? filter.filter((f) => f !== s.name) : [...filter, s.name])}
               title={`${s.cues} cues · ${Math.round(s.seconds)} s. Show only their cues.`}
-              className={`rounded-md cursor-pointer transition-shadow ${on ? 'ring-1 ring-slate-100' : ''}`}
+              className={`rounded-md cursor-default transition-shadow ${on ? 'ring-1 ring-slate-100' : ''}`}
             >
               <SpeakerChip
                 speaker={s}
@@ -127,7 +127,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
           );
         })}
         {filter.length > 0 && (
-          <button type="button" onClick={() => onFilterChange([])} className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+          <button type="button" onClick={() => onFilterChange([])} className="text-xs text-slate-400 hover:text-slate-200 cursor-default">
             Show everyone
           </button>
         )}
@@ -136,7 +136,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
             type="button"
             onClick={onShowSlips}
             aria-pressed={slipsShown}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs text-amber-300 hover:text-amber-200 cursor-pointer ${
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-xs text-amber-300 hover:text-amber-200 cursor-default ${
               slipsShown ? 'bg-amber-950/50 ring-1 ring-amber-700' : ''
             }`}
           >
@@ -146,13 +146,13 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
         )}
         {voiceFlagCount > 0 && onShowVoice && (
           <span className={`flex items-center rounded-md text-xs ${voiceShown ? 'bg-amber-950/50 ring-1 ring-amber-700' : ''}`}>
-            <button type="button" onClick={onShowVoice} aria-pressed={voiceShown} className="flex items-center gap-1 px-2 py-0.5 text-amber-300 hover:text-amber-200 cursor-pointer">
+            <button type="button" onClick={onShowVoice} aria-pressed={voiceShown} className="flex items-center gap-1 px-2 py-0.5 text-amber-300 hover:text-amber-200 cursor-default">
               <AlertTriangle className="w-3.5 h-3.5" />
               {voiceFlagCount === 1 ? '1 cue sounds like someone else' : `${voiceFlagCount} cues sound like someone else`}
               {voiceShown && <span className="text-slate-400">· show all</span>}
             </button>
             {onFixByVoice && (
-              <button type="button" onClick={onFixByVoice} className="px-2 py-0.5 text-slate-200 hover:text-white border-l border-amber-900/70 cursor-pointer">
+              <button type="button" onClick={onFixByVoice} className="px-2 py-0.5 text-slate-200 hover:text-white border-l border-amber-900/70 cursor-default">
                 Relabel by voice
               </button>
             )}
@@ -163,7 +163,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
             type="button"
             onClick={() => setManaging((v) => !v)}
             aria-expanded={managing}
-            className="ml-auto flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+            className="ml-auto flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
           >
             <Users className="w-3.5 h-3.5" /> {managing ? 'Done' : 'Manage speakers'}
           </button>
@@ -186,7 +186,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
           const box = e.currentTarget.getBoundingClientRect();
           onSeek(((e.clientX - box.left) / box.width) * length);
         }}
-        className="relative h-3 rounded bg-slate-800/70 cursor-pointer"
+        className="relative h-3 rounded bg-slate-800/70 cursor-default"
       >
         {segments.map((seg) => (
           <span
@@ -222,21 +222,21 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
             </span>
             {onHearSpeaker && (
               <>
-                <button type="button" onClick={() => onHearSpeaker(m.from)} className="flex items-center gap-1 h-7 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-pointer">
+                <button type="button" onClick={() => onHearSpeaker(m.from)} className="flex items-center gap-1 h-7 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-default">
                   <Play className="w-3 h-3 fill-current" /> {m.from}
                 </button>
-                <button type="button" onClick={() => onHearSpeaker(m.into)} className="flex items-center gap-1 h-7 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-pointer">
+                <button type="button" onClick={() => onHearSpeaker(m.into)} className="flex items-center gap-1 h-7 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-default">
                   <Play className="w-3 h-3 fill-current" /> {m.into}
                 </button>
               </>
             )}
-            <button type="button" onClick={() => onRenameSpeaker(m.from, m.into)} className="flex items-center gap-1 h-7 px-2.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 cursor-pointer">
+            <button type="button" onClick={() => onRenameSpeaker(m.from, m.into)} className="flex items-center gap-1 h-7 px-2.5 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 cursor-default">
               <Check className="w-3 h-3" /> Merge into {m.into}
             </button>
             <button
               type="button"
               onClick={() => setDismissed((d) => new Set(d).add(`${m.from}|${m.into}`))}
-              className="h-7 px-2.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer"
+              className="h-7 px-2.5 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-default"
             >
               Keep separate
             </button>
@@ -290,7 +290,7 @@ const SpeakerManageRow: React.FC<{ speaker: SpeakerSummary; others: SpeakerSumma
         value=""
         onChange={(e) => e.target.value && onRename(speaker.name, e.target.value)}
         aria-label={`Merge ${speaker.name} into another speaker`}
-        className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-pointer"
+        className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-default"
       >
         <option value="">Merge into…</option>
         {others.map((o) => (
@@ -324,17 +324,17 @@ export const CueSelectionBar: React.FC<{
     <span className="font-medium tabular-nums">{count === 1 ? '1 cue selected' : `${count} cues selected`}</span>
     <span className="text-slate-500">Set speaker to</span>
     {speakers.map((s) => (
-      <button key={s.name} type="button" onClick={() => onAssign(s.name)} className="rounded-md cursor-pointer hover:brightness-125" title={`Make all ${count} cues ${s.name}`}>
+      <button key={s.name} type="button" onClick={() => onAssign(s.name)} className="rounded-md cursor-default hover:brightness-125" title={`Make all ${count} cues ${s.name}`}>
         <SpeakerChip speaker={s} name={s.name} />
       </button>
     ))}
     <span className="ml-auto flex items-center gap-2">
       {count < shownCount && (
-        <button type="button" onClick={onSelectShown} className="text-slate-300 hover:text-white cursor-pointer">
+        <button type="button" onClick={onSelectShown} className="text-slate-300 hover:text-white cursor-default">
           Select all {shownCount} shown
         </button>
       )}
-      <button type="button" onClick={onClear} className="flex items-center gap-1 h-7 px-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer">
+      <button type="button" onClick={onClear} className="flex items-center gap-1 h-7 px-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-default">
         <X className="w-3.5 h-3.5" /> Clear
       </button>
     </span>
@@ -350,13 +350,13 @@ export const SpeakerPicker: React.FC<{
   const speaker = speakers.find((s) => s.name === value);
   if (!onChange) return <SpeakerChip speaker={speaker} name={value} />;
   return (
-    <label className="relative inline-flex cursor-pointer" title="Who says this line">
+    <label className="relative inline-flex cursor-default" title="Who says this line">
       <SpeakerChip speaker={speaker} name={value} suffix="▾" />
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label="Who says this line"
-        className="absolute inset-0 opacity-0 cursor-pointer"
+        className="absolute inset-0 opacity-0 cursor-default"
       >
         {speakers.map((s) => (
           <option key={s.name} value={s.name}>
@@ -394,17 +394,17 @@ export const SpeakerCueNotes: React.FC<{
         </p>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {onHear && (
-            <button type="button" onClick={onHear} className="flex items-center gap-1 h-6 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-pointer">
+            <button type="button" onClick={onHear} className="flex items-center gap-1 h-6 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-default">
               <Play className="w-3 h-3 fill-current" /> Hear
             </button>
           )}
           {onAccept && (
-            <button type="button" onClick={() => onAccept(voice.suggested)} className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 cursor-pointer">
+            <button type="button" onClick={() => onAccept(voice.suggested)} className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 cursor-default">
               <Check className="w-3 h-3" /> Make it {voice.suggested}
             </button>
           )}
           {onKeep && (
-            <button type="button" onClick={onKeep} className="h-6 px-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer">
+            <button type="button" onClick={onKeep} className="h-6 px-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-default">
               Keep {current}
             </button>
           )}
@@ -421,17 +421,17 @@ export const SpeakerCueNotes: React.FC<{
         </p>
         <div className="mt-1.5 flex flex-wrap gap-1.5">
           {onHear && (
-            <button type="button" onClick={onHear} className="flex items-center gap-1 h-6 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-pointer">
+            <button type="button" onClick={onHear} className="flex items-center gap-1 h-6 px-2 rounded-md border border-amber-900/70 hover:bg-amber-900/30 cursor-default">
               <Play className="w-3 h-3 fill-current" /> Hear
             </button>
           )}
           {onAccept && (
-            <button type="button" onClick={() => onAccept(slip.suggested)} className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 cursor-pointer">
+            <button type="button" onClick={() => onAccept(slip.suggested)} className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-700 text-slate-100 hover:bg-slate-800 cursor-default">
               <Check className="w-3 h-3" /> Make it {slip.suggested}
             </button>
           )}
           {onKeep && (
-            <button type="button" onClick={onKeep} className="h-6 px-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-pointer">
+            <button type="button" onClick={onKeep} className="h-6 px-2 rounded-md border border-slate-700 text-slate-300 hover:bg-slate-800 cursor-default">
               Keep {current}
             </button>
           )}
@@ -503,7 +503,7 @@ export const CastCard: React.FC<{
                 disabled={disabled}
                 title="Voice this speaker with the main voice"
                 aria-label={`Voice ${s.name} with the main voice`}
-                className="p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer disabled:opacity-40"
+                className="p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default disabled:opacity-40"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -513,7 +513,7 @@ export const CastCard: React.FC<{
               onClick={() => onPick(s.name)}
               disabled={disabled}
               data-index={n}
-              className="px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0 disabled:opacity-40"
+              className="px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0 disabled:opacity-40"
             >
               Change
             </button>
@@ -543,13 +543,13 @@ export const MixPeakChoice: React.FC<{ value: MixPeakMode; onChange: (mode: MixP
         { mode: 'lower', label: 'Lower the whole mix', hint: 'Only if it goes over full scale, by one gain for the whole dub. The report says how much.' },
       ] as const
     ).map((o) => (
-      <label key={o.mode} className="flex items-start gap-2.5 text-xs cursor-pointer">
+      <label key={o.mode} className="flex items-start gap-2.5 text-xs cursor-default">
         <input
           type="radio"
           name="dub-mix-peak"
           checked={value === o.mode}
           onChange={() => onChange(o.mode)}
-          className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer"
+          className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-default"
         />
         <span className="flex flex-col gap-0.5">
           <span className="text-slate-200 font-medium">{o.label}</span>
@@ -626,7 +626,7 @@ export const StemDownloads: React.FC<{ stems: DubStem[]; speakers: SpeakerSummar
           key={stem.speaker}
           type="button"
           onClick={() => onDownload(stem.speaker)}
-          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left cursor-pointer"
+          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left cursor-default"
         >
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: speaker?.color ?? '#64748b' }} />
           <span className="flex-1 min-w-0 text-[13px] text-slate-100 truncate">{stem.speaker}</span>

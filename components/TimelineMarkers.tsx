@@ -157,7 +157,7 @@ const MarkerNote: React.FC<{
           onClick={onRemove}
           title="Delete this marker"
           aria-label="Delete this marker"
-          className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-rose-300 hover:bg-slate-800 cursor-pointer"
+          className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-rose-300 hover:bg-slate-800 cursor-default"
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -211,7 +211,7 @@ export const MarkerList: React.FC<{ markers: TimelineNote[]; onJump: (marker: Ti
           type="button"
           onClick={() => onJump(m)}
           title={`Jump to ${clock(m.time)}`}
-          className="max-w-[16rem] h-6 px-2 flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 text-[11px] text-amber-200 hover:bg-amber-400/20 cursor-pointer"
+          className="max-w-[16rem] h-6 px-2 flex items-center gap-1.5 rounded-full border border-amber-400/30 bg-amber-400/10 text-[11px] text-amber-200 hover:bg-amber-400/20 cursor-default"
         >
           <span className="font-mono tabular-nums text-amber-300">{clock(m.time)}</span>
           <span className="truncate">{m.note || `Marker ${i + 1}`}</span>

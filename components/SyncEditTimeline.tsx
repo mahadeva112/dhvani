@@ -447,7 +447,7 @@ const ToolButton: React.FC<{
     aria-keyshortcuts={shortcut === 'Drag' ? undefined : shortcut}
     title={hint || label}
     aria-label={label}
-    className={`group relative h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+    className={`group relative h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-colors cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
       pressed ? 'bg-indigo-500/20 text-indigo-100 ring-1 ring-inset ring-indigo-400/60' : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
     }`}
   >
@@ -478,7 +478,7 @@ const ActionButton: React.FC<{ label: string; shortcut?: string; onClick: () => 
     onClick={onClick}
     title={title}
     aria-keyshortcuts={shortcut}
-    className="h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+    className="h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
   >
     {children}
     {label}
@@ -557,13 +557,13 @@ const GroupInspector: React.FC<{
     return group.every((c) => Math.abs(pick(c.part) - first) < 1e-6) ? first : null;
   };
   const allMuted = group.every((c) => c.part.muted);
-  const button = 'h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5';
+  const button = 'h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5';
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-[13px] font-semibold text-slate-100">{group.length} lines picked</span>
         <span className="font-mono text-[11.5px] text-slate-400 truncate">{group.map((c) => c.label).join(', ')}</span>
-        <button type="button" onClick={onClear} className="ml-auto text-[11px] text-slate-500 hover:text-slate-300 cursor-pointer">
+        <button type="button" onClick={onClear} className="ml-auto text-[11px] text-slate-500 hover:text-slate-300 cursor-default">
           Clear <kbd className="font-mono">Esc</kbd>
         </button>
       </div>
@@ -741,7 +741,7 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
   const monitor = lanes.monitor[name] ?? { muted: false, solo: false };
   const listenNote = live ? '' : ' Heard while the dub plays live, at 1×.';
   const toggle = (on: boolean, onClass: string) =>
-    `w-[22px] h-5 rounded-[5px] border text-[10.5px] font-semibold flex items-center justify-center cursor-pointer transition-colors ${
+    `w-[22px] h-5 rounded-[5px] border text-[10.5px] font-semibold flex items-center justify-center cursor-default transition-colors ${
       on ? onClass : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 hover:border-slate-500'
     }`;
   return (
@@ -797,7 +797,7 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
             setDb(0);
             commit(0);
           }}
-          className={`flex-1 min-w-0 h-1 accent-indigo-400 cursor-pointer transition-opacity ${heard ? '' : 'opacity-40'}`}
+          className={`flex-1 min-w-0 h-1 accent-indigo-400 cursor-default transition-opacity ${heard ? '' : 'opacity-40'}`}
         />
         <span className="w-[3.25rem] text-right font-mono text-[10.5px] text-slate-400 tabular-nums">{formatLevel(db)}</span>
       </span>
@@ -2091,6 +2091,31 @@ export const SyncEditTimeline: React.FC<{
   // ---- Keys ----
 
   const rootRef = useRef<HTMLDivElement>(null);
+  /**
+   * Home and End put the playhead at the start and the end, and Shift + Z shows
+   * the whole track, as in DaVinci Resolve: wherever focus is while the editor
+   * is open, but not while typing or with a dialog open.
+   */
+  const globalKeys = useRef<(e: KeyboardEvent) => void>(() => {});
+  globalKeys.current = (e: KeyboardEvent) => {
+    if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest?.('input, textarea, select, [contenteditable="true"]') || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+    const jumpTo = (time: number) => {
+      zoom.setFollow(true);
+      onSeek(time);
+    };
+    if (e.key === 'Home') jumpTo(0);
+    else if (e.key === 'End') jumpTo(total);
+    else if (e.shiftKey && e.key.toLowerCase() === 'z') zoom.fitAll();
+    else return;
+    e.preventDefault();
+  };
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => globalKeys.current(e);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, []);
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
@@ -2117,10 +2142,8 @@ export const SyncEditTimeline: React.FC<{
       }
     } else if (key === '/') {
       if (current) onPlayFrom(Math.max(0, current.part.start - 0.3));
-    } else if (key === 'Home') onSeek(0);
-    else if (key === '=' || key === '+') zoom.zoomBy(0.5);
+    } else if (key === '=' || key === '+') zoom.zoomBy(0.5);
     else if (key === '-' || key === '_') zoom.zoomBy(2);
-    else if (lower === 'z' && e.shiftKey) zoom.fitAll();
     else if (lower === 's') act.split();
     else if (lower === 'g') act.join();
     else if (lower === 'a') act.align();
@@ -2206,7 +2229,7 @@ export const SyncEditTimeline: React.FC<{
           ) : status.state === 'error' ? (
             <span className="flex items-center gap-1.5 text-rose-300">
               <TriangleAlert className="w-3.5 h-3.5" /> {status.message}
-              <button type="button" onClick={onRetry} className="underline underline-offset-2 hover:text-rose-200 cursor-pointer">
+              <button type="button" onClick={onRetry} className="underline underline-offset-2 hover:text-rose-200 cursor-default">
                 Try again
               </button>
             </span>
@@ -2221,11 +2244,11 @@ export const SyncEditTimeline: React.FC<{
             type="button"
             onClick={act.resetAll}
             disabled={!hasEdits(committed)}
-            className="h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent cursor-pointer flex items-center gap-1.5"
+            className="h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5"
           >
             <RotateCcw className="w-3.5 h-3.5" /> Reset all edits
           </button>
-          <button type="button" onClick={onClose} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-xs font-semibold text-white cursor-pointer flex items-center gap-1.5">
+          <button type="button" onClick={onClose} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-xs font-semibold text-white cursor-default flex items-center gap-1.5">
             <Check className="w-3.5 h-3.5" /> Done
           </button>
         </span>
@@ -2274,14 +2297,14 @@ export const SyncEditTimeline: React.FC<{
           )}
         </div>
         <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5" role="group" aria-label="Zoom">
-          <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-pointer disabled:cursor-default">
+          <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <ZoomOut className="w-4 h-4" />
           </button>
           <span className="min-w-[3.5rem] text-center font-mono text-[11px] text-slate-400 tabular-nums">{windowSeconds < 60 ? `${Math.round(windowSeconds)} s` : `${(windowSeconds / 60).toFixed(1)} min`}</span>
-          <button type="button" onClick={() => zoom.zoomBy(0.5)} disabled={!zoom.canZoomIn} title="Zoom in (=)" aria-label="Zoom in" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-pointer disabled:cursor-default">
+          <button type="button" onClick={() => zoom.zoomBy(0.5)} disabled={!zoom.canZoomIn} title="Zoom in (=)" aria-label="Zoom in" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <ZoomIn className="w-4 h-4" />
           </button>
-          <button type="button" onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Whole track (Shift + Z)" className="h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-pointer disabled:cursor-default">
+          <button type="button" onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Whole track (Shift + Z)" className="h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <Maximize2 className="w-3.5 h-3.5" /> Fit
           </button>
         </div>
@@ -2634,7 +2657,7 @@ export const SyncEditTimeline: React.FC<{
               <button
                 type="button"
                 onClick={() => setTighten({ ...tighten, settings: { ...tighten.settings, levelDb: 'auto' } })}
-                className={`h-6 px-2 rounded-md text-[11.5px] border cursor-pointer ${tighten.settings.levelDb === 'auto' ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                className={`h-6 px-2 rounded-md text-[11.5px] border cursor-default ${tighten.settings.levelDb === 'auto' ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
                 title="A little above each line's own room tone"
               >
                 Auto
@@ -2646,7 +2669,7 @@ export const SyncEditTimeline: React.FC<{
                 step={1}
                 value={tighten.settings.levelDb === 'auto' ? tighten.manualDb : tighten.settings.levelDb}
                 onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, levelDb: Number(e.target.value) } })}
-                className="flex-1 min-w-0 accent-indigo-400 cursor-pointer"
+                className="flex-1 min-w-0 accent-indigo-400 cursor-default"
               />
               <span className="w-12 text-right tabular-nums text-indigo-300">
                 {tighten.settings.levelDb === 'auto' ? 'Auto' : `${tighten.settings.levelDb} dB`}
@@ -2661,7 +2684,7 @@ export const SyncEditTimeline: React.FC<{
                 step={0.01}
                 value={tighten.settings.minPause}
                 onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, minPause: Number(e.target.value) } })}
-                className="flex-1 min-w-0 accent-indigo-400 cursor-pointer"
+                className="flex-1 min-w-0 accent-indigo-400 cursor-default"
               />
               <span className="w-12 text-right tabular-nums text-indigo-300">{Math.round(tighten.settings.minPause * 1000)} ms</span>
             </label>
@@ -2674,7 +2697,7 @@ export const SyncEditTimeline: React.FC<{
                 step={0.01}
                 value={tighten.settings.margin}
                 onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, margin: Number(e.target.value) } })}
-                className="flex-1 min-w-0 accent-indigo-400 cursor-pointer"
+                className="flex-1 min-w-0 accent-indigo-400 cursor-default"
               />
               <span className="w-12 text-right tabular-nums text-indigo-300">{Math.round(tighten.settings.margin * 1000)} ms</span>
             </label>
@@ -2687,7 +2710,7 @@ export const SyncEditTimeline: React.FC<{
                   onClick={() => closeUpTighten(mode)}
                   disabled={mode === 'picked' && tighten.picked.length === 0}
                   aria-pressed={(mode === 'all') === tightenAll}
-                  className={`h-6 px-2 rounded-md text-[11.5px] border cursor-pointer disabled:opacity-40 disabled:cursor-default ${(mode === 'all') === tightenAll ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                  className={`h-6 px-2 rounded-md text-[11.5px] border cursor-default disabled:opacity-40 disabled:cursor-default ${(mode === 'all') === tightenAll ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
                   title={
                     mode === 'picked'
                       ? tighten.picked.length === 0
@@ -2701,7 +2724,7 @@ export const SyncEditTimeline: React.FC<{
               ))}
             </div>
           </div>
-          <label className="flex items-center gap-2 text-[12px] text-slate-400 cursor-pointer w-fit">
+          <label className="flex items-center gap-2 text-[12px] text-slate-400 cursor-default w-fit">
             <input
               type="checkbox"
               checked={tighten.checkWords}
@@ -2730,13 +2753,13 @@ export const SyncEditTimeline: React.FC<{
               )}
             </span>
             <span className="flex-1" />
-            <button type="button" onClick={listenTighten} disabled={!tightenPreview || (tightenPreview.cuts === 0 && tightenPreview.moved === 0)} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5">
+            <button type="button" onClick={listenTighten} disabled={!tightenPreview || (tightenPreview.cuts === 0 && tightenPreview.moved === 0)} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-default flex items-center gap-1.5">
               <Play className="w-3.5 h-3.5" /> Listen
             </button>
-            <button type="button" onClick={applyTighten} disabled={!tightenPreview || tightenPreview.waiting > 0} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white disabled:opacity-40 cursor-pointer disabled:cursor-default flex items-center gap-1.5">
+            <button type="button" onClick={applyTighten} disabled={!tightenPreview || tightenPreview.waiting > 0} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white disabled:opacity-40 cursor-default flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5" /> Apply
             </button>
-            <button type="button" onClick={closeTighten} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-pointer">
+            <button type="button" onClick={closeTighten} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-default">
               Cancel
             </button>
           </div>
@@ -2779,10 +2802,10 @@ export const SyncEditTimeline: React.FC<{
           )}
         </div>
         <div className="flex gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5">
-          <button type="button" onClick={act.undo} disabled={history.at === 0} title="Undo (Ctrl + Z)" aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-pointer disabled:cursor-default">
+          <button type="button" onClick={act.undo} disabled={history.at === 0} title="Undo (Ctrl + Z)" aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <Undo2 className="w-4 h-4" />
           </button>
-          <button type="button" onClick={act.redo} disabled={history.at >= history.entries.length - 1} title="Redo (Ctrl + Shift + Z)" aria-label="Redo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-pointer disabled:cursor-default">
+          <button type="button" onClick={act.redo} disabled={history.at >= history.entries.length - 1} title="Redo (Ctrl + Shift + Z)" aria-label="Redo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <Redo2 className="w-4 h-4" />
           </button>
         </div>
@@ -2864,20 +2887,20 @@ export const SyncEditTimeline: React.FC<{
               </div>
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {current.original ? (
-                  <button type="button" onClick={act.remove} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5">
+                  <button type="button" onClick={act.remove} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5">
                     Take off the dub <kbd className="font-mono text-[10px] text-slate-500">Del</kbd>
                   </button>
                 ) : (
                   <>
-                    <button type="button" onClick={act.align} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5">
+                    <button type="button" onClick={act.align} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5">
                       <AlignStartVertical className="w-3.5 h-3.5" /> Align to original
                     </button>
-                    <button type="button" onClick={act.reset} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer flex items-center gap-1.5">
+                    <button type="button" onClick={act.reset} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5">
                       <RotateCcw className="w-3.5 h-3.5" /> Reset line
                     </button>
                   </>
                 )}
-                <button type="button" onClick={() => onPlayFrom(Math.max(0, current.part.start - 0.3))} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer">
+                <button type="button" onClick={() => onPlayFrom(Math.max(0, current.part.start - 0.3))} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default">
                   Play from here <kbd className="ml-1 font-mono text-[10px] text-slate-500">/</kbd>
                 </button>
               </div>
@@ -2885,7 +2908,7 @@ export const SyncEditTimeline: React.FC<{
           ) : !showHelp ? (
             <p className="text-[12.5px] text-slate-400">
               <span className="font-medium text-slate-200">Click a line on the dub lane to pick it.</span> Its start, speed, gain and fades show here.{' '}
-              <button type="button" onClick={() => setShowHelp(true)} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-pointer">
+              <button type="button" onClick={() => setShowHelp(true)} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-default">
                 How editing works
               </button>
             </p>
@@ -2910,7 +2933,7 @@ export const SyncEditTimeline: React.FC<{
                 <button
                   type="button"
                   onClick={() => goTo(n)}
-                  className={`w-full text-left rounded-md px-2 py-1 text-[11.5px] truncate cursor-pointer ${
+                  className={`w-full text-left rounded-md px-2 py-1 text-[11.5px] truncate cursor-default ${
                     n === history.at ? 'bg-slate-800 text-slate-100' : n > history.at ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
                   }`}
                 >
@@ -2920,11 +2943,12 @@ export const SyncEditTimeline: React.FC<{
             ))}
           </ol>
           <details className="mt-2 border-t border-slate-800 pt-2 text-[10.5px] leading-relaxed text-slate-500">
-            <summary className="cursor-pointer text-[11px] text-slate-400 hover:text-slate-200">Shortcuts</summary>
+            <summary className="cursor-default text-[11px] text-slate-400 hover:text-slate-200">Shortcuts</summary>
             <kbd className="font-mono text-slate-400">Space</kbd> play · <kbd className="font-mono text-slate-400">/</kbd> play from the line ·{' '}
             <kbd className="font-mono text-slate-400">Del</kbd> remove · <kbd className="font-mono text-slate-400">Esc</kbd> deselect ·{' '}
             <kbd className="font-mono text-slate-400">Ctrl + A</kbd> pick all · <kbd className="font-mono text-slate-400">Ctrl</kbd> + click add ·{' '}
             <kbd className="font-mono text-slate-400">Ctrl + C / V</kbd> copy the original onto the dub ·{' '}
+            <kbd className="font-mono text-slate-400">Home End</kbd> start, end · <kbd className="font-mono text-slate-400">Shift + Z</kbd> whole track ·{' '}
             <kbd className="font-mono text-slate-400">= −</kbd> zoom · scroll to move · <kbd className="font-mono text-slate-400">Ctrl</kbd> + scroll to zoom
           </details>
         </section>

@@ -222,8 +222,8 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
       onClick={() => fileInputRef.current?.click()}
       className={
         primary
-          ? 'h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold cursor-pointer'
-          : 'h-[34px] px-3 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-pointer'
+          ? 'h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold cursor-default'
+          : 'h-[34px] px-3 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-default'
       }
     >
       <Plus className="w-3.5 h-3.5" /> Add files
@@ -275,7 +275,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -430,7 +430,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                         className={`h-8 px-3 rounded-[9px] text-[12.5px] font-medium whitespace-nowrap transition-colors ${
                           isOpenJob
                             ? 'text-slate-500 cursor-default'
-                            : 'border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-200 cursor-pointer'
+                            : 'border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-200 cursor-default'
                         }`}
                       >
                         {isOpenJob ? 'Open now' : 'Open'}
@@ -441,7 +441,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                           setConfirmRemoveId(null);
                           setEditingId(job.id);
                         }}
-                        className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                        className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-default"
                         aria-label={`Rename ${name}`}
                         title="Rename"
                       >
@@ -453,7 +453,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                           setEditingId(null);
                           setConfirmRemoveId(job.id);
                         }}
-                        className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-rose-300 hover:bg-slate-800 cursor-pointer"
+                        className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-rose-300 hover:bg-slate-800 cursor-default"
                         aria-label={`Delete ${name}`}
                         title="Delete project"
                       >
@@ -474,7 +474,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setConfirmRemoveId(null)}
-                          className="h-7 px-2.5 rounded-md text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-pointer"
+                          className="h-7 px-2.5 rounded-md text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-default"
                         >
                           Keep
                         </button>
@@ -484,7 +484,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                             onRemoveJob(job.id);
                             setConfirmRemoveId(null);
                           }}
-                          className="h-7 px-2.5 rounded-md bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white cursor-pointer"
+                          className="h-7 px-2.5 rounded-md bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white cursor-default"
                         >
                           Delete
                         </button>
@@ -497,7 +497,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className={`mt-1 flex items-center gap-3 px-3.5 py-3 rounded-xl border-[1.5px] border-dashed text-left text-[12.5px] text-slate-400 transition-colors cursor-pointer ${
+                className={`mt-1 flex items-center gap-3 px-3.5 py-3 rounded-xl border-[1.5px] border-dashed text-left text-[12.5px] text-slate-400 transition-colors cursor-default ${
                   isDragOver ? 'border-indigo-400 bg-indigo-950/30' : 'border-slate-700 hover:border-indigo-500/70'
                 }`}
               >
@@ -521,7 +521,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                 {queue.length === 1
                   ? 'Delete the project? Its file and dub are gone for good.'
                   : `Delete all ${queue.length} projects? Their files and dubs are gone for good.`}
-                <button type="button" onClick={() => setConfirmClear(false)} className="px-2 py-1 text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-pointer">
+                <button type="button" onClick={() => setConfirmClear(false)} className="px-2 py-1 text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-default">
                   Keep
                 </button>
                 <button
@@ -530,13 +530,13 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                     onClearQueue();
                     setConfirmClear(false);
                   }}
-                  className="px-2.5 py-1 rounded-md bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white cursor-pointer"
+                  className="px-2.5 py-1 rounded-md bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white cursor-default"
                 >
                   Clear all
                 </button>
               </span>
             ) : (
-              <button type="button" onClick={() => setConfirmClear(true)} className="text-[12.5px] text-slate-400 hover:text-rose-300 px-1 cursor-pointer">
+              <button type="button" onClick={() => setConfirmClear(true)} className="text-[12.5px] text-slate-400 hover:text-rose-300 px-1 cursor-default">
                 Clear all history
               </button>
             ))}
@@ -550,7 +550,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
               onClick={handleBatchExportZip}
               title="One folder per dub: audio .wav, subtitles .srt, script .txt"
               disabled={completedJobs.length === 0 || isExporting}
-              className="h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold whitespace-nowrap disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+              className="h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold whitespace-nowrap disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
             >
               {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
               {completedJobs.length === 0
@@ -565,7 +565,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                 onClose();
                 onNewDub();
               }}
-              className="h-[38px] px-3.5 flex items-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-pointer"
+              className="h-[38px] px-3.5 flex items-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
             >
               <Plus className="w-3.5 h-3.5" /> New dub
             </button>
@@ -573,7 +573,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="h-[38px] px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-pointer"
+            className="h-[38px] px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
           >
             Done
           </button>

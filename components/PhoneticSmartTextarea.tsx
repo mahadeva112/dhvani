@@ -421,7 +421,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
             type="button"
             onClick={handleTogglePhonetic}
             aria-pressed={isPhoneticOn}
-            className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-pointer ${
+            className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-default ${
               isPhoneticOn ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
             }`}
             title="Type Roman letters and get the script as you go (Ctrl+G)"
@@ -435,7 +435,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
             type="button"
             onClick={() => setIsAiPolishOn((on) => !on)}
             aria-pressed={isAiPolishOn}
-            className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-pointer ${
+            className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-default ${
               isAiPolishOn ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
             }`}
             title="Let the translation engine fix vowel signs, joined letters and wording in this cue"
@@ -449,7 +449,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
               type="button"
               onClick={handlePolishWithAI}
               disabled={isPolishingAI || !value}
-              className="h-6 px-2 rounded-md flex items-center gap-1 font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 transition-colors cursor-pointer"
+              className="h-6 px-2 rounded-md flex items-center gap-1 font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 transition-colors cursor-default"
             >
               {isPolishingAI ? (
                 <>
@@ -466,7 +466,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
               type="button"
               onClick={handleConvertEntireText}
               disabled={isLoadingSuggestions}
-              className="h-6 px-2 rounded-md border border-slate-800 flex items-center gap-1 font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+              className="h-6 px-2 rounded-md border border-slate-800 flex items-center gap-1 font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default"
               title="Turn every English-letter word in this cue into the script"
             >
               <Languages className="w-3 h-3" />
@@ -479,7 +479,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
               type="button"
               onClick={() => setShowSymbols(!showSymbols)}
               aria-expanded={showSymbols}
-              className={`h-6 px-2 rounded-md border flex items-center gap-0.5 transition-colors cursor-pointer ${
+              className={`h-6 px-2 rounded-md border flex items-center gap-0.5 transition-colors cursor-default ${
                 showSymbols ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
               title="Vowel signs and marks"
@@ -494,7 +494,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
           <button
             type="button"
             onClick={onOpenKeyboardModal}
-            className="h-6 px-2 rounded-md flex items-center gap-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+            className="h-6 px-2 rounded-md flex items-center gap-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default"
             title="Open the on-screen keyboard"
           >
             <Keyboard className="w-3 h-3" />

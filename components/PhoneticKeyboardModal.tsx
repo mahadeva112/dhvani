@@ -237,11 +237,11 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
     paletteTab === 'marks' ? [...(palette.symbols || []), ...(palette.numbers || [])] : (palette as any)[paletteTab] || [];
 
   const tabClass = (on: boolean) =>
-    `px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+    `px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
       on ? 'bg-slate-900 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
     }`;
   const ghost =
-    'h-[38px] px-3 flex items-center justify-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
+    'h-[38px] px-3 flex items-center justify-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
   return (
     <div
@@ -278,7 +278,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                 onLanguageChange?.(e.target.value);
               }}
               aria-label="Script"
-              className="h-[34px] bg-slate-950/60 border border-slate-700 rounded-[9px] px-2.5 text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
+              className="h-[34px] bg-slate-950/60 border border-slate-700 rounded-[9px] px-2.5 text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default"
             >
               {Object.keys(INDIC_LANGUAGES).map((l) => (
                 <option key={l} value={l} className="bg-slate-900">
@@ -291,7 +291,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
               role="switch"
               aria-checked={isGlobalPhoneticEnabled}
               onClick={() => onToggleGlobalPhonetic(!isGlobalPhoneticEnabled)}
-              className="flex items-center gap-2 text-[12.5px] text-slate-400 hover:text-slate-200 cursor-pointer"
+              className="flex items-center gap-2 text-[12.5px] text-slate-400 hover:text-slate-200 cursor-default"
               title="Turns Roman typing into the script in every cue's text box"
             >
               <span className={`relative w-8 h-[18px] rounded-full transition-colors ${isGlobalPhoneticEnabled ? 'bg-indigo-500' : 'bg-slate-700'}`}>
@@ -303,7 +303,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="ml-auto sm:ml-0 w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer"
+              className="ml-auto sm:ml-0 w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default"
             >
               <X className="w-4 h-4" />
             </button>
@@ -360,7 +360,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                     key={`${s}-${i}`}
                     type="button"
                     onClick={() => pickSuggestion(s)}
-                    className={`flex items-center gap-1.5 h-8 pl-1.5 pr-2.5 rounded-[9px] border text-base transition-colors cursor-pointer ${
+                    className={`flex items-center gap-1.5 h-8 pl-1.5 pr-2.5 rounded-[9px] border text-base transition-colors cursor-default ${
                       i === 0 ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800'
                     }`}
                   >
@@ -380,7 +380,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                   type="button"
                   onClick={addToCue}
                   disabled={!output || !activeSegment}
-                  className="h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+                  className="h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
                 >
                   <ArrowRight className="w-4 h-4" /> {cueLabel ? `Add to ${cueLabel}` : 'Add to a cue'}
                 </button>
@@ -422,7 +422,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                     key={`${ch}-${i}`}
                     type="button"
                     onClick={() => setTail((t) => t + ch)}
-                    className="h-12 rounded-[9px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-700 active:translate-y-px text-[19px] text-slate-100 shadow-[0_1px_0_rgb(30_41_59)] cursor-pointer"
+                    className="h-12 rounded-[9px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-700 active:translate-y-px text-[19px] text-slate-100 shadow-[0_1px_0_rgb(30_41_59)] cursor-default"
                     title={`Add ${ch}`}
                   >
                     {COMBINING.test(ch) ? `◌${ch}` : ch}
@@ -446,7 +446,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                   role="tab"
                   aria-selected={sideTab === id}
                   onClick={() => setSideTab(id)}
-                  className={`flex-1 px-1.5 pt-2 pb-2.5 -mb-px border-b-2 text-[12.5px] font-medium transition-colors cursor-pointer ${
+                  className={`flex-1 px-1.5 pt-2 pb-2.5 -mb-px border-b-2 text-[12.5px] font-medium transition-colors cursor-default ${
                     sideTab === id ? 'text-slate-100 border-indigo-400' : 'text-slate-400 border-transparent hover:text-slate-200'
                   }`}
                 >
@@ -502,7 +502,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                       type="button"
                       onClick={addCustomWord}
                       disabled={!customRoman.trim() || !customNative.trim()}
-                      className="h-9 px-3 rounded-[9px] border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 cursor-pointer"
+                      className="h-9 px-3 rounded-[9px] border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 cursor-default"
                     >
                       Add
                     </button>
@@ -522,7 +522,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                               deleteUserCustomWord(w.roman, lang.code);
                               setCustomWordList(listAllUserCustomWords(lang.code));
                             }}
-                            className="ml-auto p-1 rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                            className="ml-auto p-1 rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-default"
                             aria-label={`Delete ${w.roman}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />

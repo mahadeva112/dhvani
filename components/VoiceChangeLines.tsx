@@ -77,7 +77,7 @@ export const SpeakerVoiceRows: React.FC<{
               value={value}
               disabled={disabled}
               onChange={(e) => onChoose(speaker.name, e.target.value)}
-              className="col-span-2 sm:col-span-1 w-full h-9 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-2.5 text-[12.5px] text-slate-100 focus:outline-none cursor-pointer disabled:opacity-50"
+              className="col-span-2 sm:col-span-1 w-full h-9 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-2.5 text-[12.5px] text-slate-100 focus:outline-none cursor-default disabled:opacity-50"
             >
               <option value={KEEP} className="bg-slate-900">Keep as is</option>
               {!known && <option value={value} className="bg-slate-900">Chosen voice</option>}
@@ -91,7 +91,7 @@ export const SpeakerVoiceRows: React.FC<{
               type="button"
               disabled={disabled}
               onClick={() => onBrowse(speaker.name)}
-              className="hidden sm:block h-9 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 cursor-pointer"
+              className="hidden sm:block h-9 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 cursor-default"
             >
               Browse
             </button>

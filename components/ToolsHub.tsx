@@ -190,7 +190,7 @@ export const ToolsHub: React.FC<{
                           onMouseEnter={() => setSelected(item.id)}
                           onFocus={() => setSelected(item.id)}
                           onClick={() => openItem(item)}
-                          className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                          className={`w-full flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-colors cursor-default ${
                             on ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:bg-slate-800/60'
                           }`}
                         >
@@ -225,7 +225,7 @@ export const ToolsHub: React.FC<{
                   onClose();
                   onCheckUpdates();
                 }}
-                className="flex items-center gap-1 text-indigo-300 hover:text-indigo-200 cursor-pointer"
+                className="flex items-center gap-1 text-indigo-300 hover:text-indigo-200 cursor-default"
               >
                 <Download className="w-3 h-3" /> Check for updates
               </button>
@@ -272,7 +272,7 @@ export const ToolsHub: React.FC<{
                 <button
                   type="button"
                   onClick={() => openItem(current)}
-                  className="ml-auto shrink-0 h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors cursor-pointer"
+                  className="ml-auto shrink-0 h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors cursor-default"
                 >
                   <ExternalLink className="w-4 h-4" /> Open {current.label}
                 </button>

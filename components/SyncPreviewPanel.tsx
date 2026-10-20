@@ -402,7 +402,7 @@ export const EstimateSwitch: React.FC<{ method: EstimateMethod; onChange: (metho
         title={m.hint}
         aria-pressed={method === m.id}
         onClick={() => onChange(m.id)}
-        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${
           method === m.id ? (m.id === 'expert' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-100') : 'text-slate-400 hover:text-slate-200'
         }`}
       >
@@ -680,7 +680,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           <button
             type="button"
             onClick={onSuggest}
-            className="h-7 px-2.5 rounded-md border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+            className="h-7 px-2.5 rounded-md border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
           >
             {state.kind === 'error'
               ? 'Try again'
@@ -693,12 +693,12 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           <button
             type="button"
             onClick={onEdit}
-            className="h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-xs text-slate-300 cursor-pointer"
+            className="h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-xs text-slate-300 cursor-default"
           >
             <Pencil className="w-3 h-3" /> Edit it myself
           </button>
           {flagged && (
-            <button type="button" onClick={onKeep} className="h-7 px-2 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer">
+            <button type="button" onClick={onKeep} className="h-7 px-2 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-default">
               Keep as is
             </button>
           )}
@@ -710,7 +710,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
         <div role="status" className="mt-2 flex items-center gap-2 h-7 text-xs text-slate-300">
           <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin" /> Asking the text model for{' '}
           {state.count > 1 ? `${state.count} ${kind} wordings` : `a${kind === 'other' ? 'n' : ''} ${kind} wording`}…
-          <button type="button" onClick={onStop} className="ml-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-400 cursor-pointer">
+          <button type="button" onClick={onStop} className="ml-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-400 cursor-default">
             Stop
           </button>
         </div>
@@ -735,7 +735,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                       role="radio"
                       aria-checked={picked}
                       onClick={() => onPick(option)}
-                      className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-pointer ${
+                      className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-default ${
                         picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/70'
                       }`}
                     >
@@ -802,7 +802,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
               type="button"
               onClick={() => onUse(state.text.trim())}
               disabled={!changed}
-              className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+              className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
               title="Put this wording into the script"
             >
               <Check className="w-3.5 h-3.5" /> Use this line
@@ -810,14 +810,14 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
             <button
               type="button"
               onClick={onSuggest}
-              className="h-7 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+              className="h-7 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
             >
               {state.options && state.options.length > 0 ? `${LINE_OPTIONS} more` : `Suggest ${LINE_OPTIONS}`}
             </button>
             <button
               type="button"
               onClick={flagged ? onKeep : onUndo}
-              className="h-7 px-2 flex items-center gap-1 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer"
+              className="h-7 px-2 flex items-center gap-1 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-default"
             >
               <X className="w-3 h-3" /> {flagged ? 'Keep as is' : 'Cancel'}
             </button>
@@ -851,7 +851,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           <button
             type="button"
             onClick={onSuggestAgain}
-            className="h-6 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+            className="h-6 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
             title="Ask for new wordings of this line as it reads now. Undo still goes back to the line as it was."
           >
             <RefreshCw className="w-3 h-3" /> Suggest again
@@ -859,7 +859,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           <button
             type="button"
             onClick={onUndo}
-            className="h-6 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+            className="h-6 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
           >
             <RotateCcw className="w-3 h-3" /> Undo
           </button>
@@ -1024,7 +1024,7 @@ export const PreviewTimeline: React.FC<{
                 title={v.hint}
                 aria-pressed={view === v.id}
                 onClick={() => changeView(v.id)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${
                   view === v.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >

@@ -27,7 +27,7 @@ interface TranslationPromptModalProps {
 }
 
 const applyCard =
-  'text-left p-3 rounded-[11px] border border-slate-800 hover:bg-slate-800/50 hover:border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer';
+  'text-left p-3 rounded-[11px] border border-slate-800 hover:bg-slate-800/50 hover:border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-default';
 
 export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
   isOpen,
@@ -160,7 +160,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
             onClick={onClose}
             disabled={busy}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -178,7 +178,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                   role="radio"
                   aria-checked={on}
                   onClick={() => handleSelectPreset(preset)}
-                  className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-pointer ${
+                  className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-default ${
                     on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-900' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
                   }`}
                 >
@@ -235,7 +235,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                     type="button"
                     onClick={() => !added && handleInsertTag(item.tag)}
                     disabled={added}
-                    className={`px-2.5 py-1 rounded-full border text-xs font-medium transition-colors cursor-pointer disabled:cursor-default ${
+                    className={`px-2.5 py-1 rounded-full border text-xs font-medium transition-colors cursor-default ${
                       added
                         ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300'
                         : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -288,7 +288,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
             type="button"
             onClick={handleResetToPreset}
             disabled={!edited || busy}
-            className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-default px-1 cursor-pointer"
+            className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 px-1 cursor-default"
           >
             Reset to the style's own text
           </button>
@@ -300,7 +300,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
             type="button"
             onClick={handleSaveOnly}
             disabled={busy}
-            className="h-[38px] px-5 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-pointer"
+            className="h-[38px] px-5 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
           >
             Save
           </button>

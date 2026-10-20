@@ -152,7 +152,7 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="shrink-0 px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+          className="shrink-0 px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-colors cursor-default"
         >
           Replace
         </button>
@@ -174,7 +174,7 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1 text-left cursor-pointer group"
+        className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1 text-left cursor-default group"
       >
         <span className="w-11 h-11 rounded-xl bg-indigo-500/15 text-indigo-400 flex items-center justify-center shrink-0 group-hover:bg-indigo-500/25 transition-colors">
           <Upload className="w-5 h-5" />
@@ -195,14 +195,14 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
         <button
           type="button"
           onClick={() => onLoadSample('podcast')}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors cursor-default"
         >
           <Radio className="w-3.5 h-3.5 text-slate-400" /> Podcast
         </button>
         <button
           type="button"
           onClick={() => onLoadSample('keynote')}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors cursor-default"
         >
           <Tv className="w-3.5 h-3.5 text-slate-400" /> Keynote
         </button>

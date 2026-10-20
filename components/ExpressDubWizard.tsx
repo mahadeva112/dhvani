@@ -275,7 +275,7 @@ const OtherWordingsButton: React.FC<{ onClick: () => void }> = ({ onClick }) => 
   <button
     type="button"
     onClick={onClick}
-    className="mt-1.5 h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity cursor-pointer"
+    className="mt-1.5 h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity cursor-default"
     title="Other ways to say this line, about as long, with the same meaning"
   >
     <RefreshCw className="w-3 h-3" /> Suggest other wordings
@@ -344,7 +344,7 @@ const LiveClock: React.FC<LiveTimeProps> = ({ currentTime, isPlaying, getLiveTim
 );
 
 const railButton =
-  'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
+  'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
 /**
  * The step a job has got to: source until it is transcribed, review until
@@ -865,7 +865,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             type="button"
             disabled={currentPage === 1}
             onClick={() => goToPage(1)}
-            className="p-1 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+            className="p-1 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-default"
             title="First Page"
           >
             <ChevronsLeft className="w-3.5 h-3.5" />
@@ -875,7 +875,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             type="button"
             disabled={currentPage === 1}
             onClick={() => goToPage(currentPage - 1)}
-            className="px-2 py-1 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-pointer"
+            className="px-2 py-1 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-default"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
             <span>Previous</span>
@@ -903,7 +903,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             type="button"
             disabled={currentPage === totalPages}
             onClick={() => goToPage(currentPage + 1)}
-            className="px-2 py-1 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-pointer"
+            className="px-2 py-1 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-default"
           >
             <span>Next</span>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -913,7 +913,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             type="button"
             disabled={currentPage === totalPages}
             onClick={() => goToPage(totalPages)}
-            className="p-1 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-pointer"
+            className="p-1 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-default"
             title="Last Page"
           >
             <ChevronsRight className="w-3.5 h-3.5" />
@@ -1262,7 +1262,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       <button
         type="button"
         onClick={() => switchTrack('source', { play: true })}
-        className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-100 cursor-pointer"
+        className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-100 cursor-default"
       >
         <Play className="w-3 h-3 fill-current" /> Hear the original here
       </button>
@@ -1867,7 +1867,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 if (e.key === 'ArrowRight') onSeek(Math.min(lane.length, currentTime + 5));
                 if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
               }}
-              className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer transition-opacity ${silent ? 'opacity-40' : ''}`}
+              className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-default transition-opacity ${silent ? 'opacity-40' : ''}`}
             >
               {/* The track itself, as wide as its share of the timeline */}
               <div className="absolute inset-y-0 left-0" style={{ width: `${share * 100}%` }}>
@@ -1983,7 +1983,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         value={sourceLanguage}
                         onChange={(e) => onSourceLanguageChange?.(e.target.value)}
                         disabled={!onSourceLanguageChange}
-                        className="appearance-none w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer disabled:cursor-default"
+                        className="appearance-none w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
                       >
                         <option value="" className="bg-slate-900">Auto detect</option>
                         <option value="English" className="bg-slate-900">English</option>
@@ -2012,7 +2012,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       onTargetLanguageChange(from);
                     }}
                     disabled={!onSourceLanguageChange || !sourceLanguage || sourceLanguage === 'English'}
-                    className="w-9 h-10 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-pointer"
+                    className="w-9 h-10 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-default"
                     title="Swap languages"
                     aria-label="Swap languages"
                   >
@@ -2028,7 +2028,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         id="express-wizard-lang-select"
                         value={targetLanguage}
                         onChange={(e) => onTargetLanguageChange(e.target.value)}
-                        className="appearance-none w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-pointer"
+                        className="appearance-none w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
                       >
                         {languages.map((lang) => {
                           const code = typeof lang === 'string' ? lang : lang.code;
@@ -2054,7 +2054,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
               {onMultiSpeakerInputChange && (
                 <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
-                  <label className="flex items-start justify-between gap-3 cursor-pointer">
+                  <label className="flex items-start justify-between gap-3 cursor-default">
                     <span className="flex flex-col gap-0.5">
                       <span className="text-[13px] font-semibold text-slate-100">More than one person speaks</span>
                       <span className="text-[11.5px] text-slate-500 leading-snug">
@@ -2067,7 +2067,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       aria-checked={multiSpeakerInput}
                       aria-label="More than one person speaks"
                       onClick={() => onMultiSpeakerInputChange(!multiSpeakerInput)}
-                      className={`relative w-9 h-5 rounded-full shrink-0 mt-0.5 transition-colors cursor-pointer ${
+                      className={`relative w-9 h-5 rounded-full shrink-0 mt-0.5 transition-colors cursor-default ${
                         multiSpeakerInput ? 'bg-indigo-500' : 'bg-slate-700'
                       }`}
                     >
@@ -2083,7 +2083,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         id="express-wizard-speaker-count"
                         value={speakerCount}
                         onChange={(e) => onSpeakerCountChange(Number(e.target.value))}
-                        className="h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                        className="h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
                       >
                         <option value={0} className="bg-slate-900">Detect</option>
                         {Array.from({ length: 9 }, (_, i) => i + 2).map((n) => (
@@ -2153,7 +2153,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     step={1}
                     value={analysisSensitivity}
                     onChange={(e) => onSensitivityChange(Number(e.target.value))}
-                    className="w-full accent-indigo-500 cursor-pointer"
+                    className="w-full accent-indigo-500 cursor-default"
                   />
                   <div className="flex justify-between text-[10.5px] text-slate-500">
                     <span>Fewer, longer lines</span>
@@ -2167,7 +2167,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <button
                     type="button"
                     onClick={onOpenVoiceChanger}
-                    className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-pointer"
+                    className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-default"
                   >
                     <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
                       <AudioWaveform className="w-4 h-4" />
@@ -2184,7 +2184,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <button
                       type="button"
                       onClick={onOpenTextToSpeech}
-                      className="mt-2 w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-pointer"
+                      className="mt-2 w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-default"
                     >
                       <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
                         <Speech className="w-4 h-4" />
@@ -2221,7 +2221,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     await onAutoTranscribe();
                   }}
                   disabled={!activeJob || isTranscribing}
-                  className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
+                  className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
                 >
                   {isTranscribing ? (
                     <>
@@ -2243,7 +2243,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <button
                     type="button"
                     onClick={onCancelTranscription}
-                    className="h-9 flex items-center justify-center gap-2 rounded-xl border border-slate-700 text-[13px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 hover:border-rose-500/50 transition-colors cursor-pointer"
+                    className="h-9 flex items-center justify-center gap-2 rounded-xl border border-slate-700 text-[13px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 hover:border-rose-500/50 transition-colors cursor-default"
                   >
                     <X className="w-4 h-4" />
                     Cancel transcription
@@ -2423,7 +2423,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       type="button"
                       aria-pressed={reviewMode === id}
                       onClick={() => setReviewMode(id)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
                         reviewMode === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
@@ -2462,7 +2462,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <button
                           type="button"
                           onClick={() => setSearchQuery('')}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-200 cursor-pointer"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-slate-200 cursor-default"
                           aria-label="Clear search"
                         >
                           <X className="w-3 h-3" />
@@ -2483,7 +2483,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           type="button"
                           aria-pressed={pacingFilter === f.id}
                           onClick={() => setPacingFilter(f.id)}
-                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
                             pacingFilter === f.id
                               ? 'bg-slate-100 text-slate-900 border-slate-100'
                               : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -2508,7 +2508,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       type="button"
                       onClick={() => setReviewFontPx((px) => Math.max(REVIEW_FONT_MIN, px - 1))}
                       disabled={reviewFontPx <= REVIEW_FONT_MIN}
-                      className="w-8 h-full flex items-center justify-center rounded-l-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                      className="w-8 h-full flex items-center justify-center rounded-l-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-default"
                       title="Smaller text"
                       aria-label="Smaller text"
                     >
@@ -2517,7 +2517,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <button
                       type="button"
                       onClick={() => setReviewFontPx(REVIEW_FONT_DEFAULT)}
-                      className="min-w-[2.25rem] h-full px-1 font-mono text-[11px] text-slate-300 tabular-nums hover:text-slate-100 cursor-pointer"
+                      className="min-w-[2.25rem] h-full px-1 font-mono text-[11px] text-slate-300 tabular-nums hover:text-slate-100 cursor-default"
                       title={`Text size ${reviewFontPx}px. Click to reset to ${REVIEW_FONT_DEFAULT}px`}
                       aria-label={`Text size ${reviewFontPx} pixels, reset`}
                     >
@@ -2527,7 +2527,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       type="button"
                       onClick={() => setReviewFontPx((px) => Math.min(REVIEW_FONT_MAX, px + 1))}
                       disabled={reviewFontPx >= REVIEW_FONT_MAX}
-                      className="w-8 h-full flex items-center justify-center rounded-r-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-pointer"
+                      className="w-8 h-full flex items-center justify-center rounded-r-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-colors cursor-default"
                       title="Larger text"
                       aria-label="Larger text"
                     >
@@ -2540,7 +2540,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenPhoneticKeyboard()}
-                    className={`${reviewMode === 'qa' ? 'ml-auto ' : ''}w-8 h-8 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-pointer`}
+                    className={`${reviewMode === 'qa' ? 'ml-auto ' : ''}w-8 h-8 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default`}
                     title="Open the Indic phonetic keyboard"
                     aria-label="Open the Indic phonetic keyboard"
                   >
@@ -2648,7 +2648,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       type="button"
                       aria-pressed={groupByPassage === on}
                       onClick={() => setGroupByPassage(on)}
-                      className={`px-2 py-0.5 rounded-md cursor-pointer transition-colors ${
+                      className={`px-2 py-0.5 rounded-md cursor-default transition-colors ${
                         groupByPassage === on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
@@ -2668,7 +2668,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           type="button"
                           aria-pressed={passagePause === p}
                           onClick={() => setPassagePause(p)}
-                          className={`px-2 py-0.5 rounded-md font-mono tabular-nums cursor-pointer transition-colors ${
+                          className={`px-2 py-0.5 rounded-md font-mono tabular-nums cursor-default transition-colors ${
                             passagePause === p ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                           }`}
                         >
@@ -2683,7 +2683,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <button
                         type="button"
                         onClick={() => setFoldedPassages(new Set())}
-                        className="ml-auto px-2 py-0.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                        className="ml-auto px-2 py-0.5 rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default"
                       >
                         Show all passages
                       </button>
@@ -2741,7 +2741,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           })
                         }
                         aria-expanded={!folded}
-                        className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 bg-slate-900/80 border-y border-slate-800 text-left text-xs hover:bg-slate-800/60 cursor-pointer"
+                        className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 bg-slate-900/80 border-y border-slate-800 text-left text-xs hover:bg-slate-800/60 cursor-default"
                         title={folded ? 'Show this passage' : 'Fold this passage'}
                       >
                         {folded ? (
@@ -2813,7 +2813,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           }}
                           aria-label={`Select cue ${cueNumber}. Shift-click selects a range.`}
                           title="Select. Shift-click to select a range."
-                          className="w-3.5 h-3.5 mt-2 accent-indigo-500 cursor-pointer shrink-0"
+                          className="w-3.5 h-3.5 mt-2 accent-indigo-500 cursor-default shrink-0"
                         />
                       )}
                       <button
@@ -2823,7 +2823,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           onPlaySegmentSolo(seg);
                           setTimeout(() => setPlayingSegmentId(null), seg.duration * 1000 + 500);
                         }}
-                        className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
+                        className={`w-7 h-7 rounded-full border flex items-center justify-center shrink-0 transition-colors cursor-default ${
                           isCuePlaying
                             ? 'bg-indigo-500 border-indigo-500 text-white'
                             : 'border-slate-700 text-slate-300 hover:border-indigo-400 hover:text-indigo-300'
@@ -2842,7 +2842,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <button
                       type="button"
                       onClick={() => seekSource(seg.startTime)}
-                      className="self-start text-left font-mono text-[11.5px] text-slate-300 hover:text-indigo-300 leading-snug tabular-nums cursor-pointer md:pt-1"
+                      className="self-start text-left font-mono text-[11.5px] text-slate-300 hover:text-indigo-300 leading-snug tabular-nums cursor-default md:pt-1"
                       title="Jump the player to this cue"
                     >
                       {formatSeconds(seg.startTime)}
@@ -2859,7 +2859,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <button
                           type="button"
                           onClick={() => cueEditing.splitCueHere(seg.id)}
-                          className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                          className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default"
                           title="Split this cue before the picked word, or at the playhead (S)"
                           aria-label={`Split cue ${cueNumber}`}
                         >
@@ -2870,7 +2870,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             <button
                               type="button"
                               onClick={() => cueEditing.selectBoundary(seg.id)}
-                              className={`w-6 h-6 flex items-center justify-center rounded-md hover:bg-slate-800 cursor-pointer ${
+                              className={`w-6 h-6 flex items-center justify-center rounded-md hover:bg-slate-800 cursor-default ${
                                 String(cueEditing.boundaryId) === String(seg.id) ? 'text-indigo-300' : 'text-slate-400 hover:text-slate-100'
                               }`}
                               title="Adjust the cut between this cue and the next"
@@ -2881,7 +2881,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             <button
                               type="button"
                               onClick={() => cueEditing.join(seg.id)}
-                              className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                              className="w-6 h-6 flex items-center justify-center rounded-md text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default"
                               title="Join with the next cue (M)"
                               aria-label={`Join cue ${cueNumber} with the next`}
                             >
@@ -3046,10 +3046,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     : `Showing ${filteredSegments.length} of ${segments.length} cues`}
                 </span>
                 <span className="hidden sm:flex items-center gap-3">
-                  <button type="button" onClick={scrollToTop} className="flex items-center gap-1 hover:text-slate-200 cursor-pointer">
+                  <button type="button" onClick={scrollToTop} className="flex items-center gap-1 hover:text-slate-200 cursor-default">
                     <ChevronsUp className="w-3.5 h-3.5" /> Top
                   </button>
-                  <button type="button" onClick={scrollToBottom} className="flex items-center gap-1 hover:text-slate-200 cursor-pointer">
+                  <button type="button" onClick={scrollToBottom} className="flex items-center gap-1 hover:text-slate-200 cursor-default">
                     <ChevronsDown className="w-3.5 h-3.5" /> Bottom
                   </button>
                 </span>
@@ -3066,7 +3066,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <button
                   type="button"
                   onClick={() => setStepOverride(1)}
-                  className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="text-xs text-slate-400 hover:text-slate-200 cursor-default"
                 >
                   ← Source &amp; voice
                 </button>
@@ -3100,7 +3100,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         setReviewMode(reviewMode === 'qa' ? 'table' : reviewMode);
                         setPacingFilter(pacingCounts.fast > 0 ? 'risk' : 'tight');
                       }}
-                      className="mt-1.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer transition-colors"
+                      className="mt-1.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-default transition-colors"
                     >
                       Show {pacingCounts.fast > 0 ? pacingCounts.fast : pacingCounts.tight}{' '}
                       {pacingCounts.fast > 0 ? 'too fast' : 'tight'} {(pacingCounts.fast || pacingCounts.tight) === 1 ? 'cue' : 'cues'}
@@ -3142,7 +3142,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         if (onOpenPromptModal) onOpenPromptModal();
                         else setIsLocalPromptModalOpen(true);
                       }}
-                      className="px-2 py-1 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 cursor-pointer"
+                      className="px-2 py-1 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 cursor-default"
                     >
                       Change
                     </button>
@@ -3156,7 +3156,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       id="express-step2-lang-select"
                       value={targetLanguage}
                       onChange={(e) => onTargetLanguageChange(e.target.value)}
-                      className="flex-1 min-w-0 h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                      className="flex-1 min-w-0 h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default"
                     >
                       {languages.map((lang) => {
                         const code = typeof lang === 'string' ? lang : lang.code;
@@ -3227,7 +3227,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <button
                         type="button"
                         onClick={onOpenVoiceChanger}
-                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-pointer"
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-default"
                       >
                         <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
                           <AudioWaveform className="w-4 h-4" />
@@ -3243,7 +3243,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <button
                         type="button"
                         onClick={onOpenTextToSpeech}
-                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-pointer"
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-default"
                       >
                         <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
                           <Speech className="w-4 h-4" />
@@ -3275,7 +3275,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   }}
                   disabled={activeJob.segments.length === 0 || openUpTo < 3}
                   title={openUpTo < 3 ? lockedWhy[3] : undefined}
-                  className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
+                  className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
                 >
                   {isSyncing ? (
                     <>
@@ -3560,7 +3560,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onClick={() => setEditingTiming(true)}
                     disabled={!activeJob.syncBank}
                     title={activeJob.syncBank ? 'Move, trim, split and stretch the synced lines by hand' : 'Sync again to edit the timing of this dub'}
-                    className="ml-auto h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-transparent cursor-pointer flex items-center gap-1.5"
+                    className="ml-auto h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5"
                   >
                     <Pencil className="w-3.5 h-3.5" /> Edit timing
                   </button>
@@ -3656,7 +3656,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <button
                 type="button"
                 onClick={() => activeCueIndex > 0 && seekSource(segments[activeCueIndex - 1].startTime)}
-                className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
+                className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
                 aria-label="Previous cue"
               >
                 <ChevronsLeft className="w-4 h-4" />
@@ -3664,7 +3664,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <button
                 type="button"
                 onClick={onTogglePlay}
-                className="w-10 h-10 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-pointer"
+                className="w-10 h-10 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-default"
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
@@ -3675,7 +3675,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   const next = segments.find((s) => s.startTime > sourceClockTime + 0.05);
                   if (next) seekSource(next.startTime);
                 }}
-                className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer"
+                className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
                 aria-label="Next cue"
               >
                 <ChevronsRight className="w-4 h-4" />
@@ -3700,7 +3700,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       type="button"
                       aria-pressed={trackMode === m.id}
                       onClick={() => switchTrack(m.id)}
-                      className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${
                         trackMode === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                       }`}
                     >
@@ -3713,7 +3713,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <select
                 value={playbackRate}
                 onChange={(e) => onPlaybackRateChange(Number(e.target.value))}
-                className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
                 aria-label="Playback speed"
               >
                 {[0.75, 1, 1.25, 1.5].map((r) => (
@@ -3727,7 +3727,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   type="button"
                   onClick={reviewVideo.pick}
                   title="Watch a local video while the dub plays. It stays silent and is not saved with the project."
-                  className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                  className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
                 >
                   <Video className="w-3.5 h-3.5" /> Add video
                 </button>
@@ -3736,7 +3736,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <button
                   type="button"
                   onClick={() => setReviewVideoHidden(false)}
-                  className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer"
+                  className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
                 >
                   <Video className="w-3.5 h-3.5" /> Show video
                 </button>
@@ -3778,7 +3778,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     }
                   />
                 ))}
-                <button type="button" onClick={openVoicePanel} className="ml-auto text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+                <button type="button" onClick={openVoicePanel} className="ml-auto text-xs text-slate-400 hover:text-slate-200 cursor-default">
                   Change voices
                 </button>
               </div>
@@ -3874,7 +3874,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             type="button"
                             aria-pressed={finalScriptLayout === m.id}
                             onClick={() => setFinalScriptLayout(m.id)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${
                               finalScriptLayout === m.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                             }`}
                           >
@@ -3894,7 +3894,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                               aria-pressed={scriptScope === id}
                               onClick={() => setScriptScope(id)}
                               title={hint}
-                              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${
                                 scriptScope === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                               }`}
                             >
@@ -3936,7 +3936,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         return (
                           <p className="px-4 py-6 text-center text-xs text-slate-500">
                             No line is likely to run past its slot or end early.{' '}
-                            <button type="button" onClick={() => setFinalScriptFilter('all')} className="text-indigo-300 hover:text-indigo-200 cursor-pointer">
+                            <button type="button" onClick={() => setFinalScriptFilter('all')} className="text-indigo-300 hover:text-indigo-200 cursor-default">
                               Show all lines
                             </button>
                           </p>
@@ -3972,7 +3972,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                       type="button"
                                       onClick={() => seekSource(seg.startTime)}
                                       title={removed ? 'Removed in Edit timing: not in the synced dub' : undefined}
-                                      className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-pointer ${removed ? 'opacity-50' : ''} ${
+                                      className={`w-full text-left grid gap-x-3 px-4 py-2.5 transition-colors cursor-default ${removed ? 'opacity-50' : ''} ${
                                         finalScriptLayout === 'dialogue' ? 'grid-cols-[2rem_minmax(0,1fr)]' : 'grid-cols-[2rem_4.5rem_minmax(0,1fr)]'
                                       } ${isNow ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'}`}
                                     >
@@ -4014,7 +4014,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => listenOriginal(Math.max(0, unit.srcStart - 0.6))}
-                                      className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+                                      className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
                                       title="Play the original sentence"
                                     >
                                       <Play className="w-3 h-3 fill-current" /> Original
@@ -4043,7 +4043,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       type="button"
                       onClick={() => setVoicePanelOpen((open) => !open)}
                       aria-expanded={voicePanelOpen}
-                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-default"
                     >
                       {voicePanelOpen ? 'Hide' : 'Change'}
                       <ChevronDown className={`w-3.5 h-3.5 transition-transform ${voicePanelOpen ? 'rotate-180' : ''}`} />
@@ -4092,7 +4092,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             setCastPickFor(null);
                             setIsVoicePickerOpen(true);
                           }}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+                          className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0"
                         >
                           Change
                         </button>
@@ -4108,7 +4108,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 type="button"
                                 aria-pressed={on}
                                 onClick={() => onElVoiceIdChange(fav.id)}
-                                className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-pointer ${
+                                className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-default ${
                                   on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-slate-800 text-slate-300 hover:bg-slate-800/60'
                                 }`}
                                 title={fav.name}
@@ -4131,7 +4131,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             onChange={(e) => onElModelIdChange(e.target.value)}
                             disabled={isSyncing}
                             title={hasDub ? 'A new model applies the next time you sync.' : undefined}
-                            className="min-w-0 max-w-[65%] h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
+                            className="min-w-0 max-w-[65%] h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
                           >
                             {!elModels.some((m) => m.model_id === elModelId) && (
                               <option value={elModelId} className="bg-slate-900">{ttsModelName}</option>
@@ -4186,7 +4186,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                       onClick={() => onVoiceExpressionChange(m.id)}
                                       disabled={isSyncing || off}
                                       title={off ? notTagged : undefined}
-                                      className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer disabled:cursor-default ${
+                                      className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${
                                         current === m.id ? 'bg-slate-800 text-slate-100' : off ? 'text-slate-600' : 'text-slate-400 hover:text-slate-200'
                                       }`}
                                     >
@@ -4215,13 +4215,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         );
                       })()}
                       {onDubMatchLoudnessChange && (
-                        <label className="flex items-start gap-2.5 text-xs cursor-pointer" title={hasDub ? 'Applies the next time you sync.' : undefined}>
+                        <label className="flex items-start gap-2.5 text-xs cursor-default" title={hasDub ? 'Applies the next time you sync.' : undefined}>
                           <input
                             type="checkbox"
                             checked={dubMatchLoudness}
                             onChange={(e) => onDubMatchLoudnessChange(e.target.checked)}
                             disabled={isSyncing}
-                            className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                            className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-default"
                           />
                           <span className="flex flex-col gap-0.5">
                             <span className="text-slate-200 font-medium">{multiSpeaker ? 'Even out speakers' : 'Even out loudness'}</span>
@@ -4237,13 +4237,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         <fieldset className="flex flex-col gap-1.5 pt-1" disabled={isSyncing} title={hasDub ? 'Applies the next time you sync.' : undefined}>
                           <legend className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">Audio quality</legend>
                           {DUB_AUDIO_QUALITIES.map((q) => (
-                            <label key={q.id} className="flex items-start gap-2.5 text-xs cursor-pointer">
+                            <label key={q.id} className="flex items-start gap-2.5 text-xs cursor-default">
                               <input
                                 type="radio"
                                 name="dub-audio-quality"
                                 checked={dubAudioQuality === q.id}
                                 onChange={() => onDubAudioQualityChange(q.id)}
-                                className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-pointer disabled:cursor-default"
+                                className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-default"
                               />
                               <span className="flex flex-col gap-0.5">
                                 <span className="text-slate-200 font-medium">{q.label}</span>
@@ -4297,7 +4297,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                   onElVoiceSettingsChange?.({ ...shownVoiceSettings, [s.key]: parseFloat(e.target.value) })
                                 }
                                 aria-label={s.label}
-                                className="w-full mt-1.5 accent-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
+                                className="w-full mt-1.5 accent-indigo-500 cursor-default disabled:opacity-60"
                               />
                               <div className="flex justify-between text-[10.5px] text-slate-500">
                                 <span>{s.ends[0]}</span>
@@ -4319,7 +4319,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                   use_speaker_boost: shownVoiceSettings.use_speaker_boost === false,
                                 })
                               }
-                              className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer disabled:cursor-default disabled:opacity-60 ${
+                              className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-default disabled:opacity-60 ${
                                 shownVoiceSettings.use_speaker_boost !== false ? 'bg-indigo-500' : 'bg-slate-700'
                               }`}
                             >
@@ -4337,7 +4337,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 type="button"
                                 onClick={() => onElVoiceSettingsChange?.(null)}
                                 disabled={isSyncing}
-                                className="shrink-0 text-indigo-400 hover:text-indigo-300 cursor-pointer disabled:cursor-default"
+                                className="shrink-0 text-indigo-400 hover:text-indigo-300 cursor-default"
                               >
                                 Reset
                               </button>
@@ -4384,7 +4384,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       type="button"
                       onClick={() => setIsSrtModalOpen(true)}
                       disabled={isSyncing}
-                      className="w-full flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800/60 hover:border-slate-600 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-pointer"
+                      className="w-full flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800/60 hover:border-slate-600 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-default"
                     >
                       <span className="w-11 h-11 rounded-[10px] flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-300">
                         <Sliders className="w-5 h-5" />
@@ -4441,7 +4441,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <button
                 type="button"
                 onClick={() => setIsVoicePickerOpen(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-default"
               >
                 <X className="w-3.5 h-3.5" /> Done
               </button>
@@ -4472,7 +4472,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             <button
               type="button"
               onClick={toastUndo}
-              className="ml-1.5 -mr-1.5 px-2.5 py-0.5 rounded-full bg-slate-950 text-slate-100 text-[12px] font-semibold hover:bg-slate-800 cursor-pointer"
+              className="ml-1.5 -mr-1.5 px-2.5 py-0.5 rounded-full bg-slate-950 text-slate-100 text-[12px] font-semibold hover:bg-slate-800 cursor-default"
             >
               Undo
             </button>

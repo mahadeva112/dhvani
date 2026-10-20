@@ -60,7 +60,7 @@ export const TrackStrip: React.FC<{
   badge?: React.ReactNode;
 }> = ({ label, dot, level, soloed, heard, onLevelChange, onSolo, getPeak, isPlaying, badge }) => {
   const toggle = (on: boolean, onClass: string) =>
-    `w-[22px] h-5 rounded-[5px] border text-[10.5px] font-semibold flex items-center justify-center cursor-pointer transition-colors ${
+    `w-[22px] h-5 rounded-[5px] border text-[10.5px] font-semibold flex items-center justify-center cursor-default transition-colors ${
       on ? onClass : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 hover:border-slate-500'
     }`;
   return (
@@ -102,7 +102,7 @@ export const TrackStrip: React.FC<{
           title="Listening level. Double-click for 0 dB"
           onChange={(e) => onLevelChange({ db: Number(e.target.value), muted: false })}
           onDoubleClick={() => onLevelChange({ db: 0 })}
-          className={`flex-1 min-w-0 h-1 accent-indigo-400 cursor-pointer transition-opacity ${heard ? '' : 'opacity-40'}`}
+          className={`flex-1 min-w-0 h-1 accent-indigo-400 cursor-default transition-opacity ${heard ? '' : 'opacity-40'}`}
         />
         <span className="w-[3.25rem] text-right font-mono text-[10.5px] text-slate-400 tabular-nums">{formatDb(level.db)}</span>
       </span>

@@ -3575,7 +3575,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => setIsApiSettingsOpen(true)}
-              className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-amber-950 text-xs font-semibold cursor-pointer"
+              className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-amber-950 text-xs font-semibold cursor-default"
             >
               Open API settings
             </button>
@@ -3599,14 +3599,14 @@ export default function App() {
           <button
             type="button"
             onClick={retrySave}
-            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-400 hover:bg-rose-300 text-rose-950 text-xs font-semibold cursor-pointer"
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-400 hover:bg-rose-300 text-rose-950 text-xs font-semibold cursor-default"
           >
             <RefreshCw className="w-3.5 h-3.5" /> Save again
           </button>
           <button
             type="button"
             onClick={() => setSaveFailure(null)}
-            className="shrink-0 px-2 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 text-xs cursor-pointer"
+            className="shrink-0 px-2 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 text-xs cursor-default"
           >
             Dismiss
           </button>
@@ -3626,7 +3626,7 @@ export default function App() {
               type="button"
               onClick={handleTranslateMissing}
               disabled={isTranslatingLanguage}
-              className="shrink-0 -my-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-default text-white text-xs font-medium cursor-pointer inline-flex items-center gap-1.5"
+              className="shrink-0 -my-1 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white text-xs font-medium cursor-default inline-flex items-center gap-1.5"
             >
               <Languages className="w-3.5 h-3.5" />
               {isTranslatingLanguage ? 'Translating…' : `Translate ${activeJob.untranslatedCueIds!.length} missed line(s)`}

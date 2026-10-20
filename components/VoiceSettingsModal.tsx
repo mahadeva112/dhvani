@@ -325,7 +325,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
         disabled={opts.disabled}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         aria-label={label}
-        className="w-full accent-indigo-500 cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
+        className="w-full accent-indigo-500 cursor-default disabled:opacity-35 disabled:cursor-not-allowed"
       />
       <div className="flex justify-between text-[10.5px] text-slate-500 mt-0.5">
         <span>{ends[0]}</span>
@@ -364,7 +364,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -403,7 +403,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   type="button"
                   onClick={playSample}
                   disabled={!selectedVoice?.preview_url}
-                  className="h-[34px] flex items-center justify-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="h-[34px] flex items-center justify-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
                   title="The voice's own sample from ElevenLabs"
                 >
                   {playing === 'sample' ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
@@ -412,7 +412,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsPickerOpen(true)}
-                  className="h-[34px] rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                  className="h-[34px] rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Change voice
                 </button>
@@ -433,7 +433,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                         aria-checked={on}
                         disabled={!onCartesiaPrefsChange}
                         onClick={() => updateCartesia({ modelId: m.id })}
-                        className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-pointer ${
+                        className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-default ${
                           on ? 'border-indigo-500 bg-slate-900 ring-4 ring-indigo-500/10' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
                         }`}
                       >
@@ -477,7 +477,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                       role="radio"
                       aria-checked={on}
                       onClick={() => onElModelIdChange(m.model_id)}
-                      className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-pointer ${
+                      className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-default ${
                         on ? 'border-indigo-500 bg-slate-900 ring-4 ring-indigo-500/10' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
                       }`}
                     >
@@ -512,7 +512,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAllModels((v) => !v)}
-                  className="self-start text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                  className="self-start text-xs text-slate-400 hover:text-slate-200 cursor-default"
                 >
                   {showAllModels ? 'Show fewer models' : `Show ${ttsModels.rest.length} more models`}
                 </button>
@@ -526,7 +526,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 <span className={`w-[7px] h-[7px] rounded-full shrink-0 ${cartesiaReady ? 'bg-emerald-400' : 'bg-rose-400'}`} />
                 <span className="min-w-0 truncate">{cartesiaReady ? 'Cartesia connected' : 'Cartesia is not set up'}</span>
                 {onOpenApiSettings && (
-                  <button type="button" onClick={onOpenApiSettings} className="ml-auto text-indigo-400 hover:text-indigo-300 shrink-0 cursor-pointer">
+                  <button type="button" onClick={onOpenApiSettings} className="ml-auto text-indigo-400 hover:text-indigo-300 shrink-0 cursor-default">
                     Manage key
                   </button>
                 )}
@@ -556,13 +556,13 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     handleValidateApiKey(elApiKey);
                     onRefreshVoices();
                   }}
-                  className="ml-auto flex items-center gap-1 text-indigo-400 hover:text-indigo-300 shrink-0 cursor-pointer"
+                  className="ml-auto flex items-center gap-1 text-indigo-400 hover:text-indigo-300 shrink-0 cursor-default"
                 >
                   <RefreshCw className="w-3 h-3" /> Re-check
                 </button>
               ) : (
                 onOpenApiSettings && (
-                  <button type="button" onClick={onOpenApiSettings} className="ml-auto text-indigo-400 hover:text-indigo-300 shrink-0 cursor-pointer">
+                  <button type="button" onClick={onOpenApiSettings} className="ml-auto text-indigo-400 hover:text-indigo-300 shrink-0 cursor-default">
                     Manage key
                   </button>
                 )
@@ -596,7 +596,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                           aria-checked={on}
                           disabled={!cartesiaControls || !onCartesiaPrefsChange}
                           onClick={() => updateCartesia({ emotion: emo })}
-                          className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                          className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors cursor-default disabled:cursor-not-allowed ${
                             on ? 'bg-slate-100 text-slate-900 border-slate-100' : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
                           }`}
                         >
@@ -651,7 +651,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                       onClick={() =>
                         o.own ? onElVoiceSettingsChange?.(null) : usingVoiceOwnSettings && update({})
                       }
-                      className={`flex items-start gap-2.5 p-3 rounded-[11px] border text-left transition-colors cursor-pointer ${
+                      className={`flex items-start gap-2.5 p-3 rounded-[11px] border text-left transition-colors cursor-default ${
                         on ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/40'
                       }`}
                     >
@@ -699,7 +699,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     aria-checked={tuneStability}
                     aria-label="Auto-tune stability"
                     onClick={() => onTuneStabilityChange(!tuneStability)}
-                    className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer ${
+                    className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-default ${
                       tuneStability ? 'bg-indigo-500' : 'bg-slate-700'
                     }`}
                   >
@@ -724,7 +724,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                       type="button"
                       aria-pressed={activePreset === p.id}
                       onClick={() => update(p.values)}
-                      className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors cursor-pointer ${
+                      className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors cursor-default ${
                         activePreset === p.id
                           ? 'bg-slate-100 text-slate-900 border-slate-100'
                           : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
@@ -790,7 +790,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     aria-checked={shownSettings.use_speaker_boost !== false}
                     aria-label="Speaker boost"
                     onClick={() => update({ use_speaker_boost: shownSettings.use_speaker_boost === false })}
-                    className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer ${
+                    className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-default ${
                       shownSettings.use_speaker_boost !== false ? 'bg-indigo-500' : 'bg-slate-700'
                     }`}
                   >
@@ -823,7 +823,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                     type="button"
                     onClick={playLine}
                     disabled={!tryText.trim() || validationStatus === 'invalid'}
-                    className="flex items-center gap-2 h-9 pl-1.5 pr-3.5 rounded-full bg-slate-100 hover:bg-white text-slate-950 text-[12.5px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="flex items-center gap-2 h-9 pl-1.5 pr-3.5 rounded-full bg-slate-100 hover:bg-white text-slate-950 text-[12.5px] font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
                   >
                     <span className="w-6 h-6 rounded-full bg-slate-950 text-slate-100 flex items-center justify-center">
                       {isSynthesizing ? (
@@ -872,7 +872,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
               type="button"
               onClick={() => onElVoiceSettingsChange(null)}
               disabled={usingVoiceOwnSettings}
-              className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-default px-1 cursor-pointer"
+              className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 px-1 cursor-default"
             >
               Reset to voice’s own
             </button>
@@ -880,7 +880,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="h-[38px] px-5 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold cursor-pointer"
+            className="h-[38px] px-5 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold cursor-default"
           >
             Done
           </button>
@@ -902,7 +902,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsPickerOpen(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-default"
               >
                 <X className="w-3.5 h-3.5" /> Done
               </button>

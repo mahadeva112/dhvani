@@ -187,7 +187,7 @@ export const useTimelineZoom = (total: number, currentTime: number, { wheelScrol
 };
 
 const ZOOM_BUTTON =
-  'h-7 min-w-7 px-1.5 rounded-md flex items-center justify-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 disabled:hover:bg-transparent disabled:cursor-default cursor-pointer';
+  'h-7 min-w-7 px-1.5 rounded-md flex items-center justify-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 disabled:hover:bg-transparent cursor-default';
 
 /** Zoom in / out and back to the whole timeline, with how else to zoom. */
 export const TimelineZoomControls: React.FC<{ zoom: TimelineZoom }> = ({ zoom }) => (
@@ -436,7 +436,7 @@ export const TimelineTransport: React.FC<{
       type="button"
       onClick={onTogglePlay}
       aria-label={isPlaying ? 'Pause' : 'Play'}
-      className="w-8 h-8 shrink-0 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-pointer active:translate-y-px"
+      className="w-8 h-8 shrink-0 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-default active:translate-y-px"
     >
       {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
     </button>

@@ -338,7 +338,7 @@ const chipClass = (active: boolean, tone: 'indigo' | 'purple' | 'amber' = 'indig
     purple: 'bg-purple-600 text-white border-purple-500',
     amber: 'bg-amber-500 text-slate-950 border-amber-400',
   }[tone];
-  return `flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer whitespace-nowrap ${
+  return `flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-default whitespace-nowrap ${
     active
       ? `${activeTone} shadow-2xs`
       : 'bg-slate-950 text-slate-400 hover:text-indigo-200 hover:bg-slate-900 border-slate-800 hover:border-indigo-500/40'
@@ -708,7 +708,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                       ? `Dubbing with ${VOICE_ENGINE_LABELS[engine]}`
                       : `Switch the dub to ${VOICE_ENGINE_LABELS[engine]} voices; ${VOICE_ENGINE_LABELS[voiceEngine]} turns off`
                   }
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-default whitespace-nowrap ${
                     voiceEngine === engine ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -754,7 +754,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                   setSearchQuery('');
                   inputRef.current?.focus();
                 }}
-                className="text-slate-400 hover:text-slate-200 p-1 rounded-md hover:bg-slate-800 cursor-pointer"
+                className="text-slate-400 hover:text-slate-200 p-1 rounded-md hover:bg-slate-800 cursor-default"
                 title="Clear search"
               >
                 <X className="w-3.5 h-3.5" />
@@ -772,7 +772,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
               type="button"
               aria-pressed={genderFilter === g}
               onClick={() => setGenderFilter(g)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${
                 genderFilter === g ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -787,7 +787,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             role="switch"
             aria-checked={indianOnly}
             onClick={() => setIndianOnly((on) => !on)}
-            className="flex items-center gap-2 px-1 text-xs font-medium text-slate-300 cursor-pointer"
+            className="flex items-center gap-2 px-1 text-xs font-medium text-slate-300 cursor-default"
             title={`Show only Indian voices; those that speak ${targetLanguage} are listed first`}
           >
             <span
@@ -925,7 +925,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             <button
               type="button"
               onClick={resetFilters}
-              className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline cursor-pointer"
+              className="text-xs font-semibold text-indigo-400 hover:text-indigo-300 hover:underline cursor-default"
             >
               Reset search and filters
             </button>
@@ -961,7 +961,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                       selectVoice(v.id);
                     }
                   }}
-                  className={`group relative flex items-center gap-3 p-3 rounded-xl border snap-start cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                  className={`group relative flex items-center gap-3 p-3 rounded-xl border snap-start cursor-default transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                     isSelected
                       ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
                       : isHighlighted
@@ -977,8 +977,8 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                       handleTogglePreview(v.id, v.previewUrl);
                     }}
                     disabled={!v.previewUrl}
-                    className={`relative w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(v.id)} text-white flex items-center justify-center font-semibold text-sm shrink-0 disabled:cursor-default ${
-                      v.previewUrl ? 'cursor-pointer' : ''
+                    className={`relative w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(v.id)} text-white flex items-center justify-center font-semibold text-sm shrink-0 ${
+                      v.previewUrl ? 'cursor-default' : ''
                     }`}
                     title={v.previewUrl ? (isPlaying ? 'Stop preview' : `Play ${v.name} preview`) : 'No preview available'}
                   >
@@ -1015,7 +1015,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                           e.stopPropagation();
                           handleToggleFavorite(v);
                         }}
-                        className={`p-1 -m-1 rounded-md transition-opacity shrink-0 cursor-pointer ${
+                        className={`p-1 -m-1 rounded-md transition-opacity shrink-0 cursor-default ${
                           fav
                             ? 'text-amber-300'
                             : 'text-slate-500 hover:text-amber-200 opacity-0 group-hover:opacity-100 focus:opacity-100'
@@ -1067,7 +1067,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
           <button
             type="button"
             onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-            className="w-full mt-3 py-2 text-xs font-semibold text-slate-500 hover:text-indigo-300 cursor-pointer"
+            className="w-full mt-3 py-2 text-xs font-semibold text-slate-500 hover:text-indigo-300 cursor-default"
           >
             Show more voices
           </button>
@@ -1087,7 +1087,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
           <button
             type="button"
             onClick={resetFilters}
-            className="font-semibold text-indigo-400 hover:text-indigo-300 cursor-pointer"
+            className="font-semibold text-indigo-400 hover:text-indigo-300 cursor-default"
           >
             Reset{activeFilterCount > 0 ? ` ${activeFilterCount} filter${activeFilterCount > 1 ? 's' : ''}` : ''}
           </button>

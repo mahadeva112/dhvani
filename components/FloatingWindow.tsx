@@ -112,7 +112,7 @@ export const FloatingWindow: React.FC<{
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        className="flex items-center gap-2 px-3 h-10 shrink-0 rounded-t-xl border-b border-slate-800 bg-slate-900 cursor-grab active:cursor-grabbing select-none touch-none"
+        className="flex items-center gap-2 px-3 h-10 shrink-0 rounded-t-xl border-b border-slate-800 bg-slate-900 cursor-default select-none touch-none"
       >
         <GripHorizontal className="w-4 h-4 text-slate-500" aria-hidden="true" />
         <div className="min-w-0 flex-1 flex items-center gap-2 text-[13px] font-semibold text-slate-100">{title}</div>
@@ -121,7 +121,7 @@ export const FloatingWindow: React.FC<{
           onClick={requestClose}
           aria-label="Close"
           title="Close (Esc)"
-          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+          className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default"
         >
           <X className="w-4 h-4" />
         </button>
@@ -129,10 +129,10 @@ export const FloatingWindow: React.FC<{
       {asking && confirmClose && (
         <div role="alertdialog" className="flex flex-wrap items-center gap-2 px-3 py-2 border-b border-amber-400/30 bg-amber-950/30 text-[12px] text-amber-100">
           <span className="flex-1 min-w-0">{confirmClose}</span>
-          <button type="button" onClick={onClose} className="h-7 px-2.5 rounded-lg bg-amber-500/90 hover:bg-amber-400 text-slate-950 font-semibold cursor-pointer">
+          <button type="button" onClick={onClose} className="h-7 px-2.5 rounded-lg bg-amber-500/90 hover:bg-amber-400 text-slate-950 font-semibold cursor-default">
             Close anyway
           </button>
-          <button type="button" onClick={() => setAsking(false)} className="h-7 px-2.5 rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800 cursor-pointer">
+          <button type="button" onClick={() => setAsking(false)} className="h-7 px-2.5 rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800 cursor-default">
             Keep editing
           </button>
         </div>

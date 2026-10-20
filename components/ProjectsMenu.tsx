@@ -64,7 +64,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                 <div
                   className={`group flex items-center gap-2.5 px-2 py-2 rounded-[10px] transition-colors ${
                     isOpen ? 'bg-indigo-500/10 ring-1 ring-inset ring-indigo-500/40' : 'hover:bg-slate-800/60'
-                  } ${editingId === job.id ? '' : 'cursor-pointer'}`}
+                  } ${editingId === job.id ? '' : 'cursor-default'}`}
                   onClick={() => {
                     if (editingId === job.id) return;
                     if (!isOpen) onSelect(job.id);
@@ -109,7 +109,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                           setConfirmId(null);
                           setEditingId(job.id);
                         }}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-default"
                         aria-label={`Rename ${name}`}
                         title="Rename"
                       >
@@ -122,7 +122,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                           setEditingId(null);
                           setConfirmId(job.id);
                         }}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-rose-300 hover:bg-slate-800 cursor-pointer"
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-rose-300 hover:bg-slate-800 cursor-default"
                         aria-label={`Delete ${name}`}
                         title="Delete project"
                       >
@@ -139,7 +139,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                     <button
                       type="button"
                       onClick={() => setConfirmId(null)}
-                      className="h-7 px-2.5 rounded-md text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-pointer"
+                      className="h-7 px-2.5 rounded-md text-xs font-semibold text-slate-400 hover:text-slate-200 cursor-default"
                     >
                       Keep
                     </button>
@@ -149,7 +149,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                         onRemove(job.id);
                         setConfirmId(null);
                       }}
-                      className="h-7 px-2.5 rounded-md bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white cursor-pointer"
+                      className="h-7 px-2.5 rounded-md bg-rose-500 hover:bg-rose-400 text-xs font-semibold text-white cursor-default"
                     >
                       Delete
                     </button>
@@ -169,7 +169,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
               onClose();
               onSeeAll();
             }}
-            className="flex items-center gap-1.5 h-8 px-2.5 rounded-[9px] text-[12.5px] font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-pointer"
+            className="flex items-center gap-1.5 h-8 px-2.5 rounded-[9px] text-[12.5px] font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default"
           >
             <FolderOpen className="w-3.5 h-3.5" />
             {projects.length > MENU_LIMIT ? `See all ${projects.length} projects` : 'See all projects'}
@@ -184,7 +184,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
               onClose();
               onNewDub();
             }}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-[9px] bg-slate-100 hover:bg-white text-slate-950 text-[12.5px] font-semibold cursor-pointer"
+            className="flex items-center gap-1.5 h-8 px-3 rounded-[9px] bg-slate-100 hover:bg-white text-slate-950 text-[12.5px] font-semibold cursor-default"
           >
             <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> New dub
           </button>

@@ -398,7 +398,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
             onClick={onClose}
             disabled={isAligning}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -444,7 +444,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                       setOpened(null);
                       resetFit();
                     }}
-                    className="text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer"
+                    className="text-[11.5px] text-slate-400 hover:text-slate-200 cursor-default"
                   >
                     Clear
                   </button>
@@ -467,7 +467,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                   disabled={isAligning}
                   onClick={() => fileInputRef.current?.click()}
                   title="Open a script file saved with Save script, or a .txt or .srt script"
-                  className="h-9 px-3 flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-600 text-[12.5px] font-medium text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="h-9 px-3 flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-600 text-[12.5px] font-medium text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
                 >
                   <FolderOpen className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   Open file
@@ -487,7 +487,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                     }
                   }}
                   title="Paste from the clipboard"
-                  className="h-9 px-3 flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-600 text-[12.5px] font-medium text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="h-9 px-3 flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-600 text-[12.5px] font-medium text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
                 >
                   <ClipboardPaste className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                   Paste
@@ -564,7 +564,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                       setStrategy(w.id);
                       resetFit();
                     }}
-                    className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
+                    className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-default disabled:cursor-not-allowed disabled:opacity-60 ${
                       on ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/40'
                     }`}
                   >
@@ -598,7 +598,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                 <button
                   type="button"
                   onClick={cancelAlign}
-                  className="h-[34px] rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                  className="h-[34px] rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Stop
                 </button>
@@ -608,7 +608,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                 type="button"
                 onClick={() => void fit()}
                 disabled={!cleaned.text}
-                className="h-[38px] flex items-center justify-center gap-2 rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-semibold text-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                className="h-[38px] flex items-center justify-center gap-2 rounded-[10px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-semibold text-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
               >
                 {timed && !timedMismatch
                   ? hasAligned
@@ -651,7 +651,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                     {whole ? 'Every word placed' : 'Words edited'}
                   </span>
                   {(toCheck > 0 || onlyToCheck) && (
-                    <label className="ml-auto flex items-center gap-1.5 cursor-pointer select-none text-slate-300">
+                    <label className="ml-auto flex items-center gap-1.5 cursor-default select-none text-slate-300">
                       <input
                         type="checkbox"
                         checked={onlyToCheck}
@@ -698,7 +698,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                         type="button"
                         onClick={() => moveWord(index, 'previous')}
                         disabled={index === 0 || !item.targetText.trim()}
-                        className="mt-1.5 w-[22px] h-[22px] shrink-0 rounded-md border border-slate-800 text-slate-500 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 disabled:!opacity-20 cursor-pointer"
+                        className="mt-1.5 w-[22px] h-[22px] shrink-0 rounded-md border border-slate-800 text-slate-500 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 disabled:!opacity-20 cursor-default"
                         title="Move the first word to the cue before"
                         aria-label={`Move the first word of cue ${index + 1} to the cue before`}
                       >
@@ -720,7 +720,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                         type="button"
                         onClick={() => moveWord(index, 'next')}
                         disabled={index === draft.length - 1 || !item.targetText.trim()}
-                        className="mt-1.5 w-[22px] h-[22px] shrink-0 rounded-md border border-slate-800 text-slate-500 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 disabled:!opacity-20 cursor-pointer"
+                        className="mt-1.5 w-[22px] h-[22px] shrink-0 rounded-md border border-slate-800 text-slate-500 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 disabled:!opacity-20 cursor-default"
                         title="Move the last word to the next cue"
                         aria-label={`Move the last word of cue ${index + 1} to the next cue`}
                       >
@@ -768,7 +768,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isAligning}
-            className="h-[38px] px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 disabled:opacity-40 cursor-pointer"
+            className="h-[38px] px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 disabled:opacity-40 cursor-default"
           >
             Cancel
           </button>
@@ -776,7 +776,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
             type="button"
             onClick={handleApply}
             disabled={!hasAligned || filled === 0 || isAligning}
-            className="h-[38px] px-4 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+            className="h-[38px] px-4 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
           >
             Use this script
           </button>

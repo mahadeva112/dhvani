@@ -235,7 +235,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
                 type="button"
                 aria-pressed={values.protocol === value}
                 onClick={() => set({ protocol: value })}
-                className={`flex-1 rounded-[7px] text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                className={`flex-1 rounded-[7px] text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
                   values.protocol === value ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -309,7 +309,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
                     modelRef.current?.focus();
                     modelRef.current?.select();
                   }}
-                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-default"
                 >
                   <List className="w-3.5 h-3.5" /> Pick another model
                 </button>
@@ -329,7 +329,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
                       /* Clipboard blocked; the details below can still be selected by hand. */
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-default"
                 >
                   {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   {copied ? 'Copied' : 'Copy message for admin'}
@@ -337,7 +337,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
                 <button
                   type="button"
                   onClick={() => runProbe(values)}
-                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-pointer"
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-default"
                 >
                   <RefreshCw className="w-3.5 h-3.5" /> Test again
                 </button>
@@ -345,7 +345,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
 
               {upstream.upstreamDetail && (
                 <details className="mt-2.5 text-[11px] text-slate-400">
-                  <summary className="cursor-pointer hover:text-slate-200 transition-colors">Technical details</summary>
+                  <summary className="cursor-default hover:text-slate-200 transition-colors">Technical details</summary>
                   <p className="mt-1.5 p-2 rounded bg-slate-950/60 font-mono text-[10px] leading-relaxed break-words select-text">
                     {upstream.upstreamDetail}
                   </p>
@@ -369,7 +369,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
           open={showModels}
           onToggle={(e) => setShowModels((e.target as HTMLDetailsElement).open)}
         >
-          <summary className="cursor-pointer hover:text-slate-300 transition-colors">
+          <summary className="cursor-default hover:text-slate-300 transition-colors">
             Models on this gateway ({discovered.length})
           </summary>
           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -378,7 +378,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
                 key={model}
                 type="button"
                 onClick={() => set({ model })}
-                className={`px-1.5 py-0.5 rounded font-mono border transition-colors cursor-pointer ${
+                className={`px-1.5 py-0.5 rounded font-mono border transition-colors cursor-default ${
                   model === values.model
                     ? 'bg-indigo-950 border-indigo-600 text-indigo-200'
                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-600 hover:text-slate-200'

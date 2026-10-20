@@ -139,7 +139,7 @@ const Row: React.FC<{
             value={row.model && row.models.includes(row.model) ? row.model : ''}
             onChange={(e) => onPickModel?.(e.target.value)}
             disabled={!onPickModel}
-            className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[10px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-60 disabled:cursor-default cursor-pointer"
+            className="flex-1 min-w-0 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[10px] font-mono text-slate-200 focus:outline-none focus:border-indigo-500 disabled:opacity-60 cursor-default"
           >
             {(!row.model || !row.models.includes(row.model)) && (
               <option value="">
@@ -198,7 +198,7 @@ export const DetectionCard: React.FC<DetectionCardProps> = ({
           type="button"
           onClick={onRecheck}
           disabled={isChecking}
-          className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-50 cursor-pointer"
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-50 cursor-default"
         >
           <RefreshCw className={`w-3 h-3 ${isChecking ? 'animate-spin' : ''}`} />
           Re-check

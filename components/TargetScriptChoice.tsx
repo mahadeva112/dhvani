@@ -140,7 +140,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   };
 
   const optionClass = (on: boolean) =>
-    `w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-60 ${
+    `w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-colors cursor-default disabled:cursor-not-allowed disabled:opacity-60 ${
       on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-950/40' : 'border-slate-800 hover:bg-slate-800/40'
     }`;
 
@@ -194,7 +194,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
                   <button
                     type="button"
                     onClick={() => onSeek?.(seg.startTime)}
-                    className={`w-full grid grid-cols-[2rem_7.5rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-2.5 text-left transition-colors cursor-pointer ${
+                    className={`w-full grid grid-cols-[2rem_7.5rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-2.5 text-left transition-colors cursor-default ${
                       on ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'
                     }`}
                     title="Play from here"
@@ -233,7 +233,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
               value={targetLanguage}
               disabled={busy}
               onChange={(e) => onTargetLanguageChange(e.target.value)}
-              className="appearance-none w-full h-9 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg pl-2.5 pr-8 text-[13px] font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-pointer disabled:cursor-default disabled:opacity-60"
+              className="appearance-none w-full h-9 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg pl-2.5 pr-8 text-[13px] font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
             >
               {languages.map((lang) => {
                 const code = typeof lang === 'string' ? lang : lang.code;
@@ -315,7 +315,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
                 type="button"
                 onClick={onOpenPromptModal}
                 disabled={busy}
-                className="px-2 py-1 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 disabled:opacity-40 cursor-pointer"
+                className="px-2 py-1 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 disabled:opacity-40 cursor-default"
               >
                 Change
               </button>
@@ -324,13 +324,13 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
 
           {method === 'translate' && !sameLanguage && onFitToVoiceChange && (
             voiceRate ? (
-              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-pointer">
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-default">
                 <input
                   type="checkbox"
                   checked={fitToVoice}
                   disabled={busy}
                   onChange={(e) => onFitToVoiceChange(e.target.checked)}
-                  className="mt-0.5 accent-indigo-500 cursor-pointer"
+                  className="mt-0.5 accent-indigo-500 cursor-default"
                 />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-100">
@@ -358,7 +358,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
             type="button"
             onClick={() => void handleContinue()}
             disabled={busy || !hasTranscript || translateBlocked}
-            className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
+            className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
           >
             {isTranslating ? (
               <>

@@ -549,9 +549,9 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                   on
                     ? 'bg-slate-800 text-slate-100 shadow-sm'
                     : next
-                      ? 'text-slate-200 hover:text-white cursor-pointer'
+                      ? 'text-slate-200 hover:text-white cursor-default'
                       : s.enabled
-                        ? 'text-slate-400 hover:text-slate-200 cursor-pointer'
+                        ? 'text-slate-400 hover:text-slate-200 cursor-default'
                         : 'text-slate-400 cursor-default'
                 }`}
               >
@@ -604,7 +604,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               }}
               aria-haspopup="dialog"
               aria-expanded={servicesOpen}
-              className="flex items-center gap-2 h-[34px] px-2.5 rounded-full border border-slate-800 hover:bg-slate-800/60 text-xs text-slate-400 whitespace-nowrap transition-colors cursor-pointer"
+              className="flex items-center gap-2 h-[34px] px-2.5 rounded-full border border-slate-800 hover:bg-slate-800/60 text-xs text-slate-400 whitespace-nowrap transition-colors cursor-default"
               title={servicesOk ? 'Services connected. Open to see what each has left.' : 'Something needs setting up'}
             >
               <span
@@ -721,7 +721,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                     type="button"
                     onClick={onRefreshUsage}
                     disabled={usageLoading}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer disabled:opacity-60 disabled:cursor-default"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default disabled:opacity-60"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${usageLoading ? 'animate-spin' : ''}`} />
                     Refresh
@@ -734,7 +734,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                       setServicesOpen(false);
                       onOpenApiSettings();
                     }}
-                    className="px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+                    className="px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
                   >
                     API settings
                   </button>
@@ -754,7 +754,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                 }}
                 aria-haspopup="dialog"
                 aria-expanded={projectsOpen}
-                className={`relative h-[34px] px-2.5 flex items-center gap-1.5 rounded-[9px] border text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                className={`relative h-[34px] px-2.5 flex items-center gap-1.5 rounded-[9px] border text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default ${
                   projectsOpen
                     ? 'bg-slate-800 border-slate-700 text-slate-100'
                     : 'border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
@@ -795,7 +795,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               }}
               aria-haspopup="dialog"
               aria-expanded={toolsOpen}
-              className={`w-[34px] h-[34px] flex items-center justify-center rounded-[9px] border transition-colors cursor-pointer ${
+              className={`w-[34px] h-[34px] flex items-center justify-center rounded-[9px] border transition-colors cursor-default ${
                 toolsOpen
                   ? 'bg-slate-800 border-slate-700 text-slate-100'
                   : 'border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
@@ -813,7 +813,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
             <button
               type="button"
               onClick={onResetSession}
-              className="flex items-center gap-1.5 h-[34px] px-3 rounded-[9px] bg-slate-100 hover:bg-white text-slate-950 text-[12.5px] font-semibold whitespace-nowrap transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 h-[34px] px-3 rounded-[9px] bg-slate-100 hover:bg-white text-slate-950 text-[12.5px] font-semibold whitespace-nowrap transition-colors cursor-default"
               title="Start a new dub"
             >
               <Plus className="w-3.5 h-3.5" strokeWidth={2.5} />

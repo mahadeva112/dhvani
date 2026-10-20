@@ -585,7 +585,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const paceClass = cps > 18 ? 'bg-rose-500/15 text-rose-300' : cps > 14 ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300';
 
   const iconBtn = (pressed = false) =>
-    `w-[30px] h-[30px] flex items-center justify-center rounded-lg border transition-colors cursor-pointer ${
+    `w-[30px] h-[30px] flex items-center justify-center rounded-lg border transition-colors cursor-default ${
       pressed
         ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300'
         : 'border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800'
@@ -593,16 +593,16 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const segBtn = (on: boolean) =>
     `flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
       on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-    } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400 cursor-pointer`;
-  const roundBtn = 'w-[34px] h-[34px] rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-pointer';
+    } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400 cursor-default`;
+  const roundBtn = 'w-[34px] h-[34px] rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-default';
 
   const miniBtn =
-    'w-7 h-7 shrink-0 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-pointer';
+    'w-7 h-7 shrink-0 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default';
   const playButton = (size: string) => (
     <button
       type="button"
       onClick={onTogglePlay}
-      className={`${size} rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center shrink-0 cursor-pointer`}
+      className={`${size} rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center shrink-0 cursor-default`}
       aria-label={isPlaying ? 'Pause' : 'Play'}
       title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
     >
@@ -616,7 +616,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       onClick={() => setLoop((v) => !v)}
       aria-pressed={loop}
       title="Loop the current cue (L)"
-      className={`h-8 px-3 flex items-center gap-1.5 rounded-full border text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+      className={`h-8 px-3 flex items-center gap-1.5 rounded-full border text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
         loop ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
       }`}
     >
@@ -703,7 +703,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             </span>
             <div
               ref={waveBoxRef}
-              className="relative flex-1 min-w-[12rem] h-10 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer"
+              className="relative flex-1 min-w-[12rem] h-10 rounded-lg bg-slate-950/60 overflow-hidden cursor-default"
               onPointerDown={(e) => {
                 dragRef.current = 'overview';
                 e.currentTarget.setPointerCapture(e.pointerId);
@@ -780,7 +780,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 )}
               </div>
               <div
-                className="relative mt-2.5 h-[26px] rounded-[7px] bg-slate-950/60 overflow-hidden cursor-pointer touch-none"
+                className="relative mt-2.5 h-[26px] rounded-[7px] bg-slate-950/60 overflow-hidden cursor-default touch-none"
                 title={zoom === 1 ? 'The whole file' : 'The whole file. Drag the box to move around.'}
                 onPointerDown={(e) => onOverviewPointer(e, 'down')}
                 onPointerMove={(e) => onOverviewPointer(e, 'move')}
@@ -801,7 +801,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             {/* Transport and the live caption */}
             <div ref={transportRef} className="flex flex-wrap items-center gap-3 px-3.5 py-3">
               <div className="flex items-center gap-1">
-                <button type="button" onClick={() => seekTo(timeNow() - 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer" aria-label="Back 5 seconds" title="Back 5 seconds (←)">
+                <button type="button" onClick={() => seekTo(timeNow() - 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default" aria-label="Back 5 seconds" title="Back 5 seconds (←)">
                   <RotateCcw className="w-4 h-4" />
                 </button>
                 <button type="button" onClick={prevCue} className={roundBtn} aria-label="Previous cue" title="Previous cue (,)">
@@ -811,7 +811,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 <button type="button" onClick={nextCue} className={roundBtn} aria-label="Next cue" title="Next cue (.)">
                   <SkipForward className="w-3.5 h-3.5 fill-current" />
                 </button>
-                <button type="button" onClick={() => seekTo(timeNow() + 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-pointer" aria-label="Forward 5 seconds" title="Forward 5 seconds (→)">
+                <button type="button" onClick={() => seekTo(timeNow() + 5, false)} className="w-[30px] h-[30px] rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default" aria-label="Forward 5 seconds" title="Forward 5 seconds (→)">
                   <RotateCw className="w-4 h-4" />
                 </button>
               </div>
@@ -883,7 +883,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               <span className="text-slate-500"> · {formatTime(currentTime, false)} / {formatTime(total, false)}</span>
             </span>
             <div
-              className="relative flex-1 min-w-0 h-5 rounded-md bg-slate-950/60 overflow-hidden cursor-pointer"
+              className="relative flex-1 min-w-0 h-5 rounded-md bg-slate-950/60 overflow-hidden cursor-default"
               onPointerDown={(e) => seekTo(timeAt(e, e.currentTarget, true))}
               title={activeCue ? targetOf(activeCue) || sourceOf(activeCue) : undefined}
             >

@@ -41,7 +41,7 @@ export const ProjectNameField: React.FC<ProjectNameFieldProps> = ({ initial, onS
           save();
         }}
         aria-label="Save name"
-        className="w-7 h-7 flex items-center justify-center rounded-md text-emerald-300 hover:bg-slate-800 cursor-pointer shrink-0"
+        className="w-7 h-7 flex items-center justify-center rounded-md text-emerald-300 hover:bg-slate-800 cursor-default shrink-0"
       >
         <Check className="w-3.5 h-3.5" />
       </button>
@@ -52,7 +52,7 @@ export const ProjectNameField: React.FC<ProjectNameFieldProps> = ({ initial, onS
           onCancel();
         }}
         aria-label="Keep the old name"
-        className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 cursor-pointer shrink-0"
+        className="w-7 h-7 flex items-center justify-center rounded-md text-slate-400 hover:bg-slate-800 cursor-default shrink-0"
       >
         <X className="w-3.5 h-3.5" />
       </button>

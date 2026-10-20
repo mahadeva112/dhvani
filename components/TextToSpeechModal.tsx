@@ -168,13 +168,13 @@ const readPrefs = (fallbackModel: string): StudioPrefs => {
 };
 
 const primaryButton =
-  'h-[42px] px-[18px] flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer';
+  'h-[42px] px-[18px] flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default';
 
 const secondaryButton =
-  'h-[42px] px-4 flex items-center gap-2 rounded-[10px] border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
+  'h-[42px] px-4 flex items-center gap-2 rounded-[10px] border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
 const smallButton =
-  'h-7 px-2 flex items-center gap-1.5 rounded-[8px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-300 transition-colors disabled:opacity-40 cursor-pointer';
+  'h-7 px-2 flex items-center gap-1.5 rounded-[8px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-300 transition-colors disabled:opacity-40 cursor-default';
 
 const field =
   'w-full h-10 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[10px] px-3 text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none';
@@ -661,7 +661,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
         disabled={disabled}
         onChange={(ev) => onChange(parseFloat(ev.target.value))}
         aria-label={label}
-        className="w-full accent-indigo-500 cursor-pointer disabled:cursor-not-allowed"
+        className="w-full accent-indigo-500 cursor-default disabled:cursor-not-allowed"
       />
       <div className="flex justify-between text-[10.5px] text-slate-500 mt-0.5">
         <span>{ends[0]}</span>
@@ -683,7 +683,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
         aria-label={label}
         disabled={disabled}
         onClick={() => onChange(!on)}
-        className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-pointer disabled:cursor-not-allowed ${on ? 'bg-indigo-500' : 'bg-slate-700'}`}
+        className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-default disabled:cursor-not-allowed ${on ? 'bg-indigo-500' : 'bg-slate-700'}`}
       >
         <span className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${on ? 'left-[17px]' : 'left-[3px]'}`} />
       </button>
@@ -745,7 +745,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                   disabled={disabled}
                   title={disabled ? 'Add a Cartesia key in API settings to use Cartesia.' : undefined}
                   onClick={() => updatePrefs((p) => ({ ...p, engine: e }))}
-                  className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                  className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default disabled:opacity-40 disabled:cursor-not-allowed ${
                     engine === e ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -758,7 +758,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -782,7 +782,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                   </span>
                 </span>
                 {voice.preview && (
-                  <button type="button" onClick={toggleAudition} className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-pointer">
+                  <button type="button" onClick={toggleAudition} className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default">
                     {auditioning ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
                     Sample
                   </button>
@@ -790,7 +790,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsPickerOpen(true)}
-                  className="h-8 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-pointer"
+                  className="h-8 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
                 >
                   Change
                 </button>
@@ -807,7 +807,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                   aria-label="Language"
                   value={prefs.language}
                   onChange={(ev) => updatePrefs((p) => ({ ...p, language: ev.target.value }))}
-                  className="h-7 bg-slate-950/60 border border-slate-800 rounded-[8px] px-2 text-[11.5px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-pointer"
+                  className="h-7 bg-slate-950/60 border border-slate-800 rounded-[8px] px-2 text-[11.5px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
                 >
                   {LANGUAGES.map((l) => (
                     <option key={l.code} value={l.code} className="bg-slate-900">
@@ -853,7 +853,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       key={tag}
                       type="button"
                       onClick={() => insertTag(tag)}
-                      className="px-2 py-0.5 rounded-full border border-slate-800 bg-slate-950/60 hover:border-indigo-500/50 hover:text-indigo-200 text-[11px] font-mono text-slate-400 cursor-pointer"
+                      className="px-2 py-0.5 rounded-full border border-slate-800 bg-slate-950/60 hover:border-indigo-500/50 hover:text-indigo-200 text-[11px] font-mono text-slate-400 cursor-default"
                     >
                       [{tag}]
                     </button>
@@ -885,7 +885,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                         id="tts-el-model"
                         value={el.modelId}
                         onChange={(ev) => setEl({ modelId: ev.target.value })}
-                        className={`${field} cursor-pointer`}
+                        className={`${field} cursor-default`}
                       >
                         {!models.some((m) => m.model_id === el.modelId) && (
                           <option value={el.modelId} className="bg-slate-900">{el.modelId}</option>
@@ -981,7 +981,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                         id="tts-ca-model"
                         value={cartesia.modelId}
                         onChange={(ev) => setCartesia({ modelId: ev.target.value })}
-                        className={`${field} cursor-pointer`}
+                        className={`${field} cursor-default`}
                       >
                         {CARTESIA_MODELS.map((m) => (
                           <option key={m.id} value={m.id} className="bg-slate-900">{m.name}</option>
@@ -996,7 +996,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                         value={cartesia.emotion}
                         disabled={!cartesiaControls}
                         onChange={(ev) => setCartesia({ emotion: ev.target.value })}
-                        className={`${field} cursor-pointer`}
+                        className={`${field} cursor-default`}
                       >
                         <option value="" className="bg-slate-900">Let the model choose</option>
                         {CARTESIA_EMOTIONS.map((emo) => (
@@ -1044,7 +1044,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                   id="tts-format"
                   value={prefs.outputFormat}
                   onChange={(ev) => updatePrefs((p) => ({ ...p, outputFormat: ev.target.value }))}
-                  className={`${field} cursor-pointer`}
+                  className={`${field} cursor-default`}
                 >
                   {OUTPUT_FORMATS.map((f) => (
                     <option key={f.id} value={f.id} className="bg-slate-900">{f.label}</option>
@@ -1075,7 +1075,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       onClick={() => setEl({ seedLocked: !el.seedLocked })}
                       aria-pressed={el.seedLocked}
                       title={el.seedLocked ? 'Unlock: a new seed each take' : 'Lock the seed to repeat a take'}
-                      className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border cursor-pointer ${
+                      className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border cursor-default ${
                         el.seedLocked ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200' : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100'
                       }`}
                     >
@@ -1086,7 +1086,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       onClick={() => setEl({ seed: randomSeed(), seedLocked: true })}
                       title="New random seed"
                       aria-label="New random seed"
-                      className="w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 cursor-pointer"
+                      className="w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 cursor-default"
                     >
                       <Dices className="w-4 h-4" />
                     </button>
@@ -1133,7 +1133,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                 Takes{takes.length ? ` · ${takes.length}` : ''}
               </span>
               {takes.length > 0 && !running && (
-                <button type="button" onClick={() => takes.forEach((t) => removeTake(t.id))} className="text-[11.5px] text-slate-500 hover:text-slate-200 cursor-pointer">
+                <button type="button" onClick={() => takes.forEach((t) => removeTake(t.id))} className="text-[11.5px] text-slate-500 hover:text-slate-200 cursor-default">
                   Clear all
                 </button>
               )}
@@ -1164,7 +1164,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                           type="button"
                           onClick={() => togglePlay(take)}
                           disabled={take.status !== 'done'}
-                          className="w-[30px] h-[30px] rounded-full border border-slate-700 bg-slate-950/60 text-slate-100 flex items-center justify-center shrink-0 disabled:opacity-30 cursor-pointer"
+                          className="w-[30px] h-[30px] rounded-full border border-slate-700 bg-slate-950/60 text-slate-100 flex items-center justify-center shrink-0 disabled:opacity-30 cursor-default"
                           aria-label={`${playingTakeId === take.id ? 'Stop' : 'Play'} take by ${take.voiceName}`}
                         >
                           {take.status === 'running' ? (
@@ -1201,7 +1201,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                           onClick={() => removeTake(take.id)}
                           aria-label={take.status === 'running' ? 'Cancel take' : 'Remove take'}
                           title={take.status === 'running' ? 'Cancel' : 'Remove'}
-                          className="p-1 text-slate-500 hover:text-slate-200 cursor-pointer"
+                          className="p-1 text-slate-500 hover:text-slate-200 cursor-default"
                         >
                           {take.status === 'running' ? <X className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
                         </button>
@@ -1303,7 +1303,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
               <button
                 type="button"
                 onClick={() => setIsPickerOpen(false)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-default"
               >
                 <X className="w-3.5 h-3.5" /> Done
               </button>

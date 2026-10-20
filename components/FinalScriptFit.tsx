@@ -191,7 +191,7 @@ export const ScriptFitStrip: React.FC<{
               type="button"
               aria-pressed={filter === f.id}
               onClick={() => onFilter(f.id)}
-              className={`px-2 py-0.5 rounded-md text-[11.5px] font-medium transition-colors cursor-pointer ${
+              className={`px-2 py-0.5 rounded-md text-[11.5px] font-medium transition-colors cursor-default ${
                 filter === f.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -204,7 +204,7 @@ export const ScriptFitStrip: React.FC<{
           <button
             type="button"
             onClick={onFixAll}
-            className="h-7 px-2.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer"
+            className="h-7 px-2.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
             title="Asks your text model, not ElevenLabs, for each line the way it needs"
           >
             Suggest for all {fixCount}

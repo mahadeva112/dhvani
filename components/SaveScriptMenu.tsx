@@ -93,7 +93,7 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
           onClick={() => save('json')}
           disabled={disabled}
           title="Save the script file, with each line's time, to open under Paste script on another computer"
-          className="flex items-center gap-3 p-2.5 min-w-0 text-left hover:bg-slate-800/50 transition-colors disabled:cursor-not-allowed cursor-pointer"
+          className="flex items-center gap-3 p-2.5 min-w-0 text-left hover:bg-slate-800/50 transition-colors disabled:cursor-not-allowed cursor-default"
         >
           <span className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[9.5px] font-semibold shrink-0 bg-indigo-500/15 text-indigo-300">
             JSON
@@ -112,7 +112,7 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
           aria-expanded={open}
           aria-label="Other formats"
           title="Other formats"
-          className={`flex items-center justify-center border-l border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors disabled:cursor-not-allowed cursor-pointer ${
+          className={`flex items-center justify-center border-l border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors disabled:cursor-not-allowed cursor-default ${
             open ? 'bg-slate-800/60 text-slate-100' : ''
           }`}
         >
@@ -140,7 +140,7 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
                     type="button"
                     aria-pressed={scope === id}
                     onClick={() => onScopeChange(id)}
-                    className={`flex-1 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors cursor-pointer ${
+                    className={`flex-1 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors cursor-default ${
                       scope === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -162,7 +162,7 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
                 type="button"
                 role="menuitem"
                 onClick={() => save(f.id)}
-                className={`w-full grid grid-cols-[2.75rem_minmax(0,1fr)_1rem] items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                className={`w-full grid grid-cols-[2.75rem_minmax(0,1fr)_1rem] items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-colors cursor-default ${
                   i === 0 ? 'bg-indigo-500/10 hover:bg-indigo-500/15' : 'hover:bg-slate-800'
                 }`}
               >

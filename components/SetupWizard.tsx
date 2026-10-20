@@ -628,7 +628,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               type="button"
               onClick={onSkip}
               aria-label="Close"
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
             >
               <X className="w-4 h-4" />
             </button>
@@ -676,7 +676,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       role="radio"
                       aria-checked={on}
                       onClick={() => setEngine(opt.id)}
-                      className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+                      className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-default ${
                         on
                           ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
                           : 'border-slate-800 hover:bg-slate-800/40'
@@ -727,7 +727,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                         <button
                           type="button"
                           onClick={() => setShowElevenLabsKey((v) => !v)}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default"
                           aria-label={showElevenLabsKey ? 'Hide key' : 'Show key'}
                         >
                           {showElevenLabsKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -750,7 +750,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       <button
                         type="button"
                         onClick={() => setReplacingElevenLabs(true)}
-                        className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+                        className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0"
                       >
                         Replace
                       </button>
@@ -788,7 +788,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                         <button
                           type="button"
                           onClick={() => setShowCartesiaKey((v) => !v)}
-                          className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default"
                           aria-label={showCartesiaKey ? 'Hide key' : 'Show key'}
                         >
                           {showCartesiaKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -811,7 +811,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       <button
                         type="button"
                         onClick={() => setReplacingCartesia(true)}
-                        className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-pointer shrink-0"
+                        className="px-2.5 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0"
                       >
                         Replace
                       </button>
@@ -882,7 +882,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                       role="radio"
                       aria-checked={on}
                       onClick={() => setMode(opt.id)}
-                      className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+                      className={`flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-default ${
                         on
                           ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
                           : 'border-slate-800 hover:bg-slate-800/40'
@@ -1043,7 +1043,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             <button
               type="button"
               onClick={onSkip}
-              className="flex-1 min-w-0 text-left text-[12.5px] text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5 cursor-pointer"
+              className="flex-1 min-w-0 text-left text-[12.5px] text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5 cursor-default"
               title="Configure the keys yourself using a .env file or environment variables"
             >
               <Terminal className="w-3.5 h-3.5 shrink-0" />
@@ -1055,7 +1055,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             <button
               type="button"
               onClick={onSkip}
-              className="h-10 px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-pointer"
+              className="h-10 px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
             >
               Cancel
             </button>
@@ -1064,7 +1064,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             type="button"
             onClick={handleSave}
             disabled={!canSubmit}
-            className="h-10 px-5 flex items-center justify-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+            className="h-10 px-5 flex items-center justify-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
           >
             {isSaving ? (
               <>

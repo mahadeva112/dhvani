@@ -102,7 +102,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -146,7 +146,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
                   type="button"
                   aria-pressed={on}
                   onClick={() => onSensitivityChange(look.value)}
-                  className={`flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-[10px] border text-left transition-colors cursor-pointer ${
+                  className={`flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-[10px] border text-left transition-colors cursor-default ${
                     on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-indigo-950/40' : 'border-slate-800 hover:bg-slate-800/50'
                   }`}
                 >
@@ -173,7 +173,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
               step={1}
               value={sensitivity}
               onChange={(e) => onSensitivityChange(Number(e.target.value))}
-              className="w-full accent-indigo-500 cursor-pointer"
+              className="w-full accent-indigo-500 cursor-default"
             />
             <div className="flex justify-between text-[10.5px] text-slate-500 mt-0.5">
               <span>Fewer, longer cues</span>
@@ -188,7 +188,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
                 aria-expanded={showAdvanced}
                 aria-controls="pause-gate"
                 onClick={() => setAdvancedOpen(!showAdvanced)}
-                className="w-full flex items-center gap-2 px-3 py-2.5 text-left cursor-pointer"
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-left cursor-default"
               >
                 <ChevronRight className={`w-4 h-4 text-slate-400 transition-transform ${showAdvanced ? 'rotate-90' : ''}`} />
                 <span className="text-[13px] font-semibold text-slate-100">Advanced gate</span>
@@ -212,7 +212,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
                           step={step}
                           value={effective[row.key]}
                           onChange={(e) => setGate(row.key, Number(e.target.value))}
-                          className="w-full accent-indigo-500 cursor-pointer"
+                          className="w-full accent-indigo-500 cursor-default"
                         />
                         <span className="font-mono text-xs text-slate-100 tabular-nums text-right">{row.show(effective)}</span>
                       </div>
@@ -253,7 +253,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
             type="button"
             onClick={() => onSensitivityChange(50)}
             disabled={sensitivity === 50 && !gate}
-            className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-default px-1 cursor-pointer"
+            className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 px-1 cursor-default"
           >
             Reset to natural
           </button>
@@ -261,7 +261,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="h-[38px] px-5 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold cursor-pointer"
+            className="h-[38px] px-5 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold cursor-default"
           >
             Done
           </button>

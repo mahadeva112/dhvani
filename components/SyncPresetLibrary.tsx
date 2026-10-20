@@ -34,7 +34,7 @@ export const SyncPresetLibrary: React.FC<{
     anchor.href = url; anchor.download = 'dhvani-sync-presets.json'; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const button = 'h-8 px-2 rounded-lg border border-slate-700 text-[12px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-pointer';
+  const button = 'h-8 px-2 rounded-lg border border-slate-700 text-[12px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-default';
   return (
     <div className="flex flex-col gap-2">
       <p className="text-[11.5px] text-slate-400">Save these sync settings with a name. Settings are also remembered separately for each project.</p>

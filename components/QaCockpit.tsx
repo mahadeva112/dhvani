@@ -224,11 +224,11 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
             text: `${openBlocking.length} blocking ${openBlocking.length === 1 ? 'issue' : 'issues'} to clear before this can ship.`,
           };
   const chip = (on: boolean) =>
-    `px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
+    `px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
       on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
     }`;
   const small =
-    'h-[30px] px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
+    'h-[30px] px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
   return (
     <div className="flex flex-col gap-3 animate-in fade-in duration-200">
@@ -309,7 +309,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                 </label>
               ))}
             </div>
-            <label className="flex items-center gap-2.5 text-[12.5px] text-slate-300 cursor-pointer">
+            <label className="flex items-center gap-2.5 text-[12.5px] text-slate-300 cursor-default">
               <input
                 type="checkbox"
                 checked={config.flagLatinDigits}
@@ -426,7 +426,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                                 setOverrideTarget(finding);
                                 setOverrideReason('');
                               }}
-                              className="text-xs text-slate-400 hover:text-amber-300 px-1 cursor-pointer"
+                              className="text-xs text-slate-400 hover:text-amber-300 px-1 cursor-default"
                             >
                               Waive…
                             </button>
@@ -440,7 +440,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
             )}
 
             <details className="mt-1 pt-2.5 border-t border-slate-800 group">
-              <summary className="list-none cursor-pointer flex items-center gap-1.5 text-[12.5px] text-slate-400 hover:text-slate-200 select-none">
+              <summary className="list-none cursor-default flex items-center gap-1.5 text-[12.5px] text-slate-400 hover:text-slate-200 select-none">
                 <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
                 All {report.rules.length} checks
                 {report.counts.skipped > 0 && <span className="text-slate-500">· {report.counts.skipped} not run</span>}
@@ -554,7 +554,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                             refresh();
                           }}
                           title="Withdraw this signature so it can be given again on the corrected script"
-                          className="text-xs text-slate-400 hover:text-slate-200 cursor-pointer"
+                          className="text-xs text-slate-400 hover:text-slate-200 cursor-default"
                         >
                           Withdraw
                         </button>
@@ -586,7 +586,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                             setOpenStage(stage.id);
                             handleSign(stage.id);
                           }}
-                          className="flex-1 h-[34px] flex items-center justify-center gap-1.5 rounded-[9px] bg-emerald-600 hover:bg-emerald-500 text-white text-[12.5px] font-semibold cursor-pointer"
+                          className="flex-1 h-[34px] flex items-center justify-center gap-1.5 rounded-[9px] bg-emerald-600 hover:bg-emerald-500 text-white text-[12.5px] font-semibold cursor-default"
                         >
                           <UserCheck className="w-3.5 h-3.5" /> Sign
                         </button>
@@ -596,7 +596,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                             setOpenStage(stage.id);
                             handleReject(stage.id);
                           }}
-                          className="h-[34px] px-3 rounded-[9px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-rose-300 cursor-pointer"
+                          className="h-[34px] px-3 rounded-[9px] border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-rose-300 cursor-default"
                         >
                           Send back
                         </button>
@@ -644,7 +644,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
               <button
                 type="button"
                 onClick={() => setOverrideTarget(null)}
-                className="h-9 px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-pointer"
+                className="h-9 px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
               >
                 Cancel
               </button>
@@ -652,7 +652,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                 type="button"
                 disabled={!overrideReason.trim()}
                 onClick={confirmOverride}
-                className="h-9 px-4 rounded-[10px] bg-amber-500 hover:bg-amber-400 text-slate-950 text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+                className="h-9 px-4 rounded-[10px] bg-amber-500 hover:bg-amber-400 text-slate-950 text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
               >
                 Waive and record
               </button>
@@ -729,7 +729,7 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
         type="button"
         onClick={onToggle}
         aria-expanded={isOpen}
-        className="w-full flex items-center gap-2 text-left cursor-pointer"
+        className="w-full flex items-center gap-2 text-left cursor-default"
       >
         <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
         <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Locked terms</span>
@@ -764,7 +764,7 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
                     type="button"
                     onClick={() => onRemove(term.id)}
                     aria-label={`Remove ${term.source}`}
-                    className="ml-auto p-1 rounded-md text-slate-500 hover:text-rose-300 hover:bg-slate-800 transition-colors cursor-pointer"
+                    className="ml-auto p-1 rounded-md text-slate-500 hover:text-rose-300 hover:bg-slate-800 transition-colors cursor-default"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
@@ -784,7 +784,7 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
                   type="button"
                   aria-pressed={policy === id}
                   onClick={() => setPolicy(id)}
-                  className={`px-2.5 py-1 rounded-[7px] text-xs font-medium transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-[7px] text-xs font-medium transition-colors cursor-default ${
                     policy === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -820,7 +820,7 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
                   className={field}
                 />
               ) : (
-                <label className="flex items-center gap-2 text-[12.5px] text-slate-400 px-1 cursor-pointer">
+                <label className="flex items-center gap-2 text-[12.5px] text-slate-400 px-1 cursor-default">
                   <input
                     type="checkbox"
                     checked={scopeToLanguage}
@@ -836,7 +836,7 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
               type="button"
               onClick={submit}
               disabled={!canAdd}
-              className="self-start h-[30px] px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="self-start h-[30px] px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
             >
               <Plus className="w-3.5 h-3.5" /> Add term
             </button>

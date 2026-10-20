@@ -210,7 +210,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 h-[34px] px-3 rounded-full bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold whitespace-nowrap transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 h-[34px] px-3 rounded-full bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold whitespace-nowrap transition-colors cursor-default"
           title={status === 'downloaded' ? `DHVANI ${version} is ready to install` : `DHVANI ${version} is available`}
         >
           {status === 'downloading' || installing ? (
@@ -295,7 +295,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                   <button
                     type="button"
                     onClick={() => setShowNewNotes(true)}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
                   >
                     See what’s new
                   </button>
@@ -303,7 +303,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 <button
                   type="button"
                   onClick={() => markUpdatedSeen(currentVersion)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Close
                 </button>
@@ -313,7 +313,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
               type="button"
               onClick={() => markUpdatedSeen(currentVersion)}
               aria-label="Dismiss"
-              className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+              className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
             >
               <X className="w-4 h-4" />
             </button>
@@ -339,14 +339,14 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 <button
                   type="button"
                   onClick={() => setOpen(true)}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
                 >
                   See what’s new
                 </button>
                 <button
                   type="button"
                   onClick={() => markNoticeSeen(version)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Later
                 </button>
@@ -356,7 +356,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
               type="button"
               onClick={() => markNoticeSeen(version)}
               aria-label="Dismiss"
-              className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+              className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
             >
               <X className="w-4 h-4" />
             </button>
@@ -394,7 +394,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close"
-                className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -472,14 +472,14 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                   >
                     Close
                   </button>
                   <button
                     type="button"
                     onClick={() => api.check()}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
                   >
                     Check again
                   </button>
@@ -489,14 +489,14 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                   >
                     Later
                   </button>
                   <button
                     type="button"
                     onClick={() => api.download()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
                   >
                     <Download className="w-3.5 h-3.5" /> {state.error ? 'Retry download' : canInstall ? 'Download and install' : 'Download'}
                   </button>
@@ -505,7 +505,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Hide
                 </button>
@@ -514,14 +514,14 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                   >
                     Close
                   </button>
                   <button
                     type="button"
                     onClick={() => api.showDownload()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
                   >
                     <FolderOpen className="w-3.5 h-3.5" /> Show in folder
                   </button>
@@ -531,7 +531,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                   >
                     Install when I close
                   </button>
@@ -541,7 +541,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                     aria-disabled={busy}
                     title={busy ? 'A dub or sync is running' : undefined}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white keep-white text-[12.5px] font-semibold ${
-                      busy ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-500 cursor-pointer'
+                      busy ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-500 cursor-default'
                     }`}
                   >
                     <RotateCw className="w-3.5 h-3.5" /> Restart and install
@@ -551,7 +551,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Close
                 </button>

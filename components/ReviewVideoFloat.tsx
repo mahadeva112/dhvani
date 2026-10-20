@@ -196,7 +196,7 @@ export const ReviewVideoFloat: React.FC<
     e.currentTarget.blur();
     fn();
   };
-  const menuItem = 'w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-800 text-slate-200 cursor-pointer';
+  const menuItem = 'w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-800 text-slate-200 cursor-default';
 
   return (
     <>
@@ -216,7 +216,7 @@ export const ReviewVideoFloat: React.FC<
           onPointerDown={drag}
           onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && update({ compact: !saved.compact })}
           title="Drag to move · double-click for the video only"
-          className="flex items-center gap-1.5 pl-2.5 pr-1.5 h-9 shrink-0 rounded-t-xl border-b border-slate-800 bg-slate-900 cursor-grab active:cursor-grabbing touch-none"
+          className="flex items-center gap-1.5 pl-2.5 pr-1.5 h-9 shrink-0 rounded-t-xl border-b border-slate-800 bg-slate-900 cursor-default touch-none"
         >
           <GripHorizontal className="w-4 h-4 shrink-0 text-slate-500" aria-hidden="true" />
           <Video className="w-3.5 h-3.5 shrink-0 text-slate-400" aria-hidden="true" />
@@ -233,7 +233,7 @@ export const ReviewVideoFloat: React.FC<
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               title="More"
-              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default"
             >
               <MoreHorizontal className="w-4 h-4" />
             </button>
@@ -267,7 +267,7 @@ export const ReviewVideoFloat: React.FC<
                 <button
                   type="button"
                   role="menuitem"
-                  className="w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-800 text-rose-300 cursor-pointer"
+                  className="w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-800 text-rose-300 cursor-default"
                   onClick={() => { setMenuOpen(false); onRemove(); }}
                 >
                   Remove video
@@ -280,7 +280,7 @@ export const ReviewVideoFloat: React.FC<
             onClick={onHide}
             title="Hide (Show video brings it back)"
             aria-label="Hide the video"
-            className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+            className="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -294,18 +294,18 @@ export const ReviewVideoFloat: React.FC<
         />
         {!saved.compact && (
           <div className="flex items-center gap-1.5 px-2 h-10 shrink-0 border-t border-slate-800">
-            <button type="button" onClick={press(onPrevLine)} aria-label="Previous line" className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">
+            <button type="button" onClick={press(onPrevLine)} aria-label="Previous line" className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default">
               <ChevronsLeft className="w-3.5 h-3.5" />
             </button>
             <button
               type="button"
               onClick={press(onTogglePlay)}
               aria-label={clock.isPlaying ? 'Pause' : 'Play'}
-              className="w-7 h-7 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-pointer"
+              className="w-7 h-7 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-default"
             >
               {clock.isPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
             </button>
-            <button type="button" onClick={press(onNextLine)} aria-label="Next line" className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">
+            <button type="button" onClick={press(onNextLine)} aria-label="Next line" className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default">
               <ChevronsRight className="w-3.5 h-3.5" />
             </button>
             <span className="font-mono text-[11px] text-slate-200 tabular-nums">{formatClock(time)}</span>
@@ -320,7 +320,7 @@ export const ReviewVideoFloat: React.FC<
                   type="button"
                   aria-pressed={trackMode === mode}
                   onClick={press(() => onTrackMode(mode))}
-                  className={`px-1.5 py-0.5 rounded-md cursor-pointer ${trackMode === mode ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+                  className={`px-1.5 py-0.5 rounded-md cursor-default ${trackMode === mode ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
                 >
                   {label}
                 </button>

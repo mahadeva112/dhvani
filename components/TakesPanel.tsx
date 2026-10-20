@@ -267,7 +267,7 @@ export const TakesPanel: React.FC<{
           </span>
         )}
         {!inWindow && (
-          <button type="button" onClick={onClose} aria-label="Close the takes" className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer">
+          <button type="button" onClick={onClose} aria-label="Close the takes" className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default">
             <X className="w-3.5 h-3.5" />
           </button>
         )}
@@ -304,14 +304,14 @@ export const TakesPanel: React.FC<{
                 onClick={suggest}
                 disabled={wordings.kind === 'working' || !said}
                 title={`${wordingDirection === 'shorter' ? 'Shorter wordings: the line runs past its slot' : wordingDirection === 'longer' ? 'Fuller wordings: the line ends well before the original speech' : 'Other wordings about as long: the line fits'}, with pauses where the meaning wants them. Nothing changes until you use one.`}
-                className="h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-700 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                className="h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-700 hover:bg-slate-800 text-xs text-slate-200 cursor-default disabled:opacity-40"
               >
                 {wordings.kind === 'working' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pencil className="w-3 h-3" />}
                 {wordings.kind === 'ready' ? 'Suggest others' : 'Suggest wording'} · {WORDING_LABEL[wordingDirection]}
               </button>
             )}
             {reworded && (
-              <button type="button" onClick={() => setDraft(unit.text)} className="h-7 px-2 flex items-center gap-1 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer">
+              <button type="button" onClick={() => setDraft(unit.text)} className="h-7 px-2 flex items-center gap-1 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-default">
                 <RotateCcw className="w-3 h-3" /> Undo edit
               </button>
             )}
@@ -344,7 +344,7 @@ export const TakesPanel: React.FC<{
                   <button
                     type="button"
                     onClick={() => setDraft(option.text)}
-                    className="shrink-0 h-6 px-2 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 cursor-pointer"
+                    className="shrink-0 h-6 px-2 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 cursor-default"
                   >
                     Use
                   </button>
@@ -365,7 +365,7 @@ export const TakesPanel: React.FC<{
               type="button"
               onClick={(e) => clickWord(index, e.shiftKey)}
               aria-pressed={inPick(index)}
-              className={`rounded px-0.5 cursor-pointer ${inPick(index) ? 'bg-indigo-500/25 text-indigo-100 ring-1 ring-indigo-400/60' : 'text-slate-200 hover:bg-slate-800'}`}
+              className={`rounded px-0.5 cursor-default ${inPick(index) ? 'bg-indigo-500/25 text-indigo-100 ring-1 ring-indigo-400/60' : 'text-slate-200 hover:bg-slate-800'}`}
             >
               {word}
             </button>
@@ -390,7 +390,7 @@ export const TakesPanel: React.FC<{
             onClick={() => setDirection(d.id)}
             aria-pressed={direction === d.id}
             title={d.hint}
-            className={`h-7 px-2.5 rounded-full border text-[11.5px] cursor-pointer ${
+            className={`h-7 px-2.5 rounded-full border text-[11.5px] cursor-default ${
               direction === d.id ? 'border-indigo-400/70 bg-indigo-500/15 text-indigo-100' : 'border-slate-700 text-slate-300 hover:bg-slate-800'
             }`}
           >
@@ -404,7 +404,7 @@ export const TakesPanel: React.FC<{
           type="button"
           onClick={() => onVoice(reworded ? { direction, text: marked } : { direction })}
           disabled={anyBusy || pending || !said}
-          className={`min-h-8 px-3 py-1 rounded-lg text-xs flex items-center gap-1.5 disabled:opacity-40 cursor-pointer disabled:cursor-default ${
+          className={`min-h-8 px-3 py-1 rounded-lg text-xs flex items-center gap-1.5 disabled:opacity-40 cursor-default ${
             reworded ? 'bg-indigo-600 hover:bg-indigo-500 text-white font-semibold' : 'border border-slate-700 text-slate-100'
           }`}
           title={reworded ? `Voices ${TAKES_PER_ASK} takes in your words. The script takes them only when you use one.` : undefined}
@@ -424,7 +424,7 @@ export const TakesPanel: React.FC<{
               ? "This line's words changed since Sync: Sync again, then take it again"
               : `Voices ${TAKES_PER_ASK} takes now (${TAKES_PER_ASK} voicings of ${wholeLine ? 'the line' : 'the words'}). Nothing changes in the dub until you use one.`
           }
-          className="min-h-8 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 disabled:bg-slate-800 disabled:text-slate-500 cursor-pointer disabled:cursor-default"
+          className="min-h-8 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
         >
           {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
           {busy
@@ -444,7 +444,7 @@ export const TakesPanel: React.FC<{
           <span className="ml-auto flex items-center gap-1.5">
             {confirmClear && <span className="text-[11.5px] text-slate-400">Sync's take and the one in the dub stay.</span>}
             {confirmClear && (
-              <button type="button" onClick={() => setConfirmClear(false)} className="h-7 px-2 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer">
+              <button type="button" onClick={() => setConfirmClear(false)} className="h-7 px-2 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-default">
                 Keep them
               </button>
             )}
@@ -458,7 +458,7 @@ export const TakesPanel: React.FC<{
               }}
               disabled={anyBusy}
               title="Removes the other takes from this list. Sync's take and the one in the dub stay."
-              className={`h-7 px-2.5 flex items-center gap-1 rounded-md border text-xs cursor-pointer disabled:opacity-40 disabled:cursor-default ${
+              className={`h-7 px-2.5 flex items-center gap-1 rounded-md border text-xs cursor-default disabled:opacity-40 ${
                 confirmClear ? 'border-rose-500/60 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20' : 'border-slate-700 text-slate-200 hover:bg-slate-800'
               }`}
             >
@@ -484,7 +484,7 @@ export const TakesPanel: React.FC<{
                 onClick={() => play(take)}
                 disabled={!bankBlob}
                 aria-label={playing === take.id ? `Stop ${takeName(take, n)}` : `Play ${takeName(take, n)}`}
-                className="w-8 h-8 rounded-full border border-slate-700 text-slate-200 hover:bg-slate-800 flex items-center justify-center cursor-pointer disabled:opacity-40"
+                className="w-8 h-8 rounded-full border border-slate-700 text-slate-200 hover:bg-slate-800 flex items-center justify-center cursor-default disabled:opacity-40"
               >
                 {playing === take.id ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
               </button>
@@ -525,7 +525,7 @@ export const TakesPanel: React.FC<{
                   }}
                   disabled={anyBusy || pending}
                   title={take.text !== unit.text ? 'Put this take in the dub, and its words in the script' : 'Put this take in the dub, where the line is now'}
-                  className="h-7 px-2.5 rounded-lg border border-slate-700 text-xs text-slate-100 hover:bg-slate-800 cursor-pointer disabled:opacity-40 disabled:cursor-default"
+                  className="h-7 px-2.5 rounded-lg border border-slate-700 text-xs text-slate-100 hover:bg-slate-800 cursor-default disabled:opacity-40"
                 >
                   Use {takeName(take, n)}
                 </button>
@@ -536,7 +536,7 @@ export const TakesPanel: React.FC<{
       </ul>
 
       <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-slate-500">
-        <button type="button" onClick={onListenInDub} className="h-7 px-2.5 rounded-lg border border-slate-800 text-slate-300 hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer">
+        <button type="button" onClick={onListenInDub} className="h-7 px-2.5 rounded-lg border border-slate-800 text-slate-300 hover:bg-slate-800 flex items-center gap-1.5 cursor-default">
           <Headphones className="w-3.5 h-3.5" /> Listen in the dub
         </button>
         <span>Each take is fitted as Sync fits a line, never stretched. Sync again keeps the take in the dub and starts the takes afresh.</span>

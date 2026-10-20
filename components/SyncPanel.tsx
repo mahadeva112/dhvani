@@ -282,7 +282,7 @@ const VOICING_OPTIONS: { id: SyncVoicing; label: string; detail: string }[] = [
 
 const sectionLabel ='text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
 const downloadRow =
-  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer';
+  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
 type PresetSuggestion = NonNullable<ReturnType<typeof presetSuggestion>>;
 
@@ -542,7 +542,7 @@ const SyncSettingsWindow: React.FC<{
                       key={o.id}
                       className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${
                         checked ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-slate-800 bg-slate-800/20 hover:border-slate-700'
-                      } ${off ? 'opacity-50 cursor-default' : 'cursor-pointer'}`}
+                      } ${off ? 'opacity-50 cursor-default' : 'cursor-default'}`}
                     >
                       <input
                         type="radio"
@@ -596,7 +596,7 @@ const SyncSettingsWindow: React.FC<{
                           aria-checked={on}
                           disabled={isSyncing}
                           onClick={() => onOptionsChange((opts) => ({ ...opts, precision: o.id }))}
-                          className={`flex-1 rounded-lg px-2 py-2 text-center transition-colors cursor-pointer disabled:cursor-not-allowed ${
+                          className={`flex-1 rounded-lg px-2 py-2 text-center transition-colors cursor-default disabled:cursor-not-allowed ${
                             on ? 'bg-slate-800 text-slate-100 ring-1 ring-slate-600' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
                           }`}
                         >
@@ -718,7 +718,7 @@ const SyncSettingsWindow: React.FC<{
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-pointer"
+            className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -731,7 +731,7 @@ const SyncSettingsWindow: React.FC<{
               type="button"
               onClick={() => open(chip.to)}
               title={`Open ${sections.find((s) => s.id === chip.to)?.title}`}
-              className={`shrink-0 flex items-center gap-1.5 h-7 px-2.5 rounded-lg border bg-slate-900 text-[12px] text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors cursor-pointer ${
+              className={`shrink-0 flex items-center gap-1.5 h-7 px-2.5 rounded-lg border bg-slate-900 text-[12px] text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors cursor-default ${
                 chip.changed ? 'border-amber-400/35' : 'border-slate-700/80'
               }`}
             >
@@ -749,7 +749,7 @@ const SyncSettingsWindow: React.FC<{
             <button
               type="button"
               onClick={() => open('basics')}
-              className="shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-lg border border-indigo-500/45 bg-indigo-500/10 text-[12px] text-indigo-200 hover:bg-indigo-500/20 transition-colors cursor-pointer"
+              className="shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-lg border border-indigo-500/45 bg-indigo-500/10 text-[12px] text-indigo-200 hover:bg-indigo-500/20 transition-colors cursor-default"
             >
               <Ruler className="w-3.5 h-3.5" /> Fit to this video
             </button>
@@ -765,7 +765,7 @@ const SyncSettingsWindow: React.FC<{
             {onlyChanged && (
               <div className="hidden md:flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-amber-400/10 text-[11.5px] text-amber-200 shrink-0">
                 Changed sections only
-                <button type="button" onClick={() => setOnlyChanged(false)} className="text-amber-100 underline underline-offset-2 cursor-pointer">
+                <button type="button" onClick={() => setOnlyChanged(false)} className="text-amber-100 underline underline-offset-2 cursor-default">
                   Show all
                 </button>
               </div>
@@ -783,7 +783,7 @@ const SyncSettingsWindow: React.FC<{
                     type="button"
                     onClick={() => open(s.id)}
                     aria-current={on ? 'true' : undefined}
-                    className={`shrink-0 md:w-full md:grow md:max-h-[3.5rem] flex items-center gap-2.5 text-left rounded-lg px-2 py-[3px] border transition-colors cursor-pointer ${
+                    className={`shrink-0 md:w-full md:grow md:max-h-[3.5rem] flex items-center gap-2.5 text-left rounded-lg px-2 py-[3px] border transition-colors cursor-default ${
                       on ? 'bg-slate-800 border-slate-700 text-slate-100' : 'border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
                     }`}
                   >
@@ -823,7 +823,7 @@ const SyncSettingsWindow: React.FC<{
                     type="button"
                     onClick={resetSection}
                     disabled={isSyncing}
-                    className="shrink-0 flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    className="shrink-0 flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
                   >
                     <RotateCcw className="w-3.5 h-3.5" /> {current.id === 'basics' ? 'Reset voicing and precision' : `Reset this section (${resettable})`}
                   </button>
@@ -840,14 +840,14 @@ const SyncSettingsWindow: React.FC<{
             onClick={() => onOptionsChange(defaultSyncOptions())}
             disabled={isSyncing || isDefaultOptions(options)}
             title={isDefaultOptions(options) ? 'Already on the default settings' : 'Line by line, phrase precision, Natural line joins, no suggestions'}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-800 text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-800 text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
           >
             <RotateCcw className="w-3.5 h-3.5" /> Reset all to defaults
           </button>
           <button
             type="button"
             onClick={() => setOnlyChanged(changedSections > 0 && !onlyChanged)}
-            className={`hidden sm:flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] transition-colors cursor-pointer ${
+            className={`hidden sm:flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] transition-colors cursor-default ${
               changedSections ? 'bg-amber-400/10 text-amber-200 hover:bg-amber-400/15' : 'text-slate-500'
             }`}
           >
@@ -866,7 +866,7 @@ const SyncSettingsWindow: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="h-9 px-4 rounded-lg border border-slate-700 text-[13px] text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+            className="h-9 px-4 rounded-lg border border-slate-700 text-[13px] text-slate-200 hover:bg-slate-800 transition-colors cursor-default"
           >
             Done
           </button>
@@ -878,7 +878,7 @@ const SyncSettingsWindow: React.FC<{
                 onSync();
               }}
               disabled={Boolean(blockedReason)}
-              className="h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+              className="h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
             >
               {synced ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
               {synced ? 'Sync again' : 'Dub & sync'}
@@ -975,7 +975,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
       <h2 className="text-[15px] font-semibold text-slate-100">Sync settings</h2>
-      <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-pointer">
+      <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-default">
         <ArrowLeft className="w-3 h-3" /> Review
       </button>
     </div>
@@ -998,7 +998,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           type="button"
           onClick={() => setSettingsOpen(true)}
           aria-haspopup="dialog"
-          className="h-9 flex items-center justify-center gap-2 rounded-lg border border-slate-700 text-[13px] font-medium text-slate-200 hover:bg-slate-800 hover:border-slate-600 transition-colors cursor-pointer"
+          className="h-9 flex items-center justify-center gap-2 rounded-lg border border-slate-700 text-[13px] font-medium text-slate-200 hover:bg-slate-800 hover:border-slate-600 transition-colors cursor-default"
         >
           <SlidersHorizontal className="w-4 h-4" /> Open sync settings
           <span className={`ml-1 px-1.5 py-px rounded-md text-[10.5px] font-medium ${changed ? 'bg-amber-400/15 text-amber-300' : 'bg-slate-800 text-slate-400'}`}>
@@ -1071,7 +1071,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           type="button"
           onClick={onCancel}
           disabled={isCancelling}
-          className="h-11 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-sm font-medium text-slate-200 disabled:opacity-50 cursor-pointer"
+          className="h-11 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-sm font-medium text-slate-200 disabled:opacity-50 cursor-default"
         >
           <X className="w-4 h-4" /> {waitingFor ? 'Take out of the line' : isCancelling ? 'Cancelling…' : 'Cancel sync'}
         </button>
@@ -1080,7 +1080,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           type="button"
           onClick={onSync}
           disabled={Boolean(blockedReason)}
-          className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
+          className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
         >
           {synced || interrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
           {interrupted ? 'Resume dub' : synced ? 'Sync again' : 'Dub & sync'}
@@ -1216,12 +1216,12 @@ const PresetBanner: React.FC<{ suggestion: PresetSuggestion; presetNow: string; 
         <button
           type="button"
           onClick={() => onUse(suggestion.preset)}
-          className="shrink-0 h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-[12.5px] font-medium flex items-center gap-1.5 cursor-pointer"
+          className="shrink-0 h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-[12.5px] font-medium flex items-center gap-1.5 cursor-default"
         >
           <RefreshCw className="w-3.5 h-3.5" /> Use {presetName(suggestion.preset)} and sync again
         </button>
       )}
-      <button type="button" onClick={() => setKept(true)} className="shrink-0 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-pointer">
+      <button type="button" onClick={() => setKept(true)} className="shrink-0 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-default">
         Keep {presetNow}
       </button>
     </div>
@@ -1534,7 +1534,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                 type="button"
                 onClick={() => setShowAll((on) => !on)}
                 aria-pressed={showAll}
-                className="text-xs text-indigo-300 hover:text-indigo-200 cursor-pointer"
+                className="text-xs text-indigo-300 hover:text-indigo-200 cursor-default"
                 title={showAll ? 'Show only the lines worth a listen' : 'List every line, to listen to or retake any of them'}
               >
                 {showAll ? 'Only lines worth a listen' : `Show all ${report.units.length} lines`}
@@ -1544,7 +1544,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                   type="button"
                   onClick={() => setConfirmRetake(true)}
                   aria-expanded={confirmRetake}
-                  className="flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200 cursor-pointer"
+                  className="flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200 cursor-default"
                   title={`Voices ${showAll ? 'every line' : 'every line listed here'} again, three takes each, and keeps the take of each that fits its slot best`}
                 >
                   <Mic className="w-3 h-3" /> {showAll ? `Retake all ${retakeable.length}` : `Retake these ${retakeable.length}`}
@@ -1575,14 +1575,14 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                     onRetakeLines(retakeable);
                     setConfirmRetake(false);
                   }}
-                  className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold cursor-pointer"
+                  className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold cursor-default"
                 >
                   <Mic className="w-3.5 h-3.5" /> Retake {retakeable.length} lines
                 </button>
                 <button
                   type="button"
                   onClick={() => setConfirmRetake(false)}
-                  className="h-8 px-3 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer"
+                  className="h-8 px-3 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-200 cursor-default"
                 >
                   Cancel
                 </button>
@@ -1598,7 +1598,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                   type="button"
                   onClick={onSync}
                   disabled={Boolean(blockedReason)}
-                  className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-pointer"
+                  className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
                 >
                   <RefreshCw className="w-3.5 h-3.5" /> Sync again
                 </button>
@@ -1682,7 +1682,7 @@ const TakeOffer: React.FC<{
       reportError(err, { title: 'The new take could not be played' });
     }
   };
-  const button = 'h-7 px-2.5 rounded-lg border text-[12px] flex items-center gap-1.5 cursor-pointer';
+  const button = 'h-7 px-2.5 rounded-lg border text-[12px] flex items-center gap-1.5 cursor-default';
   const toggleNew = () => (playing ? (audio.current?.element.pause(), setPlaying(false)) : void playNew());
   if (!fit) {
     if (!unit.takeRejected) return null;
@@ -1888,7 +1888,7 @@ const ReviewRow: React.FC<{
                         role="radio"
                         aria-checked={picked}
                         onClick={() => pick(option)}
-                        className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-pointer ${
+                        className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-default ${
                           picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/70'
                         }`}
                       >
@@ -1947,7 +1947,7 @@ const ReviewRow: React.FC<{
                   type="button"
                   onClick={() => onApply(unit, draft)}
                   disabled={!changed}
-                  className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer"
+                  className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
                   title="Put this wording into the script. Sync again to voice it."
                 >
                   <Check className="w-3.5 h-3.5" /> Use this line
@@ -1955,7 +1955,7 @@ const ReviewRow: React.FC<{
                 <button
                   type="button"
                   onClick={copy}
-                  className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+                  className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
                 >
                   {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   {copied ? 'Copied' : 'Copy'}
@@ -1965,7 +1965,7 @@ const ReviewRow: React.FC<{
                     type="button"
                     onClick={tryAnother}
                     disabled={asking}
-                    className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 disabled:opacity-60 cursor-pointer"
+                    className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 disabled:opacity-60 cursor-default"
                   >
                     {asking ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                     {asking ? 'Asking…' : suggested ? '3 more' : 'Suggest 3'}
@@ -2004,7 +2004,7 @@ const ReviewRow: React.FC<{
         <button
           type="button"
           onClick={() => onListen(Math.max(0, unit.srcStart - 0.6))}
-          className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer"
+          className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 cursor-default"
         >
           <Play className="w-3 h-3 fill-current" /> Listen
         </button>
@@ -2013,7 +2013,7 @@ const ReviewRow: React.FC<{
             type="button"
             onClick={onToggleTakes}
             aria-expanded={takesOpen}
-            className={`flex items-center gap-1 h-7 px-2.5 rounded-lg border text-xs cursor-pointer ${
+            className={`flex items-center gap-1 h-7 px-2.5 rounded-lg border text-xs cursor-default ${
               takesOpen ? 'border-indigo-400/70 bg-indigo-500/15 text-indigo-100' : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-200'
             }`}
             title="Voice new takes of this line now, hear them side by side and pick one"
@@ -2025,7 +2025,7 @@ const ReviewRow: React.FC<{
             type="button"
             onClick={() => onRetake(unit)}
             disabled={pending}
-            className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
             title="Voices this line three times and keeps the take that fits its slot best (three voicings of the line). Sync again to hear it."
           >
             <Mic className="w-3 h-3" /> Retake

@@ -337,7 +337,7 @@ const Key = ({ children }: { children: React.ReactNode }) => (
 );
 
 const barButton =
-  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-slate-800 text-xs text-slate-300 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer';
+  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-slate-800 text-xs text-slate-300 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-default';
 
 /**
  * The strip under the waveform: Split and Undo, what the last edit did, and,
@@ -418,7 +418,7 @@ function CutTools({ editing, a, b, n }: { editing: CueEditing; a: AudioSegment; 
         <button
           type="button"
           onClick={() => editing.selectBoundary(null)}
-          className="w-7 h-7 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-pointer"
+          className="w-7 h-7 inline-flex items-center justify-center rounded-lg text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default"
           title="Close (Esc)"
           aria-label="Close the cut tools"
         >
@@ -438,7 +438,7 @@ function CutTools({ editing, a, b, n }: { editing: CueEditing; a: AudioSegment; 
                   <button
                     type="button"
                     onClick={() => editing.setDubBreak(j)}
-                    className={`inline-block align-middle h-5 rounded-sm cursor-pointer ${
+                    className={`inline-block align-middle h-5 rounded-sm cursor-default ${
                       j === firstDub.length ? 'w-[3px] mx-1 bg-indigo-400' : 'w-2.5 hover:bg-indigo-500/30'
                     }`}
                     title={j === firstDub.length ? 'The dub text breaks here' : 'Break the dub text here'}
