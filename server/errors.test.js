@@ -21,3 +21,22 @@ test('an HTML error page from a proxy becomes its title, not markup', () => {
   assert.doesNotMatch(error.message, /<|DOCTYPE/);
   assert.match(error.message, /ishaal\.win \| 502: Bad gateway/);
 });
+
+test("a gateway's own upstream key being refused is not read as a bad user key", () => {
+  const message =
+    'litellm.AuthenticationError: GeminiException - { "error": { "code": 400, "message": "API key not valid.", ' +
+    '"status": "INVALID_ARGUMENT", "details": [ { "reason": "API_KEY_INVALID", "domain": "googleapis.com" } ] } }. ' +
+    'Received Model Group=gemini-2.5-flash Available Model Group Fallbacks=None';
+  const err = fromProviderResponse('LLM gateway', 401, { error: { message, type: 'auth_error' } });
+
+  assert.equal(err.code, 'upstream_key_invalid');
+  assert.equal(err.details.upstream, 'Google');
+  assert.equal(err.details.model, 'gemini-2.5-flash');
+  assert.match(err.message, /Your key is fine/);
+
+  // The proxy refusing the user's own token stays a bad key.
+  const own = fromProviderResponse('LLM gateway', 401, {
+    error: { message: 'Authentication Error, Invalid proxy server token passed.', type: 'auth_error' },
+  });
+  assert.equal(own.code, 'invalid_api_key');
+});

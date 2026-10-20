@@ -384,6 +384,12 @@ export interface GatewayTestResult {
   note?: string;
   requiresKey?: boolean;
   availableModels: string[];
+  /** The gateway accepted the key, but its own upstream key was refused. */
+  upstreamKeyInvalid?: boolean;
+  /** Who refused it, such as "Google". */
+  upstreamProvider?: string;
+  /** What the gateway said, for the technical details. */
+  upstreamDetail?: string;
 }
 
 export interface DetectionRequest {
