@@ -929,8 +929,8 @@ export const PreviewTimeline: React.FC<{
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
   const total = Math.max(0, ...units.map((u) => Math.max(u.srcEnd, u.srcStart + u.estimate)));
   // Opens on the whole dub; zooming in shows a window of it, as in the report's timeline.
-  const zoom = useTimelineZoom(total, currentTime);
-  const { windowStart, windowSeconds: WINDOW_SECONDS, follow, setFollow, scrollTo } = zoom;
+  const zoom = useTimelineZoom(total, currentTime, { glide: true });
+  const { windowStart, windowSeconds: WINDOW_SECONDS, ahead, follow, setFollow, scrollTo } = zoom;
   const playheadRef = useWindowPlayheads({
     reportedTime,
     isPlaying,
@@ -939,6 +939,7 @@ export const PreviewTimeline: React.FC<{
     windowSeconds: WINDOW_SECONDS,
     follow,
     onFollow: zoom.followTo,
+    glideTo: zoom.glideTo,
     hidden: Boolean(offClockNote),
   });
 
@@ -963,13 +964,14 @@ export const PreviewTimeline: React.FC<{
     onCurrentLineRef.current?.(current);
   }, [current]);
 
-  const end = windowStart + WINDOW_SECONDS;
+  // Gliding, `ahead` more is drawn past the right edge, for the timeline to move into.
+  const end = windowStart + WINDOW_SECONDS + ahead;
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
   const visible = useMemo(
     () => units.filter((u) => Math.max(u.srcEnd, u.srcStart + u.estimate) >= windowStart && u.srcStart <= end),
     [units, windowStart, end]
   );
-  const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(windowStart + seconds));
+  const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(zoom.viewStart() + seconds));
   const markers = useMemo(
     () =>
       units
@@ -980,7 +982,7 @@ export const PreviewTimeline: React.FC<{
   const seekAt = (e: React.MouseEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     setFollow(true);
-    onSeek(windowStart + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS);
+    onSeek(zoom.viewStart() + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS);
   };
   /** A trim from where the pointer is over the dub lane, held to the line's slot, snapping to the end of the original speech. */
   const trimAt = (u: SyncPreviewUnit, clientX: number, lane: Element) => {
@@ -1035,13 +1037,14 @@ export const PreviewTimeline: React.FC<{
           <TimelineZoomControls zoom={zoom} />
         </div>
       </div>
-      <div ref={zoom.lanesRef} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center">
+      <div ref={zoom.lanesRef} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center" style={{ overflowX: 'clip' }}>
         <span />
-        <TimelineRuler zoom={zoom} />
+        <TimelineRuler zoom={zoom} onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
         <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
           <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
         </span>
-        <div className="relative h-11 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
+        <div className="relative h-11 rounded-lg bg-slate-950/60 overflow-hidden cursor-default" onClick={seekAt} onWheel={onWheel}>
+          <div ref={zoom.strip} className="absolute inset-0">
           {visible.map((u) => (
             <span
               key={u.key}
@@ -1053,17 +1056,21 @@ export const PreviewTimeline: React.FC<{
             </span>
           ))}
           {/* Over the lines, in each line's colour */}
-          <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS} spans={sourceSpans} className="text-slate-400/30" />
+          <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
+            <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-400/30" />
+          </div>
           {expert &&
             visible.flatMap((u) =>
               (u.expert?.sourceLips || []).filter((t) => t >= windowStart && t <= end).map((t, n) => <LipMark key={`${u.key}-${n}`} left={`${pct(t)}%`} />)
             )}
+          </div>
           {playhead(0)}
         </div>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
           <span className="w-2 h-2 rounded-sm border border-dashed border-indigo-300" /> {rythmo ? 'Rythmo' : 'Dub, est.'}
         </span>
-        <div className="relative h-11 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
+        <div className="relative h-11 rounded-lg bg-slate-950/60 overflow-hidden cursor-default" onClick={seekAt} onWheel={onWheel}>
+          <div ref={zoom.strip} className="absolute inset-0">
           {visible.map((u) => {
             const over = u.estimate - u.slot;
             const hue = hueOf(u.index);
@@ -1199,6 +1206,7 @@ export const PreviewTimeline: React.FC<{
               </React.Fragment>
             );
           })}
+          </div>
           {playhead(1)}
         </div>
         {drag && dragged && (
@@ -1219,7 +1227,7 @@ export const PreviewTimeline: React.FC<{
         <span />
         <TimelineScrollbar
           total={total}
-          windowStart={windowStart}
+          windowStart={zoom.viewStart()}
           windowSeconds={WINDOW_SECONDS}
           currentTime={currentTime}
           markers={markers}
@@ -1256,7 +1264,7 @@ export const PreviewTimeline: React.FC<{
         }}
         currentTime={currentTime}
         total={total}
-        windowStart={windowStart}
+        windowStart={zoom.viewStart()}
         windowSeconds={WINDOW_SECONDS}
       >
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-indigo-300 bg-indigo-300/15" /> Estimated length, in the line's colour</span>

@@ -7,10 +7,10 @@ import { useLiveTime } from './useLiveTime';
 
 /**
  * How every synced line landed against the original. It opens on the whole
- * track; zooming in (the buttons, Ctrl + wheel or a pinch, or a drag across the
- * ruler) shows a window of it that follows the playhead.
+ * track; zooming in (the buttons, Ctrl + wheel or a pinch) shows a window of
+ * it, which moves along under the playhead while it plays.
  *
- *   ruler      time
+ *   ruler      time; a click puts the playhead there, a drag scrubs it
  *   Original   the original's waveform over its lines, numbered; past the
  *              original's end, a note that it has ended
  *   links      a sync line from each original line's start to its dub line's
@@ -69,8 +69,8 @@ export const SyncAlignmentView: React.FC<{
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
   const units = useMemo(() => [...report.units].sort((a, b) => a.srcStart - b.srcStart), [report]);
   const total = Math.max(report.duration, ...units.map((u) => Math.max(u.srcEnd, u.placedEnd ?? 0)));
-  const zoom = useTimelineZoom(total, currentTime);
-  const { windowStart, windowSeconds: WINDOW_SECONDS, follow, setFollow, scrollTo } = zoom;
+  const zoom = useTimelineZoom(total, currentTime, { glide: true });
+  const { windowStart, windowSeconds: WINDOW_SECONDS, ahead, follow, setFollow, scrollTo } = zoom;
   const [hovered, setHovered] = useState<number | null>(null);
   const playheadRef = useWindowPlayheads({
     reportedTime,
@@ -80,13 +80,15 @@ export const SyncAlignmentView: React.FC<{
     windowSeconds: WINDOW_SECONDS,
     follow,
     onFollow: zoom.followTo,
+    glideTo: zoom.glideTo,
   });
   const sourcePeaks = usePeaks(sourceBuffer);
   /** Where the original's audio ends; past it the Original lane says so rather than sitting empty. */
   const sourceEnd = sourcePeaks?.seconds ?? report.duration;
   const dubPeaks = usePeaks(dubBuffer);
 
-  const end = windowStart + WINDOW_SECONDS;
+  // Gliding, `ahead` more is drawn past the right edge, for the timeline to move into.
+  const end = windowStart + WINDOW_SECONDS + ahead;
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
   const tones = useMemo(() => new Map(units.map((u) => [u.index, toneOf(u, report.tolerance)])), [units, report.tolerance]);
   const visible = units.filter(
@@ -119,11 +121,11 @@ export const SyncAlignmentView: React.FC<{
     boxShadow: u.index === focusIndex ? `0 0 0 1px ${withAlpha(hueOf(u.index), 0.7)}` : undefined,
   });
 
-  const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(windowStart + seconds));
+  const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(zoom.viewStart() + seconds));
   const seekAt = (e: React.MouseEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     setFollow(true);
-    onSeek(windowStart + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS);
+    onSeek(zoom.viewStart() + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS);
   };
   const seekLine = (time: number) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -166,21 +168,22 @@ export const SyncAlignmentView: React.FC<{
     <div className="flex flex-col gap-1.5" onMouseLeave={() => setHovered(null)}>
       <TimelineZoomControls zoom={zoom} />
 
-      <div ref={zoom.lanesRef} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 items-center">
-        {/* Ruler: drag across it to zoom to that stretch */}
+      <div ref={zoom.lanesRef} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 items-center" style={{ overflowX: 'clip' }}>
+        {/* Ruler: a click puts the playhead there, a drag scrubs it */}
         <span />
-        <TimelineRuler zoom={zoom} />
+        <TimelineRuler zoom={zoom} onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
 
         {/* Original */}
         <span className={laneLabel}>
           <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
         </span>
-        <div className="relative h-11 rounded-t-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
+        <div className="relative h-11 rounded-t-lg bg-slate-950/60 overflow-hidden cursor-default" onClick={seekAt} onWheel={onWheel}>
+          <div ref={zoom.strip} className="absolute inset-0">
           {sourceEnd > 0 && sourceEnd < end && (
             <span
               aria-hidden="true"
-              className="absolute top-1 bottom-1 right-0 rounded border border-dashed border-slate-600/70 bg-slate-800/40 pointer-events-none flex items-center overflow-hidden"
-              style={{ left: `${Math.max(0, pct(sourceEnd))}%` }}
+              className="absolute top-1 bottom-1 rounded border border-dashed border-slate-600/70 bg-slate-800/40 pointer-events-none flex items-center overflow-hidden"
+              style={{ left: `${Math.max(0, pct(sourceEnd))}%`, right: `${(-ahead / WINDOW_SECONDS) * 100}%` }}
             >
               <span className="px-2 text-[11px] text-slate-400 whitespace-nowrap">Original ends {formatClock(sourceEnd)}</span>
             </span>
@@ -198,14 +201,17 @@ export const SyncAlignmentView: React.FC<{
             </span>
           ))}
           {/* Over the lines, at full strength, as in the player above */}
-          <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS} spans={sourceSpans} className="text-slate-400/30" />
+          <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
+            <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-400/30" />
+          </div>
+          </div>
           <span ref={playheadRef(0)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
         </div>
 
         {/* Sync lines: original start to dub start */}
         <span className="text-[10px] text-slate-500 leading-tight">Start → start</span>
         <div className="relative h-7 bg-slate-950/30 overflow-hidden" onWheel={onWheel}>
-          <svg viewBox="0 0 1000 28" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" aria-hidden="true">
+          <svg ref={zoom.strip} viewBox="0 0 1000 28" preserveAspectRatio="none" overflow="visible" className="absolute inset-0 w-full h-full" aria-hidden="true">
             {visible.map((u) =>
               u.placedStart === null ? null : (
                 <line
@@ -229,7 +235,8 @@ export const SyncAlignmentView: React.FC<{
         <span className={laneLabel}>
           <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Synced
         </span>
-        <div className="relative h-11 rounded-b-lg bg-slate-950/60 overflow-hidden cursor-pointer" onClick={seekAt} onWheel={onWheel}>
+        <div className="relative h-11 rounded-b-lg bg-slate-950/60 overflow-hidden cursor-default" onClick={seekAt} onWheel={onWheel}>
+          <div ref={zoom.strip} className="absolute inset-0">
           {/* Where each line should be: the original line's span */}
           {visible.map((u) => (
             <span
@@ -277,7 +284,10 @@ export const SyncAlignmentView: React.FC<{
               </React.Fragment>
             );
           })}
-          <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS} spans={dubSpans} className="text-slate-400/30" />
+          <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
+            <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={dubSpans} className="text-slate-400/30" />
+          </div>
+          </div>
           <span ref={playheadRef(2)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
         </div>
 
@@ -286,10 +296,11 @@ export const SyncAlignmentView: React.FC<{
           Start error
           <span className="block">late ↑</span>
         </span>
-        <div className="relative mt-1.5 rounded-lg bg-slate-950/60 overflow-hidden cursor-pointer" style={{ height: DRIFT_H }} onClick={seekAt} onWheel={onWheel}>
-          <svg viewBox={`0 0 1000 ${DRIFT_H}`} preserveAspectRatio="none" className="absolute inset-0 w-full h-full" aria-hidden="true">
-            <rect x={0} width={1000} y={y(report.tolerance)} height={Math.max(1, y(-report.tolerance) - y(report.tolerance))} fill="rgba(52,211,153,0.12)" />
-            <line x1={0} x2={1000} y1={y(0)} y2={y(0)} stroke="rgba(148,163,184,0.45)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
+        <div className="relative mt-1.5 rounded-lg bg-slate-950/60 overflow-hidden cursor-default" style={{ height: DRIFT_H }} onClick={seekAt} onWheel={onWheel}>
+          <div ref={zoom.strip} className="absolute inset-0">
+          <svg viewBox={`0 0 1000 ${DRIFT_H}`} preserveAspectRatio="none" overflow="visible" className="absolute inset-0 w-full h-full" aria-hidden="true">
+            <rect x={0} width={fx(end)} y={y(report.tolerance)} height={Math.max(1, y(-report.tolerance) - y(report.tolerance))} fill="rgba(52,211,153,0.12)" />
+            <line x1={0} x2={fx(end)} y1={y(0)} y2={y(0)} stroke="rgba(148,163,184,0.45)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
             <polyline
               fill="none"
               stroke="rgba(148,163,184,0.7)"
@@ -314,12 +325,13 @@ export const SyncAlignmentView: React.FC<{
               />
             )
           )}
+          </div>
           <span ref={playheadRef(3)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100/60 pointer-events-none" />
         </div>
 
         <span />
         <div className="mt-1.5">
-          <TimelineScrollbar total={total} windowStart={windowStart} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} markers={markers} onScroll={scrollTo} />
+          <TimelineScrollbar total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} markers={markers} onScroll={scrollTo} />
         </div>
       </div>
 
@@ -371,7 +383,7 @@ export const SyncAlignmentView: React.FC<{
         }}
         currentTime={currentTime}
         total={total}
-        windowStart={windowStart}
+        windowStart={zoom.viewStart()}
         windowSeconds={WINDOW_SECONDS}
       >
         <span className="flex items-center gap-1.5">

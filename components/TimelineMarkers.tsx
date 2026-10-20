@@ -28,6 +28,8 @@ interface MarkerProps {
   onChange: (markers: TimelineNote[]) => void;
   windowStart: number;
   windowSeconds: number;
+  /** Seconds drawn past the right edge, for a timeline that glides. */
+  ahead?: number;
   total: number;
   /** The open note, by marker id. */
   editingId: string | null;
@@ -36,7 +38,7 @@ interface MarkerProps {
 }
 
 /** The flags, drawn over the ruler. */
-export const MarkerFlags: React.FC<MarkerProps> = ({ markers, onChange, windowStart, windowSeconds, total, editingId, onEditingChange, onSeek }) => {
+export const MarkerFlags: React.FC<MarkerProps> = ({ markers, onChange, windowStart, windowSeconds, ahead = 0, total, editingId, onEditingChange, onSeek }) => {
   const rowRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: string; x: number; moved: boolean } | null>(null);
   const [dragTime, setDragTime] = useState<{ id: string; time: number } | null>(null);
@@ -53,7 +55,7 @@ export const MarkerFlags: React.FC<MarkerProps> = ({ markers, onChange, windowSt
     <div ref={rowRef} className="absolute inset-0 pointer-events-none">
       {markers.map((m, i) => {
         const at = timeOf(m);
-        if (at < windowStart - 1 || at > windowStart + windowSeconds + 1) return null;
+        if (at < windowStart - 1 || at > windowStart + windowSeconds + ahead + 1) return null;
         return (
           <button
             key={m.id}
@@ -89,7 +91,7 @@ export const MarkerFlags: React.FC<MarkerProps> = ({ markers, onChange, windowSt
               drag.current = null;
               setDragTime(null);
             }}
-            className="absolute top-0 -ml-[5px] w-[11px] h-full pointer-events-auto cursor-grab active:cursor-grabbing touch-none z-20"
+            className="absolute top-0 -ml-[5px] w-[11px] h-full pointer-events-auto cursor-default touch-none z-20"
             style={{ left: `${pct(at)}%` }}
           >
             <svg viewBox="0 0 11 16" className="w-[11px] h-4" aria-hidden="true">
@@ -183,10 +185,10 @@ const MarkerNote: React.FC<{
 };
 
 /** A faint line down the lanes at each marker, under everything else. */
-export const MarkerLines: React.FC<{ markers: TimelineNote[]; windowStart: number; windowSeconds: number }> = ({ markers, windowStart, windowSeconds }) => (
+export const MarkerLines: React.FC<{ markers: TimelineNote[]; windowStart: number; windowSeconds: number; ahead?: number }> = ({ markers, windowStart, windowSeconds, ahead = 0 }) => (
   <>
     {markers.map((m) =>
-      m.time < windowStart || m.time > windowStart + windowSeconds ? null : (
+      m.time < windowStart || m.time > windowStart + windowSeconds + ahead ? null : (
         <span
           key={m.id}
           aria-hidden="true"

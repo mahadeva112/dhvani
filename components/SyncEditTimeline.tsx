@@ -62,7 +62,7 @@ import { MAX_SPEAKER_DB, MIN_SPEAKER_DB, type SpeakerMonitor } from '../services
  * move, trim, split, stretch, slip, fade, turn up or down and mute by hand
  * after Sync has placed them.
  *
- *   ruler     time; drag across it to zoom to that stretch
+ *   ruler     time; a click puts the playhead there, a drag scrubs it
  *   Original   the original's waveform, each line in its colour (locked);
  *              drag across it to pick a stretch, then drag the stretch down
  *              onto the dub (or Ctrl + C, Ctrl + V at the playhead) to fill a
@@ -666,7 +666,7 @@ const Overview: React.FC<{
       aria-valuemax={Math.round(Math.max(0, total - windowSeconds))}
       aria-valuenow={Math.round(windowStart)}
       tabIndex={-1}
-      className="relative h-6 rounded-lg border border-slate-800 bg-slate-950/80 overflow-hidden cursor-pointer select-none touch-none"
+      className="relative h-6 rounded-lg border border-slate-800 bg-slate-950/80 overflow-hidden cursor-default select-none touch-none"
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         const t = timeAt(e.clientX);
@@ -697,7 +697,7 @@ const Overview: React.FC<{
       <span aria-hidden="true" className="absolute top-0 bottom-0 w-px bg-rose-400 pointer-events-none" style={{ left: `${pct(clamp(currentTime, 0, total))}%` }} />
       <span
         aria-hidden="true"
-        className="absolute top-0 bottom-0 rounded-md border-[1.5px] border-indigo-200/80 bg-indigo-200/10 cursor-grab active:cursor-grabbing"
+        className="absolute top-0 bottom-0 rounded-md border-[1.5px] border-indigo-200/80 bg-indigo-200/10"
         style={{ left: `${pct(windowStart)}%`, width: `${Math.max(1, pct(windowSeconds))}%` }}
       />
     </div>
@@ -975,8 +975,8 @@ export const SyncEditTimeline: React.FC<{
   }, [lines, view, rate, unitIndexByKey, unitByKey, multi]);
 
   const total = useMemo(() => Math.max(sourceTotal, ...chunks.map((c) => partEnd(c.part)), 1), [sourceTotal, chunks]);
-  const zoom = useTimelineZoom(total, currentTime, { wheelScrollsTime: true });
-  const { windowStart, windowSeconds } = zoom;
+  const zoom = useTimelineZoom(total, currentTime, { wheelScrollsTime: true, glide: true });
+  const { windowStart, windowSeconds, ahead } = zoom;
   const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
   const playheadRef = useWindowPlayheads({
     reportedTime: currentTime,
@@ -986,7 +986,13 @@ export const SyncEditTimeline: React.FC<{
     windowSeconds,
     follow: zoom.follow,
     onFollow: zoom.followTo,
+    glideTo: zoom.glideTo,
   });
+  // Play follows the playhead again, after a scroll or zoom by hand stopped it.
+  useEffect(() => {
+    if (isPlaying) zoom.setFollow(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying]);
 
   // Open on about twenty seconds around the playhead, so lines are big enough to edit.
   const opened = useRef(false);
@@ -1120,8 +1126,8 @@ export const SyncEditTimeline: React.FC<{
   };
   const timeAt = (clientX: number) => {
     const r = laneRef.current?.getBoundingClientRect();
-    if (!r || !r.width) return windowStart;
-    return windowStart + ((clientX - r.left) / r.width) * windowSeconds;
+    if (!r || !r.width) return zoom.viewStart();
+    return zoom.viewStart() + ((clientX - r.left) / r.width) * windowSeconds;
   };
   /**
    * What `times` snap to, within SNAP_PX. Each time names the kinds of target
@@ -1261,14 +1267,14 @@ export const SyncEditTimeline: React.FC<{
   };
 
   const ZONE_CURSOR: Record<Zone, string> = {
-    move: 'grab',
+    move: 'default',
     slip: 'ew-resize',
     trimLeft: 'w-resize',
     trimRight: 'e-resize',
     stretchLeft: 'col-resize',
     stretchRight: 'col-resize',
-    fadeIn: 'pointer',
-    fadeOut: 'pointer',
+    fadeIn: 'default',
+    fadeOut: 'default',
     gain: 'ns-resize',
   };
   const ZONE_HINT: Record<Zone, string> = {
@@ -2141,7 +2147,8 @@ export const SyncEditTimeline: React.FC<{
 
   // ---- Drawing ----
 
-  const onScreen = (start: number, end: number) => end >= windowStart - 1 && start <= windowStart + windowSeconds + 1;
+  // Gliding, `ahead` more is drawn past the right edge, for the timeline to move into.
+  const onScreen = (start: number, end: number) => end >= windowStart - 1 && start <= windowStart + windowSeconds + ahead + 1;
   const visible = chunks.filter((c) => onScreen(c.part.start, partEnd(c.part)));
   /** A part's colour: its speaker's with several speakers, else its line's; a clip of the original the Original lane's. */
   const laneHue = (chunk: Chunk) =>
@@ -2164,7 +2171,7 @@ export const SyncEditTimeline: React.FC<{
   );
   const statusColor = (chunk: Chunk) => (chunk.original ? ORIGINAL_HUE : landing(chunk.unit, tolerance).color);
   const driftY = (offset: number) => 50 - clamp(offset / 0.6, -1, 1) * 40;
-  const laneCursor = blade || rangeTool ? 'crosshair' : drag.current ? ZONE_CURSOR[drag.current.zone].replace('grab', 'grabbing') : hover ? ZONE_CURSOR[hover.zone] : 'default';
+  const laneCursor = blade || rangeTool ? 'crosshair' : drag.current ? ZONE_CURSOR[drag.current.zone] : hover ? ZONE_CURSOR[hover.zone] : 'default';
   const currentUnit = current ? unitByKey.get(current.key) : undefined;
   const currentLanding = landing(currentUnit, tolerance);
   const currentLocked = current ? committed[current.key]?.locked ?? false : false;
@@ -2332,38 +2339,47 @@ export const SyncEditTimeline: React.FC<{
         <div
           ref={zoom.lanesRef}
           className="relative min-w-0 select-none"
-          onWheel={wheelScroll(windowSeconds, (s) => zoom.scrollTo(windowStart + s))}
+          style={{ overflowX: 'clip' }}
+          onWheel={wheelScroll(windowSeconds, (s) => zoom.scrollTo(zoom.viewStart() + s))}
         >
           <div className="relative z-20 h-6 px-0 pt-1 border-b border-slate-800 bg-slate-950/40">
-            <TimelineRuler zoom={zoom} />
+            <TimelineRuler zoom={zoom} onSeek={(t) => onSeek(clamp(t, 0, total))} />
             {onMarkersChange && (
-              <MarkerFlags
-                markers={markers}
-                onChange={onMarkersChange}
-                windowStart={windowStart}
-                windowSeconds={windowSeconds}
-                total={total}
-                editingId={editingMarker}
-                onEditingChange={setEditingMarker}
-                onSeek={onSeek}
-              />
+              <div ref={zoom.strip} className="absolute inset-0 pointer-events-none">
+                <MarkerFlags
+                  markers={markers}
+                  onChange={onMarkersChange}
+                  windowStart={windowStart}
+                  windowSeconds={windowSeconds}
+                  ahead={ahead}
+                  total={total}
+                  editingId={editingMarker}
+                  onEditingChange={setEditingMarker}
+                  onSeek={onSeek}
+                />
+              </div>
             )}
           </div>
-          <MarkerLines markers={markers} windowStart={windowStart} windowSeconds={windowSeconds} />
+          <div ref={zoom.strip} className="absolute inset-0 z-10 pointer-events-none">
+            <MarkerLines markers={markers} windowStart={windowStart} windowSeconds={windowSeconds} ahead={ahead} />
+          </div>
 
           {/* Original: a click seeks, a drag picks a stretch to put on the dub */}
           <div
-            className="relative h-14 border-b border-slate-800 bg-slate-950/50 overflow-hidden cursor-text touch-none"
+            className="relative h-14 border-b border-slate-800 bg-slate-950/50 overflow-hidden cursor-default touch-none"
             title="Drag across the original to pick a stretch, then drag it down onto the dub"
             onPointerDown={onOriginalPointerDown}
             onPointerMove={onOriginalPointerMove}
             onPointerUp={onOriginalPointerUp}
             onPointerCancel={onOriginalPointerCancel}
           >
-            <WindowWaveform data={sourcePeaks} from={windowStart} span={windowSeconds} spans={originalSpans} className="text-slate-500/50" look="clips" />
+            <div ref={zoom.strip} className="absolute inset-0">
+            <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((windowSeconds + ahead) / windowSeconds) * 100}%` }}>
+              <WindowWaveform data={sourcePeaks} from={windowStart} span={windowSeconds + ahead} spans={originalSpans} className="text-slate-500/50" look="clips" />
+            </div>
             {pick && onScreen(pick.from, pick.to) && (
               <span
-                className="absolute top-0 bottom-0 z-10 border-x-2 border-cyan-300 bg-cyan-300/15 cursor-grab active:cursor-grabbing"
+                className="absolute top-0 bottom-0 z-10 border-x-2 border-cyan-300 bg-cyan-300/15"
                 style={{ left: `${pct(pick.from)}%`, width: `${((pick.to - pick.from) / windowSeconds) * 100}%` }}
               >
                 <span className="absolute left-1 bottom-0.5 whitespace-nowrap rounded bg-slate-950/80 px-1 font-mono text-[10px] text-cyan-200 pointer-events-none">
@@ -2382,11 +2398,12 @@ export const SyncEditTimeline: React.FC<{
                 </span>
               ) : null
             )}
+            </div>
           </div>
 
           {/* Sync links */}
           <div className="relative h-6 border-b border-slate-800 overflow-hidden">
-            <svg viewBox="0 0 100 24" preserveAspectRatio="none" className="absolute inset-0 w-full h-full" aria-hidden="true">
+            <svg ref={zoom.strip} viewBox="0 0 100 24" preserveAspectRatio="none" overflow="visible" className="absolute inset-0 w-full h-full" aria-hidden="true">
               {spoken.map((unit) => {
                 const { color } = landing(unit, tolerance);
                 const chosen = current?.key === unit.key;
@@ -2409,6 +2426,7 @@ export const SyncEditTimeline: React.FC<{
           {/* With several speakers: every speaker's lines in one row, to see who talks when and where they overlap */}
           {speakerLanes && (
             <div className="relative h-14 border-b border-slate-800 bg-slate-950/40 overflow-hidden" aria-hidden="true">
+              <div ref={zoom.strip} className="absolute inset-0">
               {visible.map((chunk) => {
                 const row = 44 / laneNames.length;
                 return (
@@ -2425,6 +2443,7 @@ export const SyncEditTimeline: React.FC<{
                   />
                 );
               })}
+              </div>
             </div>
           )}
 
@@ -2461,6 +2480,7 @@ export const SyncEditTimeline: React.FC<{
                   style={{ top: n * LANE_PX, height: LANE_PX }}
                 />
               ))}
+            <div ref={zoom.strip} className="absolute inset-0">
             {visible.map((chunk) => {
               const { part } = chunk;
               const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;
@@ -2529,11 +2549,13 @@ export const SyncEditTimeline: React.FC<{
             {currentUnit && onScreen(currentUnit.srcStart, currentUnit.srcStart) && (
               <span aria-hidden="true" className="absolute top-0 bottom-0 border-l border-dashed border-amber-300/80 pointer-events-none" style={{ left: `${pct(currentUnit.srcStart)}%` }} />
             )}
+            </div>
             {!bankPeaks && bankBlob && <span className="absolute right-2 bottom-1 text-[10px] text-slate-500 pointer-events-none">Drawing the waveforms…</span>}
           </div>
 
           {/* Script */}
           <div className="relative h-6 border-b border-slate-800 overflow-hidden">
+            <div ref={zoom.strip} className="absolute inset-0">
             {spoken.map((unit) => (
               <span
                 key={unit.key}
@@ -2544,6 +2566,7 @@ export const SyncEditTimeline: React.FC<{
                 {unit.text}
               </span>
             ))}
+            </div>
           </div>
 
           {/* Drift: each line's start error, against the tolerance band */}
@@ -2554,6 +2577,7 @@ export const SyncEditTimeline: React.FC<{
               style={{ top: `${driftY(tolerance)}%`, bottom: `${100 - driftY(-tolerance)}%` }}
             />
             <span aria-hidden="true" className="absolute left-0 right-0 top-1/2 border-t border-slate-800 pointer-events-none" />
+            <div ref={zoom.strip} className="absolute inset-0">
             {spoken.map((unit) => (
               <span
                 key={unit.key}
@@ -2562,10 +2586,13 @@ export const SyncEditTimeline: React.FC<{
                 style={{ left: `${pct(unit.srcStart)}%`, top: `${driftY(unit.offset as number)}%`, background: landing(unit, tolerance).color }}
               />
             ))}
+            </div>
           </div>
 
           {snapLine !== null && (
-            <span aria-hidden="true" className="absolute top-6 bottom-0 border-l border-dashed border-amber-300 pointer-events-none z-20" style={{ left: `${pct(snapLine)}%` }} />
+            <div ref={zoom.strip} className="absolute inset-0 z-20 pointer-events-none">
+              <span aria-hidden="true" className="absolute top-6 bottom-0 border-l border-dashed border-amber-300" style={{ left: `${pct(snapLine)}%` }} />
+            </div>
           )}
           <span ref={playheadRef(0)} aria-hidden="true" className="absolute top-0 bottom-0 w-0.5 -ml-px bg-rose-400 pointer-events-none z-20" />
           {hud && (
@@ -2585,7 +2612,7 @@ export const SyncEditTimeline: React.FC<{
         total={total}
         chunks={chunks}
         statusOf={statusColor}
-        windowStart={windowStart}
+        windowStart={zoom.viewStart()}
         windowSeconds={windowSeconds}
         currentTime={currentTime}
         onScroll={(start) => zoom.scrollTo(start)}
