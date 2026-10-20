@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.77',
+    changes: [
+      'Zoomed in, the timelines now move smoothly under the playhead while playing, instead of jumping a page at a time. Play follows the playhead again after you scroll away.',
+      'Click the times above a timeline to put the playhead there, or drag along them to scrub. Lines show the plain arrow pointer instead of a hand.',
+    ],
+  },
+  {
     version: '1.3.76',
     changes: [
       "When your own gateway's Google key stops working, API settings now says your key is fine, shows where it broke, and lets you pick another model or copy a note for the gateway admin.",
