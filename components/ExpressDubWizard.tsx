@@ -437,6 +437,8 @@ interface ExpressDubWizardProps {
   onSpeakerMonitorChange?: (speaker: string, patch: Partial<SpeakerMonitor>) => void;
   onRetrySyncEditRender?: () => void;
   isSyncing?: boolean;
+  /** Set while this project's dub waits for another project's to finish: that project's name. `isSyncing` is true meanwhile. */
+  syncWaitingFor?: string | null;
   syncProgress?: SyncProgress | null;
   /** One continuous read: its progress while the script is voiced in one take, before Sync places the lines. */
   readProgress?: DubProgress | null;
@@ -581,6 +583,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onSpeakerMonitorChange,
   onRetrySyncEditRender,
   isSyncing = false,
+  syncWaitingFor = null,
   syncProgress = null,
   readProgress = null,
   isCancellingSync = false,
@@ -3273,7 +3276,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 >
                   {isSyncing ? (
                     <>
-                      <RefreshCw className="w-4 h-4 animate-spin" /> Dubbing in progress, view it
+                      <RefreshCw className="w-4 h-4 animate-spin" /> {syncWaitingFor ? 'Waiting to dub, view it' : 'Dubbing in progress, view it'}
                     </>
                   ) : (
                     <>
@@ -3798,6 +3801,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 progress={syncProgress}
                 reading={readProgress}
                 isSyncing={isSyncing}
+                waitingFor={syncWaitingFor}
                 isCancelling={isCancellingSync}
                 lineCount={segments.length}
                 duration={totalLength}
@@ -4348,6 +4352,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 synced={Boolean(report)}
                 hasDub={hasDub}
                 isSyncing={isSyncing}
+                waitingFor={syncWaitingFor}
                 isCancelling={isCancellingSync}
                 interrupted={Boolean(activeJob?.syncInterrupted)}
                 blockedReason={blockedReason}

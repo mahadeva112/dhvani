@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.73',
+    changes: [
+      'Work on another project while one dubs: pressing Dub there puts it in line, and it starts on its own when the first one finishes. Each project shows only its own progress and errors.',
+      'Transcribing or translating one project no longer stops or locks another.',
+      'Urdu is no longer in the language lists.',
+    ],
+  },
+  {
     version: '1.3.72',
     changes: [
       'Export subtitles no longer gets stuck on timing: it shows the seconds as it works, gives up after 90 s, and Retry starts it fresh, so no restart is needed.',

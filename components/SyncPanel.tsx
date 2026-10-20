@@ -296,6 +296,8 @@ export interface SyncSettingsPanelProps {
   /** True when there is a dub for the sync to replace. */
   hasDub: boolean;
   isSyncing: boolean;
+  /** Set while this dub waits for another project's to finish: that project's name. `isSyncing` is true meanwhile. */
+  waitingFor?: string | null;
   isCancelling: boolean;
   /** A dub was running when Dhvani closed: the button resumes it. */
   interrupted?: boolean;
@@ -925,6 +927,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   synced,
   hasDub,
   isSyncing,
+  waitingFor = null,
   isCancelling,
   interrupted = false,
   blockedReason,
@@ -1070,7 +1073,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           disabled={isCancelling}
           className="h-11 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-sm font-medium text-slate-200 disabled:opacity-50 cursor-pointer"
         >
-          <X className="w-4 h-4" /> {isCancelling ? 'Cancelling…' : 'Cancel sync'}
+          <X className="w-4 h-4" /> {waitingFor ? 'Take out of the line' : isCancelling ? 'Cancelling…' : 'Cancel sync'}
         </button>
       ) : (
         <button
@@ -1092,7 +1095,9 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         </p>
       ) : (
         <p className="text-center text-[11.5px] text-slate-500">
-          {isSyncing
+          {waitingFor
+            ? `Waits for “${waitingFor}” to finish dubbing, then starts on its own with the voice set now.`
+            : isSyncing
             ? 'You can move to another step while this runs.'
             : synced && pendingCount > 0
               ? `Voices only the ${pendingCount === 1 ? 'changed line' : `${pendingCount} changed lines`} again.`
@@ -1130,6 +1135,8 @@ export interface SyncResultsPanelProps {
   handEdits?: number;
   progress: SyncProgress | null;
   isSyncing: boolean;
+  /** Set while this dub waits for another project's to finish: that project's name. */
+  waitingFor?: string | null;
   isCancelling: boolean;
   /** Lines and length of the dub, for the not-yet-synced summary. */
   lineCount: number;
@@ -1235,6 +1242,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   handEdits = 0,
   progress,
   isSyncing,
+  waitingFor = null,
   isCancelling,
   lineCount,
   duration,
@@ -1319,7 +1327,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           {report && !isSyncing && <SyncVerdictBadge report={report} />}
           {isSyncing && (
             <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">
-              {isCancelling ? 'Cancelling…' : 'In progress'}
+              {waitingFor ? 'Waiting' : isCancelling ? 'Cancelling…' : 'In progress'}
             </span>
           )}
           {idle && (
@@ -1391,7 +1399,16 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
         </div>
       )}
 
-      {isSyncing && (
+      {waitingFor && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3.5 py-3 text-[12.5px] text-slate-300" role="status" aria-live="polite">
+          <Timer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <span>
+            In line: “{waitingFor}” is dubbing. This dub starts on its own when that one finishes. You can keep working on any project meanwhile.
+          </span>
+        </div>
+      )}
+
+      {isSyncing && !waitingFor && (
         <div className="flex flex-col gap-3" role="status" aria-live="polite">
           <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
             <div
