@@ -88,7 +88,7 @@ test('refineBatch restores meaning first, then fits the length', async () => {
   assert.equal(out.translations.get('2'), 'শাসনে চলে এসেছে।');
 });
 
-test('refineBatch survives a failing meaning check and drops a length fix that makes things worse', async () => {
+test('refineBatch survives a failing meaning check and drops length fixes that make things worse', async () => {
   const start = new Map([['1', 'মানবসভ্যতা দীর্ঘদিন ধরে ক্ষমতাধর পুরুষদের শাসন ও নিয়ন্ত্রণে চলে এসেছে।'], ['2', 'শাসনে।']]);
   let call = 0;
   const ask = async () => {
@@ -97,7 +97,8 @@ test('refineBatch survives a failing meaning check and drops a length fix that m
     return { translations: [{ id: '1', translatedText: 'মানবসভ্যতা দীর্ঘদিন ধরে অনেক অনেক ক্ষমতাধর পুরুষদের শাসন ও নিয়ন্ত্রণে চলে এসেছে।' }] };
   };
   const out = await refineBatch(cues, start, { targetLanguage: 'Bengali', ask });
-  assert.equal(call, 2);
+  // The meaning check, then two length passes: the cue is still long after the first.
+  assert.equal(call, 3);
   assert.equal(out.lengthFixed, 0);
   assert.equal(out.meaningFixed, 0);
   assert.deepEqual([...out.translations], [...start]);

@@ -17,12 +17,15 @@ export const LONG_SHARE = 0.15;
 /** ...and by at least this many syllables, so short cues are not sent back over one syllable. */
 export const LONG_MIN_SYLLABLES = 2;
 /**
- * Cues with less time than this many syllables are not judged for length: a
+ * Cues with less time than this many syllables are not judged on their own: a
  * one-word cue ("situation.") carries the end of its sentence, and squeezing
  * it only makes the model move that word away and fill the cue with a word
- * the speaker never said.
+ * the speaker never said. Such a cue is judged together with the cue before
+ * it in the same sentence (lengthUnits), the way Chunk sync joins them.
  */
 export const MIN_JUDGED_SYLLABLES = 4;
+/** A batch whose syllables past their budgets are more than this share of its whole budget is translated once more. */
+export const OUTLIER_SHARE = 0.15;
 
 /** Square-bracketed sound notes ([laughs]) are not said, so they are not counted. */
 const spoken = (text) => String(text ?? '').replace(/\[[^\]]*\]/g, ' ');
@@ -39,27 +42,62 @@ export const sentenceEnding = (text) => {
 };
 
 /**
+ * The cues judged for length, as groups of ids with their budget: each cue
+ * with a budget on its own, except that a cue under MIN_JUDGED_SYLLABLES
+ * joins the cue before it when that cue's English sentence carries on into
+ * it. A tiny cue that starts a sentence (or the batch) is not judged.
+ *
+ * @returns {{ids: string[], target: number}[]}
+ */
+export const lengthUnits = (cues) => {
+  const units = [];
+  let last = null;
+  for (const [index, cue] of cues.entries()) {
+    if (!cue.syllables) {
+      last = null;
+      continue;
+    }
+    const before = cues[index - 1];
+    if (cue.syllables < MIN_JUDGED_SYLLABLES) {
+      if (last && before && sentenceEnding(before.text) !== 'end') {
+        last.ids.push(cue.id);
+        last.target += cue.syllables;
+      }
+      continue;
+    }
+    last = { ids: [cue.id], target: cue.syllables };
+    units.push(last);
+  }
+  return units;
+};
+
+const unitSyllables = (unit, translations) => unit.ids.reduce((sum, id) => sum + lineSyllables(spoken(translations.get(id))), 0);
+
+/**
  * What is off with each translated cue: `long` (with its syllables and
- * budget), `end` (the English ends a sentence here and the translation runs
- * on), `open` (the translation ends a sentence the English carries on), or
- * `empty`. Cues without a budget are only checked for sentence ends.
+ * budget, and `ids` when a tiny cue is judged with the one before it), `end`
+ * (the English ends a sentence here and the translation runs on), `open`
+ * (the translation ends a sentence the English carries on), or `empty`. Cues
+ * without a budget are only checked for sentence ends.
  *
  * @param {{id: string, text: string, syllables?: number|null}[]} cues
  * @param {Map<string,string>} translations
- * @returns {{id: string, kind: 'long'|'end'|'open'|'empty', syllables?: number, target?: number}[]}
+ * @returns {{id: string, ids?: string[], kind: 'long'|'end'|'open'|'empty', syllables?: number, target?: number}[]}
  */
 export const cueIssues = (cues, translations) => {
   const issues = [];
+  const units = new Map(lengthUnits(cues).map((unit) => [unit.ids[0], unit]));
   for (const cue of cues) {
     const text = translations.get(cue.id);
     if (!text?.trim()) {
       issues.push({ id: cue.id, kind: 'empty' });
       continue;
     }
-    if (cue.syllables >= MIN_JUDGED_SYLLABLES) {
-      const syllables = lineSyllables(spoken(text));
-      if (syllables > cue.syllables * (1 + LONG_SHARE) && syllables - cue.syllables >= LONG_MIN_SYLLABLES) {
-        issues.push({ id: cue.id, kind: 'long', syllables, target: cue.syllables });
+    const unit = units.get(cue.id);
+    if (unit) {
+      const syllables = unitSyllables(unit, translations);
+      if (syllables > unit.target * (1 + LONG_SHARE) && syllables - unit.target >= LONG_MIN_SYLLABLES) {
+        issues.push({ id: cue.id, ...(unit.ids.length > 1 && { ids: unit.ids }), kind: 'long', syllables, target: unit.target });
       }
     }
     const source = sentenceEnding(cue.text);
@@ -84,7 +122,26 @@ export const issueScore = (cues, translations) => {
   return score;
 };
 
+/**
+ * True when a batch came back far too long to fix line by line: the
+ * syllables past every judged budget add up to more than OUTLIER_SHARE of
+ * the batch's whole budget. Such a batch is worth translating again.
+ */
+export const isOutlier = (cues, translations) => {
+  const units = lengthUnits(cues);
+  const budget = units.reduce((sum, unit) => sum + unit.target, 0);
+  if (!budget) return false;
+  const extra = units.reduce((sum, unit) => sum + Math.max(0, unitSyllables(unit, translations) - unit.target), 0);
+  return extra > budget * OUTLIER_SHARE;
+};
+
+/** Just the cues that run long, for a second length pass. */
+export const longIssues = (cues, translations) => cueIssues(cues, translations).filter((issue) => issue.kind === 'long');
+
 const describeIssue = (issue) => {
+  if (issue.kind === 'long' && issue.ids) {
+    return `- ids ${issue.ids.join(', ')} together (the last is only a word or two, spoken straight on): ${issue.syllables} syllables, the voice has time for about ${issue.target} across them. Say the same thing in fewer syllables; keep the last cue as the end of the sentence.`;
+  }
   if (issue.kind === 'long') {
     return `- id ${issue.id}: ${issue.syllables} syllables, the voice has time for about ${issue.target}. Say the same thing in fewer syllables, or move a word to the next or previous cue of the same sentence if that cue has room.`;
   }
@@ -223,3 +280,40 @@ export const readFix = (parsed, ids) => {
   }
   return changes;
 };
+
+/** Key terms carried from batch to batch, at most this many, so a long talk's prompts stay short. */
+export const MAX_TERMS = 30;
+
+/**
+ * Adds the key terms a batch reports (`terms: [{english, translated}]`) to
+ * the running list of the talk. A term the list already has keeps its first
+ * word, and a reported word the batch's final lines don't contain is
+ * skipped: a fix may have changed it, and the list must only hold words the
+ * talk really uses.
+ *
+ * @param {{english: string, translated: string}[]} known
+ * @returns {{english: string, translated: string}[]}
+ */
+export const mergeTerms = (known, reported, translations) => {
+  const said = [...translations.values()].join(' ').toLowerCase();
+  const list = [...known];
+  const seen = new Set(list.map((term) => term.english.toLowerCase()));
+  for (const item of Array.isArray(reported) ? reported : []) {
+    if (list.length >= MAX_TERMS) break;
+    const english = String(item?.english ?? '').trim();
+    const translated = String(item?.translated ?? item?.translatedAs ?? '').trim();
+    if (!english || !translated || english.length > 60 || translated.length > 60) continue;
+    if (seen.has(english.toLowerCase()) || !said.includes(translated.toLowerCase())) continue;
+    seen.add(english.toLowerCase());
+    list.push({ english, translated });
+  }
+  return list;
+};
+
+/** The running term list as a prompt block, or '' when there is none yet. */
+export const termsBlock = (terms) =>
+  terms?.length
+    ? `\nKEY TERMS SO FAR
+Earlier parts of this talk said these key terms this way. When the same idea comes back, say it with the same word, so the talk uses one word for it throughout; still let the sentence around it be natural:
+${terms.map((term) => `- ${term.english} → ${term.translated}`).join('\n')}\n`
+    : '';
