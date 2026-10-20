@@ -1,6 +1,6 @@
 /**
  * Indian Languages Phonetic Transliteration Engine & Virtual Keyboard Data
- * Supports: Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia, Urdu, Sanskrit
+ * Supports: Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Odia, Sanskrit
  */
 
 export interface IndicLanguageConfig {
@@ -103,14 +103,6 @@ export const INDIC_LANGUAGES: Record<string, IndicLanguageConfig> = {
     script: 'Odia',
     purnaViram: '।',
     om: 'ଓଁ',
-  },
-  Urdu: {
-    code: 'ur',
-    name: 'Urdu',
-    nativeName: 'اردو',
-    itcCode: 'ur-t-i0-und',
-    script: 'Arabic-Persian',
-    purnaViram: '۔',
   },
   Sanskrit: {
     code: 'sa',
@@ -951,32 +943,6 @@ export const CURATED_INDIC_DICTIONARY: Record<string, Record<string, string>> = 
     kana: 'କଣ',
     kouthi: 'କେଉଁଠି',
     bhala: 'ଭଲ',
-  },
-  Urdu: {
-    adab: 'آداب',
-    assalamoalaikum: 'السلام علیکم',
-    shukriya: 'شکریہ',
-    kaise: 'کیسے',
-    kaisa: 'کیسا',
-    hai: 'ہے',
-    hain: 'ہیں',
-    mera: 'میرا',
-    meri: 'میری',
-    mere: 'میرے',
-    aap: 'آپ',
-    tum: 'تم',
-    hum: 'ہم',
-    mai: 'میں',
-    kya: 'کیا',
-    kyun: 'کیوں',
-    nahi: 'نہیں',
-    haan: 'ہاں',
-    lekin: 'لیکن',
-    aur: 'اور',
-    bahut: 'بہت',
-    dost: 'دوست',
-    bhai: 'بھائی',
-    shandar: 'شاندار',
   },
 };
 
