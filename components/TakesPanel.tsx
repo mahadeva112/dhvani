@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Headphones, Loader2, Lock, Mic, Pause, Pencil, Play, RotateCcw, X } from 'lucide-react';
 import type { LineSuggestion, SyncUnitReport } from '../services/syncService';
 import type { RewriteDirection } from './SyncPreviewPanel';
+import { reportError } from '../services/errorPopup';
 import { PAUSE_MARK, pauseSeconds, stripPauses } from '../server/lib/linePauses.js';
 import {
   phraseOf,
@@ -82,7 +83,6 @@ export const TakesPanel: React.FC<{
   busy: boolean;
   /** Takes of some line are being voiced: one request at a time. */
   anyBusy: boolean;
-  error: string | null;
   /** The line's words changed since Sync: takes would read the old words. */
   pending: boolean;
   /** Locked in Edit timing: it can still be retaken, and a take used keeps the lock. */
@@ -111,7 +111,6 @@ export const TakesPanel: React.FC<{
   float,
   busy,
   anyBusy,
-  error,
   pending,
   locked = false,
   initialPhrase,
@@ -178,7 +177,8 @@ export const TakesPanel: React.FC<{
       setWordings(options.length ? { kind: 'ready', options } : { kind: 'error', message: 'No usable wording came back. Try again, or edit it yourself.' });
     } catch (err: any) {
       if (asking.current !== id) return;
-      setWordings({ kind: 'error', message: err?.message || 'The text model did not answer.' });
+      setWordings({ kind: 'idle' });
+      reportError(err, { title: 'No new wordings', safe: 'The line is unchanged — you can still edit it yourself.' });
     }
   };
 
@@ -416,7 +416,6 @@ export const TakesPanel: React.FC<{
         <span className="text-[11.5px] text-slate-500">Character counts are estimates. Phrase retakes also use forced alignment.</span>
         {pending && <span className="text-[11.5px] text-amber-300">The words changed since Sync: Sync again first.</span>}
       </div>
-      {error && <p className="text-[12px] text-rose-300">{error}</p>}
 
       <ul className="flex flex-col gap-1.5" aria-label="Takes">
         {lineTakes.takes.map((take) => {

@@ -39,6 +39,8 @@ import {
   DhvaniApiError,
 } from './services/apiClient';
 import { SetupWizard } from './components/SetupWizard';
+import { ErrorPopup } from './components/ErrorPopup';
+import { reportError } from './services/errorPopup';
 import {
   synthesizeSpeech,
   getDubProgress,
@@ -510,14 +512,12 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isCancellingSync, setIsCancellingSync] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
   // Why the last dub came out in another format than the one chosen in Audio quality.
   const [dubQualityNotice, setDubQualityNotice] = useState<string | null>(null);
   /** The last save to this computer that failed, until one succeeds or the user closes the notice. */
   const [saveFailure, setSaveFailure] = useState<{ jobId: string; message: string } | null>(null);
   /** The synced line whose takes are being voiced (one at a time), and why asking for takes last failed. */
   const [syncTakesBusy, setSyncTakesBusy] = useState<string | null>(null);
-  const [syncTakesError, setSyncTakesError] = useState<{ key: string; message: string } | null>(null);
   // `readJobId`: the continuous read in flight before the lines are placed, if the dub is voiced that way.
   const syncRunRef = useRef<{ jobId: string; controller: AbortController; readJobId?: string } | null>(null);
   /** The continuous read's progress, while the script is voiced in one take; null otherwise. */
@@ -1056,10 +1056,9 @@ export default function App() {
           } catch (err: any) {
             // The transcription and its timings survive a failed translation.
             console.warn('Auto translation to new language failed:', err);
-            updateJob(activeJob.id, {
-              translationWarning: `Translation to ${newLang} failed: ${
-                err?.message || err
-              } Your transcription and timestamps are intact — retry the translation when ready.`,
+            reportError(err, {
+              title: `Translation to ${newLang} failed`,
+              safe: 'Your transcription and timestamps are intact — translate again when ready.',
             });
           } finally {
             setIsTranslatingLanguage(false);
@@ -1143,10 +1142,10 @@ export default function App() {
         });
       } catch (err: any) {
         console.warn('Retranslate with prompt error:', err);
-        updateJob(activeJob.id, {
-          translationWarning: `Translation failed: ${
-            err?.message || err
-          } Your transcription and timestamps are intact.`,
+        reportError(err, {
+          title: `Translation to ${activeJob.language || selectedLanguage} failed`,
+          safe: 'Your transcription and timestamps are intact. You can also use your own script instead.',
+          retry: () => void handleRetranslateWithPrompt(overridePrompt).catch(() => {}),
         });
         throw err;
       } finally {
@@ -1200,9 +1199,8 @@ export default function App() {
         ...syncPendingAfter(job, segments),
       });
     } catch (err: any) {
-      updateJob(jobId, {
-        translationWarning: `${ids.size} cue(s) still have their previous text — translating them failed: ${err?.message || err}`,
-      });
+      updateJob(jobId, { translationWarning: untranslatedWarning(ids.size) });
+      reportError(err, { title: `Translating ${ids.size} cue(s) failed`, safe: 'Those cues kept their previous text; nothing else changed.' });
     } finally {
       setIsTranslatingLanguage(false);
     }
@@ -1330,6 +1328,7 @@ export default function App() {
         });
       } catch (err: any) {
         updateJob(activeJob.id, { errorMsg: describePipelineError(err) });
+        reportError(err, { title: 'Transcription failed', safe: 'Your file and project are unchanged.' });
         throw err;
       }
     },
@@ -2232,6 +2231,7 @@ export default function App() {
       return true;
     } catch (err: any) {
       updateJob(activeJob.id, { errorMsg: describePipelineError(err) });
+      reportError(err, { title: 'Transcription failed', safe: 'Your file and project are unchanged.' });
       return false;
     }
   };
@@ -2319,7 +2319,8 @@ export default function App() {
       } catch (err: any) {
         if (controller.signal.aborted || err?.name === 'AbortError') return;
         console.error('Edit render error:', err);
-        setSyncEditStatus({ state: 'error', message: err?.message || 'The edited dub could not be rendered.' });
+        setSyncEditStatus({ state: 'error', message: 'The edited dub could not be rendered.' });
+        reportError(err, { title: 'Your edits could not be rendered', safe: 'Your edits are kept — Try again on the timeline renders them again.' });
       } finally {
         if (syncEditRunRef.current.controller === controller) syncEditRunRef.current = { timer: null, controller: null };
       }
@@ -2455,7 +2456,6 @@ export default function App() {
     // Kept with the project, so a dub run again after a restart asks for the same reads and finds the lines it already voiced.
     const seed = (syncSeedRef.current[activeJob.id] ??= activeJob.syncSeed ?? Math.floor(Math.random() * 2 ** 31));
     setIsSyncing(true);
-    setSyncError(null);
     updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null, syncSeed: seed, syncInterrupted: false });
 
     const jobId =
@@ -2625,7 +2625,7 @@ export default function App() {
       updateJob(activeJob.id, { status: hadDub ? ProcessingStatus.COMPLETED : ProcessingStatus.IDLE });
       if (!controller.signal.aborted && err?.code !== 'cancelled') {
         console.error('Sync Error:', err);
-        setSyncError(err?.message || 'Sync failed.');
+        reportError(err, { title: 'Sync failed', safe: 'Lines already voiced are kept, so syncing again voices only the rest.' });
       }
     } finally {
       window.clearInterval(poll);
@@ -2721,7 +2721,6 @@ export default function App() {
     if (spoken && phrase) return;
     const words = spoken ? stripPauses(spoken) : unit.text;
     setSyncTakesBusy(unit.key);
-    setSyncTakesError(null);
     const controller = new AbortController();
     try {
       // The voice the dub was synced with, as Sync voices it.
@@ -2791,7 +2790,7 @@ export default function App() {
     } catch (err: any) {
       if (controller.signal.aborted || err?.code === 'cancelled') return;
       console.error('Takes error:', err);
-      setSyncTakesError({ key: unit.key, message: err?.message || 'The takes could not be voiced.' });
+      reportError(err, { title: 'The takes could not be voiced', safe: 'The takes this line already had are kept.' });
     } finally {
       setSyncTakesBusy(null);
     }
@@ -3314,6 +3313,8 @@ export default function App() {
       {sourceAudioUrl && <audio key={sourceAudioUrl} ref={sourceAudioRef} src={sourceAudioUrl} preload="auto" />}
       {synthAudioUrl && <audio key={synthAudioUrl} ref={synthAudioRef} src={synthAudioUrl} preload="auto" />}
 
+      <ErrorPopup />
+
       {/* Streamlined Clean Header */}
       <ProHeader
         activeJob={activeJob}
@@ -3551,7 +3552,6 @@ export default function App() {
           readProgress={readProgress}
           isCancellingSync={isCancellingSync}
           onCancelSync={handleCancelSync}
-          syncError={syncError}
           syncPendingLines={activeJob?.syncPendingLines || []}
           onApplySyncLine={handleApplySyncLine}
           onRetakeSyncLines={handleRetakeSyncLines}
@@ -3560,7 +3560,6 @@ export default function App() {
           onVoiceSyncTakes={handleVoiceSyncTakes}
           onUseSyncTake={handleUseSyncTake}
           syncTakesBusy={syncTakesBusy}
-          syncTakesError={syncTakesError}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}
           onPlaySegmentSolo={handlePlaySoloSegment}

@@ -12,6 +12,7 @@ import {
   holdsWholeScript,
   countWords,
 } from '../services/scriptAlignService';
+import { reportError } from '../services/errorPopup';
 
 export type AlignmentStrategy = 'ai' | 'line' | 'proportional' | 'sentence';
 
@@ -212,7 +213,11 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
       setDraft(rowsFrom(segments, split.texts).map((row) => ({ ...row, estimated: true })));
       setFittedScript(script);
       setStrategy('proportional');
-      setErrorMsg(`${err?.message || 'The AI could not be reached.'} Your script was split by length instead, so check each cue.`);
+      setErrorMsg('Matched by length, not meaning — check each cue.');
+      reportError(err, {
+        title: 'Your script could not be matched by meaning',
+        safe: 'Your script was split by length instead, so nothing is lost — check each cue before applying.',
+      });
       setNotice(notes.join(' ') || null);
     } finally {
       abortRef.current = null;

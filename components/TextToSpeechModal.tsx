@@ -54,6 +54,7 @@ import { audioFileExtension, createWavBlobFromPcm, decodeAudioBlobUrl } from '..
 import { POPULAR_ELEVENLABS_VOICES, VoiceSelectorCard, VoiceEngine, VOICE_ENGINE_LABELS } from './VoiceSelectorCard';
 import { MiniWaveform } from './MediaStrip';
 import { DEFAULT_LANGUAGES } from './ProHeader';
+import { reportError } from '../services/errorPopup';
 
 /**
  * Text to speech studio.
@@ -522,7 +523,8 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
       if (controller.signal.aborted || err?.code === 'cancelled') {
         updateTake(id, { status: 'cancelled', progress: null });
       } else {
-        updateTake(id, { status: 'failed', error: err?.message || 'Speech generation failed.', progress: null });
+        updateTake(id, { status: 'failed', error: 'Not voiced.', progress: null });
+        reportError(err, { title: 'The text could not be voiced', safe: 'Your text and other takes are kept.' });
       }
     } finally {
       window.clearInterval(poll);

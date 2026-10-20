@@ -40,12 +40,29 @@ export const missingKey = (provider) =>
   );
 
 /**
+ * A proxy in front of a provider (Cloudflare, nginx, a hosting panel) answers
+ * an outage with a whole HTML page. Its <title> is the only useful part —
+ * "example.com | 502: Bad gateway" — so keep that and drop the markup.
+ */
+export const plainDetail = (text) => {
+  if (typeof text !== 'string') return text;
+  if (!/<(!doctype|html|head|body|title)\b/i.test(text)) return text;
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(text)?.[1];
+  const words = (title || text.replace(/<!--[\s\S]*?-->/g, ' ').replace(/<[^>]*>?/g, ' '))
+    .replace(/&amp;/g, '&')
+    .replace(/&[a-z#0-9]+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return title ? `The server answered with an error page: "${words.slice(0, 160)}"` : words.slice(0, 200);
+};
+
+/**
  * Translates a provider HTTP status into a message a user can act on.
  */
 export const fromProviderResponse = (provider, status, body) => {
   const detail =
     (body && (body.detail?.message || body.detail || body.error?.message || body.message)) || '';
-  const raw = typeof detail === 'string' ? detail : JSON.stringify(detail);
+  const raw = plainDetail(typeof detail === 'string' ? detail : JSON.stringify(detail));
 
   // Providers are inconsistent about trailing punctuation; normalise it so the
   // sentence we append does not run into theirs.
