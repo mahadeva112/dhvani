@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { X, Download, Copy, Check, Captions, Play, Pause, Pencil, Trash2, Undo2, FileText, ChevronDown } from 'lucide-react';
+import { X, Download, Copy, Check, Captions, Play, Pause, Pencil, Trash2, Undo2, FileText, ChevronDown, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { AudioSegment, EditedSubtitle, SubtitleEdit } from '../types';
 import {
   SrtOptions,
@@ -20,7 +20,7 @@ import {
   TargetScriptFormat,
 } from '../services/srtService';
 import { editedSrt, editedVtt, fingerprint, parseStampInput, subtitleEditKey, subtitlesAsScript } from '../services/subtitleEdits';
-import { useDubWordTimings } from '../services/dubSubtitleTiming';
+import { DUB_TIMING_LIMIT_MS, useDubWordTimings } from '../services/dubSubtitleTiming';
 
 /** Short names for the presets, which carry long ones for elsewhere. */
 const PRESET_LABELS: Record<string, string> = {
@@ -295,11 +295,25 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
 
   /* Dub timings cut on the dub's own words, once ElevenLabs has placed them in the dub. */
   const dubAudioUrl = syncMode === 'synced' ? audio?.synced : syncMode === 'dubbed' ? audio?.dubbed : null;
-  const { timings: dubWordTimings, loading: aligningDub } = useDubWordTimings(
-    dubAudioUrl,
-    syncMode === 'synced' ? syncedSegments ?? [] : segments,
-    isOpen && syncMode !== 'original'
-  );
+  const {
+    timings: dubWordTimings,
+    loading: aligningDub,
+    status: dubTimingStatus,
+    reason: dubTimingFailure,
+    startedAt: dubTimingStartedAt,
+    retry: retryDubTiming,
+    stop: stopDubTiming,
+  } = useDubWordTimings(dubAudioUrl, syncMode === 'synced' ? syncedSegments ?? [] : segments, isOpen && syncMode !== 'original');
+
+  /** Seconds the dub timing has been running, so a request that hangs shows it. */
+  const [timingSeconds, setTimingSeconds] = useState(0);
+  useEffect(() => {
+    if (!aligningDub) return setTimingSeconds(0);
+    const tick = () => setTimingSeconds(Math.max(0, Math.floor((Date.now() - dubTimingStartedAt) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+  }, [aligningDub, dubTimingStartedAt]);
 
   const processedSegments = useMemo(
     () =>
@@ -454,7 +468,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="srt-title"
-        className="w-full max-w-[62.5rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
+        className="w-full max-w-[62.5rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] md:h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
         <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
@@ -478,9 +492,10 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
           </button>
         </div>
 
-        <div data-scroller className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[21.25rem_minmax(0,1fr)]">
+        {/* On a wide screen the window holds still: the settings and the frame stay put and only the subtitle list scrolls. */}
+        <div data-scroller className="flex-1 min-h-0 overflow-y-auto md:overflow-hidden grid md:grid-cols-[21.25rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)]">
           {/* Controls */}
-          <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col gap-4 min-w-0">
+          <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col gap-4 min-w-0 md:min-h-0 md:overflow-y-auto custom-scrollbar">
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-slate-400">Start from</span>
               <div className="flex flex-wrap gap-1.5">
@@ -669,15 +684,15 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
           </div>
 
           {/* Preview */}
-          <div className="px-5 py-4 flex flex-col gap-3 min-w-0 bg-slate-950/40">
+          <div className="px-5 py-4 flex flex-col gap-3 min-w-0 md:min-h-0 bg-slate-950/40">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Preview</span>
               <span className="text-[11.5px] text-slate-400">{playUrl ? 'Click a subtitle to play from it' : 'Click a subtitle to see it on the frame'}</span>
             </div>
 
             {/* The frame and its player stay in view while the subtitles below scroll. */}
-            <div ref={frameRef} className="md:sticky md:-top-4 z-10 -mx-5 -mt-4 px-5 pt-4 pb-1 flex flex-col gap-3 bg-[#0f1524]">
-              <div className="relative aspect-video max-w-full rounded-xl overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]" aria-hidden="true">
+            <div ref={frameRef} className="z-10 -mx-5 -mt-4 px-5 pt-4 pb-1 flex flex-col gap-3 bg-[#0f1524] shrink-0">
+              <div className="relative aspect-video md:aspect-auto md:h-[clamp(9rem,32vh,21rem)] max-w-full rounded-xl overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]" aria-hidden="true">
                 <span className="absolute top-2.5 left-3 font-mono text-[11px] text-white/75">{following ? srtStamp(playTime) : shown ? srtStamp(shown.start) : '00:00:00,000'}</span>
                 <span className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]" />
                 <span className="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]" />
@@ -732,57 +747,111 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                 <p className="text-[11.5px] text-slate-500">Nothing to play for this timing yet.</p>
               )}
               {syncMode === 'synced' && syncStale && (
-                <p className="text-[11.5px] text-amber-300">The script changed since the last Sync. Sync again for subtitles that match it.</p>
+                <p className="text-[11.5px] text-amber-300" title="The script changed since the last Sync. Sync again for subtitles that match it.">
+                  Script changed. Sync again to match.
+                </p>
               )}
             </div>
 
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
               <span>
-                <span className="font-semibold text-slate-100 tabular-nums">{cues.length}</span> subtitles from{' '}
+                <span className="font-semibold text-slate-100 tabular-nums">{cues.length}</span> subtitles ·{' '}
                 <span className="font-semibold text-slate-100 tabular-nums">{segments.length}</span> cues
               </span>
               <span>
                 longest <span className="font-semibold text-slate-100 tabular-nums">{longest.toFixed(1)} s</span>
               </span>
               <span>
-                widest line <span className="font-semibold text-slate-100 tabular-nums">{widest}</span> characters
+                widest <span className="font-semibold text-slate-100 tabular-nums">{widest}</span> chars
               </span>
-              {hasExactTimings && <span className="text-emerald-300">Every cut on a measured word</span>}
-              {aligningDub && <span className="text-slate-300">Timing to the dub's own words…</span>}
-            </div>
-
-            {onSubtitleEditChange && (
-              <div className="flex flex-wrap items-center gap-2">
-                {edit ? (
-                  <>
-                    <span className="text-[11.5px] text-indigo-300">Edited by hand: the settings no longer cut these subtitles.</span>
-                    <span className="flex-1" />
+              {aligningDub ? (
+                <span className="flex items-center gap-1.5 text-slate-200" title="Timing to the dub's own words">
+                  <Loader2 className="w-3.5 h-3.5 text-indigo-400 animate-spin" aria-hidden="true" />
+                  Timing <span className="font-mono text-slate-400 tabular-nums">{timingSeconds} s</span>
+                  <button
+                    type="button"
+                    onClick={stopDubTiming}
+                    title="Stop"
+                    aria-label="Stop timing"
+                    className="w-6 h-6 flex items-center justify-center rounded-md border border-slate-700 hover:bg-slate-800 text-slate-300 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              ) : hasExactTimings ? (
+                <span className="flex items-center gap-1.5 text-emerald-300" title="Every cut on a measured word">
+                  <Check className="w-3.5 h-3.5" aria-hidden="true" />
+                  Exact timing
+                  {dubTimingStatus === 'done' && (
                     <button
                       type="button"
-                      onClick={() => onSubtitleEditChange(editKey, null)}
-                      title="Drop your edits and use the automatic subtitles again"
-                      className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+                      onClick={retryDubTiming}
+                      title="Time again"
+                      aria-label="Time again to the dub's words"
+                      className="w-6 h-6 flex items-center justify-center rounded-md border border-slate-700 hover:bg-slate-800 text-slate-300 cursor-pointer"
                     >
-                      <Undo2 className="w-3.5 h-3.5" /> Back to automatic
+                      <RefreshCw className="w-3.5 h-3.5" />
                     </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-[11.5px] text-slate-500">Change a subtitle's words or times by hand.</span>
-                    <span className="flex-1" />
+                  )}
+                </span>
+              ) : (
+                (dubTimingStatus === 'failed' || dubTimingStatus === 'done') && (
+                  <span
+                    className="flex items-center gap-1.5 text-amber-300"
+                    title={
+                      dubTimingStatus === 'done'
+                        ? "Some lines couldn't be matched to the dub's words, so their times are estimated"
+                        : {
+                            timeout: `Timing took longer than ${DUB_TIMING_LIMIT_MS / 1000} s, so these times are estimated`,
+                            stopped: 'Stopped, so these times are estimated',
+                            unaligned: "The dub couldn't be lined up with its script, so these times are estimated",
+                            error: "The dub couldn't be timed, so these times are estimated",
+                          }[dubTimingFailure ?? 'error']
+                    }
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
+                    Rough timing
+                    <button
+                      type="button"
+                      onClick={retryDubTiming}
+                      className="h-6 px-2 flex items-center gap-1 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 cursor-pointer"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Retry
+                    </button>
+                  </span>
+                )
+              )}
+              {onSubtitleEditChange && (
+                <span className="ml-auto flex items-center gap-2">
+                  {edit ? (
+                    <>
+                      <span className="text-[11.5px] text-indigo-300" title="Edited by hand: the settings no longer cut these subtitles.">
+                        Edited by hand
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onSubtitleEditChange(editKey, null)}
+                        title="Drop your edits and use the automatic subtitles again"
+                        className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-pointer"
+                      >
+                        <Undo2 className="w-3.5 h-3.5" /> Back to automatic
+                      </button>
+                    </>
+                  ) : (
                     <button
                       type="button"
                       onClick={startEditing}
                       disabled={autoCues.length === 0 || aligningDub}
-                      title={aligningDub ? 'Available once the subtitles are timed to the dub' : 'Edit these subtitles by hand'}
+                      title={aligningDub ? 'Available once the subtitles are timed to the dub' : "Change a subtitle's words or times by hand"}
                       className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                     >
-                      <Pencil className="w-3.5 h-3.5" /> Edit subtitles
+                      <Pencil className="w-3.5 h-3.5" /> Edit
                     </button>
-                  </>
-                )}
-              </div>
-            )}
+                  )}
+                </span>
+              )}
+            </div>
+
             {edit && editedSince && (
               <p className="text-[11.5px] text-amber-300">
                 The dub or the settings changed since you edited these. Your edits are kept; Back to automatic cuts them again.
