@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.76',
+    changes: [
+      "When your own gateway's Google key stops working, API settings now says your key is fine, shows where it broke, and lets you pick another model or copy a note for the gateway admin.",
+      'Retakes voice two takes. Suggest wording makes a line shorter when it runs past its time, fuller when it ends too early, and says which. Three dots typed between words become a pause.',
+      "Clear takes empties a line's takes, keeping Sync's own and the one in the dub.",
+    ],
+  },
+  {
     version: '1.3.75',
     changes: [
       'New default translation style, Sadhguru: each sentence is translated by its meaning, the way a native speaker would say it, never word for word, and split over the lines by their time.',
