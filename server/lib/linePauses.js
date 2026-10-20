@@ -38,6 +38,17 @@ export const normalizePauses = (text) =>
     .replace(/(\s*\[pause [\d.]+s\])+$/, '')
     .trim();
 
+/** The pause a typed ellipsis stands for. */
+export const DOTS_PAUSE_SECONDS = 0.4;
+
+/**
+ * The line with each ellipsis typed between words (`...` or `…`) written as a
+ * pause mark, so it is timed and kept out of the script like one. An ellipsis
+ * at the start or the end is left as it is: there it is not a pause.
+ */
+export const dotsToPauses = (text) =>
+  String(text || '').replace(/(?<=[^\s.…])\s*(?:\.{2,}|…+)\s*(?=[^\s.…])/g, ` [pause ${DOTS_PAUSE_SECONDS.toFixed(1)}s] `);
+
 /**
  * A pause as an engine performs it: an SSML break for ElevenLabs models that
  * take one and for Cartesia, an ellipsis for Eleven v3 and v4, which read SSML

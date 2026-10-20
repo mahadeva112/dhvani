@@ -145,7 +145,7 @@ import {
 } from './services/dubAudioQuality';
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
-import { pickedTakes, putTake, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
+import { pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
 import { stripPauses } from './server/lib/linePauses.js';
 import {
   laneClips,
@@ -2931,6 +2931,20 @@ export default function App() {
     );
   };
 
+  /**
+   * Clear takes, in the takes panel: the line keeps Sync's own take and the
+   * one in the dub, and the rest leave its list. Their samples stay in the
+   * bank, which only grows; the dub is not changed.
+   */
+  const handleClearSyncTakes = (key: string) => {
+    const job = activeJob;
+    const kept = job?.syncTakes?.[key];
+    if (!job || !kept || syncTakesBusy?.jobId === job.id) return;
+    const takes = kept.takes.filter((take) => take.id === SYNC_TAKE_ID || take.id === kept.active);
+    if (takes.length === kept.takes.length) return;
+    updateJob(job.id, { syncTakes: { ...job.syncTakes, [key]: { ...kept, takes } } });
+  };
+
   /** Cancel, on the open project: its dub stops, or one waiting its turn comes out of the line. */
   const handleCancelSync = () => {
     const projectId = activeJob?.id;
@@ -3687,6 +3701,7 @@ export default function App() {
           onKeepOfferedTake={handleKeepOfferedTake}
           onVoiceSyncTakes={handleVoiceSyncTakes}
           onUseSyncTake={handleUseSyncTake}
+          onClearSyncTakes={handleClearSyncTakes}
           syncTakesBusy={activeJob && syncTakesBusy?.jobId === activeJob.id ? syncTakesBusy.key : null}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}

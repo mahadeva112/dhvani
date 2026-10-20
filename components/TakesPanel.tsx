@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Headphones, Loader2, Lock, Mic, Pause, Pencil, Play, RotateCcw, X } from 'lucide-react';
+import { Check, Headphones, Loader2, Lock, Mic, Pause, Pencil, Play, RotateCcw, Trash2, X } from 'lucide-react';
 import type { LineSuggestion, SyncUnitReport } from '../services/syncService';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { reportError } from '../services/errorPopup';
-import { PAUSE_MARK, pauseSeconds, stripPauses } from '../server/lib/linePauses.js';
+import { dotsToPauses, PAUSE_MARK, pauseSeconds, stripPauses } from '../server/lib/linePauses.js';
 import {
   phraseOf,
   SYNC_TAKE_ID,
@@ -61,6 +61,11 @@ export interface WordingRequest {
 /** A take's name in the list: Sync's own, or its number among the takes asked for. */
 const takeName = (take: SyncTake, index: number) => (take.id === SYNC_TAKE_ID ? "Sync's take" : `Take ${index}`);
 
+/** Below this share of the original speech, a line's wordings are asked for fuller. */
+const LONGER_BELOW = 0.8;
+
+const WORDING_LABEL: Record<RewriteDirection, string> = { shorter: 'shorter', longer: 'longer', same: 'same length' };
+
 /**
  * The takes of one synced line: every take of it heard side by side, Sync's
  * own among them, and the one the dub plays picked from them. New takes are
@@ -93,6 +98,8 @@ export const TakesPanel: React.FC<{
   /** Wordings of the line from the text model, asked for only when the user presses Suggest wording. */
   onSuggestWording?: (request: WordingRequest) => Promise<LineSuggestion[]>;
   onUse: (takeId: string) => void;
+  /** Drops the line's takes but Sync's own and the one in the dub. */
+  onClearTakes?: () => void;
   onListenInDub: () => void;
   onClose: () => void;
   /** Shown in a FloatingWindow, which carries the title and the close button. */
@@ -117,6 +124,7 @@ export const TakesPanel: React.FC<{
   onVoice,
   onSuggestWording,
   onUse,
+  onClearTakes,
   onListenInDub,
   onClose,
   inWindow = false,
@@ -146,27 +154,35 @@ export const TakesPanel: React.FC<{
   const dirty = reworded && !lineTakes.takes.some((take) => take.text.trim() === draft.trim());
   useEffect(() => onDirtyChange?.(dirty), [dirty]);
   useEffect(() => () => onDirtyChange?.(false), []);
-  const said = stripPauses(draft);
+  // An ellipsis typed between words is a pause: timed, voiced and kept out of the script as one.
+  const marked = dotsToPauses(draft.trim());
+  const said = stripPauses(marked);
   // The line's own voice rate, from its take in the dub, to say how long other words would take.
   const perChar = unit.text.trim().length > 0 ? unit.speech / unit.text.trim().length : 0;
   const slot = nextStart !== null ? Math.max(0, nextStart - firstWord) : Math.max(0, unit.srcEnd - unit.srcStart);
-  const secondsOf = (text: string) => stripPauses(text).length * perChar + pauseSeconds(text);
+  const secondsOf = (text: string) => stripPauses(dotsToPauses(text)).length * perChar + pauseSeconds(dotsToPauses(text));
   const draftSeconds = secondsOf(draft);
   const draftFits = draftSeconds <= slot + tolerance;
+
+  // One way only, as the line needs it: shorter past its slot, fuller well short of the original speech, else as long.
+  const spoken = Math.max(0.1, said.length * perChar);
+  const original = Math.max(0, unit.srcEnd - unit.srcStart);
+  const wordingDirection: RewriteDirection = spoken > slot ? 'shorter' : perChar > 0 && spoken < Math.min(slot, original) * LONGER_BELOW ? 'longer' : 'same';
 
   const suggest = async () => {
     if (!onSuggestWording) return;
     const id = ++asking.current;
-    const spoken = Math.max(0.1, said.length * perChar);
-    const longer = spoken > slot;
-    const targetChars = longer
-      ? Math.max(1, Math.floor((said.length * slot * 0.92) / spoken))
-      : Math.max(said.length, Math.floor((said.length * slot * 0.95) / spoken));
+    const targetChars =
+      wordingDirection === 'shorter'
+        ? Math.max(1, Math.floor((said.length * slot * 0.92) / spoken))
+        : wordingDirection === 'longer'
+          ? Math.max(said.length + 1, Math.floor((said.length * Math.min(slot, original) * 0.95) / spoken))
+          : Math.max(said.length, Math.floor((said.length * slot * 0.95) / spoken));
     setWordings({ kind: 'working' });
     try {
       const options = await onSuggestWording({
-        text: draft.trim(),
-        direction: longer ? 'shorter' : 'same',
+        text: marked,
+        direction: wordingDirection,
         targetChars,
         // What the slot has left once the words are said, less a breath at the end.
         pauseBudget: Math.max(0, Math.round((slot - Math.min(spoken, targetChars * perChar) - 0.1) * 10) / 10),
@@ -229,6 +245,10 @@ export const TakesPanel: React.FC<{
   };
 
   const numbered = lineTakes.takes.filter((take) => take.id !== SYNC_TAKE_ID);
+  // What Clear takes drops: every take but Sync's own and the one in the dub. Asked twice, as they cost voicings.
+  const clearable = lineTakes.takes.filter((take) => take.id !== SYNC_TAKE_ID && take.id !== lineTakes.active).length;
+  const [confirmClear, setConfirmClear] = useState(false);
+  useEffect(() => setConfirmClear(false), [unit.key, clearable]);
 
   return (
     <section
@@ -262,6 +282,7 @@ export const TakesPanel: React.FC<{
           id={`take-words-${unit.key}`}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => reworded && marked !== draft.trim() && setDraft(marked)}
           rows={2}
           className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13.5px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
         />
@@ -275,18 +296,18 @@ export const TakesPanel: React.FC<{
           <span className="text-slate-500">
             {said.length} / {unit.text.length} characters
           </span>
-          {pauseSeconds(draft) > 0 && <span className="text-indigo-300">pauses {pauseSeconds(draft).toFixed(1)} s</span>}
+          {pauseSeconds(marked) > 0 && <span className="text-indigo-300">pauses {pauseSeconds(marked).toFixed(1)} s</span>}
           <span className="ml-auto flex items-center gap-1.5">
             {onSuggestWording && (
               <button
                 type="button"
                 onClick={suggest}
                 disabled={wordings.kind === 'working' || !said}
-                title="Wordings from the text model, with pauses where the meaning wants them, sized to the slot. Nothing changes until you use one."
+                title={`${wordingDirection === 'shorter' ? 'Shorter wordings: the line runs past its slot' : wordingDirection === 'longer' ? 'Fuller wordings: the line ends well before the original speech' : 'Other wordings about as long: the line fits'}, with pauses where the meaning wants them. Nothing changes until you use one.`}
                 className="h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-700 hover:bg-slate-800 text-xs text-slate-200 cursor-pointer disabled:opacity-40 disabled:cursor-default"
               >
                 {wordings.kind === 'working' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Pencil className="w-3 h-3" />}
-                {wordings.kind === 'ready' ? 'Suggest others' : 'Suggest wording'}
+                {wordings.kind === 'ready' ? 'Suggest others' : 'Suggest wording'} · {WORDING_LABEL[wordingDirection]}
               </button>
             )}
             {reworded && (
@@ -381,7 +402,7 @@ export const TakesPanel: React.FC<{
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => onVoice(reworded ? { direction, text: draft.trim() } : { direction })}
+          onClick={() => onVoice(reworded ? { direction, text: marked } : { direction })}
           disabled={anyBusy || pending || !said}
           className={`min-h-8 px-3 py-1 rounded-lg text-xs flex items-center gap-1.5 disabled:opacity-40 cursor-pointer disabled:cursor-default ${
             reworded ? 'bg-indigo-600 hover:bg-indigo-500 text-white font-semibold' : 'border border-slate-700 text-slate-100'
@@ -416,6 +437,37 @@ export const TakesPanel: React.FC<{
         <span className="text-[11.5px] text-slate-500">Character counts are estimates. Phrase retakes also use forced alignment.</span>
         {pending && <span className="text-[11.5px] text-amber-300">The words changed since Sync: Sync again first.</span>}
       </div>
+
+      {onClearTakes && clearable > 0 && (
+        <div className="flex items-center gap-2 -mb-1.5">
+          <span className="text-[10.5px] uppercase tracking-wide font-semibold text-slate-500">Takes</span>
+          <span className="ml-auto flex items-center gap-1.5">
+            {confirmClear && <span className="text-[11.5px] text-slate-400">Sync's take and the one in the dub stay.</span>}
+            {confirmClear && (
+              <button type="button" onClick={() => setConfirmClear(false)} className="h-7 px-2 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-pointer">
+                Keep them
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                if (!confirmClear) return setConfirmClear(true);
+                stop();
+                setConfirmClear(false);
+                onClearTakes();
+              }}
+              disabled={anyBusy}
+              title="Removes the other takes from this list. Sync's take and the one in the dub stay."
+              className={`h-7 px-2.5 flex items-center gap-1 rounded-md border text-xs cursor-pointer disabled:opacity-40 disabled:cursor-default ${
+                confirmClear ? 'border-rose-500/60 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20' : 'border-slate-700 text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <Trash2 className="w-3 h-3" />
+              {confirmClear ? `Clear ${clearable} take${clearable === 1 ? '' : 's'}` : 'Clear takes'}
+            </button>
+          </span>
+        </div>
+      )}
 
       <ul className="flex flex-col gap-1.5" aria-label="Takes">
         {lineTakes.takes.map((take) => {
