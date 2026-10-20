@@ -163,7 +163,7 @@ import {
   deleteJobFromStorage,
   clearAllJobsFromStorage,
 } from './services/storageService';
-import { byNewest } from './services/projects';
+import { byNewest, projectName } from './services/projects';
 import { speakerSyllableRates, useVoiceRates, type VoiceRateVoice } from './services/voiceRate';
 import { currentStep, hasTranscript, openSteps } from './services/steps';
 import {
@@ -225,6 +225,28 @@ const saveFailureMessage = (err: unknown): string => {
 /** The source's length, which the synced dub is as long as. */
 const sourceDurationOf = (job: BatchJob) =>
   job.audioBuffer?.duration || job.audioMetadata?.duration || job.segments[job.segments.length - 1]?.endTime || 0;
+
+/** The voice a dub is voiced with, as it was set when Dub was pressed: a dub waiting its turn keeps it. */
+interface DubVoice {
+  apiKey: string;
+  voiceId: string;
+  modelId: string;
+  voiceSettings: ElevenLabsVoiceSettings | null;
+  cartesia: CartesiaVoicePrefs;
+  expression: VoiceExpression;
+  tuneStability: boolean;
+  quality: DubAudioQuality;
+  mixPeak: MixPeakMode;
+  /** The dub language for a project that has none of its own. */
+  language: string;
+}
+
+/** A Dub pressed while another project's dub ran: it starts once that one ends. */
+interface QueuedDub {
+  jobId: string;
+  options: SyncOptions;
+  voice: DubVoice;
+}
 
 export default function App() {
   // --- STATE ---
@@ -480,7 +502,7 @@ export default function App() {
   const handleDubAudioQualityChange = useCallback((quality: DubAudioQuality) => {
     setDubAudioQuality(quality);
     setRefusedQualities(new Set());
-    setDubQualityNotice(null);
+    setDubQualityNotices({});
     try {
       localStorage.setItem('dhvani_dub_audio_quality', quality);
       localStorage.removeItem('dhvani_dub_refused_qualities');
@@ -506,20 +528,27 @@ export default function App() {
   // False until the first library fetch has finished, or there is nothing to fetch.
   const [voicesSettled, setVoicesSettled] = useState<boolean>(false);
 
-  // The dub in flight (a sync): its progress, and what cancelling it needs.
-  const [isSyncing, setIsSyncing] = useState(false);
+  /*
+   * The dub in flight (a sync): one at a time, whichever project is open.
+   * Its project, its progress, and what cancelling it needs. A Dub pressed
+   * on another project meanwhile waits in `dubQueue` and starts on its own
+   * once this one ends, with the voice that was set when it was pressed.
+   */
+  const [syncingJobId, setSyncingJobId] = useState<string | null>(null);
+  const [dubQueue, setDubQueue] = useState<QueuedDub[]>([]);
   const [syncProgress, setSyncProgress] = useState<SyncProgress | null>(null);
   const [isCancellingSync, setIsCancellingSync] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  // Why the last dub came out in another format than the one chosen in Audio quality.
-  const [dubQualityNotice, setDubQualityNotice] = useState<string | null>(null);
+  /** Why each project's last dub failed. */
+  const [syncErrors, setSyncErrors] = useState<Record<string, string>>({});
+  // Why a project's last dub came out in another format than the one chosen in Audio quality.
+  const [dubQualityNotices, setDubQualityNotices] = useState<Record<string, string | null>>({});
   /** The last save to this computer that failed, until one succeeds or the user closes the notice. */
   const [saveFailure, setSaveFailure] = useState<{ jobId: string; message: string } | null>(null);
   /** The synced line whose takes are being voiced (one at a time), and why asking for takes last failed. */
-  const [syncTakesBusy, setSyncTakesBusy] = useState<string | null>(null);
-  const [syncTakesError, setSyncTakesError] = useState<{ key: string; message: string } | null>(null);
+  const [syncTakesBusy, setSyncTakesBusy] = useState<{ jobId: string; key: string } | null>(null);
+  const [syncTakesError, setSyncTakesError] = useState<{ jobId: string; key: string; message: string } | null>(null);
   // `readJobId`: the continuous read in flight before the lines are placed, if the dub is voiced that way.
-  const syncRunRef = useRef<{ jobId: string; controller: AbortController; readJobId?: string } | null>(null);
+  const syncRunRef = useRef<{ jobId: string; projectId: string; controller: AbortController; readJobId?: string } | null>(null);
   /** The continuous read's progress, while the script is voiced in one take; null otherwise. */
   const [readProgress, setReadProgress] = useState<DubProgress | null>(null);
   /** One seed per dub session, so a second Sync reuses the lines the first one voiced. */
@@ -528,18 +557,19 @@ export default function App() {
    * Edit timing: whether the synced dub has caught up with the edits. An edit
    * is shown at once and rendered a moment later, once the user stops editing.
    */
-  const [syncEditStatus, setSyncEditStatus] = useState<SyncEditStatus>({ state: 'ready' });
-  const syncEditRunRef = useRef<{ timer: number | null; controller: AbortController | null }>({ timer: null, controller: null });
-  const [isTranscribing, setIsTranscribing] = useState<boolean>(false);
-  /** The transcription in flight: which project, and what cancelling it needs. */
-  const transcribeRunRef = useRef<{ jobId: string; controller: AbortController } | null>(null);
-  const [transcribingJobId, setTranscribingJobId] = useState<string | null>(null);
+  const [syncEditStatuses, setSyncEditStatuses] = useState<Record<string, SyncEditStatus>>({});
+  const setSyncEditStatus = useCallback(
+    (jobId: string, status: SyncEditStatus) => setSyncEditStatuses((all) => ({ ...all, [jobId]: status })),
+    []
+  );
+  /** Each project's edit render, waiting or running; one project's never stops another's. */
+  const syncEditRunsRef = useRef<Record<string, { timer: number | null; controller: AbortController | null }>>({});
+  /** The transcriptions in flight, by project: what cancelling each needs, and its stage message. */
+  const transcribeRunsRef = useRef<Record<string, AbortController>>({});
+  const [transcriptions, setTranscriptions] = useState<Record<string, string>>({});
   /** The project whose transcription the user just cancelled, for the note in Source & voice. */
   const [cancelledTranscriptionJob, setCancelledTranscriptionJob] = useState<string | null>(null);
 
-  /** Live stage message from the transcription/translation pipeline. */
-  const [pipelineStatus, setPipelineStatus] = useState<string>('');
-  const [pipelineProgress, setPipelineProgress] = useState<number>(0);
 
   /** What the local backend reports it can do; null until probed, or if offline. */
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null);
@@ -590,8 +620,19 @@ export default function App() {
       return DEFAULT_TARGET_LANGUAGE;
     }
   });
-  const [isTranslatingLanguage, setIsTranslatingLanguage] = useState<boolean>(false);
-  const [translationProgress, setTranslationProgress] = useState<RetranslateProgress | null>(null);
+  /** The translations in flight, by project, with each one's progress (null until the first report). */
+  const [translations, setTranslations] = useState<Record<string, RetranslateProgress | null>>({});
+  const startTranslating = useCallback((jobId: string) => setTranslations((all) => ({ ...all, [jobId]: null })), []);
+  const stopTranslating = useCallback(
+    (jobId: string) =>
+      setTranslations(({ [jobId]: _done, ...rest }) => rest),
+    []
+  );
+  /** Progress reports for one project's translation; any that land after it ended are dropped. */
+  const translationProgressOf = useCallback(
+    (jobId: string) => (progress: RetranslateProgress) => setTranslations((all) => (jobId in all ? { ...all, [jobId]: progress } : all)),
+    []
+  );
 
   /**
    * Source language for transcription. Empty string means "let ElevenLabs
@@ -624,6 +665,15 @@ export default function App() {
   const activeJob = useMemo(() => queue.find((j) => j.id === activeJobId) || null, [queue, activeJobId]);
   const activeJobIdRef = useRef(activeJobId);
   activeJobIdRef.current = activeJobId;
+
+  // What runs on the open project: each kind of work is kept by project, so another project's never shows here.
+  const isTranscribing = Boolean(activeJob && activeJob.id in transcriptions);
+  const pipelineStatus = (activeJob && transcriptions[activeJob.id]) || '';
+  const isTranslatingLanguage = Boolean(activeJob && activeJob.id in translations);
+  const translationProgress = (activeJob && translations[activeJob.id]) || null;
+  const dubbingHere = Boolean(activeJob && syncingJobId === activeJob.id);
+  const dubWaitingHere = Boolean(activeJob && dubQueue.some((dub) => dub.jobId === activeJob.id));
+  const syncEditStatus: SyncEditStatus = (activeJob && syncEditStatuses[activeJob.id]) || { state: 'ready' };
 
   /*
    * The dub voices' speaking rates in the dub language, measured from a short
@@ -679,10 +729,10 @@ export default function App() {
   const stepGate = useMemo(
     () =>
       openSteps(activeJob, {
-        transcribing: Boolean(activeJob && transcribingJobId === activeJob.id),
+        transcribing: isTranscribing,
         translating: isTranslatingLanguage,
       }),
-    [activeJob, transcribingJobId, isTranslatingLanguage]
+    [activeJob, isTranscribing, isTranslatingLanguage]
   );
   const activeStep = Math.max(1, Math.min(awaitingScript && requestedStep > 2 ? 2 : requestedStep, stepGate.upTo));
   useEffect(() => {
@@ -848,17 +898,25 @@ export default function App() {
     if (backendHealth?.elevenLabsConfigured) refreshQuota();
   }, [backendHealth?.elevenLabsConfigured, refreshQuota]);
 
+  /** The project the running dub belongs to, by name, for the open project's notes about it. */
+  const dubbingJob = syncingJobId ? queue.find((job) => job.id === syncingJobId) : undefined;
+  const dubbingProjectName = dubbingJob ? projectName(dubbingJob) : null;
+
   /** What is running on the active job, for the header's status pill and progress line. */
   const headerActivity = useMemo(() => {
     // Sync runs in the Dub step but keeps going on any step, so the header follows it.
-    if (isSyncing) return { label: isCancellingSync ? 'Cancelling dub' : 'Dubbing', fraction: syncProgress ? Math.min(0.98, syncFraction(syncProgress)) : null };
+    const dubFraction = syncProgress ? Math.min(0.98, syncFraction(syncProgress)) : null;
+    if (dubbingHere) return { label: isCancellingSync ? 'Cancelling dub' : 'Dubbing', fraction: dubFraction };
     if (isTranscribing) return { label: pipelineStatus.replace(/\.+$/, '') || 'Transcribing', fraction: null };
     if (isTranslatingLanguage) {
       const p = translationProgress;
       return { label: 'Translating', fraction: p && p.total > 0 ? Math.min(0.98, (p.done + 0.5) / p.total) : null };
     }
+    if (dubWaitingHere) return { label: 'Waiting to dub', fraction: null };
+    // Another project's dub, named so it isn't taken for this one's.
+    if (syncingJobId) return { label: dubbingProjectName ? `Dubbing “${dubbingProjectName}”` : 'Dubbing another project', fraction: dubFraction };
     return null;
-  }, [isSyncing, isCancellingSync, syncProgress, isTranscribing, pipelineStatus, isTranslatingLanguage, translationProgress]);
+  }, [dubbingHere, dubWaitingHere, syncingJobId, dubbingProjectName, isCancellingSync, syncProgress, isTranscribing, pipelineStatus, isTranslatingLanguage, translationProgress]);
 
   const handleDismissSetup = useCallback(() => {
     setSetupDismissed(true);
@@ -1008,8 +1066,7 @@ export default function App() {
 
         // 2. If the active job already has dialogue segments, re-translate them to the new language
         if (activeJob.segments && activeJob.segments.length > 0) {
-          setIsTranslatingLanguage(true);
-          setTranslationProgress(null);
+          startTranslating(activeJob.id);
           try {
             const promptToUse = activeJob.customPrompt || customPrompt;
 
@@ -1020,7 +1077,7 @@ export default function App() {
                 sourceLanguage: activeJob.detectedLanguage || sourceLanguage,
                 targetLanguage: newLang,
                 customPrompt: promptToUse,
-                onProgress: setTranslationProgress,
+                onProgress: translationProgressOf(activeJob.id),
               });
 
             const newScript = translatedSegments
@@ -1062,7 +1119,7 @@ export default function App() {
               } Your transcription and timestamps are intact — retry the translation when ready.`,
             });
           } finally {
-            setIsTranslatingLanguage(false);
+            stopTranslating(activeJob.id);
           }
         }
       }
@@ -1094,8 +1151,7 @@ export default function App() {
     async (overridePrompt?: string) => {
       if (!activeJob || !activeJob.segments || activeJob.segments.length === 0) return;
       const promptToUse = overridePrompt !== undefined ? overridePrompt : (activeJob.customPrompt || customPrompt);
-      setIsTranslatingLanguage(true);
-      setTranslationProgress(null);
+      startTranslating(activeJob.id);
       try {
         const targetLang = activeJob.language || selectedLanguage;
 
@@ -1107,7 +1163,7 @@ export default function App() {
             customPrompt: promptToUse,
             ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
             ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
-            onProgress: setTranslationProgress,
+            onProgress: translationProgressOf(activeJob.id),
           });
 
         const newScript = translatedSegments
@@ -1150,7 +1206,7 @@ export default function App() {
         });
         throw err;
       } finally {
-        setIsTranslatingLanguage(false);
+        stopTranslating(activeJob.id);
       }
     },
     [activeJob, customPrompt, selectedLanguage, updateJob, fitTranslationToVoice, voiceRate.rate, voiceRates.speakers]
@@ -1170,8 +1226,7 @@ export default function App() {
       updateJob(jobId, { translationWarning: null, untranslatedCueIds: null });
       return;
     }
-    setIsTranslatingLanguage(true);
-    setTranslationProgress(null);
+    startTranslating(activeJob.id);
     try {
       const { segments: done, untranslatedCueIds } = await retranslateCues(missing, {
         sourceLanguage: activeJob.detectedLanguage || sourceLanguage,
@@ -1179,7 +1234,7 @@ export default function App() {
         customPrompt: activeJob.customPrompt || customPrompt,
         ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
         ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
-        onProgress: setTranslationProgress,
+        onProgress: translationProgressOf(activeJob.id),
       });
       // Applied to the job as it is now, in case anything changed while it ran.
       const job = queueRef.current.find((j) => j.id === jobId);
@@ -1204,7 +1259,7 @@ export default function App() {
         translationWarning: `${ids.size} cue(s) still have their previous text — translating them failed: ${err?.message || err}`,
       });
     } finally {
-      setIsTranslatingLanguage(false);
+      stopTranslating(activeJob.id);
     }
   }, [activeJob, customPrompt, selectedLanguage, updateJob, fitTranslationToVoice, voiceRate.rate, voiceRates.speakers]);
 
@@ -1255,33 +1310,40 @@ export default function App() {
    * ElevenLabs, any retry), and the project is left as it was.
    */
   const runTranscription = async (jobId: string, file: File, language: string) => {
-    transcribeRunRef.current?.controller.abort();
+    // Transcribing a project again replaces its own transcription in flight; another project's runs on.
+    transcribeRunsRef.current[jobId]?.abort();
     const controller = new AbortController();
-    transcribeRunRef.current = { jobId, controller };
-    setTranscribingJobId(jobId);
-    setIsTranscribing(true);
-    setCancelledTranscriptionJob(null);
-    setPipelineProgress(0);
+    transcribeRunsRef.current[jobId] = controller;
+    setTranscriptions((all) => ({ ...all, [jobId]: '' }));
+    setCancelledTranscriptionJob((cancelled) => (cancelled === jobId ? null : cancelled));
     try {
-      return await transcribeOnly(file, (status) => setPipelineStatus(status), language, { ...speakerOptions, signal: controller.signal });
+      return await transcribeOnly(
+        file,
+        (status) => {
+          if (transcribeRunsRef.current[jobId] === controller) setTranscriptions((all) => ({ ...all, [jobId]: status }));
+        },
+        language,
+        { ...speakerOptions, signal: controller.signal }
+      );
     } catch (err) {
       if (controller.signal.aborted) {
-        setCancelledTranscriptionJob(jobId);
+        // Not when a new transcription of the project replaced it.
+        if (transcribeRunsRef.current[jobId] === controller) setCancelledTranscriptionJob(jobId);
         return null;
       }
       throw err;
     } finally {
-      if (transcribeRunRef.current?.controller === controller) {
-        transcribeRunRef.current = null;
-        setTranscribingJobId(null);
-        setIsTranscribing(false);
-        setPipelineStatus('');
+      if (transcribeRunsRef.current[jobId] === controller) {
+        delete transcribeRunsRef.current[jobId];
+        setTranscriptions(({ [jobId]: _done, ...rest }) => rest);
       }
     }
   };
 
-  /** Stops the transcription in flight, here and on the server. */
-  const handleCancelTranscription = () => transcribeRunRef.current?.controller.abort();
+  /** Stops the open project's transcription, here and on the server. */
+  const handleCancelTranscription = () => {
+    if (activeJob) transcribeRunsRef.current[activeJob.id]?.abort();
+  };
 
   // Transcribe the raw audio again. It stops at the transcript: the user
   // chooses translate or their own script afterwards. A cancel keeps the transcript there was.
@@ -1424,9 +1486,8 @@ export default function App() {
   const decodingSynthUrlRef = useRef<string | null>(null);
   const currentSynthUrlRef = useRef<string | null>(synthAudioUrl);
   currentSynthUrlRef.current = synthAudioUrl;
-  /** The active job's synced dub, so a decode that lands after a newer one is dropped. */
-  const currentSyncedUrlRef = useRef<string | null>(null);
-  currentSyncedUrlRef.current = activeJob?.syncedAudioUrl || null;
+  /** A project's synced dub as it is now, open or not, so a decode that lands after a newer one is dropped. */
+  const syncedUrlOf = (jobId: string) => queueRef.current.find((job) => job.id === jobId)?.syncedAudioUrl || null;
 
   // Re-decode audio buffers if needed
   useEffect(() => {
@@ -2262,11 +2323,12 @@ export default function App() {
    * exactly as long as the source.
    */
   /** Stops an edit render that is waiting or running; its edits stay, unrendered. */
-  const cancelSyncEditRender = () => {
-    const run = syncEditRunRef.current;
+  const cancelSyncEditRender = (jobId: string) => {
+    const run = syncEditRunsRef.current[jobId];
+    if (!run) return;
     if (run.timer !== null) window.clearTimeout(run.timer);
     run.controller?.abort();
-    syncEditRunRef.current = { timer: null, controller: null };
+    delete syncEditRunsRef.current[jobId];
   };
 
   /**
@@ -2279,12 +2341,12 @@ export default function App() {
     input: { bank: NonNullable<BatchJob['syncBank']>; bankBlob: Blob | null | undefined; baseReport: NonNullable<BatchJob['syncReport']>; edits: SyncEdits | null; sourceDuration: number; source: AudioBuffer | null | undefined },
     delay = SYNC_EDIT_RENDER_DELAY_MS
   ) => {
-    cancelSyncEditRender();
-    setSyncEditStatus({ state: 'pending' });
+    cancelSyncEditRender(jobId);
+    setSyncEditStatus(jobId, { state: 'pending' });
     const timer = window.setTimeout(async () => {
       const controller = new AbortController();
-      syncEditRunRef.current = { timer: null, controller };
-      setSyncEditStatus({ state: 'rendering' });
+      syncEditRunsRef.current[jobId] = { timer: null, controller };
+      setSyncEditStatus(jobId, { state: 'rendering' });
       try {
         // Each speaker's level from their lane, as the project has it when the render starts.
         const levels = queueRef.current.find((job) => job.id === jobId)?.syncSpeakerLevels;
@@ -2295,7 +2357,7 @@ export default function App() {
         if (controller.signal.aborted) return;
         const url = URL.createObjectURL(blob);
         const several = Boolean(input.baseReport.mix);
-        const previousUrl = jobId === activeJobId ? currentSyncedUrlRef.current : null;
+        const previousUrl = syncedUrlOf(jobId);
         updateJob(jobId, {
           syncedAudioUrl: url,
           syncedBlob: blob,
@@ -2307,7 +2369,7 @@ export default function App() {
         decodingSynthUrlRef.current = url;
         decodeAudioBlobUrl(url)
           .then((buffer) => {
-            if (currentSyncedUrlRef.current === url) updateJob(jobId, { syncedAudioBuffer: buffer });
+            if (syncedUrlOf(jobId) === url) updateJob(jobId, { syncedAudioBuffer: buffer });
           })
           .catch(console.warn)
           .finally(() => {
@@ -2315,16 +2377,16 @@ export default function App() {
           });
         // The file before this render is kept with the project as a Blob until replaced; its URL can go once the player has moved on.
         if (previousUrl) window.setTimeout(() => URL.revokeObjectURL(previousUrl), 5000);
-        setSyncEditStatus({ state: 'ready' });
+        setSyncEditStatus(jobId, { state: 'ready' });
       } catch (err: any) {
         if (controller.signal.aborted || err?.name === 'AbortError') return;
         console.error('Edit render error:', err);
-        setSyncEditStatus({ state: 'error', message: err?.message || 'The edited dub could not be rendered.' });
+        setSyncEditStatus(jobId, { state: 'error', message: err?.message || 'The edited dub could not be rendered.' });
       } finally {
-        if (syncEditRunRef.current.controller === controller) syncEditRunRef.current = { timer: null, controller: null };
+        if (syncEditRunsRef.current[jobId]?.controller === controller) delete syncEditRunsRef.current[jobId];
       }
     }, delay);
-    syncEditRunRef.current = { timer, controller: null };
+    syncEditRunsRef.current[jobId] = { timer, controller: null };
   };
 
   /** Edit timing changed a line: the report follows at once, the audio once the user pauses. */
@@ -2378,10 +2440,24 @@ export default function App() {
    * changes; lines reworded since are voiced on their own.
    */
   /** Whether the dub's voice can take Natural or Expressive: an Eleven v3/v4 model, or a Cartesia sonic-3 one. */
-  const expressionTakesTags = () =>
-    isCartesiaVoice(elVoiceId) ? cartesiaTakesControls(cartesiaVoice.modelId) : performsAudioTags(elModelId);
+  const expressionTakesTags = (voice: Pick<DubVoice, 'voiceId' | 'modelId' | 'cartesia'> = { voiceId: elVoiceId, modelId: elModelId, cartesia: cartesiaVoice }) =>
+    isCartesiaVoice(voice.voiceId) ? cartesiaTakesControls(voice.cartesia.modelId) : performsAudioTags(voice.modelId);
 
-  const readScript = async (job: BatchJob, language: string, readKey: string, matchLoudness: boolean, outputFormat: string, signal: AbortSignal) => {
+  /** The voice as it is set now, for a dub pressed now. */
+  const currentDubVoice = (): DubVoice => ({
+    apiKey: elApiKey,
+    voiceId: elVoiceId,
+    modelId: elModelId,
+    voiceSettings: elVoiceSettings,
+    cartesia: cartesiaVoice,
+    expression: voiceExpression,
+    tuneStability,
+    quality: dubAudioQuality,
+    mixPeak,
+    language: selectedLanguage,
+  });
+
+  const readScript = async (job: BatchJob, voice: DubVoice, language: string, readKey: string, matchLoudness: boolean, outputFormat: string, signal: AbortSignal) => {
     const readJobId =
       typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
@@ -2398,8 +2474,8 @@ export default function App() {
     }, 700);
     try {
       // Natural: tag the script from the original speaker's delivery before voicing it.
-      const tags = expressionTakesTags();
-      const expression: VoiceExpression = tags || voiceExpression === 'off' ? voiceExpression : 'neutral';
+      const tags = expressionTakesTags(voice);
+      const expression: VoiceExpression = tags || voice.expression === 'off' ? voice.expression : 'neutral';
       const matchSource = expression === 'natural';
       let script = buildSpeechScript(job.segments);
       if (matchSource) {
@@ -2408,23 +2484,23 @@ export default function App() {
         );
         script = buildSpeechScript(tagged);
       }
-      const blob = await synthesizeSpeech(elApiKey, elVoiceId, script, elModelId, outputFormat, elVoiceSettings, {
+      const blob = await synthesizeSpeech(voice.apiKey, voice.voiceId, script, voice.modelId, outputFormat, voice.voiceSettings, {
         expressive: expression === 'expressive',
         audioTags: matchSource,
         performanceTags: matchSource,
         steady: expression === 'neutral',
         matchLoudness,
-        tuneStability,
+        tuneStability: voice.tuneStability,
         onStabilityAdjustment: setLastStabilityAdjustment,
-        cartesia: cartesiaForExpression(cartesiaVoice, expression),
+        cartesia: cartesiaForExpression(voice.cartesia, expression),
         language,
         jobId: readJobId,
         signal,
       });
       const lines: DubLines = {
         dubId: readJobId,
-        voiceId: elVoiceId,
-        modelId: elModelId,
+        voiceId: voice.voiceId,
+        modelId: voice.modelId,
         readKey,
         cues: job.segments
           .map((segment) => ({ id: String(segment.id), text: (segment.textTarget || segment.targetText || '').trim() }))
@@ -2447,15 +2523,33 @@ export default function App() {
     }
   };
 
-  const handleSyncDub = async ({ voicing, precision, join, suggest, suggestLonger, matchLoudness, verifyWords, timingProtection }: SyncOptions) => {
-    if (!activeJob || activeJob.segments.length === 0 || isSyncing) return;
-    if (activeJob.targetSource === 'pending') return;
+  /** Dub, as pressed on the open project: now, or once the dub running for another project ends. */
+  const handleSyncDub = (options: SyncOptions) => {
+    const job = activeJob;
+    if (!job || job.segments.length === 0 || job.targetSource === 'pending') return;
+    if (syncRunRef.current?.projectId === job.id || dubQueue.some((dub) => dub.jobId === job.id)) return;
+    setSyncErrors(({ [job.id]: _cleared, ...rest }) => rest);
+    if (syncRunRef.current) {
+      setDubQueue((waiting) => [...waiting, { jobId: job.id, options, voice: currentDubVoice() }]);
+      return;
+    }
+    runSyncDub(job.id, options, currentDubVoice());
+  };
+
+  const runSyncDub = async (
+    projectId: string,
+    { voicing, precision, join, suggest, suggestLonger, matchLoudness, verifyWords, timingProtection }: SyncOptions,
+    voice: DubVoice
+  ) => {
+    // The project as it is now: a dub that waited its turn takes the edits made meanwhile.
+    const activeJob = queueRef.current.find((job) => job.id === projectId);
+    if (!activeJob || activeJob.segments.length === 0 || activeJob.targetSource === 'pending' || syncRunRef.current) return;
 
     const hadDub = Boolean(activeJob.synthesizedAudioUrl || activeJob.syncedAudioUrl);
     // Kept with the project, so a dub run again after a restart asks for the same reads and finds the lines it already voiced.
     const seed = (syncSeedRef.current[activeJob.id] ??= activeJob.syncSeed ?? Math.floor(Math.random() * 2 ** 31));
-    setIsSyncing(true);
-    setSyncError(null);
+    setSyncingJobId(projectId);
+    setSyncErrors(({ [projectId]: _cleared, ...rest }) => rest);
     updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null, syncSeed: seed, syncInterrupted: false });
 
     const jobId =
@@ -2463,7 +2557,7 @@ export default function App() {
         ? crypto.randomUUID()
         : `sync-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const controller = new AbortController();
-    syncRunRef.current = { jobId, controller };
+    syncRunRef.current = { jobId, projectId, controller };
     setSyncProgress(null);
     setIsCancellingSync(false);
     const poll = window.setInterval(() => {
@@ -2483,15 +2577,15 @@ export default function App() {
     // Takes picked in the takes panel are kept as they are, unless their words changed since.
     const picked = pickedTakes(priorBank, activeJob.syncTakes, activeJob.syncPendingLines || []);
     // An edit render in flight belongs to the dub this sync replaces.
-    cancelSyncEditRender();
+    cancelSyncEditRender(activeJob.id);
 
     try {
       const several = isMultiSpeaker(activeJob.segments);
-      const language = activeJob.language || selectedLanguage;
+      const language = activeJob.language || voice.language;
       // Tags need one voice on a model that performs them; otherwise the dub is voiced as Neutral (or Off).
-      const tags = !several && expressionTakesTags();
-      const expression: VoiceExpression = tags || voiceExpression === 'off' ? voiceExpression : 'neutral';
-      const cartesiaDub = cartesiaForExpression(cartesiaVoice, expression);
+      const tags = !several && expressionTakesTags(voice);
+      const expression: VoiceExpression = tags || voice.expression === 'off' ? voice.expression : 'neutral';
+      const cartesiaDub = cartesiaForExpression(voice.cartesia, expression);
       let voiceTexts: Record<string, string> | undefined;
       if (expression === 'natural') {
         const tagged = await sourceTaggedSegments(activeJob, language, controller.signal);
@@ -2503,7 +2597,7 @@ export default function App() {
        */
       const keptFormat = picked && priorBank ? priorBank.outputFormat || 'mp3_44100_128' : null;
       // Cartesia has no plan tiers: a Cartesia voice is asked for the chosen format as it is.
-      const refused = isCartesiaVoice(elVoiceId) ? new Set<string>() : refusedQualities;
+      const refused = isCartesiaVoice(voice.voiceId) ? new Set<string>() : refusedQualities;
       /*
        * One continuous read (one voice only): the script is read in one take,
        * or the last read is reused while it was voiced the same way, and its
@@ -2513,23 +2607,23 @@ export default function App() {
       const voiceDub = async (outputFormat: string) => {
         let dub: { blob: Blob; lines: DubLines } | undefined;
         if (voicing === 'continuous' && !several) {
-          const readKey = JSON.stringify([elVoiceId, elModelId, elVoiceSettings ?? null, expression, matchLoudness, cartesiaDub, outputFormat]);
+          const readKey = JSON.stringify([voice.voiceId, voice.modelId, voice.voiceSettings ?? null, expression, matchLoudness, cartesiaDub, outputFormat]);
           const last = activeJob.dubLines;
           const lastFits =
-            activeJob.synthesizedBlob && last && last.voiceId === elVoiceId && last.modelId === elModelId && (last.readKey ?? readKey) === readKey;
+            activeJob.synthesizedBlob && last && last.voiceId === voice.voiceId && last.modelId === voice.modelId && (last.readKey ?? readKey) === readKey;
           dub =
             lastFits && activeJob.synthesizedBlob && last
               ? { blob: activeJob.synthesizedBlob, lines: last }
-              : await readScript(activeJob, language, readKey, matchLoudness, outputFormat, controller.signal);
+              : await readScript(activeJob, voice, language, readKey, matchLoudness, outputFormat, controller.signal);
         }
         return syncDub(
           {
             segments: activeJob.segments,
             sourceDuration,
-            voiceId: elVoiceId,
-            modelId: elModelId,
+            voiceId: voice.voiceId,
+            modelId: voice.modelId,
             outputFormat,
-            voiceSettings: elVoiceSettings,
+            voiceSettings: voice.voiceSettings,
             language,
             seed,
             precision,
@@ -2548,25 +2642,27 @@ export default function App() {
             ...(expression === 'expressive' && { expressive: true }),
             ...(expression === 'neutral' && { steady: true }),
             ...(dub && { dub }),
-            ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: mixPeak }),
+            ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: voice.mixPeak }),
             ...(Object.keys(locked).length > 0 && { locked }),
             ...(picked && { picked, pickedBankBlob: activeJob.syncBankBlob }),
-            tuneStability,
+            tuneStability: voice.tuneStability,
           },
-          { apiKey: elApiKey, jobId, signal: controller.signal }
+          { apiKey: voice.apiKey, jobId, signal: controller.signal }
         );
       };
       const { result: voiced, format: voicedFormat } = keptFormat
         ? { result: await voiceDub(keptFormat), format: keptFormat }
-        : await voiceInAllowedQuality(dubAudioQuality, refused, voiceDub, refuseQuality);
+        : await voiceInAllowedQuality(voice.quality, refused, voiceDub, refuseQuality);
       const { blob, stems, report, bank: syncedBank, bankBlob } = voiced;
       // The bank remembers its format, so takes voiced for it later come back at its rate.
       const bank = { ...syncedBank, outputFormat: voicedFormat };
-      setDubQualityNotice(
-        keptFormat && keptFormat !== dubAudioQuality
-          ? `This dub stays in ${dubAudioQualityLabel(keptFormat)}, the format its picked takes were voiced in. Take them out and Sync again for ${dubAudioQualityLabel(dubAudioQuality)}.`
-          : fallbackNotice(dubAudioQuality, voicedFormat)
-      );
+      setDubQualityNotices((all) => ({
+        ...all,
+        [activeJob.id]:
+          keptFormat && keptFormat !== voice.quality
+            ? `This dub stays in ${dubAudioQualityLabel(keptFormat)}, the format its picked takes were voiced in. Take them out and Sync again for ${dubAudioQualityLabel(voice.quality)}.`
+            : fallbackNotice(voice.quality, voicedFormat),
+      }));
       const { edits: keptEdits, dropped } = rebaseEdits(priorEdits, priorBank, bank);
       const edited = hasEdits(keptEdits);
       if (report.audioDebug) {
@@ -2596,6 +2692,7 @@ export default function App() {
         status: ProcessingStatus.COMPLETED,
       });
       setSyncEditStatus(
+        activeJob.id,
         dropped.length > 0
           ? {
               state: 'ready',
@@ -2610,29 +2707,29 @@ export default function App() {
       decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
         .then((syncedBuffer) => {
-          if (currentSyncedUrlRef.current === url) updateJob(activeJob.id, { syncedAudioBuffer: syncedBuffer });
+          if (syncedUrlOf(activeJob.id) === url) updateJob(activeJob.id, { syncedAudioBuffer: syncedBuffer });
         })
         .catch(console.warn)
         .finally(() => {
           if (decodingSynthUrlRef.current === url) decodingSynthUrlRef.current = null;
         });
 
-      // Synced, the dub is best judged against the original.
-      setTrackMode('both');
+      // Synced, the dub is best judged against the original: on the project open, not one opened since.
+      if (activeJobIdRef.current === activeJob.id) setTrackMode('both');
       refreshQuota();
     } catch (err: any) {
       // A failed or cancelled sync leaves the dub and the last synced dub as they were.
       updateJob(activeJob.id, { status: hadDub ? ProcessingStatus.COMPLETED : ProcessingStatus.IDLE });
       if (!controller.signal.aborted && err?.code !== 'cancelled') {
         console.error('Sync Error:', err);
-        setSyncError(err?.message || 'Sync failed.');
+        setSyncErrors((all) => ({ ...all, [activeJob.id]: err?.message || 'Sync failed.' }));
       }
     } finally {
       window.clearInterval(poll);
       if (syncRunRef.current?.jobId === jobId) syncRunRef.current = null;
       setSyncProgress(null);
       setIsCancellingSync(false);
-      setIsSyncing(false);
+      setSyncingJobId(null);
     }
   };
 
@@ -2709,7 +2806,7 @@ export default function App() {
     { direction, phrase, text }: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }
   ) => {
     const job = activeJob;
-    if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport || syncTakesBusy) return;
+    if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport || syncTakesBusy?.jobId === job.id) return;
     const bank = job.syncBank;
     const base = job.syncBaseReport;
     const line = bank.lines.find((l) => l.key === unit.key);
@@ -2720,8 +2817,8 @@ export default function App() {
     const spoken = text?.trim() && text.trim() !== unit.text ? text.trim() : null;
     if (spoken && phrase) return;
     const words = spoken ? stripPauses(spoken) : unit.text;
-    setSyncTakesBusy(unit.key);
-    setSyncTakesError(null);
+    setSyncTakesBusy({ jobId: job.id, key: unit.key });
+    setSyncTakesError((last) => (last?.jobId === job.id ? null : last));
     const controller = new AbortController();
     try {
       // The voice the dub was synced with, as Sync voices it.
@@ -2791,9 +2888,9 @@ export default function App() {
     } catch (err: any) {
       if (controller.signal.aborted || err?.code === 'cancelled') return;
       console.error('Takes error:', err);
-      setSyncTakesError({ key: unit.key, message: err?.message || 'The takes could not be voiced.' });
+      setSyncTakesError({ jobId: job.id, key: unit.key, message: err?.message || 'The takes could not be voiced.' });
     } finally {
-      setSyncTakesBusy(null);
+      setSyncTakesBusy((busy) => (busy?.jobId === job.id ? null : busy));
     }
   };
 
@@ -2810,7 +2907,7 @@ export default function App() {
     if (!job?.syncBank || !job.syncBaseReport || !kept || !take || kept.active === takeId) return;
     const line = job.syncBank.lines.find(l => l.key === key);
     const unit = job.syncBaseReport.units.find((u) => u.key === key);
-    if (syncTakesBusy || !line || !unit || job.syncPendingLines?.includes(key)) return;
+    if (syncTakesBusy?.jobId === job.id || !line || !unit || job.syncPendingLines?.includes(key)) return;
     const put = putTake({ bank: job.syncBank, edits: job.syncEdits, baseReport: job.syncBaseReport, key, take });
     const { bank, edits } = put;
     const reworded = take.text !== unit.text;
@@ -2838,15 +2935,31 @@ export default function App() {
     );
   };
 
+  /** Cancel, on the open project: its dub stops, or one waiting its turn comes out of the line. */
   const handleCancelSync = () => {
+    const projectId = activeJob?.id;
+    if (!projectId) return;
+    if (dubQueue.some((dub) => dub.jobId === projectId)) {
+      setDubQueue((waiting) => waiting.filter((dub) => dub.jobId !== projectId));
+      return;
+    }
     const run = syncRunRef.current;
-    if (!run) return;
+    if (!run || run.projectId !== projectId) return;
     setIsCancellingSync(true);
     if (run.readJobId) cancelDub(run.readJobId).catch(() => {});
     cancelSync(run.jobId)
       .catch(() => {})
       .finally(() => run.controller.abort());
   };
+
+  // The next dub waiting starts as soon as none is running; one for a project deleted meanwhile is dropped.
+  useEffect(() => {
+    if (syncingJobId || syncRunRef.current || dubQueue.length === 0) return;
+    const [next, ...rest] = dubQueue;
+    setDubQueue(rest);
+    runSyncDub(next.jobId, next.options, next.voice);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncingJobId, dubQueue]);
 
   // Segment Text Update Handler
   const handleUpdateSegment = useCallback(
@@ -3025,6 +3138,15 @@ export default function App() {
   const handleRemoveJobFromQueue = useCallback(
     async (id: string) => {
       await deleteJobFromStorage(id);
+      // Its dub waiting its turn comes out of the line; one running stops, with nothing left to save to.
+      setDubQueue((waiting) => waiting.filter((dub) => dub.jobId !== id));
+      const run = syncRunRef.current;
+      if (run?.projectId === id) {
+        if (run.readJobId) cancelDub(run.readJobId).catch(() => {});
+        cancelSync(run.jobId)
+          .catch(() => {})
+          .finally(() => run.controller.abort());
+      }
       if (activeJobId === id) {
         pauseAll();
         seekAll(0);
@@ -3042,6 +3164,14 @@ export default function App() {
 
   const handleClearAllQueue = useCallback(async () => {
     await clearAllJobsFromStorage();
+    setDubQueue([]);
+    const run = syncRunRef.current;
+    if (run) {
+      if (run.readJobId) cancelDub(run.readJobId).catch(() => {});
+      cancelSync(run.jobId)
+        .catch(() => {})
+        .finally(() => run.controller.abort());
+    }
     setQueue([]);
     setActiveJobId(null);
     pauseAll();
@@ -3175,7 +3305,7 @@ export default function App() {
   const handleSetDubbedMaster = useCallback(
     (masterBlob: Blob, masterBuffer: AudioBuffer) => {
       if (!activeJob) return;
-      if (playsSynced) cancelSyncEditRender();
+      if (playsSynced) cancelSyncEditRender(activeJob.id);
       const masterUrl = URL.createObjectURL(masterBlob);
       updateJob(
         activeJob.id,
@@ -3546,12 +3676,13 @@ export default function App() {
           onSpeakerLevelChange={handleSpeakerLevelChange}
           onSpeakerMonitorChange={handleSpeakerMonitorChange}
           onRetrySyncEditRender={handleRetrySyncEditRender}
-          isSyncing={isSyncing}
-          syncProgress={syncProgress}
-          readProgress={readProgress}
-          isCancellingSync={isCancellingSync}
+          isSyncing={dubbingHere || dubWaitingHere}
+          syncWaitingFor={dubWaitingHere ? dubbingProjectName || 'another project' : null}
+          syncProgress={dubbingHere ? syncProgress : null}
+          readProgress={dubbingHere ? readProgress : null}
+          isCancellingSync={dubbingHere && isCancellingSync}
           onCancelSync={handleCancelSync}
-          syncError={syncError}
+          syncError={(activeJob && syncErrors[activeJob.id]) || null}
           syncPendingLines={activeJob?.syncPendingLines || []}
           onApplySyncLine={handleApplySyncLine}
           onRetakeSyncLines={handleRetakeSyncLines}
@@ -3559,8 +3690,8 @@ export default function App() {
           onKeepOfferedTake={handleKeepOfferedTake}
           onVoiceSyncTakes={handleVoiceSyncTakes}
           onUseSyncTake={handleUseSyncTake}
-          syncTakesBusy={syncTakesBusy}
-          syncTakesError={syncTakesError}
+          syncTakesBusy={activeJob && syncTakesBusy?.jobId === activeJob.id ? syncTakesBusy.key : null}
+          syncTakesError={activeJob && syncTakesError?.jobId === activeJob.id ? syncTakesError : null}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}
           onPlaySegmentSolo={handlePlaySoloSegment}
@@ -3582,7 +3713,7 @@ export default function App() {
           onDubMatchLoudnessChange={handleDubMatchLoudnessChange}
           dubAudioQuality={dubAudioQuality}
           onDubAudioQualityChange={handleDubAudioQualityChange}
-          dubQualityNotice={dubQualityNotice}
+          dubQualityNotice={(activeJob && dubQualityNotices[activeJob.id]) || null}
           playbackRate={playbackRate}
           onPlaybackRateChange={setPlaybackRate}
           onResetSession={handleResetSession}
