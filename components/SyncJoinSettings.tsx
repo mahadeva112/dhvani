@@ -20,6 +20,7 @@ import type { presetSuggestion } from '../services/syncPresets';
 type PresetSuggestion = NonNullable<ReturnType<typeof presetSuggestion>>;
 import { AudioSegment } from '../types';
 import { JOIN_SETTING_RANGES } from '../server/lib/syncSettings.js';
+import { reportError } from '../services/errorPopup';
 
 /**
  * How Sync joins its lines: a preset, and the settings it fills in, one
@@ -323,7 +324,10 @@ export const FitCard: React.FC<{
       const result = await fitJoinSettings({ ...source, join });
       if (revision.current === requestRevision) setFit(result);
     } catch (err) {
-      if (revision.current === requestRevision) setError(err instanceof Error ? err.message : "Couldn't measure this video.");
+      if (revision.current === requestRevision) {
+        setError("Couldn't measure this video.");
+        reportError(err, { title: "This video couldn't be measured", safe: 'Your join settings are unchanged.' });
+      }
     } finally {
       if (revision.current === requestRevision) setMeasuring(false);
     }

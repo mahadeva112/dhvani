@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import { X, Mic, Play, Square, RefreshCw, AlertCircle } from 'lucide-react';
+import { X, Mic, Play, Square, RefreshCw } from 'lucide-react';
 import {
   Voice,
   ElevenLabsModel,
@@ -31,6 +31,7 @@ import {
 } from '../services/cartesiaService';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { VoiceSelectorCard } from './VoiceSelectorCard';
+import { reportError } from '../services/errorPopup';
 
 interface VoiceSettingsModalProps {
   isOpen: boolean;
@@ -135,7 +136,6 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   // Preview: 'sample' is the voice's stock clip, 'line' is the line below spoken with these settings.
   const [playing, setPlaying] = useState<'sample' | 'line' | null>(null);
   const [isSynthesizing, setIsSynthesizing] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
   const [tryText, setTryText] = useState('');
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -277,7 +277,6 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
     stopAudio();
     if (!tryText.trim() || isSynthesizing) return;
     setIsSynthesizing(true);
-    setPreviewError(null);
     try {
       // Spoken with the settings shown, so moving a slider and listening again compares them.
       const blob = await synthesizeSamplePreview(elApiKey, elVoiceId, tryText.trim(), elModelId, elVoiceSettings, cartesia);
@@ -292,7 +291,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
       await audio.play();
     } catch (e: any) {
       setPlaying(null);
-      setPreviewError(e?.message || 'The preview could not be made.');
+      reportError(e, { title: 'The preview could not be made' });
     } finally {
       setIsSynthesizing(false);
     }
@@ -848,11 +847,6 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   </span>
                   <span className="font-mono text-[11.5px] text-slate-500 tabular-nums">{tryText.length} characters</span>
                 </div>
-                {previewError && (
-                  <p className="flex items-start gap-1.5 text-xs text-rose-300">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" /> {previewError}
-                  </p>
-                )}
               </div>
             </div>
           </div>

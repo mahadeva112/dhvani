@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw } from 'lucide-react';
+import { ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw } from 'lucide-react';
 import { AudioSegment } from '../types';
 import type { RetranslateProgress } from '../services/subtitleService';
 import type { VoiceRate } from '../services/voiceRate';
+import { reportError } from '../services/errorPopup';
 
 export type TargetMethod = 'translate' | 'custom';
 
@@ -93,12 +94,10 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
       return 'translate';
     }
   });
-  const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLOListElement | null>(null);
 
   const chooseMethod = (next: TargetMethod) => {
     setMethod(next);
-    setError(null);
     try {
       localStorage.setItem(METHOD_STORAGE_KEY, next);
     } catch {
@@ -125,7 +124,6 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
       : null;
 
   const handleContinue = async () => {
-    setError(null);
     if (method === 'custom') {
       onUseOwnScript();
       return;
@@ -133,7 +131,11 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
     try {
       await onTranslate();
     } catch (err: any) {
-      setError(`${err?.message || 'The translation failed.'} Your transcript and timestamps are intact. Try again or use your own script.`);
+      reportError(err, {
+        title: `Translation to ${targetLanguage} failed`,
+        safe: 'Your transcript and timestamps are intact. You can also use your own script instead.',
+        retry: handleContinue,
+      });
     }
   };
 
@@ -376,11 +378,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
             )}
           </button>
 
-          {error ? (
-            <p className="flex items-start gap-1.5 text-xs text-amber-300" role="alert">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" /> {error}
-            </p>
-          ) : translateBlocked ? (
+          {translateBlocked ? (
             <p className="text-[11.5px] text-amber-300 text-center">
               No translation engine is set up. Add one in API settings, or use your own script.
             </p>

@@ -444,8 +444,6 @@ interface ExpressDubWizardProps {
   readProgress?: DubProgress | null;
   isCancellingSync?: boolean;
   onCancelSync?: () => void;
-  /** Why the last sync failed, shown in the panel. */
-  syncError?: string | null;
   /** Keys of synced lines reworded or retaken since the last sync. */
   syncPendingLines?: string[];
   onApplySyncLine?: (unit: SyncUnitReport, text: string) => void;
@@ -458,9 +456,8 @@ interface ExpressDubWizardProps {
   onVoiceSyncTakes?: (unit: SyncUnitReport, options: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }) => void;
   /** Puts one of a line's takes in the dub. */
   onUseSyncTake?: (key: string, takeId: string) => void;
-  /** The line whose takes are being voiced, and why asking for takes last failed. */
+  /** The line whose takes are being voiced. */
   syncTakesBusy?: string | null;
-  syncTakesError?: { key: string; message: string } | null;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
   /** Replaces every segment in one write, for changes that touch many cues. */
   onReplaceSegments: (segments: AudioSegment[]) => void;
@@ -591,7 +588,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   readProgress = null,
   isCancellingSync = false,
   onCancelSync,
-  syncError = null,
   syncPendingLines = [],
   onApplySyncLine,
   onRetakeSyncLines,
@@ -600,7 +596,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onVoiceSyncTakes,
   onUseSyncTake,
   syncTakesBusy = null,
-  syncTakesError = null,
   onUpdateSegment,
   onReplaceSegments,
   onPlaySegmentSolo,
@@ -3364,7 +3359,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     float={takesBank.float}
                     busy={syncTakesBusy === unit.key}
                     anyBusy={Boolean(syncTakesBusy)}
-                    error={syncTakesError?.key === unit.key ? syncTakesError.message : null}
                     pending={syncPendingLines.includes(unit.key)}
                     onVoice={(options) => onVoiceSyncTakes(unit, options)}
                     onSuggestWording={suggestTakeWording(unit)}
@@ -3476,7 +3470,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             ) : (
               <p className="flex items-center gap-2 text-xs text-slate-400" role="status">
                 {syncPreview.error ? (
-                  <span className="text-amber-300">The sync fit could not be worked out: {syncPreview.error}</span>
+                  <span className="text-amber-300">The sync fit could not be worked out.</span>
                 ) : (
                   <>
                     <Loader2 className="w-3.5 h-3.5 animate-spin" /> Timing each line against its source sentence…
@@ -4360,7 +4354,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 isSyncing={isSyncing}
                 waitingFor={syncWaitingFor}
                 isCancelling={isCancellingSync}
-                error={syncError}
                 interrupted={Boolean(activeJob?.syncInterrupted)}
                 blockedReason={blockedReason}
                 pendingCount={syncPendingLines.length}

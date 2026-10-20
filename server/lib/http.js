@@ -13,7 +13,8 @@ const parseBody = async (response) => {
   try {
     if (type.includes('application/json')) return await response.json();
     const text = await response.text();
-    return text ? { message: text.slice(0, 500) } : {};
+    // Long enough to keep an HTML error page's <title>; plainDetail trims it.
+    return text ? { message: text.slice(0, 4000) } : {};
   } catch {
     return {};
   }

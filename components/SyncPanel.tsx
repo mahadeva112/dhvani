@@ -76,6 +76,7 @@ import {
 } from './SyncJoinSettings';
 import { SyncSettingsDiagram } from './SyncSettingsDiagram';
 import { SyncPresetLibrary } from './SyncPresetLibrary';
+import { reportError } from '../services/errorPopup';
 
 /**
  * Sync, in the Dub step: voices the script line by line, places each line in
@@ -298,8 +299,6 @@ export interface SyncSettingsPanelProps {
   /** Set while this dub waits for another project's to finish: that project's name. `isSyncing` is true meanwhile. */
   waitingFor?: string | null;
   isCancelling: boolean;
-  /** Why the last sync failed. */
-  error?: string | null;
   /** A dub was running when Dhvani closed: the button resumes it. */
   interrupted?: boolean;
   /** Set when Sync can't run right now, with the reason shown under the button. */
@@ -930,7 +929,6 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   isSyncing,
   waitingFor = null,
   isCancelling,
-  error,
   interrupted = false,
   blockedReason,
   pendingCount = 0,
@@ -1084,17 +1082,12 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           disabled={Boolean(blockedReason)}
           className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
         >
-          {synced || error || interrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-          {interrupted ? 'Resume dub' : error ? 'Try again' : synced ? 'Sync again' : 'Dub & sync'}
+          {synced || interrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+          {interrupted ? 'Resume dub' : synced ? 'Sync again' : 'Dub & sync'}
         </button>
       )}
       {blockedReason && !isSyncing ? (
         <p className="text-center text-[11.5px] text-amber-300">{blockedReason}</p>
-      ) : error && !isSyncing ? (
-        <p role="alert" className="text-center text-[11.5px] text-rose-300">
-          Dub failed: {error}{' '}
-          <span className="text-slate-400">Lines already voiced are kept, so trying again voices only the rest.</span>
-        </p>
       ) : interrupted && !isSyncing ? (
         <p role="status" className="text-center text-[11.5px] text-amber-300">
           The last dub stopped before it finished.{' '}
@@ -1665,7 +1658,6 @@ const TakeOffer: React.FC<{
 }> = ({ unit, pending, onListen, onUse, onKeep }) => {
   const fit = unit.takeFit;
   const [playing, setPlaying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const audio = useRef<{ url: string; element: HTMLAudioElement } | null>(null);
   useEffect(() => () => {
     audio.current?.element.pause();
@@ -1674,7 +1666,6 @@ const TakeOffer: React.FC<{
   if (pending) return null;
   const audioId = fit ? fit.audioId : unit.takeRejectedAudioId;
   const playNew = async () => {
-    setError(null);
     try {
       if (!audio.current) {
         if (!audioId) throw new Error('The new take is no longer on the server. Sync again to hear it.');
@@ -1688,7 +1679,7 @@ const TakeOffer: React.FC<{
       await audio.current.element.play();
       setPlaying(true);
     } catch (err: any) {
-      setError(err?.message || 'The new take could not be played.');
+      reportError(err, { title: 'The new take could not be played' });
     }
   };
   const button = 'h-7 px-2.5 rounded-lg border text-[12px] flex items-center gap-1.5 cursor-pointer';
@@ -1705,7 +1696,6 @@ const TakeOffer: React.FC<{
             {playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />} Listen to it anyway
           </button>
         )}
-        {error && <span className="basis-full text-[11.5px] text-amber-300">{error}</span>}
       </div>
     );
   }
@@ -1748,7 +1738,6 @@ const TakeOffer: React.FC<{
           )}
         </>
       )}
-      {error && <span className="basis-full text-[11.5px] text-amber-300">{error}</span>}
     </div>
   );
 };
@@ -1833,7 +1822,8 @@ const ReviewRow: React.FC<{
         pick(sorted[0]);
       } else setAskError(`No usable ${fuller ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`);
     } catch (err: any) {
-      setAskError(err?.message || 'The text model did not answer.');
+      setAskError(null);
+      reportError(err, { title: 'No new wordings', safe: 'The line is unchanged — you can still edit it yourself.' });
     } finally {
       setAsking(false);
     }

@@ -61,6 +61,7 @@ import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { cloneCartesiaVoice, isCartesiaVoice } from '../services/cartesiaService';
 import type { LaneClip, LineProgress, SpeakerVoices, VoiceChangeSettings } from '../services/voiceChangeService';
 import { EditRenderChip, KEEP, LineLanes, LineRunSummary, SpeakerVoiceRows } from './VoiceChangeLines';
+import { reportError } from '../services/errorPopup';
 
 /** Formats the whole-file voice change is asked again in when the plan refuses one (as a dub's are). */
 const STS_FALLBACK: Record<string, string> = { wav_48000: 'mp3_44100_192', mp3_44100_192: 'mp3_44100_128' };
@@ -186,7 +187,6 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const [pickerFor, setPickerFor] = useState<string | null>(null);
   const [lineProgress, setLineProgress] = useState<Record<string, LineProgress>>({});
   const [linesRunning, setLinesRunning] = useState(false);
-  const [linesError, setLinesError] = useState<string | null>(null);
   const lineRunRef = useRef<AbortController | null>(null);
   // A run stops when the voice changer closes.
   useEffect(() => {
@@ -354,7 +354,6 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     lastChosenKey.current = chosenKey;
     if (!linesRunning) {
       setLineProgress({});
-      setLinesError(null);
     }
   }, [chosenKey, linesRunning]);
 
@@ -405,9 +404,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
         setRecordDuration((prev) => prev + 1);
       }, 1000);
     } catch (err: any) {
-      setErrorMessage(
-        err.message || 'Microphone access denied. Please allow microphone permissions.'
-      );
+      reportError(err, { title: 'The microphone could not be opened' });
     }
   };
 
@@ -515,7 +512,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
 
       setSuccessMessage('Voice converted successfully! Listen to the preview below.');
     } catch (err: any) {
-      setErrorMessage(err.message || 'Speech-to-Speech conversion failed.');
+      reportError(err, { title: 'The voice could not be changed', safe: 'Your dub is unchanged.' });
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
@@ -567,7 +564,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       setTargetVoiceId(result.voice_id);
       setSuccessMessage(`Voice "${result.name}" cloned and activated successfully!`);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Voice cloning failed.');
+      reportError(err, { title: 'The voice could not be cloned' });
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
@@ -606,7 +603,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
 
       setSuccessMessage(`Applied ${selectedEffect.toUpperCase()} voice modulation successfully!`);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Audio effect processing failed.');
+      reportError(err, { title: 'The audio effect could not be applied', safe: 'Your dub is unchanged.' });
     } finally {
       setIsProcessing(false);
       setProcessingStatus('');
@@ -636,7 +633,6 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     lineRunRef.current = controller;
     const keys = linesToRun;
     setLinesRunning(true);
-    setLinesError(null);
     setErrorMessage(null);
     setLineProgress((prev) => ({ ...prev, ...Object.fromEntries(keys.map((key) => [key, { state: 'waiting' as const }])) }));
     const seed = stsSeed.trim() === '' ? undefined : Number(stsSeed);
@@ -651,9 +647,9 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
         },
         { keys, onLine: (key, progress) => setLineProgress((prev) => ({ ...prev, [key]: progress })), signal: controller.signal }
       );
-      if (error) setLinesError(error);
+      if (error) reportError(error, { title: 'Some lines could not be changed', safe: 'Lines that were not changed keep their old voice.' });
     } catch (err: any) {
-      if (!controller.signal.aborted) setLinesError(err?.message || 'The lines could not be changed.');
+      if (!controller.signal.aborted) reportError(err, { title: 'The lines could not be changed', safe: 'Lines that were not changed keep their old voice.' });
     } finally {
       if (lineRunRef.current === controller) lineRunRef.current = null;
       // Lines a stop never reached, or left half way, are as they were: the next run takes them.
@@ -1344,9 +1340,9 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               </>
             )}
 
-            {(errorMessage || (lineMode && linesError)) && (
+            {errorMessage && (
               <p className="flex items-start gap-2 px-3 py-2.5 rounded-[10px] bg-rose-500/10 border border-rose-500/30 text-[12.5px] text-slate-200" role="alert">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-px" /> {errorMessage || linesError}
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-px" /> {errorMessage}
               </p>
             )}
           </div>

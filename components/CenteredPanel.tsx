@@ -14,8 +14,10 @@ export const CenteredPanel: React.FC<{
   label: string;
   /** Width and padding of the window itself. */
   className?: string;
+  /** Stacking layer; the error popup sits above every other window. */
+  layerClassName?: string;
   children: React.ReactNode;
-}> = ({ open, onClose, label, className = '', children }) => {
+}> = ({ open, onClose, label, className = '', layerClassName = 'z-[60]', children }) => {
   const [shown, setShown] = useState(open);
   const [closing, setClosing] = useState(false);
 
@@ -48,7 +50,7 @@ export const CenteredPanel: React.FC<{
 
   return createPortal(
     <div
-      className={`fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm ${
+      className={`fixed inset-0 ${layerClassName} flex items-center justify-center p-3 sm:p-6 bg-slate-950/70 backdrop-blur-sm ${
         closing ? 'tools-hub-veil-out' : 'tools-hub-veil-in'
       }`}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
