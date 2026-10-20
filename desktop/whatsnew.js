@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.78',
+    changes: [
+      'Buttons and windows across the app now show the plain arrow pointer instead of a hand.',
+      'In Edit timing, End jumps to the end as Home jumps to the start, and Shift + Z shows the whole track, then goes back to your zoom when pressed again. They work wherever you last clicked.',
+    ],
+  },
+  {
     version: '1.3.77',
     changes: [
       'Zoomed in, the timelines now move smoothly under the playhead while playing, instead of jumping a page at a time. Play follows the playhead again after you scroll away.',
