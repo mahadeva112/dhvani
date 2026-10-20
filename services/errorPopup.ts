@@ -81,6 +81,14 @@ const stepsFor = (code: string, provider: string, details: unknown): string[] =>
         'Make sure the key has not expired and is allowed to use this feature.',
         'Then try again.',
       ];
+    case 'upstream_key_invalid': {
+      const info = details as { upstream?: string; model?: string } | null;
+      return [
+        `Your ${provider} key works. The gateway's own ${info?.upstream || 'provider'} key${info?.model ? ` for ${info.model}` : ''} was rejected, so this is not fixed in Dhvani.`,
+        'Press Change next to the model and pick a different one.',
+        'Ask the gateway admin to replace that key, then try again.',
+      ];
+    }
     case 'model_not_permitted': {
       const permitted = (details as { permitted?: string[] } | null)?.permitted;
       return [

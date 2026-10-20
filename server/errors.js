@@ -56,6 +56,36 @@ export const plainDetail = (text) => {
   return title ? `The server answered with an error page: "${words.slice(0, 160)}"` : words.slice(0, 200);
 };
 
+const UPSTREAM_NAMES = {
+  gemini: 'Google',
+  vertexai: 'Google Vertex AI',
+  vertex_ai: 'Google Vertex AI',
+  openai: 'OpenAI',
+  azure: 'Azure',
+  anthropic: 'Anthropic',
+  bedrock: 'AWS Bedrock',
+};
+
+/**
+ * LiteLLM relays the upstream provider's refusal of the gateway's OWN key as
+ * "litellm.AuthenticationError: GeminiException - API key not valid", with a
+ * 401 — the same status it uses when YOUR key is wrong. Read as a bad user key,
+ * it sends people re-pasting a key that works; the fix is on the gateway.
+ *
+ * Returns who refused and for which model group, or null when it is not that.
+ */
+export const upstreamKeyFailure = (text) => {
+  const raw = typeof text === 'string' ? text : '';
+  const wrapped = /litellm\.AuthenticationError:\s*(\w+?)Exception\b/i.exec(raw);
+  if (!wrapped) return null;
+
+  const name = wrapped[1];
+  return {
+    provider: UPSTREAM_NAMES[name.toLowerCase()] || name,
+    model: /Received Model Group=([^\s,]+)/i.exec(raw)?.[1] || null,
+  };
+};
+
 /**
  * Translates a provider HTTP status into a message a user can act on.
  */
@@ -115,6 +145,21 @@ export const fromProviderResponse = (provider, status, body) => {
         provider,
         details: permitted.length ? { permitted } : detailText || null,
       });
+    }
+
+    const upstream = upstreamKeyFailure(raw);
+    if (upstream) {
+      return new ApiError(
+        `Your key is fine, but ${upstream.provider} rejected the key the gateway itself uses` +
+          `${upstream.model ? ` for "${upstream.model}"` : ''}. ` +
+          'The gateway admin has to replace it. Until then, pick another model.',
+        {
+          status: 502,
+          code: 'upstream_key_invalid',
+          provider,
+          details: { upstream: upstream.provider, model: upstream.model, raw: detailText || null },
+        }
+      );
     }
 
     return new ApiError(

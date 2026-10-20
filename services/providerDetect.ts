@@ -93,6 +93,7 @@ export type ProbeStatus =
   | 'invalid_key'
   | 'not_found'
   | 'model_missing'
+  | 'server_issue'
   | 'rate_limited'
   | 'provider_down'
   | 'unverified'
@@ -105,6 +106,7 @@ export const PROBE_WORDS: Record<ProbeStatus, { word: string; tone: 'ok' | 'warn
   invalid_key: { word: 'Key rejected', tone: 'error' },
   not_found: { word: 'Wrong URL', tone: 'error' },
   model_missing: { word: 'Model missing', tone: 'warn' },
+  server_issue: { word: 'Server issue', tone: 'warn' },
   rate_limited: { word: 'Rate limited', tone: 'warn' },
   provider_down: { word: 'Provider down', tone: 'error' },
   unverified: { word: 'Unverified', tone: 'muted' },

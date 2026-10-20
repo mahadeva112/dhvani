@@ -296,6 +296,13 @@ export const generateContent = async (
           break;
         }
 
+        // The gateway's own key for this model group is dead; retrying it is
+        // pointless, but another group may use a different upstream key.
+        if (err instanceof ApiError && err.code === 'upstream_key_invalid') {
+          logger.warn(`Gateway's upstream key for ${model} was rejected; trying the next candidate.`);
+          break;
+        }
+
         // A bad bearer key will fail identically on every model, so stop now.
         if (err instanceof ApiError && err.code === 'invalid_api_key') throw err;
         if (err instanceof ApiError && err.code === 'missing_api_key') throw err;
@@ -415,6 +422,8 @@ const probeChat = async (base, apiKey, protocol, model) => {
       status: err?.status,
       // A model the key is not entitled to, distinct from a bad key.
       notPermitted: err?.code === 'model_not_permitted',
+      // The user's key got through; the gateway's own upstream key did not.
+      upstream: err?.code === 'upstream_key_invalid' ? err.details : null,
       permitted: Array.isArray(err?.details?.permitted) ? err.details.permitted : null,
     };
   }
@@ -568,6 +577,9 @@ export const discoverGateway = async ({ url, apiKey = '', protocol = 'openai', m
       latencyMs: chat.latencyMs,
       requiresKey: Boolean(apiKey) || !isLocalGateway(bestListing.base),
       notPermitted: chat.notPermitted || undefined,
+      upstreamKeyInvalid: chat.upstream ? true : undefined,
+      upstreamProvider: chat.upstream?.upstream || undefined,
+      upstreamDetail: chat.upstream?.raw || undefined,
       permittedModels: permitted || undefined,
       switchedFrom: switchedFrom || undefined,
       note: switchedFrom
@@ -578,6 +590,8 @@ export const discoverGateway = async ({ url, apiKey = '', protocol = 'openai', m
         : chat.notPermitted
           ? `This key may not use "${usedModel}".` +
             (permitted?.length ? ` It can use: ${permitted.join(', ')}.` : '')
+          : chat.upstream
+            ? chat.error
           : notListed
             ? `Connected to the gateway, but it does not offer "${usedModel}". ` +
               `Available here: ${available.slice(0, 5).join(', ')}` +
