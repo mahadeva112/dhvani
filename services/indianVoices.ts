@@ -22,7 +22,6 @@ export const INDIAN_LANGUAGE_CODES: Record<string, string> = {
   Kannada: 'kn',
   Malayalam: 'ml',
   Punjabi: 'pa',
-  Urdu: 'ur',
   Odia: 'or',
   Assamese: 'as',
   Nepali: 'ne',
@@ -35,7 +34,7 @@ export const INDIAN_LANGUAGE_CODES: Record<string, string> = {
 const INDIAN_CODES = new Set(Object.values(INDIAN_LANGUAGE_CODES));
 
 const INDIAN_WORDS =
-  'indian|hindi|hinglish|desi|bengali|bangla|tamil|telugu|marathi|gujarati|kannada|malayalam|punjabi|urdu|odia|assamese';
+  'indian|hindi|hinglish|desi|bengali|bangla|tamil|telugu|marathi|gujarati|kannada|malayalam|punjabi|odia|assamese';
 const INDIAN_ACCENT = new RegExp(INDIAN_WORDS, 'i');
 const INDIAN_NAME = new RegExp(`\\b(${INDIAN_WORDS})\\b`, 'i');
 
