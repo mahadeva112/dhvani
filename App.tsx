@@ -18,6 +18,7 @@ import {
   TRANSLATION_PRESETS,
   DEFAULT_PROMPT_PRESET_ID,
   getPresetById,
+  currentPromptChoice,
   TranslationPromptPreset,
 } from './services/translationPromptPresets';
 
@@ -423,21 +424,16 @@ export default function App() {
   const [isApiSettingsOpen, setIsApiSettingsOpen] = useState<boolean>(false);
 
   // Translation Prompt & Persona Settings
-  const [promptPresetId, setPromptPresetId] = useState<string>(() => {
+  // A style saved before it was removed reads as the default, prompt and all.
+  const [savedPromptChoice] = useState(() => {
     try {
-      return localStorage.getItem('dhvani_prompt_preset_id') || DEFAULT_PROMPT_PRESET_ID;
+      return currentPromptChoice(localStorage.getItem('dhvani_prompt_preset_id'), localStorage.getItem('dhvani_custom_prompt'));
     } catch {
-      return DEFAULT_PROMPT_PRESET_ID;
+      return currentPromptChoice(DEFAULT_PROMPT_PRESET_ID, null);
     }
   });
-
-  const [customPrompt, setCustomPrompt] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('dhvani_custom_prompt');
-      if (saved) return saved;
-    } catch {}
-    return getPresetById(DEFAULT_PROMPT_PRESET_ID).prompt;
-  });
+  const [promptPresetId, setPromptPresetId] = useState<string>(savedPromptChoice.presetId);
+  const [customPrompt, setCustomPrompt] = useState<string>(savedPromptChoice.prompt);
 
   // Speech synthesis runs on ElevenLabs; it is the only engine.
   const [elApiKey, setElApiKey] = useState<string>(() => {
@@ -949,8 +945,11 @@ export default function App() {
               stale.syncReport && stale.synthesizedBlob && !stale.syncedBlob
                 ? { ...stale, syncedBlob: stale.synthesizedBlob, synthesizedBlob: null }
                 : stale;
+            // A project saved with a style since removed translates with the default from now on.
+            const promptChoice = job.promptPresetId ? currentPromptChoice(job.promptPresetId, job.customPrompt) : null;
             return {
               ...job,
+              ...(promptChoice && { promptPresetId: promptChoice.presetId, customPrompt: promptChoice.prompt }),
               synthesizedAudioUrl: job.synthesizedBlob ? URL.createObjectURL(job.synthesizedBlob) : null,
               syncedAudioUrl: job.syncedBlob ? URL.createObjectURL(job.syncedBlob) : null,
               srtUrl: job.srtBlob ? URL.createObjectURL(job.srtBlob) : null,

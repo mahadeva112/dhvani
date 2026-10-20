@@ -10,6 +10,15 @@ import {
   translateCueTextsThreeStep,
 } from './threeStepTranslation.js';
 import { alignScript } from '../../lib/scriptAlign.js';
+import {
+  cueIssues,
+  issueScore,
+  buildFixPrompt,
+  buildMeaningReviewPrompt,
+  buildMeaningFixPrompt,
+  readMeaningIssues,
+  readFix,
+} from '../../lib/translationChecks.js';
 
 /**
  * Gemini translation.
@@ -58,13 +67,29 @@ export const syllableTarget = (cue, rate) => {
 };
 
 const lengthDirective = (targetLanguage) => `LENGTH FOR THE VOICE
-Each cue has a "syllables" number: about how many ${targetLanguage} syllables the dub voice says in the time the original speaker took for that cue.
-- Keep each translation close to it; a little under is better than over.
+Each cue has a "syllables" number: about how many ${targetLanguage} syllables the dub voice says in the time the original speaker took for that cue. ${targetLanguage} usually takes longer to say than English, so this is often tight.
+- Keep each cue's own translation close to its own number: a little under is better than over, but far under is wrong too, because the voice then falls silent while the speaker is still talking. A sentence that fits in total but crowds one cue does not fit.
 - Reach it through word choice: shorter everyday words, a tighter sentence shape, dropping filler the speaker did not stress.
-- Never leave out meaning to reach it. If the meaning needs more syllables, keep the meaning.
-- Never pad a short cue with words the speaker did not say.`;
+- Never leave out meaning to reach it: the idea, the emphasis, a negation, a number or a name always stays. Never swap a word for a shorter one that means something else (a narrower, broader or different kind of word: "beings" are not "people", "emperors" are not "kings"), and never fold a deliberate pair ("controlled and ruled") into one word. If the meaning needs more syllables, keep the meaning.
+- Never pad a short cue with words the speaker did not say. A very short cue (a word or two) takes the last word or words of its sentence, even if that runs a little long; it never gets a filler word of its own.
+- A clear, natural line a little over is better than a line squeezed until it is unclear, and never invert the language's normal word order to save syllables.`;
 
-const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount }) => {
+/** Lines around a batch, read for context only: the end of the batch before (with how it was translated) and the start of the next. */
+const contextBlock = (before = [], after = []) => {
+  if (!before.length && !after.length) return '';
+  const lines = [];
+  if (before.length) {
+    lines.push('Just before these cues (already translated, do not translate again):');
+    for (const cue of before) lines.push(`- "${cue.text}" → "${cue.translatedText ?? ''}"`);
+  }
+  if (after.length) {
+    lines.push('Just after these cues (translated in the next part, do not translate now):');
+    for (const cue of after) lines.push(`- "${cue.text}"`);
+  }
+  return `\nCONTEXT\n${lines.join('\n')}\n`;
+};
+
+const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after }) => {
   const sized = batch.some((cue) => cue.syllables);
   const styleDirective = customPrompt?.trim()
     ? `TRANSLATION STYLE & PERSONA DIRECTIVE (follow strictly):\n${customPrompt.trim()}`
@@ -81,6 +106,15 @@ Translate every cue below into ${targetLanguage}.
 
 ${styleDirective}
 
+MEANING, NOT WORDS
+- Translate sentences, not cues and not words. A sentence often runs across two or three cues: read all of it, understand what it means, then say that the way a native ${targetLanguage} speaker would say it out loud, in ${targetLanguage}'s own word order.
+- Never copy the English word order or sentence shape, and never translate a cue's English words one by one.
+- Then split your sentence over the same cues, so each cue holds about what can be said in that cue's time.
+- A word may land in a different cue than its English counterpart (in ${targetLanguage} the verb may come at the end while English has it early). That is expected. Move words only to the next or previous cue of the same sentence, never further.
+- Each cue's part must be a natural spoken phrase, not a broken fragment.
+- A cue that holds only the last word or two of an English sentence ("situation.", "happen.") gets the last word or words of your sentence, often its verb. Never a word of its own, never a repeat of what came before: the sentence read across its cues must say it once, as one sentence.
+- A sentence ends ("।", ".", "?", "!") in the same cue the English sentence ends in. A cue that ends mid-sentence in English does not end the sentence in ${targetLanguage}.
+
 SPOKEN, NOT WRITTEN
 These lines will be spoken aloud by a voice as a dub, and must sound like a person talking, not someone reading a text.
 - Write the ${targetLanguage} people actually speak: everyday words and sentence shapes, not bookish, literary or officialese vocabulary. Where a common spoken word exists, prefer it over a rare formal one. Keep the English words a ${targetLanguage} speaker would naturally say in English.
@@ -88,14 +122,15 @@ These lines will be spoken aloud by a voice as a dub, and must sound like a pers
 - Punctuate for the ear: commas where the speaker breathes, "?" and "!" where their voice rises, "…" where a thought trails off.
 - Write out anything a voice would stumble on: no abbreviations, symbols, brackets or slashes; numbers as they are said.
 The style directive above still sets the tone (formal, witty, cinematic...) — this only makes it sound spoken.
-${sized ? `\n${lengthDirective(targetLanguage)}\n` : ''}
+${sized ? `\n${lengthDirective(targetLanguage)}\n` : ''}${contextBlock(before, after)}
 HARD RULES
-1. Return exactly one translation for every input id. Never merge, split, drop or reorder cues.
+1. Return exactly one translation for every input id. Never merge, split, drop or reorder cues, and never leave a cue empty.
 2. Copy each "id" back verbatim.
 3. Translate the text only. Never output timestamps, cue numbers or timing of any kind.
 4. Read the cues as consecutive lines of one conversation so pronouns and continuations stay coherent across cue boundaries.
-5. If a cue is a fragment of a sentence continued in the next cue, translate it as that fragment — do not borrow words from neighbouring cues.
+5. Together, the cues of a sentence say everything the English sentence says, and nothing more: no idea dropped, none added.
 6. If a cue cannot be translated, return its original text unchanged rather than an empty string.
+7. Sound notes in square brackets, such as [laughs] or [applause], are not speech: copy each one exactly as it is, in English, where it stands. Never translate, drop or add one.
 
 INPUT CUES (JSON):
 ${JSON.stringify(batch.map(({ id, text, syllables }) => (syllables ? { id, text, syllables } : { id, text })), null, 2)}
@@ -104,13 +139,13 @@ Respond with ONLY this JSON:
 {"translations":[{"id":"<the same id>","translatedText":"<${targetLanguage} translation>"}]}`;
 };
 
-const translateBatch = async ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, apiKey, models }) => {
+const translateBatch = async ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, apiKey, models }) => {
   const { response, modelUsed } = await generateText({
     contents: {
       role: 'user',
       parts: [
         {
-          text: buildPrompt({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount }),
+          text: buildPrompt({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after }),
         },
       ],
     },
@@ -141,19 +176,88 @@ const translateBatch = async ({ batch, sourceLanguage, targetLanguage, customPro
   return { result, modelUsed };
 };
 
+/** One JSON answer from the text model, for the checks after a translation. */
+const askJson = async (prompt, { apiKey, models, temperature }) => {
+  const { response } = await generateText({
+    contents: { role: 'user', parts: [{ text: prompt }] },
+    generationConfig: { responseMimeType: 'application/json', temperature },
+    models,
+    apiKey,
+  });
+  return parseJsonResponse(response.text, 'Translation check');
+};
+
+/**
+ * Checks a translated batch and fixes what it can, once each:
+ * 1. Meaning: a separate strict review, sentence by sentence and key word by
+ *    key word, against the English. Cues it flags get one correction, in
+ *    natural wording, never by going back to word for word.
+ * 2. Length and sentence ends, counted in code (translationChecks.js). Cues
+ *    that miss go back to the model with the counts; the fix is kept only
+ *    when it leaves the batch closer to right, and it must keep every idea.
+ * A check that fails (the model unreachable or its answer unreadable) leaves
+ * the translation as it was: the checks only ever improve it.
+ *
+ * @returns {Promise<{translations: Map<string,string>, lengthFixed: number, meaningFixed: number}>}
+ */
+export const refineBatch = async (batch, translated, { targetLanguage, customPrompt = '', apiKey, models, ask = askJson } = {}) => {
+  let translations = new Map(translated);
+  const ids = batch.map((cue) => cue.id);
+  let lengthFixed = 0;
+  let meaningFixed = 0;
+
+  try {
+    const review = await ask(buildMeaningReviewPrompt({ cues: batch, translations, targetLanguage }), { apiKey, models, temperature: 0 });
+    const problems = readMeaningIssues(review, ids);
+    if (problems.length) {
+      const answer = await ask(buildMeaningFixPrompt({ cues: batch, translations, problems, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2 });
+      const changes = readFix(answer, ids);
+      if (changes.size) {
+        translations = new Map([...translations, ...changes]);
+        meaningFixed = changes.size;
+      }
+    }
+  } catch (err) {
+    logger.warn(`Translation meaning check skipped: ${err?.message || err}`);
+  }
+
+  // Length last, so a word the meaning check put back is fitted to the time too.
+  const issues = cueIssues(batch, translations);
+  if (issues.length) {
+    try {
+      const answer = await ask(buildFixPrompt({ cues: batch, translations, issues, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.3 });
+      const changes = readFix(answer, ids);
+      const fixed = new Map([...translations, ...changes]);
+      if (changes.size && issueScore(batch, fixed) < issueScore(batch, translations)) {
+        translations = fixed;
+        lengthFixed = changes.size;
+      }
+    } catch (err) {
+      logger.warn(`Translation length check skipped: ${err?.message || err}`);
+    }
+  }
+
+  return { translations, lengthFixed, meaningFixed };
+};
+
+/** Lines of context on each side of a batch, so a sentence cut by a batch boundary still reads whole. */
+const CONTEXT_CUES = 2;
+
 /**
  * Translates cue texts, batching long transcripts so a single request never
  * grows unbounded. `voiceRate` is the dub voice's speaking rate in syllables a
  * second, when the app has measured it: each cue is then sized for that voice.
  * `speakerRates` holds the rates of the voices speakers have of their own, by
- * speaker name; their cues are sized for those.
+ * speaker name; their cues are sized for those. `check` (on by default)
+ * runs refineBatch on every batch: a meaning review, then length and
+ * sentence ends counted in code, each fixed once.
  *
  * @returns {Promise<{translations: Map<string,string>, modelUsed: string|null,
  *   translatedCount: number, missingIds: string[], failedBatches: number}>}
  */
 export const translateCueTexts = async (
   cues,
-  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress, voiceRate, speakerRates } = {}
+  { sourceLanguage = '', targetLanguage, customPrompt = '', apiKey, models, batchSize, onProgress, voiceRate, speakerRates, check = true } = {}
 ) => {
   if (!targetLanguage) {
     throw new ApiError('No target language was selected for translation.', {
@@ -170,8 +274,8 @@ export const translateCueTexts = async (
     if (supportsThreeStep(targetLanguage)) {
       return translateCueTextsThreeStep(cues, { targetLanguage, customPrompt, apiKey, models, onProgress, voiceRate: rate, speakerRates: ownRates });
     }
-    // It is the default style, so a language without prompt files falls back
-    // to the one-shot translation, keeping only the user's own additions.
+    // A language without prompt files falls back to the one-shot
+    // translation, keeping only the user's own additions.
     logger.warn(`No 3-step prompts for ${targetLanguage}; using the standard translation instead.`);
     customPrompt = extraInstructions(customPrompt);
   }
@@ -188,6 +292,8 @@ export const translateCueTexts = async (
   const translations = new Map();
   let modelUsed = null;
   let failedBatches = 0;
+  let lengthFixed = 0;
+  let meaningFixed = 0;
 
   for (const [batchIndex, batch] of batches.entries()) {
     onProgress?.({
@@ -198,6 +304,8 @@ export const translateCueTexts = async (
     });
 
     try {
+      const before = (batches[batchIndex - 1] ?? []).slice(-CONTEXT_CUES).map((cue) => ({ text: cue.text, translatedText: translations.get(cue.id) }));
+      const after = (batches[batchIndex + 1] ?? []).slice(0, CONTEXT_CUES).map((cue) => ({ text: cue.text }));
       const outcome = await translateBatch({
         batch,
         sourceLanguage,
@@ -205,11 +313,26 @@ export const translateCueTexts = async (
         customPrompt,
         batchIndex,
         batchCount: batches.length,
+        before,
+        after,
         apiKey,
         models,
       });
       modelUsed = outcome.modelUsed;
-      for (const [id, text] of outcome.result) translations.set(id, text);
+      let result = outcome.result;
+      if (check) {
+        onProgress?.({
+          stage: 'translating',
+          batch: batchIndex + 1,
+          batchCount: batches.length,
+          message: `Checking length and meaning of cues ${batchIndex * batch.length + 1}-${batchIndex * batch.length + batch.length}...`,
+        });
+        const refined = await refineBatch(batch, result, { targetLanguage, customPrompt, apiKey, models });
+        result = refined.translations;
+        lengthFixed += refined.lengthFixed;
+        meaningFixed += refined.meaningFixed;
+      }
+      for (const [id, text] of result) translations.set(id, text);
     } catch (err) {
       // One bad batch must not discard the batches that already succeeded.
       failedBatches += 1;
@@ -226,12 +349,18 @@ export const translateCueTexts = async (
     logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
   }
 
+  if (lengthFixed || meaningFixed) {
+    logger.info(`Translation checks refit ${lengthFixed} cue(s) for length and restored the meaning of ${meaningFixed}.`);
+  }
+
   return {
     translations,
     modelUsed,
     translatedCount: translations.size,
     missingIds,
     failedBatches,
+    lengthFixed,
+    meaningFixed,
   };
 };
 

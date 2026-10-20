@@ -21,15 +21,11 @@ test('the preset marker switches translation to the 3-step pipeline', () => {
   assert.equal(isThreeStepPrompt(''), false);
 });
 
-test('the full-meaning preset runs the 3-step passes and keeps every rule line', () => {
-  const preset = TRANSLATION_PRESETS.find((p) => p.id === 'three_step_full_meaning');
+test('the 3-step preset runs the 3-step passes', () => {
+  const preset = TRANSLATION_PRESETS.find((p) => p.id === 'three_step');
   assert.ok(preset);
   assert.equal(isThreeStepPrompt(preset.prompt), true);
-  const notes = extraInstructions(preset.prompt);
-  for (const heading of ['PRIORITY:', 'MEANING COMES FIRST', 'USING THE TIMING DATA', 'HOW TO SHORTEN', 'DELIVERY', 'FINAL CHECK']) {
-    assert.ok(notes.includes(heading), heading);
-  }
-  assert.ok(!notes.includes('#pipeline'));
+  assert.equal(extraInstructions(preset.prompt), '');
 });
 
 test('every language with prompts has all three steps', () => {
