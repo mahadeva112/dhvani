@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.75',
+    changes: [
+      'New default translation style, Sadhguru: each sentence is translated by its meaning, the way a native speaker would say it, never word for word, and split over the lines by their time.',
+      'After translating, every line is checked: lines too long for their time are reworded, and a word that went missing or changed meaning is put back. A Natural Spoken style does the same for any speaker.',
+      'The translation styles are now Sadhguru, Sadhguru 3-Step, Natural Spoken and Custom. A project on a removed style moves to Sadhguru.',
+    ],
+  },
+  {
     version: '1.3.74',
     changes: [
       'Errors now open in one window that says what went wrong in plain words, what the server said, and what to do next, with Try again where it helps.',
