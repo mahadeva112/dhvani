@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.72',
+    changes: [
+      'Export subtitles no longer gets stuck on timing: it shows the seconds as it works, gives up after 90 s, and Retry starts it fresh, so no restart is needed.',
+      'Only the subtitle list scrolls now; the settings and the video stay in place.',
+    ],
+  },
+  {
     version: '1.3.71',
     changes: [
       'Voice changer: Replace the dub now works line by line, so every line keeps its place and your Edit timing edits. Each speaker can get their own voice.',
