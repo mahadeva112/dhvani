@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, AlertCircle, RefreshCw, Info } from 'lucide-react';
+import { CheckCircle2, AlertCircle, RefreshCw, Info, ServerCrash, Check, X, ArrowRight, List, Copy } from 'lucide-react';
 import { testGatewayConnection, GatewayTestResult } from '../services/apiClient';
 
 export interface GatewayValues {
@@ -40,6 +40,9 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
   hasSavedKey = false,
 }) => {
   const [status, setStatus] = useState<Status>({ state: 'idle' });
+  const [showModels, setShowModels] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const modelRef = useRef<HTMLInputElement>(null);
 
   // Tracks the in-flight probe so a newer edit supersedes an older request.
   const requestIdRef = useRef(0);
@@ -128,8 +131,17 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
     []
   );
 
+  /*
+   * The gateway took the key but its own upstream key for this model failed.
+   * Nothing the user typed is wrong, so no field turns red; only the model,
+   * the one thing they can change to get going, is marked.
+   */
+  const upstream = status.state === 'error' && status.result?.upstreamKeyInvalid ? status.result : null;
+
   const borderFor = (active: boolean) =>
-    active && status.state === 'ok'
+    upstream
+      ? 'border-slate-700 focus:border-indigo-500'
+      : active && status.state === 'ok'
       ? 'border-emerald-500/80 focus:border-emerald-400'
       : active && status.state === 'error'
         ? 'border-rose-500/80 focus:border-rose-400'
@@ -199,7 +211,8 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
             autoComplete="off"
             spellCheck={false}
             list="dhvani-gateway-models"
-            className={inputClasses(true)}
+            ref={modelRef}
+            className={`${inputClasses(true)} ${upstream ? '!border-amber-500/70' : ''}`}
           />
           {/* Native autocomplete over whatever the gateway reported. */}
           <datalist id="dhvani-gateway-models">
@@ -264,15 +277,98 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
         </div>
       )}
 
-      {status.state === 'error' && (
+      {upstream && (
+        <div className="rounded-[10px] border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
+          <div className="flex items-start gap-2.5">
+            <ServerCrash className="w-4 h-4 shrink-0 mt-0.5 text-amber-300" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-medium text-amber-200">
+                The gateway's own {upstream.upstreamProvider || 'provider'} key isn't working
+              </p>
+              <p className="text-xs text-slate-300 leading-relaxed mt-1">{status.state === 'error' && status.message}</p>
+
+              <div className="flex flex-wrap items-center gap-1.5 mt-2.5 text-[11px]">
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
+                  <Check className="w-3 h-3" /> Dhvani
+                </span>
+                <ArrowRight className="w-3 h-3 text-slate-500" />
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300">
+                  <Check className="w-3 h-3" /> Your gateway
+                </span>
+                <ArrowRight className="w-3 h-3 text-slate-500" />
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300">
+                  <X className="w-3 h-3" /> {upstream.upstreamProvider || 'Provider'} (gateway's key)
+                </span>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowModels(true);
+                    modelRef.current?.focus();
+                    modelRef.current?.select();
+                  }}
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-pointer"
+                >
+                  <List className="w-3.5 h-3.5" /> Pick another model
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const note =
+                      `Dhvani can reach ${upstream.url || values.url} and the key is accepted, but ` +
+                      `${upstream.upstreamProvider || 'the upstream provider'} rejects the gateway's own key for ` +
+                      `"${upstream.model || values.model}". Please replace that key in the gateway config.` +
+                      (upstream.upstreamDetail ? `\n\nWhat the gateway said: ${upstream.upstreamDetail}` : '');
+                    try {
+                      await navigator.clipboard.writeText(note);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1800);
+                    } catch {
+                      /* Clipboard blocked; the details below can still be selected by hand. */
+                    }
+                  }}
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-pointer"
+                >
+                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                  {copied ? 'Copied' : 'Copy message for admin'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => runProbe(values)}
+                  className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Test again
+                </button>
+              </div>
+
+              {upstream.upstreamDetail && (
+                <details className="mt-2.5 text-[11px] text-slate-400">
+                  <summary className="cursor-pointer hover:text-slate-200 transition-colors">Technical details</summary>
+                  <p className="mt-1.5 p-2 rounded bg-slate-950/60 font-mono text-[10px] leading-relaxed break-words select-text">
+                    {upstream.upstreamDetail}
+                  </p>
+                </details>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {status.state === 'error' && !upstream && (
         <p className="text-xs text-rose-400 flex items-start gap-1.5 leading-relaxed">
           <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
           <span>{status.message}</span>
         </p>
       )}
 
-      {discovered.length > 0 && status.state === 'ok' && (
-        <details className="text-[10px] text-slate-500">
+      {discovered.length > 0 && (status.state === 'ok' || upstream) && (
+        <details
+          className="text-[10px] text-slate-500"
+          open={showModels}
+          onToggle={(e) => setShowModels((e.target as HTMLDetailsElement).open)}
+        >
           <summary className="cursor-pointer hover:text-slate-300 transition-colors">
             Models on this gateway ({discovered.length})
           </summary>

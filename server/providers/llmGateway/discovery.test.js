@@ -541,3 +541,35 @@ test('an unrestricted gateway still offers its whole catalog', async () => {
     await gw.close();
   }
 });
+
+test("a gateway whose own Gemini key is dead says so, instead of blaming the user's key", async () => {
+  const gw = await startGateway({
+    requireAuth: true,
+    models: ['gemini-2.5-flash', 'gpt-4o-mini'],
+    onChat: (body) =>
+      body.model === 'gemini-2.5-flash'
+        ? {
+            status: 401,
+            payload: {
+              error: {
+                message:
+                  'litellm.AuthenticationError: GeminiException - { "error": { "message": "API key not valid.", ' +
+                  '"details": [ { "reason": "API_KEY_INVALID" } ] } }. Received Model Group=gemini-2.5-flash',
+                type: 'auth_error',
+              },
+            },
+          }
+        : null,
+  });
+
+  try {
+    const result = await discoverGateway({ url: gw.bareUrl, apiKey: 'sk-user', model: 'gemini-2.5-flash' });
+    assert.equal(result.valid, false);
+    assert.equal(result.upstreamKeyInvalid, true);
+    assert.equal(result.upstreamProvider, 'Google');
+    assert.match(result.error, /Your key is fine/);
+    assert.ok(result.availableModels.includes('gpt-4o-mini'), 'other models stay pickable');
+  } finally {
+    await gw.close();
+  }
+});
