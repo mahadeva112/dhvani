@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.74',
+    changes: [
+      'Errors now open in one window that says what went wrong in plain words, what the server said, and what to do next, with Try again where it helps.',
+      'A server error page no longer shows up as a wall of code.',
+    ],
+  },
+  {
     version: '1.3.73',
     changes: [
       'Work on another project while one dubs: pressing Dub there puts it in line, and it starts on its own when the first one finishes. Each project shows only its own progress and errors.',
