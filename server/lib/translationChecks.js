@@ -16,6 +16,16 @@ import { lineSyllables } from './syllables.js';
 export const LONG_SHARE = 0.15;
 /** ...and by at least this many syllables, so short cues are not sent back over one syllable. */
 export const LONG_MIN_SYLLABLES = 2;
+/**
+ * Cues with less time than this many syllables are not judged for length: a
+ * one-word cue ("situation.") carries the end of its sentence, and squeezing
+ * it only makes the model move that word away and fill the cue with a word
+ * the speaker never said.
+ */
+export const MIN_JUDGED_SYLLABLES = 4;
+
+/** Square-bracketed sound notes ([laughs]) are not said, so they are not counted. */
+const spoken = (text) => String(text ?? '').replace(/\[[^\]]*\]/g, ' ');
 
 /** A sentence-ending mark, before any closing quotes or brackets. "..." and "…" trail off and don't count either way. */
 const ENDS_SENTENCE = /(?<!\.)[.?!।॥|]["'”’»)\]]*$/u;
@@ -46,8 +56,8 @@ export const cueIssues = (cues, translations) => {
       issues.push({ id: cue.id, kind: 'empty' });
       continue;
     }
-    if (cue.syllables) {
-      const syllables = lineSyllables(text);
+    if (cue.syllables >= MIN_JUDGED_SYLLABLES) {
+      const syllables = lineSyllables(spoken(text));
       if (syllables > cue.syllables * (1 + LONG_SHARE) && syllables - cue.syllables >= LONG_MIN_SYLLABLES) {
         issues.push({ id: cue.id, kind: 'long', syllables, target: cue.syllables });
       }
@@ -94,7 +104,7 @@ export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, cus
     id: cue.id,
     english: cue.text,
     translation: translations.get(cue.id) ?? '',
-    ...(cue.syllables && { syllables: cue.syllables, now: lineSyllables(translations.get(cue.id) ?? '') }),
+    ...(cue.syllables && { syllables: cue.syllables, now: lineSyllables(spoken(translations.get(cue.id))) }),
   }));
   return `You are revising a ${targetLanguage} dubbing translation so it can be spoken in sync with the original video.
 ${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}
@@ -106,6 +116,8 @@ ${issues.map(describeIssue).join('\n')}
 RULES
 - Keep every idea, emphasis, negation, number and name. Shorten by wording, never by leaving meaning out, and never by swapping a word for a shorter one that means something else ("beings" are not "people", "emperors" are not "kings"), never by folding a pair of words into one.
 - Change only the cues listed above and, when a word moves, its neighbour in the same sentence. Do not shorten cues that already fit.
+- Keep the language's normal word order; never invert it or turn poetic to save syllables. If a line cannot fit without becoming unclear or unnatural, keep a clear natural line that runs a little long.
+- Never fill a cue with a word the speaker did not say. Copy sound notes in square brackets ([laughs]) exactly as they are.
 - Natural spoken ${targetLanguage}, never word for word from the English.
 - A word may move only to the next or previous cue of the same sentence, and only into a cue that has room.
 - Return only the cues you change, each with its id copied verbatim. Never return an empty cue.

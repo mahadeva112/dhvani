@@ -71,7 +71,8 @@ Each cue has a "syllables" number: about how many ${targetLanguage} syllables th
 - Keep each cue's own translation close to its own number: a little under is better than over, but far under is wrong too, because the voice then falls silent while the speaker is still talking. A sentence that fits in total but crowds one cue does not fit.
 - Reach it through word choice: shorter everyday words, a tighter sentence shape, dropping filler the speaker did not stress.
 - Never leave out meaning to reach it: the idea, the emphasis, a negation, a number or a name always stays. Never swap a word for a shorter one that means something else (a narrower, broader or different kind of word: "beings" are not "people", "emperors" are not "kings"), and never fold a deliberate pair ("controlled and ruled") into one word. If the meaning needs more syllables, keep the meaning.
-- Never pad a short cue with words the speaker did not say.`;
+- Never pad a short cue with words the speaker did not say. A very short cue (a word or two) takes the last word or words of its sentence, even if that runs a little long; it never gets a filler word of its own.
+- A clear, natural line a little over is better than a line squeezed until it is unclear, and never invert the language's normal word order to save syllables.`;
 
 /** Lines around a batch, read for context only: the end of the batch before (with how it was translated) and the start of the next. */
 const contextBlock = (before = [], after = []) => {
@@ -111,6 +112,7 @@ MEANING, NOT WORDS
 - Then split your sentence over the same cues, so each cue holds about what can be said in that cue's time.
 - A word may land in a different cue than its English counterpart (in ${targetLanguage} the verb may come at the end while English has it early). That is expected. Move words only to the next or previous cue of the same sentence, never further.
 - Each cue's part must be a natural spoken phrase, not a broken fragment.
+- A cue that holds only the last word or two of an English sentence ("situation.", "happen.") gets the last word or words of your sentence, often its verb. Never a word of its own, never a repeat of what came before: the sentence read across its cues must say it once, as one sentence.
 - A sentence ends ("।", ".", "?", "!") in the same cue the English sentence ends in. A cue that ends mid-sentence in English does not end the sentence in ${targetLanguage}.
 
 SPOKEN, NOT WRITTEN
@@ -128,6 +130,7 @@ HARD RULES
 4. Read the cues as consecutive lines of one conversation so pronouns and continuations stay coherent across cue boundaries.
 5. Together, the cues of a sentence say everything the English sentence says, and nothing more: no idea dropped, none added.
 6. If a cue cannot be translated, return its original text unchanged rather than an empty string.
+7. Sound notes in square brackets, such as [laughs] or [applause], are not speech: copy each one exactly as it is, in English, where it stands. Never translate, drop or add one.
 
 INPUT CUES (JSON):
 ${JSON.stringify(batch.map(({ id, text, syllables }) => (syllables ? { id, text, syllables } : { id, text })), null, 2)}

@@ -32,6 +32,13 @@ test('a cue a syllable or two over is not sent back', () => {
   assert.deepEqual(issues, []);
 });
 
+test('a one-word cue is not judged for length, and sound notes are not counted', () => {
+  const tiny = cueIssues([{ id: '4', text: 'situation.', syllables: 2 }], new Map([['4', 'পরিস্থিতিতে।']]));
+  assert.deepEqual(tiny, []);
+  const tagged = cueIssues([{ id: '1', text: '[laughs] or divorce.', syllables: 6 }], new Map([['1', '[laughs] কিংবা ডিভোর্সে।']]));
+  assert.deepEqual(tagged, []);
+});
+
 test('the score falls when a fix brings cues closer to right', () => {
   const before = new Map([['1', 'মানবসভ্যতা দীর্ঘদিন ধরে ক্ষমতাধর পুরুষদের শাসন ও নিয়ন্ত্রণে চলে এসেছে।'], ['2', '']]);
   const after = new Map([['1', 'মানবসভ্যতা দীর্ঘদিন ক্ষমতাধর পুরুষদের'], ['2', 'শাসনে চলে এসেছে।']]);
