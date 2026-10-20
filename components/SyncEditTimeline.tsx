@@ -2093,7 +2093,7 @@ export const SyncEditTimeline: React.FC<{
   const rootRef = useRef<HTMLDivElement>(null);
   /**
    * Home and End put the playhead at the start and the end, and Shift + Z shows
-   * the whole track, as in DaVinci Resolve: wherever focus is while the editor
+   * the whole track and, pressed again, the zoom it left, as in DaVinci Resolve: wherever focus is while the editor
    * is open, but not while typing or with a dialog open.
    */
   const globalKeys = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -2107,7 +2107,7 @@ export const SyncEditTimeline: React.FC<{
     };
     if (e.key === 'Home') jumpTo(0);
     else if (e.key === 'End') jumpTo(total);
-    else if (e.shiftKey && e.key.toLowerCase() === 'z') zoom.fitAll();
+    else if (e.shiftKey && e.key.toLowerCase() === 'z') zoom.toggleFit();
     else return;
     e.preventDefault();
   };
@@ -2304,7 +2304,7 @@ export const SyncEditTimeline: React.FC<{
           <button type="button" onClick={() => zoom.zoomBy(0.5)} disabled={!zoom.canZoomIn} title="Zoom in (=)" aria-label="Zoom in" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <ZoomIn className="w-4 h-4" />
           </button>
-          <button type="button" onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Whole track (Shift + Z)" className="h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+          <button type="button" onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Whole track (Shift + Z; again to zoom back)" className="h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <Maximize2 className="w-3.5 h-3.5" /> Fit
           </button>
         </div>
@@ -2948,7 +2948,7 @@ export const SyncEditTimeline: React.FC<{
             <kbd className="font-mono text-slate-400">Del</kbd> remove · <kbd className="font-mono text-slate-400">Esc</kbd> deselect ·{' '}
             <kbd className="font-mono text-slate-400">Ctrl + A</kbd> pick all · <kbd className="font-mono text-slate-400">Ctrl</kbd> + click add ·{' '}
             <kbd className="font-mono text-slate-400">Ctrl + C / V</kbd> copy the original onto the dub ·{' '}
-            <kbd className="font-mono text-slate-400">Home End</kbd> start, end · <kbd className="font-mono text-slate-400">Shift + Z</kbd> whole track ·{' '}
+            <kbd className="font-mono text-slate-400">Home End</kbd> start, end · <kbd className="font-mono text-slate-400">Shift + Z</kbd> whole track, and back ·{' '}
             <kbd className="font-mono text-slate-400">= −</kbd> zoom · scroll to move · <kbd className="font-mono text-slate-400">Ctrl</kbd> + scroll to zoom
           </details>
         </section>

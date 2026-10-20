@@ -125,6 +125,23 @@ export const useTimelineZoom = (total: number, currentTime: number, { wheelScrol
     setZoomSpan(null);
     setRawStart(0);
   };
+  // The zoom Shift + Z left, for the next press to come back to.
+  const beforeFit = useRef<{ span: number; start: number } | null>(null);
+  /**
+   * Shift + Z, as in DaVinci Resolve: zoomed in, shows the whole track; on the
+   * whole track, goes back to the zoom it left, with the playhead on screen.
+   */
+  const toggleFit = () => {
+    if (zoomSpan !== null && windowSeconds < fullSpan) {
+      beforeFit.current = { span: windowSeconds, start: view.current };
+      fitAll();
+      return;
+    }
+    const back = beforeFit.current;
+    if (!back) return;
+    if (currentTime >= back.start && currentTime <= back.start + back.span) zoomTo(back.span, back.start, 0);
+    else zoomTo(back.span, currentTime, glide ? GLIDE_ANCHOR : 0.5);
+  };
   // Scrolling by hand stops the window following playback until play is pressed or a lane clicked.
   const scrollTo = (start: number) => {
     setFollow(false);
@@ -181,6 +198,7 @@ export const useTimelineZoom = (total: number, currentTime: number, { wheelScrol
     zoomTo,
     zoomBy,
     fitAll,
+    toggleFit,
     lanesRef,
     rulerRef,
   };
