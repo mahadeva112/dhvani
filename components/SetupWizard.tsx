@@ -30,6 +30,7 @@ import { detectCredentials } from '../services/apiClient';
 import { GatewayFields, GatewayValues } from './GatewayFields';
 import { DetectionCard, DetectionResult } from './DetectionCard';
 import { ServerSettingsFields, ServerField } from './ServerSettingsFields';
+import { reportError } from '../services/errorPopup';
 
 interface SetupWizardProps {
   /** Where each credential currently comes from. */
@@ -170,7 +171,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const [geminiState, setGeminiState] = useState<FieldState>(null);
   const [translationState, setTranslationState] = useState<FieldState>(null);
   const [cartesiaState, setCartesiaState] = useState<FieldState>(null);
-  const [generalError, setGeneralError] = useState<string | null>(null);
 
   /*
    * A value still coming from the environment is a starting point, not a lock.
@@ -286,7 +286,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
   const handleSave = async () => {
     setIsSaving(true);
-    setGeneralError(null);
     setElevenLabsState(null);
     setGeminiState(null);
     setTranslationState(null);
@@ -433,7 +432,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         onComplete();
       }
     } catch (err: any) {
-      setGeneralError(err?.message || 'Could not save the settings.');
+      reportError(err, { title: 'The settings could not be saved', safe: 'Nothing was saved — what you typed is still in the form.' });
     } finally {
       setIsSaving(false);
     }
@@ -964,12 +963,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               )}
             </div>
 
-            {generalError && (
-              <div className="flex items-start gap-2 px-3 py-2.5 rounded-[10px] bg-rose-500/10 border border-rose-500/30 text-[12.5px] text-slate-200">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                <span className="leading-relaxed">Nothing was saved. {generalError}</span>
-              </div>
-            )}
           </div>
 
           {/* Live checks and where things are kept */}

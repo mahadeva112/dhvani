@@ -5,6 +5,28 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.74',
+    changes: [
+      'Errors now open in one window that says what went wrong in plain words, what the server said, and what to do next, with Try again where it helps.',
+      'A server error page no longer shows up as a wall of code.',
+    ],
+  },
+  {
+    version: '1.3.73',
+    changes: [
+      'Work on another project while one dubs: pressing Dub there puts it in line, and it starts on its own when the first one finishes. Each project shows only its own progress and errors.',
+      'Transcribing or translating one project no longer stops or locks another.',
+      'Urdu is no longer in the language lists.',
+    ],
+  },
+  {
+    version: '1.3.72',
+    changes: [
+      'Export subtitles no longer gets stuck on timing: it shows the seconds as it works, gives up after 90 s, and Retry starts it fresh, so no restart is needed.',
+      'Only the subtitle list scrolls now; the settings and the video stay in place.',
+    ],
+  },
+  {
     version: '1.3.71',
     changes: [
       'Voice changer: Replace the dub now works line by line, so every line keeps its place and your Edit timing edits. Each speaker can get their own voice.',

@@ -76,6 +76,7 @@ import {
 } from './SyncJoinSettings';
 import { SyncSettingsDiagram } from './SyncSettingsDiagram';
 import { SyncPresetLibrary } from './SyncPresetLibrary';
+import { reportError } from '../services/errorPopup';
 
 /**
  * Sync, in the Dub step: voices the script line by line, places each line in
@@ -295,9 +296,9 @@ export interface SyncSettingsPanelProps {
   /** True when there is a dub for the sync to replace. */
   hasDub: boolean;
   isSyncing: boolean;
+  /** Set while this dub waits for another project's to finish: that project's name. `isSyncing` is true meanwhile. */
+  waitingFor?: string | null;
   isCancelling: boolean;
-  /** Why the last sync failed. */
-  error?: string | null;
   /** A dub was running when Dhvani closed: the button resumes it. */
   interrupted?: boolean;
   /** Set when Sync can't run right now, with the reason shown under the button. */
@@ -926,8 +927,8 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   synced,
   hasDub,
   isSyncing,
+  waitingFor = null,
   isCancelling,
-  error,
   interrupted = false,
   blockedReason,
   pendingCount = 0,
@@ -1072,7 +1073,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           disabled={isCancelling}
           className="h-11 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-sm font-medium text-slate-200 disabled:opacity-50 cursor-pointer"
         >
-          <X className="w-4 h-4" /> {isCancelling ? 'Cancelling…' : 'Cancel sync'}
+          <X className="w-4 h-4" /> {waitingFor ? 'Take out of the line' : isCancelling ? 'Cancelling…' : 'Cancel sync'}
         </button>
       ) : (
         <button
@@ -1081,17 +1082,12 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           disabled={Boolean(blockedReason)}
           className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-pointer active:translate-y-px"
         >
-          {synced || error || interrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-          {interrupted ? 'Resume dub' : error ? 'Try again' : synced ? 'Sync again' : 'Dub & sync'}
+          {synced || interrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+          {interrupted ? 'Resume dub' : synced ? 'Sync again' : 'Dub & sync'}
         </button>
       )}
       {blockedReason && !isSyncing ? (
         <p className="text-center text-[11.5px] text-amber-300">{blockedReason}</p>
-      ) : error && !isSyncing ? (
-        <p role="alert" className="text-center text-[11.5px] text-rose-300">
-          Dub failed: {error}{' '}
-          <span className="text-slate-400">Lines already voiced are kept, so trying again voices only the rest.</span>
-        </p>
       ) : interrupted && !isSyncing ? (
         <p role="status" className="text-center text-[11.5px] text-amber-300">
           The last dub stopped before it finished.{' '}
@@ -1099,7 +1095,9 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         </p>
       ) : (
         <p className="text-center text-[11.5px] text-slate-500">
-          {isSyncing
+          {waitingFor
+            ? `Waits for “${waitingFor}” to finish dubbing, then starts on its own with the voice set now.`
+            : isSyncing
             ? 'You can move to another step while this runs.'
             : synced && pendingCount > 0
               ? `Voices only the ${pendingCount === 1 ? 'changed line' : `${pendingCount} changed lines`} again.`
@@ -1137,6 +1135,8 @@ export interface SyncResultsPanelProps {
   handEdits?: number;
   progress: SyncProgress | null;
   isSyncing: boolean;
+  /** Set while this dub waits for another project's to finish: that project's name. */
+  waitingFor?: string | null;
   isCancelling: boolean;
   /** Lines and length of the dub, for the not-yet-synced summary. */
   lineCount: number;
@@ -1242,6 +1242,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   handEdits = 0,
   progress,
   isSyncing,
+  waitingFor = null,
   isCancelling,
   lineCount,
   duration,
@@ -1326,7 +1327,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           {report && !isSyncing && <SyncVerdictBadge report={report} />}
           {isSyncing && (
             <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300">
-              {isCancelling ? 'Cancelling…' : 'In progress'}
+              {waitingFor ? 'Waiting' : isCancelling ? 'Cancelling…' : 'In progress'}
             </span>
           )}
           {idle && (
@@ -1398,7 +1399,16 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
         </div>
       )}
 
-      {isSyncing && (
+      {waitingFor && (
+        <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3.5 py-3 text-[12.5px] text-slate-300" role="status" aria-live="polite">
+          <Timer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <span>
+            In line: “{waitingFor}” is dubbing. This dub starts on its own when that one finishes. You can keep working on any project meanwhile.
+          </span>
+        </div>
+      )}
+
+      {isSyncing && !waitingFor && (
         <div className="flex flex-col gap-3" role="status" aria-live="polite">
           <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
             <div
@@ -1648,7 +1658,6 @@ const TakeOffer: React.FC<{
 }> = ({ unit, pending, onListen, onUse, onKeep }) => {
   const fit = unit.takeFit;
   const [playing, setPlaying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const audio = useRef<{ url: string; element: HTMLAudioElement } | null>(null);
   useEffect(() => () => {
     audio.current?.element.pause();
@@ -1657,7 +1666,6 @@ const TakeOffer: React.FC<{
   if (pending) return null;
   const audioId = fit ? fit.audioId : unit.takeRejectedAudioId;
   const playNew = async () => {
-    setError(null);
     try {
       if (!audio.current) {
         if (!audioId) throw new Error('The new take is no longer on the server. Sync again to hear it.');
@@ -1671,7 +1679,7 @@ const TakeOffer: React.FC<{
       await audio.current.element.play();
       setPlaying(true);
     } catch (err: any) {
-      setError(err?.message || 'The new take could not be played.');
+      reportError(err, { title: 'The new take could not be played' });
     }
   };
   const button = 'h-7 px-2.5 rounded-lg border text-[12px] flex items-center gap-1.5 cursor-pointer';
@@ -1688,7 +1696,6 @@ const TakeOffer: React.FC<{
             {playing ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />} Listen to it anyway
           </button>
         )}
-        {error && <span className="basis-full text-[11.5px] text-amber-300">{error}</span>}
       </div>
     );
   }
@@ -1731,7 +1738,6 @@ const TakeOffer: React.FC<{
           )}
         </>
       )}
-      {error && <span className="basis-full text-[11.5px] text-amber-300">{error}</span>}
     </div>
   );
 };
@@ -1816,7 +1822,8 @@ const ReviewRow: React.FC<{
         pick(sorted[0]);
       } else setAskError(`No usable ${fuller ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`);
     } catch (err: any) {
-      setAskError(err?.message || 'The text model did not answer.');
+      setAskError(null);
+      reportError(err, { title: 'No new wordings', safe: 'The line is unchanged — you can still edit it yourself.' });
     } finally {
       setAsking(false);
     }

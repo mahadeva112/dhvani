@@ -143,7 +143,7 @@ export const ScriptFitStrip: React.FC<{
     return (
       <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/40 text-xs" role="status">
         {error ? (
-          <span className="text-amber-300">The sync fit could not be worked out: {error}</span>
+          <span className="text-amber-300">The sync fit could not be worked out.</span>
         ) : (
           <span className="flex items-center gap-2 text-slate-400">
             <Loader2 className="w-3.5 h-3.5 animate-spin" /> Timing each line against its source sentence…

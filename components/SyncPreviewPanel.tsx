@@ -20,6 +20,7 @@ import {
 import type { EstimateMethod } from '../services/syncService';
 import type { RateBasis } from '../services/voiceRate';
 import { timeLine } from '../services/speechTiming';
+import { reportError } from '../services/errorPopup';
 
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
@@ -179,6 +180,8 @@ export const useSyncPreview = ({
   const [preview, setPreview] = useState<SyncPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // The preview runs again on every pause in typing: one popup per run of failures, not one per keystroke.
+  const failing = useRef(false);
 
   useEffect(() => {
     if (!enabled || segments.length === 0) return;
@@ -190,9 +193,13 @@ export const useSyncPreview = ({
         .then((next) => {
           setPreview(next);
           setError(null);
+          failing.current = false;
         })
         .catch((err) => {
-          if (!controller.signal.aborted) setError(err?.message || 'The preview could not be worked out.');
+          if (controller.signal.aborted) return;
+          setError(err?.message || 'The preview could not be worked out.');
+          if (!failing.current) reportError(err, { title: 'The sync fit could not be worked out', safe: 'Nothing was voiced or changed. It is tried again as you edit.' });
+          failing.current = true;
         })
         .finally(() => {
           if (!controller.signal.aborted) setLoading(false);
@@ -301,7 +308,8 @@ export const useLineFixes = ({
         });
     } catch (err: any) {
       if (requests.current[unit.key] !== id) return;
-      setRow(unit, { kind: 'error', message: err?.message || 'The text model did not answer.', tried });
+      setRow(unit, { kind: 'error', message: 'No new wording.', tried });
+      reportError(err, { title: 'No new wordings', safe: 'The line is unchanged — you can still edit it yourself.' });
     }
   };
   // A line too long to shorten without losing meaning is left for the user to ask for on its own.
