@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizePauses, pauseSeconds, spokenPause, stripPauses } from './linePauses.js';
+import { dotsToPauses, normalizePauses, pauseSeconds, spokenPause, stripPauses } from './linePauses.js';
 import { cleanTextForNaturalSpeech } from '../providers/elevenlabs/speech.js';
 
 test('the script keeps the words of a paused line, without its marks', () => {
@@ -13,6 +13,13 @@ test('pauses are summed, tidied, and never left at the start or end', () => {
   assert.equal(pauseSeconds('a [pause 0.4s] b [pause 1.25s] c'), 1.7);
   assert.equal(pauseSeconds('a [pause 9s] b'), 2);
   assert.equal(normalizePauses('[pause 0.2s] a  [PAUSE 0.35 s]b [pause 1s]'), 'a [pause 0.4s] b');
+});
+
+test('an ellipsis typed between words becomes a pause mark; at the edges it stays', () => {
+  assert.equal(dotsToPauses('हम यहाँ हैं... ध्यान के लिए।'), 'हम यहाँ हैं [pause 0.4s] ध्यान के लिए।');
+  assert.equal(dotsToPauses('Wait…listen'), 'Wait [pause 0.4s] listen');
+  assert.equal(dotsToPauses('...so it ends...'), '...so it ends...');
+  assert.equal(stripPauses(dotsToPauses('That is all ... there is.')), 'That is all there is.');
 });
 
 test('each engine hears a pause the way it performs one', () => {

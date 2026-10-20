@@ -209,8 +209,9 @@ export const checkGateway = async ({ url, apiKey, protocol, model } = {}) => {
   const error = result.error || '';
 
   /** First match wins; ordered most specific to least. */
-  const status =
-    result.notPermitted || /does not offer|not among|may not use/i.test(error)
+  const status = result.upstreamKeyInvalid
+    ? 'server_issue' // The user's key works; the gateway's own key does not.
+    : result.notPermitted || /does not offer|not among|may not use/i.test(error)
       ? 'model_missing'
       : result.rejected || /rejected|401|403|unauthor|requires an API key/i.test(error)
         ? 'invalid_key'

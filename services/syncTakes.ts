@@ -27,7 +27,7 @@ export const TAKE_DIRECTIONS: { id: TakeDirection; label: string; hint: string }
 ];
 
 /** Takes voiced each time the user asks; each costs a voicing of the line (or of the words picked). */
-export const TAKES_PER_ASK = 3;
+export const TAKES_PER_ASK = 2;
 
 /** One take of a line: where its samples are in the bank, and what a line needs to play them. */
 export interface SyncTake {

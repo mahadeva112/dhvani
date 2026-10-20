@@ -456,6 +456,8 @@ interface ExpressDubWizardProps {
   onVoiceSyncTakes?: (unit: SyncUnitReport, options: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }) => void;
   /** Puts one of a line's takes in the dub. */
   onUseSyncTake?: (key: string, takeId: string) => void;
+  /** Drops a line's takes but Sync's own and the one in the dub. */
+  onClearSyncTakes?: (key: string) => void;
   /** The line whose takes are being voiced. */
   syncTakesBusy?: string | null;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
@@ -595,6 +597,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onKeepOfferedTake,
   onVoiceSyncTakes,
   onUseSyncTake,
+  onClearSyncTakes,
   syncTakesBusy = null,
   onUpdateSegment,
   onReplaceSegments,
@@ -1353,7 +1356,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
    * marked where the meaning wants them in the time the slot has to spare.
    */
   const suggestTakeWording = (unit: SyncUnitReport) => (request: WordingRequest) =>
-    (request.direction === 'shorter' ? suggestShorterLine : suggestRewordedLine)({
+    (request.direction === 'shorter' ? suggestShorterLine : request.direction === 'longer' ? suggestLongerLine : suggestRewordedLine)({
       text: request.text,
       sourceText: unit.sourceText,
       language: targetLanguage,
@@ -3367,6 +3370,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       // In the retake window, using a take is the end of it: the take is in the timeline.
                       if (inWindow) close();
                     }}
+                    onClearTakes={onClearSyncTakes && (() => onClearSyncTakes(unit.key))}
                     onListenInDub={() => listenHere(Math.max(0, unit.srcStart - 0.6))}
                     onClose={close}
                     inWindow={Boolean(inWindow)}
