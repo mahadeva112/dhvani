@@ -29,7 +29,6 @@ export const LANGUAGES = [
   { name: 'Sindhi', iso: 'snd', bcp47: 'sd-IN' },
   { name: 'Tamil', iso: 'tam', bcp47: 'ta-IN' },
   { name: 'Telugu', iso: 'tel', bcp47: 'te-IN' },
-  { name: 'Urdu', iso: 'urd', bcp47: 'ur-IN' },
   { name: 'Arabic', iso: 'ara', bcp47: 'ar-SA' },
   { name: 'Chinese', iso: 'zho', bcp47: 'zh-CN' },
   { name: 'Dutch', iso: 'nld', bcp47: 'nl-NL' },
@@ -54,7 +53,7 @@ const byIso = new Map(LANGUAGES.filter((lang) => lang.iso).map((lang) => [lang.i
 // ElevenLabs may answer with a two-letter code; map the common ones back.
 const TWO_LETTER_TO_ISO = {
   en: 'eng', hi: 'hin', bn: 'ben', ta: 'tam', te: 'tel', kn: 'kan', ml: 'mal', mr: 'mar',
-  gu: 'guj', pa: 'pan', or: 'ori', as: 'asm', ur: 'urd', ne: 'nep', sa: 'san', sd: 'snd',
+  gu: 'guj', pa: 'pan', or: 'ori', as: 'asm', ne: 'nep', sa: 'san', sd: 'snd',
   ar: 'ara', zh: 'zho', nl: 'nld', fr: 'fra', de: 'deu', id: 'ind', it: 'ita', ja: 'jpn',
   ko: 'kor', pl: 'pol', pt: 'por', ru: 'rus', es: 'spa', th: 'tha', tr: 'tur', vi: 'vie',
 };

@@ -129,7 +129,6 @@ const SCRIPT_RANGES: Record<string, string[]> = {
   Sindhi: ['؀-ۿ', 'ݐ-ݿ'],
   Tamil: ['஀-௿'],
   Telugu: ['ఀ-౿'],
-  Urdu: ['؀-ۿ', 'ݐ-ݿ'],
 };
 
 function rangesForLanguage(language: string): string[] | null {
