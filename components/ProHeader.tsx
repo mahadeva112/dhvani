@@ -18,7 +18,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
-import { UpdateControl, openUpdates, updatesSupported } from './UpdateControl';
+import { UpdateControl, openUpdates, updatesSupported, useUpdateState } from './UpdateControl';
 import { ProjectsMenu } from './ProjectsMenu';
 import { CenteredPanel } from './CenteredPanel';
 import { HubMeter, ToolsHub, type ToolsHubItem } from './ToolsHub';
@@ -301,6 +301,15 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const sync = readOptions(activeJob?.syncOptions);
   const engineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   const lineCount = activeJob?.segments.length ?? 0;
+  const updateState = useUpdateState();
+  const updateOffered = Boolean(updateState?.version) && ['available', 'downloading', 'downloaded'].includes(updateState!.status);
+  const updateSummary = !updateState
+    ? null
+    : updateOffered
+      ? `${updateState.version} available`
+      : updateState.status === 'not-available'
+        ? `${updateState.currentVersion} · up to date`
+        : `Version ${updateState.currentVersion}`;
   const hubItems: ToolsHubItem[] = [
     onOpenPhoneticKeyboard && {
       id: 'keyboard',
@@ -429,6 +438,25 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       ],
       note: 'Used for the next translation.',
       onOpen: onOpenCustomPrompt,
+    },
+    updatesSupported() && {
+      id: 'updates',
+      group: 'App',
+      label: 'Check for updates',
+      hint: 'Look for a newer DHVANI and install it',
+      summary: updateSummary,
+      icon: RefreshCw,
+      tone: 'slate',
+      facts: [
+        { label: 'Installed', value: updateState?.currentVersion || '—' },
+        {
+          label: 'Latest',
+          value: updateOffered ? updateState!.version : updateState?.status === 'not-available' ? 'You have it' : 'Not checked yet',
+          status: updateOffered ? 'ok' : undefined,
+        },
+      ],
+      openLabel: 'Check now',
+      onOpen: openUpdates,
     },
   ].filter(Boolean) as ToolsHubItem[];
 
@@ -806,7 +834,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               <SlidersHorizontal className="w-4 h-4" />
             </button>
 
-            <ToolsHub open={toolsOpen} onClose={closeTools} items={hubItems} onCheckUpdates={updatesSupported() ? openUpdates : undefined} />
+            <ToolsHub open={toolsOpen} onClose={closeTools} items={hubItems} />
           </div>
 
           {activeJob && onResetSession && (
