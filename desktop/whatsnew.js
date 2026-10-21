@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.80',
+    changes: [
+      'Check for updates is now in the Tools and settings list, under App, with the version you have and whether a newer one is out. The foot of the window shows only the keys: arrows to move, Enter to open, Esc to close.',
+    ],
+  },
+  {
     version: '1.3.79',
     changes: [
       'The Script view in Review can show each passage as a paragraph, to read along while it plays. The line being heard is lit in light amber, and clicking a line plays from it. Switch back to Lines to edit.',
