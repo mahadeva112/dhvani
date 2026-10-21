@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.79',
+    changes: [
+      'The Script view in Review can show each passage as a paragraph, to read along while it plays. The line being heard is lit in light amber, and clicking a line plays from it. Switch back to Lines to edit.',
+      'Translations no longer leave numbers like "100%" in digits; they come back written the way they are said, so line lengths are measured right.',
+    ],
+  },
+  {
     version: '1.3.78',
     changes: [
       'Buttons and windows across the app now show the plain arrow pointer instead of a hand.',
