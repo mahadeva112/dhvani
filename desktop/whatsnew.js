@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.81',
+    changes: [
+      'Edit timing gives the lanes more room: the picked line’s start, speed, gain and fades sit in one row above them. Scroll over a value or press the up and down keys to change it, and double-click its name to set it back.',
+      'Right-click a line for everything it can do, or double-click it to set its start, speed, gain and fades in a box over it. History is now a menu beside Undo and Redo, and Shortcuts lists every key.',
+    ],
+  },
+  {
     version: '1.3.80',
     changes: [
       'Check for updates is now in the Tools and settings list, under App, with the version you have and whether a newer one is out. The foot of the window shows only the keys: arrows to move, Enter to open, Esc to close.',
