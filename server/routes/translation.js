@@ -108,7 +108,7 @@ translationRouter.post(
 translationRouter.post(
   '/translation/align',
   asyncHandler(async (req, res) => {
-    const { segments, pastedScript, targetLanguage } = req.body || {};
+    const { segments, pastedScript, targetLanguage, coverage } = req.body || {};
 
     if (!Array.isArray(segments) || segments.length === 0) {
       throw new ApiError('No segments were supplied to align against.', {
@@ -142,6 +142,7 @@ translationRouter.post(
       const outcome = await alignScriptToCuesDetailed(cues, {
         pastedScript,
         targetLanguage,
+        coverage,
         apiKey: geminiKey(req),
         onProgress: (progress) => send({ type: 'progress', ...progress }),
         isCancelled: () => closed,

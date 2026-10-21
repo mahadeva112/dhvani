@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Check, AlertCircle, RefreshCw, ClipboardPaste, ArrowUp, ArrowDown, Info, FileText, FolderOpen } from 'lucide-react';
 import { AudioSegment } from '../types';
-import { alignCustomScriptWithGemini, ScriptFit } from '../services/geminiService';
+import { alignCustomScriptWithGemini, ScriptCoverage, ScriptFit } from '../services/geminiService';
 import { readDhvaniScript, mapScriptToCues, DhvaniScript } from '../services/scriptShare';
 import {
   cleanPastedScript,
   splitByLines,
   splitBySentences,
   splitByLength,
+  scriptLines,
   shiftWord,
   holdsWholeScript,
   countWords,
@@ -59,11 +60,49 @@ const rowsFrom = (segments: AudioSegment[], texts?: string[]): DraftRow[] =>
 const needsCheck = (row: DraftRow) => Boolean(row.estimated || row.fit === 'partial' || row.fit === 'none');
 
 const WAYS: { id: AlignmentStrategy; title: string; hint: string; tag?: string }[] = [
-  { id: 'ai', title: 'By meaning', hint: 'AI only finds where each cue ends in your script. It never rewrites or translates your words.', tag: 'Recommended' },
+  {
+    id: 'ai',
+    title: 'By meaning',
+    hint: 'AI matches your lines to the cues and cuts a line only where it runs over several cues. It never rewrites or translates your words.',
+    tag: 'Recommended',
+  },
   { id: 'line', title: 'One line per cue', hint: 'Line 1 goes to cue 1, and so on.' },
   { id: 'sentence', title: 'By sentence', hint: "Whole sentences, shared out by each cue's length." },
   { id: 'proportional', title: 'By length', hint: "Words shared out by each cue's length." },
 ];
+
+/** The cues a script was placed over, which the user can change and match again. */
+const CoverageRange: React.FC<{ coverage: ScriptCoverage; cueCount: number; onApply: (range: ScriptCoverage) => void }> = ({
+  coverage,
+  cueCount,
+  onApply,
+}) => {
+  const [first, setFirst] = useState(String(coverage.firstCue));
+  const [last, setLast] = useState(String(coverage.lastCue));
+  const firstCue = Number(first);
+  const lastCue = Number(last);
+  const valid = Number.isInteger(firstCue) && Number.isInteger(lastCue) && firstCue >= 1 && firstCue <= lastCue && lastCue <= cueCount;
+  const changed = firstCue !== coverage.firstCue || lastCue !== coverage.lastCue;
+  const field =
+    'w-[4.25rem] h-[28px] bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-lg px-2 text-[12.5px] font-mono tabular-nums text-slate-100 focus:outline-none';
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-300">
+      <span>Script covers cues</span>
+      <input aria-label="First cue the script covers" type="number" min={1} max={cueCount} value={first} onChange={(e) => setFirst(e.target.value)} className={field} />
+      <span>to</span>
+      <input aria-label="Last cue the script covers" type="number" min={1} max={cueCount} value={last} onChange={(e) => setLast(e.target.value)} className={field} />
+      <button
+        type="button"
+        onClick={() => valid && onApply({ firstCue, lastCue })}
+        disabled={!changed}
+        className="h-[28px] px-2.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[12px] font-medium text-slate-100 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
+      >
+        Match again
+      </button>
+      {changed && !valid && <span className="text-amber-300">Pick cues from 1 to {cueCount}, first before last.</span>}
+    </div>
+  );
+};
 
 export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
   isOpen,
@@ -85,6 +124,8 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [onlyToCheck, setOnlyToCheck] = useState(false);
+  // The cues the last match placed the script over, when it covers only part.
+  const [coverage, setCoverage] = useState<ScriptCoverage | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const pastePending = useRef(false);
 
@@ -98,6 +139,8 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     return cleanPastedScript(pastedText);
   }, [dhvani, pastedText]);
   const exportLines = dhvani?.kind === 'lines' ? dhvani.lines.length : null;
+  // Lines of a plain paste; null for a subtitle file or a script Dhvani saved.
+  const plainLines = dhvani || cleaned.subtitleBlocks !== null ? null : scriptLines(cleaned.text).length;
   const timedMismatch = timed ? mapScriptToCues(timed.file, [], { audioDuration }).audioMismatch : null;
   const hasAligned = fittedScript !== null;
 
@@ -112,6 +155,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     setErrorMsg(null);
     setNotice(null);
     setOnlyToCheck(false);
+    setCoverage(null);
   }, [isOpen]);
 
   // Stop a running alignment if the dialog goes away.
@@ -121,14 +165,17 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     setFittedScript(null);
     setErrorMsg(null);
     setNotice(null);
+    setCoverage(null);
   };
 
   const cancelAlign = () => abortRef.current?.abort();
 
-  const fit = async () => {
+  /** Fits the script; `chosen` places it over the cues the user picked. */
+  const fit = async (chosen?: ScriptCoverage) => {
     const script = cleaned.text;
     setErrorMsg(null);
     setNotice(null);
+    setCoverage(null);
     if (!script) {
       setErrorMsg('Paste your script into the box first.');
       return;
@@ -162,9 +209,13 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
       }
     }
 
+    if (way === 'line' && plainLines === segments.length) {
+      notes.push(`Your script has ${plainLines} lines, one per cue, so each line went to its cue.`);
+    }
+
     if (way !== 'ai') {
       const split = (way === 'line' ? splitByLines : way === 'sentence' ? splitBySentences : splitByLength)(script, segments);
-      setDraft(rowsFrom(segments, split.texts));
+      setDraft(rowsFrom(segments, split.texts).map((row, i) => ({ ...row, estimated: split.estimated?.[i] })));
       setFittedScript(script);
       setOnlyToCheck(false);
       if (split.note) notes.push(split.note);
@@ -178,6 +229,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     try {
       const { cues: aligned, coverage } = await alignCustomScriptWithGemini(segments, script, targetLanguage, {
         signal: controller.signal,
+        coverage: chosen,
         onProgress: (done, total, message) => setProgress({ done, total: total || segments.length, message }),
       });
       const rows = rowsFrom(segments, aligned.map((a) => a.targetText)).map((row, i) => ({
@@ -193,8 +245,11 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
       ).length;
       setOnlyToCheck(false);
       if (coverage) {
+        setCoverage(coverage);
         notes.push(
-          `Your script covers cues ${coverage.firstCue}–${coverage.lastCue}, so the cues outside that were left empty.`
+          chosen
+            ? `Your script was placed over cues ${coverage.firstCue}–${coverage.lastCue}, so the cues outside that were left empty.`
+            : `Your script seems to cover cues ${coverage.firstCue}–${coverage.lastCue}, so the cues outside that were left empty. If that's wrong, change the range below.`
         );
       }
       notes.push(
@@ -297,8 +352,8 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
   useEffect(() => {
     if (!pastePending.current) return;
     pastePending.current = false;
-    const count = exportLines ?? cleaned.subtitleBlocks;
-    if (count !== null && count === segments.length) setStrategy('line');
+    const count = exportLines ?? cleaned.subtitleBlocks ?? (timed ? null : plainLines);
+    if (count !== null && count > 1 && count === segments.length) setStrategy('line');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pastedText, opened]);
 
@@ -631,6 +686,9 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
               <p className="flex items-start gap-1.5 text-xs text-slate-300" role="status">
                 <Info className="w-3.5 h-3.5 shrink-0 mt-px text-slate-400" /> {notice}
               </p>
+            )}
+            {coverage && !isAligning && (
+              <CoverageRange key={`${coverage.firstCue}-${coverage.lastCue}`} coverage={coverage} cueCount={segments.length} onApply={(range) => void fit(range)} />
             )}
           </div>
 

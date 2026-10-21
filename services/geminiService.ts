@@ -170,7 +170,16 @@ export const alignCustomScriptWithGemini = async (
   segments: AudioSegment[],
   pastedScript: string,
   targetLanguage: string,
-  { signal, onProgress }: { signal?: AbortSignal; onProgress?: (done: number, total: number, message: string) => void } = {}
+  {
+    signal,
+    onProgress,
+    coverage,
+  }: {
+    signal?: AbortSignal;
+    onProgress?: (done: number, total: number, message: string) => void;
+    /** The cues the script covers, when the user has said; otherwise it is found. */
+    coverage?: ScriptCoverage | null;
+  } = {}
 ): Promise<{ cues: AlignedCue[]; coverage: ScriptCoverage | null }> => {
   if (!segments?.length || !pastedScript.trim()) return { cues: [], coverage: null };
 
@@ -183,6 +192,7 @@ export const alignCustomScriptWithGemini = async (
       segments: segmentsToCues(segments).map((cue) => ({ id: cue.id, sourceText: cue.text })),
       pastedScript,
       targetLanguage,
+      coverage: coverage ?? undefined,
     },
     {
       signal,
