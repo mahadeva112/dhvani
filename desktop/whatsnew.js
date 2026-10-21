@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.83',
+    changes: [
+      'Matching a pasted script by meaning is about three times faster than in 1.3.82, and it still keeps your lines.',
+    ],
+  },
+  {
     version: '1.3.82',
     changes: [
       'A pasted script keeps its lines. By meaning matches whole lines to the cues and cuts a line only where it runs over several cues, so words no longer drift into the wrong cues.',
