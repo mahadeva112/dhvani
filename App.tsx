@@ -1103,6 +1103,7 @@ export default function App() {
               syncTakes: null,
               syncEdits: null,
               syncBaseReport: null,
+              syncBeforeVoiceChange: null,
               dubStems: null,
               dubMix: null,
               syncedStems: null,
@@ -1189,6 +1190,7 @@ export default function App() {
           syncTakes: null,
           syncEdits: null,
           syncBaseReport: null,
+          syncBeforeVoiceChange: null,
           dubStems: null,
           dubMix: null,
           syncedStems: null,
@@ -1381,6 +1383,7 @@ export default function App() {
           syncTakes: null,
           syncEdits: null,
           syncBaseReport: null,
+          syncBeforeVoiceChange: null,
           dubStems: null,
           dubMix: null,
           syncedStems: null,
@@ -2279,6 +2282,7 @@ export default function App() {
         syncTakes: null,
         syncEdits: null,
         syncBaseReport: null,
+        syncBeforeVoiceChange: null,
         dubStems: null,
         dubMix: null,
         syncedStems: null,
@@ -2681,6 +2685,8 @@ export default function App() {
         syncEdits: edited ? keptEdits : null,
         // The takes were in the last bank; the picked ones are in this one now.
         syncTakes: null,
+        // A new sync is the dub now: the one from before a voice change can't come back over it.
+        syncBeforeVoiceChange: null,
         syncPendingLines: [],
         syncedStems: several ? stems : null,
         syncMix: several ? report.mix || null : null,
@@ -3317,6 +3323,22 @@ export default function App() {
       if (!activeJob) return;
       if (playsSynced) cancelSyncEditRender(activeJob.id);
       const masterUrl = URL.createObjectURL(masterBlob);
+      // The editable dub is kept for Undo voice change; a second change keeps the first one's, the last with lines.
+      const job = activeJob;
+      const before =
+        job.syncBank && job.syncBankBlob && job.syncBaseReport && job.syncedBlob
+          ? {
+              syncedBlob: job.syncedBlob,
+              syncReport: job.syncReport ?? null,
+              syncBank: job.syncBank,
+              syncBankBlob: job.syncBankBlob,
+              syncEdits: job.syncEdits ?? null,
+              syncBaseReport: job.syncBaseReport,
+              syncTakes: job.syncTakes ?? null,
+              syncedStems: job.syncedStems ?? null,
+              syncMix: job.syncMix ?? null,
+            }
+          : job.syncBeforeVoiceChange ?? null;
       updateJob(
         activeJob.id,
         playsSynced
@@ -3324,6 +3346,7 @@ export default function App() {
               syncedAudioBuffer: masterBuffer,
               syncedAudioUrl: masterUrl,
               syncedBlob: masterBlob,
+              syncBeforeVoiceChange: before,
               // The bank is the dub before the voice changer: editing it now would undo the change.
               syncBank: null,
               syncBankBlob: null,
@@ -3338,6 +3361,33 @@ export default function App() {
     },
     [activeJob, playsSynced, updateJob]
   );
+
+  /** Undo voice change: the synced dub from before the whole-file change comes back, with its lines and edits. */
+  const handleUndoVoiceChange = () => {
+    const before = activeJob?.syncBeforeVoiceChange;
+    if (!activeJob || !before) return;
+    cancelSyncEditRender(activeJob.id);
+    const url = URL.createObjectURL(before.syncedBlob);
+    const previousUrl = activeJob.syncedAudioUrl;
+    updateJob(activeJob.id, {
+      ...before,
+      syncedAudioUrl: url,
+      syncedAudioBuffer: null,
+      syncBeforeVoiceChange: null,
+      status: ProcessingStatus.COMPLETED,
+    });
+    setSyncEditStatus(activeJob.id, { state: 'ready' });
+    decodingSynthUrlRef.current = url;
+    decodeAudioBlobUrl(url)
+      .then((buffer) => {
+        if (syncedUrlOf(activeJob.id) === url) updateJob(activeJob.id, { syncedAudioBuffer: buffer });
+      })
+      .catch(console.warn)
+      .finally(() => {
+        if (decodingSynthUrlRef.current === url) decodingSynthUrlRef.current = null;
+      });
+    if (previousUrl) window.setTimeout(() => URL.revokeObjectURL(previousUrl), 5000);
+  };
 
   /**
    * Voice changer, line by line: each line of the synced dub changed on its
@@ -3680,6 +3730,7 @@ export default function App() {
           onElVoiceSettingsChange={handleElVoiceSettingsChange}
           onSyncDub={handleSyncDub}
           onSyncEditsChange={handleSyncEditsChange}
+          onUndoVoiceChange={handleUndoVoiceChange}
           syncEditStatus={syncEditStatus}
           syncEditLive={liveDub}
           onEditTimingAudio={setEditTimingAudio}

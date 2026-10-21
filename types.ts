@@ -291,6 +291,21 @@ export interface BatchJob {
    * are in the bank above; the next Sync keeps the picked ones and starts afresh.
    */
   syncTakes?: SyncTakes | null;
+  /**
+   * The synced dub as it was before the voice changer replaced the whole file,
+   * with its lines and edits: Undo voice change puts it back. Cleared by a new Sync.
+   */
+  syncBeforeVoiceChange?: {
+    syncedBlob: Blob;
+    syncReport: SyncReport | null;
+    syncBank: SyncBank;
+    syncBankBlob: Blob;
+    syncEdits: SyncEdits | null;
+    syncBaseReport: SyncReport;
+    syncTakes: SyncTakes | null;
+    syncedStems: DubStem[] | null;
+    syncMix: DubMixReport | null;
+  } | null;
 
   /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
   cast?: Record<string, SpeakerVoice>;
