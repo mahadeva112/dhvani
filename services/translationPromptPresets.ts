@@ -62,26 +62,6 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 - Cut the wrapping, never the point: the idea, the emphasis, the punchline and the negation always stay, and no word becomes a different one.`
   },
   {
-    id: 'three_step',
-    name: 'Sadhguru 3-Step Dubbing',
-    shortDesc: 'Translation, review and punctuation passes using the per-language prompts',
-    badge: '3-step',
-    category: 'persona',
-    // The first line is what switches the backend to the 3-step pipeline
-    // (server/providers/gemini/threeStepTranslation.js). Lines starting with
-    // "#" are notes; anything else is sent with Steps 1 and 2 as extra instructions.
-    prompt: `#pipeline: 3-step
-# Runs three passes with the prompts for the target language:
-#   Step 1 — Translation: thought-unit mapping onto the English timing
-#   Step 2 — Review: transcreation and length check
-#   Step 3 — Punctuation: pauses (...), hyphens (-) and paragraphing
-# The finished script is then placed back on the cues.
-# Available for Assamese, Bengali, Gujarati, Hindi, Kannada, Malayalam,
-# Marathi, Nepali, Odia, Tamil and Telugu; other languages get the
-# standard translation.
-# Keep the first line. Write any extra instructions below it without a "#".`
-  },
-  {
     id: 'natural_spoken',
     name: 'Natural Spoken',
     shortDesc: 'The same meaning-first, time-aware dubbing for any speaker: interviews, guests, documentaries',

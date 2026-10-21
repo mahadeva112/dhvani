@@ -24,7 +24,7 @@ files:
   - desktop/whatsnew.js
   - desktop/icons/**
   - server/**
-  - prompts/*.txt
+  - prompts/Performance_Tags_Prompt.txt
   - '!server/**/*.test.js'
   - dist/**
   - package.json

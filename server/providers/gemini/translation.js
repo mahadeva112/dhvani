@@ -3,12 +3,6 @@ import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { parseJsonResponse } from './client.js';
 import { generateText } from '../textModel.js';
-import {
-  isThreeStepPrompt,
-  supportsThreeStep,
-  extraInstructions,
-  translateCueTextsThreeStep,
-} from './threeStepTranslation.js';
 import { alignScript } from '../../lib/scriptAlign.js';
 import {
   cueIssues,
@@ -199,6 +193,21 @@ const translateBatch = async (options) => {
   }
 };
 
+/**
+ * A prompt saved from the removed 3-Step style ("#pipeline: 3-step" and its
+ * "#" note lines) sent by a caller that hasn't moved to a current style: only
+ * the user's own lines below the notes are kept as the style directive.
+ */
+const THREE_STEP_MARKER = /^\s*#\s*pipeline\s*:\s*3-step\b/i;
+export const withoutThreeStepNotes = (prompt = '') =>
+  THREE_STEP_MARKER.test(prompt)
+    ? String(prompt)
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('#'))
+        .join('\n')
+        .trim()
+    : prompt;
+
 /** One JSON answer from the text model, for the checks after a translation. */
 const askJson = async (prompt, { apiKey, models, temperature, generate = generateText }) => {
   const { response } = await generate({
@@ -329,17 +338,7 @@ export const translateCueTexts = async (
   const rate = cleanVoiceRate(voiceRate);
   const ownRates = cleanSpeakerRates(speakerRates);
 
-  // The 3-step preset runs the per-language prompt files instead of the
-  // one-shot prompt below; it needs the cue timings, so it gets the raw cues.
-  if (isThreeStepPrompt(customPrompt)) {
-    if (supportsThreeStep(targetLanguage)) {
-      return translateCueTextsThreeStep(cues, { targetLanguage, customPrompt, apiKey, models, onProgress, voiceRate: rate, speakerRates: ownRates });
-    }
-    // A language without prompt files falls back to the one-shot
-    // translation, keeping only the user's own additions.
-    logger.warn(`No 3-step prompts for ${targetLanguage}; using the standard translation instead.`);
-    customPrompt = extraInstructions(customPrompt);
-  }
+  customPrompt = withoutThreeStepNotes(customPrompt);
 
   const translatable = cues
     .map((cue) => ({ id: String(cue.id), text: String(cue.text ?? '').trim(), syllables: syllableTarget(cue, rateForCue(cue, rate, ownRates)) }))
