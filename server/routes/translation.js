@@ -28,7 +28,7 @@ translationRouter.post(
     const cues = segments.map((segment, index) => ({
       id: String(segment.id ?? `cue-${index + 1}`),
       text: String(segment.sourceText ?? segment.text ?? segment.textSource ?? '').trim(),
-      // Read only by the 3-step translation to describe each segment's length.
+      // Each cue's time sizes its translation for the dub voice (syllableTarget).
       startTime: Number(segment.startTime) || 0,
       endTime: Number(segment.endTime) || 0,
     }));
