@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { Keyboard, Pause, Play } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import { SCRIPT_PALETTES, getIndicLanguageConfig } from '../../services/indicTransliteration';
-import { PASSAGE_PAUSES, buildPassages } from './passages';
+import { PASSAGE_PAUSES, buildPassages, loadPassageLayout, savePassageLayout, type PassageLayout } from './passages';
 import { usePhoneticTyping } from './usePhoneticTyping';
 
 export interface LinePacing {
@@ -23,6 +23,14 @@ const asLine = (text: string) => text.replace(/\s*\n\s*/g, ' ');
 
 // Shared by the textarea and the copy behind it, so the pace marks sit exactly under the words.
 const CELL_TEXT = 'px-3 py-2.5 leading-[1.75] whitespace-pre-wrap break-words [overflow-wrap:anywhere]';
+
+// The light wash on the line being heard, in both layouts.
+const PLAYING_WASH = 'bg-amber-200/[0.14]';
+
+const LAYOUTS: { id: PassageLayout; label: string; title: string }[] = [
+  { id: 'lines', label: 'Lines', title: 'One line per cue, to edit the dub' },
+  { id: 'paragraph', label: 'Paragraph', title: 'Each passage as running text, to read along while it plays' },
+];
 
 /**
  * The bar on the playing line of a cell. It glides from line to line, and
@@ -58,7 +66,7 @@ function PlayingLineBar({ index, text }: { index: number; text: string }) {
     <div
       ref={barRef}
       aria-hidden
-      className="absolute inset-x-0 top-0 pointer-events-none border-l-[3px] border-slate-200 bg-white/[0.07] transition-[transform,height] duration-[450ms] ease-[cubic-bezier(.22,1,.36,1)] motion-reduce:transition-none"
+      className={`absolute inset-x-0 top-0 pointer-events-none border-l-[3px] border-amber-300 ${PLAYING_WASH} transition-[transform,height] duration-[450ms] ease-[cubic-bezier(.22,1,.36,1)] motion-reduce:transition-none`}
     />
   );
 }
@@ -115,6 +123,11 @@ export function ScriptTableView({
   // Text being typed, or kept because its lines no longer match the cues, by passage.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState<string | null>(null);
+  const [layout, setLayout] = useState<PassageLayout>(loadPassageLayout);
+  const changeLayout = (next: PassageLayout) => {
+    setLayout(next);
+    savePassageLayout(next);
+  };
   const rootRef = useRef<HTMLDivElement>(null);
   // The cell being typed in, so the signs row can write at its caret.
   const typingRef = useRef<{ ta: HTMLTextAreaElement; key: string } | null>(null);
@@ -171,6 +184,28 @@ export function ScriptTableView({
       ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [activeKey, isPlaying, editing]);
 
+  /** A passage as running text: each cue's line flows on from the last, the one being heard washed. */
+  const paragraph = (cues: AudioSegment[], textOf: (seg: AudioSegment) => string, lang: string) => (
+    <div className={`${CELL_TEXT} whitespace-normal`} lang={lang || undefined}>
+      {cues.map((seg, i) => (
+        <React.Fragment key={String(seg.id)}>
+          {i > 0 && ' '}
+          <span
+            onClick={() => window.getSelection()?.isCollapsed && onSeek(seg.startTime)}
+            className={`rounded-sm [box-decoration-break:clone] cursor-default transition-colors duration-[450ms] motion-reduce:transition-none ${
+              seg.id === activeSegmentId
+                ? `${PLAYING_WASH} text-white shadow-[inset_0_-2px_0_rgb(252_211_77/0.7)]`
+                : 'hover:bg-white/[0.06] hover:text-slate-100'
+            }`}
+            title={`${formatTime(seg.startTime)} · play from here`}
+          >
+            {asLine(textOf(seg))}
+          </span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+
   const markClass = (p: LinePacing) =>
     p.level === 'fast' ? 'bg-rose-500/25 rounded-sm' : p.level === 'tight' ? 'bg-amber-400/15 rounded-sm' : '';
 
@@ -195,7 +230,26 @@ export function ScriptTableView({
             </button>
           ))}
         </div>
-        <span className="ml-auto text-slate-500">One line per cue · Esc undoes the cell</span>
+        <div role="group" aria-label="Passage layout" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+          {LAYOUTS.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              aria-pressed={layout === l.id}
+              onClick={() => changeLayout(l.id)}
+              title={l.title}
+              className={`px-2 py-0.5 rounded-md cursor-default transition-colors ${
+                layout === l.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
+        <span className="ml-auto text-slate-500">
+          {layout === 'lines' ? 'One line per cue · Esc undoes the cell' : 'Click a line to play from it · edit in Lines'}
+        </span>
+        {layout === 'lines' && (
         <button
           type="button"
           onClick={phonetic.toggle}
@@ -208,6 +262,7 @@ export function ScriptTableView({
           <Keyboard className="w-3 h-3" />
           Phonetic {phonetic.enabled ? langConfig.nativeName : 'off'}
         </button>
+        )}
       </div>
       <div className="p-3 sm:p-4">
       <table className="w-full table-fixed border-collapse text-slate-200" style={{ fontSize: `${fontSize}px` }}>
@@ -272,6 +327,20 @@ export function ScriptTableView({
                   {tight > 0 && <div className="mt-0.5 text-amber-300/90">{tight} tight</div>}
                 </td>
 
+                {layout === 'paragraph' ? (
+                  <>
+                    <td className="border border-slate-700/70 align-top text-slate-400">
+                      {paragraph(cues, getSourceText, sourceLanguage)}
+                    </td>
+                    <td className="border border-slate-700/70 align-top text-slate-100">
+                      {paragraph(cues, getTargetText, targetLanguage)}
+                      {drafts[key] !== undefined && (
+                        <div className="px-3 pb-2.5 text-[11.5px] text-amber-300/90">Unsaved changes in Lines</div>
+                      )}
+                    </td>
+                  </>
+                ) : (
+                <>
                 <td className="border border-slate-700/70 align-top text-slate-400">
                   <div className="relative">
                   {playingIndex !== -1 && <PlayingLineBar index={playingIndex} text={value} />}
@@ -346,6 +415,8 @@ export function ScriptTableView({
                     </div>
                   )}
                 </td>
+                </>
+                )}
               </tr>
             );
           })}

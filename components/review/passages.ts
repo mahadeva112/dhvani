@@ -20,6 +20,24 @@ export const savePassagePause = (pause: number) => {
   } catch {}
 };
 
+/** How the Script view lays out a passage: one line per cue to edit, or running text to read along. */
+export type PassageLayout = 'lines' | 'paragraph';
+
+const LAYOUT_KEY = 'dhvani_passage_layout';
+
+export const loadPassageLayout = (): PassageLayout => {
+  try {
+    if (localStorage.getItem(LAYOUT_KEY) === 'paragraph') return 'paragraph';
+  } catch {}
+  return 'lines';
+};
+
+export const savePassageLayout = (layout: PassageLayout) => {
+  try {
+    localStorage.setItem(LAYOUT_KEY, layout);
+  } catch {}
+};
+
 export interface Passage {
   /** The passage's first cue, which names it across edits that don't touch its start. */
   key: string;
