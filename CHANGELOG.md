@@ -9,6 +9,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Undo voice change.** Replacing the dub with the voice changer's **Whole file** mode turns it
+  into one file, so Edit timing was disabled until the next Sync. The dub from before is now kept
+  with its lines and edits, and **Undo voice change** beside Edit timing puts it back (the new
+  voice is dropped). A new Sync clears it.
 - **Audio quality, on the Dub step.** Dubs are now voiced as **WAV 48 kHz** by default, instead
   of always MP3 44.1 kHz 128 kbps. If your ElevenLabs plan doesn't allow a format, the dub is
   voiced in MP3 192 kbps, then 128 kbps, and a note says why. The refusal comes before anything

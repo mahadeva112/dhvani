@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.85',
+    changes: [
+      'After the voice changer replaces the whole dub, Undo voice change beside Edit timing brings back the dub from before, with your timing edits, so you can edit its timing again.',
+    ],
+  },
+  {
     version: '1.3.84',
     changes: [
       'The hint beside the Edit timing tools stays on one line and only says what a drag does where you point, so the timeline no longer jumps up and down. Shortcuts has the whole guide.',
