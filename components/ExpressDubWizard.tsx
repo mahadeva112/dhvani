@@ -423,6 +423,8 @@ interface ExpressDubWizardProps {
   syncSettingsRequest?: number;
   /** Edit timing: the synced dub's lines changed by hand, with a name for the change. Omitted hides Edit timing. */
   onSyncEditsChange?: (edits: SyncEdits, label: string) => void;
+  /** Puts back the synced dub from before a whole-file voice change, so its timing can be edited again. */
+  onUndoVoiceChange?: () => void;
   /** Whether the synced dub has caught up with the edits. */
   syncEditStatus?: SyncEditStatus;
   /** Edit timing's dub is playing live from its lines, so edits are heard at once. */
@@ -576,6 +578,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onSyncOptionsChange,
   syncSettingsRequest = 0,
   onSyncEditsChange,
+  onUndoVoiceChange,
   syncEditStatus = { state: 'ready' },
   syncEditLive = false,
   onEditTimingAudio,
@@ -3555,12 +3558,30 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <span className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-500">
                     <Headphones className="w-3.5 h-3.5" /> Levels are for listening; the dub file is unchanged
                   </span>
+                  {!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm('Undo the voice change? The dub goes back to the voice it had before, with its timing edits, and the new voice is thrown away.')) onUndoVoiceChange();
+                      }}
+                      title="Put back the dub from before the voice change, so its timing can be edited again"
+                      className="ml-auto h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Undo voice change
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingTiming(true)}
                     disabled={!activeJob.syncBank}
-                    title={activeJob.syncBank ? 'Move, trim, split and stretch the synced lines by hand' : 'Sync again to edit the timing of this dub'}
-                    className="ml-auto h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5"
+                    title={
+                      activeJob.syncBank
+                        ? 'Move, trim, split and stretch the synced lines by hand'
+                        : activeJob.syncBeforeVoiceChange
+                          ? 'The voice change replaced the whole file: undo it, or Sync again, to edit the timing'
+                          : 'Sync again to edit the timing of this dub'
+                    }
+                    className={`${!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange ? '' : 'ml-auto '}h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5`}
                   >
                     <Pencil className="w-3.5 h-3.5" /> Edit timing
                   </button>
