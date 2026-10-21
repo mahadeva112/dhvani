@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.82',
+    changes: [
+      'A pasted script keeps its lines. By meaning matches whole lines to the cues and cuts a line only where it runs over several cues, so words no longer drift into the wrong cues.',
+      'Paste as many lines as cues and each line goes to its cue. One line too many or too few only moves the cues next to it, and those are marked to check.',
+    ],
+  },
+  {
     version: '1.3.81',
     changes: [
       'Edit timing gives the lanes more room: the picked line’s start, speed, gain and fades sit in one row above them. Scroll over a value or press the up and down keys to change it, and double-click its name to set it back.',
