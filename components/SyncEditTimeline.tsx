@@ -1376,16 +1376,18 @@ export const SyncEditTimeline: React.FC<{
     fadeOut: 'default',
     gain: 'ns-resize',
   };
-  const ZONE_HINT: Record<Zone, string> = {
-    move: 'Drag to move · Shift + drag pushes the lines after it · Alt + drag slips the audio inside',
-    slip: 'Drag to slip the audio inside the line; the line stays where it is',
-    trimLeft: 'Drag to trim the start · Alt + drag stretches instead',
-    trimRight: 'Drag to trim the end · Alt + drag stretches instead',
-    stretchLeft: 'Drag to stretch: faster or slower, pitch kept',
-    stretchRight: 'Drag to stretch: faster or slower, pitch kept',
-    fadeIn: 'Drag to fade in',
-    fadeOut: 'Drag to fade out',
-    gain: 'Drag up or down to turn the line up or down',
+  /** A hint under the timeline: what a drag or click does, then the keys that change it. */
+  type Hint = { text: string; keys?: [string, string][] };
+  const ZONE_HINT: Record<Zone, Hint> = {
+    move: { text: 'Drag to move', keys: [['Shift', 'push the rest'], ['Alt', 'slip']] },
+    slip: { text: 'Drag to slip the audio inside' },
+    trimLeft: { text: 'Drag to trim the start', keys: [['Alt', 'stretch']] },
+    trimRight: { text: 'Drag to trim the end', keys: [['Alt', 'stretch']] },
+    stretchLeft: { text: 'Drag to stretch, pitch kept' },
+    stretchRight: { text: 'Drag to stretch, pitch kept' },
+    fadeIn: { text: 'Drag to fade in' },
+    fadeOut: { text: 'Drag to fade out' },
+    gain: { text: 'Drag up or down for gain' },
   };
 
   type Drag = {
@@ -3260,17 +3262,36 @@ export const SyncEditTimeline: React.FC<{
             </ActionButton>
           )}
         </div>
-        <span className="ml-auto flex items-center gap-3 min-w-0">
+        {/* Short hints only, at a fixed height beside the tools, so the row never wraps and the timeline stays put; the whole guide is under Shortcuts (?) */}
+        <span className="flex-1 basis-0 min-w-0 h-6 flex items-center justify-end">
           {toast ? (
-            <span aria-live="polite" className="text-[12px] text-amber-300">{toast}</span>
+            <span aria-live="polite" className="truncate min-w-0 text-[12px] text-amber-300">{toast}</span>
           ) : (
-            <span className="truncate text-[11.5px] text-slate-500">
-              {blade ? 'Blade is on: click a line to cut it there · B turns it off' : hover ? ZONE_HINT[hover.zone] : group.length > 1
-                    ? `${group.length} lines picked: drag one to move them all · its top edge or corners set gain and fades on all · Ctrl + click adds or drops a line`
+            (() => {
+              const hint: Hint | null = blade
+                ? { text: 'Click a line to cut it', keys: [['B', 'blade off']] }
+                : hover
+                  ? ZONE_HINT[hover.zone]
+                  : group.length > 1
+                    ? { text: `${group.length} lines picked: drag one to move them all` }
                     : pick
-                      ? 'Drag the picked stretch of the original down onto a gap in the dub · Ctrl + C copies it, Ctrl + V puts it at the playhead · Esc lets go'
-                      : 'Point at a line: its middle moves it (past other lines into any gap it fits), its edges trim it, its top corners fade it, its top edge sets its gain · Ctrl + click or drag across empty lane picks several · drag across the original to fill a gap with it'}
-            </span>
+                      ? { text: 'Drag it down onto a gap in the dub', keys: [['Esc', 'let go']] }
+                      : null;
+              return (
+                hint && (
+                  <span className="truncate min-w-0 text-[12px] leading-6 text-slate-400">
+                    {hint.text}
+                    {hint.keys?.map(([key, what]) => (
+                      <span key={key}>
+                        <span className="mx-2.5 text-slate-600">·</span>
+                        <kbd className="mr-1 font-[inherit] font-medium text-slate-200">{key}</kbd>
+                        {what}
+                      </span>
+                    ))}
+                  </span>
+                )
+              );
+            })()
           )}
         </span>
       </div>
@@ -3407,8 +3428,8 @@ export const SyncEditTimeline: React.FC<{
                 </button>
               </div>
               <p className="mt-2 text-[12.5px] leading-relaxed text-slate-400">
-                Click a line on the dub lane to pick it. Drag its middle to move it, an edge to trim it (Alt: stretch), a top corner to fade it, its top edge up or down for gain; Alt + drag the
-                middle slips the audio inside. To fill a gap with the original's own voice, drag across the Original lane to pick a stretch and drag it down onto the dub.
+                Click a line on the dub lane to pick it. Drag its middle to move it (past other lines, into any gap it fits), an edge to trim it (Alt: stretch), a top corner to fade it, its top edge up or down for gain; Alt + drag the
+                middle slips the audio inside. With several lines picked, dragging one moves, fades or sets the gain of them all. To fill a gap with the original's own voice, drag across the Original lane to pick a stretch and drag it down onto the dub.
               </p>
               <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
                 {SHORTCUTS.map((section) => (
