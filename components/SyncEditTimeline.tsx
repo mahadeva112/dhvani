@@ -1,10 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlignStartVertical,
+  ArrowLeft,
+  ArrowRight,
   ArrowRightToLine,
   Check,
+  ChevronDown,
+  CircleHelp,
   Flag,
   FoldHorizontal,
+  History,
   Link2,
   Loader2,
   Lock,
@@ -12,14 +18,18 @@ import {
   Magnet,
   Maximize2,
   Mic,
+  MoreHorizontal,
   Play,
   Redo2,
   RotateCcw,
   Scissors,
+  SlidersHorizontal,
   SquareSplitHorizontal,
+  Trash2,
   TriangleAlert,
   Undo2,
   VolumeX,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -486,158 +496,247 @@ const ActionButton: React.FC<{ label: string; shortcut?: string; onClick: () => 
   </button>
 );
 
-/** A number in the inspector, set on Enter or when the field is left. */
-const NumberField: React.FC<{
-  label: string;
-  value: number;
-  step: number;
-  digits: number;
-  onCommit: (value: number) => void;
-}> = ({ label, value, step, digits, onCommit }) => {
-  const [text, setText] = useState(value.toFixed(digits));
-  const [focused, setFocused] = useState(false);
-  useEffect(() => {
-    if (!focused) setText(value.toFixed(digits));
-  }, [value, digits, focused]);
-  // Read from the field itself: it may be left in the same moment it was typed in.
-  const commit = (typed: string) => {
-    const v = parseFloat(typed.replace(',', '.'));
-    if (Number.isFinite(v) && Math.abs(v - value) > 10 ** -(digits + 1)) onCommit(v);
-    else setText(value.toFixed(digits));
-  };
-  return (
-    <label className="flex flex-col gap-1 text-[11px] text-slate-500 min-w-0">
-      {label}
-      <input
-        type="number"
-        step={step}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={(e) => {
-          setFocused(false);
-          commit(e.currentTarget.value);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          if (e.key === 'Escape') {
-            setText(value.toFixed(digits));
-            (e.target as HTMLInputElement).blur();
-          }
-          e.stopPropagation();
-        }}
-        className="h-8 w-full min-w-0 rounded-lg border border-slate-800 bg-slate-950 px-2 font-mono text-[12.5px] text-slate-100 tabular-nums focus:outline-none focus:border-indigo-500"
-      />
-    </label>
-  );
-};
+/** Wheel or arrow-key steps on a number land in the history as one change, this long after the last step. */
+const STEP_COMMIT_MS = 450;
 
 /**
- * The inspector with several lines picked: one gain and one pair of fades for
- * all of them. A field shows its value when every picked part has the same
- * one, and is empty when they differ; whatever is typed goes to all of them.
+ * A number on the line bar or in a line's properties, set on Enter or when the
+ * field is left. The wheel over it or the up and down keys step it (Shift: ten
+ * steps), and double-clicking its name puts it back to its default; it is lit
+ * while it differs from that default. With several lines picked and their
+ * values differing, it is empty with "mixed" as its hint, and whatever is set
+ * goes to all of them.
  */
-const GroupInspector: React.FC<{
-  group: Chunk[];
-  onGain: (db: number) => void;
-  onFadeIn: (ms: number) => void;
-  onFadeOut: (ms: number) => void;
-  onSpeed: (percent: number) => void;
-  onMute: () => void;
-  onLock: () => void;
-  onReset: () => void;
-  onRemove: () => void;
-  onClear: () => void;
-}> = ({ group, onGain, onFadeIn, onFadeOut, onSpeed, onMute, onLock, onReset, onRemove, onClear }) => {
-  const lines = group.filter((c) => !c.original);
-  const firstRate = lines[0]?.part.rate;
-  const sameRate = firstRate !== undefined && lines.every((c) => Math.abs(c.part.rate - firstRate) < 1e-6) ? firstRate * 100 : null;
-  const same = (pick: (part: SyncEditPart) => number) => {
-    const first = pick(group[0].part);
-    return group.every((c) => Math.abs(pick(c.part) - first) < 1e-6) ? first : null;
-  };
-  const allMuted = group.every((c) => c.part.muted);
-  const button = 'h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5';
-  return (
-    <>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[13px] font-semibold text-slate-100">{group.length} lines picked</span>
-        <span className="font-mono text-[11.5px] text-slate-400 truncate">{group.map((c) => c.label).join(', ')}</span>
-        <button type="button" onClick={onClear} className="ml-auto text-[11px] text-slate-500 hover:text-slate-300 cursor-default">
-          Clear <kbd className="font-mono">Esc</kbd>
-        </button>
-      </div>
-      <p className="mt-1 text-[11.5px] text-slate-500">Drag any of them to move them all. What you set here goes to every picked line.</p>
-      <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <GroupField label="Speed (%)" value={sameRate} step={1} digits={0} onCommit={onSpeed} />
-        <GroupField label="Gain (dB)" value={same((p) => p.gainDb)} step={0.5} digits={1} onCommit={onGain} />
-        <GroupField label="Fade in (ms)" value={same((p) => p.fadeIn * 1000)} step={10} digits={0} onCommit={onFadeIn} />
-        <GroupField label="Fade out (ms)" value={same((p) => p.fadeOut * 1000)} step={10} digits={0} onCommit={onFadeOut} />
-      </div>
-      <div className="mt-2.5 flex flex-wrap gap-1.5">
-        <button type="button" onClick={onMute} className={button}>
-          <VolumeX className="w-3.5 h-3.5" /> {allMuted ? 'Unmute all' : 'Mute all'}
-        </button>
-        <button type="button" onClick={onLock} className={button}>
-          <Lock className="w-3.5 h-3.5" /> Lock or unlock
-        </button>
-        <button type="button" onClick={onReset} className={button}>
-          <RotateCcw className="w-3.5 h-3.5" /> Reset lines
-        </button>
-        <button type="button" onClick={onRemove} className={button}>
-          Remove <kbd className="font-mono text-[10px] text-slate-500">Del</kbd>
-        </button>
-      </div>
-    </>
-  );
-};
-
-/** A number for several picked lines: empty, with "mixed" as its hint, when they differ. */
-const GroupField: React.FC<{ label: string; value: number | null; step: number; digits: number; onCommit: (value: number) => void }> = ({
-  label,
-  value,
-  step,
-  digits,
-  onCommit,
-}) => {
+const NumberField: React.FC<{
+  label: string;
+  unit: string;
+  value: number | null;
+  step: number;
+  digits: number;
+  /** The field's width, for the digits it holds. */
+  width: string;
+  defaultValue?: number;
+  /** Over it: name and unit stacked above the field rather than beside it. */
+  stacked?: boolean;
+  autoFocus?: boolean;
+  onCommit: (value: number) => void;
+}> = ({ label, unit, value, step, digits, width, defaultValue, stacked = false, autoFocus = false, onCommit }) => {
   const shown = value === null ? '' : value.toFixed(digits);
   const [text, setText] = useState(shown);
   const [focused, setFocused] = useState(false);
+  const stepTimer = useRef<number | null>(null);
+  const boxRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
-    if (!focused) setText(shown);
+    if (!focused && stepTimer.current === null) setText(shown);
   }, [shown, focused]);
+  // Read from the field itself: it may be left in the same moment it was typed in.
   const commit = (typed: string) => {
     const v = parseFloat(typed.replace(',', '.'));
     if (Number.isFinite(v) && (value === null || Math.abs(v - value) > 10 ** -(digits + 1))) onCommit(v);
     else setText(shown);
   };
+  const latest = useRef({ text, commit });
+  latest.current = { text, commit };
+  const flushSteps = () => {
+    if (stepTimer.current === null) return;
+    window.clearTimeout(stepTimer.current);
+    stepTimer.current = null;
+    latest.current.commit(latest.current.text);
+  };
+  const stepBy = (steps: number) => {
+    const typed = parseFloat(latest.current.text.replace(',', '.'));
+    const from = Number.isFinite(typed) ? typed : defaultValue ?? 0;
+    const next = (from + steps * step).toFixed(digits);
+    latest.current.text = next;
+    setText(next);
+    if (stepTimer.current !== null) window.clearTimeout(stepTimer.current);
+    stepTimer.current = window.setTimeout(() => {
+      stepTimer.current = null;
+      latest.current.commit(latest.current.text);
+    }, STEP_COMMIT_MS);
+  };
+  const stepRef = useRef(stepBy);
+  stepRef.current = stepBy;
+  // React's wheel listener is passive: the page would scroll as the number changes.
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const onWheel = (e: WheelEvent) => {
+      const delta = e.deltaY || e.deltaX;
+      if (!delta) return;
+      e.preventDefault();
+      stepRef.current((delta < 0 ? 1 : -1) * (e.shiftKey ? 10 : 1));
+    };
+    box.addEventListener('wheel', onWheel, { passive: false });
+    return () => box.removeEventListener('wheel', onWheel);
+  }, []);
+  // Steps still waiting when the field goes (another line picked) land on the line they were made on.
+  useEffect(() => () => flushSteps(), []);
+  const changed = value !== null && defaultValue !== undefined && Math.abs(value - defaultValue) > 10 ** -(digits + 1);
+  const hint = `Scroll or ↑ ↓ to change it (Shift: 10 steps)${defaultValue !== undefined ? ` · double-click “${label}” for ${defaultValue.toFixed(digits)}` : ''}`;
   return (
-    <label className="flex flex-col gap-1 text-[11px] text-slate-500 min-w-0">
-      {label}
-      <input
-        type="number"
-        step={step}
-        value={text}
-        placeholder="mixed"
-        onChange={(e) => setText(e.target.value)}
-        onFocus={() => setFocused(true)}
-        onBlur={(e) => {
-          setFocused(false);
-          commit(e.currentTarget.value);
+    <label className={`flex ${stacked ? 'flex-col items-start gap-1' : 'items-center gap-1.5'} text-[11px] text-slate-500`} title={hint}>
+      <span
+        className="select-none whitespace-nowrap"
+        onDoubleClick={(e) => {
+          e.preventDefault();
+          if (defaultValue === undefined) return;
+          if (stepTimer.current !== null) window.clearTimeout(stepTimer.current);
+          stepTimer.current = null;
+          setText(defaultValue.toFixed(digits));
+          if (value === null || Math.abs(value - defaultValue) > 10 ** -(digits + 1)) onCommit(defaultValue);
         }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          if (e.key === 'Escape') {
-            setText(shown);
-            (e.target as HTMLInputElement).blur();
-          }
-          e.stopPropagation();
-        }}
-        className="h-8 w-full min-w-0 rounded-lg border border-slate-800 bg-slate-950 px-2 font-mono text-[12.5px] text-slate-100 tabular-nums placeholder:text-slate-600 focus:outline-none focus:border-indigo-500"
-      />
+      >
+        {label}
+      </span>
+      <span
+        ref={boxRef}
+        className={`h-7 flex items-center gap-1 rounded-md border px-1.5 focus-within:border-indigo-400 ${changed ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-slate-800 bg-slate-950'}`}
+      >
+        <input
+          type="text"
+          inputMode="decimal"
+          value={text}
+          placeholder={value === null ? 'mixed' : undefined}
+          autoFocus={autoFocus}
+          aria-label={`${label} (${unit})`}
+          onChange={(e) => setText(e.target.value)}
+          onFocus={(e) => {
+            setFocused(true);
+            if (autoFocus) e.currentTarget.select();
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            if (stepTimer.current !== null) flushSteps();
+            else commit(e.currentTarget.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+              e.preventDefault();
+              stepBy((e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 10 : 1));
+            } else if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            else if (e.key === 'Escape') {
+              if (stepTimer.current !== null) window.clearTimeout(stepTimer.current);
+              stepTimer.current = null;
+              setText(shown);
+              (e.target as HTMLInputElement).blur();
+            }
+            if (e.key !== 'Escape' || !stacked) e.stopPropagation();
+          }}
+          style={{ width }}
+          className="bg-transparent font-mono text-[12px] text-slate-100 tabular-nums placeholder:text-slate-600 focus:outline-none"
+        />
+        <span className="text-[10.5px] text-slate-500">{unit}</span>
+      </span>
     </label>
   );
 };
+
+/** A small square button on the line bar, its name and shortcut on hover. */
+const IconButton: React.FC<{ label: string; shortcut?: string; onClick: (e: React.MouseEvent<HTMLButtonElement>) => void; children: React.ReactNode }> = ({
+  label,
+  shortcut,
+  onClick,
+  children,
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={shortcut ? `${label} (${shortcut})` : label}
+    aria-label={label}
+    aria-keyshortcuts={shortcut}
+    className="h-7 w-7 shrink-0 rounded-md border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+  >
+    {children}
+  </button>
+);
+
+/** Closes a menu or popup on a press or a scroll outside it, or when the window loses focus or changes size. */
+const useDismiss = (open: boolean, ref: React.RefObject<HTMLElement | null>, close: () => void) => {
+  const closeRef = useRef(close);
+  closeRef.current = close;
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: Event) => {
+      if (!ref.current?.contains(e.target as Node)) closeRef.current();
+    };
+    const shut = () => closeRef.current();
+    window.addEventListener('pointerdown', away, true);
+    window.addEventListener('wheel', away, { capture: true, passive: true });
+    window.addEventListener('blur', shut);
+    window.addEventListener('resize', shut);
+    return () => {
+      window.removeEventListener('pointerdown', away, true);
+      window.removeEventListener('wheel', away, true);
+      window.removeEventListener('blur', shut);
+      window.removeEventListener('resize', shut);
+    };
+  }, [open, ref]);
+};
+
+/** One entry of a line's right-click menu, or a rule between groups of them. */
+type MenuEntry = { label: string; shortcut?: string; icon: React.ReactNode; run: () => void } | 'rule';
+
+/** The Shortcuts sheet: keys, then what they do. */
+const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
+  {
+    title: 'Playing',
+    keys: [
+      ['Space', 'Play or pause'],
+      ['/', 'Play from the picked line'],
+      ['Home  End', 'To the start, to the end'],
+    ],
+  },
+  {
+    title: 'Picking',
+    keys: [
+      ['Click', 'Pick a line'],
+      ['Ctrl + click', 'Add or drop a line'],
+      ['Drag on empty lane', 'Pick the lines it crosses'],
+      ['Ctrl + A', 'Pick every line'],
+      ['← →', 'The line before, the line after'],
+      ['Esc', 'Let go'],
+    ],
+  },
+  {
+    title: 'The picked line',
+    keys: [
+      ['Right-click  Shift + F10', 'Everything it can do'],
+      ['Double-click  F2', 'Its start, speed, gain and fades'],
+      ['S', 'Split at the pointer or the playhead'],
+      ['G', 'Join with its next part'],
+      ['A', 'Align to the original'],
+      ['M', 'Mute'],
+      ['L', 'Lock'],
+      [',  .', 'Nudge 10 ms (Shift: 100 ms)'],
+      ['T', 'Takes'],
+      ['Q', 'Tighten silences'],
+      ['Del', 'Remove'],
+    ],
+  },
+  {
+    title: 'Timeline',
+    keys: [
+      ['B', 'Blade'],
+      ['N', 'Snap'],
+      ['Shift + drag', 'Ripple: push the lines after along'],
+      ['Shift + M', 'Marker at the playhead'],
+      ['=  −', 'Zoom in, out'],
+      ['Shift + Z', 'Whole track, and back'],
+      ['Scroll  Ctrl + scroll', 'Move, zoom'],
+      ['Ctrl + Z  Ctrl + Shift + Z', 'Undo, redo'],
+      ['Ctrl + C  Ctrl + V', 'Copy the original onto the dub'],
+    ],
+  },
+  {
+    title: 'A number',
+    keys: [
+      ['Scroll  ↑ ↓', 'Change it (Shift: 10 steps)'],
+      ['Double-click its name', 'Back to its default'],
+      ['Enter  Esc', 'Set it, leave it as it was'],
+    ],
+  },
+];
 
 /** The whole dub at a glance, and the stretch of it on screen, which can be dragged. */
 const Overview: React.FC<{
@@ -1952,6 +2051,130 @@ export const SyncEditTimeline: React.FC<{
     if (held > 0) say(`${held} ${held === 1 ? 'line has' : 'lines have'} no room that slow: ${held === 1 ? 'it slows' : 'they slow'} only as far as the next line allows.`);
   };
 
+  // ---- The line's menu, its properties and the history ----
+
+  /** The right-click menu: where it opened, and the time under the pointer then, which Split cuts at. */
+  const [menu, setMenu] = useState<{ x: number; y: number; at: number | null } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useDismiss(menu !== null, menuRef, () => setMenu(null));
+  /** A line's start, speed, gain and fades in a popup over it (double-click or F2): the part, and the line's box on screen. */
+  const [lineProps, setLineProps] = useState<{ id: string; left: number; right: number; top: number; bottom: number } | null>(null);
+  const propsRef = useRef<HTMLDivElement>(null);
+  useDismiss(lineProps !== null, propsRef, () => setLineProps(null));
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyRef = useRef<HTMLDivElement>(null);
+  useDismiss(historyOpen, historyRef, () => setHistoryOpen(false));
+  // The properties are of one line: picking another closes them.
+  useEffect(() => {
+    if (lineProps && (lineProps.id !== selected || selectedIds.length > 1)) setLineProps(null);
+  }, [lineProps, selected, selectedIds.length]);
+
+  const clipBox = (id: string) => laneRef.current?.querySelector<HTMLElement>(`[data-part="${CSS.escape(id)}"]`) ?? null;
+
+  const openMenu = (x: number, y: number, at: number | null) => {
+    setLineProps(null);
+    setHistoryOpen(false);
+    setMenu({ x, y, at });
+  };
+  const closeMenu = () => {
+    setMenu(null);
+    rootRef.current?.focus({ preventScroll: true });
+  };
+  /** Right-click on a line: it is picked (one of several picked stays with them) and its menu opens. */
+  const onLaneContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (drag.current || marquee.current || rangeDrag.current) return;
+    // The lane holds the pointer while pressed, so the part is found where the pointer is.
+    const under = partUnder(document.elementFromPoint(e.clientX, e.clientY));
+    if (!under) return setMenu(null);
+    const id = under.chunk.part.id;
+    if (selectedSet.has(id)) setSelectedIds((ids) => [...ids.filter((x) => x !== id), id]);
+    else setSelected(id);
+    openMenu(e.clientX, e.clientY, timeAt(e.clientX));
+  };
+  /** The menu key, or Shift + F10, opens the picked line's menu under it. */
+  const openMenuOnCurrent = () => {
+    const box = current ? clipBox(current.part.id) : null;
+    if (!current || !box) return say(current ? 'Scroll to the line to open its menu.' : 'Pick a line first.');
+    const r = box.getBoundingClientRect();
+    openMenu(r.left + Math.min(16, r.width / 2), r.bottom + 4, null);
+  };
+  const openProps = (id: string) => {
+    const box = clipBox(id);
+    if (!box) return say('Scroll to the line to see its start, speed, gain and fades.');
+    const r = box.getBoundingClientRect();
+    setSelected(id);
+    setMenu(null);
+    setLineProps({ id, left: r.left, right: r.right, top: r.top, bottom: r.bottom });
+  };
+  const onLaneDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (blade || rangeTool) return;
+    const under = partUnder(document.elementFromPoint(e.clientX, e.clientY));
+    if (under) openProps(under.chunk.part.id);
+  };
+  /** Split from the menu: where the pointer was when it opened, when that is inside the line; else as S does. */
+  const splitHere = (at: number | null) => {
+    if (!current) return;
+    if (at === null || at <= current.part.start || at >= partEnd(current.part)) return act.split();
+    const next = splitAt(committed, current, at);
+    if (!next) return say('Too close to the edge of the line to cut there.');
+    commit(next, `Split line ${current.label}`);
+  };
+
+  // The menu stays on screen, opening upward or leftward near an edge, and takes the keys.
+  useLayoutEffect(() => {
+    const box = menuRef.current;
+    if (!menu || !box) return;
+    const r = box.getBoundingClientRect();
+    box.style.left = `${clamp(menu.x, 8, Math.max(8, window.innerWidth - r.width - 8))}px`;
+    box.style.top = `${menu.y + r.height > window.innerHeight - 8 ? Math.max(8, menu.y - r.height) : menu.y}px`;
+    box.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+  }, [menu]);
+  // The properties sit over the line, or under it when there is no room above.
+  useLayoutEffect(() => {
+    const box = propsRef.current;
+    if (!lineProps || !box) return;
+    const r = box.getBoundingClientRect();
+    const middle = (lineProps.left + lineProps.right) / 2;
+    box.style.left = `${clamp(middle - r.width / 2, 8, Math.max(8, window.innerWidth - r.width - 8))}px`;
+    box.style.top = `${lineProps.top - r.height - 8 >= 8 ? lineProps.top - r.height - 8 : lineProps.bottom + 8}px`;
+  }, [lineProps]);
+
+  /** What the menu offers for the picked line, or for all the picked lines when there are several. */
+  const menuEntries = (): MenuEntry[] => {
+    if (!current) return [];
+    const several = group.length > 1;
+    const dub = !current.original;
+    const icon = 'w-3.5 h-3.5';
+    const allMuted = group.length > 0 && group.every((c) => c.part.muted);
+    const entries: (MenuEntry | false | undefined)[] = [
+      { label: 'Play from here', shortcut: '/', icon: <Play className={icon} />, run: () => onPlayFrom(Math.max(0, (several ? group[0] : current).part.start - 0.3)) },
+      'rule',
+      !several && { label: 'Split here', shortcut: 'S', icon: <SquareSplitHorizontal className={icon} />, run: () => splitHere(menu?.at ?? null) },
+      !several && { label: 'Join with its next part', shortcut: 'G', icon: <Link2 className={icon} />, run: act.join },
+      !several && dub && { label: 'Align to original', shortcut: 'A', icon: <AlignStartVertical className={icon} />, run: act.align },
+      'rule',
+      { label: `${allMuted ? 'Unmute' : 'Mute'}${several ? ' all' : ''}`, shortcut: 'M', icon: <VolumeX className={icon} />, run: act.mute },
+      (dub || several) && {
+        label: several ? 'Lock or unlock' : currentLocked ? 'Unlock' : 'Lock',
+        shortcut: 'L',
+        icon: currentLocked && !several ? <LockOpen className={icon} /> : <Lock className={icon} />,
+        run: act.lock,
+      },
+      { label: 'Nudge 10 ms earlier', shortcut: ',', icon: <ArrowLeft className={icon} />, run: () => act.nudge(-0.01) },
+      { label: 'Nudge 10 ms later', shortcut: '.', icon: <ArrowRight className={icon} />, run: () => act.nudge(0.01) },
+      'rule',
+      !several && dub && onOpenTakes && { label: 'Takes…', shortcut: 'T', icon: <Mic className={icon} />, run: openTakes },
+      { label: 'Tighten silences…', shortcut: 'Q', icon: <FoldHorizontal className={icon} />, run: openTighten },
+      !several && { label: 'Start, speed, gain, fades…', shortcut: 'F2', icon: <SlidersHorizontal className={icon} />, run: () => openProps(current.part.id) },
+      'rule',
+      (dub || several) && { label: several ? 'Reset these lines' : 'Reset line', icon: <RotateCcw className={icon} />, run: act.reset },
+      { label: dub || several ? 'Remove' : 'Take off the dub', shortcut: 'Del', icon: <Trash2 className={icon} />, run: act.remove },
+    ];
+    const list = entries.filter(Boolean) as MenuEntry[];
+    return list.filter((entry, n) => entry !== 'rule' || (n > 0 && n < list.length - 1 && list[n - 1] !== 'rule'));
+  };
+
   // ---- Clips of the original ----
 
   /*
@@ -2129,7 +2352,12 @@ export const SyncEditTimeline: React.FC<{
     else if (mod && lower === 'z') (e.shiftKey ? act.redo : act.undo)();
     else if (mod && lower === 'y') act.redo();
     else if (mod && lower === 'a') act.selectAll();
+    else if (key === 'ContextMenu' || (key === 'F10' && e.shiftKey)) openMenuOnCurrent();
     else if (mod || e.altKey) done = false;
+    else if (key === 'F2') {
+      if (current && group.length === 1) openProps(current.part.id);
+      else say(current ? 'Pick one line to set its start, speed, gain and fades.' : 'Pick a line first.');
+    } else if (key === '?') setShowHelp(true);
     else if (key === ',' || key === '<') act.nudge(e.shiftKey ? -0.1 : -0.01);
     else if (key === '.' || key === '>') act.nudge(e.shiftKey ? 0.1 : 0.01);
     else if (key === 'ArrowLeft' || key === 'ArrowRight') {
@@ -2198,6 +2426,24 @@ export const SyncEditTimeline: React.FC<{
   const currentUnit = current ? unitByKey.get(current.key) : undefined;
   const currentLanding = landing(currentUnit, tolerance);
   const currentLocked = current ? committed[current.key]?.locked ?? false : false;
+  /** The picked line's start, speed, gain and fades: in a row on the line bar, or stacked in its properties. */
+  const lineFields = (chunk: Chunk, stacked: boolean) => {
+    const id = chunk.part.id;
+    return (
+      <>
+        <NumberField key={`start-${id}`} label="Start" unit="s" value={chunk.part.start} step={0.01} digits={3} width="4.25rem" stacked={stacked} autoFocus={stacked} onCommit={(v) => setField({ start: v }, 'Set the start of')} />
+        <NumberField key={`speed-${id}`} label="Speed" unit="%" value={chunk.part.rate * 100} step={1} digits={0} width="2.5rem" defaultValue={100} stacked={stacked} onCommit={(v) => setField({ rate: v / 100 }, 'Set the speed of')} />
+        <NumberField key={`gain-${id}`} label="Gain" unit="dB" value={chunk.part.gainDb} step={0.5} digits={1} width="2.5rem" defaultValue={0} stacked={stacked} onCommit={(v) => setField({ gainDb: clamp(Math.round(v * 2) / 2, MIN_GAIN_DB, MAX_GAIN_DB) }, 'Set the gain of')} />
+        <NumberField key={`in-${id}`} label="Fade in" unit="ms" value={chunk.part.fadeIn * 1000} step={10} digits={0} width="2.75rem" defaultValue={0} stacked={stacked} onCommit={(v) => setField({ fadeIn: Math.max(0, v) / 1000 }, 'Fade in')} />
+        <NumberField key={`out-${id}`} label="Fade out" unit="ms" value={chunk.part.fadeOut * 1000} step={10} digits={0} width="2.75rem" defaultValue={0} stacked={stacked} onCommit={(v) => setField({ fadeOut: Math.max(0, v) / 1000 }, 'Fade out')} />
+      </>
+    );
+  };
+  const entries = menu && current ? menuEntries() : [];
+  const runEntry = (entry: Exclude<MenuEntry, 'rule'>) => {
+    closeMenu();
+    entry.run();
+  };
 
   return (
     <div
@@ -2296,6 +2542,62 @@ export const SyncEditTimeline: React.FC<{
             </ToolButton>
           )}
         </div>
+        <div className="flex items-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5" role="group" aria-label="Undo and history">
+          <button type="button" onClick={act.undo} disabled={history.at === 0} title="Undo (Ctrl + Z)" aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+            <Undo2 className="w-4 h-4" />
+          </button>
+          <button type="button" onClick={act.redo} disabled={history.at >= history.entries.length - 1} title="Redo (Ctrl + Shift + Z)" aria-label="Redo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+            <Redo2 className="w-4 h-4" />
+          </button>
+          <div ref={historyRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setHistoryOpen((v) => !v)}
+              aria-expanded={historyOpen}
+              aria-haspopup="true"
+              title="Every edit so far: click a step to go back to it"
+              className={`h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs font-medium cursor-default ${historyOpen ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}
+            >
+              <History className="w-4 h-4" /> History
+              {history.entries.length > 1 && <span className="font-mono text-[10.5px] text-slate-500 tabular-nums">{history.entries.length - 1}</span>}
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+            </button>
+            {historyOpen && (
+              <div
+                className="absolute left-0 top-full z-40 mt-1.5 w-72 rounded-xl border border-slate-700 bg-slate-900 p-1.5 shadow-xl shadow-black/50"
+                onKeyDown={(e) => {
+                  if (e.key !== 'Escape') return;
+                  e.stopPropagation();
+                  setHistoryOpen(false);
+                  rootRef.current?.focus({ preventScroll: true });
+                }}
+              >
+                <div className="flex items-center justify-between px-1.5 pb-1">
+                  <span className="text-[12.5px] font-semibold text-slate-100">History</span>
+                  <span className="text-[10.5px] text-slate-500">click a step to go back to it</span>
+                </div>
+                <ol className="flex flex-col-reverse gap-0.5 max-h-64 overflow-y-auto">
+                  {history.entries.map((entry, n) => (
+                    <li key={n}>
+                      <button
+                        type="button"
+                        onClick={() => goTo(n)}
+                        aria-current={n === history.at ? 'step' : undefined}
+                        className={`w-full flex items-center gap-2 text-left rounded-md px-2 py-1 text-[11.5px] cursor-default ${
+                          n === history.at ? 'bg-slate-800 text-slate-100' : n > history.at ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                        }`}
+                      >
+                        <span className="truncate">{entry.label}</span>
+                        {n === history.at && <span className="ml-auto shrink-0 text-[10px] text-slate-500">now</span>}
+                        {n > history.at && <span className="ml-auto shrink-0 text-[10px]">undone</span>}
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+        </div>
         <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5" role="group" aria-label="Zoom">
           <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <ZoomOut className="w-4 h-4" />
@@ -2308,7 +2610,162 @@ export const SyncEditTimeline: React.FC<{
             <Maximize2 className="w-3.5 h-3.5" /> Fit
           </button>
         </div>
+        <button
+          type="button"
+          onClick={() => setShowHelp(true)}
+          title="Shortcuts, and how editing works (?)"
+          aria-keyshortcuts="?"
+          className="h-9 px-2.5 rounded-xl border border-slate-800 bg-slate-950 flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
+        >
+          <CircleHelp className="w-4 h-4" /> Shortcuts
+        </button>
       </div>
+
+      {/* The picked line: one row, so the lanes keep the room */}
+      <section aria-label="Picked line" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-h-[2.75rem] rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-1.5 min-w-0">
+        {group.length > 1 ? (
+          <>
+            <span className="text-[13px] font-semibold text-slate-100 whitespace-nowrap">{group.length} lines picked</span>
+            <span className="min-w-0 max-w-[14rem] truncate font-mono text-[11.5px] text-slate-400" title={group.map((c) => c.label).join(', ')}>
+              {group.map((c) => c.label).join(', ')}
+            </span>
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5" title="What you set here goes to every picked line">
+              <NumberField
+                key={`speed-${selectedIds.join()}`}
+                label="Speed"
+                unit="%"
+                value={(() => {
+                  const dubbed = group.filter((c) => !c.original);
+                  const first = dubbed[0]?.part.rate;
+                  return first !== undefined && dubbed.every((c) => Math.abs(c.part.rate - first) < 1e-6) ? first * 100 : null;
+                })()}
+                step={1}
+                digits={0}
+                width="2.5rem"
+                defaultValue={100}
+                onCommit={(v) => setGroupRate(v / 100)}
+              />
+              <NumberField
+                key={`gain-${selectedIds.join()}`}
+                label="Gain"
+                unit="dB"
+                value={group.every((c) => Math.abs(c.part.gainDb - group[0].part.gainDb) < 1e-6) ? group[0].part.gainDb : null}
+                step={0.5}
+                digits={1}
+                width="2.5rem"
+                defaultValue={0}
+                onCommit={(v) => setGroupField({ gainDb: clamp(Math.round(v * 2) / 2, MIN_GAIN_DB, MAX_GAIN_DB) }, 'Set the gain of')}
+              />
+              <NumberField
+                key={`in-${selectedIds.join()}`}
+                label="Fade in"
+                unit="ms"
+                value={group.every((c) => Math.abs(c.part.fadeIn - group[0].part.fadeIn) < 1e-6) ? group[0].part.fadeIn * 1000 : null}
+                step={10}
+                digits={0}
+                width="2.75rem"
+                defaultValue={0}
+                onCommit={(v) => setGroupField({ fadeIn: Math.max(0, v) / 1000 }, 'Fade in')}
+              />
+              <NumberField
+                key={`out-${selectedIds.join()}`}
+                label="Fade out"
+                unit="ms"
+                value={group.every((c) => Math.abs(c.part.fadeOut - group[0].part.fadeOut) < 1e-6) ? group[0].part.fadeOut * 1000 : null}
+                step={10}
+                digits={0}
+                width="2.75rem"
+                defaultValue={0}
+                onCommit={(v) => setGroupField({ fadeOut: Math.max(0, v) / 1000 }, 'Fade out')}
+              />
+            </span>
+            <span className="ml-auto flex items-center gap-1">
+              <IconButton
+                label="Everything for these lines"
+                shortcut="Right-click"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  openMenu(r.right - 240, r.bottom + 4, null);
+                }}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </IconButton>
+              <button type="button" onClick={() => setSelectedIds([])} className="h-7 px-2 rounded-md text-[11px] text-slate-500 hover:text-slate-300 cursor-default">
+                Clear <kbd className="font-mono">Esc</kbd>
+              </button>
+            </span>
+          </>
+        ) : current ? (
+          <>
+            <span className="text-[13px] font-semibold text-slate-100 whitespace-nowrap">{current.original ? `Clip ${current.label}` : `Line ${current.label}`}</span>
+            {current.original ? (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-cyan-400/12 text-cyan-300 whitespace-nowrap">original voice</span>
+            ) : (
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${currentLanding.chip}`}>{currentLanding.label}</span>
+            )}
+            {currentUnit?.offset !== null && currentUnit?.offset !== undefined && (
+              <span className="font-mono text-[11.5px] text-slate-400 whitespace-nowrap">{formatShift(currentUnit.offset)} vs original</span>
+            )}
+            {!current.original && currentLocked && (
+              <span className="flex items-center gap-1 text-[11px] text-slate-500 whitespace-nowrap" title="Locked: Sync again leaves it where it is">
+                <Lock className="w-3 h-3" /> Locked
+              </span>
+            )}
+            {!current.original && !currentLocked && isEdited(committed, current.key) && (
+              <span className="text-[11px] text-slate-500 whitespace-nowrap" title="Not locked: Sync again places it itself, and its edits go">
+                Not locked
+              </span>
+            )}
+            {current.original ? (
+              <span className="flex-1 min-w-[8rem] truncate text-[12px] text-slate-300" title="Its edges trim it into more of the original; Alt + drag slips which stretch it plays.">
+                The original from <span className="font-mono">{formatTime(current.part.from)}</span> to <span className="font-mono">{formatTime(current.part.to)}</span>
+              </span>
+            ) : (
+              <span className="flex-1 min-w-[8rem] truncate text-[12.5px] text-slate-200" title={[current.unit?.text, current.unit?.sourceText].filter(Boolean).join('\n')}>
+                {current.unit?.text}
+                {current.unit?.sourceText && <span className="text-slate-500"> · {current.unit.sourceText}</span>}
+              </span>
+            )}
+            <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">{lineFields(current, false)}</span>
+            <span className="flex items-center gap-1">
+              <IconButton label="Play from here" shortcut="/" onClick={() => onPlayFrom(Math.max(0, current.part.start - 0.3))}>
+                <Play className="w-3.5 h-3.5" />
+              </IconButton>
+              {current.original ? (
+                <IconButton label="Take off the dub" shortcut="Del" onClick={act.remove}>
+                  <Trash2 className="w-3.5 h-3.5" />
+                </IconButton>
+              ) : (
+                <>
+                  <IconButton label="Align to original" shortcut="A" onClick={act.align}>
+                    <AlignStartVertical className="w-3.5 h-3.5" />
+                  </IconButton>
+                  <IconButton label="Reset line" onClick={act.reset}>
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </IconButton>
+                </>
+              )}
+              <IconButton
+                label="Everything for this line"
+                shortcut="Right-click"
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  openMenu(r.right - 240, r.bottom + 4, null);
+                }}
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </IconButton>
+            </span>
+          </>
+        ) : (
+          <p className="text-[12.5px] text-slate-400">
+            <span className="font-medium text-slate-200">Click a line to pick it</span> · right-click it for everything it can do · double-click it for its start, speed, gain and fades.{' '}
+            <button type="button" onClick={() => setShowHelp(true)} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-default">
+              How editing works
+            </button>
+          </p>
+        )}
+      </section>
 
       {/* The lanes */}
       <div className={`grid ${renderTrackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-slate-800 overflow-hidden bg-slate-900/50`}>
@@ -2477,6 +2934,8 @@ export const SyncEditTimeline: React.FC<{
             style={{ cursor: laneCursor, ...(speakerLanes && { height: laneNames.length * LANE_PX }) }}
             onPointerDown={onLanePointerDown}
             onPointerMove={onLanePointerMove}
+            onContextMenu={onLaneContextMenu}
+            onDoubleClick={onLaneDoubleClick}
             onPointerLeave={() => {
               if (drag.current) return;
               // A hover waiting for the next frame would light the part again after the pointer left.
@@ -2801,14 +3260,6 @@ export const SyncEditTimeline: React.FC<{
             </ActionButton>
           )}
         </div>
-        <div className="flex gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5">
-          <button type="button" onClick={act.undo} disabled={history.at === 0} title="Undo (Ctrl + Z)" aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
-            <Undo2 className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={act.redo} disabled={history.at >= history.entries.length - 1} title="Redo (Ctrl + Shift + Z)" aria-label="Redo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
-            <Redo2 className="w-4 h-4" />
-          </button>
-        </div>
         <span className="ml-auto flex items-center gap-3 min-w-0">
           {toast ? (
             <span aria-live="polite" className="text-[12px] text-amber-300">{toast}</span>
@@ -2824,135 +3275,160 @@ export const SyncEditTimeline: React.FC<{
         </span>
       </div>
 
-      {/* Inspector and history */}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_17rem]">
-        <section aria-label="Picked line" className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 min-w-0">
-          {group.length > 1 ? (
-            <GroupInspector
-              group={group}
-              onGain={(v) => setGroupField({ gainDb: clamp(Math.round(v * 2) / 2, MIN_GAIN_DB, MAX_GAIN_DB) }, 'Set the gain of')}
-              onFadeIn={(v) => setGroupField({ fadeIn: Math.max(0, v) / 1000 }, 'Fade in')}
-              onFadeOut={(v) => setGroupField({ fadeOut: Math.max(0, v) / 1000 }, 'Fade out')}
-              onSpeed={(v) => setGroupRate(v / 100)}
-              onMute={act.mute}
-              onLock={act.lock}
-              onReset={act.reset}
-              onRemove={act.remove}
-              onClear={() => setSelectedIds([])}
-            />
-          ) : current ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[13px] font-semibold text-slate-100">{current.original ? `Clip ${current.label}` : `Line ${current.label}`}</span>
-                {current.original ? (
-                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-cyan-400/12 text-cyan-300">original voice</span>
-                ) : (
-                  <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${currentLanding.chip}`}>{currentLanding.label}</span>
-                )}
-                {currentUnit?.offset !== null && currentUnit?.offset !== undefined && (
-                  <span className="font-mono text-[11.5px] text-slate-400">{formatShift(currentUnit.offset)} vs original</span>
-                )}
-                <span className="ml-auto flex items-center gap-1 text-[11px] text-slate-500">
-                  {current.original ? (
-                    'Stays where you put it'
-                  ) : currentLocked ? (
-                    <>
-                      <Lock className="w-3 h-3" /> Locked: Sync again leaves it
-                    </>
-                  ) : isEdited(committed, current.key) ? (
-                    'Not locked: Sync again places it itself'
-                  ) : (
-                    'As Sync placed it'
-                  )}
-                </span>
-              </div>
-              {current.original && (
-                <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-300">
-                  The original from <span className="font-mono">{formatTime(current.part.from)}</span> to <span className="font-mono">{formatTime(current.part.to)}</span>, on the dub
-                  to fill a gap. Its edges trim it into more of the original; Alt + drag slips which stretch it plays.
-                </p>
-              )}
-              {current.unit && (
-                <>
-                  <p className="mt-1.5 text-[13px] leading-relaxed text-slate-200">{current.unit.text}</p>
-                  <p className="text-[11.5px] leading-relaxed text-slate-500">{current.unit.sourceText}</p>
-                </>
-              )}
-              <div className="mt-2.5 grid grid-cols-2 sm:grid-cols-5 gap-2">
-                <NumberField label="Start (s)" value={current.part.start} step={0.01} digits={3} onCommit={(v) => setField({ start: v }, 'Set the start of')} />
-                <NumberField label="Speed (%)" value={current.part.rate * 100} step={1} digits={0} onCommit={(v) => setField({ rate: v / 100 }, 'Set the speed of')} />
-                <NumberField label="Gain (dB)" value={current.part.gainDb} step={0.5} digits={1} onCommit={(v) => setField({ gainDb: clamp(Math.round(v * 2) / 2, -24, 12) }, 'Set the gain of')} />
-                <NumberField label="Fade in (ms)" value={current.part.fadeIn * 1000} step={10} digits={0} onCommit={(v) => setField({ fadeIn: Math.max(0, v) / 1000 }, 'Fade in')} />
-                <NumberField label="Fade out (ms)" value={current.part.fadeOut * 1000} step={10} digits={0} onCommit={(v) => setField({ fadeOut: Math.max(0, v) / 1000 }, 'Fade out')} />
-              </div>
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {current.original ? (
-                  <button type="button" onClick={act.remove} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5">
-                    Take off the dub <kbd className="font-mono text-[10px] text-slate-500">Del</kbd>
-                  </button>
-                ) : (
-                  <>
-                    <button type="button" onClick={act.align} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5">
-                      <AlignStartVertical className="w-3.5 h-3.5" /> Align to original
-                    </button>
-                    <button type="button" onClick={act.reset} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5">
-                      <RotateCcw className="w-3.5 h-3.5" /> Reset line
-                    </button>
-                  </>
-                )}
-                <button type="button" onClick={() => onPlayFrom(Math.max(0, current.part.start - 0.3))} className="h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default">
-                  Play from here <kbd className="ml-1 font-mono text-[10px] text-slate-500">/</kbd>
+      {/* The line's right-click menu */}
+      {menu &&
+        current &&
+        createPortal(
+          <div
+            ref={menuRef}
+            role="menu"
+            aria-label={`${groupName(group.length > 1 ? group : [current])}`}
+            className="fixed z-[70] w-60 rounded-xl border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/50"
+            style={{ left: menu.x, top: menu.y }}
+            onContextMenu={(e) => e.preventDefault()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              const items = [...(menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+              const at = items.indexOf(document.activeElement as HTMLElement);
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+              } else if (e.key === 'Escape' || e.key === 'Tab') {
+                e.preventDefault();
+                closeMenu();
+              } else {
+                // An entry's own shortcut runs it from the menu too.
+                const pressed = e.key === 'Delete' || e.key === 'Backspace' ? 'del' : e.key.toLowerCase();
+                const entry = entries.find((x) => x !== 'rule' && x.shortcut?.toLowerCase() === pressed);
+                if (entry && entry !== 'rule') {
+                  e.preventDefault();
+                  runEntry(entry);
+                }
+              }
+            }}
+          >
+            <div className="px-2.5 pt-1 pb-1.5 text-[11px] text-slate-500 truncate">
+              {group.length > 1 ? `${group.length} lines picked` : `${current.original ? 'Clip' : 'Line'} ${current.label}`}
+              {group.length === 1 && current.unit?.text ? ` · ${current.unit.text}` : ''}
+            </div>
+            {entries.map((entry, n) =>
+              entry === 'rule' ? (
+                <div key={`rule-${n}`} role="separator" className="my-1 mx-1.5 h-px bg-slate-800" />
+              ) : (
+                <button
+                  key={entry.label}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => runEntry(entry)}
+                  className="w-full h-7 px-2.5 rounded-md flex items-center gap-2.5 text-left text-[12.5px] text-slate-200 hover:bg-slate-800 focus:bg-slate-800 focus:outline-none cursor-default"
+                >
+                  <span className="text-slate-400">{entry.icon}</span>
+                  {entry.label}
+                  {entry.shortcut && <kbd className="ml-auto font-mono text-[10.5px] text-slate-500">{entry.shortcut}</kbd>}
                 </button>
-              </div>
-            </>
-          ) : !showHelp ? (
-            <p className="text-[12.5px] text-slate-400">
-              <span className="font-medium text-slate-200">Click a line on the dub lane to pick it.</span> Its start, speed, gain and fades show here.{' '}
-              <button type="button" onClick={() => setShowHelp(true)} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-default">
-                How editing works
-              </button>
-            </p>
-          ) : (
-            <p className="text-[12.5px] text-slate-400">
-              Click a line on the dub lane to pick it. Drag its middle to move it, an edge to trim it (Alt: stretch), a top corner to fade it, its top edge up or down for gain; Alt + drag the middle slips the audio inside. The arrow keys go from line to line, and{' '}
-              <kbd className="font-mono text-slate-300">,</kbd> <kbd className="font-mono text-slate-300">.</kbd> nudge it by 10 ms (100 ms with Shift). To fill a gap with the original's own voice, drag across the
-              Original lane to pick a stretch and drag it down onto the dub, or copy it with <kbd className="font-mono text-slate-300">Ctrl + C</kbd> and put it at the playhead with{' '}
-              <kbd className="font-mono text-slate-300">Ctrl + V</kbd>.
-            </p>
-          )}
-        </section>
+              )
+            )}
+          </div>,
+          document.body
+        )}
 
-        <section aria-label="Edit history" className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 min-w-0">
-          <div className="flex items-center justify-between">
-            <span className="text-[13px] font-semibold text-slate-100">History</span>
-            <span className="text-[10.5px] text-slate-500">click a step to go back to it</span>
-          </div>
-          <ol className="mt-1.5 flex flex-col gap-0.5 max-h-40 overflow-y-auto">
-            {history.entries.map((entry, n) => (
-              <li key={n}>
+      {/* A line's start, speed, gain and fades, over the line */}
+      {lineProps &&
+        current &&
+        current.part.id === lineProps.id &&
+        createPortal(
+          <div
+            ref={propsRef}
+            role="dialog"
+            aria-label={`${current.original ? 'Clip' : 'Line'} ${current.label}: start, speed, gain and fades`}
+            className="fixed z-[70] rounded-xl border border-indigo-500/60 bg-slate-900 px-3 py-2.5 shadow-xl shadow-black/50"
+            style={{ left: (lineProps.left + lineProps.right) / 2, top: lineProps.top }}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key !== 'Escape') return;
+              setLineProps(null);
+              rootRef.current?.focus({ preventScroll: true });
+            }}
+          >
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-[12.5px] font-semibold text-slate-100">{current.original ? `Clip ${current.label}` : `Line ${current.label}`}</span>
+              <span className="text-[10.5px] text-slate-500">scroll or ↑ ↓ to change · double-click a name to reset · Esc closes</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLineProps(null);
+                  rootRef.current?.focus({ preventScroll: true });
+                }}
+                aria-label="Close"
+                className="ml-auto h-6 w-6 rounded-md flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">{lineFields(current, true)}</div>
+          </div>,
+          document.body
+        )}
+
+      {/* Shortcuts, and how editing works */}
+      {showHelp &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4"
+            onPointerDown={(e) => {
+              if (e.target === e.currentTarget) setShowHelp(false);
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Shortcuts"
+              className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl shadow-black/60"
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Escape') {
+                  setShowHelp(false);
+                  rootRef.current?.focus({ preventScroll: true });
+                }
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <h4 className="text-[15px] font-semibold text-slate-100">Shortcuts</h4>
                 <button
                   type="button"
-                  onClick={() => goTo(n)}
-                  className={`w-full text-left rounded-md px-2 py-1 text-[11.5px] truncate cursor-default ${
-                    n === history.at ? 'bg-slate-800 text-slate-100' : n > history.at ? 'text-slate-600 hover:text-slate-400' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-                  }`}
+                  autoFocus
+                  onClick={() => {
+                    setShowHelp(false);
+                    rootRef.current?.focus({ preventScroll: true });
+                  }}
+                  className="ml-auto h-8 px-3 rounded-lg border border-slate-700 text-xs text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
                 >
-                  {entry.label}
+                  Close
                 </button>
-              </li>
-            ))}
-          </ol>
-          <details className="mt-2 border-t border-slate-800 pt-2 text-[10.5px] leading-relaxed text-slate-500">
-            <summary className="cursor-default text-[11px] text-slate-400 hover:text-slate-200">Shortcuts</summary>
-            <kbd className="font-mono text-slate-400">Space</kbd> play · <kbd className="font-mono text-slate-400">/</kbd> play from the line ·{' '}
-            <kbd className="font-mono text-slate-400">Del</kbd> remove · <kbd className="font-mono text-slate-400">Esc</kbd> deselect ·{' '}
-            <kbd className="font-mono text-slate-400">Ctrl + A</kbd> pick all · <kbd className="font-mono text-slate-400">Ctrl</kbd> + click add ·{' '}
-            <kbd className="font-mono text-slate-400">Ctrl + C / V</kbd> copy the original onto the dub ·{' '}
-            <kbd className="font-mono text-slate-400">Home End</kbd> start, end · <kbd className="font-mono text-slate-400">Shift + Z</kbd> whole track, and back ·{' '}
-            <kbd className="font-mono text-slate-400">= −</kbd> zoom · scroll to move · <kbd className="font-mono text-slate-400">Ctrl</kbd> + scroll to zoom
-          </details>
-        </section>
-      </div>
+              </div>
+              <p className="mt-2 text-[12.5px] leading-relaxed text-slate-400">
+                Click a line on the dub lane to pick it. Drag its middle to move it, an edge to trim it (Alt: stretch), a top corner to fade it, its top edge up or down for gain; Alt + drag the
+                middle slips the audio inside. To fill a gap with the original's own voice, drag across the Original lane to pick a stretch and drag it down onto the dub.
+              </p>
+              <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+                {SHORTCUTS.map((section) => (
+                  <section key={section.title}>
+                    <h5 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{section.title}</h5>
+                    <dl className="flex flex-col">
+                      {section.keys.map(([keys, what]) => (
+                        <div key={what} className="flex items-baseline justify-between gap-4 border-b border-slate-800/80 py-1">
+                          <dt className="text-[12.5px] text-slate-300">{what}</dt>
+                          <dd className="shrink-0 font-mono text-[11.5px] text-indigo-200">{keys}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };
