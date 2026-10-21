@@ -30,6 +30,31 @@ export const OUTLIER_SHARE = 0.15;
 /** Square-bracketed sound notes ([laughs]) are not said, so they are not counted. */
 const spoken = (text) => String(text ?? '').replace(/\[[^\]]*\]/g, ' ');
 
+/**
+ * Numbers and symbols left in a line ("100%", "&"): the voice has to guess
+ * how to say them, and syllables.js counts none of their syllables, so a
+ * line holding one runs longer than it is measured.
+ */
+export const unsaidMarks = (text) => spoken(text).match(/\p{Nd}+(?:[.,:]\p{Nd}+)*|[%&@#+=/$€£₹]/gu) ?? [];
+
+/**
+ * About how many syllables a number or symbol takes to say, so a line
+ * that still has one is not measured short: a number about two, plus two
+ * for each further digit that is not a zero (100 "a hundred", 1947
+ * "nineteen forty-seven"); "%" about three ("percent", "प्रतिशत"); other
+ * symbols about two.
+ */
+const markSyllables = (mark) => {
+  if (/\p{Nd}/u.test(mark)) {
+    const digits = mark.replace(/\P{Nd}/gu, '');
+    return 2 + 2 * [...digits.slice(1)].filter((d) => !/[0०০੦૦୦௦౦೦൦]/u.test(d)).length;
+  }
+  return mark === '%' ? 3 : 2;
+};
+
+/** Syllables the voice says for a translated line: its words (syllables.js) and an estimate for numbers and symbols left in it. */
+export const dubSyllables = (text) => lineSyllables(spoken(text)) + unsaidMarks(text).reduce((sum, mark) => sum + markSyllables(mark), 0);
+
 /** A sentence-ending mark, before any closing quotes or brackets. "..." and "…" trail off and don't count either way. */
 const ENDS_SENTENCE = /(?<!\.)[.?!।॥|]["'”’»)\]]*$/u;
 const TRAILS_OFF = /(\.\.\.|…)["'”’»)\]]*$/u;
@@ -71,18 +96,19 @@ export const lengthUnits = (cues) => {
   return units;
 };
 
-const unitSyllables = (unit, translations) => unit.ids.reduce((sum, id) => sum + lineSyllables(spoken(translations.get(id))), 0);
+const unitSyllables = (unit, translations) => unit.ids.reduce((sum, id) => sum + dubSyllables(translations.get(id)), 0);
 
 /**
  * What is off with each translated cue: `long` (with its syllables and
  * budget, and `ids` when a tiny cue is judged with the one before it), `end`
  * (the English ends a sentence here and the translation runs on), `open`
- * (the translation ends a sentence the English carries on), or `empty`. Cues
- * without a budget are only checked for sentence ends.
+ * (the translation ends a sentence the English carries on), `unsaid` (a
+ * number or symbol left as digits, with `marks`), or `empty`. Cues without a
+ * budget are only checked for sentence ends and numbers.
  *
  * @param {{id: string, text: string, syllables?: number|null}[]} cues
  * @param {Map<string,string>} translations
- * @returns {{id: string, ids?: string[], kind: 'long'|'end'|'open'|'empty', syllables?: number, target?: number}[]}
+ * @returns {{id: string, ids?: string[], kind: 'long'|'end'|'open'|'unsaid'|'empty', syllables?: number, target?: number, marks?: string[]}[]}
  */
 export const cueIssues = (cues, translations) => {
   const issues = [];
@@ -103,6 +129,8 @@ export const cueIssues = (cues, translations) => {
     const source = sentenceEnding(cue.text);
     const dub = sentenceEnding(text);
     if (source && dub && source !== dub) issues.push({ id: cue.id, kind: source === 'end' ? 'end' : 'open' });
+    const marks = unsaidMarks(text);
+    if (marks.length) issues.push({ id: cue.id, kind: 'unsaid', marks });
   }
   return issues;
 };
@@ -110,7 +138,7 @@ export const cueIssues = (cues, translations) => {
 /**
  * How far the cues are from right, to compare a fix against what it replaces:
  * the syllables past every budget, plus a few for every misplaced sentence
- * end or empty cue. Lower is better.
+ * end, number left in digits or empty cue. Lower is better.
  */
 export const issueScore = (cues, translations) => {
   let score = 0;
@@ -145,6 +173,9 @@ const describeIssue = (issue) => {
   if (issue.kind === 'long') {
     return `- id ${issue.id}: ${issue.syllables} syllables, the voice has time for about ${issue.target}. Say the same thing in fewer syllables, or move a word to the next or previous cue of the same sentence if that cue has room.`;
   }
+  if (issue.kind === 'unsaid') {
+    return `- id ${issue.id}: ${issue.marks.map((mark) => `"${mark}"`).join(', ')} is written in digits or symbols; write it out in words, the way it is said aloud.`;
+  }
   if (issue.kind === 'term') {
     return `- id ${issue.id}: the key term "${issue.english}" is said as "${issue.translated}" elsewhere in this talk; say it with that same word here, in a natural line.`;
   }
@@ -164,7 +195,7 @@ export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, cus
     id: cue.id,
     english: cue.text,
     translation: translations.get(cue.id) ?? '',
-    ...(cue.syllables && { syllables: cue.syllables, now: lineSyllables(spoken(translations.get(cue.id))) }),
+    ...(cue.syllables && { syllables: cue.syllables, now: dubSyllables(translations.get(cue.id)) }),
   }));
   return `You are revising a ${targetLanguage} dubbing translation so it can be spoken in sync with the original video.
 ${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}
