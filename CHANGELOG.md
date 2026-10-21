@@ -355,6 +355,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   cues next to the gap move; they are marked to check, and the note names them. When the script
   seems to cover only part of the video, the dialog shows the cues it was placed over; change them
   and press **Match again** if that's wrong.
+- **Matching a pasted script is fast again.** 1.3.82 cut each line that runs over several cues in
+  a call of its own, so a long script waited on dozens of calls. Those lines are now cut a few to a
+  call, four calls at a time, and lines are matched up to 50 cues to a call: a 40-cue test script
+  took 50 s instead of 148 s, with the same cuts. A cut a word or two from a line break now lands on
+  the line break.
 - **The players no longer make an out-of-sync dub look synced.** The Final dub and Sync players
   drew each lane over its own length, so a 0:59 dub and a 0:47 original both filled the width and an
   11 s drift looked like none. Both lanes now share one timeline as long as the longer track: the
