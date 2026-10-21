@@ -17,6 +17,7 @@ import {
   isOutlier,
   mergeTerms,
   termsBlock,
+  termIssues,
   buildFixPrompt,
   buildMeaningReviewPrompt,
   buildMeaningFixPrompt,
@@ -146,7 +147,7 @@ Respond with ONLY this JSON:
 {"translations":[{"id":"<the same id>","translatedText":"<${targetLanguage} translation>"}],"terms":[{"english":"<key term>","translated":"<the ${targetLanguage} word used>"}]}`;
 };
 
-const translateBatch = async ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, apiKey, models, generate = generateText }) => {
+const translateBatchOnce = async ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, apiKey, models, generate = generateText }) => {
   const { response, modelUsed } = await generate({
     contents: {
       role: 'user',
@@ -183,6 +184,21 @@ const translateBatch = async ({ batch, sourceLanguage, targetLanguage, customPro
   return { result, modelUsed, terms: Array.isArray(parsed?.terms) ? parsed.terms : [] };
 };
 
+/**
+ * A model now and then answers with broken or empty JSON; asked again it
+ * almost always answers properly. Without this one retry the whole batch
+ * stayed in English, and a one-batch translation failed.
+ */
+const translateBatch = async (options) => {
+  try {
+    return await translateBatchOnce(options);
+  } catch (err) {
+    if (err?.code !== 'bad_model_output') throw err;
+    logger.warn(`Translation batch ${options.batchIndex + 1} came back unreadable; asking once more.`);
+    return translateBatchOnce(options);
+  }
+};
+
 /** One JSON answer from the text model, for the checks after a translation. */
 const askJson = async (prompt, { apiKey, models, temperature, generate = generateText }) => {
   const { response } = await generate({
@@ -203,12 +219,14 @@ const askJson = async (prompt, { apiKey, models, temperature, generate = generat
  *    that miss go back to the model with the counts; the fix is kept only
  *    when it leaves the batch closer to right, and it must keep every idea.
  *    Cues still long after that go back once more, on their own.
+ * 3. Key terms: a cue that says one of `terms` (the talk's key terms so far)
+ *    with another word is asked to use the listed word.
  * A check that fails (the model unreachable or its answer unreadable) leaves
  * the translation as it was: the checks only ever improve it.
  *
- * @returns {Promise<{translations: Map<string,string>, lengthFixed: number, meaningFixed: number}>}
+ * @returns {Promise<{translations: Map<string,string>, lengthFixed: number, meaningFixed: number, termsFixed: number}>}
  */
-export const refineBatch = async (batch, translated, { targetLanguage, customPrompt = '', apiKey, models, ask = askJson } = {}) => {
+export const refineBatch = async (batch, translated, { targetLanguage, customPrompt = '', terms = [], apiKey, models, ask = askJson } = {}) => {
   let translations = new Map(translated);
   const ids = batch.map((cue) => cue.id);
   let lengthFixed = 0;
@@ -247,7 +265,25 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
     }
   }
 
-  return { translations, lengthFixed, meaningFixed };
+  // Key terms last: a cue that says one of the talk's terms with another word
+  // gets the listed word, kept only when it fits as well as before.
+  let termsFixed = 0;
+  const offTerms = termIssues(batch, translations, terms);
+  if (offTerms.length) {
+    try {
+      const answer = await ask(buildFixPrompt({ cues: batch, translations, issues: offTerms, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2 });
+      const changes = readFix(answer, ids);
+      const fixed = new Map([...translations, ...changes]);
+      if (changes.size && termIssues(batch, fixed, terms).length < offTerms.length && issueScore(batch, fixed) <= issueScore(batch, translations)) {
+        translations = fixed;
+        termsFixed = changes.size;
+      }
+    } catch (err) {
+      logger.warn(`Translation key-term check skipped: ${err?.message || err}`);
+    }
+  }
+
+  return { translations, lengthFixed, meaningFixed, termsFixed };
 };
 
 /** Lines of context on each side of a batch, so a sentence cut by a batch boundary still reads whole. */
@@ -320,6 +356,7 @@ export const translateCueTexts = async (
   let lengthFixed = 0;
   let meaningFixed = 0;
   let retriedBatches = 0;
+  let termsFixed = 0;
   // How earlier batches said the talk's key terms, so later ones use the same words.
   let terms = [];
 
@@ -350,7 +387,7 @@ export const translateCueTexts = async (
           generate,
         });
         modelUsed = outcome.modelUsed;
-        if (!check) return { translations: outcome.result, lengthFixed: 0, meaningFixed: 0, terms: outcome.terms };
+        if (!check) return { translations: outcome.result, lengthFixed: 0, meaningFixed: 0, termsFixed: 0, terms: outcome.terms };
         onProgress?.({
           stage: 'translating',
           batch: batchIndex + 1,
@@ -358,7 +395,8 @@ export const translateCueTexts = async (
           message: `Checking length and meaning of cues ${batchIndex * batch.length + 1}-${batchIndex * batch.length + batch.length}...`,
         });
         const ask = (prompt, options) => askJson(prompt, { ...options, generate });
-        const refined = await refineBatch(batch, outcome.result, { targetLanguage, customPrompt, apiKey, models, ask });
+        const known = mergeTerms(terms, outcome.terms, outcome.result);
+        const refined = await refineBatch(batch, outcome.result, { targetLanguage, customPrompt, terms: known, apiKey, models, ask });
         return { ...refined, terms: outcome.terms };
       };
       let kept = await attempt();
@@ -375,6 +413,7 @@ export const translateCueTexts = async (
       }
       lengthFixed += kept.lengthFixed;
       meaningFixed += kept.meaningFixed;
+      termsFixed += kept.termsFixed;
       terms = mergeTerms(terms, kept.terms, kept.translations);
       for (const [id, text] of kept.translations) translations.set(id, text);
     } catch (err) {
@@ -393,9 +432,9 @@ export const translateCueTexts = async (
     logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
   }
 
-  if (lengthFixed || meaningFixed || retriedBatches) {
+  if (lengthFixed || meaningFixed || retriedBatches || termsFixed) {
     logger.info(
-      `Translation checks refit ${lengthFixed} cue(s) for length and restored the meaning of ${meaningFixed}` +
+      `Translation checks refit ${lengthFixed} cue(s) for length, restored the meaning of ${meaningFixed} and made ${termsFixed} use the talk's key term` +
         (retriedBatches ? `; ${retriedBatches} batch(es) far too long were translated again.` : '.')
     );
   }
@@ -409,6 +448,7 @@ export const translateCueTexts = async (
     lengthFixed,
     meaningFixed,
     retriedBatches,
+    termsFixed,
     terms,
   };
 };

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, buildFixPrompt, MAX_TERMS } from './translationChecks.js';
+import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, termIssues, buildFixPrompt, MAX_TERMS } from './translationChecks.js';
 import { refineBatch, translateCueTexts } from '../providers/gemini/translation.js';
 import { lineSyllables } from './syllables.js';
 
@@ -102,7 +102,7 @@ const fakeModel = (onTranslate) => {
     if (prompt.includes('professional dubbing translator')) answer = onTranslate(prompt, prompts.filter((p) => p.includes('professional dubbing translator')).length);
     else if (prompt.includes('strict reviewer')) answer = { sentences: [] };
     else answer = { translations: [] }; // length fixes change nothing
-    return { response: { text: JSON.stringify(answer) }, modelUsed: 'fake' };
+    return { response: { text: typeof answer === 'string' ? answer : JSON.stringify(answer) }, modelUsed: 'fake' };
   };
   return { generate, prompts };
 };
@@ -156,4 +156,50 @@ test('later batches are told how earlier ones said the key terms', async () => {
   assert.doesNotMatch(translatePrompts[0], /KEY TERMS SO FAR/);
   assert.match(translatePrompts[1], /KEY TERMS SO FAR[\s\S]*- inertia → জড়তা/);
   assert.deepEqual(out.terms, [{ english: 'inertia', translated: 'জড়তা' }]);
+});
+
+test('a key term said with another word is found; its inflected forms are not', () => {
+  const cues = [
+    { id: '1', text: 'If you allow inertia to set in,' },
+    { id: '2', text: 'Inertia is 100% settled.' },
+    { id: '3', text: 'Inertial frames are another thing.' },
+  ];
+  const terms = [{ english: 'inertia', translated: 'ਜੜਤਾ' }];
+  const lines = new Map([['1', 'ਜੇ ਤੁਸੀਂ ਆਪਣੇ ਅੰਦਰ ਸੁਸਤੀ ਆਉਣ ਦਿੰਦੇ ਹੋ,'], ['2', 'ਜੜਤਾ ਪੂਰੀ ਹੋਵੇਗੀ।'], ['3', 'ਹੋਰ ਗੱਲ']]);
+  assert.deepEqual(termIssues(cues, lines, terms), [{ id: '1', kind: 'term', english: 'inertia', translated: 'ਜੜਤਾ' }]);
+  const bengali = new Map([['1', 'আপনি যদি জড়তাকে ঢুকতে দেন,'], ['2', 'জড়তা পুরো।'], ['3', 'অন্য কথা']]);
+  assert.deepEqual(termIssues(cues, bengali, [{ english: 'inertia', translated: 'জড়তা' }]), []);
+  assert.deepEqual(termIssues(cues, lines, []), []);
+});
+
+test('refineBatch asks for the listed word where a key term was said another way', async () => {
+  const cues = [
+    { id: '1', text: 'If you allow inertia to set in,', syllables: 12 },
+    { id: '2', text: 'inertia settles.', syllables: 6 },
+  ];
+  const prompts = [];
+  const answers = [{ sentences: [] }, { translations: [{ id: '1', translatedText: 'ਜੇ ਤੁਸੀਂ ਅੰਦਰ ਜੜਤਾ ਆਉਣ ਦਿਓ,' }] }];
+  const ask = async (prompt) => {
+    prompts.push(prompt);
+    return answers.shift();
+  };
+  const start = new Map([['1', 'ਜੇ ਤੁਸੀਂ ਅੰਦਰ ਸੁਸਤੀ ਆਉਣ ਦਿਓ,'], ['2', 'ਜੜਤਾ ਟਿਕ ਜਾਂਦੀ।']]);
+  const out = await refineBatch(cues, start, { targetLanguage: 'Punjabi', terms: [{ english: 'inertia', translated: 'ਜੜਤਾ' }], ask });
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1], /- id 1: the key term "inertia" is said as "ਜੜਤਾ"/);
+  assert.equal(out.termsFixed, 1);
+  assert.equal(out.translations.get('1'), 'ਜੇ ਤੁਸੀਂ ਅੰਦਰ ਜੜਤਾ ਆਉਣ ਦਿਓ,');
+});
+
+test('a batch that comes back as broken JSON is asked for once more', async () => {
+  const good = { translations: [{ id: '1', translatedText: say(10) }, { id: '2', translatedText: say(10, '।') }] };
+  const once = fakeModel((prompt, call) => (call === 1 ? '{"translations":[{"id":"1","transl' : good));
+  const out = await translateCueTexts(timed, { targetLanguage: 'Bengali', voiceRate: 5, generate: once.generate });
+  assert.equal(once.prompts.filter((p) => p.includes('professional dubbing translator')).length, 2);
+  assert.equal(lineSyllables(out.translations.get('1')), 10);
+
+  // Broken twice: a one-batch translation still fails, as before.
+  const twice = fakeModel(() => 'not json at all');
+  await assert.rejects(translateCueTexts(timed, { targetLanguage: 'Bengali', voiceRate: 5, generate: twice.generate }), { code: 'bad_model_output' });
+  assert.equal(twice.prompts.length, 2);
 });

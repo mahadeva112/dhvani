@@ -145,6 +145,9 @@ const describeIssue = (issue) => {
   if (issue.kind === 'long') {
     return `- id ${issue.id}: ${issue.syllables} syllables, the voice has time for about ${issue.target}. Say the same thing in fewer syllables, or move a word to the next or previous cue of the same sentence if that cue has room.`;
   }
+  if (issue.kind === 'term') {
+    return `- id ${issue.id}: the key term "${issue.english}" is said as "${issue.translated}" elsewhere in this talk; say it with that same word here, in a natural line.`;
+  }
   if (issue.kind === 'end') return `- id ${issue.id}: the English sentence ends in this cue; end the sentence here too.`;
   if (issue.kind === 'open') return `- id ${issue.id}: the English sentence carries on into the next cue; do not end the sentence here.`;
   return `- id ${issue.id}: the translation is empty.`;
@@ -317,3 +320,38 @@ export const termsBlock = (terms) =>
 Earlier parts of this talk said these key terms this way. When the same idea comes back, say it with the same word, so the talk uses one word for it throughout; still let the sentence around it be natural:
 ${terms.map((term) => `- ${term.english} → ${term.translated}`).join('\n')}\n`
     : '';
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * The start of a term's word that every form of it keeps: languages add case
+ * endings and postpositions to the end (জড়তা, জড়তাকে), so the first part is
+ * what is looked for in a line.
+ */
+const termStem = (word) => {
+  const chars = [...word];
+  return chars.slice(0, Math.max(2, Math.ceil(chars.length * 0.6))).join('');
+};
+
+/**
+ * Cues whose English has one of the talk's key terms but whose translation
+ * says it with another word: `term` issues, to be fixed so one talk uses one
+ * word throughout.
+ *
+ * @param {{english: string, translated: string}[]} terms
+ * @returns {{id: string, kind: 'term', english: string, translated: string}[]}
+ */
+export const termIssues = (cues, translations, terms = []) => {
+  const issues = [];
+  for (const term of terms) {
+    const english = new RegExp(`\\b${escapeRegExp(term.english)}\\b`, 'i');
+    const stem = termStem(term.translated).toLowerCase();
+    for (const cue of cues) {
+      const text = spoken(translations.get(cue.id)).toLowerCase();
+      if (english.test(cue.text) && text.trim() && !text.includes(stem)) {
+        issues.push({ id: cue.id, kind: 'term', english: term.english, translated: term.translated });
+      }
+    }
+  }
+  return issues;
+};
