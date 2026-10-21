@@ -43,6 +43,23 @@ export const openUpdates = () => window.dispatchEvent(new Event(OPEN_UPDATES_EVE
 /** True inside the desktop app, the only place updates exist. */
 export const updatesSupported = () => typeof window !== 'undefined' && Boolean(window.dhvaniUpdates);
 
+/** The updater's state as it changes, for anything that shows the version; null outside the desktop app. */
+export const useUpdateState = () => {
+  const api = typeof window !== 'undefined' ? window.dhvaniUpdates : undefined;
+  const [state, setState] = React.useState<AppUpdateState | null>(null);
+  React.useEffect(() => {
+    if (!api) return;
+    let live = true;
+    api.getState().then((s) => live && setState(s));
+    const off = api.onState(setState);
+    return () => {
+      live = false;
+      off();
+    };
+  }, [api]);
+  return state;
+};
+
 /** The last version whose "update available" notice was shown, so each release announces itself once. */
 const NOTICE_KEY = 'dhvani_update_notice_seen';
 

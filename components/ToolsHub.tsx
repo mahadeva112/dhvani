@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowUp, CornerDownLeft, Download, ExternalLink, Search } from 'lucide-react';
+import { ArrowDown, ArrowUp, CornerDownLeft, ExternalLink, Search } from 'lucide-react';
 
 /**
  * Tools and settings, opened from the header: one window in the middle of the
@@ -20,7 +20,7 @@ export interface ToolsHubFact {
 
 export interface ToolsHubItem {
   id: string;
-  group: 'Studio' | 'Settings';
+  group: 'Studio' | 'Settings' | 'App';
   label: string;
   /** What it is for, under its name in the preview. */
   hint: string;
@@ -34,6 +34,8 @@ export interface ToolsHubItem {
   extra?: React.ReactNode;
   /** One line at the foot of the preview: what opening it does, or when changes apply. */
   note?: string;
+  /** The preview's button, when "Open" and the name don't read right. */
+  openLabel?: string;
   onOpen: () => void;
 }
 
@@ -55,9 +57,7 @@ export const ToolsHub: React.FC<{
   open: boolean;
   onClose: () => void;
   items: ToolsHubItem[];
-  /** Check for updates, at the foot of the list; absent where the app can't update itself. */
-  onCheckUpdates?: () => void;
-}> = ({ open, onClose, items, onCheckUpdates }) => {
+}> = ({ open, onClose, items }) => {
   const [shown, setShown] = useState(open);
   const [closing, setClosing] = useState(false);
   const [query, setQuery] = useState('');
@@ -131,7 +131,7 @@ export const ToolsHub: React.FC<{
 
   if (!shown) return null;
   const tone = current ? TONES[current.tone] : TONES.indigo;
-  const groups = (['Studio', 'Settings'] as const).map((group) => ({ group, items: listed.filter((item) => item.group === group) }));
+  const groups = (['Studio', 'Settings', 'App'] as const).map((group) => ({ group, items: listed.filter((item) => item.group === group) }));
 
   return createPortal(
     <div
@@ -209,27 +209,17 @@ export const ToolsHub: React.FC<{
             )}
           </div>
 
-          <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 border-t border-slate-800 text-[11px] text-slate-500">
-            <span className="hidden md:flex items-center gap-1">
-              <ArrowUp className="w-3 h-3" />
-              <ArrowDown className="w-3 h-3" /> move
+          <div className="shrink-0 hidden md:flex items-center gap-3 px-4 py-2.5 border-t border-slate-800 text-[11px] text-slate-500">
+            <span className="flex items-center gap-1">
+              <Key><ArrowUp className="w-3 h-3" /></Key>
+              <Key><ArrowDown className="w-3 h-3" /></Key> move
             </span>
-            <span className="hidden md:flex items-center gap-1">
-              <CornerDownLeft className="w-3 h-3" /> open
+            <span className="flex items-center gap-1">
+              <Key><CornerDownLeft className="w-3 h-3" /></Key> open
             </span>
-            <span className="flex-1" />
-            {onCheckUpdates && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onCheckUpdates();
-                }}
-                className="flex items-center gap-1 text-indigo-300 hover:text-indigo-200 cursor-default"
-              >
-                <Download className="w-3 h-3" /> Check for updates
-              </button>
-            )}
+            <span className="ml-auto flex items-center gap-1">
+              <Key>Esc</Key> close
+            </span>
           </div>
         </div>
 
@@ -274,7 +264,7 @@ export const ToolsHub: React.FC<{
                   onClick={() => openItem(current)}
                   className="ml-auto shrink-0 h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors cursor-default"
                 >
-                  <ExternalLink className="w-4 h-4" /> Open {current.label}
+                  <ExternalLink className="w-4 h-4" /> {current.openLabel ?? `Open ${current.label}`}
                 </button>
               </div>
             </div>
@@ -287,6 +277,13 @@ export const ToolsHub: React.FC<{
     document.body
   );
 };
+
+/** A key cap in the footer's keyboard hints. */
+const Key: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <kbd className="min-w-[18px] h-[18px] px-1 inline-flex items-center justify-center rounded border border-slate-700 bg-slate-800/60 text-slate-300 font-sans text-[10.5px]">
+    {children}
+  </kbd>
+);
 
 /** A thin bar for a share, 0 to 1, with words at both ends: the meters in a preview. */
 export const HubMeter: React.FC<{ share: number; left?: string; right?: string; tone?: 'indigo' | 'amber' | 'emerald' | 'rose' }> = ({
