@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, termIssues, buildFixPrompt, MAX_TERMS } from './translationChecks.js';
+import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, termIssues, buildFixPrompt, unsaidMarks, dubSyllables, issueScore, MAX_TERMS } from './translationChecks.js';
 import { refineBatch, translateCueTexts } from '../providers/gemini/translation.js';
 import { lineSyllables } from './syllables.js';
 
@@ -202,4 +202,34 @@ test('a batch that comes back as broken JSON is asked for once more', async () =
   const twice = fakeModel(() => 'not json at all');
   await assert.rejects(translateCueTexts(timed, { targetLanguage: 'Bengali', voiceRate: 5, generate: twice.generate }), { code: 'bad_model_output' });
   assert.equal(twice.prompts.length, 2);
+});
+
+test('numbers and symbols left in digits are found and counted, sound notes are not', () => {
+  assert.deepEqual(unsaidMarks('ആലസ്യം 100% ഉറച്ചു.'), ['100', '%']);
+  assert.deepEqual(unsaidMarks('[laughs] ১০০ ভাগ & 10:30'), ['১০০', '&', '10:30']);
+  assert.deepEqual(unsaidMarks('[2x speed] সব ঠিক।'), []);
+  // "100%" said aloud is about as long as the words for it, not nothing.
+  const digits = dubSyllables('ആലസ്യം 100% ഉറച്ചു.');
+  const words = dubSyllables('ആലസ്യം നൂറു ശതമാനം ഉറച്ചു.');
+  assert.ok(digits > lineSyllables('ആലസ്യം 100% ഉറച്ചു.'));
+  assert.ok(Math.abs(digits - words) <= 2, `${digits} vs ${words}`);
+  assert.equal(dubSyllables('1947'), 8);
+});
+
+test('a line with a number in digits goes back to be written as it is said, and the fix is kept', async () => {
+  const cues = [{ id: '1', text: 'Inertia is 100% settled.', syllables: 12 }];
+  const start = new Map([['1', '100% மந்தநிலை வந்துவிடும்.']]);
+  assert.deepEqual(cueIssues(cues, start), [{ id: '1', kind: 'unsaid', marks: ['100', '%'] }]);
+  const spelled = new Map([['1', 'நூறு சதவீதம் மந்தநிலை வந்துவிடும்.']]);
+  assert.ok(issueScore(cues, spelled) < issueScore(cues, start));
+
+  const prompts = [];
+  const answers = [{ sentences: [] }, { translations: [{ id: '1', translatedText: 'நூறு சதவீதம் மந்தநிலை வந்துவிடும்.' }] }];
+  const ask = async (prompt) => {
+    prompts.push(prompt);
+    return answers.shift();
+  };
+  const out = await refineBatch(cues, start, { targetLanguage: 'Tamil', ask });
+  assert.match(prompts[1], /- id 1: "100", "%" is written in digits or symbols; write it out in words/);
+  assert.equal(out.translations.get('1'), 'நூறு சதவீதம் மந்தநிலை வந்துவிடும்.');
 });
