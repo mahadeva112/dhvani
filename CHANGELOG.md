@@ -346,6 +346,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A pasted script keeps its lines when it is matched to the English.** **By meaning** used to read
+  a pasted script as one run of words and ignore its line breaks, so one wrong cut moved words into
+  the wrong cues and left later cues unmatched. Now it first matches whole lines to cues, and cuts a
+  line by meaning only where it runs over several cues, over just those cues. Words never leave
+  their line. Plain text with as many lines as cues now picks **One line per cue** by itself. With
+  one line too many or too few, **One line per cue** pairs lines with cues by length, so only the
+  cues next to the gap move; they are marked to check, and the note names them. When the script
+  seems to cover only part of the video, the dialog shows the cues it was placed over; change them
+  and press **Match again** if that's wrong.
 - **The players no longer make an out-of-sync dub look synced.** The Final dub and Sync players
   drew each lane over its own length, so a 0:59 dub and a 0:47 original both filled the width and an
   11 s drift looked like none. Both lanes now share one timeline as long as the longer track: the
