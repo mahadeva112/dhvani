@@ -219,6 +219,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Edit timing gives the lanes more room.** The panel under the lanes with the picked line and
+  the history is gone. The picked line's start, speed, gain and fades now sit in one row above
+  the lanes. Scroll over a value, or press ↑ ↓, to change it (Shift: 10 steps), and double-click
+  its name to set it back to its default. A value you changed is lit. **Right-click a line**
+  (or Shift + F10) for everything it can do, each with its shortcut. **Double-click a line**
+  (or F2) to set its start, speed, gain and fades in a box over it. **History** is a menu beside
+  Undo and Redo, and **Shortcuts** (or `?`) lists every key and how editing works.
 - **Locked lines stay exactly where you put them.** Sync again used to let a locked line give a
   little to the lines around it. It is now held at its position, and moves only when the lines
   before it need the room; it is then flagged in the results with how far it moved. A project
