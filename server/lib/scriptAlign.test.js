@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenizeScript, joinTokens, resolveBoundaries, alignScript, closeSentence, groupByLines } from './scriptAlign.js';
+import { tokenizeScript, joinTokens, resolveBoundaries, alignScript, closeSentence, groupByLines, snapToLineEnds } from './scriptAlign.js';
 
 const words = (n, prefix = 'w') => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 const cuesOf = (n) => Array.from({ length: n }, (_, i) => ({ id: `c${i}`, text: `English cue ${i}` }));
@@ -339,9 +339,20 @@ test('a script in lines keeps every line whole on its cue, in one call', async (
   assert.ok(result.cues.every((c) => c.fit === 'full' && !c.estimated));
 });
 
+const isSplitPrompt = (prompt) => prompt.includes('separate passages');
+/** Each passage of a split prompt: its cue count and word range. */
+const promptPassages = (prompt) =>
+  prompt
+    .split(/\nPASSAGE \d+\n/)
+    .slice(1)
+    .map((block) => {
+      const [, first, last] = block.match(/words \{(\d+)\} to \{(\d+)\}/);
+      return { cues: block.split('English cues:\n')[1].split('\n').filter((l) => /^\d+\. /.test(l)).length, first: Number(first), last: Number(last) };
+    });
+
 test('only a line that runs over several cues is cut, and only over those cues', async () => {
   const lines = ['a0 a1 a2', 'b0 b1 b2 b3 b4 b5', 'c0 c1'];
-  const wordPrompts = [];
+  const splitPrompts = [];
   const callModel = async (prompt) => {
     if (isLinePrompt(prompt)) {
       return {
@@ -353,16 +364,72 @@ test('only a line that runs over several cues is cut, and only over those cues',
         ],
       };
     }
-    wordPrompts.push(prompt);
+    splitPrompts.push(prompt);
     // Cue 2 ends at b2, cue 3 takes the rest of the line.
-    return { cues: [{ n: 1, last: 2, word: 'b2', fit: 'full' }, { n: 2, last: 5, word: 'b5', fit: 'full' }] };
+    return { passages: [{ p: 1, cues: [{ n: 1, last: 2, word: 'b2', fit: 'full' }, { n: 2, last: 5, word: 'b5', fit: 'full' }] }] };
   };
   const result = await alignScript(cuesOf(4), lines.join('\n'), { callModel });
-  assert.equal(wordPrompts.length, 1);
-  assert.equal(promptCues(wordPrompts[0]).length, 2);
-  assert.match(wordPrompts[0], /\{0\}b0 .*\{5\}b5/);
-  assert.doesNotMatch(wordPrompts[0], /a0|c0/);
+  assert.equal(splitPrompts.length, 1);
+  assert.deepEqual(promptPassages(splitPrompts[0]), [{ cues: 2, first: 0, last: 5 }]);
+  assert.doesNotMatch(splitPrompts[0], /a0|c0/);
   assert.deepEqual(result.cues.map((c) => c.text), ['a0 a1 a2', 'b0 b1 b2', 'b3 b4 b5', 'c0 c1']);
+});
+
+/** A line model that makes every line run over two cues. */
+const twoCuesPerLine = async (prompt) => {
+  const first = Number(prompt.match(/lines numbered \[(\d+)\]/)[1]);
+  return { cues: promptCues(prompt).map((_, i) => ({ n: i + 1, last: first + Math.floor(i / 2), inside: i % 2 === 0, fit: 'full' })) };
+};
+
+test('many lines that run over several cues are cut together in a few calls', async () => {
+  const lines = Array.from({ length: 30 }, (_, i) => `l${i}a l${i}b l${i}c l${i}d`);
+  let splitCalls = 0;
+  const callModel = async (prompt) => {
+    if (isLocate(prompt)) return {};
+    if (isLinePrompt(prompt)) return twoCuesPerLine(prompt);
+    splitCalls += 1;
+    // Each line is cut in half.
+    return { passages: promptPassages(prompt).map(({ first }, p) => ({ p: p + 1, cues: [{ n: 1, last: first + 1 }, { n: 2, last: first + 3 }] })) };
+  };
+  const result = await alignScript(cuesOf(60), lines.join('\n'), { callModel });
+  assert.ok(splitCalls <= 5, `${splitCalls} split calls for 30 lines`);
+  result.cues.forEach((cue, i) => {
+    const line = lines[Math.floor(i / 2)].split(' ');
+    assert.equal(cue.text, (i % 2 === 0 ? line.slice(0, 2) : line.slice(2)).join(' '), `cue ${i + 1}`);
+  });
+});
+
+test('a passage with an unusable answer is asked again on its own', async () => {
+  const lines = ['p0 p1 p2 p3', 'q0 q1 q2 q3'];
+  const prompts = [];
+  const callModel = async (prompt) => {
+    if (isLinePrompt(prompt)) return twoCuesPerLine(prompt);
+    prompts.push(prompt);
+    if (isSplitPrompt(prompt)) {
+      // The second passage comes back empty.
+      const [{ first }] = promptPassages(prompt);
+      return { passages: [{ p: 1, cues: [{ n: 1, last: first + 1 }, { n: 2, last: first + 3 }] }] };
+    }
+    const [, first] = prompt.match(/numbered \{(\d+)\}/);
+    assert.match(prompt, /\{0\}q0/);
+    return { cues: [{ n: 1, last: Number(first) + 2 }, { n: 2, last: Number(first) + 3 }] };
+  };
+  const result = await alignScript(cuesOf(4), lines.join('\n'), { callModel });
+  assert.equal(prompts.length, 2);
+  assert.deepEqual(result.cues.map((c) => c.text), ['p0 p1', 'p2 p3', 'q0 q1 q2', 'q3']);
+});
+
+test('a cut a word away from a line break moves onto it', async () => {
+  const lines = ['a0 a1 a2', 'a3 a4 a5', 'b0 b1'];
+  const callModel = async (prompt) => {
+    if (isLinePrompt(prompt)) {
+      return { cues: [{ n: 1, last: 1, inside: true }, { n: 2, last: 1 }, { n: 3, last: 2 }] };
+    }
+    // Ends cue 1 one word into the second line.
+    return { passages: [{ p: 1, cues: [{ n: 1, last: 3 }, { n: 2, last: 5 }] }] };
+  };
+  const result = await alignScript(cuesOf(3), lines.join('\n'), { callModel });
+  assert.deepEqual(result.cues.map((c) => c.text), ['a0 a1 a2', 'a3 a4 a5', 'b0 b1']);
 });
 
 test('a bad answer for one cue does not move words out of the other lines', async () => {
@@ -372,13 +439,20 @@ test('a bad answer for one cue does not move words out of the other lines', asyn
       // Cue 4 is answered as if it ended before cue 3: it is dropped and estimated.
       return { cues: promptCues(prompt).map((_, i) => ({ n: i + 1, last: i === 3 ? 0 : i, inside: false, fit: 'full' })) };
     }
-    // The two cues sharing lines 3 split them one line each.
-    const [, first] = prompt.match(/numbered \{(\d+)\}/);
-    return { cues: [{ n: 1, last: Number(first) + 1 }, { n: 2, last: Number(first) + 3 }] };
+    // The two cues sharing lines 3 and 4 take one line each.
+    return { passages: promptPassages(prompt).map(({ first }, p) => ({ p: p + 1, cues: [{ n: 1, last: first + 1 }, { n: 2, last: first + 3 }] })) };
   };
   const result = await alignScript(cuesOf(8), lines.join('\n'), { callModel });
   result.cues.forEach((cue, i) => assert.equal(cue.text, lines[i], `cue ${i + 1}`));
   assertWholeScript(result, lines.join(' '));
+});
+
+test('a cut near a line break snaps onto it, but never empties a cue', () => {
+  const tokens = tokenizeScript('a b c\nd e f\ng');
+  assert.deepEqual(snapToLineEnds([4, 7], tokens, 0), [3, 7], 'one word past the break');
+  assert.deepEqual(snapToLineEnds([2, 7], tokens, 0), [3, 7], 'one word before it');
+  assert.deepEqual(snapToLineEnds([1, 3, 7], tokens, 0), [1, 3, 7], 'already on a break');
+  assert.deepEqual(snapToLineEnds([4, 5, 6], tokens, 3), [4, 5, 6], 'would empty a cue');
 });
 
 test('cues that share a line, or got no line, are grouped with their neighbours', () => {
@@ -423,4 +497,24 @@ test('lineAnchors off places a script in lines word by word, as before', async (
   const result = await alignScript(cuesOf(2), 'a b c\nd e', { callModel, lineAnchors: false });
   assert.ok(prompts.every((p) => !isLinePrompt(p)));
   assert.deepEqual(result.cues.map((c) => c.text), ['a b c', 'd e']);
+});
+
+test('a split call that fails whole is asked again in halves, not line by line', async () => {
+  const lines = Array.from({ length: 8 }, (_, i) => `l${i}a l${i}b l${i}c l${i}d`);
+  const sizes = [];
+  let failed = false;
+  const callModel = async (prompt) => {
+    if (isLinePrompt(prompt)) return twoCuesPerLine(prompt);
+    assert.ok(isSplitPrompt(prompt), 'no line is cut on its own');
+    const passages = promptPassages(prompt);
+    sizes.push(passages.length);
+    if (!failed) {
+      failed = true;
+      throw Object.assign(new Error('cut off'), { code: 'bad_model_output' });
+    }
+    return { passages: passages.map(({ first }, p) => ({ p: p + 1, cues: [{ n: 1, last: first + 1 }, { n: 2, last: first + 3 }] })) };
+  };
+  const result = await alignScript(cuesOf(16), lines.join('\n'), { callModel, splitBatchCues: 40, splitBatchWords: 500 });
+  assert.deepEqual(sizes, [8, 4, 4]);
+  result.cues.forEach((cue, i) => assert.equal(cue.text, lines[Math.floor(i / 2)].split(' ').slice((i % 2) * 2, (i % 2) * 2 + 2).join(' ')));
 });

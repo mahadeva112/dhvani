@@ -407,8 +407,19 @@ export const ALIGN_DEFAULTS = {
   attempts: 3,
   // Cues kept either side of the located range, in case it is a little off.
   coverageMargin: 2,
-  // Lines that run over several cues, split by meaning at the same time.
-  parallelSplits: 3,
+  // Matching whole lines is easier than counting words, so a line window
+  // takes more cues.
+  lineWindowSize: 50,
+  // Lines that run over several cues are cut several to a call, and calls
+  // run side by side. A reply takes anything from 3 to 50 s whatever its
+  // size, so a few short calls at once beat one long one (2026-10-21, 40
+  // cues: 40 to a call took 74 s, 12 to a call four at a time 50 s). A line
+  // too long to share a call is cut on its own.
+  splitBatchCues: 12,
+  splitBatchWords: 200,
+  splitAloneCues: 12,
+  splitAloneWords: 200,
+  parallelSplits: 4,
 };
 
 /** The script's own lines, each as one unit. */
@@ -428,7 +439,8 @@ const LINE_RULE =
  * falls partway through a unit, or was only estimated.
  */
 const placeUnits = async ({ cues, tokens, weights, from, to, units, ctx, extraRules, onProgress }) => {
-  const { windowSize, overlap, slack, margin, minWindow, attempts } = ctx.settings;
+  const { overlap, slack, margin, minWindow, attempts } = ctx.settings;
+  const windowSize = units === 'lines' ? ctx.settings.lineWindowSize : ctx.settings.windowSize;
   const { callModel, targetLanguage, isCancelled, onWindowError, report, state } = ctx;
   const total = tokens.length;
   const buildPrompt = units === 'lines' ? buildLinePrompt : buildAlignPrompt;
@@ -564,13 +576,161 @@ const placeUnits = async ({ cues, tokens, weights, from, to, units, ctx, extraRu
   return spans;
 };
 
-/** Places words onto cues `from`..`to`-1 and writes each cue's text into `results`. */
-const placeWords = async ({ cues, tokens, weights, from, to, results, ctx, extraRules, onProgress }) => {
-  const spans = await placeUnits({ cues, tokens, weights, from, to, units: 'words', ctx, extraRules, onProgress });
-  for (let i = from; i < to; i += 1) {
-    const { start, end, fit, estimated } = spans[i];
-    Object.assign(results[i], { text: joinTokens(tokens.slice(start, end)), fit, estimated });
+/**
+ * Moves a cue end that falls a word or two from a line break onto it: the
+ * writer's line breaks are surer places to end than a near miss. Never
+ * empties a cue, and leaves empty cues alone.
+ */
+export const snapToLineEnds = (ends, tokens, start, reach = 2) => {
+  const out = [...ends];
+  const atLineEnd = (end) => tokens[end - 1]?.sep === '\n';
+  for (let i = 0; i < out.length - 1; i += 1) {
+    const before = i === 0 ? start : out[i - 1];
+    const after = out[i + 1];
+    if (out[i] <= before || out[i] >= after || atLineEnd(out[i])) continue;
+    for (let d = 1; d <= reach; d += 1) {
+      const near = [out[i] - d, out[i] + d].find((end) => end > before && end < after && atLineEnd(end));
+      if (near !== undefined) {
+        out[i] = near;
+        break;
+      }
+    }
   }
+  return out;
+};
+
+/** Writes cues `from`.. from their ends in `tokens`; `lines` snaps ends onto line breaks. */
+const writeSpans = (results, from, tokens, start, spans, lines) => {
+  const ends = spans.map((span) => span.end);
+  const snapped = lines ? snapToLineEnds(ends, tokens, start) : ends;
+  let at = start;
+  spans.forEach(({ fit, estimated }, k) => {
+    Object.assign(results[from + k], { text: joinTokens(tokens.slice(at, snapped[k])), fit, estimated });
+    at = snapped[k];
+  });
+};
+
+/** Places words onto cues `from`..`to`-1 and writes each cue's text into `results`. */
+const placeWords = async ({ cues, tokens, weights, from, to, results, ctx, extraRules, onProgress, lines = false }) => {
+  const spans = await placeUnits({ cues, tokens, weights, from, to, units: 'words', ctx, extraRules, onProgress });
+  writeSpans(results, from, tokens, 0, spans.slice(from, to), lines);
+};
+
+/**
+ * Asks where each cue ends in several separate passages at once, each a line
+ * (or a few) that runs over a few cues. Words are numbered across all the
+ * passages so every number names one word.
+ */
+export const buildSplitPrompt = ({ passages, tokens, targetLanguage, extraRules }) => {
+  const language = targetLanguage || 'target-language';
+  const blocks = passages
+    .map((passage, p) => {
+      const cueList = passage.cues
+        .map((cue, i) => `${i + 1}. ${spokenText(cue.text) ? String(cue.text).trim() : '(no speech)'}`)
+        .join('\n');
+      return `PASSAGE ${p + 1}
+English cues:
+${cueList}
+${language} words {${passage.start}} to {${passage.stop - 1}}:
+${renderWords(tokens, passage.start, passage.stop)}`;
+    })
+    .join('\n\n');
+
+  return `You are aligning a ${language} dubbing script to the English cues it translates.
+
+Below are ${passages.length} separate passages. In each, a line or two of the ${language} script translate a few English cues. Place each passage on its own; they do not run into each other.
+
+For every cue in a passage, find the ${language} words that say what that cue's English says, and give the number of the cue's last word. Each cue starts right after the previous one ends; a passage's first cue starts at its first word, and its last cue ends at its last word, so every word is used.
+
+HOW TO DECIDE
+1. Match by meaning, not by length. Read the whole passage in both languages before cutting it.
+2. Languages order words differently (in Indian languages the verb usually comes last). Cut at the phrase boundary closest to where the English cue breaks. Never cut inside a phrase that has to be said together.
+3. A pause "…" or "..." between two cues belongs to the earlier cue. Punctuation is part of the numbered word it touches.
+4. ${LINE_RULE}
+5. Give "last": null for a cue marked (no speech), or when nothing in the passage says that cue. Never give null just because a cue is hard to cut.${extraRules ? `\n${extraRules.trim()}` : ''}
+
+FIT (most cues are "full")
+"full": the cue's words say what its English says. "partial": part of the meaning is missing, added, or carried over from a neighbouring cue. "none": nothing in the passage says it.
+
+${blocks}
+
+Respond with ONLY this JSON, one entry per passage and one per English cue in it, in order. "last" is the number of the cue's last word and "word" is that word copied exactly:
+{"passages":[{"p":1,"cues":[{"n":1,"last":<number>,"word":"<the word numbered last>","fit":"full"}]}]}`;
+};
+
+/**
+ * Cuts several shared lines in one call. Returns the groups whose answer was
+ * not usable, to be cut one by one instead.
+ */
+const placeSplitBatch = async ({ batch, cues, weights, results, ctx, extraRules }) => {
+  const { callModel, targetLanguage, isCancelled, report, state } = ctx;
+  if (isCancelled?.()) throw Object.assign(new Error('Alignment was cancelled.'), { code: 'cancelled' });
+  const tokens = [];
+  const passages = batch.map((group) => {
+    const start = tokens.length;
+    tokens.push(...group.tokens);
+    return { group, start, stop: tokens.length, cues: group.cues.map((i) => cues[i]) };
+  });
+  report.windows += 1;
+
+  let list;
+  try {
+    const parsed = await callModel(buildSplitPrompt({ passages, tokens, targetLanguage, extraRules }));
+    state.reached = true;
+    list = Array.isArray(parsed?.passages) ? parsed.passages : [];
+  } catch (err) {
+    if (err?.code === 'cancelled' || isCancelled?.()) throw err;
+    if (err?.retryable === false && err?.status && err.status < 500) throw err;
+    if (err?.code !== 'bad_model_output' && !state.reached) throw err;
+    // Each line is asked again on its own.
+    return batch;
+  }
+
+  const retry = [];
+  passages.forEach((passage, p) => {
+    const reply = list.find((item) => Number(item?.p) === p + 1) ?? list[p];
+    const count = passage.cues.length;
+    const windowWeights = passage.group.cues.map((i) => weights[i]);
+    const { answers, fits } = readAnswers(reply, count, tokens);
+    const usable = answers.filter((a) => Number.isInteger(a) && a >= passage.start && a < passage.stop).length;
+    if (usable === 0 || looksGivenUp(answers, fits, windowWeights)) {
+      retry.push(passage.group);
+      return;
+    }
+    const resolved = resolveBoundaries({ answers, weights: windowWeights, start: passage.start, stop: passage.stop, final: true, rate: 1 });
+    let at = passage.start;
+    const spans = resolved.ends.map((end, k) => {
+      const closed = closeSentence(tokens, at, end, resolved.ends[k + 1] ?? end);
+      const estimated = resolved.estimated[k];
+      const span = { end: closed, estimated, fit: estimated ? undefined : closed > at ? fits[k] : windowWeights[k] ? 'none' : undefined };
+      at = closed;
+      return span;
+    });
+    writeSpans(results, passage.group.cues[0], tokens, passage.start, spans, true);
+  });
+  return retry;
+};
+
+/** Packs shared lines into calls; a line too long to share one goes alone. */
+const packSplits = (shared, settings) => {
+  const alone = [];
+  const batches = [];
+  let current = null;
+  for (const group of shared) {
+    const size = { cues: group.cues.length, words: group.tokens.length };
+    if (size.cues > settings.splitAloneCues || size.words > settings.splitAloneWords) {
+      alone.push(group);
+      continue;
+    }
+    if (!current || current.cues + size.cues > settings.splitBatchCues || current.words + size.words > settings.splitBatchWords) {
+      current = { groups: [], cues: 0, words: 0 };
+      batches.push(current);
+    }
+    current.groups.push(group);
+    current.cues += size.cues;
+    current.words += size.words;
+  }
+  return { alone, batches: batches.map((b) => b.groups) };
 };
 
 /**
@@ -626,23 +786,45 @@ const placeByLines = async ({ cues, lines, weights, from, to, results, ctx }) =>
   }
   if (!shared.length) return;
 
-  // Each line that runs over several cues is cut by meaning over just those cues.
+  // Each line that runs over several cues is cut by meaning over just those
+  // cues: several lines to a call, and a line whose answer is unusable, or
+  // that is too long to share a call, on its own.
   const rules = [LINE_RULE, extraRules].filter(Boolean).join('\n');
+  const { alone, batches } = packSplits(shared, settings);
   let done = 0;
   const progress = () =>
     onProgress?.({ done, total: shared.length, message: `Splitting lines that run over several cues (${done} of ${shared.length})` });
   progress();
-  const queue = [...shared];
+  const cutAlone = async (group) => {
+    const first = group.cues[0];
+    await placeWords({ cues, tokens: group.tokens, weights, from: first, to: first + group.cues.length, results, ctx, extraRules: rules, lines: true });
+    done += 1;
+    progress();
+  };
+  const queue = [...batches.map((batch) => ({ batch })), ...alone.map((group) => ({ group }))];
   const worker = async () => {
     while (queue.length) {
-      const group = queue.shift();
-      const first = group.cues[0];
-      await placeWords({ cues, tokens: group.tokens, weights, from: first, to: first + group.cues.length, results, ctx, extraRules: rules });
-      done += 1;
+      const job = queue.shift();
+      if (job.group) {
+        await cutAlone(job.group);
+        continue;
+      }
+      const retry = await placeSplitBatch({ batch: job.batch, cues, weights, results, ctx, extraRules });
+      done += job.batch.length - retry.length;
       progress();
+      const depth = job.depth ?? 0;
+      if (retry.length > 1 && depth < 2) {
+        // Ask again together: in halves when the whole call failed, since a
+        // shorter reply is likelier to come back whole.
+        const half = retry.length === job.batch.length ? Math.ceil(retry.length / 2) : retry.length;
+        queue.push({ batch: retry.slice(0, half), depth: depth + 1 });
+        if (half < retry.length) queue.push({ batch: retry.slice(half), depth: depth + 1 });
+      } else {
+        queue.push(...retry.map((group) => ({ group })));
+      }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(settings.parallelSplits, shared.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(settings.parallelSplits, queue.length) }, worker));
 };
 
 /**
