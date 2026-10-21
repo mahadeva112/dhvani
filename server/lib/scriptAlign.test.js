@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenizeScript, joinTokens, resolveBoundaries, alignScript, closeSentence } from './scriptAlign.js';
+import { tokenizeScript, joinTokens, resolveBoundaries, alignScript, closeSentence, groupByLines } from './scriptAlign.js';
 
 const words = (n, prefix = 'w') => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 const cuesOf = (n) => Array.from({ length: n }, (_, i) => ({ id: `c${i}`, text: `English cue ${i}` }));
@@ -313,4 +313,114 @@ test('a sentence end further away, or the whole next cue, is left where it is', 
   assert.equal(closeSentence(tokens, 0, 3, 5), 3, 'would empty the next cue');
   assert.equal(closeSentence(tokens, 0, 3, 7), 5);
   assert.equal(closeSentence(tokenizeScript('a b. c d.'), 0, 2, 4), 2, 'already closed');
+});
+
+const isLinePrompt = (prompt) => prompt.includes('(numbered lines)');
+const promptCues = (prompt) => prompt.split('ENGLISH CUES\n')[1].split('\n\n')[0].split('\n');
+const promptLines = (prompt) =>
+  prompt
+    .split('(numbered lines)\n')[1]
+    .split('\n\n')[0]
+    .split('\n')
+    .map((line) => line.replace(/^\[\d+\] /, ''));
+
+test('a script in lines keeps every line whole on its cue, in one call', async () => {
+  const lines = ['पहली पंक्ति यहाँ है।', 'दूसरी पंक्ति थोड़ी लंबी है।', 'तीसरी।', 'और चौथी पंक्ति।'];
+  const prompts = [];
+  const callModel = async (prompt) => {
+    prompts.push(prompt);
+    assert.ok(isLinePrompt(prompt));
+    return { cues: promptCues(prompt).map((_, i) => ({ n: i + 1, last: i, inside: false, fit: 'full' })) };
+  };
+  const result = await alignScript(cuesOf(4), lines.join('\n'), { callModel, targetLanguage: 'Hindi' });
+  assert.equal(prompts.length, 1);
+  assert.deepEqual(promptLines(prompts[0]), lines);
+  assert.deepEqual(result.cues.map((c) => c.text), lines);
+  assert.ok(result.cues.every((c) => c.fit === 'full' && !c.estimated));
+});
+
+test('only a line that runs over several cues is cut, and only over those cues', async () => {
+  const lines = ['a0 a1 a2', 'b0 b1 b2 b3 b4 b5', 'c0 c1'];
+  const wordPrompts = [];
+  const callModel = async (prompt) => {
+    if (isLinePrompt(prompt)) {
+      return {
+        cues: [
+          { n: 1, last: 0, inside: false, fit: 'full' },
+          { n: 2, last: 1, inside: true, fit: 'full' },
+          { n: 3, last: 1, inside: false, fit: 'full' },
+          { n: 4, last: 2, inside: false, fit: 'full' },
+        ],
+      };
+    }
+    wordPrompts.push(prompt);
+    // Cue 2 ends at b2, cue 3 takes the rest of the line.
+    return { cues: [{ n: 1, last: 2, word: 'b2', fit: 'full' }, { n: 2, last: 5, word: 'b5', fit: 'full' }] };
+  };
+  const result = await alignScript(cuesOf(4), lines.join('\n'), { callModel });
+  assert.equal(wordPrompts.length, 1);
+  assert.equal(promptCues(wordPrompts[0]).length, 2);
+  assert.match(wordPrompts[0], /\{0\}b0 .*\{5\}b5/);
+  assert.doesNotMatch(wordPrompts[0], /a0|c0/);
+  assert.deepEqual(result.cues.map((c) => c.text), ['a0 a1 a2', 'b0 b1 b2', 'b3 b4 b5', 'c0 c1']);
+});
+
+test('a bad answer for one cue does not move words out of the other lines', async () => {
+  const lines = Array.from({ length: 8 }, (_, i) => `l${i}x l${i}y`);
+  const callModel = async (prompt) => {
+    if (isLinePrompt(prompt)) {
+      // Cue 4 is answered as if it ended before cue 3: it is dropped and estimated.
+      return { cues: promptCues(prompt).map((_, i) => ({ n: i + 1, last: i === 3 ? 0 : i, inside: false, fit: 'full' })) };
+    }
+    // The two cues sharing lines 3 split them one line each.
+    const [, first] = prompt.match(/numbered \{(\d+)\}/);
+    return { cues: [{ n: 1, last: Number(first) + 1 }, { n: 2, last: Number(first) + 3 }] };
+  };
+  const result = await alignScript(cuesOf(8), lines.join('\n'), { callModel });
+  result.cues.forEach((cue, i) => assert.equal(cue.text, lines[i], `cue ${i + 1}`));
+  assertWholeScript(result, lines.join(' '));
+});
+
+test('cues that share a line, or got no line, are grouped with their neighbours', () => {
+  const span = (start, end, more = {}) => ({ start, end, inside: false, empty: false, ...more });
+  const groups = groupByLines(
+    [span(0, 0), span(0, 1), span(1, 2, { inside: true }), span(2, 2), span(2, 3), span(3, 3, { empty: true }), span(3, 4)],
+    0,
+    7
+  );
+  assert.deepEqual(
+    groups.map((g) => [g.cues, g.start, g.end]),
+    [
+      [[0, 1], 0, 1],
+      [[2, 3], 1, 2],
+      [[4], 2, 3],
+      [[5], 3, 3],
+      [[6], 3, 4],
+    ]
+  );
+});
+
+test('a range the user picked is used as given, without locating', async () => {
+  const prompts = [];
+  const callModel = async (prompt) => {
+    prompts.push(prompt);
+    return { cues: promptCues(prompt).map((_, i) => ({ n: i + 1, last: i, inside: false, fit: 'full' })) };
+  };
+  const lines = Array.from({ length: 10 }, (_, i) => `line${i} words`);
+  const result = await alignScript(cuesOf(60), lines.join('\n'), { callModel, coverage: { firstCue: 21, lastCue: 30 } });
+  assert.ok(prompts.every((p) => !isLocate(p)));
+  assert.deepEqual(result.coverage, { firstCue: 21, lastCue: 30 });
+  result.cues.slice(20, 30).forEach((cue, i) => assert.equal(cue.text, lines[i]));
+  assert.ok(result.cues.slice(0, 20).every((c) => c.text === '' && c.fit === 'none'));
+});
+
+test('lineAnchors off places a script in lines word by word, as before', async () => {
+  const prompts = [];
+  const callModel = async (prompt) => {
+    prompts.push(prompt);
+    return { cues: [{ n: 1, last: 2 }, { n: 2, last: 4 }] };
+  };
+  const result = await alignScript(cuesOf(2), 'a b c\nd e', { callModel, lineAnchors: false });
+  assert.ok(prompts.every((p) => !isLinePrompt(p)));
+  assert.deepEqual(result.cues.map((c) => c.text), ['a b c', 'd e']);
 });

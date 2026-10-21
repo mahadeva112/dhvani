@@ -1,4 +1,4 @@
-import { AudioSegment } from '../types';
+import type { AudioSegment } from '../types';
 
 /**
  * Local helpers for fitting a pasted script onto cues: cleaning up what was
@@ -84,19 +84,112 @@ const distribute = (units: string[], weights: number[], joiner = ' '): string[] 
 
 export interface QuickSplit {
   texts: string[];
+  /** Cues whose text is a guess the user should check. */
+  estimated?: boolean[];
   /** Something the user should know about how the split went. */
   note?: string;
 }
 
-/** Line 1 to cue 1 and so on. Extra lines join the last cue. */
+/** The lines of a pasted script, blank lines left out. */
+export const scriptLines = (script: string): string[] =>
+  script.split('\n').map((l) => l.trim()).filter(Boolean);
+
+// Gale & Church's sentence alignment: how likely each way of pairing lines
+// with cues is, and how far a translation's length strays from the original's.
+const MOVES: { lines: number; cues: number; cost: number }[] = [
+  { lines: 1, cues: 1, cost: -Math.log(0.89) },
+  { lines: 2, cues: 1, cost: -Math.log(0.089) },
+  { lines: 1, cues: 2, cost: -Math.log(0.089) },
+  { lines: 0, cues: 1, cost: -Math.log(0.01) },
+  { lines: 3, cues: 1, cost: -Math.log(0.005) },
+  { lines: 1, cues: 3, cost: -Math.log(0.005) },
+];
+const LENGTH_VARIANCE = 6.8;
+
+/** Two-sided tail of the normal distribution, from an erf approximation. */
+const normalTail = (z: number) => {
+  const t = 1 / (1 + 0.3275911 * (z / Math.SQRT2));
+  const erf = 1 - t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) * Math.exp(-(z * z) / 2);
+  return Math.max(1e-12, 1 - erf);
+};
+
+/** How unlikely `target` characters are as a translation of `english` characters. */
+const lengthCost = (english: number, target: number, ratio: number) => {
+  if (english === 0 && target === 0) return 0;
+  const z = Math.abs(target - english * ratio) / Math.sqrt(Math.max(1, english) * LENGTH_VARIANCE * ratio);
+  return -Math.log(normalTail(z));
+};
+
+/**
+ * Line 1 to cue 1 and so on. When the counts differ, lines are paired with
+ * cues by length, so one line too many or too few only moves the lines near
+ * it instead of every line after it; the cues around each such place are
+ * flagged.
+ */
 export const splitByLines = (script: string, segments: AudioSegment[]): QuickSplit => {
-  const lines = script.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = scriptLines(script);
   const n = segments.length;
-  const texts = segments.map((_, i) => (i < n - 1 ? lines[i] || '' : lines.slice(i).join(' ')));
-  let note: string | undefined;
-  if (lines.length > n) note = `Your script has ${lines.length} lines for ${n} cues, so the last ${lines.length - n + 1} lines are all in the last cue.`;
-  else if (lines.length < n) note = `Your script has ${lines.length} lines for ${n} cues, so the last ${n - lines.length} cues are empty.`;
-  return { texts, note };
+  if (lines.length === n || lines.length === 0 || n === 0) {
+    return { texts: segments.map((_, i) => lines[i] || '') };
+  }
+
+  const english = segments.map((s) => englishOf(s).trim().length);
+  const target = lines.map((l) => l.length);
+  const ratio = (target.reduce((a, b) => a + b, 0) || 1) / (english.reduce((a, b) => a + b, 0) || 1);
+
+  // cost[i][j]: cheapest pairing of the first i lines with the first j cues.
+  const cost = Array.from({ length: lines.length + 1 }, () => new Array<number>(n + 1).fill(Infinity));
+  const step = Array.from({ length: lines.length + 1 }, () => new Array<number>(n + 1).fill(-1));
+  cost[0][0] = 0;
+  for (let i = 0; i <= lines.length; i += 1) {
+    for (let j = 0; j <= n; j += 1) {
+      if (cost[i][j] === Infinity) continue;
+      MOVES.forEach((move, m) => {
+        const ni = i + move.lines;
+        const nj = j + move.cues;
+        if (ni > lines.length || nj > n) return;
+        let e = 0;
+        for (let k = j; k < nj; k += 1) e += english[k];
+        let t = 0;
+        for (let k = i; k < ni; k += 1) t += target[k];
+        // A cue with no speech taking no line is free.
+        const c = cost[i][j] + (move.lines === 0 && e === 0 ? 0 : move.cost + lengthCost(e, t, ratio));
+        if (c < cost[ni][nj]) {
+          cost[ni][nj] = c;
+          step[ni][nj] = m;
+        }
+      });
+    }
+  }
+
+  const texts = segments.map(() => '');
+  const estimated = segments.map(() => false);
+  const flagged: string[] = [];
+  for (let i = lines.length, j = n; i > 0 || j > 0; ) {
+    const move = MOVES[step[i][j]];
+    const from = { line: i - move.lines, cue: j - move.cues };
+    const pairedLines = lines.slice(from.line, i);
+    const cueIndexes = Array.from({ length: move.cues }, (_, k) => from.cue + k);
+    if (move.cues === 1) {
+      texts[from.cue] = pairedLines.join(' ');
+    } else {
+      // One line over several cues: its words are shared out by the cues' length.
+      const parts = distribute(pairedLines.join(' ').split(/\s+/).filter(Boolean), cueIndexes.map((c) => english[c]));
+      cueIndexes.forEach((c, k) => (texts[c] = parts[k]));
+    }
+    if (move.lines !== 1 || move.cues !== 1) {
+      cueIndexes.forEach((c) => (estimated[c] = english[c] > 0));
+      if (cueIndexes.some((c) => estimated[c])) flagged.unshift(move.cues > 1 ? `${from.cue + 1}–${j}` : String(j));
+    }
+    i = from.line;
+    j = from.cue;
+  }
+
+  const places = flagged.length > 5 ? `${flagged.slice(0, 5).join(', ')} and ${flagged.length - 5} more` : flagged.join(', ');
+  const note =
+    `Your script has ${lines.length} lines for ${n} cues, so lines were paired with cues by length.` +
+    (flagged.length ? ` Check ${flagged.length === 1 && !flagged[0].includes('–') ? 'cue' : 'cues'} ${places}, where lines were joined, split or missing.` : '');
+  return { texts, estimated, note };
 };
 
 /** Whole sentences, shared out by the length of each cue's English. */

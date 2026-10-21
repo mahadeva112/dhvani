@@ -463,7 +463,7 @@ export const translateCueTexts = async (
  */
 export const alignScriptToCuesDetailed = async (
   cues,
-  { pastedScript, targetLanguage, apiKey, models, extraRules = '', onProgress, isCancelled } = {}
+  { pastedScript, targetLanguage, apiKey, models, extraRules = '', coverage, onProgress, isCancelled } = {}
 ) => {
   let modelUsed = null;
   const callModel = async (prompt) => {
@@ -486,6 +486,7 @@ export const alignScriptToCuesDetailed = async (
         callModel,
         targetLanguage,
         extraRules,
+        coverage,
         onProgress,
         isCancelled,
         onWindowError: (err, { from, to }) => {
