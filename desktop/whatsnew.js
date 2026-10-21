@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.84',
+    changes: [
+      'The hint beside the Edit timing tools stays on one line and only says what a drag does where you point, so the timeline no longer jumps up and down. Shortcuts has the whole guide.',
+      'The Sadhguru 3-Step translation style is gone: it left many lines untranslated. Sadhguru is the style to use, and a project that was on 3-Step moves to it.',
+    ],
+  },
+  {
     version: '1.3.83',
     changes: [
       'Matching a pasted script by meaning is about three times faster than in 1.3.82, and it still keeps your lines.',

@@ -339,9 +339,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   environment now *seeds* an install that has never been configured; anything saved from **API
   Settings** is written to this computer's own config file and takes over from there. Set
   `ALLOW_KEY_SETUP=false` to make the environment the last word instead.
+- **Edit timing's hint no longer moves the timeline.** The hint beside the tools changed length as
+  the pointer moved and wrapped onto a row of its own, so the timeline jumped up and down. It now
+  stays on one line at a fixed height and says in a few words what a drag does where you point,
+  with nothing shown otherwise. **Shortcuts** (?) has the whole guide.
 
 ### Removed
 
+- **The 3-Step translation style**, its pipeline and its per-language Step 1-3 prompt files. On a
+  52-line test talk it left 28-48 lines untranslated in Hindi, Bengali, Marathi and Tamil, while
+  the one-pass Sadhguru style translated every line. A project saved on 3-Step moves to the
+  default style.
 - **Cue sheet .csv and Data .json downloads** are gone from Final dub.
 
 ### Fixed
