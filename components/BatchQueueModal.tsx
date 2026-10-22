@@ -12,10 +12,12 @@ import {
   Upload,
   FolderOpen,
   Pencil,
+  FileDown,
 } from 'lucide-react';
 import { BatchJob } from '../types';
 import { jobStage, projectName, projectWhen, StageKind } from '../services/projects';
 import { ProjectNameField } from './ProjectNameField';
+import { PROJECT_FILE_EXTENSION } from '../services/projectArchive';
 import JSZip from 'jszip';
 import { audioBufferToWav, audioFileExtension } from '../services/audioService';
 import { generateSrtContent, DEFAULT_SRT_OPTIONS } from '../services/srtService';
@@ -39,6 +41,8 @@ interface BatchQueueModalProps {
   onSelectJob: (id: string) => void;
   onRemoveJob: (id: string) => void;
   onRenameJob: (id: string, name: string) => void;
+  /** Saves a project as a .dhvani file: its media, edits and takes. */
+  onExportJob?: (id: string) => Promise<void>;
   onClearQueue: () => void;
   /** Starts a new project beside these; shown while one is open. */
   onNewDub?: () => void;
@@ -55,6 +59,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
   onSelectJob,
   onRemoveJob,
   onRenameJob,
+  onExportJob,
   onClearQueue,
   onNewDub,
   onAddFiles,
@@ -69,6 +74,8 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  // Packing a project with its video takes a moment; its row shows it.
+  const [exportingId, setExportingId] = useState<string | null>(null);
 
   const completedJobs = queue.filter((j) => jobStage(j).kind === 'dubbed');
 
@@ -435,6 +442,25 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                       >
                         {isOpenJob ? 'Open now' : 'Open'}
                       </button>
+                      {onExportJob && (
+                        <button
+                          type="button"
+                          disabled={exportingId !== null}
+                          onClick={() => {
+                            setExportingId(job.id);
+                            onExportJob(job.id).finally(() => setExportingId(null));
+                          }}
+                          className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-slate-100 hover:bg-slate-800 disabled:hover:bg-transparent disabled:hover:text-slate-500 cursor-default"
+                          aria-label={`Export ${name}`}
+                          title={`Export project (${PROJECT_FILE_EXTENSION}): media, edits and takes, to open again later or on another computer`}
+                        >
+                          {exportingId === job.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <FileDown className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {

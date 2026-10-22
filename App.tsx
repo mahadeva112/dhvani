@@ -3988,6 +3988,7 @@ export default function App() {
         onSelectJob={handleSelectJob}
         onRemoveJob={handleRemoveJobFromQueue}
         onRenameJob={handleRenameJob}
+        onExportJob={handleExportProject}
         onClearQueue={handleClearAllQueue}
         onNewDub={activeJob ? handleResetSession : undefined}
         onAddFiles={handleAddFilesToQueue}
