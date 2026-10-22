@@ -135,7 +135,19 @@ export interface RetranslateProgress {
   total: number;
   cueCount: number;
   message: string;
+  /** What the current batch is on: its first translation, or the meaning and length checks after it. */
+  step?: 'translate' | 'check';
 }
+
+/**
+ * How far a translation is, 0–0.98, counting a batch's checks as its second
+ * half. Null for a single batch: it reports only "started" and "checking",
+ * so any percent would just sit still until the end.
+ */
+export const translationFraction = (progress: RetranslateProgress | null): number | null =>
+  progress && progress.total > 1
+    ? Math.min(0.98, (progress.done + (progress.step === 'check' ? 0.5 : 0)) / progress.total)
+    : null;
 
 /**
  * Re-translates cues that are already transcribed.
@@ -182,6 +194,7 @@ export const retranslateCues = async (
           total,
           cueCount: Number(event.cueCount) || segments.length,
           message: String(event.message || '').replace(/\.+$/, ''),
+          step: event.step === 'check' ? 'check' : 'translate',
         });
       },
     }

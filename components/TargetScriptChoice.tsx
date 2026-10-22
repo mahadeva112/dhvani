@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw } from 'lucide-react';
 import { AudioSegment } from '../types';
-import type { RetranslateProgress } from '../services/subtitleService';
+import { translationFraction, type RetranslateProgress } from '../services/subtitleService';
 import type { VoiceRate } from '../services/voiceRate';
 import { reportError } from '../services/errorPopup';
 
@@ -118,10 +118,9 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   const sameLanguage = Boolean(spokenLanguage) && spokenLanguage.toLowerCase() === targetLanguage.toLowerCase();
   const translateBlocked = method === 'translate' && !sameLanguage && !translationReady;
   const busy = isTranscribing || isTranslating;
-  const percent =
-    translationProgress && translationProgress.total > 0
-      ? Math.min(98, Math.round(((translationProgress.done + 0.5) / translationProgress.total) * 100))
-      : null;
+  const fraction = translationFraction(translationProgress);
+  const percent = fraction === null ? null : Math.round(fraction * 100);
+  const translatingLabel = translationProgress?.step === 'check' ? 'Checking meaning and length' : 'Translating';
 
   const handleContinue = async () => {
     if (method === 'custom') {
@@ -363,7 +362,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
             {isTranslating ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Translating{percent !== null ? ` · ${percent}%` : '…'}</span>
+                <span>{translatingLabel}{percent !== null ? ` · ${percent}%` : '…'}</span>
               </>
             ) : method === 'custom' ? (
               <>

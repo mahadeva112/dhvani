@@ -2252,16 +2252,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     Cancel transcription
                   </button>
                 )}
-                {isTranscribing && pipelineStatus ? (
-                  <div className="flex items-center gap-2 text-xs text-indigo-200 font-mono" role="status" aria-live="polite">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shrink-0" />
-                    <span className="truncate">{pipelineStatus}</span>
-                  </div>
-                ) : !isTranscribing && transcriptionCancelled ? (
+                {isTranscribing ? null : transcriptionCancelled ? (
                   <p className="text-xs text-amber-300" role="status">
                     Transcription cancelled. {transcribed ? 'The transcript you had is kept.' : 'Press Transcribe audio to start again.'}
                   </p>
-                ) : !isTranscribing && activeJob && !transcribed ? (
+                ) : activeJob && !transcribed ? (
                   <p className="text-xs text-slate-400">
                     Nothing is sent to ElevenLabs until you press Transcribe audio: set the language and speakers first.
                   </p>

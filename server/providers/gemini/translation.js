@@ -364,6 +364,7 @@ export const translateCueTexts = async (
       stage: 'translating',
       batch: batchIndex + 1,
       batchCount: batches.length,
+      step: 'translate',
       message: `Translating cues ${batchIndex * batch.length + 1}-${batchIndex * batch.length + batch.length} of ${translatable.length} to ${targetLanguage}...`,
     });
 
@@ -391,6 +392,7 @@ export const translateCueTexts = async (
           stage: 'translating',
           batch: batchIndex + 1,
           batchCount: batches.length,
+          step: 'check',
           message: `Checking length and meaning of cues ${batchIndex * batch.length + 1}-${batchIndex * batch.length + batch.length}...`,
         });
         const ask = (prompt, options) => askJson(prompt, { ...options, generate });

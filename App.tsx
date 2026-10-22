@@ -30,7 +30,7 @@ import {
   resegmentAudioBuffer,
 } from './services/audioService';
 import { transcribeOnly } from './services/geminiService';
-import { retranslateCues, RetranslateProgress } from './services/subtitleService';
+import { retranslateCues, RetranslateProgress, translationFraction } from './services/subtitleService';
 import {
   getBackendHealth,
   getBackendSettings,
@@ -904,8 +904,8 @@ export default function App() {
     if (dubbingHere) return { label: isCancellingSync ? 'Cancelling dub' : 'Dubbing', fraction: dubFraction };
     if (isTranscribing) return { label: pipelineStatus.replace(/\.+$/, '') || 'Transcribing', fraction: null };
     if (isTranslatingLanguage) {
-      const p = translationProgress;
-      return { label: 'Translating', fraction: p && p.total > 0 ? Math.min(0.98, (p.done + 0.5) / p.total) : null };
+      const checking = translationProgress?.step === 'check';
+      return { label: checking ? 'Checking translation' : 'Translating', fraction: translationFraction(translationProgress) };
     }
     if (dubWaitingHere) return { label: 'Waiting to dub', fraction: null };
     // Another project's dub, named so it isn't taken for this one's.
