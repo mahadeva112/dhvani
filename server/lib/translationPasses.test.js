@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, termIssues, buildFixPrompt, unsaidMarks, dubSyllables, issueScore, MAX_TERMS } from './translationChecks.js';
 import { refineBatch, translateCueTexts } from '../providers/gemini/translation.js';
 import { lineSyllables } from './syllables.js';
+import { ApiError } from '../errors.js';
 
 /** A Bengali line of exactly `n` syllables. */
 const say = (n, end = '') => Array.from({ length: n }, () => 'কা').join(' ') + end;
@@ -232,4 +233,37 @@ test('a line with a number in digits goes back to be written as it is said, and 
   const out = await refineBatch(cues, start, { targetLanguage: 'Tamil', ask });
   assert.match(prompts[1], /- id 1: "100", "%" is written in digits or symbols; write it out in words/);
   assert.equal(out.translations.get('1'), 'நூறு சதவீதம் மந்தநிலை வந்துவிடும்.');
+});
+
+test('a batch that times out is cut in half, and later batches keep the smaller size', async () => {
+  const cues = Array.from({ length: 40 }, (_, i) => ({ id: String(i + 1), text: `line ${i + 1}` }));
+  const sizes = [];
+  const { generate } = fakeModel((prompt) => {
+    const ids = [...prompt.matchAll(/"id": "(\d+)"/g)].map((m) => m[1]);
+    sizes.push(ids.length);
+    // Cloudflare's "524: A timeout occurred", as the gateway client reports it.
+    if (ids.length > 10) throw new ApiError('LLM gateway service error (524).', { status: 502, code: 'provider_unavailable', retryable: true, upstreamStatus: 524 });
+    return { translations: ids.map((id) => ({ id, translatedText: `ಸಾಲು ${id}` })) };
+  });
+  const messages = [];
+  const out = await translateCueTexts(cues, { targetLanguage: 'Kannada', batchSize: 40, check: false, generate, onProgress: (p) => messages.push(p.message) });
+  assert.deepEqual(sizes, [40, 20, 10, 10, 10, 10]);
+  assert.equal(out.translatedCount, 40);
+  assert.equal(out.failedBatches, 0);
+  assert.equal(out.translations.get('40'), 'ಸಾಲು 40');
+  assert.ok(messages.includes('Translating cues 31-40 of 40 to Kannada...'));
+
+  // At the smallest size a timeout is reported, as before.
+  const slow = fakeModel(() => {
+    throw new ApiError('timed out', { status: 504, code: 'timeout', retryable: true });
+  });
+  await assert.rejects(translateCueTexts(cues.slice(0, 5), { targetLanguage: 'Kannada', check: false, generate: slow.generate }), { code: 'timeout' });
+  assert.equal(slow.prompts.length, 1);
+
+  // Other failures are not split.
+  const broken = fakeModel(() => {
+    throw new ApiError('bad key', { status: 401, code: 'invalid_api_key' });
+  });
+  await assert.rejects(translateCueTexts(cues, { targetLanguage: 'Kannada', batchSize: 40, check: false, generate: broken.generate }), { code: 'invalid_api_key' });
+  assert.equal(broken.prompts.length, 1);
 });

@@ -391,3 +391,19 @@ test('listGatewayModels reads the OpenAI model list', async () => {
     await stub.close();
   }
 });
+
+test("Cloudflare's 524 page keeps its status, so translation can send smaller batches", async () => {
+  const stub = await startStub((req, res) => {
+    res.writeHead(524, { 'Content-Type': 'text/html' });
+    res.end('<!DOCTYPE html><html><head><title>isha.in | 524: A timeout occurred</title></head></html>');
+  });
+
+  try {
+    await assert.rejects(
+      generateContent({ contents: 'hi', gateway: { url: stub.url, apiKey: 'sk-test', protocol: 'openai', models: ['m1'] } }),
+      (err) => err.upstreamStatus === 524 && /A timeout occurred/.test(err.message)
+    );
+  } finally {
+    await stub.close();
+  }
+});

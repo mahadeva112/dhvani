@@ -1,5 +1,5 @@
 import { config } from '../../env.js';
-import { ApiError } from '../../errors.js';
+import { ApiError, isTimeoutError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { parseJsonResponse } from './client.js';
 import { generateText } from '../textModel.js';
@@ -298,6 +298,9 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
 /** Lines of context on each side of a batch, so a sentence cut by a batch boundary still reads whole. */
 const CONTEXT_CUES = 2;
 
+/** The fewest cues a batch is sent with, also when a timed-out batch is cut smaller. */
+const MIN_BATCH = 5;
+
 /**
  * Translates cue texts, batching long transcripts so a single request never
  * grows unbounded. `voiceRate` is the dub voice's speaking rate in syllables a
@@ -348,7 +351,7 @@ export const translateCueTexts = async (
     return { translations: new Map(), modelUsed: null, translatedCount: 0, missingIds: [], failedBatches: 0 };
   }
 
-  const batches = chunk(translatable, Math.max(5, batchSize || config.translationBatchSize));
+  const batches = chunk(translatable, Math.max(MIN_BATCH, batchSize || config.translationBatchSize));
   const translations = new Map();
   let modelUsed = null;
   let failedBatches = 0;
@@ -359,13 +362,16 @@ export const translateCueTexts = async (
   // How earlier batches said the talk's key terms, so later ones use the same words.
   let terms = [];
 
-  for (const [batchIndex, batch] of batches.entries()) {
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
+    const batch = batches[batchIndex];
+    // Cues in the batches before this one, for the progress message.
+    const done = batches.slice(0, batchIndex).reduce((sum, earlier) => sum + earlier.length, 0);
     onProgress?.({
       stage: 'translating',
       batch: batchIndex + 1,
       batchCount: batches.length,
       step: 'translate',
-      message: `Translating cues ${batchIndex * batch.length + 1}-${batchIndex * batch.length + batch.length} of ${translatable.length} to ${targetLanguage}...`,
+      message: `Translating cues ${done + 1}-${done + batch.length} of ${translatable.length} to ${targetLanguage}...`,
     });
 
     try {
@@ -393,7 +399,7 @@ export const translateCueTexts = async (
           batch: batchIndex + 1,
           batchCount: batches.length,
           step: 'check',
-          message: `Checking length and meaning of cues ${batchIndex * batch.length + 1}-${batchIndex * batch.length + batch.length}...`,
+          message: `Checking length and meaning of cues ${done + 1}-${done + batch.length}...`,
         });
         const ask = (prompt, options) => askJson(prompt, { ...options, generate });
         const known = mergeTerms(terms, outcome.terms, outcome.result);
@@ -418,6 +424,26 @@ export const translateCueTexts = async (
       terms = mergeTerms(terms, kept.terms, kept.translations);
       for (const [id, text] of kept.translations) translations.set(id, text);
     } catch (err) {
+      /*
+       * A slow model can take longer to write a batch than the gateway (or
+       * the proxy in front of it) waits. Asking again for the same long
+       * answer times out again, so this batch and every one after it are cut
+       * to half the size and this one is sent again.
+       */
+      if (isTimeoutError(err) && batch.length > MIN_BATCH) {
+        const size = Math.max(MIN_BATCH, Math.ceil(batch.length / 2));
+        logger.warn(`Translation batch ${batchIndex + 1} timed out; sending ${size} cues at a time from here on.`);
+        onProgress?.({
+          stage: 'translating',
+          batch: batchIndex + 1,
+          batchCount: batches.length,
+          step: 'translate',
+          message: `The model is slow; sending ${size} cues at a time...`,
+        });
+        batches.splice(batchIndex, Infinity, ...chunk(batches.slice(batchIndex).flat(), size));
+        batchIndex -= 1;
+        continue;
+      }
       // One bad batch must not discard the batches that already succeeded.
       failedBatches += 1;
       logger.error(
