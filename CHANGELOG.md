@@ -223,6 +223,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Timelines play in pages, as in DaVinci Resolve.** The waveform holds still while playing and
+  the playhead walks across it; past the right edge, the next page starts where the last one
+  ended. Before, the timeline glided under a playhead parked part way across.
 - **Edit timing gives the lanes more room.** The panel under the lanes with the picked line and
   the history is gone. The picked line's start, speed, gain and fades now sit in one row above
   the lanes. Scroll over a value, or press ↑ ↓, to change it (Shift: 10 steps), and double-click
@@ -358,6 +361,10 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Line-by-line voice change no longer hits the local request limit.** Each changed line also
+  fetched its clip, so a long dub sent ~180 requests a minute against the 120 cap and stopped
+  part way. Clip fetches and Edit timing renders stay on this computer and no longer count; the
+  paid voice-change requests still do.
 - **A pasted script keeps its lines when it is matched to the English.** **By meaning** used to read
   a pasted script as one run of words and ignore its line breaks, so one wrong cut moved words into
   the wrong cues and left later cues unmatched. Now it first matches whole lines to cues, and cuts a

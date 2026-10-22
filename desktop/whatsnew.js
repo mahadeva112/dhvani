@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.86',
+    changes: [
+      'Changing the voice line by line on a long dub no longer stops part way with "Too many requests to the local DHVANI backend".',
+      'Timelines play like DaVinci Resolve: the waveform holds still and the playhead walks across it, then the next page starts where the last one ended.',
+    ],
+  },
+  {
     version: '1.3.85',
     changes: [
       'After the voice changer replaces the whole dub, Undo voice change beside Edit timing brings back the dub from before, with your timing edits, so you can edit its timing again.',
