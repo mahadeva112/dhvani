@@ -99,6 +99,94 @@ test('OpenAI-compatible: retries without JSON mode when the gateway rejects it',
   }
 });
 
+/** Answers as an OpenAI streaming gateway does, one SSE event per chunk. */
+const sse = (res, events) => {
+  res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+  for (const event of events) res.write(`data: ${typeof event === 'string' ? event : JSON.stringify(event)}\n\n`);
+  res.end();
+};
+
+test('OpenAI-compatible: asks for a streamed reply and joins its chunks', async () => {
+  const stub = await startStub((req, res) =>
+    sse(res, [
+      { choices: [{ delta: { role: 'assistant' } }] },
+      { choices: [{ delta: { content: '{"transla' } }] },
+      { choices: [{ delta: { content: 'tions":[]}' }, finish_reason: 'stop' }] },
+      '[DONE]',
+    ])
+  );
+
+  try {
+    const { response } = await generateContent({
+      contents: { role: 'user', parts: [{ text: 'translate this' }] },
+      generationConfig: { responseMimeType: 'application/json' },
+      gateway: { url: stub.url, apiKey: 'sk-test', protocol: 'openai', models: ['m'] },
+    });
+
+    assert.equal(response.text, '{"translations":[]}');
+    assert.equal(stub.seen[0].body.stream, true);
+  } finally {
+    await stub.close();
+  }
+});
+
+test('OpenAI-compatible: a gateway that refuses streaming is asked again for one whole reply', async () => {
+  const stub = await startStub((req, res) => {
+    if (req.body.stream) {
+      json(res, 400, { error: { message: 'stream is not supported' } });
+      return;
+    }
+    json(res, 200, { choices: [{ message: { content: 'whole reply' } }] });
+  });
+
+  try {
+    const { response } = await generateContent({
+      contents: { role: 'user', parts: [{ text: 'hello' }] },
+      gateway: { url: stub.url, apiKey: 'sk-test', protocol: 'openai', models: ['m'] },
+    });
+
+    assert.equal(response.text, 'whole reply');
+    assert.equal(stub.seen.length, 2);
+    assert.equal(stub.seen[1].body.stream, undefined);
+  } finally {
+    await stub.close();
+  }
+});
+
+test('OpenAI-compatible: an error sent mid-stream fails the call instead of returning half an answer', async () => {
+  const stub = await startStub((req, res) =>
+    sse(res, [{ choices: [{ delta: { content: 'half' } }] }, { error: { message: 'upstream died' } }])
+  );
+
+  try {
+    await assert.rejects(
+      generateContent({
+        contents: { role: 'user', parts: [{ text: 'x' }] },
+        gateway: { url: stub.url, apiKey: 'sk-test', protocol: 'openai', models: ['m'] },
+      }),
+      /upstream died/
+    );
+  } finally {
+    await stub.close();
+  }
+});
+
+test('OpenAI-compatible: a streamed reply cut off by the token limit says so', async () => {
+  const stub = await startStub((req, res) => sse(res, [{ choices: [{ delta: {}, finish_reason: 'length' }] }, '[DONE]']));
+
+  try {
+    await assert.rejects(
+      generateContent({
+        contents: { role: 'user', parts: [{ text: 'x' }] },
+        gateway: { url: stub.url, apiKey: 'sk-test', protocol: 'openai', models: ['m'] },
+      }),
+      /hit its output limit/
+    );
+  } finally {
+    await stub.close();
+  }
+});
+
 test('Gemini REST: uses x-goog-api-key and the generateContent path', async () => {
   const stub = await startStub((req, res) =>
     json(res, 200, { candidates: [{ content: { parts: [{ text: 'ok' }] } }] })

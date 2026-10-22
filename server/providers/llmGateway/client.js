@@ -98,6 +98,82 @@ const extractParts = (contents) => {
 
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 
+/** A streamed reply that sends nothing for this long is treated as hung. */
+const STREAM_IDLE_MS = 180000;
+
+/**
+ * Reads an OpenAI-style server-sent-events reply into one answer.
+ *
+ * Streaming keeps bytes moving while the model writes, so a proxy in front of
+ * the gateway (Cloudflare gives up after ~100 s of silence with a 524) never
+ * sees a quiet connection, however long the whole answer takes.
+ */
+const readEventStream = async (response) => {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  let finishReason = null;
+  let reasoning = null;
+
+  const handle = (line) => {
+    if (!line.startsWith('data:')) return; // Comments and keep-alives.
+    const payload = line.slice(5).trim();
+    if (!payload || payload === '[DONE]') return;
+    let event;
+    try {
+      event = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    if (event?.error) {
+      throw new ApiError(
+        `The gateway stopped mid-answer: ${event.error.message || JSON.stringify(event.error).slice(0, 200)}`,
+        { status: 502, code: 'provider_unavailable', provider: 'llm-gateway', retryable: true }
+      );
+    }
+    const choice = event?.choices?.[0];
+    if (typeof choice?.delta?.content === 'string') text += choice.delta.content;
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
+    reasoning = event?.usage?.completion_tokens_details?.reasoning_tokens ?? reasoning;
+  };
+
+  for (;;) {
+    let timer;
+    const idle = new Promise((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new ApiError(`${PROVIDER_LABEL} sent nothing for ${STREAM_IDLE_MS / 1000}s mid-answer.`, {
+              status: 504,
+              code: 'timeout',
+              provider: 'llm-gateway',
+              retryable: true,
+            })
+          ),
+        STREAM_IDLE_MS
+      );
+    });
+    let chunk;
+    try {
+      chunk = await Promise.race([reader.read(), idle]);
+    } catch (err) {
+      reader.cancel().catch(() => {});
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop();
+    for (const line of lines) handle(line);
+  }
+  handle(buffer + decoder.decode());
+
+  return { text, finishReason, reasoning };
+};
+
 /* ------------------------------------------------------------------ */
 /* OpenAI Chat Completions                                             */
 /* ------------------------------------------------------------------ */
@@ -145,23 +221,44 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
       { provider: PROVIDER_LABEL, timeoutMs: 180000, retries: 1 }
     );
 
+  // Streamed, so a long answer never leaves the connection quiet (see readEventStream).
+  let payload = { ...body, stream: true };
   let response;
-  try {
-    response = await send(body);
-  } catch (err) {
-    // A gateway that does not implement JSON mode answers 400. Retry plain.
-    if (wantsJson && err instanceof ApiError && err.status === 400) {
-      logger.warn('Gateway rejected response_format; retrying without JSON mode.');
-      const { response_format, ...withoutJsonMode } = body;
-      response = await send(withoutJsonMode);
-    } else {
-      throw err;
+  for (;;) {
+    try {
+      response = await send(payload);
+      break;
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 400)) throw err;
+      // A gateway that does not implement JSON mode answers 400. Retry plain.
+      if (payload.response_format) {
+        logger.warn('Gateway rejected response_format; retrying without JSON mode.');
+        const { response_format, ...withoutJsonMode } = payload;
+        payload = withoutJsonMode;
+      } else if (payload.stream) {
+        logger.warn('Gateway rejected streaming; retrying with one whole reply.');
+        const { stream, ...whole } = payload;
+        payload = whole;
+      } else {
+        throw err;
+      }
     }
   }
 
-  const data = await response.json();
-  const choice = data?.choices?.[0];
-  const text = choice?.message?.content;
+  // A gateway may ignore `stream` and answer in one piece; both are read.
+  const streamed = String(response.headers.get('content-type') || '').includes('text/event-stream');
+  let text;
+  let finishReason;
+  let reasoning;
+  if (streamed) {
+    ({ text, finishReason, reasoning } = await readEventStream(response));
+  } else {
+    const data = await response.json();
+    const choice = data?.choices?.[0];
+    text = choice?.message?.content;
+    finishReason = choice?.finish_reason;
+    reasoning = data?.usage?.completion_tokens_details?.reasoning_tokens;
+  }
 
   if (typeof text !== 'string' || text === '') {
     /*
@@ -169,8 +266,7 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
      * and stop before emitting any visible text. The response is a perfectly
      * valid 200 with null content — nothing is wrong except the budget.
      */
-    const reasoning = data?.usage?.completion_tokens_details?.reasoning_tokens;
-    if (choice?.finish_reason === 'length') {
+    if (finishReason === 'length') {
       throw new ApiError(
         `"${model}" hit its output limit before producing any text` +
           (reasoning ? ` (it spent ${reasoning} tokens reasoning)` : '') +
