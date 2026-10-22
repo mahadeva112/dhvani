@@ -69,7 +69,7 @@ export const SyncAlignmentView: React.FC<{
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
   const units = useMemo(() => [...report.units].sort((a, b) => a.srcStart - b.srcStart), [report]);
   const total = Math.max(report.duration, ...units.map((u) => Math.max(u.srcEnd, u.placedEnd ?? 0)));
-  const zoom = useTimelineZoom(total, currentTime, { glide: true });
+  const zoom = useTimelineZoom(total, currentTime);
   const { windowStart, windowSeconds: WINDOW_SECONDS, ahead, follow, setFollow, scrollTo } = zoom;
   const [hovered, setHovered] = useState<number | null>(null);
   const playheadRef = useWindowPlayheads({

@@ -147,8 +147,15 @@ export const useTimelineZoom = (total: number, currentTime: number, { wheelScrol
     setFollow(false);
     setRawStart(clamp(start, 0, maxStart));
   };
-  /** Pages the window to `time` while following playback. */
-  const followTo = (time: number) => setRawStart(clamp(time - windowSeconds * (glide ? GLIDE_ANCHOR : 1 / 15), 0, maxStart));
+  /**
+   * Pages the window to `time` while following playback. As in DaVinci
+   * Resolve, played off the right edge the next page starts where this one
+   * ended, with the playhead at its left; a jump elsewhere leaves a little room before it.
+   */
+  const followTo = (time: number) => {
+    const next = !glide && time >= windowStart + windowSeconds && time < windowStart + 2 * windowSeconds ? windowStart + windowSeconds : time - windowSeconds * (glide ? GLIDE_ANCHOR : 1 / 15);
+    setRawStart(clamp(next, 0, maxStart));
+  };
 
   // Ctrl + wheel (and a trackpad pinch, which arrives as one) zooms about the
   // pointer. Listened for natively: React's wheel listener is passive, so it

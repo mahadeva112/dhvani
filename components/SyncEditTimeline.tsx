@@ -1074,7 +1074,7 @@ export const SyncEditTimeline: React.FC<{
   }, [lines, view, rate, unitIndexByKey, unitByKey, multi]);
 
   const total = useMemo(() => Math.max(sourceTotal, ...chunks.map((c) => partEnd(c.part)), 1), [sourceTotal, chunks]);
-  const zoom = useTimelineZoom(total, currentTime, { wheelScrollsTime: true, glide: true });
+  const zoom = useTimelineZoom(total, currentTime, { wheelScrollsTime: true });
   const { windowStart, windowSeconds, ahead } = zoom;
   const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
   const playheadRef = useWindowPlayheads({
