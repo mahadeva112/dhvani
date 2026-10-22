@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.91',
+    changes: [
+      'Translation with a slower model no longer fails with "524: A timeout occurred": the answer now arrives as it is written, and a batch that still runs out of time is sent again in smaller pieces.',
+    ],
+  },
+  {
     version: '1.3.90',
     changes: [
       'The synced dub can be saved as MP3 too: Synced dub now has an MP3 button beside WAV (320 kbps). Before, it always saved as WAV, even with MP3 picked under Audio quality.',
