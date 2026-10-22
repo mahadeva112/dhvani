@@ -1,5 +1,5 @@
 import { config, resolveGateway, gatewayEnabled } from '../../env.js';
-import { ApiError, fromProviderResponse } from '../../errors.js';
+import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { requestWithRetry } from '../../lib/http.js';
 import { cleanGatewayUrl, candidateBases, isLocalGateway, rankModels } from './url.js';
@@ -98,25 +98,26 @@ const extractParts = (contents) => {
 
 const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 
-/** How long a streamed answer may go without a single byte before it counts as timed out. */
+/** A streamed reply that sends nothing for this long is treated as hung. */
 const STREAM_IDLE_MS = 180000;
 
-const isEventStream = (response) => /text\/event-stream/i.test(response.headers.get('content-type') || '');
-
 /**
- * Reads a server-sent-events body and hands each `data:` payload, parsed, to
- * `onEvent`. Answers are streamed because a proxy in front of the gateway
- * (Cloudflare cuts at 100 s) drops a request whose first byte comes too late;
- * a slow model writing a long translation used to end in "524: A timeout
- * occurred". A gateway that reports an error mid-stream sends it as an event.
+ * Reads an OpenAI-style server-sent-events reply into one answer.
+ *
+ * Streaming keeps bytes moving while the model writes, so a proxy in front of
+ * the gateway (Cloudflare gives up after ~100 s of silence with a 524) never
+ * sees a quiet connection, however long the whole answer takes.
  */
-const readEvents = async (response, onEvent) => {
+const readEventStream = async (response) => {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let text = '';
+  let finishReason = null;
+  let reasoning = null;
 
   const handle = (line) => {
-    if (!line.startsWith('data:')) return;
+    if (!line.startsWith('data:')) return; // Comments and keep-alives.
     const payload = line.slice(5).trim();
     if (!payload || payload === '[DONE]') return;
     let event;
@@ -126,9 +127,15 @@ const readEvents = async (response, onEvent) => {
       return;
     }
     if (event?.error) {
-      throw fromProviderResponse(PROVIDER_LABEL, Number(event.error.code) || 502, event);
+      throw new ApiError(
+        `The gateway stopped mid-answer: ${event.error.message || JSON.stringify(event.error).slice(0, 200)}`,
+        { status: 502, code: 'provider_unavailable', provider: 'llm-gateway', retryable: true }
+      );
     }
-    onEvent(event);
+    const choice = event?.choices?.[0];
+    if (typeof choice?.delta?.content === 'string') text += choice.delta.content;
+    if (choice?.finish_reason) finishReason = choice.finish_reason;
+    reasoning = event?.usage?.completion_tokens_details?.reasoning_tokens ?? reasoning;
   };
 
   for (;;) {
@@ -137,10 +144,10 @@ const readEvents = async (response, onEvent) => {
       timer = setTimeout(
         () =>
           reject(
-            new ApiError(`${PROVIDER_LABEL} stopped sending its answer for ${Math.round(STREAM_IDLE_MS / 1000)}s.`, {
+            new ApiError(`${PROVIDER_LABEL} sent nothing for ${STREAM_IDLE_MS / 1000}s mid-answer.`, {
               status: 504,
               code: 'timeout',
-              provider: PROVIDER_LABEL,
+              provider: 'llm-gateway',
               retryable: true,
             })
           ),
@@ -160,44 +167,20 @@ const readEvents = async (response, onEvent) => {
     buffer += decoder.decode(chunk.value, { stream: true });
     const lines = buffer.split(/\r?\n/);
     buffer = lines.pop();
-    lines.forEach(handle);
+    for (const line of lines) handle(line);
   }
   handle(buffer + decoder.decode());
+
+  return { text, finishReason, reasoning };
 };
 
 /* ------------------------------------------------------------------ */
 /* OpenAI Chat Completions                                             */
 /* ------------------------------------------------------------------ */
 
-/** The text, finish reason and reasoning token count of a completion, streamed or not. */
-const readCompletion = async (response) => {
-  if (!isEventStream(response)) {
-    // The gateway ignored `stream` and answered in one piece.
-    const data = await response.json();
-    const choice = data?.choices?.[0];
-    return {
-      text: choice?.message?.content,
-      finishReason: choice?.finish_reason,
-      reasoning: data?.usage?.completion_tokens_details?.reasoning_tokens,
-    };
-  }
-
-  let text = '';
-  let finishReason;
-  let reasoning;
-  await readEvents(response, (event) => {
-    const choice = event?.choices?.[0];
-    if (typeof choice?.delta?.content === 'string') text += choice.delta.content;
-    if (choice?.finish_reason) finishReason = choice.finish_reason;
-    reasoning = event?.usage?.completion_tokens_details?.reasoning_tokens ?? reasoning;
-  });
-  return { text, finishReason, reasoning };
-};
-
 const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfig, gateway }) => {
   const body = {
     model,
-    stream: true,
     // Media goes first, as in the Gemini request, so the instructions read after the audio.
     messages: [{ role: 'user', content: media.length ? [...media, { type: 'text', text: prompt }] : prompt }],
   };
@@ -238,12 +221,8 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
       { provider: PROVIDER_LABEL, timeoutMs: 180000, retries: 1 }
     );
 
-  /*
-   * A gateway that does not implement streaming or JSON mode answers 400.
-   * Drop the one its message names (streaming when it names neither) and ask
-   * again, until nothing optional is left.
-   */
-  let payload = body;
+  // Streamed, so a long answer never leaves the connection quiet (see readEventStream).
+  let payload = { ...body, stream: true };
   let response;
   for (;;) {
     try {
@@ -251,21 +230,35 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
       break;
     } catch (err) {
       if (!(err instanceof ApiError && err.status === 400)) throw err;
-      const { stream, response_format, ...rest } = payload;
-      const blamesJson = response_format && (/response_format|json/i.test(err.message) || !stream);
-      if (blamesJson) {
+      // A gateway that does not implement JSON mode answers 400. Retry plain.
+      if (payload.response_format) {
         logger.warn('Gateway rejected response_format; retrying without JSON mode.');
-        payload = stream ? { ...rest, stream } : rest;
-      } else if (stream) {
-        logger.warn('Gateway rejected streaming; retrying without it.');
-        payload = response_format ? { ...rest, response_format } : rest;
+        const { response_format, ...withoutJsonMode } = payload;
+        payload = withoutJsonMode;
+      } else if (payload.stream) {
+        logger.warn('Gateway rejected streaming; retrying with one whole reply.');
+        const { stream, ...whole } = payload;
+        payload = whole;
       } else {
         throw err;
       }
     }
   }
 
-  const { text, finishReason, reasoning } = await readCompletion(response);
+  // A gateway may ignore `stream` and answer in one piece; both are read.
+  const streamed = String(response.headers.get('content-type') || '').includes('text/event-stream');
+  let text;
+  let finishReason;
+  let reasoning;
+  if (streamed) {
+    ({ text, finishReason, reasoning } = await readEventStream(response));
+  } else {
+    const data = await response.json();
+    const choice = data?.choices?.[0];
+    text = choice?.message?.content;
+    finishReason = choice?.finish_reason;
+    reasoning = data?.usage?.completion_tokens_details?.reasoning_tokens;
+  }
 
   if (typeof text !== 'string' || text === '') {
     /*
@@ -299,52 +292,31 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
 const callGeminiRest = async ({ model, contents, generationConfig, gateway }) => {
   const normalized = Array.isArray(contents) ? contents : [contents];
 
-  const send = (method) =>
-    requestWithRetry(
-      `${gateway.url}/models/${encodeURIComponent(model)}:${method}`,
-      {
-        method: 'POST',
-        headers: {
-          ...authHeaders(gateway),
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: normalized.map((entry) =>
-            typeof entry === 'string'
-              ? { role: 'user', parts: [{ text: entry }] }
-              : { role: entry.role || 'user', parts: entry.parts || [{ text: entry.text || '' }] }
-          ),
-          generationConfig,
-        }),
+  const response = await requestWithRetry(
+    `${gateway.url}/models/${encodeURIComponent(model)}:generateContent`,
+    {
+      method: 'POST',
+      headers: {
+        ...authHeaders(gateway),
+        'Content-Type': 'application/json',
       },
-      { provider: PROVIDER_LABEL, timeoutMs: 180000, retries: 1 }
-    );
+      body: JSON.stringify({
+        contents: normalized.map((entry) =>
+          typeof entry === 'string'
+            ? { role: 'user', parts: [{ text: entry }] }
+            : { role: entry.role || 'user', parts: entry.parts || [{ text: entry.text || '' }] }
+        ),
+        generationConfig,
+      }),
+    },
+    { provider: PROVIDER_LABEL, timeoutMs: 180000, retries: 1 }
+  );
 
-  // Streamed, as on the OpenAI protocol; a thin proxy without the streaming path gets the plain one.
-  let response;
-  try {
-    response = await send('streamGenerateContent?alt=sse');
-  } catch (err) {
-    if (!(err instanceof ApiError && (err.status === 400 || err.status === 404))) throw err;
-    logger.warn('Gateway has no streamGenerateContent; retrying without streaming.');
-    response = await send('generateContent');
-  }
-
-  const textOf = (data) => data?.candidates?.[0]?.content?.parts?.map((part) => part.text).filter(Boolean).join('') || '';
-  let text = '';
-  let blocked;
-  if (isEventStream(response)) {
-    await readEvents(response, (event) => {
-      text += textOf(event);
-      blocked = event?.promptFeedback?.blockReason ?? blocked;
-    });
-  } else {
-    const data = await response.json();
-    text = textOf(data);
-    blocked = data?.promptFeedback?.blockReason;
-  }
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts?.map((part) => part.text).filter(Boolean).join('');
 
   if (!text) {
+    const blocked = data?.promptFeedback?.blockReason;
     throw new ApiError(
       blocked
         ? `The gateway's model blocked this request (${blocked}).`
