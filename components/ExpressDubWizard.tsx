@@ -485,6 +485,8 @@ interface ExpressDubWizardProps {
   onPlaybackRateChange?: (rate: number) => void;
   onResetSession?: () => void;
   onDownloadWav: () => void;
+  /** Saves the synced dub as MP3. */
+  onDownloadMp3?: () => Promise<void>;
   onDownloadSrt: () => void;
   /** Saves the script; `lines` replaces the cues when the script follows the synced dub. */
   onDownloadScript?: (format?: TargetScriptFormat, lines?: AudioSegment[]) => void;
@@ -620,6 +622,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onPlaybackRateChange,
   onResetSession,
   onDownloadWav,
+  onDownloadMp3,
   onDownloadSrt,
   onDownloadScript,
   onUpdateJobFields,
@@ -4391,6 +4394,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 costNote={`Uses about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`}
                 extras={dubExtras}
                 onDownloadWav={report ? onDownloadWav : undefined}
+                onDownloadMp3={report ? onDownloadMp3 : undefined}
                 onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
                 openRequest={syncSettingsRequest}
                 fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && rateBasis !== 'typical', rateSample: !multiSpeaker && rateBasis === 'sample', speakerRates: fitRates }}

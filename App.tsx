@@ -38,6 +38,7 @@ import {
   BackendSettings,
   SERVER_MANAGED_KEY,
   DhvaniApiError,
+  apiPostBlobAudio,
 } from './services/apiClient';
 import { SetupWizard } from './components/SetupWizard';
 import { ErrorPopup } from './components/ErrorPopup';
@@ -252,6 +253,18 @@ interface QueuedDub {
   options: SyncOptions;
   voice: DubVoice;
 }
+
+/** Hands a file to the browser's save. */
+const saveAudioFile = (file: Blob, fileName: string) => {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 
 /**
  * A project as saved (in IndexedDB or a project file), ready to open: object URLs die with the
@@ -3038,22 +3051,32 @@ export default function App() {
     [changeTrackMode]
   );
 
-  // Download Master Lossless WAV: the synced dub, else a dub made before Dub and Sync were one step
-  const handleDownloadMasterWav = useCallback(() => {
-    if (!activeJob) return;
+  /** The dub to save: the synced dub, else a dub made before Dub and Sync were one step. */
+  const masterDubFile = useCallback((): { file: Blob; name: string } | null => {
+    if (!activeJob) return null;
     const blob = playsSynced ? activeJob.syncedBlob : activeJob.synthesizedBlob;
     const buffer = playsSynced ? activeJob.syncedAudioBuffer : activeJob.synthAudioBuffer;
     const file = blob || (buffer ? audioBufferToWav(buffer) : null);
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `dhvani_${activeJob.language || 'dubbed'}_${playsSynced ? 'synced' : 'master'}.${blob ? audioFileExtension(blob) : 'wav'}`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    return file && { file, name: `dhvani_${activeJob.language || 'dubbed'}_${playsSynced ? 'synced' : 'master'}` };
   }, [activeJob, playsSynced]);
+
+  // Download Master Lossless WAV
+  const handleDownloadMasterWav = useCallback(() => {
+    const dub = masterDubFile();
+    if (dub) saveAudioFile(dub.file, `${dub.name}.${audioFileExtension(dub.file)}`);
+  }, [masterDubFile]);
+
+  /** Saves the dub as MP3. The dub stays WAV; only the saved copy is encoded. */
+  const handleDownloadMasterMp3 = useCallback(async () => {
+    const dub = masterDubFile();
+    if (!dub) return;
+    try {
+      const mp3 = audioFileExtension(dub.file) === 'mp3' ? dub.file : await apiPostBlobAudio('/audio/mp3', dub.file);
+      saveAudioFile(mp3, `${dub.name}.mp3`);
+    } catch (err) {
+      reportError(err, { title: 'Saving the dub as MP3 failed', safe: 'The dub is unchanged; Download WAV still works.' });
+    }
+  }, [masterDubFile]);
 
   /** Gives one speaker a voice of their own; null hands them back to the main voice. */
   const handleCastChange = useCallback(
@@ -3832,6 +3855,7 @@ export default function App() {
           onPlaybackRateChange={setPlaybackRate}
           onResetSession={handleResetSession}
           onDownloadWav={handleDownloadMasterWav}
+          onDownloadMp3={handleDownloadMasterMp3}
           multiSpeakerInput={multiSpeakerInput}
           onMultiSpeakerInputChange={handleMultiSpeakerInputChange}
           speakerCount={speakerCount}

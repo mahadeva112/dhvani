@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOutputFormat, decodeAudio, encodeAudio, ffmpegAvailable } from './media.js';
+import { parseOutputFormat, decodeAudio, encodeAudio, ffmpegAvailable, wavToMp3 } from './media.js';
+import { floatToWav } from './wav.js';
 
 const tone = (rate, secondsLong) => {
   const samples = new Float32Array(Math.round(rate * secondsLong));
@@ -35,4 +36,23 @@ test('MP3 round-trips through ffmpeg at the same length', { skip: !(await ffmpeg
   const decoded = await decodeAudio(mp3, 'mp3_44100_128');
   // The LAME header lets the decoder drop the encoder padding.
   assert.ok(Math.abs(decoded.length - samples.length) < 1200, `decoded ${decoded.length} of ${samples.length}`);
+});
+
+test('a dub saved as MP3 keeps its sample rate and length', { skip: !(await ffmpegAvailable()) }, async () => {
+  const samples = tone(48000, 2);
+  const mp3 = await wavToMp3(floatToWav(samples, { sampleRate: 48000 }));
+  // MPEG-1 Layer III frame header; bits 10-11 of the header pick 44.1/48/32 kHz.
+  const at =
+    mp3.subarray(0, 3).toString('latin1') === 'ID3'
+      ? 10 + ((mp3[6] << 21) | (mp3[7] << 14) | (mp3[8] << 7) | mp3[9])
+      : 0;
+  assert.equal(mp3[at + 1] & 0xfe, 0xfa, 'MPEG-1 Layer III');
+  assert.equal((mp3[at + 2] >> 2) & 3, 1, '48 kHz');
+  assert.equal(mp3[at + 2] >> 4, 14, '320 kbps');
+  const decoded = await decodeAudio(mp3, 'mp3_48000_320');
+  assert.ok(Math.abs(decoded.length - samples.length) < 1200, `decoded ${decoded.length} of ${samples.length}`);
+});
+
+test('saving as MP3 refuses what is not a WAV', async () => {
+  await assert.rejects(wavToMp3(Buffer.from('not audio')), /not a WAV/);
 });

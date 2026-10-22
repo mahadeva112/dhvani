@@ -13,7 +13,7 @@ import {
   speechToSpeech,
 } from '../providers/elevenlabs/speech.js';
 import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } from '../providers/cartesia/speech.js';
-import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch } from '../lib/media.js';
+import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch, wavToMp3 } from '../lib/media.js';
 import { pcmToWav, floatToWav, parseWav } from '../lib/wav.js';
 import { runSync, cachedClip, rememberClip, clipHash, lineKey } from '../lib/syncDub.js';
 import { TAKE_DIRECTIONS, MAX_TAKES_PER_REQUEST, directedSettings, fitTake, phraseCut, splicePhrase, takeGain } from '../lib/syncTakes.js';
@@ -1249,6 +1249,21 @@ syncRouter.post('/sync/lengthen', rewordRoute('longer'));
  * line's own length. The script is never changed here.
  */
 syncRouter.post('/sync/reword', rewordRoute('same'));
+
+/**
+ * POST /api/audio/mp3 — a finished dub (WAV) back as MP3, for saving it that
+ * way. The dub itself stays WAV.
+ */
+syncRouter.post(
+  '/audio/mp3',
+  express.raw({ type: () => true, limit: '2gb' }),
+  asyncHandler(async (req, res) => {
+    const controller = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) controller.abort(); });
+    const mp3 = await wavToMp3(Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0), { signal: controller.signal });
+    res.type('audio/mpeg').send(mp3);
+  })
+);
 
 /**
  * PUT /api/sync/dubs/:dubId — the Final dub (mono WAV, as the dub gave it),
