@@ -485,6 +485,8 @@ interface ExpressDubWizardProps {
   onPlaybackRateChange?: (rate: number) => void;
   onResetSession?: () => void;
   onDownloadWav: () => void;
+  /** Saves the synced dub as MP3. */
+  onDownloadMp3?: () => Promise<void>;
   onDownloadSrt: () => void;
   /** Saves the script; `lines` replaces the cues when the script follows the synced dub. */
   onDownloadScript?: (format?: TargetScriptFormat, lines?: AudioSegment[]) => void;
@@ -620,6 +622,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onPlaybackRateChange,
   onResetSession,
   onDownloadWav,
+  onDownloadMp3,
   onDownloadSrt,
   onDownloadScript,
   onUpdateJobFields,
@@ -2252,16 +2255,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     Cancel transcription
                   </button>
                 )}
-                {isTranscribing && pipelineStatus ? (
-                  <div className="flex items-center gap-2 text-xs text-indigo-200 font-mono" role="status" aria-live="polite">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shrink-0" />
-                    <span className="truncate">{pipelineStatus}</span>
-                  </div>
-                ) : !isTranscribing && transcriptionCancelled ? (
+                {isTranscribing ? null : transcriptionCancelled ? (
                   <p className="text-xs text-amber-300" role="status">
                     Transcription cancelled. {transcribed ? 'The transcript you had is kept.' : 'Press Transcribe audio to start again.'}
                   </p>
-                ) : !isTranscribing && activeJob && !transcribed ? (
+                ) : activeJob && !transcribed ? (
                   <p className="text-xs text-slate-400">
                     Nothing is sent to ElevenLabs until you press Transcribe audio: set the language and speakers first.
                   </p>
@@ -4396,6 +4394,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 costNote={`Uses about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`}
                 extras={dubExtras}
                 onDownloadWav={report ? onDownloadWav : undefined}
+                onDownloadMp3={report ? onDownloadMp3 : undefined}
                 onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
                 openRequest={syncSettingsRequest}
                 fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && rateBasis !== 'typical', rateSample: !multiSpeaker && rateBasis === 'sample', speakerRates: fitRates }}

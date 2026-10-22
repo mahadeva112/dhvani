@@ -106,6 +106,19 @@ function writeAll(all: Record<string, JobSignoff>): void {
   }
 }
 
+/** Every sign-off a project has, one per target language: what a project file carries. */
+export function signoffsForJob(jobId: string): JobSignoff[] {
+  return Object.values(readAll()).filter((s) => s.jobId === jobId);
+}
+
+/** Sign-offs brought in with an opened project file, kept as they were signed. */
+export function addSignoffs(signoffs: JobSignoff[]): void {
+  if (signoffs.length === 0) return;
+  const all = readAll();
+  for (const s of signoffs) all[s.key] = s;
+  writeAll(all);
+}
+
 export function getSignoff(jobId: string, language: string): JobSignoff {
   const all = readAll();
   const existing = all[signoffKey(jobId, language)];

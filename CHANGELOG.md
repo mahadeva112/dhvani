@@ -9,6 +9,15 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Save the synced dub as MP3.** The synced dub is rendered as lossless WAV, so it always
+  downloaded as WAV, even with an MP3 **Audio quality** picked (that only sets the format the
+  lines are voiced in). **Synced dub** now has an **MP3** button beside **WAV**: a 320 kbps copy
+  at the dub's own sample rate, nothing resampled. The dub itself stays WAV.
+- **Export and import a project.** In the Projects window, the export button on a project saves
+  it as one `.dhvani` file: the source video or audio, transcript and translation, dub, every
+  take, Edit timing edits, speaker tracks, undo history and sign-offs. **Import project** opens
+  that file as a new project, on this computer or another, and dubbing carries on from where it
+  was without voicing anything again.
 - **Undo voice change.** Replacing the dub with the voice changer's **Whole file** mode turns it
   into one file, so Edit timing was disabled until the next Sync. The dub from before is now kept
   with its lines and edits, and **Undo voice change** beside Edit timing puts it back (the new

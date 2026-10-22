@@ -5,6 +5,31 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.90',
+    changes: [
+      'The synced dub can be saved as MP3 too: Synced dub now has an MP3 button beside WAV (320 kbps). Before, it always saved as WAV, even with MP3 picked under Audio quality.',
+    ],
+  },
+  {
+    version: '1.3.89',
+    changes: [
+      'Every project in See all projects now has an Export button, so projects older than the newest eight can be saved as a .dhvani file too.',
+    ],
+  },
+  {
+    version: '1.3.88',
+    changes: [
+      'Translate no longer sits at 50% the whole time on a short file: it says when it is translating and when it is checking meaning and length.',
+      'The long upload message under Transcribe is gone.',
+    ],
+  },
+  {
+    version: '1.3.87',
+    changes: [
+      'Export a project as one .dhvani file, with its video, script, dub, takes and timing edits, from the Projects window. Import project opens it again later or on another computer, and you carry on dubbing from there.',
+    ],
+  },
+  {
     version: '1.3.86',
     changes: [
       'Changing the voice line by line on a long dub no longer stops part way with "Too many requests to the local DHVANI backend".',

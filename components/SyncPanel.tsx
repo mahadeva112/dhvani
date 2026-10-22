@@ -319,6 +319,8 @@ export interface SyncSettingsPanelProps {
   extras?: React.ReactNode;
   /** Saves the synced dub; absent before the first sync. */
   onDownloadWav?: () => void;
+  /** Saves the synced dub as MP3; absent before the first sync. */
+  onDownloadMp3?: () => Promise<void>;
   /** Opens the voice changer on the synced dub; absent before the first sync. */
   onOpenVoiceChanger?: () => void;
   /** The subtitles section: downloads and settings, built by the step. */
@@ -941,6 +943,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   costNote,
   extras,
   onDownloadWav,
+  onDownloadMp3,
   onOpenVoiceChanger,
   subtitles,
   multiSpeaker = false,
@@ -950,6 +953,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   presetSuggestion,
 }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [savingMp3, setSavingMp3] = useState(false);
   // Only a request made while the rail is on screen opens it, not one left from before the Dub step.
   const seenOpenRequest = useRef(openRequest);
   useEffect(() => {
@@ -1028,7 +1032,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       />
     )}
 
-    {synced && (onDownloadWav || onOpenVoiceChanger) && (
+    {synced && (onDownloadWav || onDownloadMp3 || onOpenVoiceChanger) && (
       <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
         <span className={sectionLabel}>Synced dub</span>
         {onDownloadWav && (
@@ -1036,6 +1040,26 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
             <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
             <span className="flex-1 text-[13px]">Synced dub</span>
             <Download className="w-4 h-4 text-slate-500" />
+          </button>
+        )}
+        {onDownloadMp3 && (
+          <button
+            type="button"
+            onClick={() => {
+              setSavingMp3(true);
+              onDownloadMp3().finally(() => setSavingMp3(false));
+            }}
+            disabled={isSyncing || savingMp3}
+            className={downloadRow}
+            title="An MP3 copy at 320 kbps, at the dub's own sample rate. The dub itself stays WAV."
+          >
+            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">MP3</span>
+            <span className="flex-1 text-[13px]">{savingMp3 ? 'Making the MP3…' : 'Synced dub'}</span>
+            {savingMp3 ? (
+              <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4 text-slate-500" />
+            )}
           </button>
         )}
         {onOpenVoiceChanger && (

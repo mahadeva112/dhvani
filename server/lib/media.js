@@ -199,6 +199,50 @@ export const encodeAudio = async (samples, outputFormat) => {
   }
 };
 
+/** A WAV's sample rate, read from its fmt chunk; null when the buffer isn't a WAV. */
+const wavSampleRate = (buffer) => {
+  if (buffer.length < 12 || buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') return null;
+  for (let at = 12; at + 16 <= buffer.length; at += 8 + buffer.readUInt32LE(at + 4) + (buffer.readUInt32LE(at + 4) % 2)) {
+    if (buffer.toString('ascii', at, at + 4) === 'fmt ') return buffer.readUInt32LE(at + 12);
+  }
+  return null;
+};
+
+/**
+ * A finished dub as MP3, for the user who asked to save it that way: its own
+ * sample rate and channels, nothing resampled or remixed, at the highest
+ * bitrate MP3 has for that rate (320 kbps from 32 kHz up, else 160).
+ */
+export const wavToMp3 = async (wav, { signal } = {}) => {
+  const sampleRate = wavSampleRate(wav);
+  if (!sampleRate) throw new ApiError('That is not a WAV file.', { status: 400, code: 'bad_wav' });
+  const binary = await resolveFfmpeg();
+  if (!binary) throw new ApiError('Saving as MP3 needs ffmpeg. Install ffmpeg and try again.', { status: 503, code: 'ffmpeg_missing' });
+  const id = randomUUID();
+  const inputPath = path.join(os.tmpdir(), `dhvani-${id}.wav`);
+  const outputPath = path.join(os.tmpdir(), `dhvani-${id}.mp3`);
+  try {
+    await fs.promises.writeFile(inputPath, wav);
+    // A file, not stdout: ffmpeg can only write the Xing/LAME header (exact duration) to a seekable output.
+    await run(
+      binary,
+      [
+        '-hide_banner', '-loglevel', 'error',
+        '-i', inputPath,
+        '-c:a', 'libmp3lame',
+        '-b:a', sampleRate >= 32000 ? '320k' : '160k',
+        '-map_metadata', '-1',
+        '-y', outputPath,
+      ],
+      { signal }
+    );
+    return await fs.promises.readFile(outputPath);
+  } finally {
+    await fs.promises.rm(inputPath, { force: true }).catch(() => {});
+    await fs.promises.rm(outputPath, { force: true }).catch(() => {});
+  }
+};
+
 /**
  * Plays mono float samples at `rate` times their speed with their pitch kept
  * (ffmpeg's atempo), for a line the user stretched in Edit timing. Nothing is
