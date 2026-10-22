@@ -929,7 +929,7 @@ export const PreviewTimeline: React.FC<{
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
   const total = Math.max(0, ...units.map((u) => Math.max(u.srcEnd, u.srcStart + u.estimate)));
   // Opens on the whole dub; zooming in shows a window of it, as in the report's timeline.
-  const zoom = useTimelineZoom(total, currentTime, { glide: true });
+  const zoom = useTimelineZoom(total, currentTime);
   const { windowStart, windowSeconds: WINDOW_SECONDS, ahead, follow, setFollow, scrollTo } = zoom;
   const playheadRef = useWindowPlayheads({
     reportedTime,
