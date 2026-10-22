@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.87',
+    changes: [
+      'Export a project as one .dhvani file, with its video, script, dub, takes and timing edits, from the Projects window. Import project opens it again later or on another computer, and you carry on dubbing from there.',
+    ],
+  },
+  {
     version: '1.3.86',
     changes: [
       'Changing the voice line by line on a long dub no longer stops part way with "Too many requests to the local DHVANI backend".',
