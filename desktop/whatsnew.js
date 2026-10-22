@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.88',
+    changes: [
+      'Translate no longer sits at 50% the whole time on a short file: it says when it is translating and when it is checking meaning and length.',
+      'The long upload message under Transcribe is gone.',
+    ],
+  },
+  {
     version: '1.3.87',
     changes: [
       'Export a project as one .dhvani file, with its video, script, dub, takes and timing edits, from the Projects window. Import project opens it again later or on another computer, and you carry on dubbing from there.',
