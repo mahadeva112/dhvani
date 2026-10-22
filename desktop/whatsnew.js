@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.89',
+    changes: [
+      'Every project in See all projects now has an Export button, so projects older than the newest eight can be saved as a .dhvani file too.',
+    ],
+  },
+  {
     version: '1.3.88',
     changes: [
       'Translate no longer sits at 50% the whole time on a short file: it says when it is translating and when it is checking meaning and length.',
