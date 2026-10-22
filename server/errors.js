@@ -11,6 +11,8 @@ export class ApiError extends Error {
     this.provider = options.provider || null;
     this.details = options.details || null;
     this.retryable = Boolean(options.retryable);
+    // The HTTP status the provider (or the proxy in front of it) answered with, when it differs from `status`.
+    this.upstreamStatus = options.upstreamStatus || null;
   }
 
   toJSON() {
@@ -85,6 +87,14 @@ export const upstreamKeyFailure = (text) => {
     model: /Received Model Group=([^\s,]+)/i.exec(raw)?.[1] || null,
   };
 };
+
+/**
+ * True when a request failed because the answer took too long: our own
+ * timeout, or a proxy's (504, and Cloudflare's 524 "A timeout occurred").
+ * Asking again for the same long answer usually times out again.
+ */
+export const isTimeoutError = (err) =>
+  err?.code === 'timeout' || err?.upstreamStatus === 504 || err?.upstreamStatus === 524;
 
 /**
  * Translates a provider HTTP status into a message a user can act on.
@@ -187,7 +197,7 @@ export const fromProviderResponse = (provider, status, body) => {
   if (status >= 500) {
     return new ApiError(
       `${provider} service error (${status}). This is usually temporary.${detailText ? ` — ${detailText}` : ''}`,
-      { status: 502, code: 'provider_unavailable', provider, retryable: true, details: detailText || null }
+      { status: 502, code: 'provider_unavailable', provider, retryable: true, details: detailText || null, upstreamStatus: status }
     );
   }
 
