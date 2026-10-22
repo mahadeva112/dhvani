@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.90',
+    changes: [
+      'The synced dub can be saved as MP3 too: Synced dub now has an MP3 button beside WAV (320 kbps). Before, it always saved as WAV, even with MP3 picked under Audio quality.',
+    ],
+  },
+  {
     version: '1.3.89',
     changes: [
       'Every project in See all projects now has an Export button, so projects older than the newest eight can be saved as a .dhvani file too.',
