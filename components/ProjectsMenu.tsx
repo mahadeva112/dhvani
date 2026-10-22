@@ -1,8 +1,9 @@
 import React from 'react';
-import { Pencil, Plus, Trash2, FolderOpen } from 'lucide-react';
+import { Pencil, Plus, Trash2, FolderOpen, FileDown, FileUp, Loader2 } from 'lucide-react';
 import { BatchJob } from '../types';
 import { jobStage, projectName, projectWhen, StageKind } from '../services/projects';
 import { ProjectNameField } from './ProjectNameField';
+import { PROJECT_FILE_EXTENSION } from '../services/projectArchive';
 
 /** How many projects the menu lists; the rest are in Your projects. */
 const MENU_LIMIT = 8;
@@ -21,6 +22,10 @@ interface ProjectsMenuProps {
   onSelect: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onRemove: (id: string) => void;
+  /** Saves the project as a .dhvani file: its media, edits and takes. */
+  onExport?: (id: string) => Promise<void>;
+  /** Opens a .dhvani file as a new project. */
+  onImport?: (file: File) => Promise<void>;
   onNewDub?: () => void;
   onSeeAll?: () => void;
   onClose: () => void;
@@ -33,6 +38,8 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
   onSelect,
   onRename,
   onRemove,
+  onExport,
+  onImport,
   onNewDub,
   onSeeAll,
   onClose,
@@ -41,6 +48,10 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
   // Deleting loses the project's file, translation and dub, so it asks first.
   const [confirmId, setConfirmId] = React.useState<string | null>(null);
   const shown = projects.slice(0, MENU_LIMIT);
+  // Packing a project with its video takes a moment; its row shows it.
+  const [exportingId, setExportingId] = React.useState<string | null>(null);
+  const [importing, setImporting] = React.useState(false);
+  const fileInput = React.useRef<HTMLInputElement>(null);
 
   return (
     <div className="flex flex-col min-h-0">
@@ -102,6 +113,26 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                   </span>
                   {editingId !== job.id && (
                     <span className="flex items-center shrink-0">
+                      {onExport && (
+                        <button
+                          type="button"
+                          disabled={exportingId !== null}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExportingId(job.id);
+                            onExport(job.id).finally(() => setExportingId(null));
+                          }}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 disabled:hover:bg-transparent disabled:hover:text-slate-500 cursor-default"
+                          aria-label={`Export ${name}`}
+                          title={`Export project (${PROJECT_FILE_EXTENSION}): media, edits and takes, to open again later or on another computer`}
+                        >
+                          {exportingId === job.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <FileDown className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -177,18 +208,50 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
         ) : (
           <span />
         )}
-        {onNewDub && (
-          <button
-            type="button"
-            onClick={() => {
-              onClose();
-              onNewDub();
-            }}
-            className="flex items-center gap-1.5 h-8 px-3 rounded-[9px] bg-slate-100 hover:bg-white text-slate-950 text-[12.5px] font-semibold cursor-default"
-          >
-            <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> New dub
-          </button>
-        )}
+        <span className="flex items-center gap-1.5">
+          {onImport && (
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                accept={`${PROJECT_FILE_EXTENSION},application/zip`}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (!file) return;
+                  setImporting(true);
+                  onImport(file).finally(() => {
+                    setImporting(false);
+                    onClose();
+                  });
+                }}
+              />
+              <button
+                type="button"
+                disabled={importing}
+                onClick={() => fileInput.current?.click()}
+                className="flex items-center gap-1.5 h-8 px-2.5 rounded-[9px] text-[12.5px] font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default"
+                title={`Open a ${PROJECT_FILE_EXTENSION} project file as a new project`}
+              >
+                {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
+                {importing ? 'Opening…' : 'Import project'}
+              </button>
+            </>
+          )}
+          {onNewDub && (
+            <button
+              type="button"
+              onClick={() => {
+                onClose();
+                onNewDub();
+              }}
+              className="flex items-center gap-1.5 h-8 px-3 rounded-[9px] bg-slate-100 hover:bg-white text-slate-950 text-[12.5px] font-semibold cursor-default"
+            >
+              <Plus className="w-3.5 h-3.5" strokeWidth={2.5} /> New dub
+            </button>
+          )}
+        </span>
       </div>
     </div>
   );

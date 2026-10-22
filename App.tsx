@@ -167,6 +167,8 @@ import {
   clearAllJobsFromStorage,
 } from './services/storageService';
 import { byNewest, projectName } from './services/projects';
+import { exportProject, importProject, projectFileName } from './services/projectArchive';
+import { addSignoffs, signoffsForJob } from './services/signoffService';
 import { speakerSyllableRates, useVoiceRates, type VoiceRateVoice } from './services/voiceRate';
 import { currentStep, hasTranscript, openSteps } from './services/steps';
 import {
@@ -250,6 +252,36 @@ interface QueuedDub {
   options: SyncOptions;
   voice: DubVoice;
 }
+
+/**
+ * A project as saved (in IndexedDB or a project file), ready to open: object URLs die with the
+ * page, so each saved file gets a new one, and the buffers decode from them.
+ */
+const reviveSavedJob = (stale: BatchJob): BatchJob => {
+  // Saved before Sync kept its own file: the dub's slot holds the synced dub, and the unsynced one is gone.
+  const job =
+    stale.syncReport && stale.synthesizedBlob && !stale.syncedBlob
+      ? { ...stale, syncedBlob: stale.synthesizedBlob, synthesizedBlob: null }
+      : stale;
+  // A project saved with a style since removed translates with the default from now on.
+  const promptChoice = job.promptPresetId ? currentPromptChoice(job.promptPresetId, job.customPrompt) : null;
+  return {
+    ...job,
+    ...(promptChoice && { promptPresetId: promptChoice.presetId, customPrompt: promptChoice.prompt }),
+    synthesizedAudioUrl: job.synthesizedBlob ? URL.createObjectURL(job.synthesizedBlob) : null,
+    syncedAudioUrl: job.syncedBlob ? URL.createObjectURL(job.syncedBlob) : null,
+    srtUrl: job.srtBlob ? URL.createObjectURL(job.srtBlob) : null,
+    // A dub or sync in flight ended with the page; it leaves what there was, as a cancel does,
+    // and Dub offers to resume it: the lines it voiced were kept on disk.
+    ...(job.status === ProcessingStatus.SYNTHESIZING_AUDIO && { syncInterrupted: true }),
+    status:
+      job.status === ProcessingStatus.SYNTHESIZING_AUDIO
+        ? job.synthesizedBlob || job.syncedBlob
+          ? ProcessingStatus.COMPLETED
+          : ProcessingStatus.IDLE
+        : job.status,
+  };
+};
 
 export default function App() {
   // --- STATE ---
@@ -938,32 +970,7 @@ export default function App() {
       try {
         const stored = await getAllJobsFromStorage();
         if (stored && stored.length > 0) {
-          // Object URLs die with the page, so each saved file gets a new one; the buffers decode from them.
-          const saved = stored.map((stale) => {
-            // Saved before Sync kept its own file: the dub's slot holds the synced dub, and the unsynced one is gone.
-            const job =
-              stale.syncReport && stale.synthesizedBlob && !stale.syncedBlob
-                ? { ...stale, syncedBlob: stale.synthesizedBlob, synthesizedBlob: null }
-                : stale;
-            // A project saved with a style since removed translates with the default from now on.
-            const promptChoice = job.promptPresetId ? currentPromptChoice(job.promptPresetId, job.customPrompt) : null;
-            return {
-              ...job,
-              ...(promptChoice && { promptPresetId: promptChoice.presetId, customPrompt: promptChoice.prompt }),
-              synthesizedAudioUrl: job.synthesizedBlob ? URL.createObjectURL(job.synthesizedBlob) : null,
-              syncedAudioUrl: job.syncedBlob ? URL.createObjectURL(job.syncedBlob) : null,
-              srtUrl: job.srtBlob ? URL.createObjectURL(job.srtBlob) : null,
-              // A dub or sync in flight ended with the page; it leaves what there was, as a cancel does,
-              // and Dub offers to resume it: the lines it voiced were kept on disk.
-              ...(job.status === ProcessingStatus.SYNTHESIZING_AUDIO && { syncInterrupted: true }),
-              status:
-                job.status === ProcessingStatus.SYNTHESIZING_AUDIO
-                  ? job.synthesizedBlob || job.syncedBlob
-                    ? ProcessingStatus.COMPLETED
-                    : ProcessingStatus.IDLE
-                  : job.status,
-            };
-          });
+          const saved = stored.map(reviveSavedJob);
           saved.sort(byNewest);
           setQueue(saved);
           // Back to the project that was open, else the newest.
@@ -3151,6 +3158,49 @@ export default function App() {
 
   const handleRenameJob = useCallback((id: string, name: string) => updateJob(id, { name }), [updateJob]);
 
+  /** Saves a project, with its media, edits and takes, as one .dhvani file to open again later or elsewhere. */
+  const handleExportProject = useCallback(async (id: string) => {
+    const job = queueRef.current.find((j) => j.id === id);
+    if (!job) return;
+    try {
+      const blob = await exportProject(job, signoffsForJob(id));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = projectFileName(projectName(job));
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // A large file is still being written when click returns.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (err) {
+      reportError(err, { title: 'Exporting the project failed', safe: 'The project is unchanged.' });
+    }
+  }, []);
+
+  /** Opens a .dhvani file as a new project, beside the ones here, and switches to it. */
+  const handleImportProject = useCallback(
+    async (file: File) => {
+      const id =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : Math.random().toString(36).substring(2, 9);
+      try {
+        const { job: imported, signoffs } = await importProject(file, id);
+        const job = reviveSavedJob(imported);
+        await saveJobToStorage(job);
+        addSignoffs(signoffs);
+        pauseAll();
+        seekAll(0);
+        setQueue((prev) => [job, ...prev.filter((j) => j.id !== id)].sort(byNewest));
+        setActiveJobId(id);
+      } catch (err) {
+        reportError(err, { title: 'Opening the project failed', safe: 'Your other projects are unchanged.' });
+      }
+    },
+    [pauseAll, seekAll]
+  );
+
   const handleRemoveJobFromQueue = useCallback(
     async (id: string) => {
       await deleteJobFromStorage(id);
@@ -3565,6 +3615,8 @@ export default function App() {
         onSelectProject={handleSelectJob}
         onRenameProject={handleRenameJob}
         onRemoveProject={handleRemoveJobFromQueue}
+        onExportProject={handleExportProject}
+        onImportProject={handleImportProject}
         onResetSession={handleResetSession}
       />
 

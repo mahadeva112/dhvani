@@ -116,6 +116,10 @@ export interface ProHeaderProps {
   onSelectProject?: (id: string) => void;
   onRenameProject?: (id: string, name: string) => void;
   onRemoveProject?: (id: string) => void;
+  /** Saves a project as a .dhvani file. */
+  onExportProject?: (id: string) => Promise<void>;
+  /** Opens a .dhvani file as a new project. */
+  onImportProject?: (file: File) => Promise<void>;
 }
 
 const formatClock = (seconds: number) => {
@@ -249,6 +253,8 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   onSelectProject,
   onRenameProject,
   onRemoveProject,
+  onExportProject,
+  onImportProject,
 }) => {
   const [toolsOpen, setToolsOpen] = React.useState(false);
   const [servicesOpen, setServicesOpen] = React.useState(false);
@@ -805,6 +811,8 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                   onSelect={onSelectProject}
                   onRename={(id, name) => onRenameProject?.(id, name)}
                   onRemove={(id) => onRemoveProject?.(id)}
+                  onExport={onExportProject}
+                  onImport={onImportProject}
                   onNewDub={activeJob ? onResetSession : undefined}
                   onSeeAll={onOpenQueue}
                   onClose={closeProjects}
