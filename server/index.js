@@ -151,11 +151,16 @@ if (config.rateLimitPerMinute > 0) {
       // Spelling lookups fire on every keystroke and would exhaust the budget meant for AI calls.
       // Progress polls (GET …/jobs/:id) are free local reads; a continuous-read dub runs two
       // 700 ms pollers (~170 a minute), which alone used up the budget and failed long dubs.
+      // Line-by-line voice change fetches each changed clip (GET /sync/audio/:id) beside its
+      // POST, ~90 a minute each, and timeline edits render locally ~60 a minute; neither
+      // reaches a provider, so only the paid POST counts.
       skip: (req) =>
         req.path === '/health' ||
         req.path === '/transliterate' ||
         req.path.startsWith('/settings') ||
-        (req.method === 'GET' && /\/jobs\/[^/]+$/.test(req.path)),
+        req.path === '/sync/edit/render' ||
+        (req.method === 'GET' && /\/jobs\/[^/]+$/.test(req.path)) ||
+        (req.method === 'GET' && /^\/sync\/audio\/[^/]+$/.test(req.path)),
       message: {
         error: {
           message:
