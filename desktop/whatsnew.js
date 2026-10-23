@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.94',
+    changes: [
+      'New Fast translate button above Translate: it only translates, skipping the meaning, length and key-term checks, and sends three batches at once, so a long transcript is ready much sooner.',
+    ],
+  },
+  {
     version: '1.3.93',
     changes: [
       'Matching a long script by meaning no longer leaves a whole paragraph in one cue with the cues after it empty: the paragraph is spread over the cues it says, using only your words.',
