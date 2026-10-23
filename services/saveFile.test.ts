@@ -1,0 +1,56 @@
+import { test, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { saveFileAs } from './saveFile.ts';
+
+const as = { description: 'Subtitles', mime: 'application/x-subrip', extension: '.srt' };
+const g = globalThis as any;
+
+afterEach(() => {
+  delete g.showSaveFilePicker;
+});
+
+test('closing the Save dialog is a cancel, and nothing is written', async () => {
+  let wrote = false;
+  g.showSaveFilePicker = async () => {
+    throw Object.assign(new Error('The user aborted a request.'), { name: 'AbortError' });
+  };
+  const outcome = await saveFileAs(new Blob(['x']), 'talk.srt', as);
+  assert.deepEqual(outcome, { status: 'cancelled' });
+  assert.equal(wrote, false);
+});
+
+test('the file is written where the user picked, under the name they gave it', async () => {
+  const written: string[] = [];
+  let options: any;
+  g.showSaveFilePicker = async (o: any) => {
+    options = o;
+    return {
+      name: 'my talk.srt',
+      createWritable: async () => ({
+        write: async (b: Blob) => void written.push(await b.text()),
+        close: async () => {},
+      }),
+    };
+  };
+  const outcome = await saveFileAs(new Blob(['১\n']), 'talk.srt', as);
+  assert.deepEqual(outcome, { status: 'saved', name: 'my talk.srt', downloaded: false });
+  assert.deepEqual(written, ['১\n']);
+  assert.equal(options.suggestedName, 'talk.srt');
+  assert.deepEqual(options.types[0].accept, { 'application/x-subrip': ['.srt'] });
+});
+
+test('a write that fails is reported, and the half-written file is dropped', async () => {
+  let aborted = false;
+  g.showSaveFilePicker = async () => ({
+    name: 'talk.srt',
+    createWritable: async () => ({
+      write: async () => {
+        throw Object.assign(new Error('No space left on the disk'), { name: 'QuotaExceededError' });
+      },
+      close: async () => {},
+      abort: async () => void (aborted = true),
+    }),
+  });
+  await assert.rejects(saveFileAs(new Blob(['x']), 'talk.srt', as), /No space left/);
+  assert.equal(aborted, true);
+});

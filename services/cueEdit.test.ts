@@ -127,3 +127,11 @@ test('the dub break falls back to the same share when there is no punctuation ne
   assert.equal(suggestDubBreak(['a', 'b,', 'c', 'd', 'e', 'f'], 0.5), 2);
   assert.equal(suggestDubBreak(['one'], 0.5), 1);
 });
+
+test('a cue whose text was edited since transcription keeps the edit when split', () => {
+  const cue = { ...timedCue(), textSource: 'Do not fight your thoughts at all, just watch them.' };
+  const { first, second, measured } = splitCue(cue, 5, 'new')!;
+  assert.equal(measured, false);
+  assert.equal(`${first.textSource} ${second.textSource}`, cue.textSource);
+  assert.equal(first.timingSource, 'derived');
+});

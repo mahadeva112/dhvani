@@ -168,7 +168,21 @@ import {
   clearAllJobsFromStorage,
 } from './services/storageService';
 import { byNewest, projectName } from './services/projects';
-import { exportProject, importProject, projectFileName } from './services/projectArchive';
+import {
+  exportProject,
+  exportProjectJson,
+  importProject,
+  isProjectJson,
+  projectFileName,
+  projectJsonFileName,
+  readProjectJson,
+} from './services/projectArchive';
+import { transcriptFileName, transcriptParagraphs, transcriptSrt } from './services/transcriptExport';
+import { sameCuts } from './services/transcriptSegments';
+import { saveFileAs } from './services/saveFile';
+import { loadPassagePause } from './components/review/passages';
+import type { TranscriptExportResult, TranscriptFormat } from './components/TranscriptExportMenu';
+import { OpenProjectJsonPanel, type PendingProjectJson } from './components/OpenProjectJsonPanel';
 import { addSignoffs, signoffsForJob } from './services/signoffService';
 import { speakerSyllableRates, useVoiceRates, type VoiceRateVoice } from './services/voiceRate';
 import { currentStep, hasTranscript, openSteps } from './services/steps';
@@ -303,6 +317,12 @@ export default function App() {
   const queueRef = useRef(queue);
   queueRef.current = queue;
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  /** A Dhvani JSON being opened, waiting for the user to pick its media. */
+  const [pendingProjectJson, setPendingProjectJson] = useState<
+    (PendingProjectJson & { id: string; signoffs: ReturnType<typeof readProjectJson>['signoffs'] }) | null
+  >(null);
+  /** The media last read for it, so opening doesn't decode it twice. */
+  const pickedMediaRef = useRef<{ file: File; analysis: Awaited<ReturnType<typeof analyzeAudio>> } | null>(null);
 
   // Audio Playback State
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -1386,6 +1406,7 @@ export default function App() {
           translationWarning: null,
           untranslatedCueIds: null,
           targetSource: 'pending',
+          transcriptCuts: null,
           errorMsg: null,
           xmlOutput: '',
           validationResult: null,
@@ -2285,6 +2306,7 @@ export default function App() {
         translationWarning: null,
         untranslatedCueIds: null,
         targetSource: 'pending',
+        transcriptCuts: null,
         errorMsg: null,
         xmlOutput: '',
         validationResult: null,
@@ -3036,6 +3058,59 @@ export default function App() {
     [activeJob, updateJob]
   );
 
+  /**
+   * Puts a cut made on the transcript screen on the project. The cut as
+   * transcribed is kept from the first change, for Reset; once the cut is
+   * back to it, there is nothing to keep.
+   */
+  const handleApplyTranscriptSegments = useCallback(
+    (segments: AudioSegment[]) => {
+      if (!activeJob) return;
+      const transcribed = activeJob.transcriptCuts ?? activeJob.segments;
+      updateJob(activeJob.id, {
+        segments,
+        transcriptCuts: sameCuts(transcribed, segments) ? null : transcribed,
+        ...syncPendingAfter(activeJob, segments),
+      });
+    },
+    [activeJob, updateJob]
+  );
+
+  /** Saves the open project's transcript as Dhvani JSON, paragraphs or subtitles. Never transcribes or translates. */
+  const handleExportTranscript = useCallback(
+    async (format: TranscriptFormat): Promise<TranscriptExportResult> => {
+      const job = activeJob;
+      if (!job) return { status: 'cancelled' };
+      const name = projectName(job);
+      let outcome;
+      if (format === 'srt') {
+        const srt = transcriptSrt(job.segments);
+        if (srt.kind === 'blocked') return { status: 'blocked', problems: srt.problems };
+        outcome = await saveFileAs(new Blob([srt.content], { type: 'application/x-subrip;charset=utf-8' }), transcriptFileName(name, '.srt'), {
+          description: 'Subtitles',
+          mime: 'application/x-subrip',
+          extension: '.srt',
+        });
+      } else if (format === 'txt') {
+        const text = transcriptParagraphs(job.segments, loadPassagePause());
+        outcome = await saveFileAs(new Blob([text], { type: 'text/plain;charset=utf-8' }), transcriptFileName(name, '.txt'), {
+          description: 'Text',
+          mime: 'text/plain',
+          extension: '.txt',
+        });
+      } else {
+        const json = exportProjectJson(job, signoffsForJob(job.id));
+        outcome = await saveFileAs(new Blob([json], { type: 'application/json' }), projectJsonFileName(name), {
+          description: 'Dhvani JSON',
+          mime: 'application/json',
+          extension: '.json',
+        });
+      }
+      return outcome.status === 'cancelled' ? outcome : { ...outcome, format };
+    },
+    [activeJob]
+  );
+
   // Play Solo Original Audio for specific segment
   /*
    * Play one cue of the original and stop at its end. It switches to the
@@ -3201,6 +3276,58 @@ export default function App() {
     }
   }, []);
 
+  /** Reads the media picked for a Dhvani JSON: its length, and the buffer the project plays. */
+  const measureProjectMedia = useCallback(async (file: File) => {
+    const analysis = await analyzeAudio(file);
+    pickedMediaRef.current = { file, analysis };
+    return analysis.buffer.duration;
+  }, []);
+
+  /** Makes the project from a Dhvani JSON and the media picked for it, and opens it on Review. */
+  const openProjectJson = useCallback(
+    async (file: File) => {
+      const pending = pendingProjectJson;
+      if (!pending) return;
+      const analysis = pickedMediaRef.current?.file === file ? pickedMediaRef.current.analysis : await analyzeAudio(file);
+      const { project } = pending;
+      const job = reviveSavedJob({
+        id: pending.id,
+        createdAt: project.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+        file,
+        status: ProcessingStatus.IDLE,
+        script: '',
+        language: selectedLanguage,
+        manualDuration: '',
+        expression: 'Warm, conversational studio tone',
+        pronunciations: [],
+        history: { past: [], future: [] },
+        xmlOutput: '',
+        validationResult: null,
+        synthesizedAudioUrl: null,
+        synthesizedBlob: null,
+        srtUrl: null,
+        srtBlob: null,
+        synthAudioBuffer: null,
+        errorMsg: null,
+        ...project,
+        audioMetadata: analysis.metadata,
+        audioBuffer: analysis.buffer,
+        segments: project.segments,
+        lastStep: hasTranscript(project.segments) ? 2 : 1,
+      });
+      await saveJobToStorage(job);
+      addSignoffs(pending.signoffs);
+      pickedMediaRef.current = null;
+      setPendingProjectJson(null);
+      pauseAll();
+      seekAll(0);
+      setQueue((prev) => [job, ...prev.filter((j) => j.id !== job.id)].sort(byNewest));
+      setActiveJobId(job.id);
+    },
+    [pendingProjectJson, selectedLanguage, pauseAll, seekAll]
+  );
+
   /** Opens a .dhvani file as a new project, beside the ones here, and switches to it. */
   const handleImportProject = useCallback(
     async (file: File) => {
@@ -3209,6 +3336,12 @@ export default function App() {
           ? crypto.randomUUID()
           : Math.random().toString(36).substring(2, 9);
       try {
+        if (await isProjectJson(file)) {
+          // No media inside: the user picks the original before the project is made.
+          const { project, signoffs, sourceMedia } = readProjectJson(await file.text(), id);
+          setPendingProjectJson({ id, fileName: file.name, project, signoffs, sourceMedia });
+          return;
+        }
         const { job: imported, signoffs } = await importProject(file, id);
         const job = reviveSavedJob(imported);
         await saveJobToStorage(job);
@@ -3579,6 +3712,16 @@ export default function App() {
 
       <ErrorPopup />
 
+      <OpenProjectJsonPanel
+        pending={pendingProjectJson}
+        measure={measureProjectMedia}
+        onOpen={openProjectJson}
+        onCancel={() => {
+          pickedMediaRef.current = null;
+          setPendingProjectJson(null);
+        }}
+      />
+
       {/* Streamlined Clean Header */}
       <ProHeader
         activeJob={activeJob}
@@ -3831,6 +3974,8 @@ export default function App() {
           syncTakesBusy={activeJob && syncTakesBusy?.jobId === activeJob.id ? syncTakesBusy.key : null}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}
+          onApplyTranscriptSegments={handleApplyTranscriptSegments}
+          onExportTranscript={handleExportTranscript}
           onPlaySegmentSolo={handlePlaySoloSegment}
           isPlaying={isPlaying}
           onTogglePlay={togglePlay}

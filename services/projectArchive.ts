@@ -201,3 +201,161 @@ export const importProject = async (
 
 /** The name a project's file is saved under. */
 export const projectFileName = (name: string) => `${name.trim() ? safeName(name.trim()) : 'Dhvani project'}${PROJECT_FILE_EXTENSION}`;
+
+/*
+ * The project as a JSON file, without its media: the transcript (its cut, ids,
+ * times, word timings, speakers and language), any translation, and the
+ * settings that steer Translation and Review. Opening it makes a new project
+ * once the user picks the original audio again; nothing is transcribed or
+ * translated again. Dub audio, takes and timing edits live only in `.dhvani`.
+ */
+
+export const PROJECT_JSON_VERSION = 1;
+export const PROJECT_JSON_EXTENSION = '.dhvani.json';
+
+/** What a JSON project keeps of a project: plain data the next steps read, and nothing tied to this computer. */
+const JSON_KEPT = [
+  'name',
+  'createdAt',
+  'updatedAt',
+  'script',
+  'language',
+  'sourceLanguage',
+  'detectedLanguage',
+  'manualDuration',
+  'expression',
+  'pronunciations',
+  'customPrompt',
+  'promptPresetId',
+  'segments',
+  'analysisSensitivity',
+  'analysisGate',
+  'originalSrt',
+  'translatedSrt',
+  'targetSource',
+  'transcriptCuts',
+  'cast',
+  'untranslatedCueIds',
+] as const satisfies readonly (keyof BatchJob)[];
+
+export type ProjectJsonData = Pick<BatchJob, (typeof JSON_KEPT)[number]>;
+
+/** The audio the project was made on, to find it again. */
+export interface SourceMedia {
+  name: string;
+  type: string;
+  size: number;
+  duration?: number;
+}
+
+interface ProjectJson {
+  kind: typeof PROJECT_FILE_KIND;
+  version: number;
+  /** The media is not in the file: the user picks it when opening. */
+  media: 'external';
+  exportedAt: string;
+  sourceMedia: SourceMedia;
+  /** The id the project had, which its sign-offs are keyed on. */
+  projectId: string;
+  project: ProjectJsonData;
+  signoffs: JobSignoff[];
+}
+
+/** The project and its sign-offs as a JSON file, without any media. */
+export const exportProjectJson = (job: BatchJob, signoffs: JobSignoff[] = []): string => {
+  const project: Record<string, unknown> = {};
+  for (const key of JSON_KEPT) if (job[key] !== undefined) project[key] = job[key];
+  // Not translated yet: the target lines are empty, never a copy of the source.
+  if (job.targetSource === 'pending') {
+    project.segments = job.segments.map(({ targetText: _alias, ...seg }) => ({ ...seg, textTarget: '' }));
+  }
+  const file: ProjectJson = {
+    kind: PROJECT_FILE_KIND,
+    version: PROJECT_JSON_VERSION,
+    media: 'external',
+    exportedAt: new Date().toISOString(),
+    sourceMedia: {
+      name: job.file?.name || job.audioMetadata?.fileName || '',
+      type: job.file?.type || job.audioMetadata?.fileType || '',
+      size: job.file?.size ?? 0,
+      ...(job.audioMetadata?.duration || job.audioBuffer?.duration
+        ? { duration: job.audioMetadata?.duration || job.audioBuffer?.duration }
+        : {}),
+    },
+    projectId: job.id,
+    project: project as ProjectJsonData,
+    signoffs,
+  };
+  // Numbers are written as they are held, so every time keeps its full precision.
+  return JSON.stringify(file, (_key, value) => (value instanceof Blob ? undefined : value), 2);
+};
+
+/** Whether a file is a JSON project rather than a `.dhvani` zip, by its name or its first byte. */
+export const isProjectJson = async (file: Blob & { name?: string }): Promise<boolean> => {
+  if (file.name && /\.json$/i.test(file.name)) return true;
+  const head = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  const first = [...head].find((b) => b !== 0xef && b !== 0xbb && b !== 0xbf && b > 0x20);
+  return first === 0x7b; // "{"
+};
+
+const finite = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : NaN);
+
+/**
+ * The project in a JSON project file, given `newId`, with its sign-offs moved
+ * to that id. The source media is not in the file; `sourceMedia` says which
+ * file to ask for.
+ */
+export const readProjectJson = (
+  text: string,
+  newId: string
+): { project: ProjectJsonData; signoffs: JobSignoff[]; sourceMedia: SourceMedia } => {
+  let data: Partial<ProjectJson> & { cues?: unknown };
+  try {
+    data = JSON.parse(text.replace(/^﻿/, ''));
+  } catch {
+    throw notAProject();
+  }
+  if ((data?.kind as string) === 'dhvani-script' || (data && Array.isArray(data.cues))) {
+    throw new Error(
+      "This is a script file, not a project. Open the audio, transcribe it, then choose Use my translated script and paste or open this file there."
+    );
+  }
+  if (data?.kind !== PROJECT_FILE_KIND || data.media !== 'external' || !data.project || typeof data.project !== 'object') throw notAProject();
+  if (typeof data.version !== 'number' || data.version > PROJECT_JSON_VERSION) {
+    throw new Error('This project was saved by a newer Dhvani. Update Dhvani to open it.');
+  }
+  const raw = data.project as Record<string, unknown>;
+  if (!Array.isArray(raw.segments)) throw notAProject();
+
+  const project: Record<string, unknown> = {};
+  for (const key of JSON_KEPT) if (raw[key] !== undefined) project[key] = raw[key];
+  // A time JSON could not hold (NaN is written as null) comes back as missing, to be flagged, never as 0.
+  const revive = (list: unknown) =>
+    Array.isArray(list)
+      ? list
+          .filter((s) => s && typeof s === 'object' && (s as { id?: unknown }).id !== undefined)
+          .map((s: any) => ({ ...s, startTime: finite(s.startTime), endTime: finite(s.endTime), duration: finite(s.duration) }))
+      : list;
+  project.segments = revive(raw.segments);
+  if (raw.transcriptCuts) project.transcriptCuts = revive(raw.transcriptCuts);
+
+  const oldId = typeof data.projectId === 'string' ? data.projectId : '';
+  const signoffs = (Array.isArray(data.signoffs) ? data.signoffs : [])
+    .filter((s) => s && oldId && s.jobId === oldId && typeof s.key === 'string')
+    .map((s) => ({ ...s, jobId: newId, key: `${newId}::${s.key.split('::').pop()}` }));
+
+  const media = (data.sourceMedia || {}) as Partial<SourceMedia>;
+  return {
+    project: project as ProjectJsonData,
+    signoffs,
+    sourceMedia: {
+      name: typeof media.name === 'string' ? media.name : '',
+      type: typeof media.type === 'string' ? media.type : '',
+      size: typeof media.size === 'number' ? media.size : 0,
+      ...(typeof media.duration === 'number' && media.duration > 0 ? { duration: media.duration } : {}),
+    },
+  };
+};
+
+/** The name a JSON project is saved under. */
+export const projectJsonFileName = (name: string) => `${name.trim() ? safeName(name.trim()) : 'Dhvani project'}${PROJECT_JSON_EXTENSION}`;

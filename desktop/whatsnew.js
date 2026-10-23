@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.92',
+    changes: [
+      'The transcript can be exported before translating: Dhvani JSON to carry on later (open it with Import project and pick the audio), paragraph text, or one subtitle per segment.',
+      'Edit segments on the transcript splits and merges segments before you translate. Click the waveform and press S to split at the playhead.',
+      'Clicking the player no longer scrolls it off the screen.',
+    ],
+  },
+  {
     version: '1.3.91',
     changes: [
       'Translation with a slower model no longer fails with "524: A timeout occurred": the answer now arrives as it is written, and a batch that still runs out of time is sent again in smaller pieces.',

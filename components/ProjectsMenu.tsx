@@ -214,7 +214,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
               <input
                 ref={fileInput}
                 type="file"
-                accept={`${PROJECT_FILE_EXTENSION},application/zip`}
+                accept={`${PROJECT_FILE_EXTENSION},application/zip,.json,application/json`}
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -232,7 +232,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                 disabled={importing}
                 onClick={() => fileInput.current?.click()}
                 className="flex items-center gap-1.5 h-8 px-2.5 rounded-[9px] text-[12.5px] font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default"
-                title={`Open a ${PROJECT_FILE_EXTENSION} project file as a new project`}
+                title={`Open a ${PROJECT_FILE_EXTENSION} project or a Dhvani JSON as a new project`}
               >
                 {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
                 {importing ? 'Opening…' : 'Import project'}

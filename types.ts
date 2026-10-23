@@ -251,6 +251,11 @@ export interface BatchJob {
   translatedSrt?: string;
   /** Automatic translation, the user's own script, or not chosen yet. */
   targetSource?: TargetSource;
+  /**
+   * The segments as transcribed, kept from the first split or merge on the
+   * transcript screen so Reset can put the cuts back. Cleared by transcribing again.
+   */
+  transcriptCuts?: AudioSegment[] | null;
 
   /**
    * The synced dub: Sync's own file, kept beside the dub above (a dub made

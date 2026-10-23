@@ -39,9 +39,12 @@ const wordsOf = (text: string) => text.split(/\s+/).filter(Boolean);
  */
 export const cueTokens = (segment: AudioSegment): { tokens: CueToken[]; measured: boolean } => {
   const measured = (segment.words || []).filter((word) => word.text && Number.isFinite(word.start) && Number.isFinite(word.end));
-  if (measured.length > 0) return { tokens: measured.map(({ text, start, end }) => ({ text, start, end })), measured: true };
-
   const words = wordsOf(sourceTextOf(segment));
+  // Timings that no longer match the text word for word (it was edited) would cut it as transcribed, losing the edit.
+  if (measured.length > 0 && (words.length === 0 || words.length === measured.length)) {
+    return { tokens: measured.map(({ text, start, end }) => ({ text, start, end })), measured: true };
+  }
+
   const total = words.reduce((sum, word) => sum + word.length, 0) || 1;
   const span = Math.max(0, segment.endTime - segment.startTime);
   let at = segment.startTime;
@@ -54,8 +57,8 @@ export const cueTokens = (segment: AudioSegment): { tokens: CueToken[]; measured
 };
 
 /**
- * The cue's source words, one per token. The edited source text is kept when
- * it still has one word per measured word; otherwise the words as transcribed.
+ * The cue's source words, one per token: its text as it is now, or the words
+ * as transcribed when the text was emptied.
  */
 const sourceWords = (segment: AudioSegment, tokens: CueToken[]) => {
   const words = wordsOf(sourceTextOf(segment));

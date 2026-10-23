@@ -1,6 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw, Scissors } from 'lucide-react';
 import { AudioSegment } from '../types';
+import { timingProblems } from '../services/transcriptSegments';
+import { TranscriptExportMenu, TranscriptExportNotice, type TranscriptExportResult, type TranscriptFormat } from './TranscriptExportMenu';
+import { TranscriptSegmentEditor, formatSplitTime } from './TranscriptSegmentEditor';
+import { scrollWithin } from './scrollWithin';
 import { translationFraction, type RetranslateProgress } from '../services/subtitleService';
 import type { VoiceRate } from '../services/voiceRate';
 import { reportError } from '../services/errorPopup';
@@ -40,6 +44,16 @@ interface TargetScriptChoiceProps {
   onUseOwnScript: () => void;
   onSeek?: (time: number) => void;
   activeSegmentId?: string | number | null;
+  /** Saves the transcript as a file; omitted hides Export. */
+  onExport?: (format: TranscriptFormat) => Promise<TranscriptExportResult>;
+  /** Puts a split or merged cut on the project; omitted hides Edit segments. */
+  onApplySegments?: (segments: AudioSegment[]) => void;
+  /** The segments as transcribed, kept from the first split or merge, for Reset. */
+  transcriptCuts?: AudioSegment[] | null;
+  /** Plays the original between two times. */
+  onHear?: (start: number, end: number) => void;
+  /** Where the playhead is on the original's clock: S splits the segment there. */
+  getPlayhead?: () => number;
 }
 
 /** 125.4 -> "2:05.4" */
@@ -86,7 +100,16 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   onUseOwnScript,
   onSeek,
   activeSegmentId = null,
+  onExport,
+  onApplySegments,
+  transcriptCuts = null,
+  onHear,
+  getPlayhead,
 }) => {
+  const [editing, setEditing] = useState(false);
+  /** The playhead time S was pressed at, to split as the editor opens. */
+  const [splitOnOpen, setSplitOnOpen] = useState<number | null>(null);
+  const [exportResult, setExportResult] = useState<TranscriptExportResult | null>(null);
   const [method, setMethod] = useState<TargetMethod>(() => {
     try {
       return localStorage.getItem(METHOD_STORAGE_KEY) === 'custom' ? 'custom' : 'translate';
@@ -109,7 +132,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   useEffect(() => {
     if (activeSegmentId === null || !listRef.current) return;
     const row = listRef.current.querySelector<HTMLElement>(`[data-cue-id="${CSS.escape(String(activeSegmentId))}"]`);
-    row?.scrollIntoView({ block: 'nearest' });
+    scrollWithin(row);
   }, [activeSegmentId]);
 
   const spoken = segments.filter((s) => (s.textSource || s.originalText || '').trim());
@@ -118,6 +141,24 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   const sameLanguage = Boolean(spokenLanguage) && spokenLanguage.toLowerCase() === targetLanguage.toLowerCase();
   const translateBlocked = method === 'translate' && !sameLanguage && !translationReady;
   const busy = isTranscribing || isTranslating;
+  // S on the transcript opens segment editing with a split at the playhead.
+  useEffect(() => {
+    if (editing || !onApplySegments || !getPlayhead || !hasTranscript || busy) return;
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== 's') return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      e.preventDefault();
+      setExportResult(null);
+      setSplitOnOpen(getPlayhead());
+      setEditing(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editing, onApplySegments, getPlayhead, hasTranscript, busy]);
+
+  const flagged = useMemo(() => new Map(timingProblems(segments).map((p) => [String(p.id), p])), [segments]);
   const fraction = translationFraction(translationProgress);
   const percent = fraction === null ? null : Math.round(fraction * 100);
   const translatingLabel = translationProgress?.step === 'check' ? 'Checking meaning and length' : 'Translating';
@@ -163,16 +204,58 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
         <div className="flex flex-wrap items-center gap-2.5 px-4 py-3 border-b border-slate-800">
           <FileText className="w-4 h-4 text-slate-400" aria-hidden="true" />
           <h2 className="text-[14px] font-semibold text-slate-100">Transcript</h2>
-          {hasTranscript && !isTranscribing && (
+          {hasTranscript && !isTranscribing && !editing && (
             <span className="text-xs text-slate-400 tabular-nums">
-              {segments.length} {segments.length === 1 ? 'cue' : 'cues'} · {formatLength(length)}
+              {segments.length} {segments.length === 1 ? 'segment' : 'segments'} · {formatLength(length)}
               {spokenLanguage ? ` · ${spokenLanguage}` : ''}
             </span>
           )}
-          <span className="ml-auto text-[11.5px] text-slate-500">Timestamps from the audio</span>
+          {!editing && (
+            <div className="ml-auto flex items-center gap-2">
+              {onApplySegments && hasTranscript && !busy && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setExportResult(null);
+                    setSplitOnOpen(null);
+                    setEditing(true);
+                  }}
+                  className="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-[12px] font-medium text-slate-200 cursor-default"
+                  title="Split or merge segments before you translate. Optional. Or play to a point and press S."
+                >
+                  <Scissors className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
+                  Edit segments
+                </button>
+              )}
+              {onExport && (
+                <TranscriptExportMenu
+                  onExport={onExport}
+                  onResult={setExportResult}
+                  disabled={!hasTranscript || isTranscribing}
+                  segmentCount={segments.length}
+                  translated={false}
+                />
+              )}
+              {!onExport && !onApplySegments && <span className="text-[11.5px] text-slate-500">Timestamps from the audio</span>}
+            </div>
+          )}
         </div>
 
-        {isTranscribing ? (
+        {editing && onApplySegments ? (
+          <TranscriptSegmentEditor
+            segments={segments}
+            transcriptCuts={transcriptCuts}
+            onApply={(next) => {
+              onApplySegments(next);
+              setEditing(false);
+            }}
+            onCancel={() => setEditing(false)}
+            onHear={onHear}
+            formatTime={formatSplitTime}
+            getPlayhead={getPlayhead}
+            initialSplitTime={splitOnOpen}
+          />
+        ) : isTranscribing ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 p-8 text-center" role="status" aria-live="polite">
             <RefreshCw className="w-5 h-5 text-indigo-300 animate-spin" />
             <p className="text-sm font-semibold text-slate-200">Transcribing</p>
@@ -188,19 +271,26 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
             {segments.map((seg, i) => {
               const text = seg.textSource || seg.originalText || '';
               const on = activeSegmentId === seg.id;
+              const problem = flagged.get(String(seg.id));
+              const estimated = seg.timingSource === 'derived';
               return (
                 <li key={seg.id} data-cue-id={String(seg.id)} style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 44px' }}>
                   <button
                     type="button"
-                    onClick={() => onSeek?.(seg.startTime)}
+                    onClick={() => Number.isFinite(seg.startTime) && onSeek?.(seg.startTime)}
                     className={`w-full grid grid-cols-[2rem_7.5rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-2.5 text-left transition-colors cursor-default ${
-                      on ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'
+                      on ? 'bg-indigo-500/10' : problem ? 'bg-rose-500/[0.06] hover:bg-rose-500/10' : 'hover:bg-slate-800/40'
                     }`}
-                    title="Play from here"
+                    title={problem ? 'Check this segment’s timing' : 'Play from here'}
                   >
                     <span className="font-mono text-[11px] text-slate-500 tabular-nums">{String(i + 1).padStart(2, '0')}</span>
-                    <span className="font-mono text-[11px] text-slate-400 tabular-nums">
-                      {formatCueTime(seg.startTime)}–{formatCueTime(seg.endTime)}
+                    <span className={`font-mono text-[11px] tabular-nums ${problem ? 'text-rose-300' : estimated ? 'text-amber-300' : 'text-slate-400'}`}>
+                      {Number.isFinite(seg.startTime) ? formatCueTime(seg.startTime) : '—'}–{Number.isFinite(seg.endTime) ? formatCueTime(seg.endTime) : '—'}
+                      {problem ? (
+                        <span className="block text-[9.5px] font-sans font-semibold text-rose-300/90">check timing</span>
+                      ) : estimated ? (
+                        <span className="block text-[9.5px] font-sans font-semibold text-amber-300/80">estimated</span>
+                      ) : null}
                     </span>
                     <span className="text-[13px] leading-snug text-slate-200">
                       {text || <span className="italic text-slate-600">No speech</span>}
@@ -210,6 +300,26 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
               );
             })}
           </ol>
+        )}
+        {!editing && (
+          <TranscriptExportNotice
+            result={exportResult}
+            onDismiss={() => setExportResult(null)}
+            onShowSegment={(index) => {
+              const seg = segments[index];
+              if (!seg) return;
+              scrollWithin(listRef.current?.querySelector(`[data-cue-id="${CSS.escape(String(seg.id))}"]`), 'center');
+              if (Number.isFinite(seg.startTime)) onSeek?.(seg.startTime);
+            }}
+            onSaveJson={
+              onExport
+                ? () =>
+                    void onExport('json')
+                      .then(setExportResult)
+                      .catch((err) => reportError(err, { title: 'Exporting the transcript failed', safe: 'Your transcript is unchanged.' }))
+                : undefined
+            }
+          />
         )}
       </section>
 
@@ -356,7 +466,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
           <button
             type="button"
             onClick={() => void handleContinue()}
-            disabled={busy || !hasTranscript || translateBlocked}
+            disabled={busy || editing || !hasTranscript || translateBlocked}
             className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
           >
             {isTranslating ? (
@@ -377,7 +487,9 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
             )}
           </button>
 
-          {translateBlocked ? (
+          {editing ? (
+            <p className="text-[11.5px] text-slate-400 text-center">Apply or cancel your segment changes first.</p>
+          ) : translateBlocked ? (
             <p className="text-[11.5px] text-amber-300 text-center">
               No translation engine is set up. Add one in API settings, or use your own script.
             </p>

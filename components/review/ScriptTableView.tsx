@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Keyboard, Pause, Play } from 'lucide-react';
 import { AudioSegment } from '../../types';
+import { scrollWithin } from '../scrollWithin';
 import { SCRIPT_PALETTES, getIndicLanguageConfig } from '../../services/indicTransliteration';
 import { PASSAGE_PAUSES, buildPassages, loadPassageLayout, savePassageLayout, type PassageLayout } from './passages';
 import { usePhoneticTyping } from './usePhoneticTyping';
@@ -179,9 +180,7 @@ export function ScriptTableView({
   );
   useEffect(() => {
     if (!isPlaying || !activeKey || editing) return;
-    rootRef.current
-      ?.querySelector<HTMLElement>(`[data-passage="${CSS.escape(activeKey)}"]`)
-      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    scrollWithin(rootRef.current?.querySelector(`[data-passage="${CSS.escape(activeKey)}"]`), 'nearest', true);
   }, [activeKey, isPlaying, editing]);
 
   /** A passage as running text: each cue's line flows on from the last, the one being heard washed. */

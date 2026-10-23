@@ -57,6 +57,8 @@ import type { SpeakerSlip } from '../services/speakers';
 import { SpeakerBar, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
 import { retranslateCues, type RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
+import { scrollWithin } from './scrollWithin';
+import type { TranscriptExportResult, TranscriptFormat } from './TranscriptExportMenu';
 import {
   Voice,
   DubProgress,
@@ -500,6 +502,10 @@ interface ExpressDubWizardProps {
   onRetranscribeAudio?: (prompt: string) => Promise<void>;
   /** The transcript's explicit "Translate" choice; the only path that translates a waiting transcript. */
   onTranslateTranscript?: () => Promise<void>;
+  /** Saves the transcript as Dhvani JSON, paragraph text or subtitles; never transcribes or translates. */
+  onExportTranscript?: (format: TranscriptFormat) => Promise<TranscriptExportResult>;
+  /** Puts a cut made on the transcript screen on the project, keeping the cut as transcribed for Reset. */
+  onApplyTranscriptSegments?: (segments: AudioSegment[]) => void;
   /** The dub voice's speaking rate, measured from a sample read when it is picked (services/voiceRate.ts). */
   voiceRate?: VoiceRateState;
   /** With several speakers: the rate of each speaker's own voice from the cast, by speaker name. */
@@ -638,6 +644,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   fitTranslationToVoice = true,
   onFitTranslationToVoiceChange,
   onTargetSourceChange,
+  onExportTranscript,
+  onApplyTranscriptSegments,
   translationSummary = null,
   translationReady = true,
   translationProgress = null,
@@ -2296,10 +2304,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             onSeek={onSeek}
             onSelectSegment={(seg) => {
               unfoldPassageOf(seg.id);
-              const cardEl = document.getElementById(`cue-card-${seg.id}`);
-              if (cardEl) {
-                cardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }
+              // The cue list scrolls to the card; the page, and with it the player, stays put.
+              scrollWithin(document.getElementById(`cue-card-${seg.id}`), 'center', true);
             }}
             targetLanguage={targetLanguage}
             playbackRate={playbackRate}
@@ -2403,6 +2409,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onUseOwnScript={() => setIsAlignModalOpen(true)}
               onSeek={seekSource}
               activeSegmentId={activeSegmentId}
+              onExport={onExportTranscript}
+              onApplySegments={onApplyTranscriptSegments}
+              transcriptCuts={activeJob.transcriptCuts}
+              onHear={(start, end) => onPlaySegmentSolo({ id: 'cut', startTime: start, endTime: end, duration: end - start })}
+              getPlayhead={() => getSourceLiveTime?.() ?? sourceClockTime}
             />
           ) : (
           /* Workspace: cue editor and review panel share one height, so neither leaves a gap */
@@ -2548,7 +2559,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <Keyboard className="w-4 h-4" />
                   </button>
                 )}
+
               </div>
+
 
               {/* Each line's fit at the voice's rate, and the one place to reword lines before they are voiced */}
               {!awaitingScript && reviewMode !== 'qa' && (
