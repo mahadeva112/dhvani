@@ -154,12 +154,16 @@ translationRouter.post(
           targetText: cue.text,
           fit: cue.fit,
           estimated: cue.estimated,
+          flag: cue.flag,
         })),
         wordCount: outcome.wordCount,
         failedWindows: outcome.failedWindows,
         windows: outcome.windows,
         modelUsed: outcome.modelUsed,
         coverage: outcome.coverage,
+        unresolved: outcome.unresolved,
+        collapsed: outcome.collapsed,
+        integrity: outcome.integrity,
       });
     } catch (err) {
       const error =

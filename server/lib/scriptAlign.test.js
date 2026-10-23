@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tokenizeScript, joinTokens, resolveBoundaries, alignScript, closeSentence, groupByLines, snapToLineEnds } from './scriptAlign.js';
+import { tokenizeScript, joinTokens, resolveBoundaries, alignScript, closeSentence, groupByLines, snapToLineEnds, checkPreservation, findCollapsed } from './scriptAlign.js';
 
 const words = (n, prefix = 'w') => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 const cuesOf = (n) => Array.from({ length: n }, (_, i) => ({ id: `c${i}`, text: `English cue ${i}` }));
@@ -517,4 +517,180 @@ test('a split call that fails whole is asked again in halves, not line by line',
   const result = await alignScript(cuesOf(16), lines.join('\n'), { callModel, splitBatchCues: 40, splitBatchWords: 500 });
   assert.deepEqual(sizes, [8, 4, 4]);
   result.cues.forEach((cue, i) => assert.equal(cue.text, lines[Math.floor(i / 2)].split(' ').slice((i % 2) * 2, (i % 2) * 2 + 2).join(' ')));
+});
+
+// --- Segmentation of long and collapsed scripts -----------------------------
+
+const isSpreadPrompt = (prompt) => prompt.includes('were first given to one cue');
+const wordRange = (prompt) => {
+  const [, first, last] = prompt.match(/numbered \{(\d+)\} to \{(\d+)\}/);
+  return { start: Number(first), stop: Number(last) + 1 };
+};
+
+test('a paragraph left in one cue is spread over the empty cues it says, from its own words', async () => {
+  const sentences = [0, 1, 2, 3].map((k) => `${Array.from({ length: 8 }, (_, j) => `पद${k}${j}`).join(' ')}।`);
+  const paragraph = sentences.join(' ');
+  const script = `${paragraph}\nअंत में धन्यवाद।`;
+  const cues = [0, 1, 2, 3, 4].map((i) => ({ id: `c${i}`, text: `English sentence number ${i} said here.` }));
+  const spreadPrompts = [];
+  const callModel = async (prompt) => {
+    if (isLinePrompt(prompt)) {
+      // The whole paragraph goes to cue 1 and the next three get nothing.
+      return {
+        cues: [
+          { n: 1, last: 0, inside: false, fit: 'full' },
+          { n: 2, last: null, fit: 'none' },
+          { n: 3, last: null, fit: 'none' },
+          { n: 4, last: null, fit: 'none' },
+          { n: 5, last: 1, inside: false, fit: 'full' },
+        ],
+      };
+    }
+    assert.ok(isSpreadPrompt(prompt));
+    spreadPrompts.push(prompt);
+    return { cues: [7, 15, 23, 31].map((last, i) => ({ n: i + 1, last, fit: 'full' })) };
+  };
+  const result = await alignScript(cues, script, { callModel, targetLanguage: 'Hindi' });
+  assert.equal(spreadPrompts.length, 1);
+  // Only the paragraph's words are offered, never the line after it.
+  assert.doesNotMatch(spreadPrompts[0], /धन्यवाद/);
+  assert.deepEqual(result.cues.map((c) => c.text), [...sentences, 'अंत में धन्यवाद।']);
+  assert.ok(result.cues.every((c) => !c.flag && !c.estimated));
+  assert.equal(result.collapsed, 1);
+  assert.deepEqual(result.integrity, { preserved: true });
+});
+
+test('a cue the paragraph does not say stays empty and is marked missing, not filled', async () => {
+  const sentences = [0, 1, 2].map((k) => `${Array.from({ length: 10 }, (_, j) => `शब्द${k}${j}`).join(' ')}।`);
+  const script = `${sentences.join(' ')}\nअंत।`;
+  const cues = [0, 1, 2, 3, 4].map((i) => ({ id: `c${i}`, text: `English sentence number ${i} said here.` }));
+  const callModel = async (prompt) => {
+    if (isLinePrompt(prompt)) {
+      return { cues: [{ n: 1, last: 0 }, { n: 2, last: null }, { n: 3, last: null }, { n: 4, last: null }, { n: 5, last: 1 }] };
+    }
+    // The script has no translation for cue 4.
+    return { cues: [{ n: 1, last: 9 }, { n: 2, last: 19 }, { n: 3, last: 29 }, { n: 4, last: null, fit: 'none' }] };
+  };
+  const result = await alignScript(cues, script, { callModel });
+  assert.deepEqual(result.cues.map((c) => c.text), [...sentences, '', 'अंत।']);
+  assert.equal(result.cues[3].flag, 'missing');
+  assert.equal(result.cues[3].estimated, false);
+  assert.equal(result.cues[3].fit, 'none');
+  assert.ok(checkPreservation(script, result.cues.map((c) => c.text)).preserved);
+});
+
+test('a passage whose spread cannot be used stays in its cue, flagged, not cut by length', async () => {
+  const paragraph = Array.from({ length: 40 }, (_, j) => `पद${j}`).join(' ');
+  const script = `${paragraph}\nअंत।`;
+  const cues = [0, 1, 2, 3].map((i) => ({ id: `c${i}`, text: `English sentence number ${i} said here.` }));
+  const callModel = async (prompt) => {
+    if (isLinePrompt(prompt)) return { cues: [{ n: 1, last: 0 }, { n: 2, last: null }, { n: 3, last: null }, { n: 4, last: 1 }] };
+    throw Object.assign(new Error('cut off'), { code: 'bad_model_output' });
+  };
+  const result = await alignScript(cues, script, { callModel });
+  assert.deepEqual(result.cues.map((c) => c.text), [paragraph, '', '', 'अंत।']);
+  assert.equal(result.cues[0].flag, 'collapsed');
+  assert.deepEqual(result.unresolved, [{ firstCue: 1, lastCue: 1, reason: 'collapsed' }]);
+});
+
+/**
+ * A model that knows which cue each word says (word w says cue w / perCue),
+ * but takes every word in view when it is shown far more than its cues need,
+ * as a model asked not to leave words over can.
+ */
+const greedyModel = ({ perCue, calls }) => async (prompt) => {
+  if (isLocate(prompt)) return {};
+  calls.push(prompt);
+  const { start, stop } = wordRange(prompt);
+  const lines = promptCues(prompt);
+  const firstCue = Number(lines[0].match(/cue (\d+)/)[1]);
+  const wide = stop - start > lines.length * perCue * 1.3 + 12;
+  return {
+    cues: lines.map((_, i) => {
+      const last = wide ? Math.min(stop - 1, start + 3 * perCue * (i + 1) - 1) : (firstCue + i + 1) * perCue - 1;
+      return { n: i + 1, last: last >= start && last < stop ? last : undefined, fit: 'full' };
+    }),
+  };
+};
+
+test("a window that takes later cues' script is asked again, so the script does not run out early", async () => {
+  const perCue = 5;
+  const n = 100;
+  const cues = Array.from({ length: n }, (_, i) => ({ id: `c${i}`, text: `cue ${i} says one two three four` }));
+  const script = words(n * perCue).join(' ');
+
+  // Without a second look the first window swallows most of the script, so
+  // the cues after it cannot get their own words.
+  const before = await alignScript(cues, script, { callModel: greedyModel({ perCue, calls: [] }), guardBudget: 0 });
+  assert.ok(before.cues.slice(0, 24).every((c) => c.flag === 'overrun'));
+  assert.notEqual(before.cues[50].text, 'w250 w251 w252 w253 w254');
+  assert.ok(before.unresolved.some((r) => r.reason === 'overrun'));
+
+  const calls = [];
+  const result = await alignScript(cues, script, { callModel: greedyModel({ perCue, calls }) });
+  result.cues.forEach((cue, i) => assert.equal(cue.text, words(perCue).map((_, k) => `w${i * perCue + k}`).join(' '), `cue ${i + 1}`));
+  assert.ok(result.cues.every((c) => !c.flag));
+  assert.deepEqual(result.unresolved, []);
+  assert.ok(calls.length <= 4 + 8, `${calls.length} calls`);
+  assertWholeScript(result, script);
+});
+
+test('a script that really ends early leaves the rest empty and says where, after one bounded second look', async () => {
+  const perCue = 5;
+  const n = 60;
+  const cues = Array.from({ length: n }, (_, i) => ({ id: `c${i}`, text: `cue ${i} says one two three four` }));
+  // The script translates only the first 20 cues.
+  const script = words(20 * perCue).join(' ');
+  const calls = [];
+  const callModel = async (prompt) => {
+    if (isLocate(prompt)) return {};
+    calls.push(prompt);
+    const { start, stop } = wordRange(prompt);
+    const lines = promptCues(prompt);
+    const firstCue = Number(lines[0].match(/cue (\d+)/)[1]);
+    return {
+      cues: lines.map((_, i) => {
+        const last = (firstCue + i + 1) * perCue - 1;
+        // Past the end of the script nothing says the cue; past the words in
+        // view the model cannot say where it ends.
+        if (last >= 20 * perCue) return { n: i + 1, last: null, fit: 'none' };
+        return { n: i + 1, last: last >= start && last < stop ? last : undefined, fit: 'full' };
+      }),
+    };
+  };
+  const result = await alignScript(cues, script, { callModel });
+  result.cues.slice(0, 20).forEach((cue, i) => assert.equal(cue.text, words(perCue).map((_, k) => `w${i * perCue + k}`).join(' ')));
+  assert.ok(result.cues.slice(20).every((c) => c.text === '' && (c.flag === 'missing' || c.flag === 'ran-out')));
+  assert.ok(calls.length <= 8, `${calls.length} calls`);
+  assertWholeScript(result, script);
+});
+
+test('Indian punctuation, combining marks, joiners and mixed script come back exactly', async () => {
+  const script = 'नमस्ते… आज हम ध्यान की बात करेंगे। क्‍या आप तैयार हैं? AI मॉडल ॥ ক্ষমা করবেন। ਸਤਿ ਸ੍ਰੀ ਅਕਾਲ... ok';
+  const callModel = async () => ({ cues: [{ n: 1, last: 4 }, { n: 2, last: 4 }, { n: 3, last: 99 }, { n: 4, last: 9 }] });
+  const result = await alignScript(cuesOf(4), script, { callModel });
+  assert.deepEqual(result.integrity, { preserved: true });
+  assert.equal(result.cues.map((c) => c.text).filter(Boolean).join(' '), script);
+  for (const cue of result.cues) assert.doesNotMatch(cue.text, /^\p{M}|‍$/u, 'no cue starts inside a letter');
+});
+
+test('the preservation check catches added, dropped, repeated and reordered text', () => {
+  const script = 'एक दो।\nतीन चार…';
+  assert.deepEqual(checkPreservation(script, ['एक दो।', 'तीन', 'चार…']), { preserved: true });
+  assert.equal(checkPreservation(script, ['एक दो।', 'तीन चार… पाँच']).preserved, false);
+  assert.equal(checkPreservation(script, ['एक', 'तीन चार…']).preserved, false);
+  assert.equal(checkPreservation(script, ['एक दो।', 'दो। तीन चार…']).preserved, false);
+  assert.equal(checkPreservation(script, ['तीन चार…', 'एक दो।']).preserved, false);
+  assert.equal(checkPreservation(script, ['एक दो', 'तीन चार…']).preserved, false, 'punctuation counts');
+});
+
+test('only a long cue beside empty cues with English counts as collapsed', () => {
+  const weights = [20, 20, 20, 0, 20, 20];
+  const long = 'क'.repeat(120);
+  // Long, with empty speech cues after it: one run, stopping at the cue with no speech.
+  assert.deepEqual(findCollapsed([long, '', '', '', 'ख'.repeat(20), 'ग'.repeat(20)], weights, 0, 6), [{ from: 0, to: 3, cue: 0 }]);
+  // Equally long, but every neighbour has its own text: nothing to spread.
+  assert.deepEqual(findCollapsed([long, 'ख'.repeat(20), 'ग'.repeat(20), '', 'घ'.repeat(20), 'ङ'.repeat(20)], weights, 0, 6), []);
+  // Empty neighbours, but a cue of ordinary length.
+  assert.deepEqual(findCollapsed(['क'.repeat(20), '', 'ग'.repeat(20), '', '', 'ङ'.repeat(20)], weights, 0, 6), []);
 });

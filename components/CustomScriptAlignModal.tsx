@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Check, AlertCircle, RefreshCw, ClipboardPaste, ArrowUp, ArrowDown, Info, FileText, FolderOpen } from 'lucide-react';
 import { AudioSegment } from '../types';
-import { alignCustomScriptWithGemini, ScriptCoverage, ScriptFit } from '../services/geminiService';
+import { alignCustomScriptWithGemini, ScriptCoverage, ScriptFit, ScriptFlag, UnresolvedRange } from '../services/geminiService';
 import { readDhvaniScript, mapScriptToCues, DhvaniScript } from '../services/scriptShare';
 import {
   cleanPastedScript,
@@ -36,6 +36,7 @@ interface DraftRow {
   targetText: string;
   fit?: ScriptFit;
   estimated?: boolean;
+  flag?: ScriptFlag;
 }
 
 interface Progress {
@@ -57,7 +58,17 @@ const rowsFrom = (segments: AudioSegment[], texts?: string[]): DraftRow[] =>
     targetText: texts ? texts[i] ?? '' : seg.textTarget || seg.targetText || '',
   }));
 
-const needsCheck = (row: DraftRow) => Boolean(row.estimated || row.fit === 'partial' || row.fit === 'none');
+const needsCheck = (row: DraftRow) => Boolean(row.estimated || row.flag || row.fit === 'partial' || row.fit === 'none');
+
+/** What each unresolved range means, for the notice. */
+const UNRESOLVED: Record<UnresolvedRange['reason'], string> = {
+  'ran-out': 'your script ended before them, so they are empty — earlier cues may hold their words',
+  overrun: 'their part of the script took more than their English share and a second look could not settle it',
+  collapsed: 'a passage sat in one cue and could not be spread by meaning, so it was left there',
+};
+
+const describeUnresolved = (ranges: UnresolvedRange[]) =>
+  ranges.map((r) => `Cue${r.firstCue === r.lastCue ? ` ${r.firstCue}` : `s ${r.firstCue}–${r.lastCue}`}: ${UNRESOLVED[r.reason]}.`).join(' ');
 
 const WAYS: { id: AlignmentStrategy; title: string; hint: string; tag?: string }[] = [
   {
@@ -227,7 +238,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     abortRef.current = controller;
     setProgress({ done: 0, total: segments.length, message: 'Reading your script' });
     try {
-      const { cues: aligned, coverage } = await alignCustomScriptWithGemini(segments, script, targetLanguage, {
+      const { cues: aligned, coverage, unresolved, collapsed } = await alignCustomScriptWithGemini(segments, script, targetLanguage, {
         signal: controller.signal,
         coverage: chosen,
         onProgress: (done, total, message) => setProgress({ done, total: total || segments.length, message }),
@@ -236,7 +247,11 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
         ...row,
         fit: aligned[i].fit,
         estimated: aligned[i].estimated,
+        // Placing words never changes timing, so a cue with no length is only pointed out.
+        flag: segments[i].endTime - segments[i].startTime < 0.01 ? ('zero-length' as const) : aligned[i].flag,
       }));
+      const zeroLength = rows.filter((row) => row.flag === 'zero-length').length;
+      const missing = rows.filter((row) => row.flag === 'missing').length;
       setDraft(rows);
       setFittedScript(script);
       // Cues outside what the script covers are explained by the note below.
@@ -252,6 +267,10 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
             : `Your script seems to cover cues ${coverage.firstCue}–${coverage.lastCue}, so the cues outside that were left empty. If that's wrong, change the range below.`
         );
       }
+      if (collapsed) notes.push(`${collapsed} ${collapsed === 1 ? 'passage that sat' : 'passages that sat'} in one cue ${collapsed === 1 ? 'was' : 'were'} spread over the cues ${collapsed === 1 ? 'it says' : 'they say'}.`);
+      if (missing) notes.push(`${missing} ${missing === 1 ? 'cue has' : 'cues have'} English your script does not say, so ${missing === 1 ? 'it was' : 'they were'} left empty (marked Not in script).`);
+      if (unresolved.length) notes.push(describeUnresolved(unresolved));
+      if (zeroLength) notes.push(`${zeroLength} ${zeroLength === 1 ? 'cue has' : 'cues have'} no length in the timeline; fix their timing before dubbing.`);
       notes.push(
         flagged
           ? `${flagged} ${flagged === 1 ? 'cue needs' : 'cues need'} a look. Use "Only cues to check" to go through them.`
@@ -287,32 +306,54 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
    */
   const fitByTime = async (script: Extract<DhvaniScript, { kind: 'cues' }>, notes: string[]) => {
     const map = mapScriptToCues(script.file, segments, { audioDuration, coarse: script.coarse });
-    let rows: DraftRow[] = rowsFrom(segments, map.texts).map((row, i) => ({
-      ...row,
-      estimated: map.estimated[i],
+    const zero = new Set(map.zeroLength);
+    let rows: DraftRow[] = rowsFrom(segments, map.texts).map((row, i) => {
       // In a placement by time, a cue no line falls on said nothing in the script.
-      fit: map.match === 'timed' && !map.texts[i].trim() && row.englishText.trim() ? 'none' : undefined,
-    }));
+      const unsaid = !map.texts[i].trim() && row.englishText.trim();
+      return {
+        ...row,
+        estimated: map.estimated[i],
+        fit: map.match === 'timed' && unsaid ? 'none' : undefined,
+        flag: zero.has(i) ? 'zero-length' : unsaid ? 'missing' : undefined,
+      };
+    });
     setDraft(rows);
     setFittedScript(cleaned.text);
     setOnlyToCheck(false);
     const lineCount = script.file.cues.filter((c) => c.target.trim()).length;
     if (map.match === 'same') {
-      notes.push('The script has these very cues, so each line went back to its cue.');
-      setNotice(notes.join(' '));
-      return;
+      notes.push(
+        map.identity === 'text'
+          ? 'The script has these very cues (its English matches cue for cue), so each line went back to its cue.'
+          : 'The script has as many cues at the same times, so each line went back to its cue. It has no English to confirm that, so check a few.'
+      );
+    } else {
+      if (map.sourceDiffers) notes.push(`The script has ${segments.length} cues too, but its English is not this transcript's, so its lines were not matched cue for cue.`);
+      notes.push(`The script's ${lineCount} lines were cut differently from these ${segments.length} cues, so each line went to the cue at its time.`);
+      if (script.coarse) notes.push('Its times are to the second, so check where lines meet.');
     }
-    notes.push(`The script's ${lineCount} lines were cut differently from these ${segments.length} cues, so each line went to the cue at its time.`);
-    if (script.coarse) notes.push('Its times are to the second, so check where lines meet.');
+    if (zero.size) {
+      notes.push(
+        `${zero.size} ${zero.size === 1 ? 'cue has' : 'cues have'} no length in the timeline. Their lines were kept; fix their timing before dubbing.`
+      );
+    }
 
     if (map.windows.length > 0) {
       const controller = new AbortController();
       abortRef.current = controller;
       let failed = 0;
+      let unspread = 0;
       try {
         for (const [w, window] of map.windows.entries()) {
           if (controller.signal.aborted) break;
-          setProgress({ done: w, total: map.windows.length, message: `Placing lines that run over several cues (${w + 1} of ${map.windows.length})` });
+          setProgress({
+            done: w,
+            total: map.windows.length,
+            message:
+              window.kind === 'collapsed'
+                ? `Spreading passages that sat in one cue (${w + 1} of ${map.windows.length})`
+                : `Placing lines that run over several cues (${w + 1} of ${map.windows.length})`,
+          });
           try {
             const { cues } = await alignCustomScriptWithGemini(
               window.cues.map((i) => segments[i]),
@@ -320,23 +361,45 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
               targetLanguage,
               { signal: controller.signal }
             );
+            // A passage that could only be spread by length stays where the file has it.
+            const speech = window.cues.filter((i) => rows[i].englishText.trim());
+            if (window.kind === 'collapsed' && speech.filter((i) => cues[window.cues.indexOf(i)].estimated).length > speech.length / 2) {
+              unspread += 1;
+              rows = rows.map((row, i) => (i === window.cues.find((c) => map.texts[c].trim()) ? { ...row, flag: 'collapsed' } : row));
+              setDraft(rows);
+              continue;
+            }
             rows = rows.map((row, i) => {
               const at = window.cues.indexOf(i);
-              return at < 0 ? row : { ...row, targetText: cues[at].targetText, fit: cues[at].fit, estimated: cues[at].estimated };
+              if (at < 0) return row;
+              const cue = cues[at];
+              return { ...row, targetText: cue.targetText, fit: cue.fit, estimated: cue.estimated, flag: zero.has(i) ? 'zero-length' : cue.flag };
             });
             setDraft(rows);
           } catch (err) {
             if (controller.signal.aborted) break;
-            console.warn('Placing a line by meaning failed; it stays split by length:', err);
-            failed += 1;
+            console.warn('Placing by meaning failed; the lines stay as they were:', err);
+            if (window.kind === 'collapsed') {
+              unspread += 1;
+              rows = rows.map((row, i) => (i === window.cues.find((c) => map.texts[c].trim()) ? { ...row, flag: 'collapsed' } : row));
+              setDraft(rows);
+            } else failed += 1;
           }
         }
       } finally {
         abortRef.current = null;
         setProgress(null);
       }
-      if (controller.signal.aborted) notes.push('Stopped: lines not yet placed by meaning are split by length.');
-      else if (failed) setErrorMsg(`${failed} of ${map.windows.length} lines that run over several cues could not be placed by meaning, so they are split by length. Check the cues marked Estimated.`);
+      if (controller.signal.aborted) notes.push('Stopped: lines not yet placed by meaning are left as they were.');
+      else {
+        const problems = [
+          failed &&
+            `${failed} ${failed === 1 ? 'line' : 'lines'} that run over several cues could not be placed by meaning, so they are split by length (marked Estimated).`,
+          unspread &&
+            `${unspread} ${unspread === 1 ? 'passage' : 'passages'} that sat in one cue could not be spread by meaning, so ${unspread === 1 ? 'it was' : 'they were'} left as in your file (marked Not spread).`,
+        ].filter(Boolean);
+        if (problems.length) setErrorMsg(problems.join(' '));
+      }
     }
     const flagged = rows.filter(needsCheck).length;
     notes.push(
@@ -386,7 +449,9 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     setDraft((rows) =>
       rows.map((row, i) =>
         // A cue edited by hand counts as checked.
-        touched.includes(i) ? { ...row, targetText: texts[i], fit: undefined, estimated: false } : { ...row, targetText: texts[i] }
+        touched.includes(i)
+          ? { ...row, targetText: texts[i], fit: undefined, estimated: false, flag: row.flag === 'zero-length' ? row.flag : undefined }
+          : { ...row, targetText: texts[i] }
       )
     );
 
@@ -735,6 +800,16 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                 const flag = hasAligned
                   ? item.estimated
                     ? { label: 'Estimated', tone: 'amber', hint: "The AI's answer for this cue couldn't be used, so it was placed by length. Check where it starts and ends." }
+                    : item.flag === 'zero-length'
+                      ? { label: 'Zero length', tone: 'amber', hint: 'This cue has no length in the timeline. Its line is kept; fix its timing before dubbing.' }
+                    : item.flag === 'ran-out'
+                      ? { label: 'Script ended', tone: 'rose', hint: 'Your script ended before this cue. If it does say this English, an earlier cue holds those words.' }
+                    : item.flag === 'overrun'
+                      ? { label: 'Check placement', tone: 'amber', hint: 'This part of your script took more than its English share. Check that these words are not from later cues.' }
+                    : item.flag === 'collapsed'
+                      ? { label: 'Not spread', tone: 'amber', hint: 'This passage seems to say the empty cues next to it too, but it could not be spread by meaning. Move its words by hand.' }
+                    : item.flag === 'missing'
+                      ? { label: 'Not in script', tone: 'rose', hint: 'Your script has nothing for this English, so the cue was left empty rather than filled.' }
                     : item.fit === 'none'
                       ? { label: 'No match', tone: 'rose', hint: 'Nothing in your script seemed to say this English.' }
                       : item.fit === 'partial'
