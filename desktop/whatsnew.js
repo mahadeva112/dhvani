@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.93',
+    changes: [
+      'Matching a long script by meaning no longer leaves a whole paragraph in one cue with the cues after it empty: the paragraph is spread over the cues it says, using only your words.',
+      'Every cue left empty now says why (Not in script, Script ended, Not spread, Zero length), and a script file opens cue for cue only when its English matches this transcript.',
+    ],
+  },
+  {
     version: '1.3.92',
     changes: [
       'The transcript can be exported before translating: Dhvani JSON to carry on later (open it with Import project and pick the audio), paragraph text, or one subtitle per segment.',
