@@ -215,20 +215,126 @@ export interface ScriptMapping {
   /** Cues whose text came from a line split over several cues by length; check them, or place them by meaning. */
   estimated: boolean[];
   /**
-   * Runs of cues that share lines of the file which were split over them by
-   * length. Each can be placed again by meaning on its own: `text` is the
-   * lines, in order, and `cues` the indexes of this project's cues.
+   * Runs of cues to place again by meaning, each on its own: `text` is the
+   * file's words for them, in order, and `cues` the indexes of this
+   * project's cues. 'split': lines that run over several cues, split over
+   * them by length for now. 'collapsed': a passage the file has in one cue
+   * beside cues with English but no line, left where the file has it for now.
    */
-  windows: { cues: number[]; text: string }[];
+  windows: { cues: number[]; text: string; kind: 'split' | 'collapsed' }[];
   /** Set when the file was timed on audio of another length. */
   audioMismatch: { file: number; here: number } | null;
+  /**
+   * How a 'same' match was proven: 'text' when the English matches cue for
+   * cue, 'time' for an older file with no English, matched by times alone.
+   */
+  identity?: 'text' | 'time';
+  /** The file has as many cues, but its English is not this transcript's. */
+  sourceDiffers?: boolean;
+  /** Cues here with no length in the timeline; their lines are kept, and their timing needs a look. */
+  zeroLength: number[];
 }
+
+/** Shorter than this, a span is a point in time. */
+const POINT = 0.01;
 
 /** Overlap in seconds above which a line of the file and a cue here are taken to say the same thing. */
 const linkedBy = (a: { start: number; end: number }, b: { start: number; end: number }) => {
   const overlap = Math.min(a.end, b.end) - Math.max(a.start, b.start);
+  // A span with no length overlaps nothing, so it goes with the span it falls in.
+  const point = b.end - b.start < POINT ? b : a.end - a.start < POINT ? a : null;
+  if (point) {
+    const span = point === b ? a : b;
+    const inside = point.start >= span.start - POINT && point.start <= span.end + POINT;
+    return { overlap: inside ? Math.max(overlap, POINT) : overlap, linked: inside };
+  }
   const shorter = Math.max(0.01, Math.min(a.end - a.start, b.end - b.start));
   return { overlap, linked: overlap >= Math.max(0.12, shorter * 0.2) };
+};
+
+/** Text compared without case, punctuation or spacing. */
+const bare = (text: string) =>
+  text
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[\p{P}\p{S}\s]/gu, '');
+
+/** How alike two bare texts are, 0 to 1, by the letter pairs they share. */
+const likeness = (a: string, b: string) => {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const pairs = new Map<string, number>();
+  for (let i = 0; i < a.length - 1; i += 1) pairs.set(a.slice(i, i + 2), (pairs.get(a.slice(i, i + 2)) ?? 0) + 1);
+  let shared = 0;
+  for (let i = 0; i < b.length - 1; i += 1) {
+    const left = pairs.get(b.slice(i, i + 2)) ?? 0;
+    if (left > 0) {
+      shared += 1;
+      pairs.set(b.slice(i, i + 2), left - 1);
+    }
+  }
+  return (2 * shared) / (a.length + b.length - 2);
+};
+
+/** Cue English this alike counts as the same line, so a small fix after export still matches. */
+const SAME_LINE = 0.85;
+/** Share of cues whose English must match for a file to have these very cues. */
+const SAME_CUES = 0.95;
+
+/**
+ * Whether a file holds this project's very cues, in order. The count alone
+ * proves nothing: the English must match cue for cue. A file with no English
+ * (older exports) can only be matched by its times.
+ */
+const cueIdentity = (file: ScriptFile, segments: AudioSegment[], tolerance: number): 'text' | 'time' | 'differs' | null => {
+  if (file.cues.length !== segments.length || segments.length === 0) return null;
+  const timesMatch = file.cues.every(
+    (c, i) => Math.abs(c.start - segments[i].startTime) <= tolerance && Math.abs(c.end - segments[i].endTime) <= tolerance
+  );
+  const pairs = file.cues.map((c, i) => [bare(c.source), bare(sourceOf(segments[i]))]).filter(([a, b]) => a || b);
+  if (!file.cues.some((c) => c.source.trim()) || pairs.length === 0) return timesMatch ? 'time' : null;
+  const alike = pairs.filter(([a, b]) => likeness(a, b) >= SAME_LINE).length;
+  return alike >= pairs.length * SAME_CUES ? 'text' : 'differs';
+};
+
+/** How much of a script a cue should take: its English length, 0 for no speech. */
+const speechWeight = (seg: AudioSegment) => {
+  const text = sourceOf(seg)
+    .replace(/\[[^\]]*\]|\([^)]*\)|[♪♫]/g, ' ')
+    .trim();
+  return text ? Math.max(1, text.length) : 0;
+};
+
+/**
+ * Passages left in one cue beside cues with English but no line, as runs of
+ * cue indexes, `cue` being the one that holds the passage. Same rule as the
+ * server's `findCollapsed` (server/lib/scriptAlign.js).
+ */
+export const findCollapsedCues = (texts: string[], weights: number[], skip: Set<number> = new Set()) => {
+  const RATIO = 2.5;
+  const CHARS = 60;
+  const REACH = 12;
+  const chars = texts.map((t) => t.replace(/\s+/g, '').length);
+  const totalChars = chars.reduce((a, b) => a + b, 0);
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  if (!totalChars || !totalWeight) return [];
+  const rate = totalChars / totalWeight;
+  const gap = (j: number) => weights[j] > 0 && !texts[j].trim() && !skip.has(j);
+  const runs: { from: number; to: number; cue: number }[] = [];
+  let floor = 0;
+  for (let i = 0; i < texts.length; i += 1) {
+    const share = weights[i] * rate;
+    if (skip.has(i) || !chars[i] || chars[i] < share * RATIO || chars[i] - share < CHARS) continue;
+    let first = i;
+    while (first - 1 >= floor && i - (first - 1) <= REACH && gap(first - 1)) first -= 1;
+    let last = i;
+    while (last + 1 < texts.length && last + 1 - i <= REACH && gap(last + 1)) last += 1;
+    if (first === i && last === i) continue;
+    runs.push({ from: first, to: last + 1, cue: i });
+    floor = last + 1;
+    i = last;
+  }
+  return runs;
 };
 
 /** Splits text over cues by their length, on word boundaries, in order. */
@@ -255,7 +361,9 @@ export const splitOverCues = (text: string, durations: number[]): string[] => {
 
 /**
  * Puts each line of a script file on this project's cues. When the cues are
- * the ones the file was saved from, each line goes back to its cue. Otherwise
+ * the ones the file was saved from (proven by their English, cue for cue, not
+ * by their count), each line goes back to its cue, even a cue with no length.
+ * Otherwise
  * each line goes to the cues it overlaps in time: lines that fall inside one
  * cue join it whole, and a line that runs over several cues is split over
  * them by length and returned as a window to place by meaning. Every line of
@@ -273,16 +381,24 @@ export const mapScriptToCues = (
       ? { file: fileDuration, here: audioDuration }
       : null;
   const n = segments.length;
-  const empty = { texts: segments.map(() => ''), estimated: segments.map(() => false), windows: [], audioMismatch };
+  const zeroLength = segments.flatMap((s, i) => (s.endTime - s.startTime < POINT ? [i] : []));
+  const empty = { texts: segments.map(() => ''), estimated: segments.map(() => false), windows: [], audioMismatch, zeroLength };
+  const weights = segments.map(speechWeight);
+  /** Passages the file left in one cue, to spread by meaning; cues already in a window are left out. */
+  const collapsedWindows = (texts: string[], taken: Set<number>) =>
+    findCollapsedCues(texts, weights, taken).map((run) => ({
+      cues: Array.from({ length: run.to - run.from }, (_, k) => run.from + k),
+      text: texts[run.cue],
+      kind: 'collapsed' as const,
+    }));
 
-  const tolerance = coarse ? 1.01 : 0.25;
-  if (
-    file.cues.length === n &&
-    file.cues.every((c, i) => Math.abs(c.start - segments[i].startTime) <= tolerance && Math.abs(c.end - segments[i].endTime) <= tolerance)
-  ) {
-    return { ...empty, match: 'same', texts: file.cues.map((c) => c.target.trim()) };
+  const identity = cueIdentity(file, segments, coarse ? 1.01 : 0.25);
+  if (identity === 'text' || identity === 'time') {
+    const texts = file.cues.map((c) => c.target.trim());
+    return { ...empty, match: 'same', identity, texts, windows: collapsedWindows(texts, new Set()) };
   }
-  if (n === 0 || lines.length === 0) return { ...empty, match: 'timed' };
+  const sourceDiffers = identity === 'differs';
+  if (n === 0 || lines.length === 0) return { ...empty, match: 'timed', sourceDiffers };
 
   const cues = segments.map((s) => ({ start: s.startTime, end: s.endTime }));
   // Lines and cues joined by overlap; each connected group is placed together.
@@ -340,7 +456,7 @@ export const mapScriptToCues = (
 
   const texts = segments.map(() => '');
   const estimated = segments.map(() => false);
-  const windows: { cues: number[]; text: string }[] = [];
+  const windows: ScriptMapping['windows'] = [];
   for (const run of runs) {
     const text = run.lines
       .sort((a, b) => a - b)
@@ -356,7 +472,8 @@ export const mapScriptToCues = (
       texts[ci] = split[i];
       estimated[ci] = true;
     });
-    windows.push({ cues: indexes, text });
+    windows.push({ cues: indexes, text, kind: 'split' });
   }
-  return { match: 'timed', texts, estimated, windows, audioMismatch };
+  windows.push(...collapsedWindows(texts, new Set(windows.flatMap((w) => w.cues))));
+  return { match: 'timed', texts, estimated, windows, audioMismatch, sourceDiffers, zeroLength };
 };

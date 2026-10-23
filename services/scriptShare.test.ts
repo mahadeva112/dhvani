@@ -134,7 +134,82 @@ test('a line over several cues is split by length and returned to place by meani
   const map = mapScriptToCues(fileOf([[0, 4, 'এক দুই তিন চার'], [4, 6, 'পাঁচ']]), segments);
   assert.deepEqual(map.texts, ['এক দুই', 'তিন চার', 'পাঁচ']);
   assert.deepEqual(map.estimated, [true, true, false]);
-  assert.deepEqual(map.windows, [{ cues: [0, 1], text: 'এক দুই তিন চার' }]);
+  assert.deepEqual(map.windows, [{ cues: [0, 1], text: 'এক দুই তিন চার', kind: 'split' }]);
+});
+
+/** A file saved from these cues: their English and times, with the given targets. */
+const savedFrom = (segments: AudioSegment[], targets: string[], shift = 0): ScriptFile => ({
+  ...buildScriptFile(segments, { targetLanguage: 'Hindi' }),
+  cues: segments.map((s, i) => ({ start: s.startTime + shift, end: s.endTime + shift, source: s.textSource || '', target: targets[i] })),
+});
+
+test('the same cues, proven by their English, map one to one, zero-length cues included', () => {
+  const segments = [
+    seg(1, 0, 2, 'When you sit,'),
+    seg(2, 2, 2, 'just'),
+    seg(3, 2, 4, 'close your eyes.'),
+    seg(4, 4, 4, 'Breathe.'),
+  ];
+  const targets = ['जब आप बैठें,', 'बस', 'आँखें बंद करें।', 'साँस लें…'];
+  // Times saved a second late, as from a re-timed transcript: the English still matches.
+  const map = mapScriptToCues(savedFrom(segments, targets, 1), segments);
+  assert.equal(map.match, 'same');
+  assert.equal(map.identity, 'text');
+  assert.deepEqual(map.texts, targets);
+  assert.deepEqual(map.windows, []);
+  assert.deepEqual(map.zeroLength, [1, 3]);
+});
+
+test('as many cues with the same times but other English are not taken for the same cues', () => {
+  const segments = [seg(1, 0, 2, 'Good morning everyone.'), seg(2, 2, 4, 'Today we talk about sleep.')];
+  const file = savedFrom([seg(1, 0, 2, 'Welcome to the program.'), seg(2, 2, 4, 'Let us begin with a story.')], ['स्वागत है।', 'कहानी से शुरू करें।']);
+  const map = mapScriptToCues(file, segments);
+  assert.equal(map.match, 'timed');
+  assert.equal(map.sourceDiffers, true);
+  assert.equal(map.identity, undefined);
+});
+
+test('an older file with no English is matched by its times only', () => {
+  const segments = [seg(1, 0, 2.5, 'Hello'), seg(2, 2.6, 5, 'there')];
+  const map = mapScriptToCues(fileOf([[0, 2.5, 'এক'], [2.62, 5.01, 'দুই']]), segments);
+  assert.equal(map.match, 'same');
+  assert.equal(map.identity, 'time');
+});
+
+test('a passage the file holds in one cue, beside empty cues with English, is returned to spread by meaning', () => {
+  const segments = [
+    seg(1, 0, 2, 'This is the first thing.'),
+    seg(2, 2, 4, 'Look at how the mind works.'),
+    seg(3, 4, 6, 'It keeps running all day long.'),
+    seg(4, 6, 8, 'Even in sleep it does not stop.'),
+    seg(5, 8, 10, 'That is the last thing.'),
+  ];
+  const paragraph = 'देखिए मन कैसे काम करता है। यह दिन भर दौड़ता रहता है, रुकता नहीं। नींद में भी यह बिल्कुल नहीं रुकता, लगातार चलता ही रहता है।';
+  const targets = ['यह पहली बात है।', paragraph, '', '', 'यह आख़िरी बात है।'];
+  const map = mapScriptToCues(savedFrom(segments, targets), segments);
+  assert.equal(map.match, 'same');
+  // Nothing is moved yet: the passage stays where the file has it until it is placed by meaning.
+  assert.deepEqual(map.texts, targets);
+  assert.deepEqual(map.windows, [{ cues: [1, 2, 3], text: paragraph, kind: 'collapsed' }]);
+});
+
+test('a cue the file has no line for stays empty when its neighbours are ordinary', () => {
+  const segments = [seg(1, 0, 2, 'One thing.'), seg(2, 2, 4, 'Another thing.'), seg(3, 4, 6, 'A third thing.')];
+  const targets = ['एक बात।', '', 'तीसरी बात।'];
+  const map = mapScriptToCues(savedFrom(segments, targets), segments);
+  assert.deepEqual(map.texts, targets);
+  assert.deepEqual(map.windows, []);
+});
+
+test('a zero-length cue inside a timed line is linked to it instead of losing its text', () => {
+  const segments = [seg(1, 0, 2, 'Sit'), seg(2, 2, 2, 'and'), seg(3, 2, 4, 'rest')];
+  // The file was cut differently: one line over the first two cues, then one more.
+  const file = fileOf([[0, 2, 'बैठिए और'], [2.01, 4, 'आराम कीजिए']]);
+  const map = mapScriptToCues(file, segments);
+  assert.equal(map.match, 'timed');
+  assert.deepEqual(map.zeroLength, [1]);
+  assert.ok(map.windows.some((w) => w.cues.includes(1)), 'the zero-length cue is placed by meaning with its line');
+  assert.equal(map.texts.join(' ').split(/\s+/).filter(Boolean).join(' '), 'बैठिए और आराम कीजिए');
 });
 
 test('a small timing slip at a cue edge does not pull a line into the next cue', () => {

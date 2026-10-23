@@ -159,6 +159,24 @@ export interface AlignedCue {
   fit?: ScriptFit;
   /** Placed by length because the model's answer was unusable or missing. */
   estimated: boolean;
+  /** Why the cue needs a look beyond its fit, when it does. */
+  flag?: ScriptFlag;
+}
+
+/**
+ * Why a placed cue needs a look. 'missing': the script does not say this
+ * English. 'ran-out': the script ended before this cue. 'overrun': its window
+ * took more of the script than its English share and a second look could not
+ * settle it. 'collapsed': a passage sat in one cue beside empty cues and could
+ * not be spread by meaning. 'zero-length': the cue has no length in the timeline.
+ */
+export type ScriptFlag = 'missing' | 'ran-out' | 'overrun' | 'collapsed' | 'zero-length';
+
+/** A run of cues, 1-based, that alignment could not settle. */
+export interface UnresolvedRange {
+  firstCue: number;
+  lastCue: number;
+  reason: 'overrun' | 'ran-out' | 'collapsed';
 }
 
 /**
@@ -180,12 +198,14 @@ export const alignCustomScriptWithGemini = async (
     /** The cues the script covers, when the user has said; otherwise it is found. */
     coverage?: ScriptCoverage | null;
   } = {}
-): Promise<{ cues: AlignedCue[]; coverage: ScriptCoverage | null }> => {
-  if (!segments?.length || !pastedScript.trim()) return { cues: [], coverage: null };
+): Promise<{ cues: AlignedCue[]; coverage: ScriptCoverage | null; unresolved: UnresolvedRange[]; collapsed: number }> => {
+  if (!segments?.length || !pastedScript.trim()) return { cues: [], coverage: null, unresolved: [], collapsed: 0 };
 
   const response = await apiStream<{
-    alignedCues: { id: string; targetText: string; fit?: ScriptFit; estimated?: boolean }[];
+    alignedCues: { id: string; targetText: string; fit?: ScriptFit; estimated?: boolean; flag?: ScriptFlag }[];
     coverage?: ScriptCoverage | null;
+    unresolved?: UnresolvedRange[];
+    collapsed?: number;
   }>(
     '/translation/align',
     {
@@ -210,9 +230,10 @@ export const alignCustomScriptWithGemini = async (
       targetText: cue?.targetText || '',
       fit: cue?.fit,
       estimated: Boolean(cue?.estimated),
+      flag: cue?.flag,
     };
   });
-  return { cues, coverage: response.coverage ?? null };
+  return { cues, coverage: response.coverage ?? null, unresolved: response.unresolved ?? [], collapsed: response.collapsed ?? 0 };
 };
 
 /** Detects the speaker's expression/tone from the audio. */

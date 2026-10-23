@@ -190,7 +190,9 @@ export const resolveBoundaries = ({ answers, weights, start, stop, final, rate }
   // A forced last cue is estimated unless the model's own answer agreed.
   if (final && count > 0 && !answered.has(count - 1)) {
     const own = Number(answers[count - 1]);
-    estimated[count - 1] = !(Number.isInteger(own) && own + 1 === stop);
+    // A last cue the model left empty that took no words is its answer, not a guess.
+    const leftEmpty = answers[count - 1] === null && ends[count - 1] === (count > 1 ? ends[count - 2] : start);
+    estimated[count - 1] = !leftEmpty && !(Number.isInteger(own) && own + 1 === stop);
   }
   // A cue the model left empty that still had to take words is a guess too.
   ends.forEach((end, i) => {
@@ -420,6 +422,22 @@ export const ALIGN_DEFAULTS = {
   splitAloneCues: 12,
   splitAloneWords: 200,
   parallelSplits: 4,
+  // A window whose cues take more than this many times their English share
+  // of the script's characters (and this many more characters), leaving the
+  // cues after them under `starvedShare` of theirs, is asked again.
+  overrunRatio: 2.2,
+  overrunChars: 120,
+  starvedShare: 0.7,
+  // Windows placed again when the script runs out with cues to go.
+  revisitWindows: 3,
+  // Second looks a whole run may take, so a hard script costs a few calls more, not many.
+  guardBudget: 8,
+  // A cue holding this many times its share, beside cues with English but no
+  // script, holds a passage that was not spread; at most this many are.
+  collapseRatio: 2.5,
+  collapseChars: 60,
+  collapseReach: 12,
+  collapseRuns: 24,
 };
 
 /** The script's own lines, each as one unit. */
@@ -437,47 +455,146 @@ const LINE_RULE =
  * Places units (words or whole lines) onto cues `from`..`to`-1, window by
  * window. Returns each cue's span of units; `inside` marks a cue whose end
  * falls partway through a unit, or was only estimated.
+ *
+ * A window that takes far more of the script than its cues' English share,
+ * leaving the cues after it starved, is asked again with only its share in
+ * view, so it cannot take what later cues say. When the script still runs
+ * out with cues to go, the last few windows are placed again that way once.
+ * What stays unsure is flagged on the cues, never filled in.
  */
 const placeUnits = async ({ cues, tokens, weights, from, to, units, ctx, extraRules, onProgress }) => {
-  const { overlap, slack, margin, minWindow, attempts } = ctx.settings;
+  const { overlap, slack, margin, minWindow, attempts, overrunRatio, overrunChars, starvedShare, revisitWindows } = ctx.settings;
   const windowSize = units === 'lines' ? ctx.settings.lineWindowSize : ctx.settings.windowSize;
-  const { callModel, targetLanguage, isCancelled, onWindowError, report, state } = ctx;
+  const { callModel, targetLanguage, isCancelled, onWindowError, report, state, guard } = ctx;
   const total = tokens.length;
   const buildPrompt = units === 'lines' ? buildLinePrompt : buildAlignPrompt;
   const spans = [];
   let cueIndex = from;
   let cursor = 0;
 
+  // Script characters before each unit, to measure what a window took.
+  const charsBefore = [0];
+  for (const token of tokens) charsBefore.push(charsBefore[charsBefore.length - 1] + token.text.length);
+  const charsIn = (a, b) => charsBefore[b] - charsBefore[a];
+
+  // Where each committed window started, so a window can be placed again.
+  const history = [];
+  // Windows that start before this cue only see their share of the script.
+  let strictUntil = -1;
+  let revisited = false;
+  // Set when the model placed the script's last word and said the cues after it are not in it.
+  let endedByModel = false;
+
   /** Which cues and units one call covers, for a window of `size` cues. */
-  const planWindow = (size) => {
+  const planWindow = (size, strict = false) => {
     const keep = Math.min(overlap, Math.floor(size / 4));
     const remainingCues = to - cueIndex;
     const final = remainingCues <= size + keep;
     const count = final ? remainingCues : size;
     const windowWeights = weights.slice(cueIndex, cueIndex + count);
     const rate = (total - cursor) / (sum(weights.slice(cueIndex, to)) || 1);
+    const reach = strict
+      ? Math.ceil(sum(windowWeights) * rate * 1.15) + Math.ceil(margin / 4)
+      : Math.ceil(sum(windowWeights) * rate * slack) + margin;
     return {
       final,
+      strict,
       count,
       commit: final ? count : count - keep,
       windowCues: cues.slice(cueIndex, cueIndex + count),
       windowWeights,
       rate,
-      slice: final ? total : Math.min(total, cursor + Math.ceil(sum(windowWeights) * rate * slack) + margin),
+      slice: final ? total : Math.min(total, cursor + Math.max(1, reach)),
     };
+  };
+
+  /**
+   * Whether a window's committed cues took far more of the script than their
+   * English share and left the cues after them starved: the sign of a window
+   * that took what later cues say. Length is only a warning sign, so this
+   * triggers a second look, never a cut by length.
+   */
+  const overran = (plan, { ends }, answers) => {
+    if (plan.final) return false;
+    // The script's last word was placed and the model said the cues after it
+    // are not in the script: the script ends here, nothing was taken.
+    if (scriptEnded(plan, ends, answers)) return false;
+    const committed = sum(plan.windowWeights.slice(0, plan.commit));
+    const after = sum(weights.slice(cueIndex + plan.commit, to));
+    if (!after || !committed) return false;
+    const left = charsIn(cursor, total);
+    const used = charsIn(cursor, ends[plan.commit - 1]);
+    const share = (left * committed) / (committed + after);
+    return used > share * overrunRatio && used - share > overrunChars && left - used < (left - share) * starvedShare;
+  };
+
+  /** Whether the reply used the script's last word and said no later cue in view is in it. */
+  const scriptEnded = (plan, ends, answers) => {
+    const k = ends.findIndex((end) => end >= total);
+    if (k < 0 || k === ends.length - 1) return false;
+    return answers.slice(k + 1).every((a, j) => a === null || !plan.windowWeights[k + 1 + j]);
+  };
+
+  /** One call for a window; a failed or unusable reply is placed by length. */
+  const ask = async (plan, previous) => {
+    let answers = new Array(plan.count).fill(undefined);
+    let fits = new Array(plan.count).fill(undefined);
+    let inside = new Array(plan.count).fill(false);
+    let failure = null;
+    let givenUp = false;
+    try {
+      const parsed = await callModel(
+        buildPrompt({ cues: plan.windowCues, tokens, start: cursor, stop: plan.slice, final: plan.final, targetLanguage, previous, extraRules })
+      );
+      state.reached = true;
+      ({ answers, fits, inside } = readAnswers(parsed, plan.count, tokens));
+      givenUp = looksGivenUp(answers, fits, plan.windowWeights);
+    } catch (err) {
+      if (err?.code === 'cancelled' || isCancelled?.()) throw err;
+      // A bad key or a bad request will not get better by asking again.
+      if (err?.retryable === false && err?.status && err.status < 500) throw err;
+      // Network faults were already retried by the client, so the model
+      // cannot be reached; say so instead of guessing every cue.
+      const badReply = err?.code === 'bad_model_output';
+      if (!badReply && !state.reached) throw err;
+      failure = err;
+    }
+    const resolved = resolveBoundaries({ answers, weights: plan.windowWeights, start: cursor, stop: plan.slice, final: plan.final, rate: plan.rate });
+    return { answers, fits, inside, failure, givenUp, resolved };
   };
 
   while (cueIndex < to) {
     if (isCancelled?.()) throw Object.assign(new Error('Alignment was cancelled.'), { code: 'cancelled' });
 
-    let plan = planWindow(windowSize);
+    let plan = planWindow(windowSize, cueIndex < strictUntil);
     report.windows += 1;
 
     if (cursor >= total) {
-      // The script ran out before the cues did.
+      // The script ran out before the cues did. When cues with speech are
+      // left, the windows before probably took their words: place the last
+      // few again, each seeing only its share of the script, once.
+      const speechLeft = weights.slice(cueIndex, to).filter(Boolean).length;
+      if (speechLeft >= 3 && !revisited && !endedByModel && history.length && guard.budget > 0) {
+        revisited = true;
+        guard.budget -= 1;
+        report.windows -= 1;
+        const back = Math.max(0, history.length - revisitWindows);
+        strictUntil = cueIndex;
+        ({ cueIndex, cursor } = history[back]);
+        history.length = back;
+        continue;
+      }
       for (let i = 0; i < plan.commit; i += 1) {
-        const fit = plan.windowWeights[i] ? 'none' : undefined;
-        spans[cueIndex + i] = { start: total, end: total, fit, estimated: false, inside: false, empty: true };
+        const speech = Boolean(plan.windowWeights[i]);
+        spans[cueIndex + i] = {
+          start: total,
+          end: total,
+          fit: speech ? 'none' : undefined,
+          estimated: false,
+          inside: false,
+          empty: true,
+          flag: speech ? 'ran-out' : undefined,
+        };
       }
       cueIndex += plan.commit;
       continue;
@@ -486,7 +603,9 @@ const placeUnits = async ({ cues, tokens, weights, from, to, units, ctx, extraRu
     onProgress?.({
       done: cueIndex,
       total: cues.length,
-      message: `Matching cues ${cueIndex + 1}–${cueIndex + plan.count} of ${cues.length} by meaning`,
+      message: plan.strict
+        ? `Matching cues ${cueIndex + 1}–${cueIndex + plan.count} of ${cues.length} again, more closely`
+        : `Matching cues ${cueIndex + 1}–${cueIndex + plan.count} of ${cues.length} by meaning`,
     });
 
     const before = spans[cueIndex - 1];
@@ -494,37 +613,12 @@ const placeUnits = async ({ cues, tokens, weights, from, to, units, ctx, extraRu
       ? { source: String(cues[cueIndex - 1].text ?? '').trim(), target: joinTokens(tokens.slice(before.start, before.end)) }
       : null;
 
-    let resolved;
-    let answers;
-    let fits;
-    let inside;
-    let failure = null;
-    let widened = false;
+    let reply;
+    let widened = plan.strict;
     let givenUpReplies = 0;
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
-      answers = new Array(plan.count).fill(undefined);
-      fits = new Array(plan.count).fill(undefined);
-      inside = new Array(plan.count).fill(false);
-      failure = null;
-      let givenUp = false;
-      try {
-        const parsed = await callModel(
-          buildPrompt({ cues: plan.windowCues, tokens, start: cursor, stop: plan.slice, final: plan.final, targetLanguage, previous, extraRules })
-        );
-        state.reached = true;
-        ({ answers, fits, inside } = readAnswers(parsed, plan.count, tokens));
-        givenUp = looksGivenUp(answers, fits, plan.windowWeights);
-      } catch (err) {
-        if (err?.code === 'cancelled' || isCancelled?.()) throw err;
-        // A bad key or a bad request will not get better by asking again.
-        if (err?.retryable === false && err?.status && err.status < 500) throw err;
-        // Network faults were already retried by the client, so the model
-        // cannot be reached; say so instead of guessing every cue.
-        const badReply = err?.code === 'bad_model_output';
-        if (!badReply && !state.reached) throw err;
-        failure = err;
-      }
-      resolved = resolveBoundaries({ answers, weights: plan.windowWeights, start: cursor, stop: plan.slice, final: plan.final, rate: plan.rate });
+      reply = await ask(plan, previous);
+      const { failure, givenUp, resolved } = reply;
       if (attempt === attempts) break;
       // Only a malformed reply is worth asking again; a network fault was
       // already retried.
@@ -536,7 +630,7 @@ const placeUnits = async ({ cues, tokens, weights, from, to, units, ctx, extraRu
       if (failure || givenUp) {
         // Fewer cues are easier to place; ask again with half as many. A
         // last reply that still places nothing is taken as the verdict.
-        if (plan.count > minWindow) plan = planWindow(Math.max(minWindow, Math.ceil(plan.count / 2)));
+        if (plan.count > minWindow) plan = planWindow(Math.max(minWindow, Math.ceil(plan.count / 2)), plan.strict);
         continue;
       }
       // The committed cues ran to the edge of the slice: it was probably too
@@ -548,11 +642,35 @@ const placeUnits = async ({ cues, tokens, weights, from, to, units, ctx, extraRu
       }
       break;
     }
+
+    // A window that took what later cues say is asked again with only its
+    // share in view. If that answer cannot be used the first one stands,
+    // flagged for a look.
+    let overrun = false;
+    if (!reply.failure && overran(plan, reply.resolved, reply.answers)) {
+      overrun = true;
+      if (guard.budget > 0) {
+        guard.budget -= 1;
+        report.windows += 1;
+        const tight = planWindow(plan.count, true);
+        const second = await ask(tight, previous);
+        const guessed = second.resolved.estimated.slice(0, tight.commit).filter(Boolean).length;
+        if (!second.failure && !second.givenUp && guessed <= tight.commit / 2) {
+          plan = tight;
+          reply = second;
+          overrun = false;
+        }
+      }
+    }
+
+    const { answers, fits, inside, failure, resolved } = reply;
     if (failure) {
       report.failedWindows += 1;
       onWindowError?.(failure, { from: cueIndex, to: cueIndex + plan.count });
     }
 
+    history.push({ cueIndex, cursor });
+    endedByModel = !failure && scriptEnded(plan, resolved.ends, answers);
     let start = cursor;
     for (let i = 0; i < plan.commit; i += 1) {
       const next = i + 1 < plan.count ? resolved.ends[i + 1] : resolved.ends[i];
@@ -567,6 +685,7 @@ const placeUnits = async ({ cues, tokens, weights, from, to, units, ctx, extraRu
         // Where an estimated cue really ends is not known, so it may share a line.
         inside: !last && (estimated || inside[i]),
         empty: answers[i] === null,
+        flag: overrun && plan.windowWeights[i] ? 'overrun' : undefined,
       };
       start = end;
     }
@@ -604,8 +723,8 @@ const writeSpans = (results, from, tokens, start, spans, lines) => {
   const ends = spans.map((span) => span.end);
   const snapped = lines ? snapToLineEnds(ends, tokens, start) : ends;
   let at = start;
-  spans.forEach(({ fit, estimated }, k) => {
-    Object.assign(results[from + k], { text: joinTokens(tokens.slice(at, snapped[k])), fit, estimated });
+  spans.forEach(({ fit, estimated, flag }, k) => {
+    Object.assign(results[from + k], { text: joinTokens(tokens.slice(at, snapped[k])), fit, estimated, flag });
     at = snapped[k];
   });
 };
@@ -774,17 +893,21 @@ const placeByLines = async ({ cues, lines, weights, from, to, results, ctx }) =>
       const [i] = group.cues;
       const text = joinTokens(tokens);
       const { estimated } = spans[i];
-      Object.assign(results[i], { text, estimated, fit: estimated ? undefined : text ? spans[i].fit : weights[i] ? 'none' : undefined });
+      Object.assign(results[i], { text, estimated, fit: estimated ? undefined : text ? spans[i].fit : weights[i] ? 'none' : undefined, flag: spans[i].flag });
     } else if (tokens.length === 0) {
       for (const i of group.cues) {
         const { estimated } = spans[i];
-        Object.assign(results[i], { text: '', estimated, fit: estimated || !weights[i] ? undefined : 'none' });
+        Object.assign(results[i], { text: '', estimated, fit: estimated || !weights[i] ? undefined : 'none', flag: spans[i].flag });
       }
     } else {
       shared.push({ ...group, tokens });
     }
   }
   if (!shared.length) return;
+  // A line window flagged as unsure stays flagged once its lines are cut.
+  const keepFlags = () => {
+    for (const group of shared) for (const i of group.cues) if (spans[i].flag) results[i].flag ??= spans[i].flag;
+  };
 
   // Each line that runs over several cues is cut by meaning over just those
   // cues: several lines to a call, and a line whose answer is unusable, or
@@ -825,6 +948,111 @@ const placeByLines = async ({ cues, lines, weights, from, to, results, ctx }) =>
     }
   };
   await Promise.all(Array.from({ length: Math.min(settings.parallelSplits, queue.length) }, worker));
+  keepFlags();
+};
+
+/**
+ * Passages left in one cue beside cues that have English but no script: the
+ * cue holds `collapseRatio` times its share of the script's characters, and
+ * the empty cues next to it (up to `collapseReach` each side) may be what the
+ * rest of it says. Returns each run of cues, `cue` being the one that holds it.
+ *
+ * @param {string[]} texts One per cue.
+ * @param {number[]} weights Each cue's English length; 0 for no speech.
+ */
+export const findCollapsed = (texts, weights, from, to, { collapseRatio, collapseChars, collapseReach } = ALIGN_DEFAULTS) => {
+  const chars = texts.map((text) => String(text ?? '').replace(/\s+/g, '').length);
+  const totalChars = sum(chars.slice(from, to));
+  const totalWeight = sum(weights.slice(from, to));
+  if (!totalChars || !totalWeight) return [];
+  const rate = totalChars / totalWeight;
+  const gap = (j) => weights[j] > 0 && !String(texts[j] ?? '').trim();
+  const runs = [];
+  let floor = from;
+  for (let i = from; i < to; i += 1) {
+    const share = weights[i] * rate;
+    if (!chars[i] || chars[i] < share * collapseRatio || chars[i] - share < collapseChars) continue;
+    let first = i;
+    while (first - 1 >= floor && i - (first - 1) <= collapseReach && gap(first - 1)) first -= 1;
+    let last = i;
+    while (last + 1 < to && last + 1 - i <= collapseReach && gap(last + 1)) last += 1;
+    if (first === i && last === i) continue;
+    runs.push({ from: first, to: last + 1, cue: i });
+    floor = last + 1;
+    i = last;
+  }
+  return runs;
+};
+
+const COLLAPSE_RULE =
+  'All these words were first given to one cue. Spread them over the cues whose English they say, and give "last": null to a cue that nothing here says.';
+
+/**
+ * Spreads each passage left in one cue over the empty cues beside it, by
+ * meaning, using only that passage's words. A passage whose answer cannot be
+ * used stays where it was, flagged, rather than being cut by length.
+ */
+const spreadCollapsed = async ({ cues, weights, from, to, results, ctx }) => {
+  const { settings, report, onProgress, extraRules } = ctx;
+  const runs = findCollapsed(
+    results.map((r) => r.text),
+    weights,
+    from,
+    to,
+    settings
+  ).slice(0, settings.collapseRuns);
+  if (!runs.length) return;
+  report.collapsed = runs.length;
+  const rules = [COLLAPSE_RULE, extraRules].filter(Boolean).join('\n');
+  let done = 0;
+  const queue = [...runs];
+  const worker = async () => {
+    while (queue.length) {
+      const run = queue.shift();
+      onProgress?.({ done, total: runs.length, message: `Spreading passages that sat in one cue (${done} of ${runs.length})` });
+      const kept = results.slice(run.from, run.to).map((r) => ({ ...r }));
+      const tokens = tokenizeScript(results[run.cue].text);
+      const failedBefore = report.failedWindows;
+      await placeWords({ cues, tokens, weights, from: run.from, to: run.to, results, ctx, extraRules: rules });
+      const speech = kept.map((_, k) => run.from + k).filter((i) => weights[i]);
+      const guessed = speech.filter((i) => results[i].estimated).length;
+      if (report.failedWindows > failedBefore || guessed > speech.length / 2) {
+        kept.forEach((r, k) => Object.assign(results[run.from + k], r));
+        results[run.cue].flag = 'collapsed';
+      }
+      done += 1;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(settings.parallelSplits, queue.length) }, worker));
+};
+
+/**
+ * Whether the cues, read in order, hold exactly the script: nothing added,
+ * dropped, repeated or moved. Only whitespace may differ, since cues are
+ * joined where the script had a space or a line break.
+ *
+ * @returns {{preserved: boolean, at?: number, expected?: string, found?: string}}
+ */
+export const checkPreservation = (script, texts) => {
+  const squash = (text) => String(text ?? '').replace(/\s+/g, '');
+  const want = squash(script);
+  const got = squash(texts.join(''));
+  if (want === got) return { preserved: true };
+  let at = 0;
+  while (at < want.length && want[at] === got[at]) at += 1;
+  return { preserved: false, at, expected: want.slice(at, at + 24), found: got.slice(at, at + 24) };
+};
+
+/** Runs of flagged cues, 1-based, for the report. */
+const unresolvedRanges = (results) => {
+  const ranges = [];
+  results.forEach((r, i) => {
+    if (r.flag !== 'overrun' && r.flag !== 'ran-out' && r.flag !== 'collapsed') return;
+    const last = ranges[ranges.length - 1];
+    if (last && last.reason === r.flag && last.lastCue === i) last.lastCue = i + 1;
+    else ranges.push({ firstCue: i + 1, lastCue: i + 1, reason: r.flag });
+  });
+  return ranges;
 };
 
 /**
@@ -855,13 +1083,25 @@ export const alignScript = async (
   const tokens = tokenizeScript(script);
   const weights = cues.map(cueWeight);
   const results = cues.map((cue) => ({ id: String(cue.id), text: '', fit: undefined, estimated: false }));
-  const report = { wordCount: tokens.length, windows: 0, failedWindows: 0, coverage: null };
+  const report = { wordCount: tokens.length, windows: 0, failedWindows: 0, coverage: null, collapsed: 0, unresolved: [], integrity: { preserved: true } };
 
   if (cues.length === 0 || tokens.length === 0) return { cues: results, ...report };
 
   // `reached`: whether any call has come back yet; until one has, a failure
-  // to reach the model is reported rather than papered over.
-  const ctx = { callModel, targetLanguage, extraRules, onProgress, isCancelled, onWindowError, settings, report, state: { reached: false } };
+  // to reach the model is reported rather than papered over. `guard` counts
+  // the second looks the run may still take.
+  const ctx = {
+    callModel,
+    targetLanguage,
+    extraRules,
+    onProgress,
+    isCancelled,
+    onWindowError,
+    settings,
+    report,
+    state: { reached: false },
+    guard: { budget: settings.guardBudget },
+  };
 
   // The cues the script is placed over: all of them unless it covers only part.
   let from = 0;
@@ -896,6 +1136,19 @@ export const alignScript = async (
   const lines = lineAnchors ? scriptLines(script) : [];
   if (lines.length >= 2) await placeByLines({ cues, lines, weights, from, to, results, ctx });
   else await placeWords({ cues, tokens, weights, from, to, results, ctx, extraRules, onProgress });
+  await spreadCollapsed({ cues, weights, from, to, results, ctx });
 
+  // A cue with English that the script does not say stays empty, and says so.
+  for (let i = from; i < to; i += 1) {
+    if (weights[i] && !results[i].text.trim() && !results[i].flag) results[i].flag = 'missing';
+  }
+  report.unresolved = unresolvedRanges(results);
+  report.integrity = checkPreservation(script, results.map((r) => r.text));
+  if (!report.integrity.preserved) {
+    // Never hand back cues that do not hold the script word for word.
+    throw Object.assign(new Error(`The placed script does not match the pasted script near character ${report.integrity.at}.`), {
+      code: 'integrity',
+    });
+  }
   return { cues: results, ...report };
 };
