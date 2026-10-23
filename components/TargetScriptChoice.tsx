@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw, Scissors } from 'lucide-react';
+import { ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw, Scissors, Zap } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { timingProblems } from '../services/transcriptSegments';
 import { TranscriptExportMenu, TranscriptExportNotice, type TranscriptExportResult, type TranscriptFormat } from './TranscriptExportMenu';
@@ -40,6 +40,8 @@ interface TargetScriptChoiceProps {
   onFitToVoiceChange?: (on: boolean) => void;
   /** Runs the existing translation on the transcript. Only called from the button here. */
   onTranslate: () => Promise<void>;
+  /** Fast translate: translation only, no meaning, length or term checks. */
+  onFastTranslate?: () => Promise<void>;
   /** Opens the paste-and-align dialog. Never translates. */
   onUseOwnScript: () => void;
   onSeek?: (time: number) => void;
@@ -97,6 +99,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   fitToVoice = true,
   onFitToVoiceChange,
   onTranslate,
+  onFastTranslate,
   onUseOwnScript,
   onSeek,
   activeSegmentId = null,
@@ -107,6 +110,8 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   getPlayhead,
 }) => {
   const [editing, setEditing] = useState(false);
+  /** Which button the running translation came from, for its spinner. */
+  const [fastRunning, setFastRunning] = useState(false);
   /** The playhead time S was pressed at, to split as the editor opens. */
   const [splitOnOpen, setSplitOnOpen] = useState<number | null>(null);
   const [exportResult, setExportResult] = useState<TranscriptExportResult | null>(null);
@@ -178,6 +183,24 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
       });
     }
   };
+
+  const handleFastTranslate = async () => {
+    if (!onFastTranslate) return;
+    setFastRunning(true);
+    try {
+      await onFastTranslate();
+    } catch (err: any) {
+      reportError(err, {
+        title: `Fast translation to ${targetLanguage} failed`,
+        safe: 'Your transcript and timestamps are intact. You can also use your own script instead.',
+        retry: handleFastTranslate,
+      });
+    } finally {
+      setFastRunning(false);
+    }
+  };
+  const showFast = method === 'translate' && !sameLanguage && Boolean(onFastTranslate);
+  const fastSpinning = isTranslating && fastRunning;
 
   const optionClass = (on: boolean) =>
     `w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-colors cursor-default disabled:cursor-not-allowed disabled:opacity-60 ${
@@ -463,13 +486,38 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
         </div>
 
         <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2.5">
+          {showFast && (
+            <>
+              <button
+                type="button"
+                onClick={() => void handleFastTranslate()}
+                disabled={busy || editing || !hasTranscript || translateBlocked}
+                className="h-10 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm font-medium transition-colors disabled:text-slate-500 disabled:hover:bg-slate-900 disabled:cursor-not-allowed cursor-default active:translate-y-px"
+              >
+                {fastSpinning ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Fast translating{percent !== null ? ` · ${percent}%` : '…'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" aria-hidden="true" />
+                    <span>Fast translate to {targetLanguage}</span>
+                  </>
+                )}
+              </button>
+              <p className="-mt-1 mb-0.5 text-[11px] text-slate-500 text-center">
+                Translation only. Skips meaning, length and term checks.
+              </p>
+            </>
+          )}
           <button
             type="button"
             onClick={() => void handleContinue()}
             disabled={busy || editing || !hasTranscript || translateBlocked}
             className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
           >
-            {isTranslating ? (
+            {isTranslating && !fastSpinning ? (
               <>
                 <RefreshCw className="w-4 h-4 animate-spin" />
                 <span>{translatingLabel}{percent !== null ? ` · ${percent}%` : '…'}</span>
@@ -489,6 +537,8 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
 
           {editing ? (
             <p className="text-[11.5px] text-slate-400 text-center">Apply or cancel your segment changes first.</p>
+          ) : fastSpinning ? (
+            <p className="text-[11.5px] text-slate-500 text-center">Run the full Translate later if a line needs fixing.</p>
           ) : translateBlocked ? (
             <p className="text-[11.5px] text-amber-300 text-center">
               No translation engine is set up. Add one in API settings, or use your own script.

@@ -109,7 +109,7 @@ pipelineRouter.post(
 pipelineRouter.post(
   '/pipeline/retranslate',
   asyncHandler(async (req, res) => {
-    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null, speakerRates = null } = req.body || {};
+    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null, speakerRates = null, fast = false } = req.body || {};
 
     if (!Array.isArray(cues) || cues.length === 0) {
       throw new ApiError('No cues were supplied to translate.', { status: 400, code: 'no_cues' });
@@ -156,6 +156,8 @@ pipelineRouter.post(
         customPrompt,
         voiceRate,
         speakerRates,
+        // Fast translate: translation only, no checks, batches in parallel.
+        fast: fast === true,
         apiKey: req.get('x-gemini-key') || undefined,
         onProgress: (event) => send({ type: 'progress', cueCount, ...event }),
       });

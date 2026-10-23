@@ -301,6 +301,98 @@ const CONTEXT_CUES = 2;
 /** The fewest cues a batch is sent with, also when a timed-out batch is cut smaller. */
 const MIN_BATCH = 5;
 
+/** Batches a fast translation sends at once. */
+export const FAST_PARALLEL = 3;
+
+/**
+ * Fast translation: one model call a batch, no checks, FAST_PARALLEL batches
+ * at a time. A batch sees the source text around it, and the key terms of
+ * the batches already done; a batch that times out is sent again in halves.
+ */
+const translateBatchesFast = async (batches, translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate }) => {
+  const translations = new Map();
+  let modelUsed = null;
+  let failedBatches = 0;
+  let terms = [];
+  let finished = 0;
+  let cuesDone = 0;
+  let firstError = null;
+
+  const sendOne = async (batch, batchIndex) => {
+    const position = translatable.indexOf(batch[0]);
+    const before = translatable.slice(Math.max(0, position - CONTEXT_CUES), position).map((cue) => ({ text: cue.text, translatedText: translations.get(cue.id) }));
+    const after = translatable.slice(position + batch.length, position + batch.length + CONTEXT_CUES).map((cue) => ({ text: cue.text }));
+    try {
+      const outcome = await translateBatch({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount: batches.length, before, after, terms, apiKey, models, generate });
+      modelUsed = outcome.modelUsed;
+      terms = mergeTerms(terms, outcome.terms, outcome.result);
+      for (const [id, text] of outcome.result) translations.set(id, text);
+    } catch (err) {
+      if (isTimeoutError(err) && batch.length > MIN_BATCH) {
+        const size = Math.max(MIN_BATCH, Math.ceil(batch.length / 2));
+        logger.warn(`Fast translation batch ${batchIndex + 1} timed out; sending it again ${size} cues at a time.`);
+        for (const part of chunk(batch, size)) await sendOne(part, batchIndex);
+        return;
+      }
+      throw err;
+    }
+  };
+
+  let next = 0;
+  const worker = async () => {
+    while (next < batches.length) {
+      const batchIndex = next;
+      next += 1;
+      const batch = batches[batchIndex];
+      try {
+        await sendOne(batch, batchIndex);
+      } catch (err) {
+        failedBatches += 1;
+        firstError ??= err;
+        logger.error(`Fast translation batch ${batchIndex + 1}/${batches.length} failed: ${err?.message || err}`);
+      }
+      finished += 1;
+      cuesDone += batch.length;
+      onProgress?.({
+        stage: 'translating',
+        batch: finished + 1,
+        batchCount: batches.length,
+        step: 'translate',
+        message: `Translated ${cuesDone} of ${translatable.length} cues to ${targetLanguage}, ${FAST_PARALLEL} batches at a time...`,
+      });
+    }
+  };
+
+  onProgress?.({
+    stage: 'translating',
+    batch: 1,
+    batchCount: batches.length,
+    step: 'translate',
+    message: `Translating ${translatable.length} cues to ${targetLanguage}, ${FAST_PARALLEL} batches at a time...`,
+  });
+  await Promise.all(Array.from({ length: Math.min(FAST_PARALLEL, batches.length) }, worker));
+
+  if (failedBatches === batches.length) throw firstError;
+
+  const missingIds = translatable.filter((cue) => !translations.has(cue.id)).map((cue) => cue.id);
+  if (missingIds.length > 0) {
+    logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
+  }
+
+  return {
+    translations,
+    modelUsed,
+    translatedCount: translations.size,
+    missingIds,
+    failedBatches,
+    lengthFixed: 0,
+    meaningFixed: 0,
+    retriedBatches: 0,
+    termsFixed: 0,
+    terms,
+  };
+};
+
 /**
  * Translates cue texts, batching long transcripts so a single request never
  * grows unbounded. `voiceRate` is the dub voice's speaking rate in syllables a
@@ -311,7 +403,9 @@ const MIN_BATCH = 5;
  * sentence ends counted in code; a batch still far too long after that is
  * translated once more and the better version kept. Each batch reports how
  * it said the talk's key terms, and later batches are asked to say them the
- * same way. `generate` stands in for the text model in tests.
+ * same way. `fast` skips all of that for speed: one call a batch, no
+ * checks, several batches at once (translateBatchesFast). `generate` stands
+ * in for the text model in tests.
  *
  * @returns {Promise<{translations: Map<string,string>, modelUsed: string|null,
  *   translatedCount: number, missingIds: string[], failedBatches: number}>}
@@ -329,6 +423,7 @@ export const translateCueTexts = async (
     voiceRate,
     speakerRates,
     check = true,
+    fast = false,
     generate = generateText,
   } = {}
 ) => {
@@ -352,6 +447,9 @@ export const translateCueTexts = async (
   }
 
   const batches = chunk(translatable, Math.max(MIN_BATCH, batchSize || config.translationBatchSize));
+  if (fast) {
+    return translateBatchesFast(batches, translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate });
+  }
   const translations = new Map();
   let modelUsed = null;
   let failedBatches = 0;

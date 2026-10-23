@@ -1186,7 +1186,7 @@ export default function App() {
 
   // Re-translate all existing dialogue segments with custom prompt
   const handleRetranslateWithPrompt = useCallback(
-    async (overridePrompt?: string) => {
+    async (overridePrompt?: string, { fast = false }: { fast?: boolean } = {}) => {
       if (!activeJob || !activeJob.segments || activeJob.segments.length === 0) return;
       const promptToUse = overridePrompt !== undefined ? overridePrompt : (activeJob.customPrompt || customPrompt);
       startTranslating(activeJob.id);
@@ -1201,6 +1201,7 @@ export default function App() {
             customPrompt: promptToUse,
             ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
             ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
+            fast,
             onProgress: translationProgressOf(activeJob.id),
           });
 
@@ -1241,7 +1242,7 @@ export default function App() {
         reportError(err, {
           title: `Translation to ${activeJob.language || selectedLanguage} failed`,
           safe: 'Your transcription and timestamps are intact. You can also use your own script instead.',
-          retry: () => void handleRetranslateWithPrompt(overridePrompt).catch(() => {}),
+          retry: () => void handleRetranslateWithPrompt(overridePrompt, { fast }).catch(() => {}),
         });
         throw err;
       } finally {
@@ -1306,8 +1307,9 @@ export default function App() {
    * is sent to the translation engine, and only on the user's click. When the
    * transcript is already in the dub language it becomes the script as-is,
    * the same shortcut the pipeline takes, so no credits are spent on it.
+   * `fast` is Fast translate: translation only, no checks.
    */
-  const handleTranslateTranscript = useCallback(async () => {
+  const handleTranslateTranscript = useCallback(async ({ fast = false }: { fast?: boolean } = {}) => {
     if (!activeJob || activeJob.segments.length === 0) return;
     const targetLang = activeJob.language || selectedLanguage;
     const spoken = activeJob.detectedLanguage || activeJob.sourceLanguage || '';
@@ -1325,7 +1327,7 @@ export default function App() {
       });
       return;
     }
-    await handleRetranslateWithPrompt();
+    await handleRetranslateWithPrompt(undefined, { fast });
   }, [activeJob, selectedLanguage, updateJob, handleRetranslateWithPrompt]);
 
   /** Records where the target lines came from, e.g. once a pasted script is applied. */

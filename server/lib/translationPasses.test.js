@@ -267,3 +267,48 @@ test('a batch that times out is cut in half, and later batches keep the smaller 
   await assert.rejects(translateCueTexts(cues, { targetLanguage: 'Kannada', batchSize: 40, check: false, generate: broken.generate }), { code: 'invalid_api_key' });
   assert.equal(broken.prompts.length, 1);
 });
+
+test('fast translation makes one call a batch, no checks, three batches at a time', async () => {
+  const cues = Array.from({ length: 20 }, (_, i) => ({ id: String(i + 1), text: `Line number ${i + 1} is long enough to be checked.`, startTime: i, endTime: i + 0.5 }));
+  const prompts = [];
+  let running = 0;
+  let most = 0;
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    prompts.push(prompt);
+    running += 1;
+    most = Math.max(most, running);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    running -= 1;
+    const ids = [...prompt.split('CUES (JSON)')[1].matchAll(/"id": "(\d+)"/g)].map((m) => m[1]);
+    // Far too long for every cue: the full mode would review, refit and retry this.
+    const answer = { translations: ids.map((id) => ({ id, translatedText: say(40, '।') })) };
+    return { response: { text: JSON.stringify(answer) }, modelUsed: 'fake' };
+  };
+  const progress = [];
+  const out = await translateCueTexts(cues, { targetLanguage: 'Bengali', voiceRate: 5, batchSize: 5, fast: true, generate, onProgress: (event) => progress.push(event) });
+  assert.equal(prompts.length, 4);
+  assert.ok(prompts.every((p) => p.includes('professional dubbing translator')));
+  assert.equal(most, 3);
+  assert.equal(out.translatedCount, 20);
+  assert.deepEqual(out.missingIds, []);
+  assert.ok(progress.every((event) => event.step === 'translate'));
+  assert.equal(progress.at(-1).batch, 5);
+});
+
+test('fast translation keeps the batches that worked when one fails, and fails only when all do', async () => {
+  const cues = Array.from({ length: 10 }, (_, i) => ({ id: String(i + 1), text: `Line ${i + 1}.` }));
+  const answer = (prompt) => [...prompt.split('CUES (JSON)')[1].matchAll(/"id": "(\d+)"/g)].map((m) => ({ id: m[1], translatedText: 'অনুবাদ।' }));
+  const oneBad = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    if (prompt.split('CUES (JSON)')[1].includes('"id": "1"')) throw new ApiError('down', { status: 503 });
+    return { response: { text: JSON.stringify({ translations: answer(prompt) }) }, modelUsed: 'fake' };
+  };
+  const out = await translateCueTexts(cues, { targetLanguage: 'Bengali', batchSize: 5, fast: true, generate: oneBad });
+  assert.equal(out.failedBatches, 1);
+  assert.equal(out.translatedCount, 5);
+  const allBad = async () => {
+    throw new ApiError('down', { status: 503 });
+  };
+  await assert.rejects(translateCueTexts(cues, { targetLanguage: 'Bengali', batchSize: 5, fast: true, generate: allBad }), /down/);
+});

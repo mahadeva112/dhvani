@@ -501,7 +501,7 @@ interface ExpressDubWizardProps {
   onRetranslateSegments?: (prompt: string) => Promise<void>;
   onRetranscribeAudio?: (prompt: string) => Promise<void>;
   /** The transcript's explicit "Translate" choice; the only path that translates a waiting transcript. */
-  onTranslateTranscript?: () => Promise<void>;
+  onTranslateTranscript?: (options?: { fast?: boolean }) => Promise<void>;
   /** Saves the transcript as Dhvani JSON, paragraph text or subtitles; never transcribes or translates. */
   onExportTranscript?: (format: TranscriptFormat) => Promise<TranscriptExportResult>;
   /** Puts a cut made on the transcript screen on the project, keeping the cut as transcribed for Reset. */
@@ -2406,6 +2406,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 if (onTranslateTranscript) await onTranslateTranscript();
                 else if (onRetranslateSegments) await onRetranslateSegments(customPrompt || '');
               }}
+              onFastTranslate={onTranslateTranscript ? () => onTranslateTranscript({ fast: true }) : undefined}
               onUseOwnScript={() => setIsAlignModalOpen(true)}
               onSeek={seekSource}
               activeSegmentId={activeSegmentId}
