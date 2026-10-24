@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.95',
+    changes: [
+      'The Dub page is simpler: one slim bar shows how the sync went, and a single zoomable player with track lanes, line clips and a scroll bar replaces the second timeline. The line list has tabs: Worth a listen, Too long, End early, Hand edits, Every line.',
+      'A translated project can now be re-translated fast: Fast re-translate in Review and in the Translation style window translates without the meaning, length and term checks.',
+      'Shorter and longer wording suggestions now come two at a time instead of three.',
+    ],
+  },
+  {
     version: '1.3.94',
     changes: [
       'New Fast translate button above Translate: it only translates, skipping the meaning, length and key-term checks, and sends three batches at once, so a long transcript is ready much sooner.',
