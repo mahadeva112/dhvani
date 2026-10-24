@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { appendManyToBank, appendToBank, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
-import { measureEdits } from './syncEditModel.ts';
+import { measureEdits, partEnd, partsOf } from './syncEditModel.ts';
 
 const RATE = 1000;
 
@@ -150,6 +150,38 @@ test("a take is put in the dub with its first word where the line's is, and the 
   assert.equal(measured.exceeded, true, 'a take that runs past the next line is too long');
   assert.equal(measured.picked, true);
   assert.equal(out.baseReport.units[1], base.units[1]);
+});
+
+test("a take plays whole at its own length, not cut at the old take's chunks; Sync's own take gets them back", () => {
+  // Chunk sync placed line 1 as two chunks, a pause cut between them; line 2 follows at 3 s.
+  const chunks = [
+    { from: 0, to: 400, startSample: 2000 },
+    { from: 500, to: 1000, startSample: 2400 },
+  ];
+  const synced = line('1', { chunks });
+  const bank: SyncBank = { bankId: 'b', sampleRate: RATE, float: false, lines: [synced, line('2', { bankStart: 1000, startSample: 3000 })], speakerGains: {} };
+  const base = { tolerance: 0.15, join: { maxLateStart: 1, flagJoin: 0.05 }, units: [unit('1', 2.1, 3), unit('2', 3.1, 4)], summary: {} } as unknown as SyncReport;
+  const own = takesOf(null, synced, base.units[0]).takes[0];
+  assert.deepEqual(own.chunks, chunks, "Sync's own take keeps its chunks");
+
+  // A word left out: a shorter take is drawn and rendered over its own 0.6 s, nothing past it.
+  const short = putTake({ bank, edits: null, baseReport: base, key: '1', take: take({ length: 600 }) });
+  assert.equal(short.bank.lines[0].chunks, undefined);
+  assert.deepEqual(partsOf(short.edits, short.bank.lines[0], RATE).map((p) => [p.from, p.to]), [[0, 0.6]]);
+
+  // A word added: a longer take plays to its end, over the next line, as an overlap to fix.
+  const long = putTake({ bank, edits: null, baseReport: base, key: '1', take: take({ length: 1500, speech: 1.4 }) });
+  const longParts = partsOf(long.edits, long.bank.lines[0], RATE);
+  assert.deepEqual(longParts.map((p) => [p.from, p.to]), [[0, 1.5]]);
+  assert.ok(partEnd(longParts[0]) > 3, 'it runs past where line 2 starts');
+
+  // Back to Sync's take, with the line moved 0.5 s later meanwhile: its chunks come back, moved with it.
+  const moved = { '1': { locked: false, parts: [{ ...partsOf(short.edits, short.bank.lines[0], RATE)[0], start: 2.55 }] } };
+  const back = putTake({ bank: short.bank, edits: moved, baseReport: short.baseReport, key: '1', take: own });
+  assert.deepEqual(
+    back.bank.lines[0].chunks,
+    chunks.map((c) => ({ ...c, startSample: c.startSample + 500 }))
+  );
 });
 
 test('how a take fits: cut off first, then too long, then ending early', () => {
