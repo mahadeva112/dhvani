@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.98',
+    changes: [
+      'A retake used in Edit timing now shows its own waveform at its own length right away, with no trim needed. A longer take plays to its end and shows as an overlap on the next line.',
+    ],
+  },
+  {
     version: '1.3.97',
     changes: [
       'Suggest wording is faster: each wording\'s meaning check and its English ("Says:") now come from one request instead of two.',
