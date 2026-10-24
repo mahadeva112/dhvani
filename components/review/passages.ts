@@ -1,4 +1,4 @@
-import { AudioSegment } from '../../types';
+import type { AudioSegment } from '../../types';
 
 /** The pauses in the original a reviewer can split passages at, in seconds. */
 export const PASSAGE_PAUSES = [0.8, 1.2, 2] as const;

@@ -1,10 +1,12 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Keyboard, Pause, Play } from 'lucide-react';
+import { Download, Keyboard, Pause, Play } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import { scrollWithin } from '../scrollWithin';
 import { SCRIPT_PALETTES, getIndicLanguageConfig } from '../../services/indicTransliteration';
 import { PASSAGE_PAUSES, buildPassages, loadPassageLayout, savePassageLayout, type PassageLayout } from './passages';
 import { usePhoneticTyping } from './usePhoneticTyping';
+import { DOCX_MIME, buildScriptDocx, scriptDocxFileName, scriptDocxRows } from '../../services/scriptDocx';
+import { saveFileAs } from '../../services/saveFile';
 
 export interface LinePacing {
   level: 'natural' | 'tight' | 'fast';
@@ -93,6 +95,8 @@ interface ScriptTableViewProps {
   onPlayPassage: (start: number, end: number) => void;
   onTogglePlay: () => void;
   fontSize?: number;
+  /** The Word file's heading, e.g. the media's name. */
+  exportTitle?: string;
 }
 
 /**
@@ -117,6 +121,7 @@ export function ScriptTableView({
   onPlayPassage,
   onTogglePlay,
   fontSize = 15,
+  exportTitle,
 }: ScriptTableViewProps) {
   const passages = useMemo(() => buildPassages(segments, passagePause), [segments, passagePause]);
   const shown = passages.filter((p) => p.cues.some((seg) => visibleIds.has(String(seg.id))));
@@ -205,6 +210,34 @@ export function ScriptTableView({
     </div>
   );
 
+  /** Every passage, not just those shown, as a Word table: the original's paragraph left, the dub's right. */
+  const [savingWord, setSavingWord] = useState(false);
+  const [wordError, setWordError] = useState<string | null>(null);
+  const saveWord = async () => {
+    setSavingWord(true);
+    setWordError(null);
+    const build = async () =>
+      new Blob(
+        [
+          await buildScriptDocx({
+            title: exportTitle || `${targetLanguage || 'Dub'} script`,
+            sourceLanguage,
+            targetLanguage,
+            rows: scriptDocxRows(segments, getSourceText, getTargetText, passagePause),
+          }),
+        ],
+        { type: DOCX_MIME }
+      );
+    try {
+      await saveFileAs(build, scriptDocxFileName(targetLanguage), { description: 'Word document', mime: DOCX_MIME, extension: '.docx' });
+    } catch (err) {
+      console.warn('Saving the Word script failed:', err);
+      setWordError(`Couldn't save the Word file: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingWord(false);
+    }
+  };
+
   const markClass = (p: LinePacing) =>
     p.level === 'fast' ? 'bg-rose-500/25 rounded-sm' : p.level === 'tight' ? 'bg-amber-400/15 rounded-sm' : '';
 
@@ -245,6 +278,17 @@ export function ScriptTableView({
             </button>
           ))}
         </div>
+        <button
+          type="button"
+          onClick={saveWord}
+          disabled={savingWord}
+          className="h-6 px-2 rounded-md border border-slate-800 flex items-center gap-1 font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-default disabled:opacity-50"
+          title={`Save as a Word file: each passage as a paragraph, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
+        >
+          <Download className="w-3 h-3" />
+          Word
+        </button>
+        {wordError && <span className="text-rose-300">{wordError}</span>}
         <span className="ml-auto text-slate-500">
           {layout === 'lines' ? 'One line per cue · Esc undoes the cell' : 'Click a line to play from it · edit in Lines'}
         </span>

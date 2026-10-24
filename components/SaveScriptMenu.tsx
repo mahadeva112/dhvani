@@ -8,6 +8,7 @@ const FORMATS: { id: TargetScriptFormat; tag: string; title: string; hint: strin
   { id: 'dialogue', tag: 'TXT', title: 'Dialogue', hint: 'The lines only, for reading' },
   { id: 'timecoded', tag: 'TXT', title: 'Timecoded', hint: 'Each line with its time' },
   { id: 'bilingual', tag: 'TXT', title: 'Bilingual', hint: 'The original above each line' },
+  { id: 'docx', tag: 'DOCX', title: 'Word', hint: 'Paragraphs in a table, original left, dub right' },
   { id: 'csv', tag: 'CSV', title: 'Spreadsheet', hint: 'For Excel or Google Sheets' },
 ];
 

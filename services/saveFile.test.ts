@@ -54,3 +54,41 @@ test('a write that fails is reported, and the half-written file is dropped', asy
   await assert.rejects(saveFileAs(new Blob(['x']), 'talk.srt', as), /No space left/);
   assert.equal(aborted, true);
 });
+
+test('a file built after the dialog opens is written whole', async () => {
+  const order: string[] = [];
+  let written: Blob | undefined;
+  g.showSaveFilePicker = async () => {
+    order.push('dialog');
+    return { name: 'script.docx', createWritable: async () => ({ write: async (b: Blob) => void (written = b), close: async () => {} }) };
+  };
+  const outcome = await saveFileAs(async () => {
+    order.push('build');
+    return new Blob(['PK']);
+  }, 'script.docx', as);
+  assert.equal(outcome.status, 'saved');
+  assert.deepEqual(order, ['dialog', 'build']);
+  assert.equal(await written?.text(), 'PK');
+});
+
+test('a window that opens the dialog but will not write downloads the file instead', async () => {
+  const downloaded: string[] = [];
+  const doc = g.document;
+  g.document = {
+    createElement: () => ({ click() {} , set download(name: string) { downloaded.push(name); } }),
+    body: { appendChild() {}, removeChild() {} },
+  };
+  g.showSaveFilePicker = async () => ({
+    name: 'script.docx',
+    createWritable: async () => {
+      throw Object.assign(new Error('The request is not allowed by the user agent or the platform in the current context.'), { name: 'NotAllowedError' });
+    },
+  });
+  try {
+    const outcome = await saveFileAs(new Blob(['PK']), 'script.docx', as);
+    assert.deepEqual(outcome, { status: 'saved', name: 'script.docx', downloaded: true });
+    assert.deepEqual(downloaded, ['script.docx']);
+  } finally {
+    g.document = doc;
+  }
+});
