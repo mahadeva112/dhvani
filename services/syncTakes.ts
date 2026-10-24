@@ -1,4 +1,4 @@
-import { basePart, measureEdits, partsOf, spokenSpan, type SyncBank, type SyncBankLine, type SyncEdits } from './syncEditModel.ts';
+import { basePart, measureEdits, partsOf, spokenSpan, syncedParts, type SyncBank, type SyncBankLine, type SyncEdits } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService';
 
 /**
@@ -46,6 +46,8 @@ export interface SyncTake {
   crossfade: number;
   dropped: number;
   maxStartShift?: number;
+  /** Sync's own take with Chunk sync: the chunks it was placed as. Only it has them; they are cut from its samples. */
+  chunks?: SyncBankLine['chunks'];
   seed?: number;
   direction?: TakeDirection;
   /** The words voiced again, for a phrase take. */
@@ -83,6 +85,7 @@ export const syncTakeOf = (line: SyncBankLine, text: string): SyncTake => ({
   crossfade: line.crossfade,
   dropped: line.dropped,
   ...(line.maxStartShift !== undefined && { maxStartShift: line.maxStartShift }),
+  ...(line.chunks?.length && { chunks: line.chunks }),
   text,
 });
 
@@ -228,7 +231,8 @@ export const putTake = ({
   const old = bank.lines[index];
   const firstWord = firstWordAt(old, edits, rate);
   const startSample = Math.max(0, Math.round((firstWord - take.lead) * rate));
-  const { maxStartShift: _shift, ...rest } = old;
+  // The old take's chunks are cut from its samples, not this take's: the take plays whole, at its own length.
+  const { maxStartShift: _shift, chunks: _chunks, ...rest } = old;
   const line: SyncBankLine = {
     ...rest,
     bankStart: take.bankStart,
@@ -245,6 +249,12 @@ export const putTake = ({
     // Sync's own take keeps the edge limit Sync gave it, where it still starts where Sync put it.
     ...(take.maxStartShift !== undefined && startSample === old.startSample && { maxStartShift: take.maxStartShift }),
   };
+  // Sync's own take gets its chunks back, moved together so its first word lands where the line's is now.
+  if (take.chunks?.length) {
+    const placed = spokenSpan(line, syncedParts({ ...line, chunks: take.chunks }, rate))?.start;
+    const shift = placed === undefined ? 0 : Math.round((firstWord - placed) * rate);
+    line.chunks = take.chunks.map((chunk) => ({ ...chunk, startSample: Math.max(0, chunk.startSample + shift) }));
+  }
   const lines = bank.lines.map((l, n) => (n === index ? line : l));
   const nextBank = { ...bank, lines };
 
