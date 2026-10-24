@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { Mic, Pencil, Play } from 'lucide-react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import { LINE_HUES, hueOf, withAlpha } from './lineColors';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
@@ -19,9 +20,8 @@ import { useLiveTime } from './useLiveTime';
  *              for how the line landed, and a dashed outline of where the
  *              original line is; the part of a line that runs into the next
  *              original line has a red strip under it
- *   drift      each line's start error over the whole window, a dot in the
- *              line's colour, against the tolerance band, so drift that builds
- *              up line after line shows
+ *   scroll bar the whole dub, with the lines off their timing marked; drag it
+ *              to move along
  *
  * Each line has its own colour (lineColors.ts), the same in both lanes and on
  * its link, so a line's original and synced halves pair up at a glance.
@@ -64,7 +64,41 @@ export const SyncAlignmentView: React.FC<{
   /** The original and the synced dub, for the lanes' waveforms. */
   sourceBuffer?: AudioBuffer | null;
   dubBuffer?: AudioBuffer | null;
-}> = ({ report, reportedTime, getLiveTime, onSeek, isPlaying, onTogglePlay, sourceBuffer, dubBuffer }) => {
+  /** As the Dub step's player: each lane's header (name, mute, solo, level) in place of its plain label. */
+  trackHead?: (track: 'source' | 'synth') => React.ReactNode;
+  /** Lanes not heard now (muted, or left out by solo), drawn dimmed. */
+  silent?: { source?: boolean; synth?: boolean };
+  /** Previous and next line buttons either side of play. */
+  onPrevLine?: () => void;
+  onNextLine?: () => void;
+  /** More of the player's controls, after the legend: speed, video. */
+  transportExtras?: React.ReactNode;
+  /** The picked-out line's actions: play the original and the dub of it together, and work on it in the line list. */
+  onListenLine?: (unit: SyncUnitReport) => void;
+  onWorkOnLine?: (unit: SyncUnitReport, mode: 'takes' | 'words') => void;
+  /** Whether a line's takes can be opened (Takes shows only then). */
+  canOpenTakes?: boolean;
+  /** A click on a lane: with this, the player decides (a lane not being heard starts that track there). */
+  onSeekTrack?: (track: 'source' | 'synth', time: number) => void;
+}> = ({
+  report,
+  reportedTime,
+  getLiveTime,
+  onSeek,
+  isPlaying,
+  onTogglePlay,
+  sourceBuffer,
+  dubBuffer,
+  trackHead,
+  silent,
+  onPrevLine,
+  onNextLine,
+  transportExtras,
+  onListenLine,
+  onWorkOnLine,
+  canOpenTakes = false,
+  onSeekTrack,
+}) => {
   // The clocks and the line under the playhead use tenths; the playheads move every frame through playheadRef.
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
   const units = useMemo(() => [...report.units].sort((a, b) => a.srcStart - b.srcStart), [report]);
@@ -127,6 +161,20 @@ export const SyncAlignmentView: React.FC<{
     setFollow(true);
     onSeek(zoom.viewStart() + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS);
   };
+  /** A click on a track's lane, through the player when it handles track switching. */
+  const seekOn = (track: 'source' | 'synth') => (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!onSeekTrack) return seekAt(e);
+    const r = e.currentTarget.getBoundingClientRect();
+    setFollow(true);
+    onSeekTrack(track, Math.max(0, Math.min(total, zoom.viewStart() + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS)));
+  };
+  /** Left and right arrows on a lane move the playhead 5 s. */
+  const nudge = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    setFollow(true);
+    onSeek(Math.max(0, Math.min(total, currentTime + (e.key === 'ArrowRight' ? 5 : -5))));
+  };
   const seekLine = (time: number) => (e: React.MouseEvent) => {
     e.stopPropagation();
     setFollow(true);
@@ -140,16 +188,8 @@ export const SyncAlignmentView: React.FC<{
     [units]
   );
 
-  // Drift chart: start error in seconds, late up. The range always shows the tolerance band.
-  const offsets = units.map((u) => u.offset).filter((o): o is number => o !== null);
-  const yMax = Math.max(report.tolerance * 2, ...offsets);
-  const yMin = Math.min(-report.tolerance * 2, ...offsets);
-  const DRIFT_H = 56;
-  const y = (o: number) => 4 + ((yMax - o) / (yMax - yMin || 1)) * (DRIFT_H - 8);
-  const maxLate = offsets.length ? Math.max(...offsets) : 0;
-  const longCount = units.filter((u) => u.exceeded).length;
-
   const laneLabel = 'flex items-center gap-1.5 text-[11px] text-slate-400';
+  const lineAction = 'h-7 px-2.5 rounded-lg border border-slate-700 text-[11.5px] font-sans text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-1.5 cursor-default';
   /** The line's number in its colour, on a dark pill so it reads over the waveform; on the dub, with a dot for how it landed. */
   const lineNumber = (u: SyncUnitReport, from: number, to: number, tone?: Tone) =>
     pct(to) - pct(from) > 3.2 ? (
@@ -168,16 +208,35 @@ export const SyncAlignmentView: React.FC<{
     <div className="flex flex-col gap-1.5" onMouseLeave={() => setHovered(null)}>
       <TimelineZoomControls zoom={zoom} />
 
-      <div ref={zoom.lanesRef} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-x-3 items-center" style={{ overflowX: 'clip' }}>
+      <div
+        ref={zoom.lanesRef}
+        className={`grid ${trackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[4.5rem_minmax(0,1fr)]'} gap-x-3 items-center`}
+        style={{ overflowX: 'clip' }}
+      >
         {/* Ruler: a click puts the playhead there, a drag scrubs it */}
         <span />
         <TimelineRuler zoom={zoom} onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
 
         {/* Original */}
-        <span className={laneLabel}>
-          <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
-        </span>
-        <div className="relative h-11 rounded-t-lg bg-slate-950/60 overflow-hidden cursor-default" onClick={seekAt} onWheel={onWheel}>
+        {trackHead ? (
+          <div className="flex min-w-0">{trackHead('source')}</div>
+        ) : (
+          <span className={laneLabel}>
+            <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
+          </span>
+        )}
+        <div
+          role="slider"
+          tabIndex={0}
+          aria-label="Original position"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(total)}
+          aria-valuenow={Math.round(currentTime)}
+          className={`relative ${trackHead ? 'h-14' : 'h-11'} rounded-t-lg bg-slate-950/60 overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400 ${silent?.source ? 'opacity-40' : ''}`}
+          onClick={seekOn('source')}
+          onKeyDown={nudge}
+          onWheel={onWheel}
+        >
           <div ref={zoom.strip} className="absolute inset-0">
           {sourceEnd > 0 && sourceEnd < end && (
             <span
@@ -232,10 +291,25 @@ export const SyncAlignmentView: React.FC<{
         </div>
 
         {/* Dub */}
-        <span className={laneLabel}>
-          <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Synced
-        </span>
-        <div className="relative h-11 rounded-b-lg bg-slate-950/60 overflow-hidden cursor-default" onClick={seekAt} onWheel={onWheel}>
+        {trackHead ? (
+          <div className="flex min-w-0">{trackHead('synth')}</div>
+        ) : (
+          <span className={laneLabel}>
+            <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Synced
+          </span>
+        )}
+        <div
+          role="slider"
+          tabIndex={0}
+          aria-label="Synced dub position"
+          aria-valuemin={0}
+          aria-valuemax={Math.round(total)}
+          aria-valuenow={Math.round(currentTime)}
+          className={`relative ${trackHead ? 'h-14' : 'h-11'} rounded-b-lg bg-slate-950/60 overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400 ${silent?.synth ? 'opacity-40' : ''}`}
+          onClick={seekOn('synth')}
+          onKeyDown={nudge}
+          onWheel={onWheel}
+        >
           <div ref={zoom.strip} className="absolute inset-0">
           {/* Where each line should be: the original line's span */}
           {visible.map((u) => (
@@ -291,44 +365,6 @@ export const SyncAlignmentView: React.FC<{
           <span ref={playheadRef(2)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
         </div>
 
-        {/* Drift: each line's start error */}
-        <span className="text-[10px] text-slate-500 leading-tight">
-          Start error
-          <span className="block">late ↑</span>
-        </span>
-        <div className="relative mt-1.5 rounded-lg bg-slate-950/60 overflow-hidden cursor-default" style={{ height: DRIFT_H }} onClick={seekAt} onWheel={onWheel}>
-          <div ref={zoom.strip} className="absolute inset-0">
-          <svg viewBox={`0 0 1000 ${DRIFT_H}`} preserveAspectRatio="none" overflow="visible" className="absolute inset-0 w-full h-full" aria-hidden="true">
-            <rect x={0} width={fx(end)} y={y(report.tolerance)} height={Math.max(1, y(-report.tolerance) - y(report.tolerance))} fill="rgba(52,211,153,0.12)" />
-            <line x1={0} x2={fx(end)} y1={y(0)} y2={y(0)} stroke="rgba(148,163,184,0.45)" strokeDasharray="4 4" vectorEffect="non-scaling-stroke" />
-            <polyline
-              fill="none"
-              stroke="rgba(148,163,184,0.7)"
-              strokeWidth={1.25}
-              vectorEffect="non-scaling-stroke"
-              points={units
-                .filter((u) => u.offset !== null)
-                .map((u) => `${fx(u.srcStart)},${y(u.offset as number)}`)
-                .join(' ')}
-            />
-          </svg>
-          {units.map((u) =>
-            u.offset === null || u.srcStart < windowStart - 1 || u.srcStart > end + 1 ? null : (
-              <span
-                key={u.index}
-                onMouseEnter={() => setHovered(u.index)}
-                onClick={seekLine(u.srcStart)}
-                title={`#${u.index + 1}: starts ${formatOffset(u.offset)}`}
-                className={`absolute w-2 h-2 -ml-1 -mt-1 rounded-full ${u.index === focusIndex ? 'ring-2 ring-white/70' : ''} ${dim(u) ? 'opacity-30' : ''}`}
-                // The line's colour, as on the lanes; how far off it is shows in how high it sits.
-                style={{ left: `${pct(u.srcStart)}%`, top: y(u.offset), background: hueOf(u.index) }}
-              />
-            )
-          )}
-          </div>
-          <span ref={playheadRef(3)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100/60 pointer-events-none" />
-        </div>
-
         <span />
         <div className="mt-1.5">
           <TimelineScrollbar total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} markers={markers} onScroll={scrollTo} />
@@ -361,19 +397,33 @@ export const SyncAlignmentView: React.FC<{
               {focus.exceeded && <span className="text-amber-300">{focus.exceededBy.toFixed(2)} s too long</span>}
               {focus.short && <span className="text-sky-300">ends {focus.shortBy.toFixed(1)} s early</span>}
             </div>
-            <p className="mt-0.5 text-slate-300 truncate">{focus.text}</p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <p className="flex-1 min-w-[12rem] text-slate-300 truncate">{focus.text}</p>
+              {(onListenLine || onWorkOnLine) && (
+                <span className="flex items-center gap-1.5">
+                  {onListenLine && (
+                    <button type="button" onClick={() => onListenLine(focus)} className={lineAction} title="Play the original and the dub of this line together">
+                      <Play className="w-3 h-3 fill-current" /> Listen both
+                    </button>
+                  )}
+                  {onWorkOnLine && canOpenTakes && !focus.silent && (
+                    <button type="button" onClick={() => onWorkOnLine(focus, 'takes')} className={lineAction} title="Open this line's takes in the list below">
+                      <Mic className="w-3 h-3" /> Takes
+                    </button>
+                  )}
+                  {onWorkOnLine && (focus.exceeded || focus.short) && (
+                    <button type="button" onClick={() => onWorkOnLine(focus, 'words')} className={lineAction} title="Reword this line in the list below">
+                      <Pencil className="w-3 h-3" /> Edit words
+                    </button>
+                  )}
+                </span>
+              )}
+            </div>
           </>
         ) : (
           <span className="text-slate-500">Hover a line to see how it landed, or press play.</span>
         )}
       </div>
-
-      {maxLate > report.tolerance && longCount > 0 && (
-        <p className="text-[12px] text-amber-200/90">
-          The dub drifts up to {formatOffset(maxLate)} late: {longCount === 1 ? '1 line is' : `${longCount} lines are`} longer than the original line, and a line
-          can't start until the one before it ends, so each long line pushes the ones after it later. Shorten the long lines below, then sync again.
-        </p>
-      )}
 
       <TimelineTransport
         isPlaying={isPlaying}
@@ -385,6 +435,8 @@ export const SyncAlignmentView: React.FC<{
         total={total}
         windowStart={zoom.viewStart()}
         windowSeconds={WINDOW_SECONDS}
+        onPrev={onPrevLine}
+        onNext={onNextLine}
       >
         <span className="flex items-center gap-1.5">
           <span className="flex gap-0.5">
@@ -400,6 +452,7 @@ export const SyncAlignmentView: React.FC<{
         <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded-full bg-rose-400" /> Runs into the next line</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-slate-500" /> Where the original line is</span>
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-sky-400/70" /> Ends early</span>
+        {transportExtras}
       </TimelineTransport>
     </div>
   );

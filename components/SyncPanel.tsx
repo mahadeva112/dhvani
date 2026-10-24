@@ -53,7 +53,6 @@ import { apiGetAudio } from '../services/apiClient';
 import type { presetSuggestion } from '../services/syncPresets';
 import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
 import { timeLine } from '../services/speechTiming';
-import { SyncAlignmentView } from './SyncAlignmentView';
 import {
   FitCard,
   JOIN_SECTION_INFO,
@@ -230,6 +229,147 @@ export const SyncVerdictBadge: React.FC<{ report: SyncReport }> = ({ report }) =
     <span className="flex items-center gap-1 text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
       <TriangleAlert className="w-3 h-3" /> Synced · {off.join(' · ')}
     </span>
+  );
+};
+
+/**
+ * The sync's result across the top of the Dub step, in one slim bar: whether
+ * the dub needs a fix and why, its numbers, and, when another length preset
+ * suits the dub better, Sync again with it or Keep the one used.
+ */
+export const SyncStatusBar: React.FC<{
+  report: SyncReport;
+  /** Lines changed by hand in Edit timing. */
+  handEdits?: number;
+  /** The line joins the dub was synced with ("Natural"). */
+  presetNow: string;
+  presetSuggestion?: PresetSuggestion | null;
+  onUsePreset?: (preset: Exclude<SyncJoinPreset, 'custom'>) => void;
+}> = ({ report, handEdits = 0, presetNow, presetSuggestion, onUsePreset }) => {
+  const { inSync, lines, exceeded, maxError, p90Error } = report.summary;
+  const short = report.summary.short ?? 0;
+  const conflicts = report.summary.timingConflicts ?? 0;
+  const reviews = [
+    ...(conflicts ? [`${conflicts} line${conflicts === 1 ? '' : 's'} need timing review`] : []),
+    ...(report.summary.boundaryMismatches ? [`${report.summary.boundaryMismatches} cue boundaries need review`] : []),
+    ...(report.summary.endMismatches ? [`${report.summary.endMismatches} line endings need review`] : []),
+    ...(report.summary.wordTimingUnavailable ? [`${report.summary.wordTimingUnavailable} word checks unavailable`] : []),
+  ];
+  const allInSync = inSync === lines && reviews.length === 0;
+  const [kept, setKept] = useState(false);
+  useEffect(() => setKept(false), [presetSuggestion?.preset, presetSuggestion?.change]);
+  const lengthOff = presetSuggestion && Math.abs(presetSuggestion.change) >= 0.03 ? presetSuggestion : null;
+  const suits = Boolean(presetSuggestion) && presetNow.split(' · ')[0] === presetName(presetSuggestion!.preset);
+  const offerPreset = lengthOff && !suits && !kept ? lengthOff : null;
+  // How late the dub drifts: the latest start of any line.
+  const maxLate = Math.max(0, ...report.units.map((u) => u.offset ?? 0));
+
+  const headline = lengthOff
+    ? `The dub runs ${describeChange(lengthOff.change)} than the original`
+    : allInSync
+      ? `All ${lines} lines are in sync`
+      : exceeded > 0
+        ? `${exceeded} line${exceeded === 1 ? ' is' : 's are'} too long for their slot`
+        : `${lines - inSync} of ${lines} lines are off their timing`;
+  const detail = [
+    exceeded > 0 && maxLate > report.tolerance
+      ? `Long lines push the ones after them, so the dub drifts up to ${maxLate.toFixed(2)} s late. Shorten the long lines below, then sync again.`
+      : allInSync
+        ? 'Every line starts where the original line does.'
+        : '',
+    offerPreset ? `${presetName(offerPreset.preset)} suits it better than ${presetNow}.` : suits && lengthOff ? `${presetNow} suits this dub.` : kept ? `Kept ${presetNow}.` : '',
+    reviews.join(' · '),
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const precision = SYNC_PRECISION_OPTIONS.find((o) => o.id === report.precision)?.label;
+  const stats: { label: string; value: React.ReactNode; tone?: string }[] = [
+    {
+      label: 'In sync',
+      value: (
+        <>
+          {inSync}
+          <span className="text-[13px] text-slate-500"> / {lines}</span>
+        </>
+      ),
+      tone: allInSync ? 'text-emerald-300' : undefined,
+    },
+    { label: '90% start within', value: `${p90Error.toFixed(2)} s` },
+    { label: 'Worst line', value: `${maxError.toFixed(2)} s`, tone: maxError > report.tolerance ? 'text-amber-300' : undefined },
+    { label: 'Too long', value: exceeded, tone: exceeded > 0 ? 'text-amber-300' : undefined },
+    ...(short > 0 ? [{ label: 'End early', value: short, tone: 'text-sky-300' }] : []),
+    ...(handEdits > 0 ? [{ label: 'Hand edits', value: handEdits }] : []),
+    // New takes of lines too long: shown once a sync has tried any.
+    ...(['faster', 'take'] as const).flatMap((kind) => {
+      const fits = report.units.filter((unit) => unit.takeFit?.kind === kind);
+      if (fits.length === 0) return [];
+      const toChoose = fits.filter((unit) => !unit.takeFit?.used).length;
+      return [
+        {
+          label: `${kind === 'faster' ? 'Read faster' : 'Best of 3 takes'}${toChoose > 0 ? ` · ${toChoose} to choose` : ''}`,
+          value: fits.length,
+          tone: toChoose > 0 ? 'text-amber-300' : 'text-indigo-200',
+        },
+      ];
+    }),
+    ...(precision ? [{ label: 'Precision', value: precision.replace(' (', ' ').replace(')', '') }] : []),
+  ];
+
+  return (
+    <section
+      aria-label="Sync result"
+      className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-slate-800 bg-slate-900/90 px-4 sm:px-5 py-3"
+    >
+      <span
+        className={`shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-semibold ${
+          allInSync ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-400/12 text-amber-300'
+        }`}
+      >
+        {allInSync ? <Check className="w-3.5 h-3.5" /> : <span className="w-2 h-2 rounded-full bg-amber-400" />}
+        {allInSync ? 'In sync' : 'Needs a fix'}
+      </span>
+      <div
+        className="min-w-[16rem] flex-1 basis-[18rem]"
+        title={`${
+          report.summary.chunkSync
+            ? `Each line is split where it goes quiet into ${report.summary.chunks ?? 0} chunks in all, and every chunk is placed on the original's words.`
+            : "Each line is placed near its original timing; a long line can move the lines around it."
+        } Sync does not stretch the voice. A line that cannot meet its timing is flagged below, never left out.${
+          handEdits > 0 ? ' Your hand edits in Edit timing are in this dub, and Sync again keeps every locked line where you put it.' : ''
+        }`}
+      >
+        <h2 className={`text-[15px] font-semibold leading-snug ${allInSync ? 'text-slate-100' : 'text-amber-50'}`}>{headline}</h2>
+        {detail && <p className="text-[11.5px] text-slate-400 leading-snug">{detail}</p>}
+      </div>
+      <dl className="flex flex-wrap gap-y-2">
+        {stats.map((s) => (
+          <div key={s.label} className="flex flex-col px-3.5 border-l border-slate-800">
+            <dt className="text-[11px] text-slate-400 whitespace-nowrap">{s.label}</dt>
+            <dd className={`text-[17px] font-semibold tabular-nums leading-tight ${s.tone || 'text-slate-100'}`}>{s.value}</dd>
+          </div>
+        ))}
+      </dl>
+      {offerPreset && (
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setKept(true)}
+            className="h-9 px-3 rounded-lg text-[12.5px] text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
+          >
+            Keep {presetNow}
+          </button>
+          {onUsePreset && (
+            <button
+              type="button"
+              onClick={() => onUsePreset(offerPreset.preset)}
+              className="h-9 px-4 rounded-lg bg-amber-500 hover:bg-amber-400 text-amber-950 text-[13px] font-semibold flex items-center gap-1.5 cursor-default active:translate-y-px"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Sync again with {presetName(offerPreset.preset)}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 };
 
@@ -1204,53 +1344,18 @@ export interface SyncResultsPanelProps {
   dubBuffer?: AudioBuffer | null;
   /** One continuous read: its progress while the script is voiced in one take, before the lines are placed. */
   reading?: DubProgress | null;
+  /** Keys of lines changed by hand in Edit timing, for the Hand edits tab. */
+  editedKeys?: string[];
+  /**
+   * A line picked in the player to work on here: the list shows it, scrolls to
+   * it, and opens its takes or puts the cursor in its wording. `n` changes on
+   * every pick, so picking the same line again does it again.
+   */
+  focusLine?: { key: string; mode: 'takes' | 'words'; n: number } | null;
 }
 
-/**
- * How long the synced dub ran against the original, and the length preset
- * that suits it when it isn't the one used: a suggestion with Use, never a
- * change on its own. Keep puts it away until the next sync.
- */
-const PresetBanner: React.FC<{ suggestion: PresetSuggestion; presetNow: string; onUse?: (preset: Exclude<SyncJoinPreset, 'custom'>) => void }> = ({
-  suggestion,
-  presetNow,
-  onUse,
-}) => {
-  const [kept, setKept] = useState(false);
-  useEffect(() => setKept(false), [suggestion.preset, suggestion.change]);
-  const suits = presetNow.split(' · ')[0] === presetName(suggestion.preset);
-  if (suits) {
-    return (
-      <div className="flex items-center gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3.5 py-2.5 text-[12.5px] text-emerald-200">
-        <Check className="w-4 h-4 shrink-0" />
-        {presetNow} suits this dub: its lines run {describeChange(suggestion.change)} than the original's.
-      </div>
-    );
-  }
-  if (kept) return <p className="text-[12px] text-slate-500">Kept {presetNow}.</p>;
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-950/20 px-3.5 py-2.5">
-      <Ruler className="w-4 h-4 text-amber-300 shrink-0" />
-      <span className="text-[12.5px] text-slate-200">
-        The dub's lines run <span className="font-semibold">{describeChange(suggestion.change)}</span> than the original's.{' '}
-        <span className="font-semibold">{presetName(suggestion.preset)}</span> suits it better than {presetNow}.
-      </span>
-      <span className="flex-1" />
-      {onUse && (
-        <button
-          type="button"
-          onClick={() => onUse(suggestion.preset)}
-          className="shrink-0 h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-white text-[12.5px] font-medium flex items-center gap-1.5 cursor-default"
-        >
-          <RefreshCw className="w-3.5 h-3.5" /> Use {presetName(suggestion.preset)} and sync again
-        </button>
-      )}
-      <button type="button" onClick={() => setKept(true)} className="shrink-0 h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-default">
-        Keep {presetNow}
-      </button>
-    </div>
-  );
-};
+/** Which lines the list shows: those worth a listen, one kind of them, or every line. */
+type LineFilter = 'review' | 'long' | 'early' | 'edited' | 'all';
 
 /** Takes voiced of a retaken line, the best fitting one kept (RETAKE_TAKES in server/lib/syncDub.js). */
 const RETAKE_TAKES = 3;
@@ -1289,6 +1394,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   sourceBuffer,
   dubBuffer,
   reading = null,
+  editedKeys = [],
+  focusLine = null,
 }) => {
   const review = useMemo(() => {
     if (!report) return [];
@@ -1305,15 +1412,29 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           Math.abs(b.unit.offset ?? 99) - Math.abs(a.unit.offset ?? 99)
       );
   }, [report]);
-  /** Every line, in order, instead of only those worth a listen: any line can be retaken. */
-  const [showAll, setShowAll] = useState(false);
-  const rows = useMemo(
-    () =>
-      showAll && report
-        ? report.units.map((unit) => ({ unit, reason: reviewReason(unit, report.tolerance) ?? 'In sync' }))
-        : review,
-    [showAll, report, review]
+  /** Worth a listen by default; Every line lists them all in order, since any line can be retaken. */
+  const [filter, setFilter] = useState<LineFilter>('review');
+  const showAll = filter === 'all';
+  const allRows = useMemo(
+    () => (report ? report.units.map((unit) => ({ unit, reason: reviewReason(unit, report.tolerance) ?? 'In sync' })) : []),
+    [report]
   );
+  const rows = useMemo(() => {
+    if (filter === 'all') return allRows;
+    if (filter === 'long') return review.filter((row) => row.unit.exceeded);
+    if (filter === 'early') return review.filter((row) => row.unit.short && !row.unit.exceeded);
+    if (filter === 'edited') return allRows.filter((row) => editedKeys.includes(row.unit.key));
+    return review;
+  }, [filter, allRows, review, editedKeys]);
+  const tabs: { id: LineFilter; label: string; count: number }[] = [
+    { id: 'review', label: 'Worth a listen', count: review.length },
+    { id: 'long', label: 'Too long', count: review.filter((row) => row.unit.exceeded).length },
+    { id: 'early', label: 'End early', count: review.filter((row) => row.unit.short && !row.unit.exceeded).length },
+    { id: 'edited', label: 'Hand edits', count: allRows.filter((row) => editedKeys.includes(row.unit.key)).length },
+    { id: 'all', label: 'Every line', count: allRows.length },
+  ];
+  // A tab with nothing in it is left out, except the one open and the first and last.
+  const shownTabs = tabs.filter((tab) => tab.count > 0 || tab.id === filter || tab.id === 'review' || tab.id === 'all');
   /** The listed lines a retake would voice again: not silent, not already waiting for Sync, not locked. */
   const retakeable = useMemo(
     () => rows.map((row) => row.unit).filter((unit) => !unit.silent && !pendingLines.includes(unit.key) && !lockedKeys.includes(unit.key)),
@@ -1321,10 +1442,27 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   );
   /** The retake of every listed line waits for a yes: it costs RETAKE_TAKES voicings of each. */
   const [confirmRetake, setConfirmRetake] = useState(false);
-  useEffect(() => setConfirmRetake(false), [showAll, report]);
+  useEffect(() => setConfirmRetake(false), [filter, report]);
   const retakeChars = retakeable.reduce((sum, unit) => sum + unit.text.length, 0);
   /** The line whose takes are open under its row. */
   const [takesKey, setTakesKey] = useState<string | null>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+  // A line picked in the player: show it in the list, bring it into view, then open its takes or its wording.
+  useEffect(() => {
+    if (!focusLine || !report) return;
+    const listed = rows.some((row) => row.unit.key === focusLine.key);
+    if (!listed) setFilter(review.some((row) => row.unit.key === focusLine.key) ? 'review' : 'all');
+    if (focusLine.mode === 'takes' && renderTakes) setTakesKey(focusLine.key);
+    // After the list has rendered with the line in it.
+    const timer = window.setTimeout(() => {
+      const row = listRef.current?.querySelector<HTMLElement>(`[data-line-key="${CSS.escape(focusLine.key)}"]`);
+      row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      if (focusLine.mode === 'words') row?.querySelector<HTMLTextAreaElement>('textarea')?.focus({ preventScroll: true });
+    }, 60);
+    return () => window.clearTimeout(timer);
+    // Only a new pick moves the list, not the list changing under it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusLine?.n]);
 
   const step = progress?.step ?? 1;
   const stepDetail = (phase: string) => {
@@ -1345,6 +1483,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
 
   return (
     <section aria-label="Sync" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0">
+      {/* Once synced, the result is the status bar over the player and the lines are the panel; this heading is for before and during a sync. */}
+      {!(report && !isSyncing) && (
       <div>
         <div className="flex flex-wrap items-center gap-2.5">
           <h2 className="text-[15px] font-semibold text-slate-100">{report || isSyncing ? 'Synced dub' : 'Dub, in sync with the original'}</h2>
@@ -1372,9 +1512,6 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           {handEdits > 0 && ' Your hand edits in Edit timing are in this dub: there, only the speed, level and fades you set change a line, and Sync again keeps every locked line where you put it.'}
         </p>
       </div>
-
-      {report && !isSyncing && presetSuggestion && presetNow && (
-        <PresetBanner suggestion={presetSuggestion} presetNow={presetNow} onUse={onUsePreset} />
       )}
 
       {idle && preview}
@@ -1470,60 +1607,6 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
 
       {report && !isSyncing && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
-            {[
-              {
-                label: 'Lines in sync',
-                value: `${report.summary.inSync} / ${report.summary.lines}`,
-                tone: report.summary.inSync === report.summary.lines ? 'text-emerald-300' : 'text-slate-100',
-              },
-              { label: 'Start error, 90% of lines', value: `${report.summary.p90Error.toFixed(2)} s` },
-              {
-                label: 'Worst line',
-                value: `${report.summary.maxError.toFixed(2)} s`,
-                tone: report.summary.maxError > report.tolerance ? 'text-amber-300' : 'text-slate-100',
-              },
-              {
-                label: 'Lines too long',
-                value: String(report.summary.exceeded),
-                tone: report.summary.exceeded > 0 ? 'text-amber-300' : 'text-slate-100',
-              },
-              {
-                label: 'Lines that end early',
-                value: String(report.summary.short ?? 0),
-                tone: (report.summary.short ?? 0) > 0 ? 'text-sky-300' : 'text-slate-100',
-              },
-              // New takes of lines too long: shown once a sync has tried any.
-              ...(['faster', 'take'] as const).flatMap((kind) => {
-                const fits = report.units.filter((unit) => unit.takeFit?.kind === kind);
-                if (fits.length === 0) return [];
-                const used = fits.filter((unit) => unit.takeFit?.used).length;
-                return [{
-                  label: kind === 'faster' ? 'Read faster' : 'Best of 3 takes',
-                  value: `${fits.length} line${fits.length === 1 ? '' : 's'}`,
-                  tone: 'text-indigo-200',
-                  note: used === fits.length ? 'in the dub' : used === 0 ? 'to choose in Review' : `${used} in the dub, ${fits.length - used} to choose`,
-                }];
-              }),
-            ].map((m: { label: string; value: string; tone?: string; note?: string }) => (
-              <div key={m.label} className="rounded-xl bg-slate-950/60 border border-slate-800 px-3.5 py-2.5">
-                <span className="block text-[11.5px] text-slate-400">{m.label}</span>
-                <span className={`block text-xl font-semibold tabular-nums ${m.tone || 'text-slate-100'}`}>{m.value}</span>
-                {m.note && <span className="block text-[11px] text-slate-500">{m.note}</span>}
-              </div>
-            ))}
-          </div>
-
-          <SyncAlignmentView
-            report={report}
-            reportedTime={currentTime}
-            getLiveTime={getLiveTime}
-            onSeek={onSeek}
-            isPlaying={isPlaying}
-            onTogglePlay={onTogglePlay}
-            sourceBuffer={sourceBuffer}
-            dubBuffer={dubBuffer}
-          />
           {report.summary.wordTimingMeasured !== undefined && (
             <p className="text-xs text-slate-400">Actual word timing: {report.summary.wordTimingMeasured} measured · {report.summary.wordTimingUnavailable ?? 0} unavailable · {report.summary.boundaryMismatches ?? 0} internal cue mismatches · {report.summary.endMismatches ?? 0} line endings to review. Single-cue lines have no internal boundary comparison. This does not verify visual lip-sync.</p>
           )}
@@ -1553,16 +1636,24 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
 
           <div>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-[13.5px] font-semibold text-slate-100">{showAll ? 'Every line' : 'Worth a listen'}</h3>
-              <button
-                type="button"
-                onClick={() => setShowAll((on) => !on)}
-                aria-pressed={showAll}
-                className="text-xs text-indigo-300 hover:text-indigo-200 cursor-default"
-                title={showAll ? 'Show only the lines worth a listen' : 'List every line, to listen to or retake any of them'}
-              >
-                {showAll ? 'Only lines worth a listen' : `Show all ${report.units.length} lines`}
-              </button>
+              <h3 className="text-[15px] font-semibold text-slate-100 mr-1">Lines</h3>
+              <div role="tablist" aria-label="Which lines" className="flex flex-wrap gap-0.5 p-0.5 rounded-xl bg-slate-950 border border-slate-800">
+                {shownTabs.map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={filter === tab.id}
+                    onClick={() => setFilter(tab.id)}
+                    title={tab.id === 'all' ? 'Every line, to listen to or retake any of them' : undefined}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium tabular-nums transition-colors cursor-default ${
+                      filter === tab.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {tab.label} · {tab.count}
+                  </button>
+                ))}
+              </div>
               {onRetakeLines && retakeable.length > 1 && (
                 <button
                   type="button"
@@ -1629,7 +1720,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
               </div>
             )}
             {rows.length > 0 && (
-              <ul className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
+              <ul ref={listRef} className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
                 {rows.map(({ unit, reason }) => (
                   <ReviewRow
                     key={unit.index}
@@ -1766,6 +1857,32 @@ const TakeOffer: React.FC<{
   );
 };
 
+/**
+ * A line's length against the original's, as two bars on one scale: the
+ * original line (grey) over the dub line, amber when it runs long and sky when
+ * it ends early, with how much.
+ */
+const LengthBars: React.FC<{ unit: SyncUnitReport }> = ({ unit }) => {
+  if (unit.placedStart === null || unit.placedEnd === null) return null;
+  const original = Math.max(0, unit.srcEnd - unit.srcStart);
+  const dub = Math.max(0, unit.placedEnd - unit.placedStart);
+  const scale = Math.max(original, dub) || 1;
+  const tone = unit.exceeded ? 'bg-amber-400' : unit.short ? 'bg-sky-400' : 'bg-indigo-400/70';
+  const label = unit.exceeded ? `+${unit.exceededBy.toFixed(1)} s` : unit.short ? `−${unit.shortBy.toFixed(1)} s` : null;
+  return (
+    <span
+      className="shrink-0 hidden sm:flex items-center gap-2 mt-1"
+      title={`Original line ${original.toFixed(1)} s · dub line ${dub.toFixed(1)} s`}
+    >
+      <span className="w-28 flex flex-col gap-[3px]" aria-hidden="true">
+        <span className="h-[5px] rounded-full bg-slate-600" style={{ width: `${(original / scale) * 100}%` }} />
+        <span className={`h-[5px] rounded-full ${tone}`} style={{ width: `${(dub / scale) * 100}%` }} />
+      </span>
+      <span className={`w-12 font-mono text-[11.5px] tabular-nums ${unit.exceeded ? 'text-amber-300' : 'text-sky-300'}`}>{label}</span>
+    </span>
+  );
+};
+
 const ReviewRow: React.FC<{
   unit: SyncUnitReport;
   reason: string;
@@ -1862,7 +1979,7 @@ const ReviewRow: React.FC<{
       .catch(() => {});
 
   return (
-    <li className="py-3">
+    <li className="py-3" data-line-key={unit.key}>
       <div className="flex items-start gap-3">
       <span
         className={`shrink-0 mt-0.5 font-mono text-[11px] px-2 py-0.5 rounded-md tabular-nums ${
@@ -1873,7 +1990,10 @@ const ReviewRow: React.FC<{
       </span>
       <span className="shrink-0 mt-0.5 font-mono text-[11.5px] text-slate-500 tabular-nums w-14">{formatClock(unit.srcStart)}</span>
       <div className="min-w-0 flex-1">
-        <p className="text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
+        <div className="flex items-start gap-3">
+          <p className="flex-1 min-w-0 text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
+          <LengthBars unit={unit} />
+        </div>
         {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
         <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : unit.short ? 'text-sky-300' : 'text-slate-400'}`}>{reason}</p>
         {unit.speedFit && !unit.takeFit && <p className="text-[11.5px] mt-1 text-indigo-300">Read {unit.speedFit.toFixed(2)}× faster to fit: its words ran longer than the original line had, even with every pause shrunk</p>}

@@ -88,11 +88,11 @@ import {
 import { timelineMapper } from '../services/playbackTimeline';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
-import { MediaStrip, MiniWaveform } from './MediaStrip';
+import { MediaStrip } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
 import { useReviewVideo } from './ReviewVideoPanel';
 import { ReviewVideoFloat } from './ReviewVideoFloat';
-import { useLiveFrame, useLiveTime } from './useLiveTime';
+import { useLiveTime } from './useLiveTime';
 import { TrackStrip } from './TrackStrip';
 import type { MixerLevels, MixerTrack, TrackLevel } from './useTrackMixer';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
@@ -102,7 +102,8 @@ import { CustomScriptAlignModal } from './CustomScriptAlignModal';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
-import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncVerdictBadge, useSyncOptions } from './SyncPanel';
+import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncStatusBar, useSyncOptions } from './SyncPanel';
+import { SyncAlignmentView } from './SyncAlignmentView';
 import { applyJoinPreset, describeChange, joinPresetLabel, presetName } from './SyncJoinSettings';
 import { presetSuggestion, type SyncJoinPreset } from '../services/syncPresets';
 import {
@@ -132,7 +133,7 @@ import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix, pauseAdvice } from './FinalScriptFit';
 import { SaveScriptMenu, type ScriptScope } from './SaveScriptMenu';
-import { hueOf, lineIndexByCue, withAlpha } from './lineColors';
+import { hueOf, lineIndexByCue } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
 import { runQa, useQaConfig } from '../services/qaService';
@@ -311,34 +312,6 @@ interface LiveTimeProps {
   isPlaying: boolean;
   getLiveTime?: () => number | null;
 }
-
-/** One track's lane in a player: the original or a dub, drawn over its own length. */
-interface TrackLane {
-  label: string;
-  track: 'source' | 'synth';
-  length: number;
-  buffer: AudioBuffer | null | undefined;
-  dot: string;
-  color: string;
-  /** Each line's stretch of this track, in seconds, in the line's colour: tinted behind the waveform and drawn over it. */
-  spans?: { from: number; to: number; color: string }[];
-}
-
-/** A line's start on one lane joined to its start on the next, as fractions of each lane's length. */
-interface LaneLink {
-  from: number;
-  to: number;
-  color: string;
-}
-
-/** A lane's playhead, moved every frame while playing on the painted frame, without re-rendering anything. */
-const LanePlayhead: React.FC<LiveTimeProps & { totalLength: number }> = ({ currentTime, isPlaying, getLiveTime, totalLength }) => {
-  const ref = useRef<HTMLSpanElement>(null);
-  useLiveFrame(currentTime, isPlaying, getLiveTime, (time) => {
-    if (ref.current) ref.current.style.left = `${Math.max(0, Math.min(100, (time / totalLength) * 100))}%`;
-  });
-  return <span ref={ref} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />;
-};
 
 /** Whole seconds, so it re-renders once a second. */
 const LiveClock: React.FC<LiveTimeProps> = ({ currentTime, isPlaying, getLiveTime }) => (
@@ -718,6 +691,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [isAlignModalOpen, setIsAlignModalOpen] = useState<boolean>(false);
   /** Dub step: the player's lanes are the Edit timing timeline. */
   const [editingTiming, setEditingTiming] = useState(false);
+  /** A line picked in the Dub player to work on in the line list; n changes on every pick. */
+  const [focusLine, setFocusLine] = useState<{ key: string; mode: 'takes' | 'words'; n: number } | null>(null);
   /** A local video to watch the dub against; it is only looked at, never part of the project. */
   const reviewVideo = useReviewVideo(activeJob?.id);
   /** The floating video's ✕ hides it; a new video shows again. */
@@ -1441,30 +1416,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     },
     [cueLines]
   );
-  /**
-   * The Dub step's lanes in line colours: each cue's stretch of the original and
-   * of the dub, and where each line starts on both. Kept between renders, since
-   * a new set of spans redraws the waveforms.
-   */
-  const lineLanes = useMemo(() => {
-    const cueColors = segments.map((seg, i) => cueColor(seg, i));
-    const dubById = new Map(dubCues.map((cue) => [String(cue.id), cue]));
-    const sourceSpans: { from: number; to: number; color: string }[] = [];
-    const dubSpans: { from: number; to: number; color: string }[] = [];
-    const lineStarts: { source: number; dub: number; color: string }[] = [];
-    segments.forEach((seg, i) => {
-      const color = cueColors[i];
-      if (!color) return;
-      sourceSpans.push({ from: seg.startTime, to: seg.endTime, color });
-      const cue = dubById.get(String(seg.id));
-      if (!cue) return;
-      dubSpans.push({ from: cue.startTime, to: cue.endTime, color });
-      // One link per line, from its first cue.
-      const sameLine = i > 0 && cueLines.size > 0 && cueLines.get(String(seg.id)) === cueLines.get(String(segments[i - 1].id));
-      if (!sameLine) lineStarts.push({ source: seg.startTime, dub: cue.startTime, color });
-    });
-    return { cueColors, sourceSpans, dubSpans, lineStarts };
-  }, [segments, dubCues, cueColor, cueLines]);
   /** Each track's meter reading, kept between renders so the meters don't restart. */
   const trackPeaks = useMemo(
     () => ({
@@ -1844,110 +1795,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       />
     );
   };
-
-  /*
-   * The original and the synced dub, one lane each, as the Dub step shows
-   * them, on one shared timeline of `span` seconds: a line that
-   * starts later in the dub is drawn later, and the shorter track ends early.
-   * Click a lane to jump there. A lane the track mode leaves out is dimmed,
-   * and a click on it starts it at that point.
-   */
-  const renderTrackLanes = (lanes: TrackLane[], span: number, links?: LaneLink[]) => (
-    <div className={`grid grid-cols-1 ${mixerLevels && hasDubAudio ? 'sm:grid-cols-[12.5rem_minmax(0,1fr)]' : 'sm:grid-cols-[5rem_minmax(0,1fr)]'} gap-x-3 gap-y-1.5 items-center`}>
-      {lanes.map((lane, laneIndex) => {
-        const excluded = lane.track === 'source' ? trackMode === 'synth' : trackMode === 'source';
-        const silent = excluded || Boolean(mixerLevels?.[lane.track].muted);
-        const share = span > 0 ? Math.min(1, lane.length / span) : 1;
-        return (
-          <React.Fragment key={lane.label}>
-            <div className={mixerLevels && hasDubAudio ? 'flex' : 'hidden sm:flex'}>{renderTrackHead(lane.track, lane.label, lane.dot)}</div>
-            <div
-              role="slider"
-              tabIndex={0}
-              aria-label={`${lane.label} position`}
-              aria-valuemin={0}
-              aria-valuemax={Math.round(lane.length)}
-              aria-valuenow={Math.round(excluded ? 0 : currentTime)}
-              onClick={(e) => {
-                if (lane.length <= 0 || span <= 0) return;
-                const r = e.currentTarget.getBoundingClientRect();
-                const t = Math.min(lane.length, ((e.clientX - r.left) / r.width) * span);
-                // A time on this lane's own track: a lane left out starts being heard there.
-                if (excluded) switchTrack(lane.track, { seek: t });
-                else onSeek(t);
-              }}
-              onKeyDown={(e) => {
-                if (excluded) return;
-                if (e.key === 'ArrowRight') onSeek(Math.min(lane.length, currentTime + 5));
-                if (e.key === 'ArrowLeft') onSeek(Math.max(0, currentTime - 5));
-              }}
-              className={`relative h-14 rounded-lg bg-slate-950/60 overflow-hidden cursor-default transition-opacity ${silent ? 'opacity-40' : ''}`}
-            >
-              {/* The track itself, as wide as its share of the timeline */}
-              <div className="absolute inset-y-0 left-0" style={{ width: `${share * 100}%` }}>
-                {lane.spans &&
-                  lane.length > 0 &&
-                  lane.spans.map((s, n) => (
-                    <span
-                      key={n}
-                      aria-hidden="true"
-                      className="absolute top-1.5 bottom-1.5 rounded pointer-events-none"
-                      style={{
-                        left: `${(s.from / lane.length) * 100}%`,
-                        width: `${Math.max(0.2, ((s.to - s.from) / lane.length) * 100)}%`,
-                        background: withAlpha(s.color, 0.12),
-                      }}
-                    />
-                  ))}
-                {lane.buffer ? (
-                  <MiniWaveform buffer={lane.buffer} className={`relative ${lane.color}`} spans={lane.spans} />
-                ) : (
-                  <span className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-500">Waveform not available</span>
-                )}
-              </div>
-              {share < 0.995 && lane.length > 0 && (
-                <span
-                  aria-hidden="true"
-                  className="absolute top-1.5 bottom-1.5 right-1.5 rounded border border-dashed border-slate-700 flex items-center justify-center overflow-hidden whitespace-nowrap text-[10.5px] text-slate-500 pointer-events-none"
-                  style={{ left: `calc(${share * 100}% + 4px)` }}
-                >
-                  {lane.track === 'source' ? 'Original' : 'Dub'} ends {formatClock(lane.length)}
-                </span>
-              )}
-              {/* Only on lanes being heard, at the heard position on the shared timeline. */}
-              {!excluded && span > 0 && (
-                <LanePlayhead currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} totalLength={span} />
-              )}
-            </div>
-            {/* Each line's start on this lane joined to its start on the next */}
-            {links && laneIndex === 0 && lanes.length > 1 && (
-              <>
-                <span className="hidden sm:block text-[10px] text-slate-500">Same line</span>
-                <svg viewBox="0 0 1000 20" preserveAspectRatio="none" className="w-full h-5" aria-hidden="true">
-                  {links.map((link, n) => (
-                    <path
-                      key={n}
-                      d={`M ${link.from * 1000} 0 C ${link.from * 1000} 11, ${link.to * 1000} 9, ${link.to * 1000} 20`}
-                      fill="none"
-                      stroke={link.color}
-                      strokeOpacity={0.6}
-                      strokeWidth={1.25}
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  ))}
-                </svg>
-              </>
-            )}
-          </React.Fragment>
-        );
-      })}
-      <div className="sm:col-start-2 flex justify-between font-mono text-[10px] text-slate-500 tabular-nums">
-        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-          <span key={f}>{formatClock(span * f)}</span>
-        ))}
-      </div>
-    </div>
-  );
 
   return (
     <div className="w-full flex-1 flex flex-col space-y-4 sm:space-y-5">
@@ -3544,29 +3391,69 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
         // The review video floats over the page, so it stays in view wherever the page is scrolled.
         const reviewClock = { currentTime: sourceClockTime, isPlaying, getLiveTime: getSourceLiveTime, playbackRate };
+        const prevCue = () => activeCueIndex > 0 && seekSource(segments[activeCueIndex - 1].startTime);
+        const nextCue = () => {
+          const next = segments.find((s) => s.startTime > sourceClockTime + 0.05);
+          if (next) seekSource(next.startTime);
+        };
+        /** Edit timing is open in the player, in place of the synced lanes. */
+        const timingOpen = Boolean(report && editingTiming && activeJob.syncBank && activeJob.syncBaseReport && onSyncEditsChange);
+        /** Once synced, the player is the zoomable sync timeline, with the mixer on its lanes and its own transport. */
+        const syncedPlayer = Boolean(report) && !timingOpen;
+        /** Speed and the review video, on whichever transport the player shows. */
+        const playerExtras = (
+          <>
+            <select
+              value={playbackRate}
+              onChange={(e) => onPlaybackRateChange(Number(e.target.value))}
+              className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
+              aria-label="Playback speed"
+            >
+              {[0.75, 1, 1.25, 1.5].map((r) => (
+                <option key={r} value={r} className="bg-slate-900">
+                  {r}×
+                </option>
+              ))}
+            </select>
+            {!reviewVideo.video && (
+              <button
+                type="button"
+                onClick={reviewVideo.pick}
+                title="Watch a local video while the dub plays. It stays silent and is not saved with the project."
+                className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
+              >
+                <Video className="w-3.5 h-3.5" /> Add video
+              </button>
+            )}
+            {reviewVideo.video && reviewVideoHidden && (
+              <button
+                type="button"
+                onClick={() => setReviewVideoHidden(false)}
+                className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
+              >
+                <Video className="w-3.5 h-3.5" /> Show video
+              </button>
+            )}
+          </>
+        );
 
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
+          {report && !isSyncing && (
+            <SyncStatusBar
+              report={report}
+              handEdits={editedLineCount}
+              presetNow={joinPresetLabel(syncOptions)}
+              presetSuggestion={lengthSuggestion}
+              onUsePreset={syncWithPreset}
+            />
+          )}
           {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
           {hasDub && (
             <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
               {report && canEditTiming && !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport) && (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Player</span>
-                  <SyncVerdictBadge report={report} />
-                  {lengthSuggestion && Math.abs(lengthSuggestion.change) >= 0.03 && (
-                    <span
-                      title={`${presetName(lengthSuggestion.preset)} suits a dub this long`}
-                      className={`text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full ${lengthSuggestion.preset === syncOptions.preset ? 'bg-slate-800 text-slate-300' : 'bg-amber-400/12 text-amber-300'}`}
-                    >
-                      Dub {describeChange(lengthSuggestion.change)} than the original
-                    </span>
-                  )}
-                  {hasEditedTiming && (
-                    <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
-                      {editedLineCount} line{editedLineCount === 1 ? '' : 's'} edited by hand
-                    </span>
-                  )}
                   <span className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-500">
                     <Headphones className="w-3.5 h-3.5" /> Levels are for listening; the dub file is unchanged
                   </span>
@@ -3672,23 +3559,46 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   {renderTakes(timingTakesUnit, () => { setTimingTakesKey(null); setTimingTakesDirty(false); }, timingTakesPhrase, { onDirtyChange: setTimingTakesDirty })}
                 </FloatingWindow>
               )}
-              {report &&
-                !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport && onSyncEditsChange) &&
-                renderTrackLanes(
-                  [
-                    { label: 'Original', track: 'source', length: sourceLength, buffer: activeJob.audioBuffer, dot: 'bg-cyan-400', color: 'text-slate-400/30', spans: lineLanes.sourceSpans },
-                    { label: 'Synced', track: 'synth', length: syncedLength, buffer: dubBuffer, dot: 'bg-indigo-400', color: 'text-slate-400/30', spans: lineLanes.dubSpans },
-                  ],
-                  laneSpan || heardDuration || totalLength,
-                  // One timeline for both lanes, so a link's slant is how far the line moved.
-                  laneSpan > 0
-                    ? lineLanes.lineStarts.map((start) => ({ from: start.source / laneSpan, to: start.dub / laneSpan, color: start.color }))
-                    : undefined
-                )}
+              {report && syncedPlayer && (
+                <SyncAlignmentView
+                  report={report}
+                  reportedTime={sourceClockTime}
+                  getLiveTime={getSourceLiveTime}
+                  onSeek={seekSource}
+                  isPlaying={isPlaying}
+                  onTogglePlay={onTogglePlay}
+                  sourceBuffer={activeJob.audioBuffer}
+                  dubBuffer={activeJob.syncedAudioBuffer || dubBuffer}
+                  trackHead={
+                    mixerLevels && hasDubAudio
+                      ? (track) => (track === 'source' ? renderTrackHead('source', 'Original', 'bg-cyan-400') : renderTrackHead('synth', 'Synced', 'bg-indigo-400'))
+                      : undefined
+                  }
+                  silent={{
+                    source: trackMode === 'synth' || Boolean(mixerLevels?.source.muted),
+                    synth: trackMode === 'source' || Boolean(mixerLevels?.synth.muted),
+                  }}
+                  onPrevLine={prevCue}
+                  onNextLine={nextCue}
+                  transportExtras={playerExtras}
+                  onListenLine={(unit) =>
+                    switchTrack('both', { seek: toHeardClock(Math.max(0, Math.min(unit.srcStart, unit.placedStart ?? unit.srcStart) - 0.3)), play: true })
+                  }
+                  onWorkOnLine={(unit, mode) => setFocusLine((now) => ({ key: unit.key, mode, n: (now?.n ?? 0) + 1 }))}
+                  canOpenTakes={Boolean(renderTakes)}
+                  onSeekTrack={(track, t) => {
+                    // A lane not being heard starts being heard there; a lane being heard just moves.
+                    const leftOut = track === 'source' ? trackMode === 'synth' : trackMode === 'source';
+                    if (leftOut) switchTrack(track, { seek: t });
+                    else seekSource(t);
+                  }}
+                />
+              )}
+              {!syncedPlayer && (
               <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
-                onClick={() => activeCueIndex > 0 && seekSource(segments[activeCueIndex - 1].startTime)}
+                onClick={prevCue}
                 className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
                 aria-label="Previous cue"
               >
@@ -3704,10 +3614,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  const next = segments.find((s) => s.startTime > sourceClockTime + 0.05);
-                  if (next) seekSource(next.startTime);
-                }}
+                onClick={nextCue}
                 className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
                 aria-label="Next cue"
               >
@@ -3743,39 +3650,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   ))}
                 </div>
               )}
-              <select
-                value={playbackRate}
-                onChange={(e) => onPlaybackRateChange(Number(e.target.value))}
-                className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
-                aria-label="Playback speed"
-              >
-                {[0.75, 1, 1.25, 1.5].map((r) => (
-                  <option key={r} value={r} className="bg-slate-900">
-                    {r}×
-                  </option>
-                ))}
-              </select>
-              {!reviewVideo.video && (
-                <button
-                  type="button"
-                  onClick={reviewVideo.pick}
-                  title="Watch a local video while the dub plays. It stays silent and is not saved with the project."
-                  className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
-                >
-                  <Video className="w-3.5 h-3.5" /> Add video
-                </button>
-              )}
-              {reviewVideo.video && reviewVideoHidden && (
-                <button
-                  type="button"
-                  onClick={() => setReviewVideoHidden(false)}
-                  className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
-                >
-                  <Video className="w-3.5 h-3.5" /> Show video
-                </button>
+              {playerExtras}
+              </div>
               )}
               {reviewVideo.input}
-              </div>
             </section>
           )}
           {hasDub && reviewVideo.video && !reviewVideoHidden && (
@@ -3870,6 +3748,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 onKeepTake={onKeepOfferedTake}
                 renderTakes={renderTakes}
                 lockedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => activeJob.syncEdits?.[key]?.locked)}
+                editedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => !isOriginalClip(key))}
+                focusLine={focusLine}
                 onSuggestLine={(unit, avoid) =>
                   unit.targetChars == null
                     ? Promise.resolve([])

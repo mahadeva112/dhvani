@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Maximize2, Pause, Play, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronsLeft, ChevronsRight, Maximize2, Pause, Play, ZoomIn, ZoomOut } from 'lucide-react';
 import { useLiveFrame } from './useLiveTime';
 
 /**
@@ -455,17 +455,40 @@ export const TimelineTransport: React.FC<{
   windowSeconds: number;
   /** The legend, shown at the right. */
   children?: React.ReactNode;
-}> = ({ isPlaying, onTogglePlay, currentTime, total, windowStart, windowSeconds, children }) => (
+  /** With these, previous and next line buttons sit either side of play, and play is the big one of a page's main player. */
+  onPrev?: () => void;
+  onNext?: () => void;
+}> = ({ isPlaying, onTogglePlay, currentTime, total, windowStart, windowSeconds, children, onPrev, onNext }) => (
   <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-slate-500">
+    {onPrev && (
+      <button
+        type="button"
+        onClick={onPrev}
+        aria-label="Previous line"
+        className="w-8 h-8 shrink-0 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+      >
+        <ChevronsLeft className="w-4 h-4" />
+      </button>
+    )}
     <button
       type="button"
       onClick={onTogglePlay}
       aria-label={isPlaying ? 'Pause' : 'Play'}
-      className="w-8 h-8 shrink-0 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-default active:translate-y-px"
+      className={`${onPrev || onNext ? 'w-10 h-10' : 'w-8 h-8'} shrink-0 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-default active:translate-y-px`}
     >
       {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
     </button>
-    <span className="font-mono text-[12px] text-slate-200 tabular-nums">
+    {onNext && (
+      <button
+        type="button"
+        onClick={onNext}
+        aria-label="Next line"
+        className="w-8 h-8 shrink-0 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+      >
+        <ChevronsRight className="w-4 h-4" />
+      </button>
+    )}
+    <span className={`font-mono tabular-nums text-slate-200 ${onPrev || onNext ? 'text-sm' : 'text-[12px]'}`}>
       {formatClock(currentTime)} <span className="text-slate-500">/ {formatClock(total)}</span>
     </span>
     <span className="font-mono tabular-nums text-slate-500" title="The part of the timeline on screen">
