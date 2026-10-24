@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Mic, Pencil, Play } from 'lucide-react';
+import { CircleHelp, Mic, Pencil, Play } from 'lucide-react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import { LINE_HUES, hueOf, withAlpha } from './lineColors';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
@@ -190,217 +190,259 @@ export const SyncAlignmentView: React.FC<{
 
   const laneLabel = 'flex items-center gap-1.5 text-[11px] text-slate-400';
   const lineAction = 'h-7 px-2.5 rounded-lg border border-slate-700 text-[11.5px] font-sans text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-1.5 cursor-default';
-  /** The line's number in its colour, on a dark pill so it reads over the waveform; on the dub, with a dot for how it landed. */
-  const lineNumber = (u: SyncUnitReport, from: number, to: number, tone?: Tone) =>
-    pct(to) - pct(from) > 3.2 ? (
+  /**
+   * The line's label across the top of its clip, as a DAW names its items: a
+   * strip in the line's colour with its number, on the dub a dot for how it
+   * landed, and its words when there is room.
+   */
+  const clipLabel = (u: SyncUnitReport, from: number, to: number, words: string, tone?: Tone) => {
+    const width = pct(to) - pct(from);
+    return (
       <span
-        className="absolute z-10 left-1 top-1 flex items-center gap-1 rounded bg-slate-950/85 px-1 font-mono text-[9.5px] font-semibold leading-[14px] pointer-events-none"
-        style={{ color: hueOf(u.index) }}
+        className="absolute z-10 inset-x-0 top-0 h-[15px] rounded-t flex items-center gap-1 px-1 overflow-hidden whitespace-nowrap font-mono text-[9.5px] font-semibold leading-none text-slate-950 pointer-events-none"
+        style={{ background: hueOf(u.index) }}
       >
-        {tone && <span className={`w-1.5 h-1.5 rounded-full ${TONE[tone].dot}`} />}
-        {u.index + 1}
+        {width > 1.6 && (
+          <>
+            {tone && <span className={`w-1.5 h-1.5 shrink-0 rounded-full ring-1 ring-slate-950/70 ${TONE[tone].dot}`} />}
+            {u.index + 1}
+            {width > 8 && words && <span className="font-sans font-medium truncate opacity-80">{words}</span>}
+          </>
+        )}
       </span>
-    ) : null;
+    );
+  };
 
   const fx = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 1000;
+  /** A track header cell: the track's colour down its left edge, then its name and mixer. */
+  const headCell = (stripe: string, children: React.ReactNode) => (
+    <div className="flex min-w-0 self-stretch border-r border-b border-slate-800 bg-slate-900/80">
+      <span className={`w-1 shrink-0 ${stripe}`} aria-hidden="true" />
+      <div className="flex-1 min-w-0 flex items-center px-2.5 py-2">{children}</div>
+    </div>
+  );
+  const laneHeight = trackHead ? 'h-[4.75rem]' : 'h-14';
 
   return (
-    <div className="flex flex-col gap-1.5" onMouseLeave={() => setHovered(null)}>
+    <div className="flex flex-col gap-2" onMouseLeave={() => setHovered(null)}>
       <TimelineZoomControls zoom={zoom} />
 
-      <div
-        ref={zoom.lanesRef}
-        className={`grid ${trackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[4.5rem_minmax(0,1fr)]'} gap-x-3 items-center`}
-        style={{ overflowX: 'clip' }}
-      >
-        {/* Ruler: a click puts the playhead there, a drag scrubs it */}
-        <span />
-        <TimelineRuler zoom={zoom} onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
-
-        {/* Original */}
-        {trackHead ? (
-          <div className="flex min-w-0">{trackHead('source')}</div>
-        ) : (
-          <span className={laneLabel}>
-            <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
-          </span>
-        )}
+      {/* The arrange view, as in REAPER: track headers on the left, the ruler and lanes on the right, the scroll bar along their foot. */}
+      <div className="rounded-xl border border-slate-800 bg-slate-950/50 overflow-hidden">
         <div
-          role="slider"
-          tabIndex={0}
-          aria-label="Original position"
-          aria-valuemin={0}
-          aria-valuemax={Math.round(total)}
-          aria-valuenow={Math.round(currentTime)}
-          className={`relative ${trackHead ? 'h-14' : 'h-11'} rounded-t-lg bg-slate-950/60 overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400 ${silent?.source ? 'opacity-40' : ''}`}
-          onClick={seekOn('source')}
-          onKeyDown={nudge}
-          onWheel={onWheel}
+          ref={zoom.lanesRef}
+          className={`grid ${trackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'}`}
+          style={{ overflowX: 'clip' }}
         >
-          <div ref={zoom.strip} className="absolute inset-0">
-          {sourceEnd > 0 && sourceEnd < end && (
-            <span
-              aria-hidden="true"
-              className="absolute top-1 bottom-1 rounded border border-dashed border-slate-600/70 bg-slate-800/40 pointer-events-none flex items-center overflow-hidden"
-              style={{ left: `${Math.max(0, pct(sourceEnd))}%`, right: `${(-ahead / WINDOW_SECONDS) * 100}%` }}
-            >
-              <span className="px-2 text-[11px] text-slate-400 whitespace-nowrap">Original ends {formatClock(sourceEnd)}</span>
-            </span>
-          )}
-          {visible.map((u) => (
-            <span
-              key={u.index}
-              onMouseEnter={() => setHovered(u.index)}
-              onClick={seekLine(u.srcStart)}
-              title={`#${u.index + 1} ${u.sourceText}`}
-              className={`absolute top-1.5 bottom-1.5 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
-              style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%`, ...highlight(u) }}
-            >
-              {lineNumber(u, u.srcStart, u.srcEnd)}
-            </span>
-          ))}
-          {/* Over the lines, at full strength, as in the player above */}
-          <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
-            <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-400/30" />
+          {/* Ruler: a click puts the playhead there, a drag scrubs it */}
+          <div className="flex items-center px-2.5 border-r border-b border-slate-800 bg-slate-900/80 font-mono text-[10.5px] text-slate-500 tabular-nums">
+            {formatClock(total)} in all
           </div>
-          </div>
-          <span ref={playheadRef(0)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
-        </div>
-
-        {/* Sync lines: original start to dub start */}
-        <span className="text-[10px] text-slate-500 leading-tight">Start → start</span>
-        <div className="relative h-7 bg-slate-950/30 overflow-hidden" onWheel={onWheel}>
-          <svg ref={zoom.strip} viewBox="0 0 1000 28" preserveAspectRatio="none" overflow="visible" className="absolute inset-0 w-full h-full" aria-hidden="true">
-            {visible.map((u) =>
-              u.placedStart === null ? null : (
-                <line
-                  key={u.index}
-                  x1={fx(u.srcStart)}
-                  y1={0}
-                  x2={fx(u.placedStart)}
-                  y2={28}
-                  stroke={hueOf(u.index)}
-                  strokeWidth={u.index === focusIndex ? 2.5 : 1.5}
-                  strokeOpacity={dim(u) ? 0.2 : 0.9}
-                  vectorEffect="non-scaling-stroke"
-                />
-              )
-            )}
-          </svg>
-          <span ref={playheadRef(1)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100/60 pointer-events-none" />
-        </div>
-
-        {/* Dub */}
-        {trackHead ? (
-          <div className="flex min-w-0">{trackHead('synth')}</div>
-        ) : (
-          <span className={laneLabel}>
-            <span className="w-2 h-2 rounded-sm bg-indigo-400" /> Synced
-          </span>
-        )}
-        <div
-          role="slider"
-          tabIndex={0}
-          aria-label="Synced dub position"
-          aria-valuemin={0}
-          aria-valuemax={Math.round(total)}
-          aria-valuenow={Math.round(currentTime)}
-          className={`relative ${trackHead ? 'h-14' : 'h-11'} rounded-b-lg bg-slate-950/60 overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-400 ${silent?.synth ? 'opacity-40' : ''}`}
-          onClick={seekOn('synth')}
-          onKeyDown={nudge}
-          onWheel={onWheel}
-        >
-          <div ref={zoom.strip} className="absolute inset-0">
-          {/* Where each line should be: the original line's span */}
-          {visible.map((u) => (
+          <div className="relative h-7 border-b border-slate-800 bg-slate-900/60 overflow-hidden">
+            <TimelineRuler zoom={zoom} marks onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
+            {/* The playhead's cap, at the foot of the ruler */}
             <span
-              key={`slot-${u.index}`}
+              ref={playheadRef(3)}
               aria-hidden="true"
-              className={`absolute top-1 bottom-1 rounded border border-dashed border-slate-500/60 pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
-              style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%` }}
+              className="absolute bottom-0 w-0 h-0 -ml-[5px] border-x-[5px] border-x-transparent border-t-[7px] border-t-slate-100 pointer-events-none"
             />
-          ))}
-          {visible.map((u) => {
-            if (u.placedStart === null || u.placedEnd === null) return null;
-            const tone = tones.get(u.index) ?? 'none';
-            const slotEnd = nextStart.get(u.index);
-            // The part that runs into the next original line.
-            const runOn = slotEnd !== null && slotEnd !== undefined && u.placedEnd > slotEnd ? Math.max(u.placedStart, slotEnd) : null;
-            return (
-              <React.Fragment key={u.index}>
-                <span
-                  onMouseEnter={() => setHovered(u.index)}
-                  onClick={seekLine(u.placedStart)}
-                  title={`#${u.index + 1} ${u.text}`}
-                  className={`absolute top-1.5 bottom-1.5 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
-                  style={{
-                    left: `${pct(u.placedStart)}%`,
-                    width: `${Math.max(0.3, pct(u.placedEnd) - pct(u.placedStart))}%`,
-                    ...highlight(u),
-                  }}
-                >
-                  {lineNumber(u, u.placedStart, u.placedEnd, tone)}
-                </span>
-                {runOn !== null && (
-                  <span
-                    aria-hidden="true"
-                    className={`absolute bottom-0.5 h-[3px] rounded-full bg-rose-400 pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
-                    style={{ left: `${pct(runOn)}%`, width: `${Math.max(0.3, pct(u.placedEnd) - pct(runOn))}%` }}
-                  />
-                )}
-                {u.short && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute top-1.5 bottom-1.5 rounded-r border border-dashed border-sky-400/70 bg-sky-400/5 pointer-events-none"
-                    style={{ left: `${pct(u.placedEnd)}%`, width: `${Math.max(0.3, pct(u.placedEnd + u.shortBy) - pct(u.placedEnd))}%` }}
-                  />
-                )}
-              </React.Fragment>
-            );
-          })}
-          <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
-            <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={dubSpans} className="text-slate-400/30" />
           </div>
-          </div>
-          <span ref={playheadRef(2)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
-        </div>
 
-        <span />
-        <div className="mt-1.5">
-          <TimelineScrollbar total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} markers={markers} onScroll={scrollTo} />
+          {/* Original */}
+          {trackHead ? (
+            headCell('bg-cyan-400', trackHead('source'))
+          ) : (
+            headCell('bg-cyan-400', <span className={laneLabel}>Original</span>)
+          )}
+          <div
+            role="slider"
+            tabIndex={0}
+            aria-label="Original position"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(total)}
+            aria-valuenow={Math.round(currentTime)}
+            className={`relative ${laneHeight} border-b border-slate-800 overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-400 ${silent?.source ? 'opacity-40' : ''}`}
+            onClick={seekOn('source')}
+            onKeyDown={nudge}
+            onWheel={onWheel}
+          >
+            <div ref={zoom.strip} className="absolute inset-0">
+            {sourceEnd > 0 && sourceEnd < end && (
+              <span
+                aria-hidden="true"
+                className="absolute top-1 bottom-1 rounded border border-dashed border-slate-600/70 bg-slate-800/40 pointer-events-none flex items-center overflow-hidden"
+                style={{ left: `${Math.max(0, pct(sourceEnd))}%`, right: `${(-ahead / WINDOW_SECONDS) * 100}%` }}
+              >
+                <span className="px-2 text-[11px] text-slate-400 whitespace-nowrap">Original ends {formatClock(sourceEnd)}</span>
+              </span>
+            )}
+            {visible.map((u) => (
+              <span
+                key={u.index}
+                onMouseEnter={() => setHovered(u.index)}
+                onClick={seekLine(u.srcStart)}
+                title={`#${u.index + 1} ${u.sourceText}`}
+                className={`absolute top-1.5 bottom-1.5 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
+                style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%`, ...highlight(u) }}
+              >
+                {clipLabel(u, u.srcStart, u.srcEnd, u.sourceText)}
+              </span>
+            ))}
+            {/* Over the lines, under their labels */}
+            <div className="absolute top-[15px] bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
+              <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-400/30" />
+            </div>
+            </div>
+            <span ref={playheadRef(0)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100 pointer-events-none" />
+          </div>
+
+          {/* Sync lines: original start to dub start */}
+          <div className="flex items-center px-2.5 border-r border-b border-slate-800 bg-slate-900/80 text-[10.5px] text-slate-500">Start → start</div>
+          <div className="relative h-6 border-b border-slate-800 bg-slate-950/40 overflow-hidden" onWheel={onWheel}>
+            <svg ref={zoom.strip} viewBox="0 0 1000 24" preserveAspectRatio="none" overflow="visible" className="absolute inset-0 w-full h-full" aria-hidden="true">
+              {visible.map((u) =>
+                u.placedStart === null ? null : (
+                  <line
+                    key={u.index}
+                    x1={fx(u.srcStart)}
+                    y1={0}
+                    x2={fx(u.placedStart)}
+                    y2={24}
+                    stroke={hueOf(u.index)}
+                    strokeWidth={u.index === focusIndex ? 2.5 : 1.5}
+                    strokeOpacity={dim(u) ? 0.2 : 0.9}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                )
+              )}
+            </svg>
+            <span ref={playheadRef(1)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100/60 pointer-events-none" />
+          </div>
+
+          {/* Dub */}
+          {trackHead ? (
+            headCell('bg-indigo-400', trackHead('synth'))
+          ) : (
+            headCell('bg-indigo-400', <span className={laneLabel}>Synced</span>)
+          )}
+          <div
+            role="slider"
+            tabIndex={0}
+            aria-label="Synced dub position"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(total)}
+            aria-valuenow={Math.round(currentTime)}
+            className={`relative ${laneHeight} border-b border-slate-800 overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-400 ${silent?.synth ? 'opacity-40' : ''}`}
+            onClick={seekOn('synth')}
+            onKeyDown={nudge}
+            onWheel={onWheel}
+          >
+            <div ref={zoom.strip} className="absolute inset-0">
+            {/* Where each line should be: the original line's span */}
+            {visible.map((u) => (
+              <span
+                key={`slot-${u.index}`}
+                aria-hidden="true"
+                className={`absolute top-1 bottom-1 rounded border border-dashed border-slate-500/60 pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
+                style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%` }}
+              />
+            ))}
+            {visible.map((u) => {
+              if (u.placedStart === null || u.placedEnd === null) return null;
+              const tone = tones.get(u.index) ?? 'none';
+              const slotEnd = nextStart.get(u.index);
+              // The part that runs into the next original line.
+              const runOn = slotEnd !== null && slotEnd !== undefined && u.placedEnd > slotEnd ? Math.max(u.placedStart, slotEnd) : null;
+              return (
+                <React.Fragment key={u.index}>
+                  <span
+                    onMouseEnter={() => setHovered(u.index)}
+                    onClick={seekLine(u.placedStart)}
+                    title={`#${u.index + 1} ${u.text}`}
+                    className={`absolute top-1.5 bottom-1.5 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
+                    style={{
+                      left: `${pct(u.placedStart)}%`,
+                      width: `${Math.max(0.3, pct(u.placedEnd) - pct(u.placedStart))}%`,
+                      ...highlight(u),
+                    }}
+                  >
+                    {clipLabel(u, u.placedStart, u.placedEnd, u.text, tone)}
+                  </span>
+                  {runOn !== null && (
+                    <span
+                      aria-hidden="true"
+                      className={`absolute bottom-0.5 h-[3px] rounded-full bg-rose-400 pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
+                      style={{ left: `${pct(runOn)}%`, width: `${Math.max(0.3, pct(u.placedEnd) - pct(runOn))}%` }}
+                    />
+                  )}
+                  {u.short && (
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1.5 bottom-1.5 rounded-r border border-dashed border-sky-400/70 bg-sky-400/5 pointer-events-none"
+                      style={{ left: `${pct(u.placedEnd)}%`, width: `${Math.max(0.3, pct(u.placedEnd + u.shortBy) - pct(u.placedEnd))}%` }}
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
+            <div className="absolute top-[15px] bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
+              <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={dubSpans} className="text-slate-400/30" />
+            </div>
+            </div>
+            <span ref={playheadRef(2)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100 pointer-events-none" />
+          </div>
+
+          {/* The scroll bar, along the foot of the lanes: the whole dub, with the lines to look at marked */}
+          <div className="border-r border-slate-800 bg-slate-900/80" />
+          <div className="px-1 py-1 bg-slate-950/60">
+            <TimelineScrollbar inset total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} markers={markers} onScroll={scrollTo} />
+          </div>
         </div>
       </div>
 
-      {/* The picked-out line, spelled out */}
-      <div className="min-h-[3.25rem] rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-[12px]" aria-live="polite">
-        {focus ? (
-          <>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono tabular-nums">
-              <span className="font-semibold text-slate-100">#{focus.index + 1}</span>
-              <span className="text-cyan-300">
-                Original {formatClock(focus.srcStart)}–{formatClock(focus.srcEnd)}
-              </span>
-              {focus.placedStart !== null && focus.placedEnd !== null ? (
-                <span className="text-indigo-300">
-                  Synced {formatClock(focus.placedStart)}–{formatClock(focus.placedEnd)}
+      <TimelineTransport
+        isPlaying={isPlaying}
+        onTogglePlay={() => {
+          setFollow(true);
+          onTogglePlay();
+        }}
+        currentTime={currentTime}
+        total={total}
+        windowStart={zoom.viewStart()}
+        windowSeconds={WINDOW_SECONDS}
+        onPrev={onPrevLine}
+        onNext={onNextLine}
+        status={
+          // The picked-out line, spelled out: the one hovered, else the one being heard.
+          <span className="flex-1 min-w-0 flex flex-col gap-1 text-[12px]" aria-live="polite">
+            {focus ? (
+              <>
+                <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono tabular-nums">
+                  <span className="px-1.5 rounded text-[11px] font-bold text-slate-950" style={{ background: hueOf(focus.index) }}>
+                    #{focus.index + 1}
+                  </span>
+                  <span className="text-cyan-300">
+                    Original {formatClock(focus.srcStart)}–{formatClock(focus.srcEnd)}
+                  </span>
+                  {focus.placedStart !== null && focus.placedEnd !== null ? (
+                    <span className="text-indigo-300">
+                      Synced {formatClock(focus.placedStart)}–{formatClock(focus.placedEnd)}
+                    </span>
+                  ) : (
+                    <span className="text-slate-500">Synced: no audio</span>
+                  )}
+                  {focus.offset !== null && (
+                    <span className={TONE[tones.get(focus.index) ?? 'none'].text}>
+                      starts {formatOffset(focus.offset)}
+                      {focus.inSync ? ' · in sync' : ''}
+                    </span>
+                  )}
+                  {(focus.overrun ?? 0) > 0.01 && <span className="text-rose-300">runs {(focus.overrun as number).toFixed(2)} s into #{focus.index + 2}</span>}
+                  {focus.exceeded && <span className="text-amber-300">{focus.exceededBy.toFixed(2)} s too long</span>}
+                  {focus.short && <span className="text-sky-300">ends {focus.shortBy.toFixed(1)} s early</span>}
                 </span>
-              ) : (
-                <span className="text-slate-500">Synced: no audio</span>
-              )}
-              {focus.offset !== null && (
-                <span className={TONE[tones.get(focus.index) ?? 'none'].text}>
-                  starts {formatOffset(focus.offset)}
-                  {focus.inSync ? ' · in sync' : ''}
-                </span>
-              )}
-              {(focus.overrun ?? 0) > 0.01 && <span className="text-rose-300">runs {(focus.overrun as number).toFixed(2)} s into #{focus.index + 2}</span>}
-              {focus.exceeded && <span className="text-amber-300">{focus.exceededBy.toFixed(2)} s too long</span>}
-              {focus.short && <span className="text-sky-300">ends {focus.shortBy.toFixed(1)} s early</span>}
-            </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              <p className="flex-1 min-w-[12rem] text-slate-300 truncate">{focus.text}</p>
-              {(onListenLine || onWorkOnLine) && (
-                <span className="flex items-center gap-1.5">
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="flex-1 min-w-0 text-slate-300 truncate">{focus.text}</span>
                   {onListenLine && (
                     <button type="button" onClick={() => onListenLine(focus)} className={lineAction} title="Play the original and the dub of this line together">
                       <Play className="w-3 h-3 fill-current" /> Listen both
@@ -417,42 +459,41 @@ export const SyncAlignmentView: React.FC<{
                     </button>
                   )}
                 </span>
-              )}
-            </div>
-          </>
-        ) : (
-          <span className="text-slate-500">Hover a line to see how it landed, or press play.</span>
-        )}
-      </div>
-
-      <TimelineTransport
-        isPlaying={isPlaying}
-        onTogglePlay={() => {
-          setFollow(true);
-          onTogglePlay();
-        }}
-        currentTime={currentTime}
-        total={total}
-        windowStart={zoom.viewStart()}
-        windowSeconds={WINDOW_SECONDS}
-        onPrev={onPrevLine}
-        onNext={onNextLine}
-      >
-        <span className="flex items-center gap-1.5">
-          <span className="flex gap-0.5">
-            {LINE_HUES.map((hue) => (
-              <span key={hue} className="w-2 h-2.5 rounded-sm" style={{ background: hue }} />
-            ))}
+              </>
+            ) : (
+              <span className="text-slate-500">Hover a line to see how it landed, or press play.</span>
+            )}
           </span>
-          Each line's colour, the same in both lanes
-        </span>
-        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> In sync</span>
-        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Off by up to {FAR_OFF_SECONDS} s</span>
-        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Off by more</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-[3px] rounded-full bg-rose-400" /> Runs into the next line</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-slate-500" /> Where the original line is</span>
-        <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-sky-400/70" /> Ends early</span>
+        }
+      >
         {transportExtras}
+        {/* The legend, a click away rather than a row of its own */}
+        <details className="relative">
+          <summary
+            className="list-none w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default [&::-webkit-details-marker]:hidden"
+            aria-label="What the colours mean"
+            title="What the colours mean"
+          >
+            <CircleHelp className="w-4 h-4" />
+          </summary>
+          <div className="absolute right-0 bottom-full mb-2 z-30 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl p-3 flex flex-col gap-2 text-[11.5px] text-slate-300">
+            <span className="flex items-center gap-2">
+              <span className="flex gap-0.5">
+                {LINE_HUES.map((hue) => (
+                  <span key={hue} className="w-2 h-2.5 rounded-sm" style={{ background: hue }} />
+                ))}
+              </span>
+              Each line's colour, the same in both lanes
+            </span>
+            <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> In sync</span>
+            <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Off by up to {FAR_OFF_SECONDS} s</span>
+            <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Off by more</span>
+            <span className="flex items-center gap-2"><span className="w-3 h-[3px] rounded-full bg-rose-400" /> Runs into the next line</span>
+            <span className="flex items-center gap-2"><span className="w-3 h-2.5 rounded-sm border border-dashed border-slate-500" /> Where the original line is</span>
+            <span className="flex items-center gap-2"><span className="w-3 h-2.5 rounded-sm border border-dashed border-sky-400/70" /> Ends early</span>
+            <span className="flex items-center gap-2"><span className="w-0.5 h-2.5 rounded-full bg-amber-400" /> On the scroll bar: a line to look at</span>
+          </div>
+        </details>
       </TimelineTransport>
     </div>
   );

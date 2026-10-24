@@ -738,7 +738,10 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
   },
 ];
 
-/** The whole dub at a glance, and the stretch of it on screen, which can be dragged. */
+/**
+ * The whole dub at a glance, and the stretch of it on screen, which can be
+ * dragged: a thin scroll bar along the foot of the lanes, as in REAPER.
+ */
 const Overview: React.FC<{
   total: number;
   chunks: Chunk[];
@@ -765,7 +768,7 @@ const Overview: React.FC<{
       aria-valuemax={Math.round(Math.max(0, total - windowSeconds))}
       aria-valuenow={Math.round(windowStart)}
       tabIndex={-1}
-      className="relative h-6 rounded-lg border border-slate-800 bg-slate-950/80 overflow-hidden cursor-default select-none touch-none"
+      className="relative h-3.5 rounded-sm bg-slate-900 overflow-hidden cursor-default select-none touch-none"
       onPointerDown={(e) => {
         if (e.button !== 0) return;
         const t = timeAt(e.clientX);
@@ -784,7 +787,7 @@ const Overview: React.FC<{
         <span
           key={chunk.part.id}
           aria-hidden="true"
-          className="absolute top-1.5 bottom-1.5 rounded-sm pointer-events-none"
+          className="absolute top-[3px] bottom-[3px] rounded-[1px] pointer-events-none"
           style={{
             left: `${pct(chunk.part.start)}%`,
             width: `${Math.max(0.15, pct(partLength(chunk.part)))}%`,
@@ -796,7 +799,7 @@ const Overview: React.FC<{
       <span aria-hidden="true" className="absolute top-0 bottom-0 w-px bg-rose-400 pointer-events-none" style={{ left: `${pct(clamp(currentTime, 0, total))}%` }} />
       <span
         aria-hidden="true"
-        className="absolute top-0 bottom-0 rounded-md border-[1.5px] border-indigo-200/80 bg-indigo-200/10"
+        className="absolute top-0 bottom-0 rounded-sm border border-indigo-200/80 bg-indigo-200/15"
         style={{ left: `${pct(windowStart)}%`, width: `${Math.max(1, pct(windowSeconds))}%` }}
       />
     </div>
@@ -2824,8 +2827,8 @@ export const SyncEditTimeline: React.FC<{
           style={{ overflowX: 'clip' }}
           onWheel={wheelScroll(windowSeconds, (s) => zoom.scrollTo(zoom.viewStart() + s))}
         >
-          <div className="relative z-20 h-6 px-0 pt-1 border-b border-slate-800 bg-slate-950/40">
-            <TimelineRuler zoom={zoom} onSeek={(t) => onSeek(clamp(t, 0, total))} />
+          <div className="relative z-20 h-6 px-0 border-b border-slate-800 bg-slate-950/40">
+            <TimelineRuler zoom={zoom} marks onSeek={(t) => onSeek(clamp(t, 0, total))} />
             {onMarkersChange && (
               <div ref={zoom.strip} className="absolute inset-0 pointer-events-none">
                 <MarkerFlags
@@ -3089,18 +3092,22 @@ export const SyncEditTimeline: React.FC<{
             </span>
           )}
         </div>
+
+        {/* Along the foot of the lanes, where a scrollbar sits: the whole dub, and the stretch of it on screen */}
+        <div className="h-5 px-2 flex items-center border-t border-r border-slate-800 text-[10.5px] text-slate-500">Whole dub</div>
+        <div className="h-5 px-1 flex flex-col justify-center border-t border-slate-800 bg-slate-950/50">
+          <Overview
+            total={total}
+            chunks={chunks}
+            statusOf={statusColor}
+            windowStart={zoom.viewStart()}
+            windowSeconds={windowSeconds}
+            currentTime={currentTime}
+            onScroll={(start) => zoom.scrollTo(start)}
+          />
+        </div>
       </div>
 
-      {/* Under the lanes, where a scrollbar sits */}
-      <Overview
-        total={total}
-        chunks={chunks}
-        statusOf={statusColor}
-        windowStart={zoom.viewStart()}
-        windowSeconds={windowSeconds}
-        currentTime={currentTime}
-        onScroll={(start) => zoom.scrollTo(start)}
-      />
 
       {/* Tighten silences: its settings, what they cut, Listen and Apply */}
       {tighten && (

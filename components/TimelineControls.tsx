@@ -237,7 +237,12 @@ export const TimelineZoomControls: React.FC<{ zoom: TimelineZoom }> = ({ zoom })
  * playhead there and a drag scrubs it along; the window holds still meanwhile
  * and follows playback again when the drag ends.
  */
-export const TimelineRuler: React.FC<{ zoom: TimelineZoom; onSeek: (time: number) => void }> = ({ zoom, onSeek }) => {
+export const TimelineRuler: React.FC<{
+  zoom: TimelineZoom;
+  onSeek: (time: number) => void;
+  /** As in a DAW: taller, a tick under each time and smaller ticks between, times to the right of their tick. */
+  marks?: boolean;
+}> = ({ zoom, onSeek, marks = false }) => {
   const { windowStart, windowSeconds, ahead, rulerRef } = zoom;
   const scrubbing = useRef(false);
   const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
@@ -264,11 +269,19 @@ export const TimelineRuler: React.FC<{ zoom: TimelineZoom; onSeek: (time: number
   const step = TICK_STEPS.find((s) => windowSeconds / s <= MAX_TICKS) ?? TICK_STEPS[TICK_STEPS.length - 1];
   const ticks: number[] = [];
   for (let t = Math.ceil(windowStart / step) * step; t <= windowStart + windowSeconds + ahead + 1e-6; t += step) ticks.push(t);
+  // Four smaller ticks between times.
+  const minor: number[] = [];
+  if (marks) {
+    const sub = step / 5;
+    for (let t = Math.ceil(windowStart / sub) * sub; t <= windowStart + windowSeconds + ahead + 1e-6; t += sub) {
+      if (Math.abs(t / step - Math.round(t / step)) > 1e-6) minor.push(t);
+    }
+  }
 
   return (
     <div
       ref={rulerRef}
-      className="relative h-4 font-mono text-[10px] text-slate-500 tabular-nums cursor-default select-none touch-none"
+      className={`relative ${marks ? 'h-full' : 'h-4'} font-mono text-[10px] text-slate-500 tabular-nums cursor-default select-none touch-none`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={endScrub}
@@ -276,11 +289,27 @@ export const TimelineRuler: React.FC<{ zoom: TimelineZoom; onSeek: (time: number
       title="Click to put the playhead here; drag to scrub"
     >
       <div ref={zoom.strip} className="absolute inset-0 pointer-events-none">
-        {ticks.map((t) => (
-          <span key={t} aria-hidden="true" className="absolute top-0 -translate-x-1/2 whitespace-nowrap" style={{ left: `${pct(t)}%` }}>
-            {formatClock(t).replace(/\.0$/, '')}
-          </span>
-        ))}
+        {marks
+          ? (
+            <>
+              {minor.map((t) => (
+                <span key={`m${t}`} aria-hidden="true" className="absolute bottom-0 w-px h-1.5 bg-slate-700" style={{ left: `${pct(t)}%` }} />
+              ))}
+              {ticks.map((t) => (
+                <React.Fragment key={t}>
+                  <span aria-hidden="true" className="absolute bottom-0 w-px h-3 bg-slate-500" style={{ left: `${pct(t)}%` }} />
+                  <span aria-hidden="true" className="absolute top-1 ml-1 whitespace-nowrap text-slate-400" style={{ left: `${pct(t)}%` }}>
+                    {formatClock(t).replace(/\.0$/, '')}
+                  </span>
+                </React.Fragment>
+              ))}
+            </>
+          )
+          : ticks.map((t) => (
+              <span key={t} aria-hidden="true" className="absolute top-0 -translate-x-1/2 whitespace-nowrap" style={{ left: `${pct(t)}%` }}>
+                {formatClock(t).replace(/\.0$/, '')}
+              </span>
+            ))}
       </div>
     </div>
   );
@@ -361,11 +390,13 @@ export const TimelineScrollbar: React.FC<{
   currentTime: number;
   markers?: TimelineMarker[];
   onScroll: (start: number) => void;
-}> = ({ total, windowStart, windowSeconds, currentTime, markers = [], onScroll }) => {
+  /** Flat and thin, along the foot of a DAW's lanes; kept on screen with the whole track showing, as an overview. */
+  inset?: boolean;
+}> = ({ total, windowStart, windowSeconds, currentTime, markers = [], onScroll, inset = false }) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null);
   const maxStart = Math.max(0, total - windowSeconds);
-  if (total <= windowSeconds) return null;
+  if (total <= 0 || (total <= windowSeconds && !inset)) return null;
 
   const pct = (t: number) => (t / total) * 100;
   const timeAt = (clientX: number) => {
@@ -421,7 +452,9 @@ export const TimelineScrollbar: React.FC<{
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onKeyDown={onKeyDown}
-      className="group relative h-3.5 rounded-full bg-slate-950/80 border border-slate-800 cursor-default touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+      className={`group relative cursor-default touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+        inset ? 'h-2.5 rounded-sm bg-slate-900' : 'h-3.5 rounded-full bg-slate-950/80 border border-slate-800'
+      }`}
     >
       {markers.map((m, i) => (
         <span
@@ -433,8 +466,8 @@ export const TimelineScrollbar: React.FC<{
       ))}
       <span
         aria-hidden="true"
-        className="absolute -top-px -bottom-px rounded-full border border-slate-400/70 bg-slate-400/25 group-hover:bg-slate-400/35"
-        style={{ left: `${pct(windowStart)}%`, width: `${Math.max(2, pct(windowSeconds))}%` }}
+        className={`absolute -top-px -bottom-px border border-slate-400/70 bg-slate-400/25 group-hover:bg-slate-400/35 ${inset ? 'rounded-sm' : 'rounded-full'}`}
+        style={{ left: `${pct(windowStart)}%`, width: `${Math.max(2, Math.min(100, pct(windowSeconds)))}%` }}
       />
       <span
         aria-hidden="true"
@@ -458,7 +491,9 @@ export const TimelineTransport: React.FC<{
   /** With these, previous and next line buttons sit either side of play, and play is the big one of a page's main player. */
   onPrev?: () => void;
   onNext?: () => void;
-}> = ({ isPlaying, onTogglePlay, currentTime, total, windowStart, windowSeconds, children, onPrev, onNext }) => (
+  /** What is under the playhead or the pointer, between the clock and the legend. */
+  status?: React.ReactNode;
+}> = ({ isPlaying, onTogglePlay, currentTime, total, windowStart, windowSeconds, children, onPrev, onNext, status }) => (
   <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-slate-500">
     {onPrev && (
       <button
@@ -488,12 +523,17 @@ export const TimelineTransport: React.FC<{
         <ChevronsRight className="w-4 h-4" />
       </button>
     )}
-    <span className={`font-mono tabular-nums text-slate-200 ${onPrev || onNext ? 'text-sm' : 'text-[12px]'}`}>
+    <span
+      className={`font-mono tabular-nums text-slate-200 ${
+        onPrev || onNext ? 'text-[15px] px-2.5 py-1 rounded-md bg-slate-950 border border-slate-800' : 'text-[12px]'
+      }`}
+    >
       {formatClock(currentTime)} <span className="text-slate-500">/ {formatClock(total)}</span>
     </span>
     <span className="font-mono tabular-nums text-slate-500" title="The part of the timeline on screen">
       Showing {formatClock(windowStart)} – {formatClock(Math.min(windowStart + windowSeconds, total))}
     </span>
+    {status && <span className="flex-1 min-w-[16rem] flex items-center gap-2 pl-3 border-l border-slate-800">{status}</span>}
     {children && <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">{children}</span>}
   </div>
 );
