@@ -3708,7 +3708,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             </section>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-start">
+          {/* Once synced, the line list stretches down to the rail's foot, so the two columns end together. */}
+          <div className={`grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-start ${report && !isSyncing ? 'lg:items-stretch' : ''}`}>
             <div className="flex flex-col gap-4 min-w-0">
               <SyncResultsPanel
                 report={report}
