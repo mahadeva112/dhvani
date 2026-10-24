@@ -48,6 +48,7 @@ import {
   SeparatorVertical,
   FileText,
   Video,
+  Zap,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
@@ -498,7 +499,7 @@ interface ExpressDubWizardProps {
   customPrompt?: string;
   promptPresetId?: string;
   onUpdateTranslationPrompt?: (prompt: string, presetId: string) => void;
-  onRetranslateSegments?: (prompt: string) => Promise<void>;
+  onRetranslateSegments?: (prompt: string, options?: { fast?: boolean }) => Promise<void>;
   onRetranscribeAudio?: (prompt: string) => Promise<void>;
   /** The transcript's explicit "Translate" choice; the only path that translates a waiting transcript. */
   onTranslateTranscript?: (options?: { fast?: boolean }) => Promise<void>;
@@ -668,6 +669,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [playingSegmentId, setPlayingSegmentId] = useState<string | number | null>(null);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [isLocalPromptModalOpen, setIsLocalPromptModalOpen] = useState(false);
+  /** Which Review button the running re-translation came from, for its spinner. */
+  const [fastRetranslating, setFastRetranslating] = useState(false);
 
   // Pro Review Suite Mode & Controls
   const [reviewMode, setReviewMode] = useState<ReviewMode>('table');
@@ -1038,6 +1041,25 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Transcribed, but translate-or-your-script has not been chosen yet.
   const awaitingScript = activeJob?.targetSource === 'pending';
   const scriptIsCustom = activeJob?.targetSource === 'custom';
+
+  /** Review's Re-translate and Fast re-translate; `fast` skips the meaning, length and term checks. */
+  const retranslateFromReview = ({ fast = false }: { fast?: boolean } = {}) => {
+    if (!onRetranslateSegments) return;
+    if (
+      scriptIsCustom &&
+      !window.confirm(
+        `Replace your script with an automatic ${targetLanguage} translation? This uses translation credits. You can paste your script again afterwards.`
+      )
+    ) {
+      return;
+    }
+    setFastRetranslating(fast);
+    onRetranslateSegments(customPrompt || '', { fast })
+      .catch(() => {
+        // The failure is shown in the job's warning banner.
+      })
+      .finally(() => setFastRetranslating(false));
+  };
 
   /*
    * The sync preview: Review's line fit and suggestions, and the Dub step's
@@ -3189,19 +3211,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     {onRetranslateSegments && (
                       <button
                         type="button"
-                        onClick={() => {
-                          if (
-                            scriptIsCustom &&
-                            !window.confirm(
-                              `Replace your script with an automatic ${targetLanguage} translation? This uses translation credits. You can paste your script again afterwards.`
-                            )
-                          ) {
-                            return;
-                          }
-                          onRetranslateSegments(customPrompt || '').catch(() => {
-                            // The failure is shown in the job's warning banner.
-                          });
-                        }}
+                        onClick={() => retranslateFromReview()}
                         disabled={isTranslatingLanguage || segments.length === 0}
                         className={railButton}
                         title={
@@ -3210,8 +3220,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             : 'Translate every cue again with the current style'
                         }
                       >
-                        <RefreshCw className={`w-3.5 h-3.5 ${isTranslatingLanguage ? 'animate-spin' : ''}`} />
-                        {isTranslatingLanguage ? 'Translating…' : 'Re-translate'}
+                        <RefreshCw className={`w-3.5 h-3.5 ${isTranslatingLanguage && !fastRetranslating ? 'animate-spin' : ''}`} />
+                        {isTranslatingLanguage && !fastRetranslating ? 'Translating…' : 'Re-translate'}
                       </button>
                     )}
                     <button
@@ -3224,6 +3234,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <ClipboardPaste className="w-3.5 h-3.5" />
                       Paste script
                     </button>
+                    {onRetranslateSegments && (
+                      <button
+                        type="button"
+                        onClick={() => retranslateFromReview({ fast: true })}
+                        disabled={isTranslatingLanguage || segments.length === 0}
+                        className={`${railButton} col-span-2`}
+                        title="Translate every cue again, translation only: skips the meaning, length and term checks"
+                      >
+                        {isTranslatingLanguage && fastRetranslating ? (
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Zap className="w-3.5 h-3.5" />
+                        )}
+                        {isTranslatingLanguage && fastRetranslating ? 'Fast translating…' : 'Fast re-translate'}
+                      </button>
+                    )}
                   </div>
                 </div>
 
