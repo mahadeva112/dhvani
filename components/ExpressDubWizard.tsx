@@ -135,6 +135,8 @@ import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix, pauseAdvice } from './FinalScriptFit';
 import { SaveScriptMenu, type ScriptScope } from './SaveScriptMenu';
+import { DOCX_MIME, buildScriptDocx, scriptDocxFileName, scriptDocxRows } from '../services/scriptDocx';
+import { saveFileAs } from '../services/saveFile';
 import { hueOf, lineIndexByCue } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
 import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
@@ -1736,6 +1738,35 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     scriptFollowsDub && format !== 'json' && syncedCues ? syncedCues : segments;
 
   const handleExportTargetScript = (format: TargetScriptFormat = 'dialogue') => {
+    if (format === 'docx') {
+      void (async () => {
+        const build = async () =>
+          new Blob(
+            [
+              await buildScriptDocx({
+                title: activeJob?.file?.name || `${targetLanguage || 'Dub'} script`,
+                sourceLanguage: activeJob?.detectedLanguage || activeJob?.sourceLanguage || sourceLanguage,
+                targetLanguage,
+                rows: scriptDocxRows(scriptLinesFor(format), getSourceText, getTargetText, passagePause),
+              }),
+            ],
+            { type: DOCX_MIME }
+          );
+        let message: string;
+        try {
+          // The dialog opens first, while the click still counts; the file is built after.
+          const outcome = await saveFileAs(build, scriptDocxFileName(targetLanguage), { description: 'Word document', mime: DOCX_MIME, extension: '.docx' });
+          if (outcome.status === 'cancelled') return;
+          message = outcome.downloaded ? `Saved ${outcome.name} to your Downloads folder` : `Saved the ${targetLanguage} script as Word`;
+        } catch (err) {
+          console.warn('Saving the Word script failed:', err);
+          message = `Couldn't save the Word file: ${err instanceof Error ? err.message : String(err)}`;
+        }
+        setExportSuccessMessage(message);
+        setTimeout(() => setExportSuccessMessage(null), 5000);
+      })();
+      return;
+    }
     if (onDownloadScript) {
       onDownloadScript(format, scriptLinesFor(format));
       setExportSuccessMessage(`Saved the ${targetLanguage} script`);
@@ -2496,6 +2527,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onPlayPassage={handlePlayPassage}
               onTogglePlay={onTogglePlay}
               fontSize={reviewFontPx}
+              exportTitle={activeJob.file?.name}
             />
           )}
 

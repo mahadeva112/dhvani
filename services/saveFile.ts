@@ -31,7 +31,12 @@ const download = (data: Blob, name: string) => {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 };
 
-export const saveFileAs = async (data: Blob, suggestedName: string, as: SaveAs): Promise<SaveOutcome> => {
+/**
+ * `data` can be made after the dialog opens: the dialog must open while the
+ * click still counts, so a file that takes a moment to build is passed as a function.
+ */
+export const saveFileAs = async (data: Blob | (() => Promise<Blob>), suggestedName: string, as: SaveAs): Promise<SaveOutcome> => {
+  const contents = () => (data instanceof Blob ? Promise.resolve(data) : data());
   const picker = (globalThis as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
   if (typeof picker === 'function') {
     let handle: Awaited<ReturnType<SavePicker>>;
@@ -42,12 +47,23 @@ export const saveFileAs = async (data: Blob, suggestedName: string, as: SaveAs):
       if (name === 'AbortError') return { status: 'cancelled' };
       // The page may not open the dialog here (no click to answer, or a policy): download instead.
       if (name !== 'SecurityError' && name !== 'NotAllowedError' && name !== 'TypeError') throw err;
-      download(data, suggestedName);
+      download(await contents(), suggestedName);
       return { status: 'saved', name: suggestedName, downloaded: true };
     }
-    const writable = await handle.createWritable();
+    const blob = await contents();
+    let writable: Awaited<ReturnType<Awaited<ReturnType<SavePicker>>['createWritable']>>;
     try {
-      await writable.write(data);
+      writable = await handle.createWritable();
+    } catch (err) {
+      // Some windows (an embedded browser, a policy) open the dialog but refuse to write
+      // to the file picked, leaving it empty: download instead, so the file still arrives whole.
+      const name = (err as { name?: string } | null)?.name;
+      if (name !== 'SecurityError' && name !== 'NotAllowedError') throw err;
+      download(blob, suggestedName);
+      return { status: 'saved', name: suggestedName, downloaded: true };
+    }
+    try {
+      await writable.write(blob);
       await writable.close();
     } catch (err) {
       await writable.abort?.().catch(() => {});
@@ -55,6 +71,6 @@ export const saveFileAs = async (data: Blob, suggestedName: string, as: SaveAs):
     }
     return { status: 'saved', name: handle.name, downloaded: false };
   }
-  download(data, suggestedName);
+  download(await contents(), suggestedName);
   return { status: 'saved', name: suggestedName, downloaded: true };
 };

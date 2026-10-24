@@ -427,7 +427,8 @@ export const generateTextTranscript = (segments: AudioSegment[]): string => {
     .join('\n\n');
 };
 
-export type TargetScriptFormat = 'dialogue' | 'timecoded' | 'bilingual' | 'json' | 'csv';
+/** `docx` is made by scriptDocx, not generateTargetLanguageScript: it is a file, not text. */
+export type TargetScriptFormat = 'dialogue' | 'timecoded' | 'bilingual' | 'json' | 'csv' | 'docx';
 
 /**
  * Generates a clean, professional script in the target language.
