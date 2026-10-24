@@ -23,6 +23,7 @@ import {
   Redo2,
   RotateCcw,
   Scissors,
+  ScissorsLineDashed,
   SlidersHorizontal,
   SquareSplitHorizontal,
   Trash2,
@@ -42,7 +43,7 @@ import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
 import { wordsInTakeRange, type TakeWord } from '../services/takeRange';
-import { tightenPart, tightenLevelDb, closeUpParts, DEFAULT_TIGHTEN, type TightenSettings } from '../services/tightenEdit';
+import { tightenPart, tightenLevelDb, closeUpParts, DEFAULT_TIGHTEN, DEFAULT_SPLIT, type TightenSettings } from '../services/tightenEdit';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import {
   syncedParts,
@@ -399,13 +400,13 @@ const ClipBox = React.memo<ClipBoxProps>(
                 style={{ left: `${(((at - part.from) / part.rate) / length) * 100}%` }}
               />
             ))}
-        {/* Tighten silences: what would be cut */}
+        {/* Split at pauses / Tighten silences: what would be cut, or where it splits */}
         {cuts?.map((cut) => (
           <span
             key={cut.from}
             aria-hidden="true"
-            className="absolute top-0 bottom-0 bg-rose-500/45 border-x border-rose-300/70 pointer-events-none"
-            style={{ left: `${(((cut.from - part.from) / part.rate) / length) * 100}%`, width: `${(((cut.to - cut.from) / part.rate) / length) * 100}%` }}
+            className={`absolute top-0 bottom-0 pointer-events-none ${cut.to > cut.from ? 'bg-rose-500/45 border-x border-rose-300/70' : 'w-0.5 -ml-px bg-rose-400'}`}
+            style={{ left: `${(((cut.from - part.from) / part.rate) / length) * 100}%`, ...(cut.to > cut.from && { width: `${(((cut.to - cut.from) / part.rate) / length) * 100}%` }) }}
           />
         ))}
         {/* What a drag here does: shown where the pointer is, and on the picked line */}
@@ -476,6 +477,10 @@ const ToolButton: React.FC<{
 );
 
 /** A small action with its shortcut on it. */
+/** A toggle in the Split at pauses panel: one line, never broken. */
+const panelChip = (on: boolean) =>
+  `h-6 px-2 rounded-md text-[11.5px] border whitespace-nowrap shrink-0 cursor-default disabled:opacity-40 disabled:cursor-default ${on ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`;
+
 const ActionButton: React.FC<{ label: string; shortcut?: string; onClick: () => void; children: React.ReactNode; title?: string }> = ({
   label,
   shortcut,
@@ -710,6 +715,7 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
       ['L', 'Lock'],
       [',  .', 'Nudge 10 ms (Shift: 100 ms)'],
       ['T', 'Takes'],
+      ['D', 'Split at pauses'],
       ['Q', 'Tighten silences'],
       ['Del', 'Remove'],
     ],
@@ -1734,19 +1740,21 @@ export const SyncEditTimeline: React.FC<{
     setDraft(null);
   };
 
-  // ---- Tighten silences (Q) ----
-  // By hand, on the picked lines (every line when none is picked): each part is
-  // split where its line goes quiet and the silence taken out, shown in red on
-  // the timeline as the settings change and heard with Listen, before Apply.
-  // Then Close up: the picked parts play back to back while the first part
-  // after them stays where it is ('picked'), or every part does ('all', for
-  // audio with no picture to keep in sync).
+  // ---- Split at pauses (D) and Tighten silences (Q) ----
+  // One panel, by hand, on the picked lines (every line when none is picked):
+  // each part is split where its line goes quiet, in the middle of the pause
+  // (D: the silence kept, every piece where it was, as REAPER's Dynamic split)
+  // or with the silence taken out (Q), shown in red on the timeline as the
+  // settings change and heard with Listen, before Apply. Then Close up: the
+  // picked parts play back to back while the first part after them stays where
+  // it is ('picked'), or every part does ('all', for audio with no picture to
+  // keep in sync), or nothing moves ('off').
 
   const [tighten, setTighten] = useState<{
     settings: TightenSettings;
     /** The slider's level while it is on Auto: the first line's own. */
     manualDb: number;
-    closeUp: 'picked' | 'all';
+    closeUp: 'off' | 'picked' | 'all';
     checkWords: boolean;
     /** The parts picked when it opened; none: Picked lines only has nothing to work on. */
     picked: string[];
@@ -1791,7 +1799,7 @@ export const SyncEditTimeline: React.FC<{
       if (tighten.checkWords && !Array.isArray(words)) { waiting++; continue; }
       const audio = lineSamples(chunk);
       if (!audio) continue;
-      const result = tightenPart(audio.samples, audio.sr, chunk.part, tighten.settings, Array.isArray(words) ? words : []);
+      const result = tightenPart(audio.samples, audio.sr, chunk.part, tighten.settings, Array.isArray(words) ? words : [], { inPlace: tighten.closeUp === 'off' });
       if (result.cuts.length === 0) continue;
       cutsByPart.set(chunk.part.id, result.cuts);
       cuts += result.cuts.length;
@@ -1800,11 +1808,14 @@ export const SyncEditTimeline: React.FC<{
       next = withParts(next, chunk.key, partsOf(next, line, rate).flatMap((p) => (p.id === chunk.part.id ? result.parts : [p])));
     }
     // Close up: the picked parts follow one another at the shortest pause kept.
-    const closed = closeUpParts(
-      lines.map((line) => ({ key: line.key, parts: partsOf(next, line, rate) })),
-      (part, key) => !isOriginalClip(key) && (tightenAll || amongParts(tighten.picked, part.id)),
-      tighten.settings.minPause
-    );
+    const closed =
+      tighten.closeUp === 'off'
+        ? { parts: new Map<string, SyncEditPart[]>(), moved: 0, shift: 0 }
+        : closeUpParts(
+            lines.map((line) => ({ key: line.key, parts: partsOf(next, line, rate) })),
+            (part, key) => !isOriginalClip(key) && (tightenAll || amongParts(tighten.picked, part.id)),
+            tighten.settings.minPause
+          );
     for (const [key, parts] of closed.parts) next = withParts(next, key, parts);
     return { next, cutsByPart, cuts, removed: Math.max(removed, closed.shift), moved: closed.moved, waiting, failed };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1830,21 +1841,34 @@ export const SyncEditTimeline: React.FC<{
     }
   };
 
-  const openTighten = () => {
+  /** The panel as D opens it ('keep': split only) or as Q does ('remove': tighten and close up). */
+  const openPauses = (silence: TightenSettings['silence']) => {
     if (!bankBuffer) return say('The lines are still loading.');
     const picked = group.filter((c) => !c.original);
     const targets = picked.length > 0 ? picked : chunks.filter((c) => !c.original);
-    if (targets.length === 0) return say('Pick a dub line to tighten: clips of the original are left as they are.');
+    if (targets.length === 0) return say(`Pick a dub line to ${silence === 'keep' ? 'split' : 'tighten'}: clips of the original are left as they are.`);
+    const settings = silence === 'keep' ? DEFAULT_SPLIT : DEFAULT_TIGHTEN;
     const first = lineSamples(targets[0]);
-    const manualDb = first ? Math.round(tightenLevelDb(first.samples, first.sr, DEFAULT_TIGHTEN)) : -50;
-    setTighten({ settings: DEFAULT_TIGHTEN, manualDb, closeUp: picked.length > 0 ? 'picked' : 'all', checkWords: true, picked: picked.map((c) => c.part.id), listening: false });
+    const manualDb = first ? Math.round(tightenLevelDb(first.samples, first.sr, settings)) : -50;
+    const closeUp = silence === 'keep' ? 'off' : picked.length > 0 ? 'picked' : 'all';
+    setTighten({ settings, manualDb, closeUp, checkWords: true, picked: picked.map((c) => c.part.id), listening: false });
     askWords(targets);
   };
+  const openSplit = () => openPauses('keep');
+  const openTighten = () => openPauses('remove');
 
-  const closeUpTighten = (closeUp: 'picked' | 'all') => {
+  const closeUpTighten = (closeUp: 'off' | 'picked' | 'all') => {
     if (!tighten) return;
-    setTighten({ ...tighten, closeUp });
+    // Closing up moves the pieces, so the silence between them goes too.
+    const settings = closeUp === 'off' ? tighten.settings : { ...tighten.settings, silence: 'remove' as const };
+    setTighten({ ...tighten, settings, closeUp });
     if (closeUp === 'all' && tighten.checkWords) askWords(chunks.filter((c) => !c.original));
+  };
+
+  const silenceTighten = (silence: TightenSettings['silence']) => {
+    if (!tighten) return;
+    const closeUp = silence === 'keep' ? 'off' : tighten.closeUp !== 'off' ? tighten.closeUp : tighten.picked.length > 0 ? 'picked' : 'all';
+    setTighten({ ...tighten, settings: { ...tighten.settings, silence }, closeUp });
   };
 
   const closeTighten = () => {
@@ -1854,12 +1878,14 @@ export const SyncEditTimeline: React.FC<{
 
   const applyTighten = () => {
     if (!tighten || !tightenPreview) return;
+    const splitOnly = tighten.settings.silence === 'keep';
     if (tightenPreview.cuts === 0 && tightenPreview.moved === 0) {
       closeTighten();
-      return say('Nothing to tighten: no pause is that long or that quiet, and the parts already sit close.');
+      return say(splitOnly ? 'Nothing to split: no pause is that long or that quiet.' : 'Nothing to tighten: no pause is that long or that quiet, and the parts already sit close.');
     }
     const keys = [...new Set(tightenTargets.map((c) => c.unitIndex + 1))];
-    const label = tightenAll ? 'Tighten and close up every line' : `Tighten and close up ${keys.length === 1 ? `line ${keys[0]}` : `${keys.length} lines`}`;
+    const which = tightenAll ? 'every line' : keys.length === 1 ? `line ${keys[0]}` : `${keys.length} lines`;
+    const label = splitOnly ? `Split ${which} at pauses` : tighten.closeUp === 'off' ? `Take the silences out of ${which}` : `Tighten and close up ${which}`;
     commit(tightenPreview.next, label);
     say(`${tightenSummary(tightenPreview)} · Ctrl + Z undoes it`);
     setTighten(null);
@@ -1867,7 +1893,7 @@ export const SyncEditTimeline: React.FC<{
 
   /** What Apply does, in a few words. */
   const tightenSummary = ({ cuts, moved, removed }: { cuts: number; moved: number; removed: number }) =>
-    [cuts > 0 && `${cuts} cut${cuts === 1 ? '' : 's'}`, moved > 0 && `${moved} part${moved === 1 ? '' : 's'} moved up`, `−${removed.toFixed(2)} s`].filter(Boolean).join(' · ');
+    [cuts > 0 && `${cuts} cut${cuts === 1 ? '' : 's'}`, moved > 0 && `${moved} part${moved === 1 ? '' : 's'} moved up`, removed >= 0.005 ? `−${removed.toFixed(2)} s` : 'nothing moves'].filter(Boolean).join(' · ');
 
   const listenTighten = () => {
     if (!tighten || !tightenPreview) return;
@@ -2167,6 +2193,7 @@ export const SyncEditTimeline: React.FC<{
       { label: 'Nudge 10 ms later', shortcut: '.', icon: <ArrowRight className={icon} />, run: () => act.nudge(0.01) },
       'rule',
       !several && dub && onOpenTakes && { label: 'Takes…', shortcut: 'T', icon: <Mic className={icon} />, run: openTakes },
+      { label: 'Split at pauses…', shortcut: 'D', icon: <ScissorsLineDashed className={icon} />, run: openSplit },
       { label: 'Tighten silences…', shortcut: 'Q', icon: <FoldHorizontal className={icon} />, run: openTighten },
       !several && { label: 'Start, speed, gain, fades…', shortcut: 'F2', icon: <SlidersHorizontal className={icon} />, run: () => openProps(current.part.id) },
       'rule',
@@ -2384,7 +2411,8 @@ export const SyncEditTimeline: React.FC<{
     else if (lower === 'l') act.lock();
     else if (lower === 'n') setSnap((v) => !v);
     else if (lower === 't' && onOpenTakes) openTakes();
-    else if (lower === 'q') (tighten ? closeTighten : openTighten)();
+    else if (lower === 'd') (tighten?.settings.silence === 'keep' ? closeTighten : openSplit)();
+    else if (lower === 'q') (tighten?.settings.silence === 'remove' ? closeTighten : openTighten)();
     else if (key === 'Delete' || key === 'Backspace') act.remove();
     else if (key === 'Escape') {
       setSelected(null);
@@ -3102,23 +3130,66 @@ export const SyncEditTimeline: React.FC<{
         onScroll={(start) => zoom.scrollTo(start)}
       />
 
-      {/* Tighten silences: its settings, what they cut, Listen and Apply */}
+      {/* Split at pauses / Tighten silences: its settings, what they cut, Listen and Apply */}
       {tighten && (
-        <div role="group" aria-label="Tighten silences" className="rounded-xl border border-slate-700 bg-slate-900/95 px-3.5 py-3 flex flex-col gap-2.5">
-          <div className="flex items-center gap-2">
-            <FoldHorizontal className="w-4 h-4 text-slate-300" />
-            <span className="text-[13px] font-semibold text-slate-100">Tighten silences</span>
+        <div role="group" aria-label="Split at pauses" className="rounded-xl border border-slate-700 bg-slate-900/95 px-3.5 py-3 flex flex-col gap-2.5">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <ScissorsLineDashed className="w-4 h-4 shrink-0 text-slate-300" />
+            <span className="text-[13px] font-semibold text-slate-100 whitespace-nowrap">Split at pauses</span>
             <span className="text-[11.5px] text-slate-500">
               {tightenTargets.length === 1 ? `line ${tightenTargets[0].label}` : `${tightenTargets.length} parts`} · red is cut · Enter applies, Esc cancels
             </span>
           </div>
           <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
+            <div className="flex items-center gap-2 text-[12.5px] text-slate-300">
+              <span className="w-[8.5rem] shrink-0 whitespace-nowrap">The silence</span>
+              <div className="flex flex-wrap gap-1.5">
+                {(['keep', 'remove'] as const).map((silence) => (
+                  <button
+                    key={silence}
+                    type="button"
+                    onClick={() => silenceTighten(silence)}
+                    aria-pressed={tighten.settings.silence === silence}
+                    className={panelChip(tighten.settings.silence === silence)}
+                    title={silence === 'keep' ? 'Cut in the middle of each pause; every piece stays where it was (D)' : 'Take the silence out of each pause, down to the shortest pause kept (Q)'}
+                  >
+                    {silence === 'keep' ? 'Keep it, split only' : 'Remove'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-[12.5px] text-slate-300">
+              <span className="w-[8.5rem] shrink-0 whitespace-nowrap">Close up</span>
+              <div className="flex flex-wrap gap-1.5">
+                {(['off', 'picked', 'all'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => closeUpTighten(mode)}
+                    disabled={mode === 'picked' && tighten.picked.length === 0}
+                    aria-pressed={tighten.closeUp === mode}
+                    className={panelChip(tighten.closeUp === mode)}
+                    title={
+                      mode === 'off'
+                        ? 'Nothing moves: every piece stays where it was'
+                        : mode === 'picked'
+                          ? tighten.picked.length === 0
+                            ? 'Pick the lines to join first (Shift-click), then press Q'
+                            : 'The picked parts play back to back; the first part after them keeps its place, so the next scene stays in sync'
+                          : 'Every part plays back to back from the first: for audio with no picture, as later lines drift from the video'
+                    }
+                  >
+                    {mode === 'off' ? 'Off' : mode === 'picked' ? 'Picked lines only' : 'All lines'}
+                  </button>
+                ))}
+              </div>
+            </div>
             <label className="flex items-center gap-2 text-[12.5px] text-slate-300">
-              <span className="w-[8.5rem] shrink-0">Silence below</span>
+              <span className="w-[8.5rem] shrink-0 whitespace-nowrap">Silence below</span>
               <button
                 type="button"
                 onClick={() => setTighten({ ...tighten, settings: { ...tighten.settings, levelDb: 'auto' } })}
-                className={`h-6 px-2 rounded-md text-[11.5px] border cursor-default ${tighten.settings.levelDb === 'auto' ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
+                className={panelChip(tighten.settings.levelDb === 'auto')}
                 title="A little above each line's own room tone"
               >
                 Auto
@@ -3132,12 +3203,14 @@ export const SyncEditTimeline: React.FC<{
                 onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, levelDb: Number(e.target.value) } })}
                 className="flex-1 min-w-0 accent-indigo-400 cursor-default"
               />
-              <span className="w-12 text-right tabular-nums text-indigo-300">
+              <span className="w-12 shrink-0 text-right tabular-nums whitespace-nowrap text-indigo-300">
                 {tighten.settings.levelDb === 'auto' ? 'Auto' : `${tighten.settings.levelDb} dB`}
               </span>
             </label>
             <label className="flex items-center gap-2 text-[12.5px] text-slate-300">
-              <span className="w-[8.5rem] shrink-0">Shortest pause kept</span>
+              <span className="w-[8.5rem] shrink-0 whitespace-nowrap" title={tighten.settings.silence === 'keep' ? 'A pause longer than this is split in its middle' : 'What is left of each pause, and between closed-up parts'}>
+                {tighten.settings.silence === 'keep' ? 'Split pauses over' : 'Shortest pause kept'}
+              </span>
               <input
                 type="range"
                 min={0.04}
@@ -3147,45 +3220,24 @@ export const SyncEditTimeline: React.FC<{
                 onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, minPause: Number(e.target.value) } })}
                 className="flex-1 min-w-0 accent-indigo-400 cursor-default"
               />
-              <span className="w-12 text-right tabular-nums text-indigo-300">{Math.round(tighten.settings.minPause * 1000)} ms</span>
+              <span className="w-12 shrink-0 text-right tabular-nums whitespace-nowrap text-indigo-300">{Math.round(tighten.settings.minPause * 1000)} ms</span>
             </label>
-            <label className="flex items-center gap-2 text-[12.5px] text-slate-300">
-              <span className="w-[8.5rem] shrink-0">Margin around words</span>
+            <label className={`flex items-center gap-2 text-[12.5px] text-slate-300 ${tighten.settings.silence === 'keep' ? 'opacity-40' : ''}`}>
+              <span className="w-[8.5rem] shrink-0 whitespace-nowrap">Margin around words</span>
               <input
                 type="range"
                 min={0.01}
                 max={0.2}
                 step={0.01}
                 value={tighten.settings.margin}
+                disabled={tighten.settings.silence === 'keep'}
                 onChange={(e) => setTighten({ ...tighten, settings: { ...tighten.settings, margin: Number(e.target.value) } })}
                 className="flex-1 min-w-0 accent-indigo-400 cursor-default"
               />
-              <span className="w-12 text-right tabular-nums text-indigo-300">{Math.round(tighten.settings.margin * 1000)} ms</span>
+              <span className="w-12 shrink-0 text-right tabular-nums whitespace-nowrap text-indigo-300">{Math.round(tighten.settings.margin * 1000)} ms</span>
             </label>
-            <div className="flex items-center gap-2 text-[12.5px] text-slate-300">
-              <span className="w-[8.5rem] shrink-0">Close up</span>
-              {(['picked', 'all'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => closeUpTighten(mode)}
-                  disabled={mode === 'picked' && tighten.picked.length === 0}
-                  aria-pressed={(mode === 'all') === tightenAll}
-                  className={`h-6 px-2 rounded-md text-[11.5px] border cursor-default disabled:opacity-40 disabled:cursor-default ${(mode === 'all') === tightenAll ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`}
-                  title={
-                    mode === 'picked'
-                      ? tighten.picked.length === 0
-                        ? 'Pick the lines to join first (Shift-click), then press Q'
-                        : 'The picked parts play back to back; the first part after them keeps its place, so the next scene stays in sync'
-                      : 'Every part plays back to back from the first: for audio with no picture, as later lines drift from the video'
-                  }
-                >
-                  {mode === 'picked' ? 'Picked lines only' : 'All lines'}
-                </button>
-              ))}
-            </div>
           </div>
-          <label className="flex items-center gap-2 text-[12px] text-slate-400 cursor-default w-fit">
+          <label className="flex items-center gap-2 text-[12px] leading-snug text-slate-400 cursor-default w-fit">
             <input
               type="checkbox"
               checked={tighten.checkWords}
@@ -3193,7 +3245,7 @@ export const SyncEditTimeline: React.FC<{
                 setTighten({ ...tighten, checkWords: e.target.checked });
                 if (e.target.checked) askWords(tightenTargets);
               }}
-              className="accent-indigo-500"
+              className="shrink-0 accent-indigo-500"
             />
             Check words first: forced alignment, one request per line, so nothing said is cut
           </label>
@@ -3214,13 +3266,13 @@ export const SyncEditTimeline: React.FC<{
               )}
             </span>
             <span className="flex-1" />
-            <button type="button" onClick={listenTighten} disabled={!tightenPreview || (tightenPreview.cuts === 0 && tightenPreview.moved === 0)} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-default flex items-center gap-1.5">
+            <button type="button" onClick={listenTighten} disabled={!tightenPreview || (tightenPreview.cuts === 0 && tightenPreview.moved === 0)} className="h-8 px-3 shrink-0 whitespace-nowrap rounded-lg border border-slate-700 text-[12.5px] text-slate-200 hover:bg-slate-800 disabled:opacity-40 cursor-default flex items-center gap-1.5">
               <Play className="w-3.5 h-3.5" /> Listen
             </button>
-            <button type="button" onClick={applyTighten} disabled={!tightenPreview || tightenPreview.waiting > 0} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white disabled:opacity-40 cursor-default flex items-center gap-1.5">
+            <button type="button" onClick={applyTighten} disabled={!tightenPreview || tightenPreview.waiting > 0} className="h-8 px-3 shrink-0 whitespace-nowrap rounded-lg bg-indigo-500 hover:bg-indigo-400 text-[12.5px] font-medium text-white disabled:opacity-40 cursor-default flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5" /> Apply
             </button>
-            <button type="button" onClick={closeTighten} className="h-8 px-3 rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-default">
+            <button type="button" onClick={closeTighten} className="h-8 px-3 shrink-0 whitespace-nowrap rounded-lg border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800 cursor-default">
               Cancel
             </button>
           </div>
@@ -3248,7 +3300,10 @@ export const SyncEditTimeline: React.FC<{
           <ActionButton label={currentLocked ? 'Unlock' : 'Lock'} shortcut="L" onClick={act.lock} title="A locked line stays where it is when Sync runs again">
             {currentLocked ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
           </ActionButton>
-          <ActionButton label="Tighten" shortcut="Q" onClick={tighten ? closeTighten : openTighten} title="Take the long silences out of the picked lines and close them up back to back (every line when none is picked): see what is cut, listen, then apply">
+          <ActionButton label="Split at pauses" shortcut="D" onClick={tighten?.settings.silence === 'keep' ? closeTighten : openSplit} title="Cut the picked lines in the middle of every pause, as REAPER's Dynamic split (every line when none is picked): nothing moves, nothing is taken out">
+            <ScissorsLineDashed className="w-4 h-4" />
+          </ActionButton>
+          <ActionButton label="Tighten" shortcut="Q" onClick={tighten?.settings.silence === 'remove' ? closeTighten : openTighten} title="Take the long silences out of the picked lines and close them up back to back (every line when none is picked): see what is cut, listen, then apply">
             <FoldHorizontal className="w-4 h-4" />
           </ActionButton>
           {onOpenTakes && (
