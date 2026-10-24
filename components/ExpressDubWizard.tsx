@@ -105,6 +105,7 @@ import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncStatusBar, useSyncOptions } from './SyncPanel';
 import { SyncAlignmentView } from './SyncAlignmentView';
+import { LinePair } from './LinePair';
 import { applyJoinPreset, describeChange, joinPresetLabel, presetName } from './SyncJoinSettings';
 import { presetSuggestion, type SyncJoinPreset } from '../services/syncPresets';
 import {
@@ -3607,11 +3608,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onPrevLine={prevCue}
                   onNextLine={nextCue}
                   transportExtras={playerExtras}
-                  onListenLine={(unit) =>
-                    switchTrack('both', { seek: toHeardClock(Math.max(0, Math.min(unit.srcStart, unit.placedStart ?? unit.srcStart) - 0.3)), play: true })
-                  }
                   onWorkOnLine={(unit, mode) => setFocusLine((now) => ({ key: unit.key, mode, n: (now?.n ?? 0) + 1 }))}
                   canOpenTakes={Boolean(renderTakes)}
+                  sourceLanguage={subtitleSourceLanguage}
+                  dubLanguage={targetLanguage}
                   onSeekTrack={(track, t) => {
                     // A lane not being heard starts being heard there; a lane being heard just moves.
                     const leftOut = track === 'source' ? trackMode === 'synth' : trackMode === 'source';
@@ -3650,8 +3650,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <LiveClock currentTime={currentTime} isPlaying={isPlaying} getLiveTime={getLiveTime} />{' '}
                 <span className="text-slate-500">/ {formatClock((trackMode === 'both' && laneSpan) || heardDuration || totalLength)}</span>
               </span>
-              <span aria-live="polite" className="flex-1 min-w-[12rem] truncate text-[13px] text-slate-300">
-                {activeCue ? getTargetText(activeCue) : <span className="text-xs text-slate-500">Press play, or Listen on a line below.</span>}
+              <span aria-live="polite" className="flex-1 min-w-[12rem] flex">
+                {activeCue ? (
+                  <LinePair source={getSourceText(activeCue)} dub={getTargetText(activeCue)} sourceLanguage={subtitleSourceLanguage} dubLanguage={targetLanguage} />
+                ) : (
+                  <span className="text-xs text-slate-500">Press play, or Listen on a line below.</span>
+                )}
               </span>
               {!report && (
                 // Before the first sync there are no lanes, so no track strips: pick the track here.

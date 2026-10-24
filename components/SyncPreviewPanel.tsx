@@ -1264,8 +1264,6 @@ export const PreviewTimeline: React.FC<{
         }}
         currentTime={currentTime}
         total={total}
-        windowStart={zoom.viewStart()}
-        windowSeconds={WINDOW_SECONDS}
       >
         <span className="flex items-center gap-1.5"><span className="w-3 h-2.5 rounded-sm border border-dashed border-indigo-300 bg-indigo-300/15" /> Estimated length, in the line's colour</span>
         <span className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT.fits}`} /> Likely fits</span>

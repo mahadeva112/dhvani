@@ -1,10 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { CircleHelp, Mic, Pencil, Play } from 'lucide-react';
+import { CircleHelp, Mic, Pencil } from 'lucide-react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import { LINE_HUES, hueOf, withAlpha } from './lineColors';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
+import { LinePair } from './LinePair';
 
 /**
  * How every synced line landed against the original. It opens on the whole
@@ -39,7 +40,6 @@ const formatClock = (seconds: number) => {
   const s = (t % 60).toFixed(1).padStart(4, '0');
   return `${m}:${s}`;
 };
-const formatOffset = (seconds: number) => `${seconds > 0 ? '+' : seconds < 0 ? '−' : '±'}${Math.abs(seconds).toFixed(2)} s`;
 
 type Tone = 'sync' | 'off' | 'far' | 'none';
 const toneOf = (u: SyncUnitReport, tolerance: number): Tone => {
@@ -73,13 +73,15 @@ export const SyncAlignmentView: React.FC<{
   onNextLine?: () => void;
   /** More of the player's controls, after the legend: speed, video. */
   transportExtras?: React.ReactNode;
-  /** The picked-out line's actions: play the original and the dub of it together, and work on it in the line list. */
-  onListenLine?: (unit: SyncUnitReport) => void;
+  /** The picked-out line's actions: work on it in the line list. */
   onWorkOnLine?: (unit: SyncUnitReport, mode: 'takes' | 'words') => void;
   /** Whether a line's takes can be opened (Takes shows only then). */
   canOpenTakes?: boolean;
   /** A click on a lane: with this, the player decides (a lane not being heard starts that track there). */
   onSeekTrack?: (track: 'source' | 'synth', time: number) => void;
+  /** The languages of the original and the dub, for the picked-out line's tags. */
+  sourceLanguage?: string;
+  dubLanguage?: string;
 }> = ({
   report,
   reportedTime,
@@ -94,10 +96,11 @@ export const SyncAlignmentView: React.FC<{
   onPrevLine,
   onNextLine,
   transportExtras,
-  onListenLine,
   onWorkOnLine,
   canOpenTakes = false,
   onSeekTrack,
+  sourceLanguage,
+  dubLanguage,
 }) => {
   // The clocks and the line under the playhead use tenths; the playheads move every frame through playheadRef.
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
@@ -408,46 +411,16 @@ export const SyncAlignmentView: React.FC<{
         }}
         currentTime={currentTime}
         total={total}
-        windowStart={zoom.viewStart()}
-        windowSeconds={WINDOW_SECONDS}
         onPrev={onPrevLine}
         onNext={onNextLine}
         status={
           // The picked-out line, spelled out: the one hovered, else the one being heard.
-          <span className="flex-1 min-w-0 flex flex-col gap-1 text-[12px]" aria-live="polite">
+          // Its timing is on the lanes and in Edit timing; here only the words: the original above, the dub below.
+          <span className="flex-1 min-w-0 flex items-center gap-3 text-[12px]" aria-live="polite">
             {focus ? (
               <>
-                <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono tabular-nums">
-                  <span className="px-1.5 rounded text-[11px] font-bold text-slate-950" style={{ background: hueOf(focus.index) }}>
-                    #{focus.index + 1}
-                  </span>
-                  <span className="text-cyan-300">
-                    Original {formatClock(focus.srcStart)}–{formatClock(focus.srcEnd)}
-                  </span>
-                  {focus.placedStart !== null && focus.placedEnd !== null ? (
-                    <span className="text-indigo-300">
-                      Synced {formatClock(focus.placedStart)}–{formatClock(focus.placedEnd)}
-                    </span>
-                  ) : (
-                    <span className="text-slate-500">Synced: no audio</span>
-                  )}
-                  {focus.offset !== null && (
-                    <span className={TONE[tones.get(focus.index) ?? 'none'].text}>
-                      starts {formatOffset(focus.offset)}
-                      {focus.inSync ? ' · in sync' : ''}
-                    </span>
-                  )}
-                  {(focus.overrun ?? 0) > 0.01 && <span className="text-rose-300">runs {(focus.overrun as number).toFixed(2)} s into #{focus.index + 2}</span>}
-                  {focus.exceeded && <span className="text-amber-300">{focus.exceededBy.toFixed(2)} s too long</span>}
-                  {focus.short && <span className="text-sky-300">ends {focus.shortBy.toFixed(1)} s early</span>}
-                </span>
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className="flex-1 min-w-0 text-slate-300 truncate">{focus.text}</span>
-                  {onListenLine && (
-                    <button type="button" onClick={() => onListenLine(focus)} className={lineAction} title="Play the original and the dub of this line together">
-                      <Play className="w-3 h-3 fill-current" /> Listen both
-                    </button>
-                  )}
+                <LinePair source={focus.sourceText} dub={focus.text} sourceLanguage={sourceLanguage} dubLanguage={dubLanguage} />
+                <span className="flex items-center gap-2 shrink-0">
                   {onWorkOnLine && canOpenTakes && !focus.silent && (
                     <button type="button" onClick={() => onWorkOnLine(focus, 'takes')} className={lineAction} title="Open this line's takes in the list below">
                       <Mic className="w-3 h-3" /> Takes

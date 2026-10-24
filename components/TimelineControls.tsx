@@ -478,14 +478,12 @@ export const TimelineScrollbar: React.FC<{
   );
 };
 
-/** Play / pause for the timeline, with where playback is and the window on screen. */
+/** Play / pause for the timeline, with where playback is. */
 export const TimelineTransport: React.FC<{
   isPlaying: boolean;
   onTogglePlay: () => void;
   currentTime: number;
   total: number;
-  windowStart: number;
-  windowSeconds: number;
   /** The legend, shown at the right. */
   children?: React.ReactNode;
   /** With these, previous and next line buttons sit either side of play, and play is the big one of a page's main player. */
@@ -493,7 +491,7 @@ export const TimelineTransport: React.FC<{
   onNext?: () => void;
   /** What is under the playhead or the pointer, between the clock and the legend. */
   status?: React.ReactNode;
-}> = ({ isPlaying, onTogglePlay, currentTime, total, windowStart, windowSeconds, children, onPrev, onNext, status }) => (
+}> = ({ isPlaying, onTogglePlay, currentTime, total, children, onPrev, onNext, status }) => (
   <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-slate-500">
     {onPrev && (
       <button
@@ -529,9 +527,6 @@ export const TimelineTransport: React.FC<{
       }`}
     >
       {formatClock(currentTime)} <span className="text-slate-500">/ {formatClock(total)}</span>
-    </span>
-    <span className="font-mono tabular-nums text-slate-500" title="The part of the timeline on screen">
-      Showing {formatClock(windowStart)} – {formatClock(Math.min(windowStart + windowSeconds, total))}
     </span>
     {status && <span className="flex-1 min-w-[16rem] flex items-center gap-2 pl-3 border-l border-slate-800">{status}</span>}
     {children && <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">{children}</span>}
