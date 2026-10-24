@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.99',
+    changes: [
+      'Lines in Edit timing now move freely, as in REAPER: drag one anywhere, over other lines too. Where two lines play together the lane shows red, and nothing is cut. Drag to the edge to scroll, and press Esc to put it back.',
+      'The player under the timeline shows the original line above the dub line, in full, without the timing numbers.',
+    ],
+  },
+  {
     version: '1.3.98',
     changes: [
       'A retake used in Edit timing now shows its own waveform at its own length right away, with no trim needed. A longer take plays to its end and shows as an overlap on the next line.',
