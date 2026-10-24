@@ -1227,7 +1227,7 @@ const rewordRoute = (direction) =>
  * POST /api/sync/shorten — shorter wordings for one line, from the text
  * model. Body: `{ text, sourceText, language, targetChars, avoid, count,
  * context }`: `avoid` earlier suggestions to differ from, `count` how many
- * wordings (1 to 3), `context` `{ before, after, speaker }`, the lines around
+ * wordings (1 to 2), `context` `{ before, after, speaker }`, the lines around
  * it for the model to read it in. Replies as rewordRoute says. Every wording
  * without `issues` has passed the meaning check (syncRewrite.js). The script
  * is never changed here.

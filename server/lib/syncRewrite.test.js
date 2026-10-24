@@ -165,45 +165,50 @@ const optionsModel = ({ rounds = [], verdict = () => ({ sameMeaning: true, issue
   return { generate, prompts };
 };
 
-test('three wordings come back from one request, each checked on its own', async () => {
-  const lines = ['कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी', 'बारिश होगी, कल दस बजे बाज़ार नहीं जाऊँगा', 'कल सुबह दस बजे नहीं जाऊँगा, बारिश है'];
+test('two wordings come back from one request, each checked on its own', async () => {
+  const lines = ['कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी', 'बारिश होगी, कल दस बजे बाज़ार नहीं जाऊँगा'];
   const { generate, prompts } = optionsModel({ rounds: [lines] });
-  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 3 }, { generate });
+  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 2 }, { generate });
   assert.deepEqual(options.map((o) => o.line), lines);
   assert.ok(options.every((o) => !o.issues));
   assert.equal(prompts.options.length, 1);
-  assert.equal(prompts.check.length, 3);
+  assert.equal(prompts.check.length, 2);
   // The model works the meaning out first, and is asked for wordings of different kinds.
   assert.match(prompts.options[0], /First, understand the line/);
   assert.match(prompts.options[0], /"meaning"/);
-  assert.match(prompts.options[0], /1\. Closest[\s\S]*2\. Natural[\s\S]*3\. Recast/);
+  assert.match(prompts.options[0], /1\. Closest[\s\S]*2\. Natural/);
+  assert.doesNotMatch(prompts.options[0], /Recast/);
+});
+
+test('no more than two wordings are asked for, whatever the count', async () => {
+  const { generate, prompts } = optionsModel({ rounds: [[]] });
+  await suggestLines({ ...request, direction: 'shorter', count: 5 }, { generate });
+  assert.match(prompts.options[0], /Write 2 shorter wordings/);
 });
 
 test('a wording that changed the meaning is asked for again, and still offered last, flagged, if no other comes', async () => {
   const good = 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
   const bad = 'कल दस बजे बाज़ार जाऊँगा, बारिश होगी';
-  const third = 'बारिश होगी, कल दस बजे नहीं जाऊँगा';
   const { generate, prompts } = optionsModel({
-    rounds: [[good, bad, good], [third]],
+    rounds: [[bad, good], []],
     verdict: (line) => (line === bad ? { sameMeaning: false, issues: ['negation dropped'] } : { sameMeaning: true, issues: [] }),
   });
-  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 3 }, { generate });
+  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 2 }, { generate });
   const en = (line) => `EN: ${line}`;
   assert.deepEqual(options, [
     { line: good, backTranslation: en(good) },
-    { line: third, backTranslation: en(third) },
     { line: bad, issues: ['negation dropped'], backTranslation: en(bad) },
   ]);
   // The second round asks only for what is missing, told what went wrong.
   assert.equal(prompts.options.length, 2);
-  assert.match(prompts.options[1], /Write 2 shorter wordings/);
+  assert.match(prompts.options[1], /Write 1 shorter wording/);
   assert.match(prompts.options[1], /What was wrong: negation dropped/);
 });
 
 test('wordings of the wrong length, or repeats of earlier ones, are not offered', async () => {
   const offered = 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
   const { generate } = optionsModel({ rounds: [[request.text, offered, 'नहीं'], []] });
-  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 3, avoid: [offered] }, { generate });
+  const { options } = await suggestLines({ ...request, direction: 'shorter', count: 2, avoid: [offered] }, { generate });
   assert.deepEqual(options, []);
 });
 
@@ -407,14 +412,12 @@ test('a wording that fits is offered without any mark', async () => {
 });
 
 test('among several, wordings that fit come first; one a little long is marked, and the next round hears how long', async () => {
-  const fitsToo = 'कल सुबह बाज़ार नहीं जाऊँगा, बारिश होगी';
-  const { generate, prompts } = optionsModel({ rounds: [[LONG_BY_THREE, FITS, LONG_BY_FIVE], [fitsToo]] });
-  const { options } = await suggestLines({ ...request, targetChars: 43, direction: 'shorter', count: 3 }, { generate });
+  const { generate, prompts } = optionsModel({ rounds: [[LONG_BY_THREE, LONG_BY_FIVE], [FITS]] });
+  const { options } = await suggestLines({ ...request, targetChars: 43, direction: 'shorter', count: 2 }, { generate });
   assert.deepEqual(
     options.map((o) => [o.line, o.over]),
     [
       [FITS, undefined],
-      [fitsToo, undefined],
       [LONG_BY_THREE, 2],
     ]
   );

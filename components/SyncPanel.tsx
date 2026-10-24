@@ -51,7 +51,7 @@ import {
 import type { DubProgress } from '../services/elevenLabsService';
 import { apiGetAudio } from '../services/apiClient';
 import type { presetSuggestion } from '../services/syncPresets';
-import { isShort, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
+import { isShort, LINE_OPTIONS, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
 import { timeLine } from '../services/speechTiming';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import {
@@ -1541,7 +1541,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             <p className="text-xs text-slate-400">
               {report.summary.meaningRejected === 1 ? '1 suggestion was' : `${report.summary.meaningRejected} suggestions were`} held back: every
               wording the text model offered changed the meaning of the original line. Edit {report.summary.meaningRejected === 1 ? 'that line' : 'those lines'}{' '}
-              yourself, or press Suggest 3 to try again.
+              yourself, or press Suggest {LINE_OPTIONS} to try again.
             </p>
           )}
           {report.summary.suggestionError && (
@@ -1992,7 +1992,7 @@ const ReviewRow: React.FC<{
                     className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 disabled:opacity-60 cursor-default"
                   >
                     {asking ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    {asking ? 'Asking…' : suggested ? '3 more' : 'Suggest 3'}
+                    {asking ? 'Asking…' : suggested ? `${LINE_OPTIONS} more` : `Suggest ${LINE_OPTIONS}`}
                   </button>
                 )}
                 <span className="text-[11px] text-slate-500 tabular-nums">
