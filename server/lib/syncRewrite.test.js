@@ -16,22 +16,26 @@ import {
   shorterFit,
 } from './syncRewrite.js';
 
+/** The candidate a meaning-check prompt is about. */
+const candidateOf = (prompt) => prompt.split('Suggested wording:\n')[1].split('\n')[0];
+
+/** A verdict as the model gives it: with the literal English when the prompt asks for it. */
+const answerOf = (prompt, verdict) =>
+  typeof verdict === 'string'
+    ? verdict
+    : JSON.stringify(prompt.includes('"backTranslation"') ? { backTranslation: `EN: ${candidateOf(prompt)}`, ...verdict } : verdict);
+
 /**
  * A fake text model: rewrites come from `lines` in order, meaning checks from
  * `checks` in order. Every prompt it was sent is kept.
  */
 const fakeModel = ({ lines = [], checks = [] }) => {
-  const prompts = { rewrite: [], check: [], back: [] };
+  const prompts = { rewrite: [], check: [] };
   const generate = async ({ contents, generationConfig }) => {
     const prompt = contents.parts[0].text;
-    if (prompt.startsWith('Translate this')) {
-      prompts.back.push(prompt);
-      return { response: { text: `EN: ${prompt.split('\n\n')[1]}` } };
-    }
     if (generationConfig?.responseMimeType === 'application/json') {
       prompts.check.push(prompt);
-      const next = checks.shift();
-      return { response: { text: typeof next === 'string' ? next : JSON.stringify(next) } };
+      return { response: { text: answerOf(prompt, checks.shift()) } };
     }
     prompts.rewrite.push(prompt);
     return { response: { text: lines.shift() ?? '' } };
@@ -147,17 +151,12 @@ test("the check judges only what a suggestion changes, not the dub line's own wo
  * `verdict(line)` gives that line.
  */
 const optionsModel = ({ rounds = [], verdict = () => ({ sameMeaning: true, issues: [] }) }) => {
-  const prompts = { options: [], check: [], back: [] };
+  const prompts = { options: [], check: [] };
   const generate = async ({ contents }) => {
     const prompt = contents.parts[0].text;
-    if (prompt.startsWith('Translate this')) {
-      prompts.back.push(prompt);
-      return { response: { text: `EN: ${prompt.split('\n\n')[1]}` } };
-    }
     if (prompt.includes('strict reviewer')) {
       prompts.check.push(prompt);
-      const candidate = prompt.split('Suggested wording:\n')[1].split('\n')[0];
-      return { response: { text: JSON.stringify(verdict(candidate)) } };
+      return { response: { text: answerOf(prompt, verdict(candidateOf(prompt))) } };
     }
     prompts.options.push(prompt);
     return { response: { text: JSON.stringify({ meaning: 'He will not go.', options: rounds.shift() ?? [] }) } };
@@ -301,41 +300,36 @@ test('a wording offered before is never offered again, however many were', async
   assert.match(prompts.rewrite[0], new RegExp(offered[19]));
 });
 
-test('each wording is translated back into English without the original in view, and the check reads that English', async () => {
+test('the meaning check translates the wording into English first, in the same call, before reading the original', async () => {
   const wording = 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
-  const { generate, prompts } = fakeModel({ lines: [wording], checks: [{ sameMeaning: true, issues: [] }] });
+  let calls = 0;
+  const { generate: inner, prompts } = fakeModel({ lines: [wording], checks: [{ sameMeaning: true, issues: [] }] });
+  const generate = (options) => (calls++, inner(options));
   const result = await suggestLine({ ...request, direction: 'shorter' }, { generate });
   assert.equal(result.backTranslation, `EN: ${wording}`);
-  assert.equal(prompts.back.length, 1);
-  // The back-translation never sees the original line or the dub line it came from.
-  assert.doesNotMatch(prompts.back[0], /I will not go/);
-  assert.doesNotMatch(prompts.back[0], new RegExp(request.text));
-  assert.match(prompts.check[0], /translated literally into English by someone who never saw the original line:\nEN: कल दस बजे/);
+  assert.equal(calls, 2, 'one wording, one check: no separate back-translation call');
+  // The wording comes before the original line, and is translated on its own.
+  const check = prompts.check[0];
+  assert.ok(check.indexOf('Suggested wording:') < check.indexOf('Original line (the authority)'));
+  assert.match(check, /translate the suggested wording into English literally, on its own/);
+  assert.match(check, /"backTranslation":"<the literal English/);
 });
 
 test('without a source line there is nothing to translate back against, so no back-translation is asked for', async () => {
   const { generate, prompts } = fakeModel({ lines: ['कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी'], checks: [{ sameMeaning: true, issues: [] }] });
   const result = await suggestLine({ ...request, sourceText: '', direction: 'shorter' }, { generate });
   assert.equal(result.backTranslation, null);
-  assert.equal(prompts.back.length, 0);
+  assert.doesNotMatch(prompts.check[0], /backTranslation/);
 });
 
-test('a back-translation that fails leaves the meaning check to run without it', async () => {
-  let checked = 0;
-  const generate = async ({ contents, generationConfig }) => {
-    const prompt = contents.parts[0].text;
-    if (prompt.startsWith('Translate this')) throw new Error('rate limited');
-    if (generationConfig?.responseMimeType === 'application/json') {
-      checked++;
-      assert.doesNotMatch(prompt, /translated literally into English/);
-      return { response: { text: JSON.stringify({ sameMeaning: true, issues: [] }) } };
-    }
-    return { response: { text: 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी' } };
-  };
+test('a check that passes without its English still passes, with no back-translation shown', async () => {
+  const generate = async ({ generationConfig }) =>
+    generationConfig?.responseMimeType === 'application/json'
+      ? { response: { text: JSON.stringify({ sameMeaning: true, issues: [] }) } }
+      : { response: { text: 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी' } };
   const result = await suggestLine({ ...request, direction: 'shorter' }, { generate });
   assert.equal(result.line, 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी');
   assert.equal(result.backTranslation, null);
-  assert.equal(checked, 1);
 });
 
 test("the user's earlier choices go into every prompt as a guide to style, never to content", () => {
