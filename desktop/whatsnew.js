@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.97',
+    changes: [
+      'Suggest wording is faster: each wording\'s meaning check and its English ("Says:") now come from one request instead of two.',
+    ],
+  },
+  {
     version: '1.3.96',
     changes: [
       'New Split at pauses (D) in Edit timing: cuts the picked lines in the middle of every pause, as REAPER\'s Dynamic split, and nothing moves. It shares one panel with Tighten silences (Q).',
