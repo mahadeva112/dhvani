@@ -366,55 +366,32 @@ const directionOf = (direction) => DIRECTIONS[direction] || DIRECTIONS.shorter;
  * wording against the source line (or, when there is none, the dub line as it
  * is). `direction` says what the wording was allowed to change: 'shorter' may
  * drop filler and repetition, 'longer' may restore what the source says,
- * 'same' (reworded) may change only the words and their order.
+ * 'same' (reworded) may change only the words and their order. With a source
+ * line, the same call first puts the wording into English literally, on its
+ * own, before reading the original, and then sets that English against it:
+ * one call where a separate back-translation used to be a second, in series.
  */
-/**
- * The prompt for a back-translation: the suggested wording put into English,
- * literally, by a call that never sees the original line, so it can only say
- * what the wording itself says. The meaning check then sets it against the
- * original, which catches a change a reviewer reading both lines can miss.
- */
-export const buildBackTranslationPrompt = ({ candidate, language }) => `Translate this ${language || ''} line into English, literally: what it says, word for word in meaning, keeping every negation, condition, number, name and emphasis, and its tone (a question stays a question). Do not improve it, explain it or fix it.
-
-${candidate}
-
-Reply with only the English translation.`;
-
-/** The English of `candidate` (see buildBackTranslationPrompt), or null when the text model gave none. */
-export const backTranslate = async ({ candidate, language }, { apiKey, generate = generateText } = {}) => {
-  try {
-    const { response } = await generate({
-      contents: { role: 'user', parts: [{ text: buildBackTranslationPrompt({ candidate, language }) }] },
-      generationConfig: { temperature: 0 },
-      apiKey,
-    });
-    return cleanLine(response?.text) || null;
-  } catch (err) {
-    // The check still runs without it; only a failure of the check itself withholds a wording.
-    logger.info(`A back-translation was not available (${err?.message || 'no answer'}); the meaning is checked without it.`);
-    return null;
-  }
-};
-
-export const buildMeaningCheckPrompt = ({ text, sourceText, candidate, language, direction, backTranslation = null }) => `You are a strict reviewer checking a ${language || 'dubbing'} dub script against its source. A wording was ${
+export const buildMeaningCheckPrompt = ({ text, sourceText, candidate, language, direction }) => `You are a strict reviewer checking a ${language || 'dubbing'} dub script against its source. A wording was ${
   direction === 'longer' ? 'made fuller' : direction === 'same' ? 'reworded' : 'shortened'
 } so the dub fits the video's timing. Decide whether it still means exactly what the ${sourceText ? 'original line' : 'current dub line'} means.
-
-${sourceText ? `Original line (the authority):\n${sourceText}\n\n` : ''}Current dub line:
-${text}
 
 Suggested wording:
 ${candidate}
 ${
-  backTranslation
+  sourceText
     ? `
-The suggested wording, translated literally into English by someone who never saw the original line:
-${backTranslation}
+First, translate the suggested wording into English literally, on its own, as if you had never seen the lines below: what it says, word for word in meaning, keeping every negation, condition, number, name and emphasis, and its tone (a question stays a question). Do not improve it or fix it. Write that as "backTranslation".
 
-Set this English against the original line too: it shows what the suggested wording actually says.
+Then set that English against the original line: it shows what the suggested wording actually says.
+
+Original line (the authority):
+${sourceText}
 `
     : ''
 }
+Current dub line:
+${text}
+
 It does NOT keep the meaning if, compared with the ${sourceText ? 'original line' : 'current dub line'}, it:
 - leaves out any idea, fact, condition, qualifier or emphasis${direction === 'longer' || direction === 'same' ? '' : ' (dropping only filler words and repetition is fine)'};
 - adds any idea, fact, example or opinion that is not there${direction === 'longer' ? ' (saying what is there more fully is fine)' : ''};
@@ -432,23 +409,22 @@ Grammar that ${language || 'the dub language'} naturally uses for the same meani
 If you are not sure, it does not keep the meaning.
 
 Respond with ONLY this JSON:
-{"sameMeaning":<true|false>,"issues":["<each change, in a few English words>"]}`;
+{${sourceText ? '"backTranslation":"<the literal English of the suggested wording>",' : ''}"sameMeaning":<true|false>,"issues":["<each change, in a few English words>"]}`;
 
 /** How many repair tries a wording that changed the meaning gets. */
 const MAX_REPAIRS = 1;
 
 /**
- * Checks that `candidate` means what the source line means. With a source
- * line, the wording is first translated back into English on its own
- * (backTranslate), and the check reads that too. Returns `{ ok, issues,
+ * Checks that `candidate` means what the source line means, in one call to the
+ * text model. With a source line, the answer also carries the wording's
+ * literal English (buildMeaningCheckPrompt). Returns `{ ok, issues,
  * backTranslation }`, `backTranslation` the English or null, for the user to
  * read beside the wording. An answer that can't be read counts as a failure:
  * a suggestion is only shown when the check positively passed.
  */
 export const checkMeaning = async ({ text, sourceText, candidate, language, direction }, { apiKey, generate = generateText } = {}) => {
-  const backTranslation = sourceText ? await backTranslate({ candidate, language }, { apiKey, generate }) : null;
   const { response } = await generate({
-    contents: { role: 'user', parts: [{ text: buildMeaningCheckPrompt({ text, sourceText, candidate, language, direction, backTranslation }) }] },
+    contents: { role: 'user', parts: [{ text: buildMeaningCheckPrompt({ text, sourceText, candidate, language, direction }) }] },
     generationConfig: { responseMimeType: 'application/json', temperature: 0 },
     apiKey,
   });
@@ -456,9 +432,10 @@ export const checkMeaning = async ({ text, sourceText, candidate, language, dire
   try {
     parsed = parseJsonResponse(response?.text, 'Meaning check');
   } catch {
-    return { ok: false, issues: ['The meaning check gave no readable answer.'], backTranslation };
+    return { ok: false, issues: ['The meaning check gave no readable answer.'], backTranslation: null };
   }
   const issues = Array.isArray(parsed?.issues) ? parsed.issues.filter((i) => typeof i === 'string' && i.trim()).map((i) => i.trim()) : [];
+  const backTranslation = (sourceText && typeof parsed?.backTranslation === 'string' && cleanLine(parsed.backTranslation)) || null;
   return { ok: parsed?.sameMeaning === true, issues, backTranslation };
 };
 
