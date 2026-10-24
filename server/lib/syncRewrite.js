@@ -545,11 +545,12 @@ export const suggestLine = async (
 };
 
 /** Most wordings one line is offered at once. */
-export const MAX_OPTIONS = 3;
+export const MAX_OPTIONS = 2;
 
 /**
  * What each of several wordings is asked to be, so they differ in kind and the
- * user has a real choice rather than three near-copies.
+ * user has a real choice rather than near-copies. Only the first MAX_OPTIONS are
+ * asked for; Recast stays for a caller that wants a third kind.
  */
 const OPTION_STYLES = [
   "Closest: keep the dub line's own words and order, and change as little as you can.",

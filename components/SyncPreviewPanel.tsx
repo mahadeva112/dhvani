@@ -149,7 +149,7 @@ export const deepCut = (unit: SyncPreviewUnit) =>
   directionFor(unit) === 'shorter' && unit.wantSeconds === undefined && unit.targetChars < unit.text.trim().length * (1 - MAX_CUT_SHARE);
 
 /** Wordings a line is offered when the user asks for that line; Suggest for all asks for one each. */
-export const LINE_OPTIONS = 3;
+export const LINE_OPTIONS = 2;
 /**
  * Earlier wordings sent back with a new request, so new ones read differently
  * and none comes back twice: a user may ask for a line as often as they like.

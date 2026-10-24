@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, Mic, Languages, AlignLeft } from 'lucide-react';
+import { X, RefreshCw, Mic, Languages, AlignLeft, Zap } from 'lucide-react';
 import {
   TRANSLATION_PRESETS,
   QUICK_PROMPT_TAGS,
@@ -18,7 +18,8 @@ interface TranslationPromptModalProps {
   hasActiveSegments: boolean;
   hasAudioFile: boolean;
   onSavePrompt: (prompt: string, presetId: string) => void;
-  onRetranslateSegments?: (prompt: string) => Promise<void>;
+  /** `fast` is Fast translate: translation only, no meaning, length or term checks. */
+  onRetranslateSegments?: (prompt: string, options?: { fast?: boolean }) => Promise<void>;
   onRetranscribeAudio?: (prompt: string) => Promise<void>;
   isTranslating?: boolean;
   /** How many cues and how much audio a re-run would cover, for the buttons' wording. */
@@ -48,6 +49,8 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
   const [promptText, setPromptText] = useState<string>(currentPrompt || '');
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [isProcessingAudio, setIsProcessingAudio] = useState<boolean>(false);
+  /** Which re-translate button the running translation came from, for its spinner. */
+  const [fastRunning, setFastRunning] = useState(false);
 
   // Sync state on open
   useEffect(() => {
@@ -90,11 +93,12 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
     }, 1200);
   };
 
-  const handleApplyAndRetranslate = async () => {
+  const handleApplyAndRetranslate = async ({ fast = false }: { fast?: boolean } = {}) => {
     onSavePrompt(promptText, selectedPresetId);
     if (onRetranslateSegments) {
+      setFastRunning(fast);
       try {
-        await onRetranslateSegments(promptText);
+        await onRetranslateSegments(promptText, { fast });
         setSuccessNotice(`Re-translated in ${targetLanguage}`);
         setTimeout(() => {
           setSuccessNotice(null);
@@ -102,6 +106,8 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
         }, 1500);
       } catch (err: any) {
         console.warn('Retranslation notice:', err);
+      } finally {
+        setFastRunning(false);
       }
     }
   };
@@ -252,13 +258,25 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                 <span className="mt-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Save and apply</span>
                 <div className="grid sm:grid-cols-2 gap-2">
                   {hasActiveSegments && onRetranslateSegments && (
-                    <button type="button" onClick={handleApplyAndRetranslate} disabled={busy} className={applyCard}>
+                    <button type="button" onClick={() => void handleApplyAndRetranslate()} disabled={busy} className={applyCard}>
                       <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-100">
-                        {isTranslating ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Languages className="w-3.5 h-3.5 text-slate-400" />}
-                        {isTranslating ? 'Re-translating…' : `Re-translate the ${cueText}`}
+                        {isTranslating && !fastRunning ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Languages className="w-3.5 h-3.5 text-slate-400" />}
+                        {isTranslating && !fastRunning ? 'Re-translating…' : `Re-translate the ${cueText}`}
                       </span>
                       <span className="block text-[11.5px] text-slate-400 mt-1 leading-snug">
                         Keeps the English and its timing; only the {targetLanguage} is written again.
+                      </span>
+                      <span className="block text-[10.5px] text-amber-300 mt-1.5">Uses your translation engine</span>
+                    </button>
+                  )}
+                  {hasActiveSegments && onRetranslateSegments && (
+                    <button type="button" onClick={() => void handleApplyAndRetranslate({ fast: true })} disabled={busy} className={applyCard}>
+                      <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-100">
+                        {isTranslating && fastRunning ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 text-slate-400" />}
+                        {isTranslating && fastRunning ? 'Fast re-translating…' : `Fast re-translate the ${cueText}`}
+                      </span>
+                      <span className="block text-[11.5px] text-slate-400 mt-1 leading-snug">
+                        Translation only. Skips meaning, length and term checks.
                       </span>
                       <span className="block text-[10.5px] text-amber-300 mt-1.5">Uses your translation engine</span>
                     </button>
