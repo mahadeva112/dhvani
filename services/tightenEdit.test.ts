@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tightenPart, closeUpParts, DEFAULT_TIGHTEN } from './tightenEdit.ts';
+import { tightenPart, closeUpParts, DEFAULT_TIGHTEN, DEFAULT_SPLIT } from './tightenEdit.ts';
 import type { SyncEditPart } from './syncEditModel.ts';
 
 const RATE = 8000;
@@ -67,6 +67,41 @@ test('a stretched part keeps its speed, and a part with nothing to cut comes bac
   assert.deepEqual(tightenPart(solid, RATE, same, DEFAULT_TIGHTEN).parts, [same]);
   // A higher setting than every pause has: nothing to cut either.
   assert.equal(tightenPart(samples, RATE, part(), { ...DEFAULT_TIGHTEN, minPause: 2 }).cuts.filter((c) => c.from > 1 && c.to < 2).length, 0);
+});
+
+test('Split at pauses: cut in the middle of each long pause, every piece where it was, nothing taken out', () => {
+  const samples = line(3, [[0.3, 1.0], [1.5, 1.8], [2.0, 2.6]]);
+  const { parts, cuts, removed } = tightenPart(samples, RATE, part(), DEFAULT_SPLIT);
+  // The 0.5 s pause splits; the 0.2 s one does too (over 0.12 s); the silence at the ends stays on.
+  assert.equal(parts.length, 3);
+  assert.ok(cuts.every((c) => c.from === c.to));
+  assert.ok(Math.abs(cuts[0].from - 1.25) < 0.02, `first split at ${cuts[0].from}`);
+  assert.ok(Math.abs(cuts[1].from - 1.9) < 0.02, `second split at ${cuts[1].from}`);
+  assert.equal(removed, 0);
+  // Back to back in the line and on the timeline: the same samples at the same times.
+  assert.equal(parts[0].from, 0);
+  assert.equal(parts[2].to, 3);
+  for (const [n, p] of parts.entries()) {
+    if (n > 0) assert.equal(p.from, parts[n - 1].to);
+    assert.ok(Math.abs(p.start - (10 + p.from)) < 1e-9, `piece ${n} at ${p.start}`);
+  }
+  assert.equal(parts[0].fadeIn, 0.05);
+  assert.equal(parts[2].fadeOut, 0.1);
+  // A pause shorter than the setting is no pause.
+  assert.equal(tightenPart(samples, RATE, part(), { ...DEFAULT_SPLIT, minPause: 0.3 }).parts.length, 2);
+  // A word forced alignment hears in the pause is never split.
+  const whispered = tightenPart(samples, RATE, part(), DEFAULT_SPLIT, [{ start: 1.0, end: 1.5 }]);
+  assert.ok(whispered.cuts.every((c) => c.from < 1.0 || c.from > 1.5));
+});
+
+test('Remove with Close up off: the silence goes, every piece stays where it was', () => {
+  const samples = line(3, [[0.3, 1.0], [2.0, 2.6]]);
+  const packed = tightenPart(samples, RATE, part(), DEFAULT_TIGHTEN);
+  const { parts, cuts, removed } = tightenPart(samples, RATE, part(), DEFAULT_TIGHTEN, [], { inPlace: true });
+  assert.deepEqual(cuts, packed.cuts);
+  assert.equal(removed, 0);
+  for (const p of parts) assert.ok(Math.abs(p.start - (10 + p.from)) < 1e-9);
+  assert.deepEqual(parts.map((p) => [p.from, p.to]), packed.parts.map((p) => [p.from, p.to]));
 });
 
 test('Close up: picked parts play back to back, and the first part after them keeps its place', () => {

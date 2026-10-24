@@ -12,6 +12,11 @@ import { partEnd, type SyncEditPart } from './syncEditModel.ts';
  * either side of them. Silence is read in short windows (quietStretches, as
  * Sync reads it), so a pause on room tone with a little hiss or a click in it
  * is still one pause.
+ *
+ * Split at pauses (D) uses the same reading but takes nothing out: the part is
+ * cut in the middle of every pause longer than `minPause`, and each piece
+ * stays where it was, as REAPER's Dynamic split does without "Remove silent
+ * areas".
  */
 
 export interface TightenSettings {
@@ -21,9 +26,13 @@ export interface TightenSettings {
   minPause: number;
   /** Silence left before and after every sound, in seconds. */
   margin: number;
+  /** 'remove': the silence is taken out; 'keep': the part is only split, in the middle of each pause. */
+  silence: 'remove' | 'keep';
 }
 
-export const DEFAULT_TIGHTEN: TightenSettings = { levelDb: 'auto', minPause: 0.12, margin: 0.06 };
+export const DEFAULT_TIGHTEN: TightenSettings = { levelDb: 'auto', minPause: 0.12, margin: 0.06, silence: 'remove' };
+/** Split at pauses: a pause is one when it runs longer than `minPause`, and nothing is taken out. */
+export const DEFAULT_SPLIT: TightenSettings = { ...DEFAULT_TIGHTEN, silence: 'keep' };
 
 /** Silence shorter than this is a gap inside a word, not a pause. */
 const MIN_SILENCE_SECONDS = 0.02;
@@ -31,7 +40,7 @@ const MIN_SILENCE_SECONDS = 0.02;
 export interface TightenedPart {
   /** The part's pieces, back to back from where its first sound was. */
   parts: SyncEditPart[];
-  /** What is cut, as seconds into the line. */
+  /** What is cut, as seconds into the line; a split that takes nothing out has `from` equal to `to`. */
   cuts: { from: number; to: number }[];
   /** Seconds the part now ends sooner on the timeline. */
   removed: number;
@@ -44,17 +53,21 @@ export const tightenLevelDb = (samples: Float32Array, sampleRate: number, settin
   settings.levelDb === 'auto' ? 20 * Math.log10(silenceLevel(samples, sampleRate)) : settings.levelDb;
 
 /**
- * `part` of a line with its silences taken out. `samples` are the whole
- * line's at `sampleRate`; `protect` the line's words as `{ start, end }`
- * seconds into it. A part with nothing to cut comes back as it was.
+ * `part` of a line with its silences taken out (or, with `silence: 'keep'`,
+ * split at them). `samples` are the whole line's at `sampleRate`; `protect`
+ * the line's words as `{ start, end }` seconds into it. The pieces play back
+ * to back from the first sound, or with `inPlace` (and always when only
+ * split) each where it was. A part with nothing to cut comes back as it was.
  */
 export const tightenPart = (
   samples: Float32Array,
   sampleRate: number,
   part: SyncEditPart,
   settings: TightenSettings,
-  protect: { start: number; end: number }[] = []
+  protect: { start: number; end: number }[] = [],
+  { inPlace = false }: { inPlace?: boolean } = {}
 ): TightenedPart => {
+  const splitOnly = settings.silence === 'keep';
   const levelDb = tightenLevelDb(samples, sampleRate, settings);
   const level = 10 ** (levelDb / 20);
   const margin = Math.max(0, settings.margin);
@@ -82,7 +95,10 @@ export const tightenPart = (
     const atHead = q.from <= head + 1 / sampleRate;
     const atTail = q.to >= tail - 1 / sampleRate;
     if (atHead && atTail) continue; // all silence: left as it is
-    if (atHead) {
+    if (splitOnly) {
+      const mid = (q.from + q.to) / 2;
+      if (!atHead && !atTail && q.to - q.from > settings.minPause) cuts.push({ from: mid, to: mid });
+    } else if (atHead) {
       if (q.to - margin > q.from) cuts.push({ from: q.from, to: q.to - margin });
     } else if (atTail) {
       if (q.from + margin < q.to) cuts.push({ from: q.from + margin, to: q.to });
@@ -94,7 +110,7 @@ export const tightenPart = (
   }
   if (cuts.length === 0) return { parts: [part], cuts, removed: 0, levelDb };
 
-  // What is left, back to back from where its first sound was.
+  // What is left, back to back from where its first sound was (or where it was).
   const kept: { from: number; to: number }[] = [];
   let at = head;
   for (const cut of cuts) {
@@ -102,8 +118,10 @@ export const tightenPart = (
     at = cut.to;
   }
   if (tail > at) kept.push({ from: at, to: tail });
+  const stay = inPlace || splitOnly;
   let time = part.start + (kept[0].from - head) / part.rate;
   const parts = kept.map((piece, n) => {
+    if (stay) time = part.start + (piece.from - head) / part.rate;
     const next: SyncEditPart = {
       ...part,
       id: `${part.id}~${n}`,
@@ -117,7 +135,7 @@ export const tightenPart = (
     return next;
   });
   const oldEnd = part.start + (tail - head) / part.rate;
-  return { parts, cuts, removed: Math.max(0, oldEnd - time), levelDb };
+  return { parts, cuts, removed: stay ? 0 : Math.max(0, oldEnd - time), levelDb };
 };
 
 /**
