@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.100',
+    changes: [
+      'Save the script as a Word file: each passage as a paragraph in a table, the original on the left and the dub on the right. Use the Word button in Script view, or Word in the Dub step\'s script menu.',
+      'When a window can\'t write to the file you pick, saving now downloads it instead of leaving an empty file.',
+    ],
+  },
+  {
     version: '1.3.99',
     changes: [
       'Lines in Edit timing now move freely, as in REAPER: drag one anywhere, over other lines too. Where two lines play together the lane shows red, and nothing is cut. Drag to the edge to scroll, and press Esc to put it back.',
