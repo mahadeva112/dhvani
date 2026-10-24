@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.96',
+    changes: [
+      'New Split at pauses (D) in Edit timing: cuts the picked lines in the middle of every pause, as REAPER\'s Dynamic split, and nothing moves. It shares one panel with Tighten silences (Q).',
+      'The panel can keep or remove the silence, and Close up now has Off, which takes the silence out but leaves every piece where it was.',
+    ],
+  },
+  {
     version: '1.3.95',
     changes: [
       'The Dub page is simpler: one slim bar shows how the sync went, and a single zoomable player with track lanes, line clips and a scroll bar replaces the second timeline. The line list has tabs: Worth a listen, Too long, End early, Hand edits, Every line.',
