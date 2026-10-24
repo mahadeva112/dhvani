@@ -1482,7 +1482,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   const precisionLabel = report ? SYNC_PRECISION_OPTIONS.find((o) => o.id === report.precision)?.label : undefined;
 
   return (
-    <section aria-label="Sync" className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0">
+    <section aria-label="Sync" className="lg:flex-1 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0">
       {/* Once synced, the result is the status bar over the player and the lines are the panel; this heading is for before and during a sync. */}
       {!(report && !isSyncing) && (
       <div>
@@ -1634,7 +1634,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             </p>
           )}
 
-          <div>
+          <div className="flex flex-col lg:flex-1 lg:min-h-0">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-[15px] font-semibold text-slate-100 mr-1">Lines</h3>
               <div role="tablist" aria-label="Which lines" className="flex flex-wrap gap-0.5 p-0.5 rounded-xl bg-slate-950 border border-slate-800">
@@ -1720,7 +1720,12 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
               </div>
             )}
             {rows.length > 0 && (
-              <ul ref={listRef} className="mt-2 max-h-[36rem] overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800">
+              // On wide screens the list takes the height the page row has (the rail sets it) and scrolls inside it.
+              <div className="mt-2 relative lg:flex-1 lg:min-h-[28rem]">
+              <ul
+                ref={listRef}
+                className="max-h-[36rem] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800"
+              >
                 {rows.map(({ unit, reason }) => (
                   <ReviewRow
                     key={unit.index}
@@ -1739,6 +1744,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                   />
                 ))}
               </ul>
+              </div>
             )}
           </div>
         </>
