@@ -82,7 +82,9 @@ import { MAX_SPEAKER_DB, MIN_SPEAKER_DB, type SpeakerMonitor } from '../services
  *              word now lands: upright is in sync
  *   dub        the lines as they will play, each part with its waveform as
  *              edited (gain, fades); where a drag starts on a line says what
- *              it does (see zoneAt), with no tool to pick first. With several
+ *              it does (see zoneAt), with no tool to pick first. A moved line
+ *              goes anywhere, as in REAPER: over another line too, where the
+ *              two play together and the lane shows red. With several
  *              speakers, one lane per speaker (and one for clips of the
  *              original), each with its level, mute and solo: a speaker's
  *              lines only make room for their own, so speakers may overlap
@@ -726,6 +728,7 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
       ['B', 'Blade'],
       ['N', 'Snap'],
       ['Shift + drag', 'Ripple: push the lines after along'],
+      ['Esc while dragging', 'Put it back'],
       ['Shift + M', 'Marker at the playhead'],
       ['=  −', 'Zoom in, out'],
       ['Shift + Z', 'Whole track, and back'],
@@ -1200,23 +1203,29 @@ export const SyncEditTimeline: React.FC<{
   };
 
   /**
-   * The empty stretch of a part's lane at `t`, ignoring the part itself, or the
-   * part `t` is on: a dragged line jumps over its neighbours into any gap it
-   * fits, as in REAPER and DaVinci Resolve.
+   * Where audible parts of one lane play over each other, as REAPER draws it:
+   * the stretch both cover, and the two parts. Both are heard there (the render
+   * mixes them, server/lib/syncRender.js); nothing is cut.
    */
-  const gapAt = (id: string, t: number, among: Chunk[] = chunks): { lo: number; hi: number } | { on: Chunk } => {
-    const me = among.find((c) => c.part.id === id);
-    const others = among
-      .filter((c) => c.part.id !== id && !c.part.muted && c.lane === me?.lane)
-      .sort((a, b) => a.part.start - b.part.start);
-    let lo = 0;
-    for (const other of others) {
-      if (t < other.part.start) return { lo, hi: other.part.start };
-      if (t < partEnd(other.part)) return { on: other };
-      lo = Math.max(lo, partEnd(other.part));
-    }
-    return { lo, hi: Math.max(total, lo) + 600 };
-  };
+  const overlaps = useMemo(() => {
+    const out: { from: number; to: number; lane: number; a: Chunk; b: Chunk }[] = [];
+    const audible = chunks.filter((c) => !c.part.muted);
+    audible.forEach((a, i) => {
+      const aEnd = partEnd(a.part);
+      for (let j = i + 1; j < audible.length && audible[j].part.start < aEnd - 1e-6; j++) {
+        const b = audible[j];
+        if (b.lane !== a.lane) continue;
+        out.push({ from: b.part.start, to: Math.min(aEnd, partEnd(b.part)), lane: laneOfChunk(a), a, b });
+      }
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chunks, laneIndex]);
+  /** What `ids` play over now, for the drag's readout: "line 12 (0.40 s)". */
+  const overlapsOf = (ids: Set<string>) =>
+    overlaps
+      .filter((o) => ids.has(o.a.part.id) !== ids.has(o.b.part.id))
+      .map((o) => `${(ids.has(o.a.part.id) ? o.b : o.a).original ? 'clip' : 'line'} ${(ids.has(o.a.part.id) ? o.b : o.a).label} (${(o.to - o.from).toFixed(2)} s)`);
 
   const snapTargets = useMemo(() => {
     const list: SnapTarget[] = [];
@@ -1272,30 +1281,18 @@ export const SyncEditTimeline: React.FC<{
     return withParts(base, chunk.key, parts);
   };
 
-  /** Moves a part by `delta` seconds, and with `rippled` every part that starts after it too. Returns null when there is no room. */
+  /**
+   * Moves a part by `delta` seconds. Without `rippled` it goes where it is
+   * sent, as in REAPER, over its neighbours if need be (stopping only at
+   * 0:00); with it, every part that starts after it goes too.
+   */
   const shifted = (base: SyncEdits, chunk: Chunk, delta: number, rippled: boolean, among: Chunk[]) => {
-    const { lo, hi } = roomOf(chunk.part.id, among);
     const start = chunk.part.start;
     if (!rippled) {
-      const length = partLength(chunk.part);
-      const want = start + delta;
-      let moved = clamp(want, lo, Math.max(lo, hi - length));
-      let past: Chunk[] = [];
-      let refused = '';
-      if (Math.abs(moved - want) > 1e-6) {
-        // Dragged against a neighbour: the line jumps into the gap under its middle when it fits there.
-        const gap = gapAt(chunk.part.id, want + length / 2, among);
-        if ('on' in gap) refused = `over ${gap.on.original ? 'clip' : 'line'} ${gap.on.label}: keep going to a gap`;
-        else if (gap.hi - gap.lo < length - 1e-6) refused = `gap ${(gap.hi - gap.lo).toFixed(2)} s, line needs ${length.toFixed(2)} s`;
-        else if (gap.lo > hi - 1e-6 || gap.hi < lo + 1e-6) {
-          moved = clamp(want, gap.lo, gap.hi - length);
-          const from = Math.min(start, moved);
-          const to = Math.max(start, moved);
-          past = among.filter((c) => c.part.id !== chunk.part.id && !c.part.muted && c.lane === chunk.lane && c.part.start > from && c.part.start < to);
-        }
-      }
-      return { edits: replacePart(base, chunk, { ...chunk.part, start: moved }), moved: moved - start, blocked: Math.abs(moved - want) > 1e-6, past, refused };
+      const moved = Math.max(0, start + delta);
+      return { edits: replacePart(base, chunk, { ...chunk.part, start: moved }), moved: moved - start, blocked: Math.abs(moved - start - delta) > 1e-6 };
     }
+    const { lo } = roomOf(chunk.part.id, among);
     const d = Math.max(delta, lo - start);
     let next = replacePart(base, chunk, { ...chunk.part, start: start + d });
     for (const other of among) {
@@ -1303,12 +1300,13 @@ export const SyncEditTimeline: React.FC<{
       const parts = partsOf(next, lineOf(other), rate).map((part) => (part.id === other.part.id ? { ...part, start: Math.max(0, part.start + d) } : part));
       next = withParts(next, other.key, parts);
     }
-    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6, past: [] as Chunk[], refused: '' };
+    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6 };
   };
 
   /**
-   * Moves several parts by the same `delta`, as far as the parts that stay
-   * allow; with `rippled`, every part after the first of them goes too.
+   * Moves several parts by the same `delta`: freely, stopping only at 0:00;
+   * with `rippled`, every part after the first of them goes too, as far as
+   * the parts before them allow.
    */
   const shiftedMany = (base: SyncEdits, movers: Chunk[], delta: number, rippled: boolean, among: Chunk[]) => {
     if (movers.length === 1) return shifted(base, movers[0], delta, rippled, among);
@@ -1317,17 +1315,12 @@ export const SyncEditTimeline: React.FC<{
     const moving = rippled ? among.filter((c) => ids.has(c.part.id) || c.part.start > first + 1e-9) : movers;
     const movingIds = new Set(moving.map((c) => c.part.id));
     const staying = among.filter((c) => !movingIds.has(c.part.id));
-    let low = -Infinity;
-    let high = Infinity;
-    for (const m of moving) {
-      const { lo, hi } = roomOf(m.part.id, [...staying, m]);
-      low = Math.max(low, lo - m.part.start);
-      high = Math.min(high, hi - partEnd(m.part));
-    }
-    const d = clamp(delta, low, Math.max(low, high));
+    let low = -first;
+    if (rippled) for (const m of moving) low = Math.max(low, roomOf(m.part.id, [...staying, m]).lo - m.part.start);
+    const d = Math.max(delta, low);
     let next = base;
     for (const m of moving) next = replacePart(next, m, { ...m.part, start: Math.max(0, m.part.start + d) });
-    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6, past: [] as Chunk[], refused: '' };
+    return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6 };
   };
 
   /** `change` applied to every part in `list`, one after another, so two parts of one line both change. */
@@ -1388,7 +1381,7 @@ export const SyncEditTimeline: React.FC<{
   /** A hint under the timeline: what a drag or click does, then the keys that change it. */
   type Hint = { text: string; keys?: [string, string][] };
   const ZONE_HINT: Record<Zone, Hint> = {
-    move: { text: 'Drag to move', keys: [['Shift', 'push the rest'], ['Alt', 'slip']] },
+    move: { text: 'Drag anywhere, over other lines too', keys: [['Shift', 'push the rest'], ['Alt', 'slip'], ['Esc', 'put back']] },
     slip: { text: 'Drag to slip the audio inside' },
     trimLeft: { text: 'Drag to trim the start', keys: [['Alt', 'stretch']] },
     trimRight: { text: 'Drag to trim the end', keys: [['Alt', 'stretch']] },
@@ -1449,8 +1442,6 @@ export const SyncEditTimeline: React.FC<{
   useEffect(() => stopDraft, []);
   const [hud, setHud] = useState<{ x: number; text: string } | null>(null);
   const [snapLine, setSnapLine] = useState<number | null>(null);
-  /** The gap a dragged line would jump into, while dragging. */
-  const [gapHint, setGapHint] = useState<{ lo: number; hi: number; lane: number; fits: boolean } | null>(null);
   /** The line under the pointer and what a drag there would do; `at` is the time under it, for S. */
   const [hover, setHover] = useState<{ id: string; zone: Zone } | null>(null);
   const pointerTime = useRef<{ id: string; at: number } | null>(null);
@@ -1626,13 +1617,8 @@ export const SyncEditTimeline: React.FC<{
       const unit = baseReport.units[chunk.unitIndex];
       const newPart = partsOf(next, line, rate).find((p) => p.id === part.id) ?? part;
       const onsetNow = line.lead > newPart.from && line.lead < newPart.to ? partTime(newPart, line.lead) : newPart.start;
-      const past = result.past.length ? ` past ${result.past.map((c) => c.label).join(', ')}` : '';
-      d.label = `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}${past}`;
-      // The gap a jump lands in shows green; one too small for the line shows red.
-      const fits = result.past.length > 0;
-      const room = fits || result.refused ? gapAt(part.id, (fits ? newPart.start : part.start + delta) + partLength(part) / 2, d.among) : null;
-      setGapHint(room && !('on' in room) ? { lo: room.lo, hi: Math.min(room.hi, Math.max(total, room.lo)), lane: laneOfChunk(chunk), fits } : null);
-      text = `Δ ${formatShift(result.moved)}${several}${past ? ` · jumps${past}` : ''}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}${result.refused ? ` · ${result.refused}` : result.blocked && !d.rippled ? ' · hold Shift to push the lines after it' : ''}`;
+      d.label = `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}`;
+      text = `Δ ${formatShift(result.moved)}${several}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}`;
     } else if (zone === 'slip') {
       const span = part.to - part.from;
       const from = clamp(part.from - dt * part.rate, 0, lineSeconds(chunk) - span);
@@ -1676,6 +1662,8 @@ export const SyncEditTimeline: React.FC<{
 
     d.next = next;
     setDraft(next);
+    lastMove.current = e;
+    if (zone === 'move' && edgeFrame.current === null) edgeFrame.current = requestAnimationFrame(() => edgeStepRef.current());
     // A stretch is heard once dropped: working out a new speed on every move would hold up the drag.
     if (zone !== 'stretchLeft' && zone !== 'stretchRight') sendDraft(next);
     setSnapLine(snapped ? snapped.at : null);
@@ -1683,6 +1671,50 @@ export const SyncEditTimeline: React.FC<{
   };
 
   moveOnLaneRef.current = moveOnLane;
+
+  /*
+   * A line moved up to either edge of the lane scrolls the timeline that way,
+   * faster the closer it gets, and keeps going while it is held there: a line
+   * can be carried anywhere on the dub in one drag, as in REAPER.
+   */
+  const lastMove = useRef<LaneMove | null>(null);
+  const edgeFrame = useRef<number | null>(null);
+  const edgeStepRef = useRef<() => void>(() => {});
+  const stopEdgeScroll = () => {
+    if (edgeFrame.current !== null) cancelAnimationFrame(edgeFrame.current);
+    edgeFrame.current = null;
+  };
+  edgeStepRef.current = () => {
+    const d = drag.current;
+    const m = lastMove.current;
+    const r = laneRef.current?.getBoundingClientRect();
+    const reach = r ? Math.min(48, r.width / 6) : 0;
+    const push = !r || !m ? 0 : m.clientX < r.left + reach ? (m.clientX - r.left - reach) / reach : m.clientX > r.right - reach ? (m.clientX - r.right + reach) / reach : 0;
+    if (!d || d.zone !== 'move' || !m || push === 0) {
+      edgeFrame.current = null;
+      return;
+    }
+    zoom.scrollTo(zoom.viewStart() + clamp(push, -1.5, 1.5) * windowSeconds * 0.015);
+    // Still marked running, so the move below doesn't start a second loop.
+    moveOnLaneRef.current(m);
+    edgeFrame.current = requestAnimationFrame(() => edgeStepRef.current());
+  };
+  useEffect(() => stopEdgeScroll, []);
+
+  /** Esc while dragging: the drag is dropped and the lines go back to where they were. */
+  const cancelDrag = () => {
+    const d = drag.current;
+    if (!d) return false;
+    drag.current = null;
+    stopDraft();
+    stopEdgeScroll();
+    setHud(null);
+    setSnapLine(null);
+    setDraft(null);
+    if (d.moved) onDraftRef.current?.(null);
+    say('Put back where it was.');
+    return true;
+  };
 
   const endDrag = () => {
     // Where the pointer was let go, not where the last frame drew it.
@@ -1731,7 +1763,7 @@ export const SyncEditTimeline: React.FC<{
     stopDraft();
     setHud(null);
     setSnapLine(null);
-    setGapHint(null);
+    stopEdgeScroll();
     // A drag that changed nothing (a slip with nothing to slip, a move against a wall) leaves no step.
     const changed =
       d?.next &&
@@ -1946,14 +1978,8 @@ export const SyncEditTimeline: React.FC<{
       const delta = unit.srcStart - span;
       // The whole line moves, so its parts keep their places relative to each other.
       const ids = new Set(parts.map((p) => p.id));
-      const among = chunks;
       const first = chunks.filter((c) => ids.has(c.part.id)).sort((a, b) => a.part.start - b.part.start)[0];
-      const last = chunks.filter((c) => ids.has(c.part.id)).sort((a, b) => partEnd(b.part) - partEnd(a.part))[0];
-      const lo = roomOf(first.part.id, among).lo;
-      const hi = roomOf(last.part.id, among).hi;
-      if (!ripple && (first.part.start + delta < lo - 1e-6 || partEnd(last.part) + delta > hi + 1e-6)) {
-        return say('The lines either side are in the way. Turn on Ripple or move them first.');
-      }
+      // As a move: it may land over a neighbour, drawn red; with Ripple the lines after it go too.
       let next = withParts(committed, current.key, parts.map((p) => ({ ...p, start: Math.max(0, p.start + delta) })));
       if (ripple && delta > 0) {
         for (const c of chunks) {
@@ -2014,7 +2040,7 @@ export const SyncEditTimeline: React.FC<{
     nudge: (seconds: number) => {
       if (group.length === 0) return;
       const result = shiftedMany(committed, group, seconds, ripple, chunks);
-      if (Math.abs(result.moved) < 1e-6) return say(`No room to move ${group.length > 1 ? 'them' : 'it'} further that way.`);
+      if (Math.abs(result.moved) < 1e-6) return say(ripple ? `No room to move ${group.length > 1 ? 'them' : 'it'} further that way.` : 'Already at 0:00.');
       commit(result.edits, `Nudge ${groupName(group)} ${formatShift(result.moved)}`);
     },
     undo: () => goTo(history.at - 1),
@@ -2029,8 +2055,9 @@ export const SyncEditTimeline: React.FC<{
   const setField = (patch: Partial<SyncEditPart>, label: string) => {
     if (!current) return;
     let part = { ...current.part, ...patch };
-    const { lo, hi } = roomOf(current.part.id);
-    if (patch.start !== undefined) part.start = clamp(patch.start, lo, Math.max(lo, hi - partLength(part)));
+    const { hi } = roomOf(current.part.id);
+    // A start typed in goes where it says, as a move does, over a neighbour if need be.
+    if (patch.start !== undefined) part.start = Math.max(0, patch.start);
     if (patch.rate !== undefined) {
       part.rate = clamp(patch.rate, MIN_EDIT_RATE, MAX_EDIT_RATE);
       if (part.start + partLength(part) > hi + 1e-6) return say('No room at that speed: the next line starts first.');
@@ -2378,7 +2405,9 @@ export const SyncEditTimeline: React.FC<{
     const lower = key.toLowerCase();
     const mod = e.ctrlKey || e.metaKey;
     let done = true;
-    if (tighten && !mod && (key === 'Enter' || key === 'Escape')) (key === 'Enter' ? applyTighten : closeTighten)();
+    if (key === 'Escape' && cancelDrag()) {
+      // The drag is over; the lines are back.
+    } else if (tighten && !mod && (key === 'Enter' || key === 'Escape')) (key === 'Enter' ? applyTighten : closeTighten)();
     else if (mod && lower === 'c') done = copyPick();
     else if (mod && lower === 'v') pasteOriginal();
     else if (mod && lower === 'z') (e.shiftKey ? act.redo : act.undo)();
@@ -2434,6 +2463,8 @@ export const SyncEditTimeline: React.FC<{
   // Gliding, `ahead` more is drawn past the right edge, for the timeline to move into.
   const onScreen = (start: number, end: number) => end >= windowStart - 1 && start <= windowStart + windowSeconds + ahead + 1;
   const visible = chunks.filter((c) => onScreen(c.part.start, partEnd(c.part)));
+  /** What the lines being moved play over, as drawn now. */
+  const draggedOver = drag.current?.zone === 'move' ? overlapsOf(new Set(drag.current.group.map((c) => c.part.id))) : [];
   /** A part's colour: its speaker's with several speakers, else its line's; a clip of the original the Original lane's. */
   const laneHue = (chunk: Chunk) =>
     chunk.original ? ORIGINAL_HUE : speakerLanes ? speakerLanes.colors[chunk.lane] ?? hueOf(laneOfChunk(chunk)) : hueOf(chunk.unitIndex);
@@ -2500,6 +2531,11 @@ export const SyncEditTimeline: React.FC<{
         <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
           {inSync} of {lineCount} in sync
         </span>
+        {overlaps.length > 0 && (
+          <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300" title="Lines playing over each other, marked red on the lane. Both are heard there.">
+            {overlaps.length} overlap{overlaps.length === 1 ? '' : 's'}
+          </span>
+        )}
         <span aria-live="polite" className="flex items-center gap-1.5 text-[11.5px] text-slate-400">
           {status.state === 'pending' || status.state === 'rendering' ? (
             <>
@@ -3038,17 +3074,22 @@ export const SyncEditTimeline: React.FC<{
               <span aria-hidden="true" className="absolute top-0 bottom-0 border-x-2 border-indigo-300 bg-indigo-400/20 pointer-events-none z-30"
                 style={{ left: `${pct(takeRange.from)}%`, width: `${((takeRange.to - takeRange.from) / windowSeconds) * 100}%` }} />
             )}
-            {gapHint && (
-              <span
-                aria-hidden="true"
-                className={`absolute ${speakerLanes ? '' : 'top-0 bottom-0'} border border-dashed pointer-events-none z-10 ${gapHint.fits ? 'border-emerald-400/80 bg-emerald-400/10' : 'border-rose-400/80 bg-rose-400/10'}`}
-                style={{
-                  left: `${pct(gapHint.lo)}%`,
-                  width: `${((gapHint.hi - gapHint.lo) / windowSeconds) * 100}%`,
-                  ...(speakerLanes && { top: gapHint.lane * LANE_PX, height: LANE_PX }),
-                }}
-              />
-            )}
+            {/* Where two lines of one lane play over each other: both are heard, nothing is cut */}
+            {overlaps
+              .filter((o) => onScreen(o.from, o.to))
+              .map((o) => (
+                <span
+                  key={`${o.a.part.id}|${o.b.part.id}`}
+                  title={`${o.a.original ? 'Clip' : 'Line'} ${o.a.label} and ${o.b.original ? 'clip' : 'line'} ${o.b.label} play over each other for ${(o.to - o.from).toFixed(2)} s`}
+                  className={`absolute ${speakerLanes ? '' : 'top-1 bottom-1'} border-x-2 border-rose-400 bg-rose-500/35 pointer-events-none z-20`}
+                  style={{
+                    left: `${pct(o.from)}%`,
+                    width: `${Math.max(0.15, ((o.to - o.from) / windowSeconds) * 100)}%`,
+                    backgroundImage: 'repeating-linear-gradient(135deg, rgba(251,113,133,0.55) 0 4px, transparent 4px 8px)',
+                    ...(speakerLanes && { top: o.lane * LANE_PX + 4, height: LANE_PX - 8 }),
+                  }}
+                />
+              ))}
             {band && (
               <span
                 aria-hidden="true"
@@ -3117,6 +3158,7 @@ export const SyncEditTimeline: React.FC<{
               style={{ left: hud.x }}
             >
               {hud.text}
+              {drag.current?.zone === 'move' && draggedOver.length > 0 && <span className="text-rose-300"> · over {draggedOver.join(', ')}</span>}
             </span>
           )}
         </div>
