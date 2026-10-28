@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.3',
+    changes: [
+      "Translation builds each sentence the way the dub language does, not in English word order, and keeps who does what to whom. Each Indian language is written in its own script only, so Punjabi no longer comes back in Urdu letters.",
+      'Translation no longer leaves half a file in English when the model adds something after its answer, and slower thinking models such as Gemini 3.8 Flash and 3.1 Pro no longer get cut off.',
+    ],
+  },
+  {
     version: '1.4.2',
     changes: [
       "Two people on one project: whoever does the script sends a Dhvani JSON, and the dubber opens later ones with Update script. Only the lines the script changed are voiced again on the next Sync; your takes, timing edits and other changes stay.",
