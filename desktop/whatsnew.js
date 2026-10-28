@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.3.101',
+    changes: [
+      'Undo in Review now goes all the way back to the AI translation, one edit at a time, even while you type in a line (Ctrl+Z; Ctrl+Shift+Z to redo). Back to the AI translation puts every line back at once, and that can be undone too.',
+      'The Word file now has the whole script in one passage by default (Full), each speaker under their name. Short, Medium and Long next to the Word button give shorter paragraphs.',
+    ],
+  },
+  {
     version: '1.3.100',
     changes: [
       'Save the script as a Word file: each passage as a paragraph in a table, the original on the left and the dub on the right. Use the Word button in Script view, or Word in the Dub step\'s script menu.',
