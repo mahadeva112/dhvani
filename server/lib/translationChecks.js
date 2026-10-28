@@ -234,8 +234,13 @@ Report a problem only when the meaning changed:
 - a question became a statement or the other way round, or a quote has the wrong speaker;
 - a key word was swapped for one that means something else, even if shorter: a narrower or broader word ("emperors" as "kings", "men" as "people", "civilization" as "culture", "revered" as "worshipped"), or a different kind of thing ("beings" as "people", "humans", "creatures" or "animals");
 - a deliberate pair was folded into one word ("controlled and ruled" said only as "ruled");
+- who does what to whom changed: the doer and the one it is done to swapped, or an action given to the wrong person;
+- a describing word or phrase now describes something else;
+- the tense or aspect changed (did, does, will do, has done, keeps doing), or how two clauses relate (because, if, although, but, so);
 - the translation says something the English does not.
-Do not report style, word choice, length or word order, nor a small connective ("and", "so", "then") or a subject the language needs that the English left implicit.
+Do not report style, word choice, length or word order as a meaning problem, nor a small connective ("and", "so", "then") or a subject the language needs that the English left implicit.
+
+Separately, as "englishShaped", say where a sentence keeps the English sentence shape where a native ${targetLanguage} speaker would build it differently: a "which / who / that" part left trailing after its word, "that"-clauses, tag questions or words like "just" and "only" placed as in English, an English idiom said word for word. Report it only when a native speaker would clearly not say it that way. Leave it empty when the sentence sounds the way ${targetLanguage} is spoken, even if its order is close to the English, and never for formality or word choice.
 
 HOW TO CHECK
 For every English sentence:
@@ -247,10 +252,10 @@ CUES (JSON):
 ${JSON.stringify(cues.map((cue) => ({ id: cue.id, english: cue.text, translation: translations.get(cue.id) ?? '' })), null, 2)}
 
 Respond with ONLY this JSON, one entry per English sentence, "problem" empty when the sentence keeps its meaning:
-{"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>"}]}`;
+{"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>","englishShaped":"<what follows English instead of ${targetLanguage}, in English; empty if nothing>"}]}`;
 
 /** Asks for the cues the reviewer found, with what it found. */
-export const buildMeaningFixPrompt = ({ cues, translations, problems, targetLanguage, customPrompt = '' }) => `You are correcting a ${targetLanguage} dubbing translation where a reviewer found the meaning changed.
+export const buildMeaningFixPrompt = ({ cues, translations, problems, targetLanguage, customPrompt = '' }) => `You are correcting a ${targetLanguage} dubbing translation where a reviewer found the meaning changed or the sentence shaped like English.
 ${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}
 WHAT THE REVIEWER FOUND
 ${problems.map((p) => `- ids ${p.ids.join(', ')}: ${p.problem}`).join('\n')}
@@ -258,6 +263,9 @@ ${problems.map((p) => `- ids ${p.ids.join(', ')}: ${p.problem}`).join('\n')}
 RULES
 - Restore exactly what the English says, nothing more. Keep the rest of each line as it is.
 - Restore the idea in natural spoken ${targetLanguage}, the way a native speaker says it: never copy the English wording, word order or sentence shape to restore it.
+- Keep each line as spoken as it is now: the same everyday, colloquial forms and the English words it already uses. Never make a line bookish or formal.
+- Add nothing the English does not say: no "only", "also" or "even", no verb of your own (gave, showed), no "like" or "as if" that turns what he states into a comparison.
+- Where it "reads like English", build that sentence again the way ${targetLanguage} builds it, by whole phrases and clauses. Its meaning stays exactly the same: the same ideas, who does what to whom, tense, negation and certainty. A word moves only to the next or previous cue of the same sentence, and each sentence still ends in the cue it ended in.
 - Stay within the time: "syllables" is about how many ${targetLanguage} syllables the voice has in that cue. Make room by tighter wording elsewhere in the line, not by running long.
 - Return only the cues you change, each with its id copied verbatim.
 
@@ -285,7 +293,8 @@ const wordProblems = (words) =>
  * The reviewer's problems, keeping only those that name cues of this batch.
  * A sentence's problem is what the reviewer wrote plus every word it marked
  * as not the same, so a word flagged in the list is fixed even when the
- * reviewer's summary says nothing. Sentences with no problem are left out.
+ * reviewer's summary says nothing, plus where it reads like English, so the
+ * fix rebuilds it in the language's own shape. Sentences with no problem are left out.
  */
 export const readMeaningIssues = (parsed, ids) => {
   const known = new Set(ids);
@@ -294,9 +303,10 @@ export const readMeaningIssues = (parsed, ids) => {
     .map((issue) => {
       const said = String(issue?.problem ?? '').trim();
       const words = wordProblems(issue?.words);
+      const shaped = String(issue?.englishShaped ?? '').trim();
       return {
         ids: (Array.isArray(issue?.ids) ? issue.ids : []).map(String).filter((id) => known.has(id)),
-        problem: [said && !NO_PROBLEM.test(said) ? said : '', words].filter(Boolean).join('; '),
+        problem: [said && !NO_PROBLEM.test(said) ? said : '', words, shaped && !NO_PROBLEM.test(shaped) ? `reads like English: ${shaped}` : ''].filter(Boolean).join('; '),
       };
     })
     .filter((issue) => issue.ids.length > 0 && issue.problem);

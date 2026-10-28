@@ -35,3 +35,19 @@ test('the 3-Step style is gone, and a project saved with it moves to the default
   assert.equal(moved.presetId, DEFAULT_PROMPT_PRESET_ID);
   assert.ok(!moved.prompt.includes('#pipeline'));
 });
+
+test('an answer followed by a second array or a stray bracket is still read', async () => {
+  const { parseJsonResponse } = await import('./client.js');
+  const twoArrays = '[\n  {"id": "cue-1", "translatedText": "ਸਮੇਂ ਅਤੇ ਊਰਜਾ"}\n]\n[\n  {"english": "Adiyogi", "translated": "ਆਦਿਯੋਗੀ"}\n]';
+  assert.deepEqual(parseJsonResponse(twoArrays), [{ id: 'cue-1', translatedText: 'ਸਮੇਂ ਅਤੇ ਊਰਜਾ' }]);
+  const stray = '{"translations":[{"id":"cue-41","translatedText":"ਮੈਂ \\"ਦੱਸ\\" ਰਿਹਾ ਹਾਂ।"}]}],"terms":[]}';
+  assert.deepEqual(parseJsonResponse(stray), { translations: [{ id: 'cue-41', translatedText: 'ਮੈਂ "ਦੱਸ" ਰਿਹਾ ਹਾਂ।' }] });
+  assert.throws(() => parseJsonResponse('{"translations":[{"id":"1"'), /malformed JSON/);
+});
+
+test('each Indian dub language names its script, so Punjabi is asked for in Gurmukhi', async () => {
+  const { scriptOf } = await import('../../lib/languages.js');
+  assert.equal(scriptOf('Punjabi'), 'Gurmukhi');
+  assert.equal(scriptOf('hindi'), 'Devanagari');
+  assert.equal(scriptOf('French'), '');
+});

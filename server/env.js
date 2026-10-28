@@ -263,9 +263,11 @@ export const config = {
      *
      * Reasoning models spend tokens thinking before emitting any text, so a
      * small gateway default can return nothing at all. Generous by design;
-     * translation output is small, and unused budget costs nothing.
+     * translation output is small, and unused budget costs nothing. 8192 was
+     * not enough: Gemini 3.1 Pro thought through it on a 20-cue batch and the
+     * cut-off answer dropped the batch.
      */
-    maxOutputTokens: num('LLM_GATEWAY_MAX_TOKENS', 8192),
+    maxOutputTokens: num('LLM_GATEWAY_MAX_TOKENS', 32768),
 
     get models() {
       return settingList('llmGatewayModels', 'LLM_GATEWAY_MODELS', ['gemini-2.5-flash']);

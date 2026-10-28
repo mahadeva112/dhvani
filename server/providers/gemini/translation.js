@@ -4,6 +4,7 @@ import { logger } from '../../logger.js';
 import { parseJsonResponse } from './client.js';
 import { generateText } from '../textModel.js';
 import { alignScript } from '../../lib/scriptAlign.js';
+import { scriptOf } from '../../lib/languages.js';
 import {
   cueIssues,
   longIssues,
@@ -98,16 +99,23 @@ const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batc
     ? `The source language is ${sourceLanguage}.`
     : 'Infer the source language from the text itself.';
 
+  const script = scriptOf(targetLanguage);
+
   return `You are a professional dubbing translator working on part ${batchIndex + 1} of ${batchCount} of one continuous transcript.
 
 ${sourceNote}
-Translate every cue below into ${targetLanguage}.
+Translate every cue below into ${targetLanguage}.${script ? ` Write every line, and every key term, in the ${script} script only, never in another script.` : ''}
 
 ${styleDirective}
 
 MEANING, NOT WORDS
 - Translate sentences, not cues and not words. A sentence often runs across two or three cues: read all of it, understand what it means, then say that the way a native ${targetLanguage} speaker would say it out loud, in ${targetLanguage}'s own word order.
 - Never copy the English word order or sentence shape, and never translate a cue's English words one by one.
+- Rebuild each sentence the way ${targetLanguage} builds it, by whole phrases and clauses, not by moving single words:
+  - A trailing "which / who / where / that" part goes where ${targetLanguage} puts it: before the word it describes, or as a sentence of its own ("a crazy thing where somebody is consciously going mad" can become "Bhakti is madness. Here a person goes mad knowingly.").
+  - "realized that…", "said that…", "it doesn't matter whether X or Y", "isn't it?" and words like "just", "only", "even" take ${targetLanguage}'s own construction, particle or tag and its place for them, not the English one.
+  - Moving a part never changes who does what to whom, what a word describes, how the clauses relate (because, if, although, but), the tense, a negation or the certainty.
+  - This changes the shape, never the register: build it from the same everyday spoken forms a person uses talking, not the standard written ones.
 - Then split your sentence over the same cues, so each cue holds about what can be said in that cue's time.
 - A word may land in a different cue than its English counterpart (in ${targetLanguage} the verb may come at the end while English has it early). That is expected. Move words only to the next or previous cue of the same sentence, never further.
 - Each cue's part must be a natural spoken phrase, not a broken fragment.

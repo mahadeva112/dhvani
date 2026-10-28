@@ -114,6 +114,38 @@ export const generateContent = async (
   );
 };
 
+/**
+ * The first complete JSON object or array in `text`, or null. A model now and
+ * then sends the answer followed by something more: a second array (the key
+ * terms on their own) or a stray "]}". Reading up to where the first value
+ * closes keeps the answer instead of dropping the whole batch.
+ */
+export const firstJsonValue = (text) => {
+  const start = text.search(/[[{]/);
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i += 1;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{' || ch === '[') depth += 1;
+    else if (ch === '}' || ch === ']') {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          return JSON.parse(text.slice(start, i + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+};
+
 /** Parses a JSON response, tolerating markdown fences the model sometimes adds. */
 export const parseJsonResponse = (text, context = 'Gemini') => {
   const raw = String(text || '').trim();
@@ -136,6 +168,8 @@ export const parseJsonResponse = (text, context = 'Gemini') => {
         // fall through
       }
     }
+    const first = firstJsonValue(cleaned);
+    if (first !== null) return first;
     throw new ApiError(`${context} returned malformed JSON.`, {
       status: 502,
       code: 'bad_model_output',

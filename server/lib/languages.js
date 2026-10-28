@@ -8,27 +8,27 @@
 export const LANGUAGES = [
   { name: 'Auto Detect', iso: '', bcp47: '' },
   { name: 'English', iso: 'eng', bcp47: 'en-US' },
-  { name: 'Assamese', iso: 'asm', bcp47: 'as-IN' },
-  { name: 'Bengali', iso: 'ben', bcp47: 'bn-IN' },
-  { name: 'Bodo', iso: 'brx', bcp47: 'brx-IN' },
-  { name: 'Dogri', iso: 'doi', bcp47: 'doi-IN' },
-  { name: 'Gujarati', iso: 'guj', bcp47: 'gu-IN' },
-  { name: 'Hindi', iso: 'hin', bcp47: 'hi-IN' },
-  { name: 'Kannada', iso: 'kan', bcp47: 'kn-IN' },
-  { name: 'Kashmiri', iso: 'kas', bcp47: 'ks-IN' },
-  { name: 'Konkani', iso: 'kok', bcp47: 'kok-IN' },
-  { name: 'Maithili', iso: 'mai', bcp47: 'mai-IN' },
-  { name: 'Malayalam', iso: 'mal', bcp47: 'ml-IN' },
-  { name: 'Manipuri', iso: 'mni', bcp47: 'mni-IN' },
-  { name: 'Marathi', iso: 'mar', bcp47: 'mr-IN' },
-  { name: 'Nepali', iso: 'nep', bcp47: 'ne-NP' },
-  { name: 'Odia', iso: 'ori', bcp47: 'or-IN' },
-  { name: 'Punjabi', iso: 'pan', bcp47: 'pa-IN' },
-  { name: 'Sanskrit', iso: 'san', bcp47: 'sa-IN' },
-  { name: 'Santali', iso: 'sat', bcp47: 'sat-IN' },
-  { name: 'Sindhi', iso: 'snd', bcp47: 'sd-IN' },
-  { name: 'Tamil', iso: 'tam', bcp47: 'ta-IN' },
-  { name: 'Telugu', iso: 'tel', bcp47: 'te-IN' },
+  { name: 'Assamese', iso: 'asm', bcp47: 'as-IN', script: 'Assamese (Bengali-Assamese, with ৰ and ৱ)' },
+  { name: 'Bengali', iso: 'ben', bcp47: 'bn-IN', script: 'Bengali' },
+  { name: 'Bodo', iso: 'brx', bcp47: 'brx-IN', script: 'Devanagari' },
+  { name: 'Dogri', iso: 'doi', bcp47: 'doi-IN', script: 'Devanagari' },
+  { name: 'Gujarati', iso: 'guj', bcp47: 'gu-IN', script: 'Gujarati' },
+  { name: 'Hindi', iso: 'hin', bcp47: 'hi-IN', script: 'Devanagari' },
+  { name: 'Kannada', iso: 'kan', bcp47: 'kn-IN', script: 'Kannada' },
+  { name: 'Kashmiri', iso: 'kas', bcp47: 'ks-IN', script: 'Perso-Arabic' },
+  { name: 'Konkani', iso: 'kok', bcp47: 'kok-IN', script: 'Devanagari' },
+  { name: 'Maithili', iso: 'mai', bcp47: 'mai-IN', script: 'Devanagari' },
+  { name: 'Malayalam', iso: 'mal', bcp47: 'ml-IN', script: 'Malayalam' },
+  { name: 'Manipuri', iso: 'mni', bcp47: 'mni-IN', script: 'Meitei Mayek' },
+  { name: 'Marathi', iso: 'mar', bcp47: 'mr-IN', script: 'Devanagari' },
+  { name: 'Nepali', iso: 'nep', bcp47: 'ne-NP', script: 'Devanagari' },
+  { name: 'Odia', iso: 'ori', bcp47: 'or-IN', script: 'Odia' },
+  { name: 'Punjabi', iso: 'pan', bcp47: 'pa-IN', script: 'Gurmukhi' },
+  { name: 'Sanskrit', iso: 'san', bcp47: 'sa-IN', script: 'Devanagari' },
+  { name: 'Santali', iso: 'sat', bcp47: 'sat-IN', script: 'Ol Chiki' },
+  { name: 'Sindhi', iso: 'snd', bcp47: 'sd-IN', script: 'Perso-Arabic' },
+  { name: 'Tamil', iso: 'tam', bcp47: 'ta-IN', script: 'Tamil' },
+  { name: 'Telugu', iso: 'tel', bcp47: 'te-IN', script: 'Telugu' },
   { name: 'Arabic', iso: 'ara', bcp47: 'ar-SA' },
   { name: 'Chinese', iso: 'zho', bcp47: 'zh-CN' },
   { name: 'Dutch', iso: 'nld', bcp47: 'nl-NL' },
@@ -72,6 +72,9 @@ export const toDisplayName = (isoCode, fallback = 'Unknown') => {
   const normalized = raw.length === 2 ? TWO_LETTER_TO_ISO[raw] || raw : raw.slice(0, 3);
   return byIso.get(normalized)?.name || fallback;
 };
+
+/** Display name -> the script a dub in that language is written in, or empty when none is listed. */
+export const scriptOf = (displayName) => byName.get(String(displayName || '').trim().toLowerCase())?.script || '';
 
 /** Display name -> BCP-47 tag, used when generating SSML. */
 export const toBcp47 = (displayName) =>

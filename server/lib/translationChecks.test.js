@@ -63,6 +63,19 @@ test('fix and review answers keep only cues of the batch', () => {
     ['1', '2']
   );
   assert.deepEqual(words, [{ ids: ['1'], problem: '"beings" is said as "creatures"; "controlled" is missing' }]);
+  const shaped = readMeaningIssues(
+    {
+      sentences: [
+        { ids: ['1'], problem: '', englishShaped: '"which" part trails after the noun' },
+        { ids: ['2'], problem: 'tense changed', englishShaped: 'None.' },
+      ],
+    },
+    ['1', '2']
+  );
+  assert.deepEqual(shaped, [
+    { ids: ['1'], problem: 'reads like English: "which" part trails after the noun' },
+    { ids: ['2'], problem: 'tense changed' },
+  ]);
 });
 
 test('refineBatch restores meaning first, then fits the length', async () => {
