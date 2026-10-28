@@ -5,7 +5,16 @@ import { scrollWithin } from '../scrollWithin';
 import { SCRIPT_PALETTES, getIndicLanguageConfig } from '../../services/indicTransliteration';
 import { PASSAGE_PAUSES, buildPassages, loadPassageLayout, savePassageLayout, type PassageLayout } from './passages';
 import { usePhoneticTyping } from './usePhoneticTyping';
-import { DOCX_MIME, buildScriptDocx, scriptDocxFileName, scriptDocxRows } from '../../services/scriptDocx';
+import {
+  DOCX_MIME,
+  WORD_PARAGRAPH_SIZES,
+  buildScriptDocx,
+  loadWordParagraphSize,
+  saveWordParagraphSize,
+  scriptDocxFileName,
+  scriptDocxRows,
+  type WordParagraphSize,
+} from '../../services/scriptDocx';
 import { saveFileAs } from '../../services/saveFile';
 
 export interface LinePacing {
@@ -212,6 +221,7 @@ export function ScriptTableView({
 
   /** Every passage, not just those shown, as a Word table: the original's paragraph left, the dub's right. */
   const [savingWord, setSavingWord] = useState(false);
+  const [wordSize, setWordSize] = useState<WordParagraphSize>(loadWordParagraphSize);
   const [wordError, setWordError] = useState<string | null>(null);
   const saveWord = async () => {
     setSavingWord(true);
@@ -223,7 +233,7 @@ export function ScriptTableView({
             title: exportTitle || `${targetLanguage || 'Dub'} script`,
             sourceLanguage,
             targetLanguage,
-            rows: scriptDocxRows(segments, getSourceText, getTargetText, passagePause),
+            rows: scriptDocxRows(segments, getSourceText, getTargetText, passagePause, wordSize),
           }),
         ],
         { type: DOCX_MIME }
@@ -283,11 +293,30 @@ export function ScriptTableView({
           onClick={saveWord}
           disabled={savingWord}
           className="h-6 px-2 rounded-md border border-slate-800 flex items-center gap-1 font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-default disabled:opacity-50"
-          title={`Save as a Word file: each passage as a paragraph, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
+          title={`Save as a Word file: the script in paragraphs, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
         >
           <Download className="w-3 h-3" />
           Word
         </button>
+        <div role="group" aria-label="Word paragraph size" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+          {WORD_PARAGRAPH_SIZES.map((size) => (
+            <button
+              key={size.id}
+              type="button"
+              aria-pressed={wordSize === size.id}
+              onClick={() => {
+                setWordSize(size.id);
+                saveWordParagraphSize(size.id);
+              }}
+              title={`Word file: ${size.hint}`}
+              className={`px-2 py-0.5 rounded-md cursor-default transition-colors ${
+                wordSize === size.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {size.label}
+            </button>
+          ))}
+        </div>
         {wordError && <span className="text-rose-300">{wordError}</span>}
         <span className="ml-auto text-slate-500">
           {layout === 'lines' ? 'One line per cue · Esc undoes the cell' : 'Click a line to play from it · edit in Lines'}
@@ -430,8 +459,15 @@ export function ScriptTableView({
                         else commit(key, cues);
                       }}
                       onKeyUp={phonetic.onKeyUp}
+                      data-review-text
                       onKeyDown={(e) => {
                         if (phonetic.onKeyDown(e, setDraft(key))) return;
+                        // Ctrl+Z first throws away what is being typed here; once the cell is as saved, it steps back the script's history.
+                        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && drafts[key] !== undefined) {
+                          e.preventDefault();
+                          dropDraft(key);
+                          return;
+                        }
                         if (e.key === 'Escape') {
                           discardingRef.current = key;
                           dropDraft(key);

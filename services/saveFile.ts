@@ -18,7 +18,18 @@ export interface SaveAs {
 type SavePicker = (options: {
   suggestedName: string;
   types: { description: string; accept: Record<string, string[]> }[];
-}) => Promise<{ name: string; createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void>; abort?: () => Promise<void> }> }>;
+}) => Promise<{
+  name: string;
+  createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void>; abort?: () => Promise<void> }>;
+  getFile?: () => Promise<Blob>;
+}>;
+
+/**
+ * Claude's browser pane opens the Save dialog and makes the file, but never
+ * writes to it: the file is left empty and Word opens a blank page. There the
+ * file is downloaded instead.
+ */
+const pickerWrites = () => !/\bClaude\//.test((globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent ?? '');
 
 const download = (data: Blob, name: string) => {
   const url = URL.createObjectURL(data);
@@ -38,7 +49,7 @@ const download = (data: Blob, name: string) => {
 export const saveFileAs = async (data: Blob | (() => Promise<Blob>), suggestedName: string, as: SaveAs): Promise<SaveOutcome> => {
   const contents = () => (data instanceof Blob ? Promise.resolve(data) : data());
   const picker = (globalThis as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
-  if (typeof picker === 'function') {
+  if (typeof picker === 'function' && pickerWrites()) {
     let handle: Awaited<ReturnType<SavePicker>>;
     try {
       handle = await picker({ suggestedName, types: [{ description: as.description, accept: { [as.mime]: [as.extension] } }] });
@@ -68,6 +79,12 @@ export const saveFileAs = async (data: Blob | (() => Promise<Blob>), suggestedNa
     } catch (err) {
       await writable.abort?.().catch(() => {});
       throw err;
+    }
+    // A window that took the write but left the file empty: download it, so a whole copy arrives.
+    const size = await handle.getFile?.().then((f) => f.size, () => null);
+    if (size === 0 && blob.size > 0) {
+      download(blob, suggestedName);
+      return { status: 'saved', name: suggestedName, downloaded: true };
     }
     return { status: 'saved', name: handle.name, downloaded: false };
   }

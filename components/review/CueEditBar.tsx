@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Combine, Headphones, Languages, Loader2, Scissors, Undo2, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Combine, Headphones, Languages, Loader2, Redo2, RotateCcw, Scissors, Undo2, X } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import {
   PAUSE_SECONDS,
@@ -14,8 +14,6 @@ import {
 
 /** Seconds played either side of a cut by Hear. */
 const HEAR_SECONDS = 1.2;
-/** Structure edits that can be undone. */
-const UNDO_LIMIT = 30;
 
 const isTyping = (el: EventTarget | null) => {
   const node = el as HTMLElement | null;
@@ -57,23 +55,19 @@ export interface CueEditing {
   canRetranslate: boolean;
   retranslating: boolean;
   hear: () => void;
-  undo: () => void;
-  canUndo: boolean;
   notice: string | null;
   clear: () => void;
 }
 
 /**
- * Split, join and cut adjustments for the Review step, with their own undo.
- * Text edits keep the browser's undo; this one only steps back structure
- * changes, and only while nothing else has changed the cues since.
+ * Split, join and cut adjustments for the Review step. Undo is the project's
+ * script history (ReviewUndo), which keeps these with the text edits.
  */
 export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhead, onHear, retranslate }: CueEditingOptions): CueEditing {
   const [caret, setCaret] = useState<CueEditing['caret']>(null);
   const [boundaryId, setBoundaryId] = useState<string | number | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [retranslating, setRetranslating] = useState(false);
-  const history = useRef<{ before: AudioSegment[]; after: AudioSegment[]; boundary: string | number | null }[]>([]);
   const latest = useRef(segments);
   latest.current = segments;
 
@@ -82,8 +76,6 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
   const hasBoundary = boundaryIndex >= 0 && boundaryIndex < segments.length - 1;
 
   const commit = (next: AudioSegment[], boundary: string | number | null) => {
-    history.current.push({ before: segments, after: next, boundary: boundaryId });
-    if (history.current.length > UNDO_LIMIT) history.current.shift();
     onReplaceSegments(next);
     setBoundaryId(boundary);
     setCaret(null);
@@ -187,8 +179,6 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
     if (phase === 'end') {
       dragStart.current = null;
       if (current === before) return;
-      history.current.push({ before, after: current, boundary: leftId });
-      if (history.current.length > UNDO_LIMIT) history.current.shift();
       setNotice('Cut moved. Each cue kept its dub text; move the dub break below if it should follow.');
     }
   };
@@ -219,7 +209,6 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
         const fresh = byId.get(String(seg.id));
         return fresh ? { ...seg, textTarget: targetTextOf(fresh), targetText: targetTextOf(fresh) } : seg;
       });
-      history.current.push({ before: current, after: next, boundary: pair[0].id });
       onReplaceSegments(next);
       setNotice('Both halves re-translated.');
     } catch (err: any) {
@@ -233,18 +222,6 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
     if (!hasBoundary) return;
     const cut = (segments[boundaryIndex].endTime + segments[boundaryIndex + 1].startTime) / 2;
     onHear(Math.max(0, cut - HEAR_SECONDS), cut + HEAR_SECONDS);
-  };
-
-  const last = history.current[history.current.length - 1];
-  const canUndo = Boolean(last && last.after === segments);
-  const undo = () => {
-    const step = history.current[history.current.length - 1];
-    if (!step || step.after !== latest.current) return;
-    history.current.pop();
-    onReplaceSegments(step.before);
-    setBoundaryId(step.boundary);
-    setCaret(null);
-    setNotice('Undone.');
   };
 
   const clear = useCallback(() => {
@@ -277,8 +254,6 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
     canRetranslate: Boolean(retranslate),
     retranslating,
     hear,
-    undo,
-    canUndo,
     notice,
     clear,
   };
@@ -294,10 +269,7 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
       if (isTyping(e.target) || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       const ed = keys.current;
       const key = e.key.toLowerCase();
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && key === 'z') {
-        if (!ed.canUndo) return;
-        ed.undo();
-      } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         if (!ed.caret) return;
         ed.splitAtCaret();
       } else if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
@@ -332,6 +304,44 @@ export function useCueEditing({ enabled, segments, onReplaceSegments, getPlayhea
   return editing;
 }
 
+/** The script's undo history as the Review step shows it; a label is null where there is nothing to do. */
+export interface ReviewUndo {
+  undoLabel: string | null;
+  redoLabel: string | null;
+  /** Where undo stops, e.g. "the AI translation". */
+  baseLabel: string | null;
+  undo: () => void;
+  redo: () => void;
+  backToBase: () => void;
+}
+
+/**
+ * Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y, step through the script's history, in
+ * the script's text boxes too (marked data-review-text): the browser's own
+ * undo there forgets everything once the box loses focus. A box that handles
+ * the key first (a draft it throws away) marks it handled.
+ */
+export function useReviewUndoKeys(enabled: boolean, history: ReviewUndo) {
+  const latest = useRef(history);
+  latest.current = history;
+  useEffect(() => {
+    if (!enabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.defaultPrevented) return;
+      const key = e.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      const el = e.target as HTMLElement | null;
+      if (isTyping(el) && !el?.closest('[data-review-text]')) return;
+      e.preventDefault();
+      if (key === 'y' || e.shiftKey) latest.current.redo();
+      else latest.current.undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [enabled]);
+}
+
 const Key = ({ children }: { children: React.ReactNode }) => (
   <kbd className="ml-1 px-1 rounded border border-slate-700 font-mono text-[10px] text-slate-400">{children}</kbd>
 );
@@ -343,7 +353,17 @@ const barButton =
  * The strip under the waveform: Split and Undo, what the last edit did, and,
  * while a cut is selected, the tools for that cut. It never blocks playback.
  */
-export function CueEditBar({ editing, segments, cueNumber }: { editing: CueEditing; segments: AudioSegment[]; cueNumber: (id: string | number) => number }) {
+export function CueEditBar({
+  editing,
+  history,
+  segments,
+  cueNumber,
+}: {
+  editing: CueEditing;
+  history: ReviewUndo;
+  segments: AudioSegment[];
+  cueNumber: (id: string | number) => number;
+}) {
   const i = editing.boundaryId === null ? -1 : segments.findIndex((seg) => String(seg.id) === String(editing.boundaryId));
   const a = i >= 0 ? segments[i] : null;
   const b = i >= 0 ? segments[i + 1] : null;
@@ -361,11 +381,40 @@ export function CueEditBar({ editing, segments, cueNumber }: { editing: CueEditi
           Split
           <Key>S</Key>
         </button>
-        {editing.canUndo && (
-          <button type="button" onClick={editing.undo} className={barButton} title="Undo the last split or join (Ctrl+Z)">
-            <Undo2 className="w-3.5 h-3.5" />
-            Undo
-            <Key>Ctrl Z</Key>
+        <button
+          type="button"
+          onClick={history.undo}
+          disabled={!history.undoLabel}
+          className={barButton}
+          title={history.undoLabel ? `Undo: ${history.undoLabel} (Ctrl+Z)` : 'Nothing to undo'}
+        >
+          <Undo2 className="w-3.5 h-3.5" />
+          Undo
+          {history.undoLabel && <span className="max-w-[11rem] truncate text-slate-500">· {history.undoLabel}</span>}
+        </button>
+        <button
+          type="button"
+          onClick={history.redo}
+          disabled={!history.redoLabel}
+          className={barButton}
+          title={history.redoLabel ? `Redo: ${history.redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo'}
+          aria-label="Redo"
+        >
+          <Redo2 className="w-3.5 h-3.5" />
+        </button>
+        {history.baseLabel && (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm(`Put every line back to ${history.baseLabel}? Your edits since are kept in Undo: Ctrl+Z brings them back.`)) {
+                history.backToBase();
+              }
+            }}
+            className={barButton}
+            title={`Every line as it was in ${history.baseLabel}. Undo brings your edits back.`}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Back to {history.baseLabel}
           </button>
         )}
         <span className="text-slate-400 min-w-0 flex-1" aria-live="polite">

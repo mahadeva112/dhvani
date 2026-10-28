@@ -145,6 +145,7 @@ import {
   type DubAudioQuality,
 } from './services/dubAudioQuality';
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
+import { BASE_LABELS, backToFirstStep, recordReviewStep, redoReviewStep, startReviewHistory, undoReviewStep } from './services/reviewHistory';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
 import { pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
 import { stripPauses } from './server/lib/linePauses.js';
@@ -308,6 +309,15 @@ const reviveSavedJob = (stale: BatchJob): BatchJob => {
           : ProcessingStatus.IDLE
         : job.status,
   };
+};
+
+/**
+ * The cues after an edit, as a step Undo can take back. A cut, join or moved
+ * cut changes the synced lines it touches: Sync again places them anew.
+ */
+const withReviewStep = (job: BatchJob, next: AudioSegment[]): Partial<BatchJob> => {
+  const { history, segments } = recordReviewStep(job.reviewHistory, job.segments, next);
+  return { segments, reviewHistory: history, ...syncPendingAfter(job, segments) };
 };
 
 export default function App() {
@@ -1028,12 +1038,15 @@ export default function App() {
   }, [activeJobId]);
 
   // Update storage & state helper
-  const updateJob = useCallback((id: string, updates: Partial<BatchJob>) => {
-    // Opening a project or moving between its steps isn't working on it.
-    const worksOnIt = Object.keys(updates).some((k) => !VIEW_FIELDS.has(k));
+  /** Changes a project, worked out from the project as it is now rather than as the last render saw it. */
+  const updateJobWith = useCallback((id: string, change: (job: BatchJob) => Partial<BatchJob>) => {
     setQueue((prev) =>
       prev.map((job) => {
         if (job.id === id) {
+          const updates = change(job);
+          if (Object.keys(updates).length === 0) return job;
+          // Opening a project or moving between its steps isn't working on it.
+          const worksOnIt = Object.keys(updates).some((k) => !VIEW_FIELDS.has(k));
           const updatedJob = { ...job, ...updates, ...(worksOnIt ? { updatedAt: Date.now() } : {}) };
           saveJobToStorage(updatedJob).then(
             () => setSaveFailure((failure) => (failure?.jobId === id ? null : failure)),
@@ -1048,6 +1061,8 @@ export default function App() {
       })
     );
   }, []);
+
+  const updateJob = useCallback((id: string, updates: Partial<BatchJob>) => updateJobWith(id, () => updates), [updateJobWith]);
 
   /** Saves the project whose save failed again, as it is now. */
   const retrySave = useCallback(() => {
@@ -1126,6 +1141,7 @@ export default function App() {
             updateJob(activeJob.id, {
               language: newLang,
               segments: translatedSegments,
+              reviewHistory: startReviewHistory(translatedSegments, BASE_LABELS.translation),
               script: newScript,
               translatedSrt,
               translationWarning: untranslatedWarning(untranslatedCueIds.length),
@@ -1212,6 +1228,7 @@ export default function App() {
 
         updateJob(activeJob.id, {
           segments: translatedSegments,
+          reviewHistory: startReviewHistory(translatedSegments, BASE_LABELS.translation),
           script: newScript,
           customPrompt: promptToUse,
           targetSource: 'translated',
@@ -1287,8 +1304,10 @@ export default function App() {
         const text = fresh.textTarget || (fresh as any).targetText || '';
         return { ...seg, textTarget: text, targetText: text };
       });
+      const step = recordReviewStep(job.reviewHistory, job.segments, segments, { label: 'Translate missing lines' });
       updateJob(jobId, {
-        segments,
+        segments: step.segments,
+        reviewHistory: step.history,
         script: segments.map((s) => s.textTarget || (s as any).targetText || '').filter(Boolean).join(' '),
         translationWarning: untranslatedWarning(stillMissing.size),
         untranslatedCueIds: stillMissing.size ? [...stillMissing] : null,
@@ -1320,6 +1339,7 @@ export default function App() {
       });
       updateJob(activeJob.id, {
         segments,
+        reviewHistory: startReviewHistory(segments, BASE_LABELS.transcript),
         script: segments.map((s) => s.textTarget).filter(Boolean).join(' '),
         targetSource: 'translated',
         translationWarning: null,
@@ -1334,13 +1354,20 @@ export default function App() {
   const handleTargetSourceChange = useCallback(
     (targetSource: TargetSource) => {
       if (!activeJob) return;
-      updateJob(activeJob.id, {
+      updateJobWith(activeJob.id, (job) => ({
         targetSource,
-        // A pasted script replaces whatever the translation reported.
-        ...(targetSource === 'custom' ? { translationWarning: null, untranslatedCueIds: null, translatedSrt: '' } : {}),
-      });
+        // A pasted script replaces whatever the translation reported, and undo stops at it.
+        ...(targetSource === 'custom'
+          ? {
+              translationWarning: null,
+              untranslatedCueIds: null,
+              translatedSrt: '',
+              reviewHistory: startReviewHistory(job.segments, BASE_LABELS.script),
+            }
+          : {}),
+      }));
     },
-    [activeJob, updateJob]
+    [activeJob, updateJobWith]
   );
 
   /**
@@ -1409,6 +1436,7 @@ export default function App() {
           untranslatedCueIds: null,
           targetSource: 'pending',
           transcriptCuts: null,
+          reviewHistory: null,
           errorMsg: null,
           xmlOutput: '',
           validationResult: null,
@@ -2309,6 +2337,7 @@ export default function App() {
         untranslatedCueIds: null,
         targetSource: 'pending',
         transcriptCuts: null,
+        reviewHistory: null,
         errorMsg: null,
         xmlOutput: '',
         validationResult: null,
@@ -3025,10 +3054,11 @@ export default function App() {
   const handleUpdateSegment = useCallback(
     (id: string | number, updates: Partial<AudioSegment>) => {
       if (!activeJob) return;
-      const updated = activeJob.segments.map((s) => (s.id === id ? { ...s, ...updates } : s));
-      updateJob(activeJob.id, { segments: updated, ...syncPendingAfter(activeJob, updated) });
+      updateJobWith(activeJob.id, (job) =>
+        withReviewStep(job, job.segments.map((s) => (s.id === id ? { ...s, ...updates } : s)))
+      );
     },
-    [activeJob, updateJob]
+    [activeJob, updateJobWith]
   );
 
   /*
@@ -3054,10 +3084,29 @@ export default function App() {
   const handleReplaceSegments = useCallback(
     (segments: AudioSegment[]) => {
       if (!activeJob) return;
-      // A cut, join or moved cut changes the synced lines it touches: Sync again places them anew.
-      updateJob(activeJob.id, { segments, ...syncPendingAfter(activeJob, segments) });
+      updateJobWith(activeJob.id, (job) => withReviewStep(job, segments));
     },
-    [activeJob, updateJob]
+    [activeJob, updateJobWith]
+  );
+
+  /** Undo, Redo, or the script back where undo stops, as one step that can be undone too. */
+  const handleReviewHistory = useCallback(
+    (action: 'undo' | 'redo' | 'base') => {
+      if (!activeJob) return;
+      updateJobWith(activeJob.id, (job) => {
+        const history = job.reviewHistory;
+        if (!history) return {};
+        const result =
+          action === 'undo'
+            ? undoReviewStep(history, job.segments)
+            : action === 'redo'
+              ? redoReviewStep(history, job.segments)
+              : backToFirstStep(history, job.segments);
+        if (!result) return {};
+        return { segments: result.segments, reviewHistory: result.history, ...syncPendingAfter(job, result.segments) };
+      });
+    },
+    [activeJob, updateJobWith]
   );
 
   /**
@@ -4026,6 +4075,7 @@ export default function App() {
           fitTranslationToVoice={fitTranslationToVoice}
           onFitTranslationToVoiceChange={handleFitTranslationToVoiceChange}
           onTargetSourceChange={handleTargetSourceChange}
+          onReviewHistory={handleReviewHistory}
           translationSummary={translationSummary}
           translationReady={Boolean(backendHealth?.geminiConfigured)}
           translationProgress={translationProgress}

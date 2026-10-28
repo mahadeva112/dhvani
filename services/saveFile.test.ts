@@ -92,3 +92,51 @@ test('a window that opens the dialog but will not write downloads the file inste
     g.document = doc;
   }
 });
+
+const withDownloads = async (run: (downloaded: string[]) => Promise<void>) => {
+  const downloaded: string[] = [];
+  const doc = g.document;
+  g.document = {
+    createElement: () => ({ click() {}, set download(name: string) { downloaded.push(name); } }),
+    body: { appendChild() {}, removeChild() {} },
+  };
+  try {
+    await run(downloaded);
+  } finally {
+    g.document = doc;
+  }
+};
+
+test('a write that leaves the picked file empty downloads the file instead', async () => {
+  g.showSaveFilePicker = async () => ({
+    name: 'script.docx',
+    createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+    getFile: async () => new Blob([]),
+  });
+  await withDownloads(async (downloaded) => {
+    const outcome = await saveFileAs(new Blob(['PK']), 'script.docx', as);
+    assert.deepEqual(outcome, { status: 'saved', name: 'script.docx', downloaded: true });
+    assert.deepEqual(downloaded, ['script.docx']);
+  });
+});
+
+test("Claude's browser pane never opens the Save dialog: the file is downloaded", async () => {
+  let opened = false;
+  g.showSaveFilePicker = async () => {
+    opened = true;
+    throw new Error('should not open');
+  };
+  const nav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', { value: { userAgent: 'Mozilla/5.0 Claude/4.29.0 Chrome/152.0' }, configurable: true });
+  try {
+    await withDownloads(async (downloaded) => {
+      const outcome = await saveFileAs(new Blob(['PK']), 'script.docx', as);
+      assert.equal(outcome.status, 'saved');
+      assert.deepEqual(downloaded, ['script.docx']);
+    });
+  } finally {
+    if (nav) Object.defineProperty(globalThis, 'navigator', nav);
+    else delete g.navigator;
+  }
+  assert.equal(opened, false);
+});

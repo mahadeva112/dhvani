@@ -135,7 +135,7 @@ import type { SpeakerMonitor } from '../services/speakerLevels';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { FitMeter, ScriptFitStrip, fitAdvice, fitLabel, needsFix, pauseAdvice } from './FinalScriptFit';
 import { SaveScriptMenu, type ScriptScope } from './SaveScriptMenu';
-import { DOCX_MIME, buildScriptDocx, scriptDocxFileName, scriptDocxRows } from '../services/scriptDocx';
+import { DOCX_MIME, buildScriptDocx, loadWordParagraphSize, scriptDocxFileName, scriptDocxRows } from '../services/scriptDocx';
 import { saveFileAs } from '../services/saveFile';
 import { hueOf, lineIndexByCue } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
@@ -146,7 +146,8 @@ import { choicesFor, rememberChoice } from '../services/wordingChoices';
 import { useSignoff } from '../services/signoffService';
 import { ScriptTableView, type LinePacing } from './review/ScriptTableView';
 import { PASSAGE_PAUSES, buildPassages, loadPassagePause, savePassagePause } from './review/passages';
-import { CueEditBar, PickableWords, useCueEditing } from './review/CueEditBar';
+import { CueEditBar, PickableWords, useCueEditing, useReviewUndoKeys, type ReviewUndo } from './review/CueEditBar';
+import { reviewHistoryLabels } from '../services/reviewHistory';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
 import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
 import { firstWordAt, takesOf, type TakeDirection } from '../services/syncTakesService';
@@ -492,6 +493,8 @@ interface ExpressDubWizardProps {
   onFitTranslationToVoiceChange?: (on: boolean) => void;
   /** Records where the target lines came from, e.g. 'custom' once a pasted script is applied. */
   onTargetSourceChange?: (source: TargetSource) => void;
+  /** Steps the script's history: back, forward, or back to where it starts. */
+  onReviewHistory?: (action: 'undo' | 'redo' | 'base') => void;
   /** Where translation runs, for the choice panel. */
   translationSummary?: string | null;
   /** False when no translation engine is set up. */
@@ -621,6 +624,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   fitTranslationToVoice = true,
   onFitTranslationToVoiceChange,
   onTargetSourceChange,
+  onReviewHistory,
   onExportTranscript,
   onApplyTranscriptSegments,
   translationSummary = null,
@@ -1197,8 +1201,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const heardCues = hearingDub ? dubCues : segments;
 
   // Split and join by hand, on the original's clock.
+  const reviewEditing = activeStep === 2 && Boolean(activeJob) && !awaitingScript;
+  const historyLabels = reviewHistoryLabels(activeJob?.reviewHistory);
+  const reviewUndo: ReviewUndo = {
+    undoLabel: onReviewHistory ? historyLabels.undo : null,
+    redoLabel: onReviewHistory ? historyLabels.redo : null,
+    baseLabel: onReviewHistory ? historyLabels.base : null,
+    undo: () => onReviewHistory?.('undo'),
+    redo: () => onReviewHistory?.('redo'),
+    backToBase: () => onReviewHistory?.('base'),
+  };
+  useReviewUndoKeys(reviewEditing, reviewUndo);
   const cueEditing = useCueEditing({
-    enabled: activeStep === 2 && Boolean(activeJob) && !awaitingScript,
+    enabled: reviewEditing,
     segments,
     onReplaceSegments,
     getPlayhead: () => getSourceLiveTime?.() ?? sourceClockTime,
@@ -1747,7 +1762,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 title: activeJob?.file?.name || `${targetLanguage || 'Dub'} script`,
                 sourceLanguage: activeJob?.detectedLanguage || activeJob?.sourceLanguage || sourceLanguage,
                 targetLanguage,
-                rows: scriptDocxRows(scriptLinesFor(format), getSourceText, getTargetText, passagePause),
+                rows: scriptDocxRows(scriptLinesFor(format), getSourceText, getTargetText, passagePause, loadWordParagraphSize()),
               }),
             ],
             { type: DOCX_MIME }
@@ -2220,6 +2235,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           {!awaitingScript && (
             <CueEditBar
               editing={cueEditing}
+              history={reviewUndo}
               segments={segments}
               cueNumber={(id) => (cueIndexById.get(String(id)) ?? 0) + 1}
             />
@@ -2861,7 +2877,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </div>
 
                     {/* Translation */}
-                    <div className="col-span-3 md:col-span-1 min-w-0">
+                    <div className="col-span-3 md:col-span-1 min-w-0" data-review-text>
                       <PhoneticSmartTextarea
                         showQuickSymbols={false}
                         value={tgtText}

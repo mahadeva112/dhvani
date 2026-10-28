@@ -1,6 +1,7 @@
 import type { SyncReport } from './services/syncService';
 import type { SyncBank, SyncEdits } from './services/syncEditService';
 import type { SyncTakes } from './services/syncTakes';
+import type { ReviewHistory } from './services/reviewHistory';
 
 /**
  * One word as measured by ElevenLabs. These are the authoritative timings for
@@ -256,6 +257,8 @@ export interface BatchJob {
    * transcript screen so Reset can put the cuts back. Cleared by transcribing again.
    */
   transcriptCuts?: AudioSegment[] | null;
+  /** Undo and Redo for the script, back to the AI translation or a pasted script. */
+  reviewHistory?: ReviewHistory | null;
 
   /**
    * The synced dub: Sync's own file, kept beside the dub above (a dub made
