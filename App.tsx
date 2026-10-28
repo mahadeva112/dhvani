@@ -147,8 +147,9 @@ import {
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { BASE_LABELS, backToFirstStep, recordReviewStep, redoReviewStep, startReviewHistory, undoReviewStep } from './services/reviewHistory';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
-import { pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type TakeDirection } from './services/syncTakesService';
+import { pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type TakeAsk } from './services/syncTakesService';
 import { stripPauses } from './server/lib/linePauses.js';
+import { stripTags, tagsOf } from './server/lib/lineTags.js';
 import {
   laneClips,
   linesToChange,
@@ -2879,7 +2880,7 @@ export default function App() {
    */
   const handleVoiceSyncTakes = async (
     unit: SyncUnitReport,
-    { direction, phrase, text }: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }
+    { direction, phrase, text, count, stability }: TakeAsk
   ) => {
     const job = activeJob;
     if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport || syncTakesBusy?.jobId === job.id) return;
@@ -2892,7 +2893,9 @@ export default function App() {
     // New words are a new reading of the whole line: no phrase of the old take, no tags matched to the old words.
     const spoken = text?.trim() && text.trim() !== unit.text ? text.trim() : null;
     if (spoken && phrase) return;
-    const words = spoken ? stripPauses(spoken) : unit.text;
+    // The script keeps the words alone: no pause marks, and no tags typed for the voice.
+    const words = spoken ? stripTags(stripPauses(spoken)) : unit.text;
+    const typedTags = Boolean(spoken && tagsOf(spoken).length > 0);
     setSyncTakesBusy({ jobId: job.id, key: unit.key });
     const controller = new AbortController();
     try {
@@ -2926,7 +2929,7 @@ export default function App() {
           readCount: base.units.length,
           phrase,
           direction,
-          count: TAKES_PER_ASK,
+          count: count ?? TAKES_PER_ASK,
           join: base.join,
           // Loudness was evened out when the sync gave any line a gain.
           matchLoudness: !several && bank.lines.some((l) => l.gain !== 1),
@@ -2940,6 +2943,8 @@ export default function App() {
           tuneStability,
           steady: expression === 'neutral',
           expressive: expression === 'expressive',
+          ownTags: typedTags,
+          stability,
           multiSpeaker: several,
           cast: job.cast,
         },

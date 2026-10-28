@@ -29,6 +29,29 @@ export const TAKE_DIRECTIONS: { id: TakeDirection; label: string; hint: string }
 /** Takes voiced each time the user asks; each costs a voicing of the line (or of the words picked). */
 export const TAKES_PER_ASK = 2;
 
+/** How many takes Retake pro may ask for at once (the server takes up to 5). */
+export const TAKE_COUNTS = [1, 2, 3, 5] as const;
+
+/** Eleven v3's stability, as its own settings name it, for a retake in Retake pro. */
+export const TAKE_STABILITIES = [
+  { value: 0, label: 'Creative', hint: 'Most expressive and follows tags most, but can wander' },
+  { value: 0.5, label: 'Natural', hint: 'Balanced, closest to the original voice' },
+  { value: 1, label: 'Robust', hint: 'Very steady, but follows tags less' },
+] as const;
+
+/**
+ * What the retake window asks for: a direction, and only some words
+ * (`phrase`) or the whole line in other words (`text`, which may carry pause
+ * marks and typed tags); Retake pro may also set how many takes and the stability.
+ */
+export interface TakeAsk {
+  direction: TakeDirection;
+  phrase?: { from: number; to: number };
+  text?: string;
+  count?: number;
+  stability?: number;
+}
+
 /** One take of a line: where its samples are in the bank, and what a line needs to play them. */
 export interface SyncTake {
   id: string;
@@ -56,7 +79,7 @@ export interface SyncTake {
   voice?: string;
   /** What the line said when the take was voiced. */
   text: string;
-  /** What the voice read, when that was new words with pause marks ([pause 0.4s]): `text` is those words without them. */
+  /** What the voice read, when that was new words, pause marks ([pause 0.4s]) or typed tags ([sighs]): `text` is the words without them. */
   spoken?: string;
 }
 

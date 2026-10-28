@@ -687,7 +687,9 @@ syncRouter.post('/sync/takes/words', asyncHandler(async (req, res) => {
  * picked. Body: `{ bankId, line, phrase?, seeds, direction, matchLoudness,
  * join }` and the voice as for /sync (`voiceId, modelId, outputFormat,
  * voiceSettings, language, steady, tuneStability, performanceTags,
- * expressive, multiSpeaker, cast`). `line` is `{ bankStart, length, gain,
+ * expressive, multiSpeaker, cast`). `ownTags` keeps the tags the user typed
+ * in `line.text` (lineTags.js) and adds none; `stability` (0, 0.5 or 1) sets
+ * the voice's stability for these takes alone. `line` is `{ bankStart, length, gain,
  * text, voiceText?, speaker, previousText, nextText, readCount }`: where the
  * line's current take is in the bank and what it says. `phrase`, `{ before,
  * words, after }`, voices only `words` and puts them in place of those words
@@ -715,6 +717,8 @@ syncRouter.post(
       steady,
       tuneStability,
       performanceTags,
+      ownTags,
+      stability,
       expressive,
       multiSpeaker,
       cast,
@@ -774,6 +778,9 @@ syncRouter.post(
     const voiceText = textOf(line?.voiceText);
     const sourceTagged = tags && !phrase && performanceTags === true && Boolean(voiceText);
     if (sourceTagged) voice = { ...voice, performanceTags: true };
+    // Tags the user typed into the line's words are read as they are, and none are added to them.
+    const typedTags = tags && !cartesia && !phrase && ownTags === true;
+    if (typedTags) voice = { ...voice, ownTags: true };
 
     // A direction changes how the voice is asked to read, starting from the settings the line was read with.
     if (direction !== 'same') {
@@ -789,10 +796,15 @@ syncRouter.post(
         voice = { ...voice, voiceSettings: directedSettings(settings, direction, 'elevenlabs'), steady: false, tuneStability: false };
       }
     }
+    // A stability picked for this retake (v3's Creative 0, Natural 0.5, Robust 1) is used as it is.
+    if (!voice.cartesia && [0, 0.5, 1].includes(stability)) {
+      const base = voice.voiceSettings || (await getVoiceSettings({ voiceId: voice.voiceId, apiKey }).catch(() => null)) || DEFAULT_VOICE_SETTINGS;
+      voice = { ...voice, voiceSettings: { ...base, stability }, steady: false, tuneStability: false };
+    }
 
     // What is read: the whole line as Sync read it, or only the words picked, ending a sentence only where the line does.
     let text = sourceTagged ? voiceText : lineText;
-    if (!phrase && tags && !cartesia && !sourceTagged && expressive === true) {
+    if (!phrase && tags && !cartesia && !sourceTagged && !typedTags && expressive === true) {
       const [cued] = await cueLinesWith({ language, apiKey: textModelKey })([text]);
       if (typeof cued === 'string' && cued.trim()) text = cued;
     }

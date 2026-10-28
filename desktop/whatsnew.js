@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.1',
+    changes: [
+      'Retake (T): type [ or press Tags to put ElevenLabs tags such as [whispers] or [sighs] in a line, or write your own in English. They change how it is read and never go into the script or subtitles.',
+      'Retake pro (Shift+T): a bigger window with every tag, your own tags and saved styles, what is sent to the voice, Stability (Creative, Natural, Robust) and 1 to 5 takes at once.',
+    ],
+  },
+  {
     version: '1.4.0',
     changes: [
       'Dhvani 1.4: the same app as 1.3.101 (Undo back to the AI translation, and the whole script in one passage in the Word file), under the new version number.',

@@ -49,6 +49,8 @@ import {
   FileText,
   Video,
   Zap,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
@@ -150,7 +152,7 @@ import { CueEditBar, PickableWords, useCueEditing, useReviewUndoKeys, type Revie
 import { reviewHistoryLabels } from '../services/reviewHistory';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
 import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
-import { firstWordAt, takesOf, type TakeDirection } from '../services/syncTakesService';
+import { firstWordAt, takesOf, type TakeAsk } from '../services/syncTakesService';
 import { TakesPanel } from './TakesPanel';
 
 type ReviewMode = 'table' | 'script' | 'qa';
@@ -435,7 +437,7 @@ interface ExpressDubWizardProps {
   onUseOfferedTake?: (unit: SyncUnitReport) => void;
   onKeepOfferedTake?: (unit: SyncUnitReport) => void;
   /** Voices new takes of a synced line now, of the whole line or of some of its words (TakesPanel). */
-  onVoiceSyncTakes?: (unit: SyncUnitReport, options: { direction: TakeDirection; phrase?: { from: number; to: number }; text?: string }) => void;
+  onVoiceSyncTakes?: (unit: SyncUnitReport, options: TakeAsk) => void;
   /** Puts one of a line's takes in the dub. */
   onUseSyncTake?: (key: string, takeId: string) => void;
   /** Drops a line's takes but Sync's own and the one in the dub. */
@@ -711,6 +713,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** Edit timing: the line whose takes are open under the timeline. */
   const [timingTakesKey, setTimingTakesKey] = useState<string | null>(null);
   const [timingTakesPhrase, setTimingTakesPhrase] = useState<{ from: number; to: number } | null>(null);
+  /** The retake window as Retake pro (Shift+T): tags, styles, stability and more takes beside the words. */
+  const [timingTakesPro, setTimingTakesPro] = useState(false);
   /** The retake window holds edited words not yet voiced. */
   const [timingTakesDirty, setTimingTakesDirty] = useState(false);
   useEffect(() => {
@@ -3267,6 +3271,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const hasEditedTiming = editedLineCount > 0;
         const legacyDub = !report && Boolean(activeJob.synthesizedAudioUrl);
 
+        /** Whether a retake reads the tags typed in its words: Eleven v3 and v4, for a dub in one voice. */
+        const takesVoiceTags =
+          voiceEngine !== 'elevenlabs'
+            ? { on: false, note: 'This voice is not an ElevenLabs voice, which reads no typed tags.' }
+            : multiSpeaker
+              ? { on: false, note: 'Tags are for a dub in one voice.' }
+              : !elModelId || !performsAudioTags(elModelId)
+                ? { on: false, note: `This voice is on ${ttsModelName}, which reads no tags. Tags work on Eleven v3 and v4.` }
+                : { on: true, note: '' };
+
         /** A synced line's takes, voiced and picked from at once (TakesPanel). */
         const takesBank = activeJob.syncBank;
         const takesBase = activeJob.syncBaseReport;
@@ -3276,7 +3290,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 unit: SyncUnitReport,
                 close: () => void,
                 initialPhrase?: { from: number; to: number } | null,
-                inWindow?: { onDirtyChange: (dirty: boolean) => void }
+                inWindow?: { onDirtyChange: (dirty: boolean) => void; pro?: boolean }
               ) => {
                 const line = takesBank.lines.find((l) => l.key === unit.key);
                 const n = takesBase.units.findIndex((u) => u.key === unit.key);
@@ -3312,6 +3326,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onClose={close}
                     inWindow={Boolean(inWindow)}
                     onDirtyChange={inWindow?.onDirtyChange}
+                    voiceTags={takesVoiceTags}
+                    pro={Boolean(inWindow?.pro)}
                   />
                 );
               }
@@ -3604,11 +3620,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onMarkersChange={onUpdateJobFields && ((markers) => onUpdateJobFields({ syncMarkers: markers.length > 0 ? markers : null }))}
                   onOpenTakes={
                     renderTakes
-                      ? (key, phrase, follow) => {
+                      ? (key, phrase, follow, pro) => {
                           // Following the picked line moves an open window only; it never opens one.
                           if (follow && timingTakesKey === null) return;
                           // Nor does it leave edited words that are not voiced yet.
                           if (follow && (key === timingTakesKey || timingTakesDirty)) return;
+                          // T opens the window, Shift+T Retake pro; a phrase picked opens the window as it is.
+                          if (!follow && pro !== undefined) setTimingTakesPro(pro);
                           setTimingTakesKey(key);
                           setTimingTakesPhrase(phrase ?? null);
                         }
@@ -3621,9 +3639,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   title={
                     <>
                       <Mic className="w-3.5 h-3.5 text-indigo-300" aria-hidden="true" />
-                      Retake · line {String(segments.findIndex((seg) => String(seg.id) === timingTakesUnit.key) + 1).padStart(2, '0')}
+                      {timingTakesPro ? 'Retake pro' : 'Retake'} · line {String(segments.findIndex((seg) => String(seg.id) === timingTakesUnit.key) + 1).padStart(2, '0')}
+                      <button
+                        type="button"
+                        onClick={() => setTimingTakesPro((pro) => !pro)}
+                        title={timingTakesPro ? 'Back to Retake (T)' : 'Retake pro: tags, styles, stability and more takes (Shift+T)'}
+                        aria-label={timingTakesPro ? 'Back to Retake' : 'Open Retake pro'}
+                        className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default"
+                      >
+                        {timingTakesPro ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                      </button>
                     </>
                   }
+                  width={timingTakesPro ? 920 : 560}
                   storageKey="dhvani.retakeWindow.position"
                   confirmClose={timingTakesDirty ? 'Your edited words have not been voiced yet. Close and lose them?' : null}
                   onClose={() => {
@@ -3631,7 +3659,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     setTimingTakesDirty(false);
                   }}
                 >
-                  {renderTakes(timingTakesUnit, () => { setTimingTakesKey(null); setTimingTakesDirty(false); }, timingTakesPhrase, { onDirtyChange: setTimingTakesDirty })}
+                  {renderTakes(timingTakesUnit, () => { setTimingTakesKey(null); setTimingTakesDirty(false); }, timingTakesPhrase, { onDirtyChange: setTimingTakesDirty, pro: timingTakesPro })}
                 </FloatingWindow>
               )}
               {report && syncedPlayer && (

@@ -55,6 +55,10 @@ export interface TakesRequest {
   tuneStability?: boolean;
   steady?: boolean;
   expressive?: boolean;
+  /** The line's text carries tags the user typed: they are read as typed, and none are added. */
+  ownTags?: boolean;
+  /** Stability for these takes alone (0, 0.5 or 1, as Eleven v3 takes it). */
+  stability?: number;
   multiSpeaker?: boolean;
   cast?: Record<string, SpeakerVoice>;
 }
@@ -110,6 +114,8 @@ export const voiceTakes = async (
         tuneStability: request.tuneStability,
         ...(request.steady && { steady: true }),
         ...(request.expressive && { expressive: true }),
+        ...(request.ownTags && { ownTags: true }),
+        ...(typeof request.stability === 'number' && { stability: request.stability }),
         ...(request.voiceText && request.voiceText !== unit.text && { performanceTags: true }),
         ...(request.multiSpeaker && {
           multiSpeaker: true,

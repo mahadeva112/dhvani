@@ -55,6 +55,12 @@ export const FloatingWindow: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A window made wider (Retake pro) stays on screen where it was.
+  useLayoutEffect(() => {
+    setPos((p) => (p ? clampToView(p) : p));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [width]);
+
   useEffect(() => {
     const onResize = () => setPos((p) => (p ? clampToView(p) : p));
     window.addEventListener('resize', onResize);

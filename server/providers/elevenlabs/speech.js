@@ -8,6 +8,7 @@ import { joinPassages } from '../../lib/audioJoin.js';
 import { AUDIO_TAGS, addDeliveryCuesToPassages } from '../../lib/deliveryCues.js';
 import { performanceTag } from '../../lib/sourceCues.js';
 import { PAUSE_MARK, spokenPause } from '../../lib/linePauses.js';
+import { isTagName } from '../../lib/lineTags.js';
 import { decodeAudio, encodeAudio, parseOutputFormat } from '../../lib/media.js';
 import { pcmToWav } from '../../lib/wav.js';
 import { cancelledError } from '../../lib/http.js';
@@ -36,12 +37,14 @@ export const DEFAULT_VOICE_SETTINGS = {
  * AUDIO_TAGS ([curious], [sighs], ...) stay: Eleven v3 and v4 perform them.
  * With `keepPerformanceTags`, so do the source-matched performance tags
  * ([explaining, calm, slow], [sentence-build pause]; see sourceCues.js).
+ * With `keepOwnTags`, so does any English tag the user typed in a retake
+ * (`[speaking softly]`; see lineTags.js).
  * Pause marks (`[pause 0.4s]`, linePauses.js) become what `pauses` names:
  * 'break' or 'cartesia' for an SSML break, 'ellipsis', or a space when unset.
  */
 // Holds a pause's place through the cleanup, which would strip a break tag.
 const PAUSE_HOLD = /\u0001([\d.]+)\u0001/g;
-export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false, keepPerformanceTags = false, pauses = null } = {}) => {
+export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false, keepPerformanceTags = false, keepOwnTags = false, pauses = null } = {}) => {
   if (!rawText) return '';
   return String(rawText)
     .replace(PAUSE_MARK, (_mark, seconds) => `\u0001${seconds}\u0001`)
@@ -54,7 +57,8 @@ export const cleanTextForNaturalSpeech = (rawText, { keepAudioTags = false, keep
       // Other brackets (not a tag-like word) are left as they were.
       if (!/^[a-zA-Z0-9_\-\s]+$/.test(name)) return tag;
       // Closing tags such as [/fast] go too; otherwise the slash and word are read aloud.
-      return keepAudioTags && !slash && AUDIO_TAGS.includes(name.trim().toLowerCase()) ? tag : '';
+      if (slash) return '';
+      return (keepAudioTags && AUDIO_TAGS.includes(name.trim().toLowerCase())) || (keepOwnTags && isTagName(name)) ? tag : '';
     })
     // Collapse runs of spaces/tabs but keep line breaks: ElevenLabs uses them
     // as breathing points, and flattening a multi-cue script onto one line is
@@ -255,6 +259,7 @@ export const synthesizeSpeech = async (
     previousRequestIds,
     seed,
     performanceTags = false,
+    ownTags = false,
   },
   { apiKey, signal, stream = false } = {}
 ) => {
@@ -264,6 +269,7 @@ export const synthesizeSpeech = async (
   const cleanText = cleanTextForNaturalSpeech(text, {
     keepAudioTags: performsTags(resolvedModel),
     keepPerformanceTags: performanceTags && performsTags(resolvedModel),
+    keepOwnTags: ownTags && performsTags(resolvedModel),
     // v3 and v4 read SSML aloud; an ellipsis is their pause.
     pauses: performsTags(resolvedModel) ? 'ellipsis' : 'break',
   });
@@ -547,6 +553,7 @@ export const synthesizeLines = async (
     voiceSettings,
     seed,
     performanceTags = false,
+    ownTags = false,
     steady = false,
     tuneStability = true,
     readCount,
@@ -584,6 +591,7 @@ export const synthesizeLines = async (
       voiceSettings: voiced,
       seed: Number.isInteger(line.seed) && line.seed >= 0 && line.seed < 2 ** 32 ? line.seed : takeSeed,
       performanceTags,
+      ownTags,
     };
     const withContext = () =>
       contextState.enabled
