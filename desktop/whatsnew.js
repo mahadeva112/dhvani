@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.0',
+    changes: [
+      'Dhvani 1.4: the same app as 1.3.101 (Undo back to the AI translation, and the whole script in one passage in the Word file), under the new version number.',
+    ],
+  },
+  {
     version: '1.3.101',
     changes: [
       'Undo in Review now goes all the way back to the AI translation, one edit at a time, even while you type in a line (Ctrl+Z; Ctrl+Shift+Z to redo). Back to the AI translation puts every line back at once, and that can be undone too.',
