@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.2',
+    changes: [
+      "Two people on one project: whoever does the script sends a Dhvani JSON, and the dubber opens later ones with Update script. Only the lines the script changed are voiced again on the next Sync; your takes, timing edits and other changes stay.",
+      'Export a project light: Projects, the export icon, Light, dub only. It leaves out the original media (it asks for it when opened), takes that are not playing and the undo history, so the file is much smaller. The dub is exactly as it plays.',
+    ],
+  },
+  {
     version: '1.4.1',
     changes: [
       'Retake (T): type [ or press Tags to put ElevenLabs tags such as [whispers] or [sighs] in a line, or write your own in English. They change how it is read and never go into the script or subtitles.',
