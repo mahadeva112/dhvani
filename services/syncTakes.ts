@@ -187,6 +187,63 @@ export const appendManyToBank = async (bankBlob: Blob, wavs: Blob[], { sampleRat
   });
 };
 
+/**
+ * The bank with only the samples the dub plays: each line's take now, and
+ * each line's playing take, copied as they are into a new bank under
+ * `bankId`; every other take is let go. Lines and takes point at their
+ * samples' new place. For a smaller project file (Light export).
+ */
+export const compactBank = async (
+  bank: SyncBank,
+  bankBlob: Blob,
+  takes: SyncTakes | null | undefined,
+  bankId: string
+): Promise<{ bank: SyncBank; bankBlob: Blob; takes: SyncTakes | null }> => {
+  await samplesIn(bankBlob, bank.float);
+  const kept: SyncTakes = {};
+  for (const [key, line] of Object.entries(takes || {})) {
+    const playing = line.takes.find((t) => t.id === line.active);
+    if (playing) kept[key] = { takes: [playing], active: playing.id };
+  }
+  const spans = [
+    ...bank.lines.filter((l) => !l.original),
+    ...Object.values(kept).flatMap((line) => line.takes),
+  ]
+    .filter((s) => s.length > 0)
+    .map((s) => ({ start: s.bankStart, end: s.bankStart + s.length }))
+    .sort((a, b) => a.start - b.start);
+  // Overlapping spans (a line and its playing take are the same samples) are copied once.
+  const merged: { start: number; end: number; to: number }[] = [];
+  let at = 0;
+  for (const span of spans) {
+    const last = merged[merged.length - 1];
+    if (last && span.start <= last.end) {
+      if (span.end > last.end) {
+        at += span.end - last.end;
+        last.end = span.end;
+      }
+    } else {
+      merged.push({ ...span, to: at });
+      at += span.end - span.start;
+    }
+  }
+  const moved = (bankStart: number) => {
+    const span = merged.find((m) => bankStart >= m.start && bankStart < m.end);
+    return span ? span.to + bankStart - span.start : bankStart;
+  };
+  const bytes = bank.float ? 4 : 2;
+  const blob = new Blob(
+    [wavHeader(at * bytes, bank.sampleRate, bank.float), ...merged.map((m) => bankBlob.slice(HEADER_BYTES + m.start * bytes, HEADER_BYTES + m.end * bytes))],
+    { type: 'audio/wav' }
+  );
+  for (const line of Object.values(kept)) line.takes = line.takes.map((t) => ({ ...t, bankStart: moved(t.bankStart) }));
+  return {
+    bank: { ...bank, bankId, lines: bank.lines.map((l) => (l.original ? l : { ...l, bankStart: moved(l.bankStart) })) },
+    bankBlob: blob,
+    takes: Object.keys(kept).length ? kept : null,
+  };
+};
+
 /** One take on its own, as a WAV, for listening to it: its samples copied out of the bank. */
 export const takeWav = (bankBlob: Blob, take: Pick<SyncTake, 'bankStart' | 'length'>, { sampleRate, float }: { sampleRate: number; float: boolean }) => {
   const bytes = float ? 4 : 2;

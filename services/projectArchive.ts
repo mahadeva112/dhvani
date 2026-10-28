@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import type { BatchJob } from '../types';
 import type { JobSignoff } from './signoffService';
+import { compactBank } from './syncTakes.ts';
 
 /**
  * A whole project in one file, to open again later or on another computer:
@@ -35,6 +36,8 @@ interface ProjectManifest {
   exportedAt: number;
   job: unknown;
   signoffs: JobSignoff[];
+  /** Light export: the source media is not in the file; this says which file to ask for. */
+  light?: SourceMedia;
 }
 
 /** What the page rebuilds from the files on load; stored as the IndexedDB save stores them. */
@@ -137,15 +140,42 @@ export const unpackJob = (data: unknown, fileAt: (path: string) => Blob | undefi
   return walk(data) as BatchJob;
 };
 
-/** The project and its sign-offs as one `.dhvani` file. */
-export const exportProject = async (job: BatchJob, signoffs: JobSignoff[] = []): Promise<Blob> => {
-  const { data, media } = packJob(job);
+const newBankId = () =>
+  globalThis.crypto?.randomUUID?.() ?? `bank-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+
+/**
+ * The project as Light export keeps it: the dub as it plays, without the
+ * source media (whoever opens it has the original), the takes not playing,
+ * the undo history or the dub from before a voice change. Every sample kept
+ * is copied as it is; nothing is re-encoded.
+ */
+export const lightJob = async (job: BatchJob, bankId = newBankId()): Promise<BatchJob> => {
+  // A bank not in the form takes use (an old one) goes as it is, with all its takes.
+  const compact =
+    job.syncBank && job.syncBankBlob ? await compactBank(job.syncBank, job.syncBankBlob, job.syncTakes, bankId).catch(() => null) : null;
+  return {
+    ...job,
+    file: null as unknown as File,
+    history: { past: [], future: [] },
+    reviewHistory: null,
+    syncBeforeVoiceChange: null,
+    ...(compact && { syncBank: compact.bank, syncBankBlob: compact.bankBlob, syncTakes: compact.takes }),
+  };
+};
+
+/**
+ * The project and its sign-offs as one `.dhvani` file. `light` leaves out
+ * what Light export does (see lightJob); opening it asks for the original.
+ */
+export const exportProject = async (job: BatchJob, signoffs: JobSignoff[] = [], { light = false }: { light?: boolean } = {}): Promise<Blob> => {
+  const { data, media } = packJob(light ? await lightJob(job) : job);
   const manifest: ProjectManifest = {
     kind: PROJECT_FILE_KIND,
     version: PROJECT_FILE_VERSION,
     exportedAt: Date.now(),
     job: data,
     signoffs,
+    ...(light && { light: sourceMediaOf(job) }),
   };
   const zip = new JSZip();
   zip.file(MANIFEST, JSON.stringify(manifest), { compression: 'DEFLATE' });
@@ -163,7 +193,7 @@ const notAProject = () => new Error("This isn't a Dhvani project file.");
 export const importProject = async (
   file: Blob,
   newId: string
-): Promise<{ job: BatchJob; signoffs: JobSignoff[] }> => {
+): Promise<{ job: BatchJob; signoffs: JobSignoff[]; needsMedia: SourceMedia | null }> => {
   let zip: JSZip;
   try {
     zip = await JSZip.loadAsync(file);
@@ -190,13 +220,14 @@ export const importProject = async (
       .map(async (f) => files.set(f.name, await f.async('blob')))
   );
   const job = unpackJob(manifest.job, (path) => files.get(path));
-  if (!(job.file instanceof Blob) || !Array.isArray(job.segments)) throw notAProject();
+  const needsMedia = manifest.light && typeof manifest.light === 'object' ? manifest.light : null;
+  if ((!needsMedia && !(job.file instanceof Blob)) || !Array.isArray(job.segments)) throw notAProject();
 
   const oldId = job.id;
   const signoffs = (Array.isArray(manifest.signoffs) ? manifest.signoffs : [])
     .filter((s) => s && s.jobId === oldId)
     .map((s) => ({ ...s, jobId: newId, key: `${newId}::${s.key.split('::').pop()}` }));
-  return { job: { ...job, id: newId }, signoffs };
+  return { job: { ...job, id: newId }, signoffs, needsMedia };
 };
 
 /** The name a project's file is saved under. */
@@ -261,6 +292,14 @@ interface ProjectJson {
   signoffs: JobSignoff[];
 }
 
+/** The audio a project was made on, to ask for it when a file comes without it. */
+const sourceMediaOf = (job: BatchJob): SourceMedia => ({
+  name: job.file?.name || job.audioMetadata?.fileName || '',
+  type: job.file?.type || job.audioMetadata?.fileType || '',
+  size: job.file?.size ?? 0,
+  ...(job.audioMetadata?.duration || job.audioBuffer?.duration ? { duration: job.audioMetadata?.duration || job.audioBuffer?.duration } : {}),
+});
+
 /** The project and its sign-offs as a JSON file, without any media. */
 export const exportProjectJson = (job: BatchJob, signoffs: JobSignoff[] = []): string => {
   const project: Record<string, unknown> = {};
@@ -274,14 +313,7 @@ export const exportProjectJson = (job: BatchJob, signoffs: JobSignoff[] = []): s
     version: PROJECT_JSON_VERSION,
     media: 'external',
     exportedAt: new Date().toISOString(),
-    sourceMedia: {
-      name: job.file?.name || job.audioMetadata?.fileName || '',
-      type: job.file?.type || job.audioMetadata?.fileType || '',
-      size: job.file?.size ?? 0,
-      ...(job.audioMetadata?.duration || job.audioBuffer?.duration
-        ? { duration: job.audioMetadata?.duration || job.audioBuffer?.duration }
-        : {}),
-    },
+    sourceMedia: sourceMediaOf(job),
     projectId: job.id,
     project: project as ProjectJsonData,
     signoffs,
@@ -308,7 +340,7 @@ const finite = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v 
 export const readProjectJson = (
   text: string,
   newId: string
-): { project: ProjectJsonData; signoffs: JobSignoff[]; sourceMedia: SourceMedia } => {
+): { project: ProjectJsonData; signoffs: JobSignoff[]; sourceMedia: SourceMedia; projectId: string } => {
   let data: Partial<ProjectJson> & { cues?: unknown };
   try {
     data = JSON.parse(text.replace(/^﻿/, ''));
@@ -348,6 +380,7 @@ export const readProjectJson = (
   return {
     project: project as ProjectJsonData,
     signoffs,
+    projectId: oldId,
     sourceMedia: {
       name: typeof media.name === 'string' ? media.name : '',
       type: typeof media.type === 'string' ? media.type : '',

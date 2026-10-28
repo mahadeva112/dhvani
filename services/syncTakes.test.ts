@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendManyToBank, appendToBank, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
+import { appendManyToBank, appendToBank, compactBank, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
 import { measureEdits, partEnd, partsOf } from './syncEditModel.ts';
@@ -202,4 +202,29 @@ test('Sync is sent only the takes the user picked, and none whose words changed'
   const picked = { '1': { takes: [...kept.takes, take({})], active: 't1' }, '2': { takes: [take({ id: 't2' })], active: 't2' } };
   assert.deepEqual(Object.keys(pickedTakes(bank, picked, ['2'])?.lines ?? {}), ['1']);
   assert.equal(pickedTakes(bank, picked)?.bankId, 'b');
+});
+
+test('a compacted bank keeps only the playing samples, bit for bit, and points everything at them', async () => {
+  const blob = wav(Array.from({ length: 80 }, (_, i) => i));
+  const bank: SyncBank = {
+    bankId: 'old-bank-id',
+    sampleRate: RATE,
+    float: false,
+    lines: [line('a', { bankStart: 40, length: 10 }), line('b', { bankStart: 10, length: 10 }), line('o', { bankStart: 0, length: 999, original: true })],
+    speakerGains: {},
+  };
+  const takes = {
+    a: { takes: [take({ id: 'sync', bankStart: 0, length: 10 }), take({ id: 't2', bankStart: 40, length: 10 })], active: 't2' },
+    b: { takes: [take({ id: 'sync', bankStart: 10, length: 10 }), take({ id: 't3', bankStart: 60, length: 20 })], active: 'sync' },
+  };
+  const out = await compactBank(bank, blob, takes, 'new-bank-id');
+  assert.deepEqual(await samplesOf(out.bankBlob), [...Array.from({ length: 10 }, (_, i) => 10 + i), ...Array.from({ length: 10 }, (_, i) => 40 + i)]);
+  assert.equal(out.bank.bankId, 'new-bank-id');
+  assert.deepEqual(out.bank.lines.map((l) => l.bankStart), [10, 0, 0], 'the original clip line is left alone');
+  assert.deepEqual(out.takes, {
+    a: { takes: [take({ id: 't2', bankStart: 10, length: 10 })], active: 't2' },
+    b: { takes: [take({ id: 'sync', bankStart: 0, length: 10 })], active: 'sync' },
+  });
+  const head = new DataView(await out.bankBlob.slice(0, 44).arrayBuffer());
+  assert.equal(head.getUint32(40, true), 40, 'the header counts the kept samples');
 });

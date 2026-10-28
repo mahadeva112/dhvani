@@ -22,8 +22,8 @@ interface ProjectsMenuProps {
   onSelect: (id: string) => void;
   onRename: (id: string, name: string) => void;
   onRemove: (id: string) => void;
-  /** Saves the project as a .dhvani file: its media, edits and takes. */
-  onExport?: (id: string) => Promise<void>;
+  /** Saves the project as a .dhvani file: its media, edits and takes; `light` leaves out the original and the takes not playing. */
+  onExport?: (id: string, options?: { light?: boolean }) => Promise<void>;
   /** Opens a .dhvani file as a new project. */
   onImport?: (file: File) => Promise<void>;
   onNewDub?: () => void;
@@ -50,6 +50,8 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
   const shown = projects.slice(0, MENU_LIMIT);
   // Packing a project with its video takes a moment; its row shows it.
   const [exportingId, setExportingId] = React.useState<string | null>(null);
+  // Export asks which file first: the whole project, or Light (no original).
+  const [exportChoiceId, setExportChoiceId] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState(false);
   const fileInput = React.useRef<HTMLInputElement>(null);
 
@@ -119,12 +121,12 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                           disabled={exportingId !== null}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setExportingId(job.id);
-                            onExport(job.id).finally(() => setExportingId(null));
+                            setConfirmId(null);
+                            setExportChoiceId(exportChoiceId === job.id ? null : job.id);
                           }}
                           className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-100 hover:bg-slate-800 disabled:hover:bg-transparent disabled:hover:text-slate-500 cursor-default"
                           aria-label={`Export ${name}`}
-                          title={`Export project (${PROJECT_FILE_EXTENSION}): media, edits and takes, to open again later or on another computer`}
+                          title={`Export project (${PROJECT_FILE_EXTENSION}), whole or light, to open again later or on another computer`}
                         >
                           {exportingId === job.id ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -151,6 +153,7 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                         onClick={(e) => {
                           e.stopPropagation();
                           setEditingId(null);
+                          setExportChoiceId(null);
                           setConfirmId(job.id);
                         }}
                         className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-rose-300 hover:bg-slate-800 cursor-default"
@@ -162,6 +165,35 @@ export const ProjectsMenu: React.FC<ProjectsMenuProps> = ({
                     </span>
                   )}
                 </div>
+                {exportChoiceId === job.id && onExport && (
+                  <div className="flex flex-col gap-1 mx-1 my-1 p-1.5 rounded-[9px] bg-slate-800/60 text-[12px] text-slate-200">
+                    {(
+                      [
+                        { light: false, label: 'Whole project', detail: 'With the original media, every take and the undo history. The biggest file.' },
+                        {
+                          light: true,
+                          label: 'Light, dub only',
+                          detail: 'No original media (it asks for it when opened), only the playing take of each line, no undo. The dub is as it plays.',
+                        },
+                      ] as const
+                    ).map((choice) => (
+                      <button
+                        key={choice.label}
+                        type="button"
+                        disabled={exportingId !== null}
+                        onClick={() => {
+                          setExportChoiceId(null);
+                          setExportingId(job.id);
+                          onExport(job.id, { light: choice.light }).finally(() => setExportingId(null));
+                        }}
+                        className="text-left px-2 py-1.5 rounded-md hover:bg-slate-700/70 cursor-default disabled:opacity-50"
+                      >
+                        <span className="block font-semibold text-slate-100">{choice.label}</span>
+                        <span className="block text-[11px] text-slate-400">{choice.detail}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {confirmId === job.id && (
                   <div className="flex flex-wrap items-center gap-2 mx-1 my-1 px-2.5 py-2 rounded-[9px] bg-rose-500/10 text-[12.5px] text-slate-200">
                     <span className="min-w-0 flex-1">

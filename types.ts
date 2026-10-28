@@ -294,6 +294,13 @@ export interface BatchJob {
   /** Lines changed since the last Sync (reworded, cut, joined or retaken), by line key: the next Sync re-voices them. */
   syncPendingLines?: string[] | null;
   /**
+   * Update script: the project whose Dhvani JSON this one was opened from
+   * (its id in that file), and the cues as the last such file had them, to
+   * tell the script's later changes from the ones made here.
+   */
+  scriptOrigin?: string | null;
+  scriptBase?: AudioSegment[] | null;
+  /**
    * Takes asked for after Sync, by line key: every take of the line, Sync's own
    * among them, and the one it plays (see syncTakesService.ts). Their samples
    * are in the bank above; the next Sync keeps the picked ones and starts afresh.

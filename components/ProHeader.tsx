@@ -117,7 +117,7 @@ export interface ProHeaderProps {
   onRenameProject?: (id: string, name: string) => void;
   onRemoveProject?: (id: string) => void;
   /** Saves a project as a .dhvani file. */
-  onExportProject?: (id: string) => Promise<void>;
+  onExportProject?: (id: string, options?: { light?: boolean }) => Promise<void>;
   /** Opens a .dhvani file as a new project. */
   onImportProject?: (file: File) => Promise<void>;
 }

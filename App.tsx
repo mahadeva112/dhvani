@@ -178,7 +178,10 @@ import {
   projectFileName,
   projectJsonFileName,
   readProjectJson,
+  type ProjectJsonData,
 } from './services/projectArchive';
+import { looksTranscribedAgain, mergeScriptUpdate } from './services/scriptUpdate';
+import { UpdateScriptPanel, type ScriptUpdatePreview } from './components/UpdateScriptPanel';
 import { transcriptFileName, transcriptParagraphs, transcriptSrt } from './services/transcriptExport';
 import { sameCuts } from './services/transcriptSegments';
 import { saveFileAs } from './services/saveFile';
@@ -321,6 +324,30 @@ const withReviewStep = (job: BatchJob, next: AudioSegment[]): Partial<BatchJob> 
   return { segments, reviewHistory: history, ...syncPendingAfter(job, segments) };
 };
 
+/** A Dhvani JSON read from disk, as opening it or Update script takes it. */
+type ProjectJsonFile = PendingProjectJson & {
+  id: string;
+  /** The id of the project it was saved from. */
+  projectId: string;
+  signoffs: ReturnType<typeof readProjectJson>['signoffs'];
+};
+
+/** Why a script file can't go on a project, or null when it can. */
+const scriptUpdateProblem = (job: BatchJob, project: ProjectJsonData): string | null => {
+  if (!hasTranscript(project.segments || [])) return 'This file has no transcript to update the script with.';
+  if (project.targetSource === 'pending') {
+    return "This script isn't translated yet, so it would empty the dub's lines. Translate it, then save the file again.";
+  }
+  if (project.language && job.language && project.language !== job.language) {
+    return `This script is in ${project.language}, but this project is dubbed in ${job.language}.`;
+  }
+  if (job.status === ProcessingStatus.SYNTHESIZING_AUDIO) return 'A dub is running on this project. Update the script once it finishes.';
+  return null;
+};
+
+/** What Update script takes from the file besides the cues: the transcript's own fields, where the file has them. */
+const SCRIPT_FIELDS = ['originalSrt', 'translatedSrt', 'targetSource', 'sourceLanguage', 'detectedLanguage', 'transcriptCuts'] as const;
+
 export default function App() {
   // --- STATE ---
   const [queue, setQueue] = useState<BatchJob[]>([]);
@@ -329,9 +356,9 @@ export default function App() {
   queueRef.current = queue;
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   /** A Dhvani JSON being opened, waiting for the user to pick its media. */
-  const [pendingProjectJson, setPendingProjectJson] = useState<
-    (PendingProjectJson & { id: string; signoffs: ReturnType<typeof readProjectJson>['signoffs'] }) | null
-  >(null);
+  const [pendingProjectJson, setPendingProjectJson] = useState<ProjectJsonFile | null>(null);
+  /** A Dhvani JSON waiting to go on a project being dubbed (Update script). */
+  const [pendingScriptUpdate, setPendingScriptUpdate] = useState<(ProjectJsonFile & { jobId: string }) | null>(null);
   /** The media last read for it, so opening doesn't decode it twice. */
   const pickedMediaRef = useRef<{ file: File; analysis: Awaited<ReturnType<typeof analyzeAudio>> } | null>(null);
 
@@ -3312,16 +3339,20 @@ export default function App() {
 
   const handleRenameJob = useCallback((id: string, name: string) => updateJob(id, { name }), [updateJob]);
 
-  /** Saves a project, with its media, edits and takes, as one .dhvani file to open again later or elsewhere. */
-  const handleExportProject = useCallback(async (id: string) => {
+  /**
+   * Saves a project, with its media, edits and takes, as one .dhvani file to
+   * open again later or elsewhere. `light`: without the original media, the
+   * takes not playing and the undo history.
+   */
+  const handleExportProject = useCallback(async (id: string, { light = false }: { light?: boolean } = {}) => {
     const job = queueRef.current.find((j) => j.id === id);
     if (!job) return;
     try {
-      const blob = await exportProject(job, signoffsForJob(id));
+      const blob = await exportProject(job, signoffsForJob(id), { light });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = projectFileName(projectName(job));
+      a.download = projectFileName(light ? `${projectName(job)} (light)` : projectName(job));
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -3346,32 +3377,37 @@ export default function App() {
       if (!pending) return;
       const analysis = pickedMediaRef.current?.file === file ? pickedMediaRef.current.analysis : await analyzeAudio(file);
       const { project } = pending;
-      const job = reviveSavedJob({
-        id: pending.id,
-        createdAt: project.createdAt ?? Date.now(),
-        updatedAt: Date.now(),
-        file,
-        status: ProcessingStatus.IDLE,
-        script: '',
-        language: selectedLanguage,
-        manualDuration: '',
-        expression: 'Warm, conversational studio tone',
-        pronunciations: [],
-        history: { past: [], future: [] },
-        xmlOutput: '',
-        validationResult: null,
-        synthesizedAudioUrl: null,
-        synthesizedBlob: null,
-        srtUrl: null,
-        srtBlob: null,
-        synthAudioBuffer: null,
-        errorMsg: null,
-        ...project,
-        audioMetadata: analysis.metadata,
-        audioBuffer: analysis.buffer,
-        segments: project.segments,
-        lastStep: hasTranscript(project.segments) ? 2 : 1,
-      });
+      // A light project: the project as it was, with the original picked again.
+      const job = pending.job
+        ? reviveSavedJob({ ...pending.job, id: pending.id, file, audioMetadata: analysis.metadata, audioBuffer: analysis.buffer })
+        : reviveSavedJob({
+            id: pending.id,
+            createdAt: project.createdAt ?? Date.now(),
+            updatedAt: Date.now(),
+            file,
+            status: ProcessingStatus.IDLE,
+            script: '',
+            language: selectedLanguage,
+            manualDuration: '',
+            expression: 'Warm, conversational studio tone',
+            pronunciations: [],
+            history: { past: [], future: [] },
+            xmlOutput: '',
+            validationResult: null,
+            synthesizedAudioUrl: null,
+            synthesizedBlob: null,
+            srtUrl: null,
+            srtBlob: null,
+            synthAudioBuffer: null,
+            errorMsg: null,
+            ...project,
+            audioMetadata: analysis.metadata,
+            audioBuffer: analysis.buffer,
+            segments: project.segments,
+            lastStep: hasTranscript(project.segments) ? 2 : 1,
+            scriptOrigin: pending.projectId || null,
+            scriptBase: project.segments,
+          });
       await saveJobToStorage(job);
       addSignoffs(pending.signoffs);
       pickedMediaRef.current = null;
@@ -3394,11 +3430,23 @@ export default function App() {
       try {
         if (await isProjectJson(file)) {
           // No media inside: the user picks the original before the project is made.
-          const { project, signoffs, sourceMedia } = readProjectJson(await file.text(), id);
-          setPendingProjectJson({ id, fileName: file.name, project, signoffs, sourceMedia });
+          const { project, signoffs, sourceMedia, projectId } = readProjectJson(await file.text(), id);
+          const read = { id, fileName: file.name, project, signoffs, sourceMedia, projectId };
+          // A newer script for a project opened from this one's file goes on it (Update script), the open one first.
+          const jobs = queueRef.current;
+          const target = projectId
+            ? (jobs.find((j) => j.id === activeJobId && j.scriptOrigin === projectId) ?? jobs.find((j) => j.scriptOrigin === projectId))
+            : undefined;
+          if (target) setPendingScriptUpdate({ ...read, jobId: target.id });
+          else setPendingProjectJson(read);
           return;
         }
-        const { job: imported, signoffs } = await importProject(file, id);
+        const { job: imported, signoffs, needsMedia } = await importProject(file, id);
+        if (needsMedia) {
+          // Light export: the user picks the original before the project is made.
+          setPendingProjectJson({ id, fileName: file.name, project: imported, job: imported, signoffs, sourceMedia: needsMedia, projectId: '' });
+          return;
+        }
         const job = reviveSavedJob(imported);
         await saveJobToStorage(job);
         addSignoffs(signoffs);
@@ -3410,8 +3458,67 @@ export default function App() {
         reportError(err, { title: 'Opening the project failed', safe: 'Your other projects are unchanged.' });
       }
     },
-    [pauseAll, seekAll]
+    [activeJobId, pauseAll, seekAll]
   );
+
+  /** What Update script would do to its project, for the panel to show before anything changes. */
+  const scriptUpdatePreview = useMemo((): ScriptUpdatePreview | null => {
+    const p = pendingScriptUpdate;
+    const job = p && queue.find((j) => j.id === p.jobId);
+    if (!p || !job) return null;
+    const incoming = p.project.segments || [];
+    const update = mergeScriptUpdate(job.segments, job.scriptBase, incoming);
+    const lookup = new Map([...job.segments, ...incoming].map((s) => [String(s.id), s]));
+    const cues = (ids: string[]) => ids.map((id) => lookup.get(id)).filter((s): s is AudioSegment => !!s);
+    const pendingNow = job.syncPendingLines?.length ?? 0;
+    const pendingAfter = syncPendingAfter(job, update.segments).syncPendingLines?.length ?? pendingNow;
+    const here = job.audioMetadata?.duration || job.audioBuffer?.duration || 0;
+    const timedOn = p.sourceMedia.duration || 0;
+    return {
+      fileName: p.fileName,
+      projectName: projectName(job),
+      changed: update.changed.length,
+      added: update.added.length,
+      removed: update.removed.length,
+      keptHere: update.keptHere.length,
+      conflicts: cues(update.conflicts),
+      notApplied: cues(update.notApplied),
+      linesToVoice: pendingAfter - pendingNow,
+      hasDub: !!job.syncReport,
+      noBase: update.noBase,
+      transcribedAgain: looksTranscribedAgain(update, incoming.length),
+      lengthOff: here && timedOn && Math.abs(here - timedOn) > 0.5 ? { here, script: timedOn } : null,
+      problem: scriptUpdateProblem(job, p.project),
+    };
+  }, [pendingScriptUpdate, queue]);
+
+  /**
+   * Puts a newer script on the project being dubbed, as one step Undo can take
+   * back. The cues it changed are left for the next Sync; nothing is voiced.
+   */
+  const applyScriptUpdate = useCallback(() => {
+    const p = pendingScriptUpdate;
+    if (!p) return;
+    updateJobWith(p.jobId, (job) => {
+      const { project } = p;
+      const update = mergeScriptUpdate(job.segments, job.scriptBase, project.segments);
+      const step = recordReviewStep(job.reviewHistory, job.segments, update.segments, { label: 'Update script' });
+      const fields: Partial<BatchJob> = {};
+      for (const key of SCRIPT_FIELDS) if (project[key] !== undefined) Object.assign(fields, { [key]: project[key] });
+      return {
+        ...fields,
+        segments: step.segments,
+        reviewHistory: step.history,
+        script: step.segments.map((s) => s.textTarget || s.targetText || '').filter(Boolean).join(' '),
+        untranslatedCueIds: project.untranslatedCueIds ?? null,
+        scriptOrigin: p.projectId || job.scriptOrigin || null,
+        scriptBase: project.segments,
+        ...syncPendingAfter(job, step.segments),
+      };
+    });
+    setActiveJobId(p.jobId);
+    setPendingScriptUpdate(null);
+  }, [pendingScriptUpdate, updateJobWith]);
 
   const handleRemoveJobFromQueue = useCallback(
     async (id: string) => {
@@ -3776,6 +3883,24 @@ export default function App() {
           pickedMediaRef.current = null;
           setPendingProjectJson(null);
         }}
+        updateName={activeJob && hasTranscript(activeJob.segments) && !pendingProjectJson?.job ? projectName(activeJob) : null}
+        onUpdateInstead={() => {
+          if (!pendingProjectJson || !activeJob) return;
+          pickedMediaRef.current = null;
+          setPendingScriptUpdate({ ...pendingProjectJson, jobId: activeJob.id });
+          setPendingProjectJson(null);
+        }}
+      />
+      <UpdateScriptPanel
+        preview={scriptUpdatePreview}
+        onUpdate={applyScriptUpdate}
+        onOpenAsNew={() => {
+          if (!pendingScriptUpdate) return;
+          const { jobId: _target, ...read } = pendingScriptUpdate;
+          setPendingScriptUpdate(null);
+          setPendingProjectJson(read);
+        }}
+        onCancel={() => setPendingScriptUpdate(null)}
       />
 
       {/* Streamlined Clean Header */}

@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileJson, FolderOpen, Loader2 } from 'lucide-react';
 import { CenteredPanel } from './CenteredPanel';
 import type { ProjectJsonData, SourceMedia } from '../services/projectArchive';
+import type { BatchJob } from '../types';
 import { hasTranscript } from '../services/steps';
 
 /** The audio's length may differ by this much from the one transcribed and still be the same file. */
@@ -19,6 +20,8 @@ export interface PendingProjectJson {
   fileName: string;
   project: ProjectJsonData;
   sourceMedia: SourceMedia;
+  /** A light .dhvani: the whole project with its dub, only the original left out. */
+  job?: BatchJob;
 }
 
 interface OpenProjectJsonPanelProps {
@@ -28,6 +31,9 @@ interface OpenProjectJsonPanelProps {
   /** Makes the project with this media. */
   onOpen: (file: File) => Promise<void>;
   onCancel: () => void;
+  /** The open project's name, when the script can go on it instead (Update script). */
+  updateName?: string | null;
+  onUpdateInstead?: () => void;
 }
 
 /**
@@ -35,7 +41,7 @@ interface OpenProjectJsonPanelProps {
  * on it, not the audio, so the user picks the original again. Its length is
  * checked against the one the transcript was timed on.
  */
-export const OpenProjectJsonPanel: React.FC<OpenProjectJsonPanelProps> = ({ pending, measure, onOpen, onCancel }) => {
+export const OpenProjectJsonPanel: React.FC<OpenProjectJsonPanelProps> = ({ pending, measure, onOpen, onCancel, updateName, onUpdateInstead }) => {
   const [media, setMedia] = useState<{ file: File; length: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState<'reading' | 'opening' | null>(null);
@@ -111,10 +117,24 @@ export const OpenProjectJsonPanel: React.FC<OpenProjectJsonPanelProps> = ({ pend
       </div>
 
       <p className="text-[12px] text-slate-300 leading-relaxed">
-        This file holds the transcript, not the audio. Choose{' '}
+        {pending.job ? 'This light project holds the dub, not the original.' : 'This file holds the transcript, not the audio.'} Choose{' '}
         {sourceMedia.name ? <span className="font-mono text-[11.5px] px-1 py-px rounded bg-slate-800">{sourceMedia.name}</span> : 'the original audio or video'} to
-        finish opening it. It opens as a new project{hasTranscript(segments) ? ', on Review' : ''}.
+        finish opening it. It opens as a new project{!pending.job && hasTranscript(segments) ? ', on Review' : ''}.
       </p>
+      {updateName && onUpdateInstead && (
+        <p className="text-[11.5px] text-slate-400 leading-relaxed">
+          A newer script for a project you're dubbing?{' '}
+          <button
+            type="button"
+            onClick={onUpdateInstead}
+            disabled={working !== null}
+            className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-default disabled:opacity-50"
+          >
+            Update the script of “{updateName}”
+          </button>{' '}
+          instead: no audio needed, and only the changed lines are voiced again.
+        </p>
+      )}
 
       <input
         ref={input}
