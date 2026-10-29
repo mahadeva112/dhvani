@@ -3332,6 +3332,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onDirtyChange={inWindow?.onDirtyChange}
                     voiceTags={takesVoiceTags}
                     pro={Boolean(inWindow?.pro)}
+                    language={targetLanguage}
                   />
                 );
               }

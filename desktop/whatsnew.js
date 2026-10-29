@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.6',
+    changes: [
+      'Retake: type the words in Roman letters and they turn into the dub language as you go, as in the script table. Phonetic on or off with the button or Ctrl+G; tags in [ ] stay English.',
+    ],
+  },
+  {
     version: '1.4.5',
     changes: [
       'Translation style: save your instructions under your own name with Save as. Your prompts are listed under the built-in styles, where you can pick, rename or delete them. App updates never change or reset them.',

@@ -1,6 +1,11 @@
 import React, { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { isTagName, TAG_LIBRARY } from '../server/lib/lineTags.js';
 import { PAUSE_MARK } from '../server/lib/linePauses.js';
+import type { usePhoneticTyping } from './review/usePhoneticTyping';
+
+/** Whether the caret is inside a `[` not yet closed: a tag, typed in English, never turned into the script. */
+const inBracket = (el: HTMLTextAreaElement) => /\[[^\]\n]*$/.test(el.value.slice(0, el.selectionStart));
 
 /** What the retake window can do to the words from outside them: put a tag where the caret is. */
 export interface TagTextareaHandle {
@@ -57,8 +62,11 @@ export const TagTextarea = forwardRef<
     /** A tag picked that is not in the library or the user's own: kept with the user's own. */
     onNewTag?: (tag: string) => void;
     large?: boolean;
+    /** Phonetic typing: Roman letters become the line's script as each word ends, as in the script table. */
+    phonetic?: ReturnType<typeof usePhoneticTyping>;
+    lang?: string;
   }
->(({ id, value, onChange, onBlur, ownTags, onNewTag, large = false }, ref) => {
+>(({ id, value, onChange, onBlur, ownTags, onNewTag, large = false, phonetic, lang }, ref) => {
   const area = useRef<HTMLTextAreaElement>(null);
   const [menu, setMenu] = useState<{ filter: string; from: number } | null>(null);
   const [active, setActive] = useState(0);
@@ -140,7 +148,10 @@ export const TagTextarea = forwardRef<
   }));
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!menu || options.length === 0) return;
+    if (!menu || options.length === 0) {
+      if (phonetic && !inBracket(e.currentTarget)) phonetic.onKeyDown(e, onChange);
+      return;
+    }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       setActive((a) => (a + (e.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length);
@@ -176,9 +187,15 @@ export const TagTextarea = forwardRef<
         }}
         onSelect={(e) => watchCaret(e.currentTarget)}
         onKeyDown={onKeyDown}
+        onKeyUp={(e) => {
+          if (!phonetic) return;
+          if (inBracket(e.currentTarget)) phonetic.dismiss();
+          else phonetic.onKeyUp(e);
+        }}
         onBlur={() => {
           // A click in the menu lands before the blur would close it.
           setTimeout(() => setMenu(null), 150);
+          phonetic?.dismiss();
           onBlur?.();
         }}
         className={`${box} ${text} relative block resize-none overflow-hidden bg-transparent text-transparent caret-slate-100 border border-slate-800 focus:outline-none focus:border-indigo-500 selection:bg-indigo-500/40`}
@@ -210,6 +227,44 @@ export const TagTextarea = forwardRef<
           <p className="mt-1.5 text-[11px] text-slate-500">↑ ↓ to move · Enter to put it in · any English tag can be typed</p>
         </div>
       )}
+      {/* Spellings of the Roman word at the caret, over the window the words are in */}
+      {phonetic?.popup &&
+        createPortal(
+          <div
+            role="listbox"
+            aria-label={`Spellings of ${phonetic.popup.word}`}
+            className="fixed z-[200] min-w-[12rem] max-w-[22rem] rounded-xl border border-slate-700 bg-slate-950 p-1.5 shadow-2xl shadow-black/60"
+            style={{ left: Math.min(phonetic.popup.x - 8, window.innerWidth - 360), top: phonetic.popup.y + 4 }}
+          >
+            <div className="px-1 pb-1 font-mono text-[11px] text-slate-500">{phonetic.popup.word}</div>
+            <div className="flex flex-wrap gap-1" lang={lang || undefined}>
+              {phonetic.popup.suggestions.map((s, i) => (
+                <button
+                  key={`${i}-${s}`}
+                  type="button"
+                  role="option"
+                  aria-selected={i === phonetic.popup!.selected}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    if (area.current) phonetic.pick(area.current, onChange, i);
+                  }}
+                  className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[15px] cursor-default ${
+                    i === phonetic.popup!.selected ? 'bg-indigo-500/25 text-white' : 'text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <span className="font-mono text-[10px] text-slate-500">{i + 1}</span>
+                  {s}
+                </button>
+              ))}
+            </div>
+            <div className="mt-1.5 flex gap-3 border-t border-slate-800 px-1 pt-1 text-[10.5px] text-slate-500">
+              <span>Space use</span>
+              <span>1–5 pick</span>
+              <span>Esc keep English</span>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 });

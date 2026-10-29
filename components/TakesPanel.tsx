@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Headphones, Loader2, Lock, Mic, Pause, Pencil, Play, Plus, RotateCcw, Search, Tag, Trash2, X } from 'lucide-react';
+import { AlertTriangle, Check, Headphones, Keyboard, Loader2, Lock, Mic, Pause, Pencil, Play, Plus, RotateCcw, Search, Tag, Trash2, X } from 'lucide-react';
 import type { LineSuggestion, SyncUnitReport } from '../services/syncService';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { reportError } from '../services/errorPopup';
@@ -7,6 +7,8 @@ import { dotsToPauses, PAUSE_MARK, pauseSeconds, stripPauses } from '../server/l
 import { isTagName, stripTags, TAG_LIBRARY, TAG_MARK, tagProblems, tagsOf } from '../server/lib/lineTags.js';
 import { useTagPrefs } from '../services/tagPrefs';
 import { TagTextarea, type TagTextareaHandle } from './TagTextarea';
+import { usePhoneticTyping } from './review/usePhoneticTyping';
+import { getIndicLanguageConfig } from '../services/indicTransliteration';
 import {
   phraseOf,
   SYNC_TAKE_ID,
@@ -128,6 +130,8 @@ export const TakesPanel: React.FC<{
   voiceTags?: VoiceTags;
   /** Retake pro: the tag library, saved styles, stability and how many takes, beside the words. */
   pro?: boolean;
+  /** The dub's language: phonetic typing in the words turns Roman letters into its script. */
+  language?: string;
   /** Wordings of the line from the text model, asked for only when the user presses Suggest wording. */
   onSuggestWording?: (request: WordingRequest) => Promise<LineSuggestion[]>;
   onUse: (takeId: string) => void;
@@ -164,6 +168,7 @@ export const TakesPanel: React.FC<{
   onDirtyChange,
   voiceTags = { on: false, note: 'This voice reads no tags.' },
   pro = false,
+  language = '',
 }) => {
   const words = useMemo(() => wordsOf(unit.text), [unit.text]);
   const [direction, setDirection] = useState<TakeDirection>('same');
@@ -198,6 +203,22 @@ export const TakesPanel: React.FC<{
   // What each take costs: tags are characters to the voice too.
   const billed = stripPauses(marked).length;
   const editor = useRef<TagTextareaHandle>(null);
+  const phonetic = usePhoneticTyping(language);
+  const langName = getIndicLanguageConfig(language).nativeName;
+  const phoneticButton = language && (
+    <button
+      type="button"
+      onClick={phonetic.toggle}
+      aria-pressed={phonetic.enabled}
+      title={`Type Roman letters and get ${langName} as you go (Ctrl+G). Tags in [ ] stay English.`}
+      className={`h-6 px-2 rounded-md border flex items-center gap-1 text-[11.5px] font-medium cursor-default ${
+        phonetic.enabled ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-slate-700 text-slate-400 hover:text-slate-200'
+      }`}
+    >
+      <Keyboard className="w-3 h-3" />
+      Phonetic {phonetic.enabled ? langName : 'off'}
+    </button>
+  );
   const { prefs, addOwn, removeOwn, saveStyle, removeStyle } = useTagPrefs();
   const [count, setCount] = useState<number>(TAKES_PER_ASK);
   const [stability, setStability] = useState<number | null>(null);
@@ -470,6 +491,7 @@ export const TakesPanel: React.FC<{
           <label htmlFor={`take-words-${unit.key}`} className={sectionLabel}>
             Words of the line
           </label>
+          {phoneticButton}
           {pro ? (
             <span className="ml-auto text-[11px] text-slate-500">
               Type <kbd className="font-mono text-slate-300">[</kbd> for tags · select words, then pick a tag to put it before them
@@ -494,6 +516,8 @@ export const TakesPanel: React.FC<{
           ownTags={prefs.own}
           onNewTag={addOwn}
           large={pro}
+          phonetic={language ? phonetic : undefined}
+          lang={language}
         />
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] tabular-nums">
           <span className="text-slate-500">slot {slot.toFixed(1)} s</span>
