@@ -124,13 +124,18 @@ export const getPresetById = (id: string): TranslationPromptPreset => {
   );
 };
 
+/** Ids of prompts the user saved under their own names (services/savedTranslationPrompts.ts). */
+export const SAVED_PROMPT_ID_PREFIX = 'my_';
+
 /**
  * A saved style (the app's or a project's) as it reads today. A style that has
  * since been removed comes back as the default, with the default's prompt, so
  * nobody is left translating with a prompt the style list no longer shows.
- * Custom instructions and the styles still listed are kept as saved.
+ * Custom instructions, the user's own named prompts and the styles still
+ * listed are kept as saved: no update ever replaces them.
  */
 export const currentPromptChoice = (presetId: string | null | undefined, prompt: string | null | undefined) => {
+  if (presetId?.startsWith(SAVED_PROMPT_ID_PREFIX) && prompt) return { presetId, prompt };
   const known = TRANSLATION_PRESETS.some((p) => p.id === presetId);
   if (presetId && known) return { presetId, prompt: prompt || getPresetById(presetId).prompt };
   return { presetId: DEFAULT_PROMPT_PRESET_ID, prompt: getPresetById(DEFAULT_PROMPT_PRESET_ID).prompt };

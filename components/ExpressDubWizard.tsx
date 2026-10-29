@@ -141,7 +141,8 @@ import { DOCX_MIME, buildScriptDocx, loadWordParagraphSize, scriptDocxFileName, 
 import { saveFileAs } from '../services/saveFile';
 import { hueOf, lineIndexByCue } from './lineColors';
 import type { ScriptFitFilter } from './FinalScriptFit';
-import { getPresetById, DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
+import { DEFAULT_PROMPT_PRESET_ID } from '../services/translationPromptPresets';
+import { promptStyleName } from '../services/savedTranslationPrompts';
 import { runQa, useQaConfig } from '../services/qaService';
 import { useGlossaryTerms } from '../services/glossaryService';
 import { choicesFor, rememberChoice } from '../services/wordingChoices';
@@ -2314,7 +2315,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               pipelineStatus={pipelineStatus}
               isTranslating={Boolean(isTranslatingLanguage)}
               translationProgress={translationProgress}
-              translationStyleName={getPresetById(promptPresetId || DEFAULT_PROMPT_PRESET_ID).name}
+              translationStyleName={promptStyleName(promptPresetId || DEFAULT_PROMPT_PRESET_ID)}
               translationSummary={translationSummary}
               translationReady={translationReady}
               onOpenPromptModal={() => {
@@ -3072,7 +3073,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-[13px] font-semibold text-slate-100 truncate">
-                        {getPresetById(promptPresetId || DEFAULT_PROMPT_PRESET_ID).name}
+                        {promptStyleName(promptPresetId || DEFAULT_PROMPT_PRESET_ID)}
                       </span>
                       <span className="block text-[11.5px] text-slate-400">Translation style</span>
                     </span>

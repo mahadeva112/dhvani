@@ -1,12 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { X, RefreshCw, Mic, Languages, AlignLeft, Zap } from 'lucide-react';
+import { X, RefreshCw, Mic, Languages, AlignLeft, Zap, BookmarkPlus, Pencil, Trash2 } from 'lucide-react';
 import {
   TRANSLATION_PRESETS,
   QUICK_PROMPT_TAGS,
   TranslationPromptPreset,
   getPresetById,
   DEFAULT_PROMPT_PRESET_ID,
+  SAVED_PROMPT_ID_PREFIX,
 } from '../services/translationPromptPresets';
+import {
+  SavedTranslationPrompt,
+  loadSavedPrompts,
+  saveNamedPrompt,
+  updateSavedPromptText,
+  renameSavedPrompt,
+  deleteSavedPrompt,
+} from '../services/savedTranslationPrompts';
 import { AudioSegment } from '../types';
 
 interface TranslationPromptModalProps {
@@ -51,6 +60,11 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
   const [isProcessingAudio, setIsProcessingAudio] = useState<boolean>(false);
   /** Which re-translate button the running translation came from, for its spinner. */
   const [fastRunning, setFastRunning] = useState(false);
+  /** The user's own named prompts, which no app update changes. */
+  const [savedPrompts, setSavedPrompts] = useState<SavedTranslationPrompt[]>([]);
+  const [saveName, setSaveName] = useState('');
+  const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Sync state on open
   useEffect(() => {
@@ -58,16 +72,77 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
       setSelectedPresetId(currentPresetId || DEFAULT_PROMPT_PRESET_ID);
       setPromptText(currentPrompt || getPresetById(currentPresetId || DEFAULT_PROMPT_PRESET_ID).prompt);
       setSuccessNotice(null);
+      setSavedPrompts(loadSavedPrompts());
+      setSaveName('');
+      setRenaming(null);
+      setConfirmDeleteId(null);
     }
   }, [isOpen, currentPrompt, currentPresetId]);
 
   if (!isOpen) return null;
 
   const currentPreset = getPresetById(selectedPresetId);
+  const isSavedChoice = selectedPresetId.startsWith(SAVED_PROMPT_ID_PREFIX);
+  const selectedSaved = savedPrompts.find((p) => p.id === selectedPresetId);
+  // A saved prompt from a project made on another computer keeps the project's text.
+  const baseName = isSavedChoice ? selectedSaved?.name || 'Your saved prompt' : currentPreset.name;
+  const baseText = isSavedChoice ? selectedSaved?.prompt ?? currentPrompt : currentPreset.prompt;
+
+  const flash = (notice: string) => {
+    setSuccessNotice(notice);
+    setTimeout(() => setSuccessNotice(null), 2500);
+  };
 
   const handleSelectPreset = (preset: TranslationPromptPreset) => {
     setSelectedPresetId(preset.id);
     setPromptText(preset.prompt);
+  };
+
+  const handleSelectSaved = (saved: SavedTranslationPrompt) => {
+    setSelectedPresetId(saved.id);
+    setPromptText(saved.prompt);
+  };
+
+  /** Makes this text the style in use; edits to a saved prompt are written back into it. */
+  const commitPrompt = () => {
+    if (selectedSaved && promptText !== selectedSaved.prompt) {
+      setSavedPrompts(updateSavedPromptText(selectedSaved.id, promptText));
+    }
+    onSavePrompt(promptText, selectedPresetId);
+  };
+
+  const handleSaveAs = () => {
+    const name = saveName.trim();
+    if (!name || !promptText.trim()) return;
+    const { list, saved, replaced } = saveNamedPrompt(name, promptText);
+    setSavedPrompts(list);
+    setSelectedPresetId(saved.id);
+    onSavePrompt(promptText, saved.id);
+    setSaveName('');
+    flash(replaced ? `Updated "${saved.name}"` : `Saved as "${saved.name}"`);
+  };
+
+  const handleRename = () => {
+    if (!renaming) return;
+    const list = renameSavedPrompt(renaming.id, renaming.name);
+    if (!list) {
+      flash(renaming.name.trim() ? `Another prompt is already called "${renaming.name.trim()}"` : 'A name is needed');
+      return;
+    }
+    setSavedPrompts(list);
+    setRenaming(null);
+  };
+
+  const handleDelete = (saved: SavedTranslationPrompt) => {
+    if (confirmDeleteId !== saved.id) {
+      setConfirmDeleteId(saved.id);
+      return;
+    }
+    setSavedPrompts(deleteSavedPrompt(saved.id));
+    setConfirmDeleteId(null);
+    // The text stays in the box, now as custom instructions.
+    if (selectedPresetId === saved.id) setSelectedPresetId('custom');
+    flash(`Deleted "${saved.name}"`);
   };
 
   const handleInsertTag = (tagText: string) => {
@@ -78,14 +153,12 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
   };
 
   const handleResetToPreset = () => {
-    const preset = getPresetById(selectedPresetId);
-    setPromptText(preset.prompt);
-    setSuccessNotice(`Back to ${preset.name}'s own text`);
-    setTimeout(() => setSuccessNotice(null), 2500);
+    setPromptText(baseText);
+    flash(isSavedChoice ? `Back to the saved text of "${baseName}"` : `Back to ${baseName}'s own text`);
   };
 
   const handleSaveOnly = () => {
-    onSavePrompt(promptText, selectedPresetId);
+    commitPrompt();
     setSuccessNotice('Saved');
     setTimeout(() => {
       setSuccessNotice(null);
@@ -94,7 +167,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
   };
 
   const handleApplyAndRetranslate = async ({ fast = false }: { fast?: boolean } = {}) => {
-    onSavePrompt(promptText, selectedPresetId);
+    commitPrompt();
     if (onRetranslateSegments) {
       setFastRunning(fast);
       try {
@@ -113,7 +186,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
   };
 
   const handleApplyAndRetranscribe = async () => {
-    onSavePrompt(promptText, selectedPresetId);
+    commitPrompt();
     if (onRetranscribeAudio) {
       setIsProcessingAudio(true);
       try {
@@ -131,7 +204,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
     }
   };
 
-  const edited = promptText.trim() !== currentPreset.prompt.trim();
+  const edited = promptText.trim() !== baseText.trim();
   const busy = isTranslating || isProcessingAudio;
   const cueText = segmentCount > 0 ? `${segmentCount} ${segmentCount === 1 ? 'cue' : 'cues'}` : 'the cues';
   const lengthText = audioDuration > 0
@@ -207,6 +280,89 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                 </button>
               );
             })}
+
+            <span className="mt-2 px-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Your prompts</span>
+            {savedPrompts.length === 0 && (
+              <p className="px-1 text-[11.5px] text-slate-500 leading-snug">
+                Save the instructions under your own name. App updates never change them.
+              </p>
+            )}
+            {savedPrompts.map((saved) => {
+              const on = saved.id === selectedPresetId;
+              const firstLine = saved.prompt.trim().split('\n')[0];
+              if (renaming?.id === saved.id) {
+                return (
+                  <div key={saved.id} className="flex items-center gap-1.5 p-2 rounded-[11px] border border-indigo-500 bg-slate-900">
+                    <input
+                      autoFocus
+                      value={renaming.name}
+                      onChange={(e) => setRenaming({ id: saved.id, name: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleRename();
+                        if (e.key === 'Escape') setRenaming(null);
+                      }}
+                      aria-label="New name"
+                      className="flex-1 min-w-0 h-7 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-md px-2 text-[12.5px] text-slate-100 focus:outline-none"
+                    />
+                    <button type="button" onClick={handleRename} className="h-7 px-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-[11.5px] font-semibold cursor-default">
+                      Rename
+                    </button>
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={saved.id}
+                  className={`group flex items-start rounded-[11px] border transition-colors ${
+                    on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-900' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => handleSelectSaved(saved)}
+                    className="flex-1 min-w-0 flex items-start gap-2.5 p-2.5 text-left cursor-default"
+                  >
+                    <span className={`w-[15px] h-[15px] mt-0.5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 ${on ? 'border-indigo-400' : 'border-slate-600'}`}>
+                      {on && <span className="w-[7px] h-[7px] rounded-full bg-indigo-400" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-semibold text-slate-100 truncate">{saved.name}</span>
+                      <span className="block text-[11.5px] text-slate-400 mt-0.5 leading-snug truncate">{firstLine || 'No instructions'}</span>
+                    </span>
+                  </button>
+                  <span className="flex items-center gap-0.5 p-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmDeleteId(null);
+                        setRenaming({ id: saved.id, name: saved.name });
+                      }}
+                      title="Rename"
+                      aria-label={`Rename ${saved.name}`}
+                      className="w-6 h-6 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(saved)}
+                      onBlur={() => setConfirmDeleteId((id) => (id === saved.id ? null : id))}
+                      title={confirmDeleteId === saved.id ? 'Click again to delete' : 'Delete'}
+                      aria-label={confirmDeleteId === saved.id ? `Click again to delete ${saved.name}` : `Delete ${saved.name}`}
+                      className={`h-6 flex items-center justify-center rounded-md cursor-default ${
+                        confirmDeleteId === saved.id
+                          ? 'px-1.5 bg-red-500/15 text-red-300 text-[11px] font-semibold'
+                          : 'w-6 text-slate-500 hover:text-red-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      {confirmDeleteId === saved.id ? 'Delete?' : <Trash2 className="w-3 h-3" />}
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
           {/* Instructions */}
@@ -216,7 +372,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                 Instructions
               </label>
               <span className="text-[11.5px] text-slate-400">
-                {currentPreset.name}, {edited ? 'edited' : 'unchanged'}
+                {baseName}, {edited ? 'edited' : 'unchanged'}
               </span>
             </div>
             <textarea
@@ -251,6 +407,33 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                   </button>
                 );
               })}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 mt-1">
+              <label htmlFor="prompt-save-name" className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                Save as your own prompt
+              </label>
+              <span className="text-[11.5px] text-slate-400">Kept on this computer; updates never change it</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                id="prompt-save-name"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSaveAs()}
+                placeholder="Name, e.g. Bengali talks"
+                maxLength={60}
+                className="flex-1 min-w-0 h-[34px] bg-slate-950/60 border border-slate-700 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 rounded-[10px] px-3 text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={handleSaveAs}
+                disabled={!saveName.trim() || !promptText.trim() || busy}
+                className="h-[34px] px-3.5 inline-flex items-center gap-1.5 rounded-[10px] border border-slate-700 text-[12.5px] font-semibold text-slate-100 hover:bg-slate-800 disabled:opacity-40 cursor-default"
+              >
+                <BookmarkPlus className="w-3.5 h-3.5" />
+                {savedPrompts.some((p) => p.name.trim().toLocaleLowerCase() === saveName.trim().toLocaleLowerCase()) ? 'Update' : 'Save as'}
+              </button>
             </div>
 
             {(hasActiveSegments && onRetranslateSegments) || (hasAudioFile && onRetranscribeAudio) ? (
@@ -308,7 +491,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
             disabled={!edited || busy}
             className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 px-1 cursor-default"
           >
-            Reset to the style's own text
+            {isSavedChoice ? 'Reset to the saved text' : "Reset to the style's own text"}
           </button>
           <span className="flex-1" />
           <span className="text-[11.5px] text-slate-500" role="status" aria-live="polite">

@@ -17,10 +17,10 @@ import { languageFit } from './services/indianVoices';
 import {
   TRANSLATION_PRESETS,
   DEFAULT_PROMPT_PRESET_ID,
-  getPresetById,
   currentPromptChoice,
   TranslationPromptPreset,
 } from './services/translationPromptPresets';
+import { promptStyleName } from './services/savedTranslationPrompts';
 
 import {
   analyzeAudio,
@@ -3932,7 +3932,7 @@ export default function App() {
             ? `Cartesia ${cartesiaModelName}`
             : elModels.find((m) => m.model_id === elModelId)?.name || elModelId
         }
-        translationStyleName={getPresetById(activeJob?.promptPresetId || promptPresetId).name}
+        translationStyleName={promptStyleName(activeJob?.promptPresetId || promptPresetId)}
         voiceName={
           availableVoices.find((voice) => voice.voice_id === elVoiceId)?.name ??
           POPULAR_ELEVENLABS_VOICES.find((voice) => voice.id === elVoiceId)?.name ??
