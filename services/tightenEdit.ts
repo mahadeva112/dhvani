@@ -53,6 +53,18 @@ export const tightenLevelDb = (samples: Float32Array, sampleRate: number, settin
   settings.levelDb === 'auto' ? 20 * Math.log10(silenceLevel(samples, sampleRate)) : settings.levelDb;
 
 /**
+ * The pauses between `from` and `to` (seconds into the line), at the line's
+ * own silence level, as seconds into the line: where a cut goes through no
+ * sound. Split at pauses reads silence the same way.
+ */
+export const quietSpans = (samples: Float32Array, sampleRate: number, from: number, to: number): { from: number; to: number }[] => {
+  const level = 10 ** (tightenLevelDb(samples, sampleRate, DEFAULT_SPLIT) / 20);
+  return quietStretches(samples, sampleRate, level, { from: from * sampleRate, to: to * sampleRate })
+    .map((stretch: { start: number; end: number }) => ({ from: stretch.start / sampleRate, to: stretch.end / sampleRate }))
+    .filter((pause: { from: number; to: number }) => pause.to - pause.from >= MIN_SILENCE_SECONDS);
+};
+
+/**
  * `part` of a line with its silences taken out (or, with `silence: 'keep'`,
  * split at them). `samples` are the whole line's at `sampleRate`; `protect`
  * the line's words as `{ start, end }` seconds into it. The pieces play back

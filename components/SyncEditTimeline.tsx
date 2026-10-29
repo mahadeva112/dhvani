@@ -43,7 +43,7 @@ import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
 import { wordsInTakeRange, type TakeWord } from '../services/takeRange';
-import { tightenPart, tightenLevelDb, closeUpParts, DEFAULT_TIGHTEN, DEFAULT_SPLIT, type TightenSettings } from '../services/tightenEdit';
+import { tightenPart, tightenLevelDb, quietSpans, closeUpParts, DEFAULT_TIGHTEN, DEFAULT_SPLIT, type TightenSettings } from '../services/tightenEdit';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import {
   syncedParts,
@@ -109,6 +109,8 @@ export type SyncEditStatus = {
 
 /** How close to a line's edge (px) a drag trims or stretches rather than moves. */
 const EDGE_PX = 7;
+/** Two parts of a line closer than this (s) on the timeline and in the line meet at a cut. */
+const SEAM_SECONDS = 0.001;
 /** The band along a line's top (px) where its fade corners and gain are. */
 const TOP_BAND_PX = 10;
 /** How close to a fade corner (px) a drag sets the fade. */
@@ -357,8 +359,11 @@ const ClipBox = React.memo<ClipBoxProps>(
     const showOffset = chunk.unit && chunk.unit.offset !== null && line && part.from <= line.lead + 1e-6;
     const tags = [part.rate !== 1 && `${Math.round(part.rate * 100)}%`, part.gainDb !== 0 && `${part.gainDb > 0 ? '+' : ''}${part.gainDb.toFixed(1)} dB`].filter(Boolean).join(' · ');
     const lit = (picked || zone !== null) && !tool;
-    const edgeClass = (on: boolean, stretch: boolean) =>
-      `absolute top-0 bottom-0 w-[3px] pointer-events-none ${on ? (stretch ? 'bg-indigo-300' : 'bg-slate-100') : 'bg-slate-100/25'}`;
+    // Trim lights an edge white, stretch indigo, and a cut both parts move together teal.
+    const edgeClass = (side: 'Left' | 'Right') =>
+      `absolute top-0 bottom-0 w-[3px] pointer-events-none ${
+        zone === `roll${side}` ? 'bg-teal-300' : zone === `stretch${side}` ? 'bg-indigo-300' : zone === `trim${side}` ? 'bg-slate-100' : 'bg-slate-100/25'
+      }`;
     return (
       <div
         data-part={part.id}
@@ -414,8 +419,8 @@ const ClipBox = React.memo<ClipBoxProps>(
         {/* What a drag here does: shown where the pointer is, and on the picked line */}
         {lit && (
           <>
-            <span aria-hidden="true" className={`${edgeClass(zone === 'trimLeft' || zone === 'stretchLeft', zone === 'stretchLeft')} left-0`} />
-            <span aria-hidden="true" className={`${edgeClass(zone === 'trimRight' || zone === 'stretchRight', zone === 'stretchRight')} right-0`} />
+            <span aria-hidden="true" className={`${edgeClass('Left')} left-0`} />
+            <span aria-hidden="true" className={`${edgeClass('Right')} right-0`} />
             <span
               aria-hidden="true"
               className={`absolute top-0 -ml-1 w-2.5 h-2.5 rounded-[2px] pointer-events-none ${zone === 'fadeIn' ? 'bg-amber-300' : 'bg-slate-100/80'}`}
@@ -729,6 +734,7 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
       ['B', 'Blade'],
       ['N', 'Snap'],
       ['Shift + drag', 'Ripple: push the lines after along'],
+      ['Drag a cut', 'Move it: both parts follow (Shift: one part)'],
       ['Esc while dragging', 'Put it back'],
       ['Shift + M', 'Marker at the playhead'],
       ['=  −', 'Zoom in, out'],
@@ -1344,12 +1350,26 @@ export const SyncEditTimeline: React.FC<{
    *
    *   the middle             move (Shift: ripple)        Alt: slip
    *   either edge            trim                        Alt: stretch
+   *   a cut between parts    roll: both edges move       Shift: trim this part only
    *   a top corner           fade in / fade out
    *   the top edge between   gain (drag up or down)
    */
-  type Zone = 'move' | 'slip' | 'trimLeft' | 'trimRight' | 'stretchLeft' | 'stretchRight' | 'fadeIn' | 'fadeOut' | 'gain';
+  type Zone = 'move' | 'slip' | 'trimLeft' | 'trimRight' | 'stretchLeft' | 'stretchRight' | 'rollLeft' | 'rollRight' | 'fadeIn' | 'fadeOut' | 'gain';
 
-  const zoneAt = (el: HTMLElement, chunk: Chunk, clientX: number, clientY: number, alt: boolean): Zone => {
+  /**
+   * The part of the same line that meets `chunk` at a cut on its `side`: it
+   * starts where `chunk` ends, on the timeline and in the line, at the same
+   * speed, as a split leaves them. Moving that cut moves both edges, as
+   * REAPER and DaVinci Resolve roll an edit.
+   */
+  const seamPartner = (chunk: Chunk, side: 'left' | 'right') =>
+    chunks.find((c) => {
+      if (c.part.id === chunk.part.id || c.key !== chunk.key || c.lane !== chunk.lane || c.part.rate !== chunk.part.rate || !!c.part.muted !== !!chunk.part.muted) return false;
+      const [a, b] = side === 'right' ? [chunk.part, c.part] : [c.part, chunk.part];
+      return Math.abs(partEnd(a) - b.start) < SEAM_SECONDS && Math.abs(a.to - b.from) < SEAM_SECONDS;
+    }) ?? null;
+
+  const zoneAt = (el: HTMLElement, chunk: Chunk, clientX: number, clientY: number, alt: boolean, shift = false): Zone => {
     const box = el.getBoundingClientRect();
     const x = clientX - box.left;
     const y = clientY - box.top;
@@ -1364,8 +1384,8 @@ export const SyncEditTimeline: React.FC<{
       if (Math.abs(x - fadeOutX) <= CORNER_PX && x >= box.width / 2) return 'fadeOut';
       if (x > edge && x < box.width - edge) return 'gain';
     }
-    if (x <= edge) return alt ? 'stretchLeft' : 'trimLeft';
-    if (x >= box.width - edge) return alt ? 'stretchRight' : 'trimRight';
+    if (x <= edge) return alt ? 'stretchLeft' : !shift && seamPartner(chunk, 'left') ? 'rollLeft' : 'trimLeft';
+    if (x >= box.width - edge) return alt ? 'stretchRight' : !shift && seamPartner(chunk, 'right') ? 'rollRight' : 'trimRight';
     return alt ? 'slip' : 'move';
   };
 
@@ -1376,6 +1396,8 @@ export const SyncEditTimeline: React.FC<{
     trimRight: 'e-resize',
     stretchLeft: 'col-resize',
     stretchRight: 'col-resize',
+    rollLeft: 'col-resize',
+    rollRight: 'col-resize',
     fadeIn: 'default',
     fadeOut: 'default',
     gain: 'ns-resize',
@@ -1389,6 +1411,8 @@ export const SyncEditTimeline: React.FC<{
     trimRight: { text: 'Drag to trim the end', keys: [['Alt', 'stretch']] },
     stretchLeft: { text: 'Drag to stretch, pitch kept' },
     stretchRight: { text: 'Drag to stretch, pitch kept' },
+    rollLeft: { text: 'Drag to move the cut: both parts follow', keys: [['Shift', 'trim this part only'], ['Alt', 'stretch']] },
+    rollRight: { text: 'Drag to move the cut: both parts follow', keys: [['Shift', 'trim this part only'], ['Alt', 'stretch']] },
     fadeIn: { text: 'Drag to fade in' },
     fadeOut: { text: 'Drag to fade out' },
     gain: { text: 'Drag up or down for gain' },
@@ -1408,6 +1432,8 @@ export const SyncEditTimeline: React.FC<{
     label: string;
     /** The edits as this drag has them now. */
     next: SyncEdits | null;
+    /** A roll: the parts either side of the cut, and the pauses (seconds into the line) the cut snaps to. */
+    seam?: { left: Chunk; right: Chunk; pauses: { from: number; to: number }[] };
   };
   const drag = useRef<Drag | null>(null);
   /** A drag across empty lane: the parts it touches are picked. `keep` is what was picked before, with Ctrl. */
@@ -1498,8 +1524,16 @@ export const SyncEditTimeline: React.FC<{
       else say('Too close to the edge of the line to cut there.');
       return;
     }
-    const zone = zoneAt(el, chunk, e.clientX, e.clientY, e.altKey);
+    const zone = zoneAt(el, chunk, e.clientX, e.clientY, e.altKey, e.shiftKey);
+    let seam: Drag['seam'];
+    if (zone === 'rollLeft' || zone === 'rollRight') {
+      const partner = seamPartner(chunk, zone === 'rollLeft' ? 'left' : 'right')!;
+      const [left, right] = zone === 'rollLeft' ? [partner, chunk] : [chunk, partner];
+      const audio = chunk.original ? null : lineSamples(left);
+      seam = { left, right, pauses: audio ? quietSpans(audio.samples, audio.sr, left.part.from, right.part.to) : [] };
+    }
     drag.current = {
+      seam,
       zone,
       chunk,
       among: chunks,
@@ -1519,7 +1553,7 @@ export const SyncEditTimeline: React.FC<{
    * The pointer moves more often than the screen draws: only its last move
    * before each frame is worked out, and a drop works out the one waiting.
    */
-  type LaneMove = { clientX: number; clientY: number; altKey: boolean; target: EventTarget | null };
+  type LaneMove = { clientX: number; clientY: number; altKey: boolean; shiftKey: boolean; target: EventTarget | null };
   const pendingMove = useRef<LaneMove | null>(null);
   const moveFrame = useRef<number | null>(null);
   const moveOnLaneRef = useRef<(e: LaneMove) => void>(() => {});
@@ -1532,7 +1566,7 @@ export const SyncEditTimeline: React.FC<{
   };
   useEffect(() => () => void (moveFrame.current !== null && cancelAnimationFrame(moveFrame.current)), []);
   const onLanePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    pendingMove.current = { clientX: e.clientX, clientY: e.clientY, altKey: e.altKey, target: e.target };
+    pendingMove.current = { clientX: e.clientX, clientY: e.clientY, altKey: e.altKey, shiftKey: e.shiftKey, target: e.target };
     if (moveFrame.current === null) moveFrame.current = requestAnimationFrame(flushMove);
   };
   const moveOnLane = (e: LaneMove) => {
@@ -1567,7 +1601,7 @@ export const SyncEditTimeline: React.FC<{
       const under = partUnder(e.target);
       if (under) pointerTime.current = { id: under.chunk.part.id, at: timeAt(e.clientX) };
       else pointerTime.current = null;
-      const zone = under && !blade ? zoneAt(under.el, under.chunk, e.clientX, e.clientY, e.altKey) : null;
+      const zone = under && !blade ? zoneAt(under.el, under.chunk, e.clientX, e.clientY, e.altKey, e.shiftKey) : null;
       const next = under && zone ? { id: under.chunk.part.id, zone } : null;
       if (next?.id !== hover?.id || next?.zone !== hover?.zone) setHover(next);
       return;
@@ -1628,6 +1662,34 @@ export const SyncEditTimeline: React.FC<{
       d.label = `Slip line ${chunk.label}`;
       // Slipping needs audio hidden past a trimmed edge, as in REAPER.
       text = span >= lineSeconds(chunk) - 1e-6 ? 'nothing to slip: trim an edge first, then slip' : `slip ${formatShift(from - part.from)}`;
+    } else if ((zone === 'rollLeft' || zone === 'rollRight') && d.seam) {
+      // Roll: the cut moves and both parts follow it, so nothing is lost or heard twice.
+      const { left, right, pauses } = d.seam;
+      const a = left.part;
+      const b = right.part;
+      const cut0 = partEnd(a);
+      const inLine = (t: number) => a.from + (t - a.start) * a.rate;
+      const onTimeline = (s: number) => a.start + (s - a.from) / a.rate;
+      let cut = cut0 + dt;
+      // The middle of the nearest pause first, within twice the snap reach: that is where a cut was meant to go.
+      const reach = ((2 * SNAP_PX) / laneBox.width) * windowSeconds;
+      const pause = snap
+        ? pauses.map((p) => onTimeline((p.from + p.to) / 2)).filter((t) => Math.abs(t - cut) <= reach).sort((x, y) => Math.abs(x - cut) - Math.abs(y - cut))[0]
+        : undefined;
+      if (pause !== undefined) snapped = { at: pause, label: 'pause' };
+      else {
+        const hit = snapNear([{ t: cut, kinds: ANY_SNAP }], new Set([a.id, b.id]));
+        if (hit) snapped = hit;
+      }
+      const wanted = snapped ? snapped.at : cut;
+      cut = clamp(wanted, a.start + MIN_PART_SECONDS, partEnd(b) - MIN_PART_SECONDS);
+      if (cut !== wanted) snapped = null;
+      const at = inLine(cut);
+      next = replacePart(base, left, { ...a, to: at, fadeOut: Math.min(a.fadeOut, (at - a.from) / a.rate / 2) });
+      next = replacePart(next, right, { ...b, start: cut, from: at, fadeIn: Math.min(b.fadeIn, (b.to - at) / b.rate / 2) });
+      d.label = `Move the cut between ${left.label} and ${right.label}`;
+      const where = snapped ? ` · snap: ${snapped.label}` : pauses.some((p) => at > p.from && at < p.to) ? ' · in a pause' : !chunk.original && bankBuffer ? ' · through sound' : '';
+      text = `cut ${formatShift(cut - cut0)}${where}`;
     } else if (zone === 'trimLeft') {
       const hit = snapNear([{ t: part.start + dt, kinds: ANY_SNAP }], part.id);
       let start = clamp(part.start + dt + (hit?.delta ?? 0), lo, partEnd(part) - MIN_PART_SECONDS);
@@ -2490,6 +2552,14 @@ export const SyncEditTimeline: React.FC<{
   const statusColor = (chunk: Chunk) => (chunk.original ? ORIGINAL_HUE : landing(chunk.unit, tolerance).color);
   const driftY = (offset: number) => 50 - clamp(offset / 0.6, -1, 1) * 40;
   const laneCursor = blade || rangeTool ? 'crosshair' : drag.current ? ZONE_CURSOR[drag.current.zone] : hover ? ZONE_CURSOR[hover.zone] : 'default';
+  /** A cut being pointed at or rolled lights the edge across it too, so both parts read as one cut. */
+  const seamLit = (() => {
+    const active = drag.current ?? hover;
+    if (!active || (active.zone !== 'rollLeft' && active.zone !== 'rollRight')) return null;
+    const own = chunkOf('chunk' in active ? active.chunk.part.id : active.id);
+    const partner = own && seamPartner(own, active.zone === 'rollLeft' ? 'left' : 'right');
+    return partner ? { id: partner.part.id, zone: active.zone === 'rollLeft' ? ('rollRight' as const) : ('rollLeft' as const) } : null;
+  })();
   const currentUnit = current ? unitByKey.get(current.key) : undefined;
   const currentLanding = landing(currentUnit, tolerance);
   const currentLocked = current ? committed[current.key]?.locked ?? false : false;
@@ -3037,7 +3107,8 @@ export const SyncEditTimeline: React.FC<{
             <div ref={zoom.strip} className="absolute inset-0">
             {visible.map((chunk) => {
               const { part } = chunk;
-              const zone = hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : null;
+              const zone =
+                hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : seamLit?.id === part.id ? seamLit.zone : null;
               return (
                 <ClipBox
                   key={part.id}

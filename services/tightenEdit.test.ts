@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { tightenPart, closeUpParts, DEFAULT_TIGHTEN, DEFAULT_SPLIT } from './tightenEdit.ts';
+import { tightenPart, closeUpParts, quietSpans, DEFAULT_TIGHTEN, DEFAULT_SPLIT } from './tightenEdit.ts';
 import type { SyncEditPart } from './syncEditModel.ts';
 
 const RATE = 8000;
@@ -127,4 +127,19 @@ test('Close up: picked parts play back to back, and the first part after them ke
   assert.deepEqual(all.parts.get('13')?.map((p) => +p.start.toFixed(2)), [4.36]);
   // A part only ever moves earlier, and one already closer stays.
   assert.equal(closeUpParts([{ key: 'a', parts: [at('a', 0), at('b', 1.05)] }], () => true, 0.12).moved, 0);
+});
+
+test('quietSpans finds the pause between two words, where a cut moved by hand snaps', () => {
+  const samples = line(3, [[0.3, 1.0], [1.6, 2.6]]);
+  const pauses = quietSpans(samples, RATE, 0.5, 2.2);
+  const between = pauses.find((p) => p.from >= 0.95 && p.to <= 1.65);
+  assert.ok(between, `pauses ${JSON.stringify(pauses)}`);
+  // The pause is the gap between the words, and its middle is the cut's place.
+  assert.ok(Math.abs((between.from + between.to) / 2 - 1.3) < 0.03, `middle ${(between.from + between.to) / 2}`);
+  // Nothing inside a word is called a pause, and nothing outside what was asked.
+  const words = [[0.3, 1.0], [1.6, 2.6]];
+  for (const p of pauses) {
+    assert.ok(p.from >= 0.5 - 1e-9 && p.to <= 2.2 + 1e-9, `pause ${p.from}–${p.to} outside what was asked`);
+    assert.ok(words.every(([from, to]) => p.to <= from + 0.01 || p.from >= to - 0.01), `pause ${p.from}–${p.to} runs into a word`);
+  }
 });
