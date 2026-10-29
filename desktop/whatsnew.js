@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.4',
+    changes: [
+      'Edit timing: split a line in the wrong place? Drag the cut between the two parts and both move together, as in REAPER or DaVinci Resolve. Nothing is lost or heard twice, and the cut snaps to the middle of a pause. Hold Shift to trim one part only.',
+      'Dub step: on wide screens the Final script runs down to the foot of the page and scrolls inside, with Top and Bottom under it.',
+    ],
+  },
+  {
     version: '1.4.3',
     changes: [
       "Translation builds each sentence the way the dub language does, not in English word order, and keeps who does what to whom. Each Indian language is written in its own script only, so Punjabi no longer comes back in Urdu letters.",
