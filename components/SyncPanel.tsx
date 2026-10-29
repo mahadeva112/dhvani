@@ -1482,7 +1482,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   const precisionLabel = report ? SYNC_PRECISION_OPTIONS.find((o) => o.id === report.precision)?.label : undefined;
 
   return (
-    <section aria-label="Sync" className="lg:flex-1 bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0">
+    <section aria-label="Sync" className={`${report ? 'lg:flex-1' : ''} bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0`}>
       {/* Once synced, the result is the status bar over the player and the lines are the panel; this heading is for before and during a sync. */}
       {!(report && !isSyncing) && (
       <div>

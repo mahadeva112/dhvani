@@ -1501,6 +1501,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     });
     return groups;
   }, [segments, linePreview]);
+  /** The Final script's rows as filtered: with a fit to show, Lines to fix keeps only the lines that need one. */
+  const finalScriptShown =
+    finalScriptFilter === 'all' || !linePreview || isSyncing ? finalScriptGroups : finalScriptGroups.filter((g) => g.unit && needsFix(g.unit));
   /** Each cue's sync line, for Review to show a line's fit and rewording once, under its last cue. */
   const unitOfCue = useMemo(() => {
     const map = new Map<string, SyncPreviewUnit>();
@@ -3814,8 +3817,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             </section>
           )}
 
-          {/* Once synced, the line list stretches down to the rail's foot, so the two columns end together. */}
-          <div className={`grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-start ${report && !isSyncing ? 'lg:items-stretch' : ''}`}>
+          {/* The line list (Final script before a sync, Lines after) stretches down to the rail's foot, so the two columns end together. */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 items-start lg:items-stretch">
             <div className="flex flex-col gap-4 min-w-0">
               <SyncResultsPanel
                 report={report}
@@ -3875,7 +3878,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               {!report && (
                 <section
                   aria-label="Final script"
-                  className="flex flex-col min-h-0 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
+                  className="flex flex-col min-h-0 lg:flex-1 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
                 >
                   <div className="flex flex-wrap items-center gap-3 px-4 py-3.5 border-b border-slate-800">
                     <div className="min-w-0">
@@ -3948,10 +3951,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     />
                   )}
 
-                  <div ref={finalListRef} className="relative flex-1 min-h-0 max-h-[36rem] overflow-y-auto custom-scrollbar py-1.5">
+                  {/* On wide screens the list takes the height the page row has (the rail sets it) and scrolls inside it. */}
+                  <div className="relative flex-1 min-h-0 lg:min-h-[20rem]">
+                  <div ref={finalListRef} className="relative max-h-[36rem] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto custom-scrollbar py-1.5">
                     {(() => {
                       const fitShown = Boolean(linePreview) && !isSyncing;
-                      const shown = finalScriptGroups.filter((g) => finalScriptFilter === 'all' || !fitShown || (g.unit && needsFix(g.unit)));
+                      const shown = finalScriptShown;
                       if (shown.length === 0) {
                         return (
                           <p className="px-4 py-6 text-center text-xs text-slate-500">
@@ -4048,6 +4053,29 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         );
                       });
                     })()}
+                  </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 px-4 py-2 border-t border-slate-800 text-[11px] text-slate-500">
+                    <span className="tabular-nums">
+                      Showing {finalScriptShown.reduce((n, g) => n + g.cues.length, 0)} of {segments.length} cues
+                    </span>
+                    <span className="hidden sm:flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => finalListRef.current?.scrollTo({ top: 0, behavior: 'smooth' })}
+                        className="flex items-center gap-1 hover:text-slate-200 cursor-default"
+                      >
+                        <ChevronsUp className="w-3.5 h-3.5" /> Top
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => finalListRef.current?.scrollTo({ top: finalListRef.current.scrollHeight, behavior: 'smooth' })}
+                        className="flex items-center gap-1 hover:text-slate-200 cursor-default"
+                      >
+                        <ChevronsDown className="w-3.5 h-3.5" /> Bottom
+                      </button>
+                    </span>
                   </div>
                 </section>
               )}
