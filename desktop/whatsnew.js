@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.7',
+    changes: [
+      "Sync again asks first when it would move lines you set: unlocked lines with timing edits, and lines playing a take you picked in the T window. Lock them and Sync, Sync anyway, or Cancel.",
+      'Review: after changing a line, Voice and use voices it straight away and puts it in the dub where the line is, with no Sync again.',
+      'Projects opens the full Your projects window, now with Import project and a Whole project or Light choice when you export.',
+    ],
+  },
+  {
     version: '1.4.6',
     changes: [
       'Retake: type the words in Roman letters and they turn into the dub language as you go, as in the script table. Phonetic on or off with the button or Ctrl+G; tags in [ ] stay English.',
