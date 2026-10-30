@@ -160,3 +160,12 @@
 @media (prefers-reduced-motion: reduce) {
   .tools-hub-veil-in, .tools-hub-veil-out, .tools-hub-panel-in, .tools-hub-panel-out, .tools-hub-preview-in { animation: none; }
 }
+
+/* API settings (components/SetupWizard.tsx): a dot running along each link of the pipeline, and a pulse on a working step. */
+@keyframes api-flow-travel { from { left: 0%; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } to { left: 100%; opacity: 0; } }
+@keyframes api-live-pulse { from { box-shadow: 0 0 0 0 rgb(52 211 153 / 0.5); } to { box-shadow: 0 0 0 6px rgb(52 211 153 / 0); } }
+.api-flow-dot { position: absolute; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 9999px; background: #a5b4fc; box-shadow: 0 0 10px 2px rgb(129 140 248 / 0.7); animation: api-flow-travel 1.8s ease-in-out infinite; }
+.api-live-dot { animation: api-live-pulse 1.6s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .api-flow-dot, .api-live-dot { animation: none; }
+}

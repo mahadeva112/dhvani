@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle2, AlertCircle, RefreshCw, Info, ServerCrash, Check, X, ArrowRight, List, Copy } from 'lucide-react';
+import { AlertCircle, RefreshCw, ServerCrash, Check, X, ArrowRight, List, Copy } from 'lucide-react';
 import { testGatewayConnection, GatewayTestResult } from '../services/apiClient';
+import { ModelPicker } from './ApiSettingsParts';
 
 export interface GatewayValues {
   url: string;
@@ -16,6 +17,8 @@ interface GatewayFieldsProps {
   onStatusChange?: (result: GatewayTestResult | null) => void;
   /** Shown as the key placeholder when one is already stored. */
   hasSavedKey?: boolean;
+  /** Models found by an earlier check, offered while this probe has not answered yet. */
+  knownModels?: string[];
 }
 
 type Status =
@@ -38,11 +41,10 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
   onChange,
   onStatusChange,
   hasSavedKey = false,
+  knownModels = [],
 }) => {
   const [status, setStatus] = useState<Status>({ state: 'idle' });
-  const [showModels, setShowModels] = useState(false);
   const [copied, setCopied] = useState(false);
-  const modelRef = useRef<HTMLInputElement>(null);
 
   // Tracks the in-flight probe so a newer edit supersedes an older request.
   const requestIdRef = useRef(0);
@@ -150,7 +152,8 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
   const inputClasses = (active = true) =>
     `w-full h-[42px] bg-slate-950/60 border rounded-[10px] px-3 text-[13px] text-slate-100 placeholder:font-sans placeholder-slate-500 focus:outline-none font-mono transition-all ${borderFor(active)}`;
 
-  const discovered = status.state === 'ok' ? status.result.availableModels : status.state === 'error' ? status.result?.availableModels || [] : [];
+  const probed = status.state === 'ok' ? status.result.availableModels : status.state === 'error' ? status.result?.availableModels || [] : [];
+  const discovered = probed?.length ? probed : knownModels;
 
   return (
     /*
@@ -202,24 +205,15 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
             <span>Model</span>
             {discovered.length > 0 && <span className="font-mono text-slate-500">{discovered.length} found</span>}
           </label>
-          <input
-            type="text"
+          {/* Any name can be typed; the list offers what the gateway reported, searchable. */}
+          <ModelPicker
             id="gateway-model"
             value={values.model}
-            onChange={(e) => set({ model: e.target.value })}
+            models={discovered}
+            onChange={(model) => set({ model })}
             placeholder="Found automatically"
-            autoComplete="off"
-            spellCheck={false}
-            list="dhvani-gateway-models"
-            ref={modelRef}
             className={`${inputClasses(true)} ${upstream ? '!border-amber-500/70' : ''}`}
           />
-          {/* Native autocomplete over whatever the gateway reported. */}
-          <datalist id="dhvani-gateway-models">
-            {discovered.map((model) => (
-              <option key={model} value={model} />
-            ))}
-          </datalist>
         </div>
 
         <div>
@@ -254,29 +248,6 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
         </p>
       )}
 
-      {status.state === 'ok' && (
-        <div className="space-y-1">
-          <p className="text-xs text-emerald-400 flex items-start gap-1.5 leading-relaxed">
-            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            <span>
-              Connected. <span className="font-mono">{status.result.model}</span> answered
-              {status.result.latencyMs ? ` in ${status.result.latencyMs} ms` : ''}
-            </span>
-          </p>
-          {status.result.url && status.result.url !== values.url.trim() && (
-            <p className="text-[10px] text-slate-500 font-mono break-all">
-              Using {status.result.url}
-            </p>
-          )}
-          {status.result.note && (
-            <p className="text-[10px] text-slate-500 flex items-start gap-1.5 leading-relaxed">
-              <Info className="w-3 h-3 shrink-0 mt-0.5" />
-              <span>{status.result.note}</span>
-            </p>
-          )}
-        </div>
-      )}
-
       {upstream && (
         <div className="rounded-[10px] border border-amber-500/40 bg-amber-500/10 px-3 py-2.5">
           <div className="flex items-start gap-2.5">
@@ -304,11 +275,7 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
               <div className="flex flex-wrap gap-1.5 mt-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowModels(true);
-                    modelRef.current?.focus();
-                    modelRef.current?.select();
-                  }}
+                  onClick={() => document.getElementById('gateway-model')?.focus()}
                   className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-slate-600 text-xs text-slate-200 hover:bg-slate-800 cursor-default"
                 >
                   <List className="w-3.5 h-3.5" /> Pick another model
@@ -363,33 +330,6 @@ export const GatewayFields: React.FC<GatewayFieldsProps> = ({
         </p>
       )}
 
-      {discovered.length > 0 && (status.state === 'ok' || upstream) && (
-        <details
-          className="text-[10px] text-slate-500"
-          open={showModels}
-          onToggle={(e) => setShowModels((e.target as HTMLDetailsElement).open)}
-        >
-          <summary className="cursor-default hover:text-slate-300 transition-colors">
-            Models on this gateway ({discovered.length})
-          </summary>
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {discovered.slice(0, 24).map((model) => (
-              <button
-                key={model}
-                type="button"
-                onClick={() => set({ model })}
-                className={`px-1.5 py-0.5 rounded font-mono border transition-colors cursor-default ${
-                  model === values.model
-                    ? 'bg-indigo-950 border-indigo-600 text-indigo-200'
-                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-600 hover:text-slate-200'
-                }`}
-              >
-                {model}
-              </button>
-            ))}
-          </div>
-        </details>
-      )}
     </div>
   );
 };

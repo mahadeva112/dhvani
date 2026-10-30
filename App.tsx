@@ -2054,6 +2054,13 @@ export default function App() {
   const activeVoiceEngine: VoiceEngine =
     voiceEngine === 'cartesia' && backendChecked && !cartesiaConfigured ? 'elevenlabs' : voiceEngine;
 
+  /** The voice API settings' Try it speaks with: the one the dub uses. */
+  const previewVoiceName =
+    availableVoices.find((voice) => voice.voice_id === elVoiceId)?.name ??
+    POPULAR_ELEVENLABS_VOICES.find((voice) => voice.id === elVoiceId)?.name ??
+    null;
+  const previewVoice = elVoiceId ? { id: elVoiceId, name: previewVoiceName || 'Your voice', modelId: elModelId, apiKey: elApiKey } : null;
+
   /** The voices of the engine that is on; the other engine's are switched off. */
   const engineVoices = useMemo(
     () => availableVoices.filter((voice) => engineOfVoice(voice.voice_id) === activeVoiceEngine),
@@ -4048,6 +4055,9 @@ export default function App() {
           server={backendSettings.server}
           ffmpegAvailable={backendHealth?.ffmpegAvailable}
           voiceEngine={activeVoiceEngine}
+          dubLanguage={activeJob?.language || selectedLanguage}
+          previewVoice={previewVoice}
+          elevenLabsQuota={elevenLabsQuota}
           onVoiceEngineChange={handleVoiceEngineChange}
           onComplete={handleSetupComplete}
           onSkip={handleDismissSetup}
@@ -4064,6 +4074,9 @@ export default function App() {
           server={backendSettings.server}
           ffmpegAvailable={backendHealth?.ffmpegAvailable}
           voiceEngine={activeVoiceEngine}
+          dubLanguage={activeJob?.language || selectedLanguage}
+          previewVoice={previewVoice}
+          elevenLabsQuota={elevenLabsQuota}
           initialEngine={pendingVoiceEngine ?? undefined}
           onVoiceEngineChange={handleVoiceEngineChange}
           onComplete={() => {

@@ -26,15 +26,17 @@ const readStatus = (code, label) => {
   return ['ok', ''];
 };
 
-/** One GET that reports its HTTP status rather than throwing. */
+/** One GET that reports its HTTP status rather than throwing, and how long the service took to answer. */
 const probe = async (url, headers, { timeoutMs = 12000 } = {}) => {
+  const started = Date.now();
   try {
     const response = await requestWithRetry(url, { method: 'GET', headers }, {
       provider: 'probe',
       timeoutMs,
       retries: 0,
     });
-    return { code: response.status, body: await response.json().catch(() => ({})) };
+    const latencyMs = Date.now() - started;
+    return { code: response.status, body: await response.json().catch(() => ({})), latencyMs };
   } catch (err) {
     if (err instanceof ApiError) {
       // requestWithRetry maps provider statuses onto its own codes; recover the
@@ -67,7 +69,7 @@ export const checkElevenLabs = async ({ apiKey, baseUrl } = {}) => {
     return { id: 'elevenlabs', label: 'ElevenLabs', status: 'missing', message: 'No key set.', models: [] };
   }
 
-  const { code, body, error } = await probe(`${base}/models`, {
+  const { code, body, error, latencyMs } = await probe(`${base}/models`, {
     'xi-api-key': key,
   });
 
@@ -88,6 +90,7 @@ export const checkElevenLabs = async ({ apiKey, baseUrl } = {}) => {
       ? `${models.length} ${models.length === 1 ? 'model' : 'models'} available.`
       : 'Key accepted.',
     models,
+    latencyMs,
   };
 };
 
@@ -103,7 +106,7 @@ export const checkCartesia = async ({ apiKey, baseUrl } = {}) => {
     return { id: 'cartesia', label: 'Cartesia', status: 'missing', message: 'Optional. No key set.', models: [] };
   }
 
-  const { code, error } = await probe(`${base}/voices?limit=1`, {
+  const { code, error, latencyMs } = await probe(`${base}/voices?limit=1`, {
     Authorization: `Bearer ${key}`,
     'Cartesia-Version': config.cartesia.apiVersion,
   });
@@ -114,6 +117,7 @@ export const checkCartesia = async ({ apiKey, baseUrl } = {}) => {
     status,
     message: status === 'ok' ? `Key accepted. Voice model ${config.cartesia.ttsModel}.` : message || error || '',
     models: [],
+    ...(status === 'ok' && { latencyMs }),
   };
 };
 
@@ -134,7 +138,7 @@ export const checkGoogle = async ({ apiKey, model, baseUrl } = {}) => {
     return { id: 'translation', label: 'Google Gemini', status: 'missing', message: 'No key set.', models: [] };
   }
 
-  const { code, body, error } = await probe(`${base}/v1beta/models`, { 'x-goog-api-key': key });
+  const { code, body, error, latencyMs } = await probe(`${base}/v1beta/models`, { 'x-goog-api-key': key });
 
   const [status, message] = readStatus(code, 'Google');
   const models = Array.isArray(body?.models)
@@ -165,6 +169,7 @@ export const checkGoogle = async ({ apiKey, model, baseUrl } = {}) => {
       : `${models.length} models available.`,
     models,
     model: want,
+    latencyMs,
   };
 };
 
