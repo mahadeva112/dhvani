@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.8',
+    changes: [
+      'Tools and settings (Ctrl K): change the voice engine, dub expression and the main Sync settings right in the window. A click picks an item; a double click opens it.',
+      "API settings shows your dub's three steps, Transcribe, Translate and Voice, with whether each works and how fast. Translate a line or hear your voice right there, and see what is sent where.",
+      'The model list is searchable and grouped, and the window keeps one size and fits a small app window.',
+    ],
+  },
+  {
     version: '1.4.7',
     changes: [
       "Sync again asks first when it would move lines you set: unlocked lines with timing edits, and lines playing a take you picked in the T window. Lock them and Sync, Sync anyway, or Cancel.",
