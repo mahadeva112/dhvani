@@ -3996,6 +3996,10 @@ export default function App() {
         usageLoading={usageLoading}
         onRefreshUsage={refreshUsage}
         voiceEngine={activeVoiceEngine}
+        onVoiceEngineChange={cartesiaConfigured || backendSettings?.canSaveKeys ? requestVoiceEngine : undefined}
+        voiceExpression={voiceExpression}
+        onVoiceExpressionChange={handleVoiceExpressionChange}
+        onSyncOptionsChange={(options) => activeJob && updateJob(activeJob.id, { syncOptions: options })}
         cartesiaReady={cartesiaConfigured}
         elevenLabsReady={Boolean(backendHealth?.elevenLabsConfigured)}
         translationReady={Boolean(backendHealth?.geminiConfigured)}

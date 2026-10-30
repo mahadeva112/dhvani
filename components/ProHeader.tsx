@@ -20,9 +20,11 @@ import {
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported, useUpdateState } from './UpdateControl';
 import { CenteredPanel } from './CenteredPanel';
-import { HubMeter, ToolsHub, type ToolsHubItem } from './ToolsHub';
-import { readOptions } from './SyncPanel';
-import { SYNC_JOIN_PRESET_OPTIONS, SYNC_PRECISION_OPTIONS, SYNC_SCREEN_OPTIONS, type SyncJoinPreset, type SyncScreen } from '../services/syncService';
+import { HubMeter, HubSegmented, HubSelect, HubSwitch, ToolsHub, type ToolsHubItem } from './ToolsHub';
+import { readOptions, rememberSyncOptions } from './SyncPanel';
+import { applyJoinPreset, joinPresetOf } from './SyncJoinSettings';
+import { SYNC_JOIN_PRESET_OPTIONS, SYNC_PRECISION_OPTIONS, SYNC_SCREEN_OPTIONS, type SyncJoinPreset, type SyncOptions, type SyncScreen } from '../services/syncService';
+import type { VoiceExpression } from '../services/elevenLabsService';
 import { projectName } from '../services/projects';
 import type { CartesiaUsage, GatewayUsage } from '../services/usageService';
 
@@ -85,6 +87,13 @@ export interface ProHeaderProps {
   onRefreshUsage?: () => void;
   /** The engine speaking the dub. ElevenLabs always transcribes. */
   voiceEngine?: 'elevenlabs' | 'cartesia';
+  /** Switches the voice engine from Tools and settings; Cartesia without a key opens API settings. */
+  onVoiceEngineChange?: (engine: 'elevenlabs' | 'cartesia') => void;
+  /** How much expression the dub is voiced with, and how Tools and settings changes it. */
+  voiceExpression?: VoiceExpression;
+  onVoiceExpressionChange?: (expression: VoiceExpression) => void;
+  /** Saves sync options to the open project, changed from Tools and settings. */
+  onSyncOptionsChange?: (options: SyncOptions) => void;
   /** True when a Cartesia key is set up; shows Cartesia in the services panel. */
   cartesiaReady?: boolean;
   elevenLabsReady?: boolean;
@@ -223,6 +232,10 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   usageLoading = false,
   onRefreshUsage,
   voiceEngine = 'elevenlabs',
+  onVoiceEngineChange,
+  voiceExpression = 'off',
+  onVoiceExpressionChange,
+  onSyncOptionsChange,
   cartesiaReady = false,
   elevenLabsReady = true,
   translationReady = true,
@@ -289,6 +302,14 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
 
   /** The sync settings this project will use, read the way the Dub step reads them. */
   const sync = readOptions(activeJob?.syncOptions);
+  // Without a project the options live in the browser only, so a change there needs its own render.
+  const [, setSyncChanged] = React.useState(0);
+  const changeSync = (update: (options: SyncOptions) => SyncOptions) => {
+    const next = update(sync);
+    rememberSyncOptions(next);
+    if (activeJob) onSyncOptionsChange?.(next);
+    setSyncChanged((n) => n + 1);
+  };
   const engineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   const lineCount = activeJob?.segments.length ?? 0;
   const updateState = useUpdateState();
@@ -390,9 +411,43 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: [voiceName, voiceSummary].filter(Boolean).join(' · ') || null,
       icon: Mic,
       tone: 'blue',
+      controls: [
+        onVoiceEngineChange && {
+          label: 'Voice engine',
+          help: cartesiaReady ? undefined : 'Cartesia asks for its key first',
+          control: (
+            <HubSegmented
+              label="Voice engine"
+              value={voiceEngine}
+              options={[
+                { id: 'elevenlabs', label: 'ElevenLabs' },
+                { id: 'cartesia', label: 'Cartesia' },
+              ]}
+              onChange={onVoiceEngineChange}
+            />
+          ),
+        },
+        onVoiceExpressionChange && {
+          label: 'Dub expression',
+          help: 'The words never change',
+          control: (
+            <HubSegmented
+              label="Dub expression"
+              value={voiceExpression}
+              options={[
+                { id: 'off', label: 'Off', title: 'As written, in the voice’s own settings' },
+                { id: 'neutral', label: 'Neutral', title: 'Calm and even, no tags' },
+                { id: 'natural', label: 'Natural', title: 'Tagged from the original speaker' },
+                { id: 'expressive', label: 'Expressive', title: 'Tags guessed from the script' },
+              ]}
+              onChange={onVoiceExpressionChange}
+            />
+          ),
+        },
+      ].filter(Boolean) as ToolsHubItem['controls'],
       facts: [
         { label: 'Voice', value: voiceName || '—' },
-        { label: 'Engine', value: voiceSummary || engineName },
+        { label: 'Model', value: voiceSummary || engineName },
       ],
       note: 'Used for the dub, Sync and text to speech.',
       onOpen: onOpenSettings,
@@ -405,12 +460,62 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: `${sync.voicing === 'continuous' ? 'Continuous read' : 'Line by line'} · ${presetName(sync)}`,
       icon: SlidersHorizontal,
       tone: 'violet',
-      facts: [
-        { label: 'How to voice', value: sync.voicing === 'continuous' ? 'One continuous read' : 'Line by line' },
-        { label: 'Precision', value: SYNC_PRECISION_OPTIONS.find((o) => o.id === sync.precision)?.label ?? sync.precision },
-        { label: 'Line joins', value: presetName(sync) },
-        { label: 'Chunk sync', value: sync.join.chunkSync ? 'On' : 'Off', status: sync.join.chunkSync ? 'ok' : 'off' },
+      controls: [
+        {
+          label: 'How to voice',
+          control: (
+            <HubSegmented
+              label="How to voice"
+              value={sync.voicing}
+              options={[
+                { id: 'lines', label: 'Line by line' },
+                { id: 'continuous', label: 'Continuous' },
+              ]}
+              onChange={(voicing) => changeSync((o) => ({ ...o, voicing }))}
+            />
+          ),
+        },
+        {
+          label: 'Precision',
+          control: (
+            <HubSelect
+              label="Precision"
+              value={sync.precision}
+              options={SYNC_PRECISION_OPTIONS}
+              onChange={(precision) => changeSync((o) => ({ ...o, precision }))}
+            />
+          ),
+        },
+        {
+          label: 'Line joins',
+          help: SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === sync.preset)?.sub,
+          control: (
+            <HubSelect
+              label="Line joins"
+              value={sync.preset}
+              options={SYNC_JOIN_PRESET_OPTIONS}
+              onChange={(preset) => changeSync((o) => applyJoinPreset(o, preset, o.screen))}
+            />
+          ),
+        },
+        {
+          label: 'Chunk sync',
+          help: 'Split each line where it goes quiet and place the pieces',
+          control: (
+            <HubSwitch
+              label="Chunk sync"
+              on={sync.join.chunkSync}
+              onChange={(chunkSync) =>
+                changeSync((o) => {
+                  const join = { ...o.join, chunkSync };
+                  return { ...o, join, preset: joinPresetOf(join, o.screen) };
+                })
+              }
+            />
+          ),
+        },
       ],
+      facts: sync.screen && sync.screen !== 'any' ? [{ label: 'On screen', value: SYNC_SCREEN_OPTIONS.find((s) => s.id === sync.screen)?.label ?? sync.screen }] : [],
       note: activeJob ? 'For this project. Changes apply to the next sync.' : 'For your next project.',
       onOpen: onOpenSyncSettings,
     },
@@ -449,6 +554,35 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       onOpen: openUpdates,
     },
   ].filter(Boolean) as ToolsHubItem[];
+
+  /** At the foot of the list: what is connected, and how much ElevenLabs has left. */
+  const hubFooter = (
+    <>
+      {elevenLabsReady && quota && quotaShare !== null && (
+        <div className="mb-2.5">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-slate-400">ElevenLabs</span>
+            <span className="text-slate-500">{compact(quotaLeft!)} left</span>
+          </div>
+          <div className="mt-1.5 h-1 rounded-full bg-slate-800 overflow-hidden">
+            <div className={`h-full rounded-full ${shareTone(quotaShare).bar}`} style={{ width: `${Math.min(1, quotaShare) * 100}%` }} />
+          </div>
+        </div>
+      )}
+      <div className="flex items-center gap-3 text-[11px] text-slate-500">
+        {[
+          { name: 'ElevenLabs', ok: elevenLabsReady },
+          { name: 'Cartesia', ok: cartesiaReady },
+          { name: 'Translation', ok: translationReady },
+        ].map((s) => (
+          <span key={s.name} className="flex items-center gap-1" title={s.ok ? `${s.name}: connected` : `${s.name}: not set up`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${s.ok ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+            {s.name}
+          </span>
+        ))}
+      </div>
+    </>
+  );
 
   // Balances go stale between dubs; opening the popover fetches them again.
   React.useEffect(() => {
@@ -803,7 +937,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               <SlidersHorizontal className="w-4 h-4" />
             </button>
 
-            <ToolsHub open={toolsOpen} onClose={closeTools} items={hubItems} />
+            <ToolsHub open={toolsOpen} onClose={closeTools} items={hubItems} footer={hubFooter} />
           </div>
 
           {activeJob && onResetSession && (
