@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.13',
+    changes: [
+      'Translation keeps the speaker\'s pauses: Sync reads a translated line with the same pauses as the original, so it sits under the English without typing "..." by hand. Full translation is also faster.',
+      'A translation carries on from where it was if the app restarts halfway, instead of starting over.',
+    ],
+  },
+  {
     version: '1.4.12',
     changes: ['The update notice in the corner now goes away by itself after 5 seconds.'],
   },
