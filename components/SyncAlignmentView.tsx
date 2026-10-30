@@ -13,26 +13,20 @@ import { LinePair } from './LinePair';
  * it, which moves along under the playhead while it plays.
  *
  *   ruler      time; a click puts the playhead there, a drag scrubs it
- *   Original   the original's lines as clips, darker so the dub reads first;
- *              past the original's end, a note that it has ended
- *   Synced     the synced dub's lines as clips, right under the original: a
- *              line whose start is off has a dashed bracket from where the
- *              original starts, amber or red with how far; the part of a line
- *              that runs into the next original line is striped red
- *   scroll bar the whole dub in its lines' colours, with the lines off their
- *              timing ticked amber or red; drag it to move along
+ *   Original   the original's waveform as audio bars, each line in its colour
+ *              over a faint tint of it, dimmer so the dub reads first; past
+ *              the original's end, a note that it has ended
+ *   Synced     the synced dub's waveform the same way, right under the original
+ *   scroll bar the whole dub in its lines' colours; drag it to move along
  *
  * Each line has its own colour (lineColors.ts), the same in both lanes, so a
- * line in sync is one colour stacked straight; nothing is written on the clips.
+ * line in sync is one colour stacked straight. Nothing is written or marked on
+ * the lanes; a line's tooltip says how it landed.
  *
  * Hovering a line (or the line under the playhead) picks out the pair and
  * spells out its words underneath; the tooltip says how it landed.
  */
 
-/** Above this a late or early start is drawn red rather than amber. */
-const FAR_OFF_SECONDS = 0.5;
-/** Zoomed out past this many seconds on screen, a start's bracket loses its number, which would crowd the lane. */
-const DRIFT_LABEL_SECONDS = 90;
 
 const formatClock = (seconds: number) => {
   const t = Math.max(0, seconds || 0);
@@ -44,13 +38,6 @@ const formatClock = (seconds: number) => {
 const formatMs = (seconds: number) => {
   const t = Math.abs(seconds);
   return t < 1 ? `${Math.round(t * 1000)} ms` : `${t.toFixed(1)} s`;
-};
-
-type Tone = 'sync' | 'off' | 'far' | 'none';
-const toneOf = (u: SyncUnitReport, tolerance: number): Tone => {
-  if (u.offset === null || u.placedStart === null) return 'none';
-  if (u.inSync) return 'sync';
-  return Math.abs(u.offset) > FAR_OFF_SECONDS || (u.overrun ?? 0) > FAR_OFF_SECONDS ? 'far' : Math.abs(u.offset) > tolerance || (u.overrun ?? 0) > tolerance ? 'off' : 'sync';
 };
 
 export const SyncAlignmentView: React.FC<{
@@ -126,12 +113,9 @@ export const SyncAlignmentView: React.FC<{
   // Gliding, `ahead` more is drawn past the right edge, for the timeline to move into.
   const end = windowStart + WINDOW_SECONDS + ahead;
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
-  const tones = useMemo(() => new Map(units.map((u) => [u.index, toneOf(u, report.tolerance)])), [units, report.tolerance]);
   const visible = units.filter(
     (u) => Math.max(u.srcEnd, u.placedEnd ?? -Infinity) >= windowStart && Math.min(u.srcStart, u.placedStart ?? Infinity) <= end
   );
-  /** Where each line's slot ends: the next original line's start. */
-  const nextStart = useMemo(() => new Map(units.map((u, i) => [u.index, units[i + 1]?.srcStart ?? null])), [units]);
 
   // The line picked out: the one hovered, else the one being heard.
   const atPlayhead = units.find((u) => currentTime >= Math.min(u.srcStart, u.placedStart ?? Infinity) && currentTime <= Math.max(u.srcEnd, u.placedEnd ?? -Infinity));
@@ -151,9 +135,10 @@ export const SyncAlignmentView: React.FC<{
       ),
     [units, hovered]
   );
-  /** A line's hover target over its clip: a ring in its colour when picked out. */
-  const highlight = (u: SyncUnitReport) => ({
-    boxShadow: u.index === focusIndex ? `0 0 0 1px ${withAlpha(hueOf(u.index), 0.85)}` : undefined,
+  /** A line's tint under its bars: fainter on the original, stronger with a ring when picked out. */
+  const highlight = (u: SyncUnitReport, lane: 'source' | 'synth') => ({
+    background: withAlpha(hueOf(u.index), (lane === 'source' ? 0.08 : 0.13) + (u.index === focusIndex ? 0.1 : 0)),
+    boxShadow: u.index === focusIndex ? `0 0 0 1px ${withAlpha(hueOf(u.index), 0.7)}` : undefined,
   });
   /** How a line landed, in words, for its tooltip. */
   const landedAs = (u: SyncUnitReport) => {
@@ -190,16 +175,6 @@ export const SyncAlignmentView: React.FC<{
     setFollow(true);
     onSeek(Math.max(0, time));
   };
-  const markers = useMemo(
-    () =>
-      units
-        .filter((u) => u.exceeded || u.short || !u.inSync)
-        .map((u) => ({
-          time: u.srcStart,
-          tone: tones.get(u.index) === 'far' ? ('bad' as const) : u.exceeded || !u.inSync ? ('warn' as const) : ('soft' as const),
-        })),
-    [units, tones]
-  );
   /** The scroll bar's overview: every line where it plays, in its colour. */
   const overview = useMemo(
     () => units.map((u) => ({ from: u.placedStart ?? u.srcStart, to: u.placedEnd ?? u.srcEnd, color: hueOf(u.index) })),
@@ -270,20 +245,20 @@ export const SyncAlignmentView: React.FC<{
                 <span className="px-2 text-[11px] text-slate-400 whitespace-nowrap">Original ends {formatClock(sourceEnd)}</span>
               </span>
             )}
-            {/* The clips, drawn darker than the dub's */}
-            <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
-              <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-500/30" look="clips" shade="quiet" />
-            </div>
             {visible.map((u) => (
               <span
                 key={u.index}
                 onMouseEnter={() => setHovered(u.index)}
                 onClick={seekLine(u.srcStart)}
                 title={`Line ${u.index + 1} · original\n${u.sourceText}`}
-                className="absolute top-px bottom-px rounded-[3px]"
-                style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%`, ...highlight(u) }}
+                className={`absolute top-1 bottom-1 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
+                style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%`, ...highlight(u, 'source') }}
               />
             ))}
+            {/* Over the tints, dimmer than the dub's */}
+            <div className="absolute top-0 bottom-0 left-0 opacity-60" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
+              <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-400/30" />
+            </div>
             </div>
             <span ref={playheadRef(0)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100 pointer-events-none" />
           </div>
@@ -307,74 +282,29 @@ export const SyncAlignmentView: React.FC<{
             onWheel={onWheel}
           >
             <div ref={zoom.strip} className="absolute inset-0">
-            {/* The clips, bright */}
+            {visible.map((u) =>
+              u.placedStart === null || u.placedEnd === null ? null : (
+                <span
+                  key={u.index}
+                  onMouseEnter={() => setHovered(u.index)}
+                  onClick={seekLine(u.placedStart)}
+                  title={`Line ${u.index + 1} · ${landedAs(u)}\n${u.text}`}
+                  className={`absolute top-1 bottom-1 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
+                  style={{ left: `${pct(u.placedStart)}%`, width: `${Math.max(0.3, pct(u.placedEnd) - pct(u.placedStart))}%`, ...highlight(u, 'synth') }}
+                />
+              )
+            )}
             <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
-              <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={dubSpans} className="text-slate-500/30" look="clips" shade="vivid" />
+              <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={dubSpans} className="text-slate-400/30" />
             </div>
-            {visible.map((u) => {
-              if (u.placedStart === null || u.placedEnd === null || u.offset === null) return null;
-              const slotEnd = nextStart.get(u.index);
-              // The part that runs into the next original line.
-              const runOn = slotEnd !== null && slotEnd !== undefined && u.placedEnd > slotEnd ? Math.max(u.placedStart, slotEnd) : null;
-              // A start off by more than the tolerance: bracketed from where the original starts.
-              const drift = !u.inSync && Math.abs(u.offset) > report.tolerance;
-              const far = Math.abs(u.offset) > FAR_OFF_SECONDS;
-              return (
-                <React.Fragment key={u.index}>
-                  {drift && (
-                    <span
-                      aria-hidden="true"
-                      className={`absolute top-0 bottom-0 border-x-[1.5px] border-dashed pointer-events-none ${far ? 'border-rose-400 bg-rose-400/10' : 'border-amber-400 bg-amber-400/10'} ${dim(u) ? 'opacity-30' : ''}`}
-                      style={{ left: `${pct(Math.min(u.srcStart, u.placedStart))}%`, width: `${Math.max(0.2, Math.abs(pct(u.placedStart) - pct(u.srcStart)))}%` }}
-                    >
-                      {WINDOW_SECONDS <= DRIFT_LABEL_SECONDS && (
-                        <span className={`absolute top-0.5 left-0.5 rounded bg-slate-950/85 px-1 font-mono text-[10px] leading-[14px] whitespace-nowrap ${far ? 'text-rose-300' : 'text-amber-300'}`}>
-                          {u.offset > 0 ? '+' : '−'}
-                          {formatMs(u.offset)}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                  {runOn !== null && (
-                    <span
-                      aria-hidden="true"
-                      className={`absolute top-px bottom-px rounded-r-[3px] pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
-                      style={{
-                        left: `${pct(runOn)}%`,
-                        width: `${Math.max(0.3, pct(u.placedEnd) - pct(runOn))}%`,
-                        backgroundImage: 'repeating-linear-gradient(135deg, rgba(248,113,113,0.6) 0 3px, rgba(248,113,113,0.12) 3px 7px)',
-                      }}
-                    />
-                  )}
-                  {u.short && (
-                    <span
-                      aria-hidden="true"
-                      className="absolute top-px bottom-px rounded-r border border-dashed border-sky-400/70 bg-sky-400/5 pointer-events-none"
-                      style={{ left: `${pct(u.placedEnd)}%`, width: `${Math.max(0.3, pct(u.placedEnd + u.shortBy) - pct(u.placedEnd))}%` }}
-                    />
-                  )}
-                  <span
-                    onMouseEnter={() => setHovered(u.index)}
-                    onClick={seekLine(u.placedStart)}
-                    title={`Line ${u.index + 1} · ${landedAs(u)}\n${u.text}`}
-                    className="absolute top-px bottom-px rounded-[3px]"
-                    style={{
-                      left: `${pct(u.placedStart)}%`,
-                      width: `${Math.max(0.3, pct(u.placedEnd) - pct(u.placedStart))}%`,
-                      ...highlight(u),
-                    }}
-                  />
-                </React.Fragment>
-              );
-            })}
             </div>
             <span ref={playheadRef(2)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100 pointer-events-none" />
           </div>
 
-          {/* The scroll bar, along the foot of the lanes: the whole dub, with the lines to look at marked */}
+          {/* The scroll bar, along the foot of the lanes: the whole dub in its lines' colours */}
           <div className="border-r border-slate-800 bg-slate-900/80" />
           <div className="px-1 py-1 bg-slate-950/60">
-            <TimelineScrollbar inset total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} markers={markers} lines={overview} onScroll={scrollTo} />
+            <TimelineScrollbar inset total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} lines={overview} onScroll={scrollTo} />
           </div>
         </div>
       </div>
@@ -434,16 +364,7 @@ export const SyncAlignmentView: React.FC<{
               </span>
               Each line's colour, the same in both lanes
             </span>
-            <span className="text-slate-400">One colour stacked straight is in sync.</span>
-            <span className="flex items-center gap-2"><span className="w-3 h-2.5 border-x-[1.5px] border-dashed border-amber-400 bg-amber-400/10" /> Starts off by up to {FAR_OFF_SECONDS} s</span>
-            <span className="flex items-center gap-2"><span className="w-3 h-2.5 border-x-[1.5px] border-dashed border-rose-400 bg-rose-400/10" /> Starts off by more</span>
-            <span className="flex items-center gap-2">
-              <span className="w-3 h-2.5 rounded-sm" style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgba(248,113,113,0.6) 0 3px, rgba(248,113,113,0.12) 3px 7px)' }} /> Runs into the next line
-            </span>
-            <span className="flex items-center gap-2"><span className="w-3 h-2.5 rounded-sm border border-dashed border-sky-400/70" /> Ends early</span>
-            <span className="flex items-center gap-2">
-              <span className="flex gap-0.5"><span className="w-0.5 h-2.5 rounded-full bg-amber-400" /><span className="w-0.5 h-2.5 rounded-full bg-rose-400" /></span> On the scroll bar: a line to look at
-            </span>
+            <span className="text-slate-400">One colour stacked straight is in sync. Hover a line to see how it landed.</span>
           </div>
         </details>
       </TimelineTransport>

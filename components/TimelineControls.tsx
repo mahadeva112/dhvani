@@ -373,8 +373,8 @@ export const useWindowPlayheads = ({
 
 export interface TimelineMarker {
   time: number;
-  /** 'bad' for a line far off (red), 'warn' for a line to look at (amber), 'soft' for a tight one. */
-  tone: 'bad' | 'warn' | 'soft';
+  /** 'warn' for a line to look at (amber), 'soft' for a tight one. */
+  tone: 'warn' | 'soft';
 }
 
 /**
@@ -471,7 +471,7 @@ export const TimelineScrollbar: React.FC<{
         <span
           key={i}
           aria-hidden="true"
-          className={`absolute ${lines.length ? 'top-0 bottom-0 w-[3px] -ml-px' : 'top-0.5 bottom-0.5 w-0.5'} rounded-full pointer-events-none ${m.tone === 'bad' ? 'bg-rose-400' : m.tone === 'warn' ? 'bg-amber-400' : 'bg-amber-200/40'}`}
+          className={`absolute top-0.5 bottom-0.5 w-0.5 rounded-full pointer-events-none ${m.tone === 'warn' ? 'bg-amber-400' : 'bg-amber-200/40'}`}
           style={{ left: `${pct(m.time)}%` }}
         />
       ))}
