@@ -148,7 +148,7 @@ import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { BASE_LABELS, backToFirstStep, recordReviewStep, redoReviewStep, startReviewHistory, undoReviewStep } from './services/reviewHistory';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
 import { pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type TakeAsk } from './services/syncTakesService';
-import { stripPauses } from './server/lib/linePauses.js';
+import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
 import { stripTags, tagsOf } from './server/lib/lineTags.js';
 import {
   laneClips,
@@ -182,6 +182,8 @@ import {
 } from './services/projectArchive';
 import { looksTranscribedAgain, mergeScriptUpdate } from './services/scriptUpdate';
 import { UpdateScriptPanel, type ScriptUpdatePreview } from './components/UpdateScriptPanel';
+import { SyncAgainGuard, type SyncAgainGuardState } from './components/SyncAgainGuard';
+import { lockLines, pickedTakeName, unlockedEdits } from './services/syncAgainGuard';
 import { transcriptFileName, transcriptParagraphs, transcriptSrt } from './services/transcriptExport';
 import { sameCuts } from './services/transcriptSegments';
 import { saveFileAs } from './services/saveFile';
@@ -645,6 +647,8 @@ export default function App() {
   const [saveFailure, setSaveFailure] = useState<{ jobId: string; message: string } | null>(null);
   /** The synced line whose takes are being voiced (one at a time). */
   const [syncTakesBusy, setSyncTakesBusy] = useState<{ jobId: string; key: string } | null>(null);
+  // Sync again asked for on a dub with unlocked hand edits: waits for the user to lock them or let them go.
+  const [syncGuard, setSyncGuard] = useState<(SyncAgainGuardState & { jobId: string; options: SyncOptions }) | null>(null);
   // `readJobId`: the continuous read in flight before the lines are placed, if the dub is voiced that way.
   const syncRunRef = useRef<{ jobId: string; projectId: string; controller: AbortController; readJobId?: string } | null>(null);
   /** The continuous read's progress, while the script is voiced in one take; null otherwise. */
@@ -2627,16 +2631,48 @@ export default function App() {
     }
   };
 
-  /** Dub, as pressed on the open project: now, or once the dub running for another project ends. */
-  const handleSyncDub = (options: SyncOptions) => {
+  /**
+   * Dub, as pressed on the open project: now, or once the dub running for
+   * another project ends. When unlocked lines carry hand edits, which Sync
+   * again would drop, or play a take picked in the T window, which it would
+   * place afresh, it first asks whether to lock them (SyncAgainGuard).
+   */
+  const handleSyncDub = (options: SyncOptions, { checked = false } = {}) => {
     const job = activeJob;
     if (!job || job.segments.length === 0 || job.targetSource === 'pending') return;
     if (syncRunRef.current?.projectId === job.id || dubQueue.some((dub) => dub.jobId === job.id)) return;
+    if (!checked) {
+      const pending = job.syncPendingLines || [];
+      const lines = unlockedEdits(job.syncBank, job.syncEdits, pending, job.syncTakes);
+      if (lines.length > 0) {
+        const numberOf = (key: string) => job.segments.findIndex((seg) => String(seg.id) === key) + 1;
+        setSyncGuard({
+          jobId: job.id,
+          options,
+          lines: lines.map((line) => ({ ...line, number: numberOf(line.key) })),
+          voicedAgain: pending.filter((key) => job.syncEdits?.[key] || pickedTakeName(job.syncTakes, key)).length,
+        });
+        return;
+      }
+    }
     if (syncRunRef.current) {
       setDubQueue((waiting) => [...waiting, { jobId: job.id, options, voice: currentDubVoice() }]);
       return;
     }
     runSyncDub(job.id, options, currentDubVoice());
+  };
+
+  /** Sync again's question answered: lock the listed lines first, or let their edits go. */
+  const answerSyncGuard = (lock: boolean) => {
+    const guard = syncGuard;
+    setSyncGuard(null);
+    if (!guard || guard.jobId !== activeJob?.id) return;
+    if (!lock) return handleSyncDub(guard.options, { checked: true });
+    const bank = activeJob.syncBank;
+    if (!bank) return;
+    updateJob(activeJob.id, { syncEdits: lockLines(activeJob.syncEdits, guard.lines.map((line) => line.key), bank) });
+    // Queued, the sync starts once the locks are in the project it reads.
+    setDubQueue((waiting) => [...waiting, { jobId: activeJob.id, options: guard.options, voice: currentDubVoice() }]);
   };
 
   const runSyncDub = async (
@@ -2837,9 +2873,26 @@ export default function App() {
     }
   };
 
-  /** Puts a new wording of a synced line into the script. The next Sync voices it. */
+  /**
+   * Puts a new wording of a synced line into the dub (Review's Voice and
+   * use): one take is voiced in those words now and put where the line is,
+   * as the takes panel does, so nothing waits for Sync again. Where the line
+   * can't be voiced on its own (no takes bank, or its words already changed),
+   * the wording goes into the script and the next Sync voices it.
+   */
   const handleApplySyncLine = (unit: SyncUnitReport, text: string) => {
     if (!activeJob || !text.trim()) return;
+    const job = activeJob;
+    const voicesNow =
+      Boolean(job.syncBank?.lines.some((line) => line.key === unit.key) && job.syncBankBlob && job.syncBaseReport) &&
+      !job.syncPendingLines?.includes(unit.key) &&
+      syncTakesBusy?.jobId !== job.id &&
+      syncRunRef.current?.projectId !== job.id;
+    if (voicesNow) {
+      // An ellipsis typed between words is a pause, as in the takes panel.
+      handleVoiceSyncTakes(unit, { direction: 'same', text: dotsToPauses(text.trim()), count: 1 }, { use: true });
+      return;
+    }
     const ids = unit.cueIds.map(String);
     const cues = activeJob.segments.filter((s) => ids.includes(String(s.id)));
     const texts = distributeLineText(text, cues.map((c) => c.textTarget || c.targetText || ''));
@@ -2902,12 +2955,14 @@ export default function App() {
    * only the words picked, read as Sync read it or in a direction. With
    * `text`, the whole line is voiced in new words (pause marks and all); the
    * script takes them only when one of those takes is used. They are added to
-   * the line's takes; the dub doesn't change until one is used. A locked line
-   * can be retaken: using a take keeps its lock.
+   * the line's takes; the dub doesn't change until one is used, unless `use`
+   * puts the first of them in the dub at once (Review's Voice and use). A
+   * locked line can be retaken: using a take keeps its lock.
    */
   const handleVoiceSyncTakes = async (
     unit: SyncUnitReport,
-    { direction, phrase, text, count, stability }: TakeAsk
+    { direction, phrase, text, count, stability }: TakeAsk,
+    { use = false } = {}
   ) => {
     const job = activeJob;
     if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport || syncTakesBusy?.jobId === job.id) return;
@@ -2982,15 +3037,22 @@ export default function App() {
       if (!now?.syncBank || now.syncBank.bankId !== bank.bankId) return;
       const nowLine = now.syncBank.lines.find((l) => l.key === unit.key) || line;
       const kept = takesOf(now.syncTakes, nowLine, base.units[n]);
-      updateJob(job.id, {
+      // A take keeps the words the script takes from it, and what the voice read, pauses and all.
+      const added = result.takes.map((take) => (spoken ? { ...take, text: words, spoken } : take));
+      const voiced: BatchJob = {
+        ...now,
         syncBank: { ...now.syncBank, bankId: result.bankId },
         syncBankBlob: result.bankBlob,
-        syncTakes: {
-          ...(now.syncTakes || {}),
-          // A take keeps the words the script takes from it, and what the voice read, pauses and all.
-          [unit.key]: { takes: [...kept.takes, ...result.takes.map((take) => (spoken ? { ...take, text: words, spoken } : take))], active: kept.active },
-        },
+        syncTakes: { ...(now.syncTakes || {}), [unit.key]: { takes: [...kept.takes, ...added], active: kept.active } },
+      };
+      const put = use && added[0] ? takeInDub(voiced, unit.key, added[0].id) : null;
+      updateJob(job.id, {
+        syncBank: voiced.syncBank,
+        syncBankBlob: voiced.syncBankBlob,
+        syncTakes: voiced.syncTakes,
+        ...put?.updates,
       });
+      if (put) scheduleSyncEditRender(job.id, put.render, 0);
       refreshQuota();
     } catch (err: any) {
       if (controller.signal.aborted || err?.code === 'cancelled') return;
@@ -3009,12 +3071,25 @@ export default function App() {
    */
   const handleUseSyncTake = (key: string, takeId: string) => {
     const job = activeJob;
-    const kept = job?.syncTakes?.[key];
+    if (!job || syncTakesBusy?.jobId === job.id) return;
+    const put = takeInDub(job, key, takeId);
+    if (!put) return;
+    updateJob(job.id, put.updates);
+    scheduleSyncEditRender(job.id, put.render, 0);
+  };
+
+  /**
+   * What putting one of a line's takes in the dub changes in `job`, and the
+   * render that follows; null when the take can't go in (already in, gone,
+   * or the line's words changed since Sync).
+   */
+  const takeInDub = (job: BatchJob, key: string, takeId: string) => {
+    const kept = job.syncTakes?.[key];
     const take = kept?.takes.find((t) => t.id === takeId);
-    if (!job?.syncBank || !job.syncBaseReport || !kept || !take || kept.active === takeId) return;
+    if (!job.syncBank || !job.syncBaseReport || !kept || !take || kept.active === takeId) return null;
     const line = job.syncBank.lines.find(l => l.key === key);
     const unit = job.syncBaseReport.units.find((u) => u.key === key);
-    if (syncTakesBusy?.jobId === job.id || !line || !unit || job.syncPendingLines?.includes(key)) return;
+    if (!line || !unit || job.syncPendingLines?.includes(key)) return null;
     const put = putTake({ bank: job.syncBank, edits: job.syncEdits, baseReport: job.syncBaseReport, key, take });
     const { bank, edits } = put;
     const reworded = take.text !== unit.text;
@@ -3027,19 +3102,16 @@ export default function App() {
       const byId = new Map(cues.map((c, i) => [String(c.id), texts[i] ?? '']));
       segments = job.segments.map((s) => (byId.has(String(s.id)) ? { ...s, textTarget: byId.get(String(s.id)), targetText: byId.get(String(s.id)) } : s));
     }
-    updateJob(job.id, {
+    const updates: Partial<BatchJob> = {
       ...(reworded && { segments }),
       syncBank: bank,
       syncEdits: edits,
       syncBaseReport: baseReport,
       syncReport: measureEdits(baseReport, bank, edits),
       syncTakes: { ...job.syncTakes, [key]: { ...kept, active: takeId } },
-    });
-    scheduleSyncEditRender(
-      job.id,
-      { bank, bankBlob: job.syncBankBlob, baseReport, edits, sourceDuration: sourceDurationOf(job), source: job.audioBuffer },
-      0
-    );
+    };
+    const render = { bank, bankBlob: job.syncBankBlob, baseReport, edits, sourceDuration: sourceDurationOf(job), source: job.audioBuffer };
+    return { updates, render };
   };
 
   /**
@@ -3891,6 +3963,7 @@ export default function App() {
           setPendingProjectJson(null);
         }}
       />
+      <SyncAgainGuard guard={syncGuard} onLockAndSync={() => answerSyncGuard(true)} onSyncAnyway={() => answerSyncGuard(false)} onCancel={() => setSyncGuard(null)} />
       <UpdateScriptPanel
         preview={scriptUpdatePreview}
         onUpdate={applyScriptUpdate}

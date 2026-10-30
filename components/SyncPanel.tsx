@@ -76,6 +76,7 @@ import {
 import { SyncSettingsDiagram } from './SyncSettingsDiagram';
 import { SyncPresetLibrary } from './SyncPresetLibrary';
 import { reportError } from '../services/errorPopup';
+import { dotsToPauses, stripPauses } from '../server/lib/linePauses.js';
 
 /**
  * Sync, in the Dub step: voices the script line by line, places each line in
@@ -156,6 +157,13 @@ export const readOptions = (value?: unknown): SyncOptions => {
   }
 };
 
+/** Keeps sync options for the next project, the way a project without its own reads them. */
+export const rememberSyncOptions = (options: SyncOptions) => {
+  try {
+    localStorage.setItem(OPTIONS_KEY, JSON.stringify(options));
+  } catch {}
+};
+
 /** The sync options, remembered across sessions. One copy serves both panels. */
 export const useSyncOptions = (projectId?: string, saved?: SyncOptions, onSave?: (projectId: string, options: SyncOptions) => void) => {
   const [slot, setSlot] = useState(() => ({ id: projectId, options: readOptions(saved) }));
@@ -181,13 +189,19 @@ export const useSyncOptions = (projectId?: string, saved?: SyncOptions, onSave?:
   useEffect(() => {
     if (projectId && !saved && !pending.current) save.current?.(projectId, options);
   }, [projectId, saved, options]);
+  // A change made somewhere else, such as Tools and settings, reaches a panel that is open.
+  const seen = useRef(saved);
+  useEffect(() => {
+    if (saved === seen.current) return;
+    seen.current = saved;
+    if (!saved || pending.current || JSON.stringify(saved) === JSON.stringify(current.current)) return;
+    setSlot({ id: projectId, options: readOptions(saved) });
+  }, [saved, projectId]);
   const setOptions: React.Dispatch<React.SetStateAction<SyncOptions>> = useCallback((update) => {
     const next = typeof update === 'function' ? update(current.current) : update;
     current.current = next;
     setSlot({ id: projectId, options: next });
-    try {
-      localStorage.setItem(OPTIONS_KEY, JSON.stringify(next));
-    } catch {}
+    rememberSyncOptions(next);
     if (!projectId) return;
     if (pending.current) clearTimeout(pending.current.timer);
     pending.current = { id: projectId, options: next, timer: setTimeout(flush, 500) };
@@ -1320,8 +1334,12 @@ export interface SyncResultsPanelProps {
   onListen: (time: number) => void;
   /** Keys of lines reworded or retaken since this report: the next Sync voices them again. */
   pendingLines?: string[];
-  /** Puts a new wording of a line into the script. */
+  /** Puts a new wording of a line into the script: voiced into the dub now with `applyVoicesNow`, else on the next Sync. */
   onApplyLine?: (unit: SyncUnitReport, text: string) => void;
+  /** A new wording is voiced and put in the dub at once, as a take, rather than waiting for Sync again. */
+  applyVoicesNow?: boolean;
+  /** The line whose takes are being voiced, if any: one at a time. */
+  takesBusyKey?: string | null;
   /** Asks for a new take of a line. */
   onRetakeLine?: (unit: SyncUnitReport) => void;
   /** Asks for a new take of every line in `units` at once. */
@@ -1386,6 +1404,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   onListen,
   pendingLines = [],
   onApplyLine,
+  applyVoicesNow = false,
+  takesBusyKey = null,
   onRetakeLine,
   onRetakeLines,
   renderTakes,
@@ -1734,6 +1754,9 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                     pending={pendingLines.includes(unit.key)}
                     onListen={onListen}
                     onApply={onApplyLine}
+                    applyVoicesNow={applyVoicesNow}
+                    voicing={takesBusyKey === unit.key}
+                    takesBusy={Boolean(takesBusyKey)}
                     onRetake={onRetakeLine}
                     onSuggest={onSuggestLine}
                     takesOpen={takesKey === unit.key}
@@ -1895,6 +1918,11 @@ const ReviewRow: React.FC<{
   pending: boolean;
   onListen: (time: number) => void;
   onApply?: (unit: SyncUnitReport, text: string) => void;
+  /** The wording is voiced into the dub when applied; `voicing` while this line's take is on its way. */
+  applyVoicesNow?: boolean;
+  voicing?: boolean;
+  /** Some line's takes are being voiced: one request at a time. */
+  takesBusy?: boolean;
   onRetake?: (unit: SyncUnitReport) => void;
   onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion[]>;
   /** The takes panel: a toggle in the row, and the panel under it while open. */
@@ -1903,7 +1931,23 @@ const ReviewRow: React.FC<{
   takes?: React.ReactNode;
   onUseTake?: (unit: SyncUnitReport) => void;
   onKeepTake?: (unit: SyncUnitReport) => void;
-}> = ({ unit, reason, pending, onListen, onApply, onRetake, onSuggest, takesOpen = false, onToggleTakes, takes, onUseTake, onKeepTake }) => {
+}> = ({
+  unit,
+  reason,
+  pending,
+  onListen,
+  onApply,
+  applyVoicesNow = false,
+  voicing = false,
+  takesBusy = false,
+  onRetake,
+  onSuggest,
+  takesOpen = false,
+  onToggleTakes,
+  takes,
+  onUseTake,
+  onKeepTake,
+}) => {
   const [draft, setDraft] = useState(unit.suggestion || unit.text);
   const [suggested, setSuggested] = useState(Boolean(unit.suggestion));
   const [copied, setCopied] = useState(false);
@@ -2093,15 +2137,32 @@ const ReviewRow: React.FC<{
                 className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
               />
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => onApply(unit, draft)}
-                  disabled={!changed}
-                  className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
-                  title="Put this wording into the script. Sync again to voice it."
-                >
-                  <Check className="w-3.5 h-3.5" /> Use this line
-                </button>
+                {applyVoicesNow ? (
+                  <button
+                    type="button"
+                    onClick={() => onApply(unit, draft)}
+                    disabled={!changed || takesBusy}
+                    className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
+                    title={
+                      takesBusy && !voicing
+                        ? 'Another line is being voiced: one at a time'
+                        : 'Voices one take in these words now and puts it in the dub, where the line is. The script takes the words. No Sync again needed.'
+                    }
+                  >
+                    {voicing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
+                    {voicing ? 'Voicing take…' : `Voice and use · ${stripPauses(dotsToPauses(draft.trim())).length.toLocaleString()} chars`}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onApply(unit, draft)}
+                    disabled={!changed}
+                    className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
+                    title="Put this wording into the script. Sync again to voice it."
+                  >
+                    <Check className="w-3.5 h-3.5" /> Use this line
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={copy}

@@ -3854,6 +3854,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onApplySyncLine(unit, text);
                   })
                 }
+                applyVoicesNow={Boolean(renderTakes)}
+                takesBusyKey={syncTakesBusy}
                 onRetakeLine={onRetakeSyncLines && ((unit) => onRetakeSyncLines([unit]))}
                 onRetakeLines={onRetakeSyncLines}
                 onUseTake={onUseOfferedTake}
