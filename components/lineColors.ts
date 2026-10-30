@@ -4,10 +4,11 @@
  * every lane, list and link. Lines are numbered as Sync groups them (a sync
  * unit's index), and a cue takes the colour of the line it belongs to.
  *
- * The colours repeat and leave out green, amber and red, which say how a line
- * fits or landed.
+ * Four colours, cool and warm in turn (sky, rose, lavender, sand), so lines
+ * side by side always differ and a colour comes back only four lines on. They
+ * leave out green, amber and red, which say how a line fits or landed.
  */
-export const LINE_HUES = ['#7dd3fc', '#c4b5fd', '#f9a8d4', '#5eead4', '#a5b4fc', '#e9d5a8'];
+export const LINE_HUES = ['#7dd3fc', '#f9a8d4', '#c4b5fd', '#e9d5a8'];
 
 export const hueOf = (index: number) => LINE_HUES[((index % LINE_HUES.length) + LINE_HUES.length) % LINE_HUES.length];
 

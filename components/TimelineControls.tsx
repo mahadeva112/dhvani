@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ChevronsLeft, ChevronsRight, Maximize2, Pause, Play, ZoomIn, ZoomOut } from 'lucide-react';
+import { withAlpha } from './lineColors';
 import { useLiveFrame } from './useLiveTime';
 
 /**
@@ -372,8 +373,8 @@ export const useWindowPlayheads = ({
 
 export interface TimelineMarker {
   time: number;
-  /** 'warn' for a line to look at (amber), 'soft' for a tight one. */
-  tone: 'warn' | 'soft';
+  /** 'bad' for a line far off (red), 'warn' for a line to look at (amber), 'soft' for a tight one. */
+  tone: 'bad' | 'warn' | 'soft';
 }
 
 /**
@@ -381,7 +382,8 @@ export interface TimelineMarker {
  * `total` at once. The thumb is the window on screen: drag it, click the
  * track to jump there, or use the arrow, Page and Home / End keys. The track
  * doubles as an overview, with a tick for every flagged line and the
- * playhead, so the lines to look at can be found without paging.
+ * playhead, so the lines to look at can be found without paging; with
+ * `lines`, each line's stretch shows faintly in its colour under the ticks.
  */
 export const TimelineScrollbar: React.FC<{
   total: number;
@@ -389,10 +391,11 @@ export const TimelineScrollbar: React.FC<{
   windowSeconds: number;
   currentTime: number;
   markers?: TimelineMarker[];
+  lines?: { from: number; to: number; color: string }[];
   onScroll: (start: number) => void;
   /** Flat and thin, along the foot of a DAW's lanes; kept on screen with the whole track showing, as an overview. */
   inset?: boolean;
-}> = ({ total, windowStart, windowSeconds, currentTime, markers = [], onScroll, inset = false }) => {
+}> = ({ total, windowStart, windowSeconds, currentTime, markers = [], lines = [], onScroll, inset = false }) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null);
   const maxStart = Math.max(0, total - windowSeconds);
@@ -456,11 +459,19 @@ export const TimelineScrollbar: React.FC<{
         inset ? 'h-2.5 rounded-sm bg-slate-900' : 'h-3.5 rounded-full bg-slate-950/80 border border-slate-800'
       }`}
     >
+      {lines.map((line, i) => (
+        <span
+          key={`l${i}`}
+          aria-hidden="true"
+          className="absolute top-[2px] bottom-[2px] rounded-[1px] pointer-events-none"
+          style={{ left: `${pct(line.from)}%`, width: `${Math.max(0.1, pct(line.to - line.from))}%`, background: withAlpha(line.color, 0.5) }}
+        />
+      ))}
       {markers.map((m, i) => (
         <span
           key={i}
           aria-hidden="true"
-          className={`absolute top-0.5 bottom-0.5 w-0.5 rounded-full pointer-events-none ${m.tone === 'warn' ? 'bg-amber-400' : 'bg-amber-200/40'}`}
+          className={`absolute ${lines.length ? 'top-0 bottom-0 w-[3px] -ml-px' : 'top-0.5 bottom-0.5 w-0.5'} rounded-full pointer-events-none ${m.tone === 'bad' ? 'bg-rose-400' : m.tone === 'warn' ? 'bg-amber-400' : 'bg-amber-200/40'}`}
           style={{ left: `${pct(m.time)}%` }}
         />
       ))}

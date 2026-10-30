@@ -13,26 +13,26 @@ import { LinePair } from './LinePair';
  * it, which moves along under the playhead while it plays.
  *
  *   ruler      time; a click puts the playhead there, a drag scrubs it
- *   Original   the original's waveform over its lines, numbered; past the
- *              original's end, a note that it has ended
- *   links      a sync line from each original line's start to its dub line's
- *              start: upright is in sync, a slant is the dub early or late
- *   Synced     the synced dub's waveform over its lines, numbered with a dot
- *              for how the line landed, and a dashed outline of where the
- *              original line is; the part of a line that runs into the next
- *              original line has a red strip under it
- *   scroll bar the whole dub, with the lines off their timing marked; drag it
- *              to move along
+ *   Original   the original's lines as clips, darker so the dub reads first;
+ *              past the original's end, a note that it has ended
+ *   Synced     the synced dub's lines as clips, right under the original: a
+ *              line whose start is off has a dashed bracket from where the
+ *              original starts, amber or red with how far; the part of a line
+ *              that runs into the next original line is striped red
+ *   scroll bar the whole dub in its lines' colours, with the lines off their
+ *              timing ticked amber or red; drag it to move along
  *
- * Each line has its own colour (lineColors.ts), the same in both lanes and on
- * its link, so a line's original and synced halves pair up at a glance.
+ * Each line has its own colour (lineColors.ts), the same in both lanes, so a
+ * line in sync is one colour stacked straight; nothing is written on the clips.
  *
  * Hovering a line (or the line under the playhead) picks out the pair and
- * spells out its numbers underneath.
+ * spells out its words underneath; the tooltip says how it landed.
  */
 
 /** Above this a late or early start is drawn red rather than amber. */
 const FAR_OFF_SECONDS = 0.5;
+/** Zoomed out past this many seconds on screen, a start's bracket loses its number, which would crowd the lane. */
+const DRIFT_LABEL_SECONDS = 90;
 
 const formatClock = (seconds: number) => {
   const t = Math.max(0, seconds || 0);
@@ -40,18 +40,17 @@ const formatClock = (seconds: number) => {
   const s = (t % 60).toFixed(1).padStart(4, '0');
   return `${m}:${s}`;
 };
+/** A short gap, unsigned: milliseconds under a second, else tenths of a second. */
+const formatMs = (seconds: number) => {
+  const t = Math.abs(seconds);
+  return t < 1 ? `${Math.round(t * 1000)} ms` : `${t.toFixed(1)} s`;
+};
 
 type Tone = 'sync' | 'off' | 'far' | 'none';
 const toneOf = (u: SyncUnitReport, tolerance: number): Tone => {
   if (u.offset === null || u.placedStart === null) return 'none';
   if (u.inSync) return 'sync';
   return Math.abs(u.offset) > FAR_OFF_SECONDS || (u.overrun ?? 0) > FAR_OFF_SECONDS ? 'far' : Math.abs(u.offset) > tolerance || (u.overrun ?? 0) > tolerance ? 'off' : 'sync';
-};
-const TONE = {
-  sync: { stroke: '#34d399', dot: 'bg-emerald-400', text: 'text-emerald-300' },
-  off: { stroke: '#fbbf24', dot: 'bg-amber-400', text: 'text-amber-300' },
-  far: { stroke: '#fb7185', dot: 'bg-rose-400', text: 'text-rose-300' },
-  none: { stroke: '#64748b', dot: 'bg-slate-500', text: 'text-slate-400' },
 };
 
 export const SyncAlignmentView: React.FC<{
@@ -152,11 +151,19 @@ export const SyncAlignmentView: React.FC<{
       ),
     [units, hovered]
   );
-  /** A line's highlight, under the waveform: a tint of its colour, stronger with a ring when picked out. */
+  /** A line's hover target over its clip: a ring in its colour when picked out. */
   const highlight = (u: SyncUnitReport) => ({
-    background: withAlpha(hueOf(u.index), u.index === focusIndex ? 0.24 : 0.12),
-    boxShadow: u.index === focusIndex ? `0 0 0 1px ${withAlpha(hueOf(u.index), 0.7)}` : undefined,
+    boxShadow: u.index === focusIndex ? `0 0 0 1px ${withAlpha(hueOf(u.index), 0.85)}` : undefined,
   });
+  /** How a line landed, in words, for its tooltip. */
+  const landedAs = (u: SyncUnitReport) => {
+    if (u.offset === null || u.placedStart === null) return 'silent';
+    const parts: string[] = [];
+    if (!u.inSync && Math.abs(u.offset) > report.tolerance) parts.push(`starts ${formatMs(u.offset)} ${u.offset > 0 ? 'late' : 'early'}`);
+    if ((u.overrun ?? 0) > 0) parts.push(`runs ${formatMs(u.overrun ?? 0)} into the next line`);
+    if (u.short) parts.push(`ends ${formatMs(u.shortBy)} early`);
+    return parts.length ? parts.join(', ') : 'in sync';
+  };
 
   const onWheel = wheelScroll(WINDOW_SECONDS, (seconds) => scrollTo(zoom.viewStart() + seconds));
   const seekAt = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -187,36 +194,20 @@ export const SyncAlignmentView: React.FC<{
     () =>
       units
         .filter((u) => u.exceeded || u.short || !u.inSync)
-        .map((u) => ({ time: u.srcStart, tone: u.exceeded || !u.inSync ? ('warn' as const) : ('soft' as const) })),
+        .map((u) => ({
+          time: u.srcStart,
+          tone: tones.get(u.index) === 'far' ? ('bad' as const) : u.exceeded || !u.inSync ? ('warn' as const) : ('soft' as const),
+        })),
+    [units, tones]
+  );
+  /** The scroll bar's overview: every line where it plays, in its colour. */
+  const overview = useMemo(
+    () => units.map((u) => ({ from: u.placedStart ?? u.srcStart, to: u.placedEnd ?? u.srcEnd, color: hueOf(u.index) })),
     [units]
   );
 
   const laneLabel = 'flex items-center gap-1.5 text-[11px] text-slate-400';
   const lineAction = 'h-7 px-2.5 rounded-lg border border-slate-700 text-[11.5px] font-sans text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-1.5 cursor-default';
-  /**
-   * The line's label across the top of its clip, as a DAW names its items: a
-   * strip in the line's colour with its number, on the dub a dot for how it
-   * landed, and its words when there is room.
-   */
-  const clipLabel = (u: SyncUnitReport, from: number, to: number, words: string, tone?: Tone) => {
-    const width = pct(to) - pct(from);
-    return (
-      <span
-        className="absolute z-10 inset-x-0 top-0 h-[15px] rounded-t flex items-center gap-1 px-1 overflow-hidden whitespace-nowrap font-mono text-[9.5px] font-semibold leading-none text-slate-950 pointer-events-none"
-        style={{ background: hueOf(u.index) }}
-      >
-        {width > 1.6 && (
-          <>
-            {tone && <span className={`w-1.5 h-1.5 shrink-0 rounded-full ring-1 ring-slate-950/70 ${TONE[tone].dot}`} />}
-            {u.index + 1}
-            {width > 8 && words && <span className="font-sans font-medium truncate opacity-80">{words}</span>}
-          </>
-        )}
-      </span>
-    );
-  };
-
-  const fx = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 1000;
   /** A track header cell: the track's colour down its left edge, then its name and mixer. */
   const headCell = (stripe: string, children: React.ReactNode) => (
     <div className="flex min-w-0 self-stretch border-r border-b border-slate-800 bg-slate-900/80">
@@ -279,47 +270,22 @@ export const SyncAlignmentView: React.FC<{
                 <span className="px-2 text-[11px] text-slate-400 whitespace-nowrap">Original ends {formatClock(sourceEnd)}</span>
               </span>
             )}
+            {/* The clips, drawn darker than the dub's */}
+            <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
+              <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-500/30" look="clips" shade="quiet" />
+            </div>
             {visible.map((u) => (
               <span
                 key={u.index}
                 onMouseEnter={() => setHovered(u.index)}
                 onClick={seekLine(u.srcStart)}
-                title={`#${u.index + 1} ${u.sourceText}`}
-                className={`absolute top-1.5 bottom-1.5 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
+                title={`Line ${u.index + 1} · original\n${u.sourceText}`}
+                className="absolute top-px bottom-px rounded-[3px]"
                 style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%`, ...highlight(u) }}
-              >
-                {clipLabel(u, u.srcStart, u.srcEnd, u.sourceText)}
-              </span>
+              />
             ))}
-            {/* Over the lines, under their labels */}
-            <div className="absolute top-[15px] bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
-              <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-400/30" />
-            </div>
             </div>
             <span ref={playheadRef(0)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100 pointer-events-none" />
-          </div>
-
-          {/* Sync lines: original start to dub start */}
-          <div className="flex items-center px-2.5 border-r border-b border-slate-800 bg-slate-900/80 text-[10.5px] text-slate-500">Start → start</div>
-          <div className="relative h-6 border-b border-slate-800 bg-slate-950/40 overflow-hidden" onWheel={onWheel}>
-            <svg ref={zoom.strip} viewBox="0 0 1000 24" preserveAspectRatio="none" overflow="visible" className="absolute inset-0 w-full h-full" aria-hidden="true">
-              {visible.map((u) =>
-                u.placedStart === null ? null : (
-                  <line
-                    key={u.index}
-                    x1={fx(u.srcStart)}
-                    y1={0}
-                    x2={fx(u.placedStart)}
-                    y2={24}
-                    stroke={hueOf(u.index)}
-                    strokeWidth={u.index === focusIndex ? 2.5 : 1.5}
-                    strokeOpacity={dim(u) ? 0.2 : 0.9}
-                    vectorEffect="non-scaling-stroke"
-                  />
-                )
-              )}
-            </svg>
-            <span ref={playheadRef(1)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100/60 pointer-events-none" />
           </div>
 
           {/* Dub */}
@@ -341,56 +307,66 @@ export const SyncAlignmentView: React.FC<{
             onWheel={onWheel}
           >
             <div ref={zoom.strip} className="absolute inset-0">
-            {/* Where each line should be: the original line's span */}
-            {visible.map((u) => (
-              <span
-                key={`slot-${u.index}`}
-                aria-hidden="true"
-                className={`absolute top-1 bottom-1 rounded border border-dashed border-slate-500/60 pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
-                style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart))}%` }}
-              />
-            ))}
+            {/* The clips, bright */}
+            <div className="absolute top-0 bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
+              <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={dubSpans} className="text-slate-500/30" look="clips" shade="vivid" />
+            </div>
             {visible.map((u) => {
-              if (u.placedStart === null || u.placedEnd === null) return null;
-              const tone = tones.get(u.index) ?? 'none';
+              if (u.placedStart === null || u.placedEnd === null || u.offset === null) return null;
               const slotEnd = nextStart.get(u.index);
               // The part that runs into the next original line.
               const runOn = slotEnd !== null && slotEnd !== undefined && u.placedEnd > slotEnd ? Math.max(u.placedStart, slotEnd) : null;
+              // A start off by more than the tolerance: bracketed from where the original starts.
+              const drift = !u.inSync && Math.abs(u.offset) > report.tolerance;
+              const far = Math.abs(u.offset) > FAR_OFF_SECONDS;
               return (
                 <React.Fragment key={u.index}>
-                  <span
-                    onMouseEnter={() => setHovered(u.index)}
-                    onClick={seekLine(u.placedStart)}
-                    title={`#${u.index + 1} ${u.text}`}
-                    className={`absolute top-1.5 bottom-1.5 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
-                    style={{
-                      left: `${pct(u.placedStart)}%`,
-                      width: `${Math.max(0.3, pct(u.placedEnd) - pct(u.placedStart))}%`,
-                      ...highlight(u),
-                    }}
-                  >
-                    {clipLabel(u, u.placedStart, u.placedEnd, u.text, tone)}
-                  </span>
+                  {drift && (
+                    <span
+                      aria-hidden="true"
+                      className={`absolute top-0 bottom-0 border-x-[1.5px] border-dashed pointer-events-none ${far ? 'border-rose-400 bg-rose-400/10' : 'border-amber-400 bg-amber-400/10'} ${dim(u) ? 'opacity-30' : ''}`}
+                      style={{ left: `${pct(Math.min(u.srcStart, u.placedStart))}%`, width: `${Math.max(0.2, Math.abs(pct(u.placedStart) - pct(u.srcStart)))}%` }}
+                    >
+                      {WINDOW_SECONDS <= DRIFT_LABEL_SECONDS && (
+                        <span className={`absolute top-0.5 left-0.5 rounded bg-slate-950/85 px-1 font-mono text-[10px] leading-[14px] whitespace-nowrap ${far ? 'text-rose-300' : 'text-amber-300'}`}>
+                          {u.offset > 0 ? '+' : '−'}
+                          {formatMs(u.offset)}
+                        </span>
+                      )}
+                    </span>
+                  )}
                   {runOn !== null && (
                     <span
                       aria-hidden="true"
-                      className={`absolute bottom-0.5 h-[3px] rounded-full bg-rose-400 pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
-                      style={{ left: `${pct(runOn)}%`, width: `${Math.max(0.3, pct(u.placedEnd) - pct(runOn))}%` }}
+                      className={`absolute top-px bottom-px rounded-r-[3px] pointer-events-none ${dim(u) ? 'opacity-30' : ''}`}
+                      style={{
+                        left: `${pct(runOn)}%`,
+                        width: `${Math.max(0.3, pct(u.placedEnd) - pct(runOn))}%`,
+                        backgroundImage: 'repeating-linear-gradient(135deg, rgba(248,113,113,0.6) 0 3px, rgba(248,113,113,0.12) 3px 7px)',
+                      }}
                     />
                   )}
                   {u.short && (
                     <span
                       aria-hidden="true"
-                      className="absolute top-1.5 bottom-1.5 rounded-r border border-dashed border-sky-400/70 bg-sky-400/5 pointer-events-none"
+                      className="absolute top-px bottom-px rounded-r border border-dashed border-sky-400/70 bg-sky-400/5 pointer-events-none"
                       style={{ left: `${pct(u.placedEnd)}%`, width: `${Math.max(0.3, pct(u.placedEnd + u.shortBy) - pct(u.placedEnd))}%` }}
                     />
                   )}
+                  <span
+                    onMouseEnter={() => setHovered(u.index)}
+                    onClick={seekLine(u.placedStart)}
+                    title={`Line ${u.index + 1} · ${landedAs(u)}\n${u.text}`}
+                    className="absolute top-px bottom-px rounded-[3px]"
+                    style={{
+                      left: `${pct(u.placedStart)}%`,
+                      width: `${Math.max(0.3, pct(u.placedEnd) - pct(u.placedStart))}%`,
+                      ...highlight(u),
+                    }}
+                  />
                 </React.Fragment>
               );
             })}
-            <div className="absolute top-[15px] bottom-0 left-0" style={{ width: `${((WINDOW_SECONDS + ahead) / WINDOW_SECONDS) * 100}%` }}>
-              <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={dubSpans} className="text-slate-400/30" />
-            </div>
             </div>
             <span ref={playheadRef(2)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100 pointer-events-none" />
           </div>
@@ -398,7 +374,7 @@ export const SyncAlignmentView: React.FC<{
           {/* The scroll bar, along the foot of the lanes: the whole dub, with the lines to look at marked */}
           <div className="border-r border-slate-800 bg-slate-900/80" />
           <div className="px-1 py-1 bg-slate-950/60">
-            <TimelineScrollbar inset total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} markers={markers} onScroll={scrollTo} />
+            <TimelineScrollbar inset total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} markers={markers} lines={overview} onScroll={scrollTo} />
           </div>
         </div>
       </div>
@@ -458,13 +434,16 @@ export const SyncAlignmentView: React.FC<{
               </span>
               Each line's colour, the same in both lanes
             </span>
-            <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> In sync</span>
-            <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-amber-400" /> Off by up to {FAR_OFF_SECONDS} s</span>
-            <span className="flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-rose-400" /> Off by more</span>
-            <span className="flex items-center gap-2"><span className="w-3 h-[3px] rounded-full bg-rose-400" /> Runs into the next line</span>
-            <span className="flex items-center gap-2"><span className="w-3 h-2.5 rounded-sm border border-dashed border-slate-500" /> Where the original line is</span>
+            <span className="text-slate-400">One colour stacked straight is in sync.</span>
+            <span className="flex items-center gap-2"><span className="w-3 h-2.5 border-x-[1.5px] border-dashed border-amber-400 bg-amber-400/10" /> Starts off by up to {FAR_OFF_SECONDS} s</span>
+            <span className="flex items-center gap-2"><span className="w-3 h-2.5 border-x-[1.5px] border-dashed border-rose-400 bg-rose-400/10" /> Starts off by more</span>
+            <span className="flex items-center gap-2">
+              <span className="w-3 h-2.5 rounded-sm" style={{ backgroundImage: 'repeating-linear-gradient(135deg, rgba(248,113,113,0.6) 0 3px, rgba(248,113,113,0.12) 3px 7px)' }} /> Runs into the next line
+            </span>
             <span className="flex items-center gap-2"><span className="w-3 h-2.5 rounded-sm border border-dashed border-sky-400/70" /> Ends early</span>
-            <span className="flex items-center gap-2"><span className="w-0.5 h-2.5 rounded-full bg-amber-400" /> On the scroll bar: a line to look at</span>
+            <span className="flex items-center gap-2">
+              <span className="flex gap-0.5"><span className="w-0.5 h-2.5 rounded-full bg-amber-400" /><span className="w-0.5 h-2.5 rounded-full bg-rose-400" /></span> On the scroll bar: a line to look at
+            </span>
           </div>
         </details>
       </TimelineTransport>

@@ -27,6 +27,8 @@ export type WaveSpan = { from: number; to: number; color: string; faded?: boolea
  * outside every span in the canvas's text colour. It fills its (positioned)
  * parent and lets clicks through. `look="clips"` draws each span as a video
  * editor's clip: a solid body in its colour with a pale, crisp waveform.
+ * `shade` changes how they sit: 'quiet' darker and softer, for a lane behind
+ * another; 'vivid' with the waveform in its colour rather than near white.
  */
 export const WindowWaveform: React.FC<{
   data: PeakData | null;
@@ -35,7 +37,8 @@ export const WindowWaveform: React.FC<{
   spans: WaveSpan[];
   className: string;
   look?: 'bars' | 'clips';
-}> = ({ data, from, span, spans, className, look = 'bars' }) => {
+  shade?: ClipShade;
+}> = ({ data, from, span, spans, className, look = 'bars', shade = 'pale' }) => {
   const ref = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState(0);
   useEffect(() => {
@@ -61,7 +64,7 @@ export const WindowWaveform: React.FC<{
     if (!data || data.seconds <= 0 || span <= 0) return;
     const gapColor = getComputedStyle(canvas).color;
     if (look === 'clips') {
-      drawClips(ctx, data, from, span, spans, gapColor, w, h, dpr);
+      drawClips(ctx, data, from, span, spans, gapColor, w, h, dpr, shade);
       return;
     }
     drawWave(ctx, data, {
@@ -76,12 +79,32 @@ export const WindowWaveform: React.FC<{
         return line ? { color: line.color, alpha: line.faded ? 0.35 : 1 } : { color: gapColor };
       },
     });
-  }, [data, from, span, spans, size, look]);
+  }, [data, from, span, spans, size, look, shade]);
   return <canvas ref={ref} aria-hidden="true" className={`absolute inset-0 w-full h-full pointer-events-none ${className}`} />;
 };
 
+type ClipShade = 'pale' | 'quiet' | 'vivid';
+/** Each clip shade: the body and edge as a share of the colour's brightness, the waveform as a tint toward white. */
+const CLIP_SHADES: Record<ClipShade, { body: number; edge: number; wave: { mix: number; alpha: number } }> = {
+  pale: { body: 0.5, edge: 0.3, wave: { mix: 0.82, alpha: 1 } },
+  quiet: { body: 0.28, edge: 0.18, wave: { mix: 0.35, alpha: 0.6 } },
+  vivid: { body: 0.4, edge: 0.26, wave: { mix: 0.3, alpha: 0.95 } },
+};
+
 /** Clip bodies, guides and pale waveforms for `look="clips"`; between clips, the wave in `gapColor`. */
-const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, span: number, spans: WaveSpan[], gapColor: string, w: number, h: number, dpr: number) => {
+const drawClips = (
+  ctx: CanvasRenderingContext2D,
+  data: PeakData,
+  from: number,
+  span: number,
+  spans: WaveSpan[],
+  gapColor: string,
+  w: number,
+  h: number,
+  dpr: number,
+  shade: ClipShade = 'pale'
+) => {
+  const { body, edge, wave } = CLIP_SHADES[shade];
   const to = from + span;
   const x = (t: number) => ((t - from) / span) * w;
   const top = 3;
@@ -98,9 +121,9 @@ const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, 
     ctx.globalAlpha = s.faded ? 0.35 : 1;
     ctx.beginPath();
     ctx.roundRect(a, 1, b - a, h - 2, 3);
-    ctx.fillStyle = shadeOf(s.color, 0.5);
+    ctx.fillStyle = shadeOf(s.color, body);
     ctx.fill();
-    ctx.strokeStyle = shadeOf(s.color, 0.3);
+    ctx.strokeStyle = shadeOf(s.color, edge);
     ctx.lineWidth = hair;
     ctx.stroke();
     ctx.clip();
@@ -109,7 +132,7 @@ const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, 
     ctx.fillStyle = tintOf(s.color, 0.6, 0.22);
     ctx.fillRect(a, snap(mid - height / 4), b - a, hair);
     ctx.fillRect(a, snap(mid + height / 4), b - a, hair);
-    drawWaveLines(ctx, data, { x: a, y: top, w: b - a, h: height, from: from + (a / w) * span, to: from + (b / w) * span, color: tintOf(s.color, 0.82) });
+    drawWaveLines(ctx, data, { x: a, y: top, w: b - a, h: height, from: from + (a / w) * span, to: from + (b / w) * span, color: tintOf(s.color, wave.mix, wave.alpha) });
     ctx.restore();
   }
 };
