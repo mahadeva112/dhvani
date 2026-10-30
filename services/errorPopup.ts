@@ -112,6 +112,8 @@ const stepsFor = (code: string, provider: string, details: unknown): string[] =>
       return ['Check this computer is online (open any website).', 'If you use a VPN or proxy, check it is connected.', 'Then press Try again.'];
     case 'backend_unreachable':
       return ['Close Dhvani completely and open it again.', 'Then press Try again — your project is saved.'];
+    case 'translation_lost':
+      return ['Press Try again — it starts the translation over.', 'If it keeps happening on a long script, use Fast re-translate or translate fewer lines at a time.'];
     case 'output_format_not_allowed':
       return [`Your ${provider} plan does not allow this audio quality. Pick a lower Audio quality in the Dub step, then try again.`];
     case 'payload_too_large':

@@ -1,5 +1,5 @@
 import { AudioSegment, WordTimestamp } from '../types';
-import { apiStream, apiJson, apiUpload, StreamEvent, RequestOptions } from './apiClient';
+import { apiStream, apiJson, apiGet, apiUpload, DhvaniApiError, StreamEvent, RequestOptions } from './apiClient';
 
 /**
  * Client side of the subtitle workflow.
@@ -149,6 +149,70 @@ export const translationFraction = (progress: RetranslateProgress | null): numbe
     ? Math.min(0.98, (progress.done + (progress.step === 'check' ? 0.5 : 0)) / progress.total)
     : null;
 
+interface RetranslateResult {
+  cues: PipelineCue[];
+  translatedSrt: string;
+  untranslatedCueIds: string[];
+}
+
+/** How long the backend may stay out of reach (a watchdog restart takes about a minute). */
+const TRANSLATION_RECONNECT_MS = 150_000;
+const TRANSLATION_POLL_MS = 4_000;
+
+const pause = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(new DhvaniApiError('The translation was cancelled.', { code: 'cancelled' }));
+      },
+      { once: true }
+    );
+  });
+
+/**
+ * Picks up a translation whose stream dropped: asks the backend for the job
+ * until it ends, riding out a short outage. A backend that no longer knows
+ * the job restarted mid-translation, and that work is gone.
+ */
+const awaitTranslationJob = async (
+  jobId: string,
+  { signal, onEvent }: { signal?: AbortSignal; onEvent: (event: StreamEvent) => void }
+): Promise<RetranslateResult> => {
+  let unreachableSince: number | null = null;
+  for (;;) {
+    await pause(TRANSLATION_POLL_MS, signal);
+    let job: { state: string; progress: StreamEvent | null; result: RetranslateResult | null; error: any };
+    try {
+      job = await apiGet(`/pipeline/retranslate/${jobId}`, { signal });
+      unreachableSince = null;
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      if (err instanceof DhvaniApiError && err.code === 'job_not_found') {
+        throw new DhvaniApiError(
+          'The DHVANI backend restarted while it was translating, so this translation was lost. Your cues are unchanged.',
+          { code: 'translation_lost', retryable: true }
+        );
+      }
+      unreachableSince ??= Date.now();
+      if (Date.now() - unreachableSince > TRANSLATION_RECONNECT_MS) throw err;
+      continue;
+    }
+    if (job.state === 'done' && job.result) return job.result;
+    if (job.state === 'failed') {
+      throw new DhvaniApiError(job.error?.message || 'The translation failed.', {
+        code: job.error?.code,
+        provider: job.error?.provider,
+        retryable: job.error?.retryable,
+        details: job.error?.details,
+      });
+    }
+    if (job.progress) onEvent(job.progress);
+  }
+};
+
 /**
  * Re-translates cues that are already transcribed.
  *
@@ -180,28 +244,33 @@ export const retranslateCues = async (
     onProgress?: (progress: RetranslateProgress) => void;
   }
 ): Promise<{ segments: AudioSegment[]; translatedSrt: string; untranslatedCueIds: string[] }> => {
-  const response = await apiStream<{
-    cues: PipelineCue[];
-    translatedSrt: string;
-    untranslatedCueIds: string[];
-  }>(
-    '/pipeline/retranslate',
-    { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt, ...(voiceRate && { voiceRate }), ...(speakerRates && Object.keys(speakerRates).length > 0 && { speakerRates }), ...(fast && { fast }) },
-    {
-      keys,
-      signal,
-      onEvent: (event: StreamEvent) => {
-        const total = Number(event.batchCount) || 0;
-        onProgress?.({
-          done: Math.max(0, (Number(event.batch) || 0) - 1),
-          total,
-          cueCount: Number(event.cueCount) || segments.length,
-          message: String(event.message || '').replace(/\.+$/, ''),
-          step: event.step === 'check' ? 'check' : 'translate',
-        });
-      },
-    }
-  );
+  const report = (event: StreamEvent) => {
+    const total = Number(event.batchCount) || 0;
+    onProgress?.({
+      done: Math.max(0, (Number(event.batch) || 0) - 1),
+      total,
+      cueCount: Number(event.cueCount) || segments.length,
+      message: String(event.message || '').replace(/\.+$/, ''),
+      step: event.step === 'check' ? 'check' : 'translate',
+    });
+  };
+
+  // The backend keeps the translation under this id, so a connection that
+  // drops halfway through a long script no longer loses the work.
+  const jobId = `tr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+  let response: RetranslateResult;
+  try {
+    response = await apiStream<RetranslateResult>(
+      '/pipeline/retranslate',
+      { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt, ...(voiceRate && { voiceRate }), ...(speakerRates && Object.keys(speakerRates).length > 0 && { speakerRates }), ...(fast && { fast }), jobId },
+      { keys, signal, onEvent: report }
+    );
+  } catch (err) {
+    const dropped = err instanceof DhvaniApiError && (err.code === 'backend_unreachable' || err.code === 'incomplete_stream');
+    if (signal?.aborted || !dropped) throw err;
+    response = await awaitTranslationJob(jobId, { signal, onEvent: report });
+  }
 
   // Merge by id so any UI-only field on the original segment survives.
   const byId = new Map(response.cues.map((cue) => [String(cue.id), cue]));

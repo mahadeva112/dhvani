@@ -148,6 +148,14 @@ test('OpenAI-compatible: a gateway that refuses streaming is asked again for one
     assert.equal(response.text, 'whole reply');
     assert.equal(stub.seen.length, 2);
     assert.equal(stub.seen[1].body.stream, undefined);
+
+    // The refusal is remembered: the next call goes straight to a whole reply.
+    await generateContent({
+      contents: { role: 'user', parts: [{ text: 'again' }] },
+      gateway: { url: stub.url, apiKey: 'sk-test', protocol: 'openai', models: ['m'] },
+    });
+    assert.equal(stub.seen.length, 3);
+    assert.equal(stub.seen[2].body.stream, undefined);
   } finally {
     await stub.close();
   }

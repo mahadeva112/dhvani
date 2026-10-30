@@ -102,6 +102,16 @@ const RETRYABLE_STATUS = new Set([408, 425, 429, 500, 502, 503, 504]);
 const STREAM_IDLE_MS = 180000;
 
 /**
+ * A whole reply arrives only once the model has finished, so it gets far
+ * longer than a stream's first bytes: a slow model on a big batch can take
+ * several minutes, and cutting it at three threw the work away and retried.
+ */
+const WHOLE_REPLY_MS = 600000;
+
+/** Gateways that refused `stream`, so later calls skip the refused attempt. */
+const refusesStreaming = new Set();
+
+/**
  * Reads an OpenAI-style server-sent-events reply into one answer.
  *
  * Streaming keeps bytes moving while the model writes, so a proxy in front of
@@ -218,11 +228,11 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
         },
         body: JSON.stringify(payload),
       },
-      { provider: PROVIDER_LABEL, timeoutMs: 180000, retries: 1 }
+      { provider: PROVIDER_LABEL, timeoutMs: payload.stream ? 180000 : WHOLE_REPLY_MS, retries: 1 }
     );
 
   // Streamed, so a long answer never leaves the connection quiet (see readEventStream).
-  let payload = { ...body, stream: true };
+  let payload = refusesStreaming.has(gateway.url) ? body : { ...body, stream: true };
   let response;
   for (;;) {
     try {
@@ -236,7 +246,8 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
         const { response_format, ...withoutJsonMode } = payload;
         payload = withoutJsonMode;
       } else if (payload.stream) {
-        logger.warn('Gateway rejected streaming; retrying with one whole reply.');
+        logger.warn('Gateway rejected streaming; retrying with one whole reply, and asking for whole replies from now on.');
+        refusesStreaming.add(gateway.url);
         const { stream, ...whole } = payload;
         payload = whole;
       } else {

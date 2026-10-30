@@ -501,6 +501,7 @@ preserve the timing guarantee.
 | `POST` | `/api/pipeline/subtitles` | Full workflow; streams NDJSON progress |
 | `POST` | `/api/pipeline/retranslate` | Re-translate existing cues, no re-transcription |
 | `POST` | `/api/transcription` | Transcription only → words, cues, SRT, VTT |
+| `GET` | `/api/pipeline/retranslate/:jobId` | Outcome of a retranslation started with a `jobId`, for an app whose stream dropped |
 | `POST` | `/api/translation/segments` | Translate cue text by id |
 | `POST` | `/api/translation/srt` | Translate a whole `.srt`, timestamps preserved |
 | `POST` | `/api/translation/align` | Spread a pasted script across cues |

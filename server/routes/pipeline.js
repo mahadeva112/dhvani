@@ -5,6 +5,12 @@ import { assertSupportedMedia } from '../lib/media.js';
 import { runSubtitlePipeline } from '../lib/pipeline.js';
 import { ApiError } from '../errors.js';
 import { logger } from '../logger.js';
+import {
+  startTranslationJob,
+  updateTranslationJob,
+  finishTranslationJob,
+  getTranslationJob,
+} from '../lib/translationJobs.js';
 
 export const pipelineRouter = Router();
 
@@ -109,7 +115,7 @@ pipelineRouter.post(
 pipelineRouter.post(
   '/pipeline/retranslate',
   asyncHandler(async (req, res) => {
-    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null, speakerRates = null, fast = false } = req.body || {};
+    const { cues, sourceLanguage = '', targetLanguage, customPrompt = '', voiceRate = null, speakerRates = null, fast = false, jobId } = req.body || {};
 
     if (!Array.isArray(cues) || cues.length === 0) {
       throw new ApiError('No cues were supplied to translate.', { status: 400, code: 'no_cues' });
@@ -141,8 +147,13 @@ pipelineRouter.post(
     res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders?.();
 
+    // With a jobId the translation outlives this request: a dropped connection
+    // no longer loses it, and GET /pipeline/retranslate/:jobId hands it over.
+    const job = startTranslationJob(jobId);
+
     const send = (event) => {
-      if (!res.writableEnded) res.write(`${JSON.stringify(event)}
+      if (job && event.type === 'progress') updateTranslationJob(jobId, event);
+      if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(event)}
 `);
     };
 
@@ -169,7 +180,7 @@ pipelineRouter.post(
 
       assertTimingsPreserved(sourceCues, translatedCues);
 
-      send({
+      const result = {
         type: 'result',
         cues: translatedCues,
         translatedSrt: serializeSrt(translatedCues, { field: 'translatedText' }),
@@ -177,16 +188,37 @@ pipelineRouter.post(
         translationModel: outcome.modelUsed,
         untranslatedCueIds: outcome.missingIds,
         targetLanguage,
-      });
+      };
+      if (job) finishTranslationJob(jobId, { result });
+      send(result);
     } catch (err) {
       const error =
         err instanceof ApiError
           ? err
           : new ApiError(err?.message || 'The translation failed.', { status: 500 });
       logger.error(`Retranslation failed: ${error.message}`);
+      if (job) finishTranslationJob(jobId, { error: error.toJSON().error });
       send({ type: 'error', ...error.toJSON().error });
     } finally {
       res.end();
     }
   })
 );
+
+/**
+ * GET /api/pipeline/retranslate/:jobId
+ *
+ * Where a translation started with a jobId has got: `running` with its last
+ * progress, `done` with the same result the stream would have ended on, or
+ * `failed` with its error. 404 means this backend never ran it (it restarted).
+ */
+pipelineRouter.get('/pipeline/retranslate/:jobId', (req, res) => {
+  const job = getTranslationJob(req.params.jobId);
+  if (!job) {
+    throw new ApiError('This backend has no translation with that id - it may have restarted.', {
+      status: 404,
+      code: 'job_not_found',
+    });
+  }
+  res.json(job);
+});
