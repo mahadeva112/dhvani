@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.11',
+    changes: [
+      'Sync timeline: the waveforms are audio bars again, each line in its own colour, with no marks over them. A line in sync is one colour stacked straight; hover a line to see how it landed.',
+      'A long translation keeps going if the connection to the app drops, and a slow AI model gets more time before it is cut off.',
+    ],
+  },
+  {
     version: '1.4.10',
     changes: [
       'Sync timeline: no more number strips or slanted link lines. Each line has one colour in both lanes, so a line in sync is one colour stacked straight. Four calmer colours that take turns.',
