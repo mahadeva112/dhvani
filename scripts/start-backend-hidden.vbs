@@ -10,18 +10,18 @@
 '
 ' This script is also the backend's watchdog. It waits on node, and when node
 ' stops for any reason (crash, End task, a tool killing node.exe) it starts it
-' again a few seconds later and notes that in the log. A node that is still
-' running but has stopped answering /api/health for about a minute is ended
-' and restarted the same way. While something else
-' already serves the port it only waits, so it never fights a backend that was
+' again a few seconds later and notes that in logs\watchdog.log. A node that
+' is still running but has stopped answering /api/health for about a minute is
+' ended and restarted the same way. While something else already serves the
+' port it only waits, so it never fights a backend that was
 ' started another way. To stop the backend for good, stop the watchdog first:
 '   Stop-ScheduledTask -TaskName "DHVANI Backend"
 ' and then end node.
 
 Option Explicit
 
-Dim shell, fso, root, logDir, logFile, command, port
-Dim exitCode, startedAt, delay, wasWaiting
+Dim shell, fso, root, logDir, logFile, watchdogLog, command, port
+Dim stopReason, startedAt, delay, wasWaiting
 
 Set shell = CreateObject("WScript.Shell")
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -32,6 +32,8 @@ root = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 logDir = fso.BuildPath(root, "logs")
 If Not fso.FolderExists(logDir) Then fso.CreateFolder(logDir)
 logFile = fso.BuildPath(logDir, "backend.log")
+' Its own file: node keeps backend.log open, so lines written there were lost.
+watchdogLog = fso.BuildPath(logDir, "watchdog.log")
 
 shell.CurrentDirectory = root
 port = ReadPort()
@@ -54,7 +56,7 @@ Do
 
     startedAt = Timer
     shell.Run command, 0, False
-    exitCode = WatchBackend()
+    stopReason = WatchBackend()
 
     ' Back off when node dies right after starting (bad build, port race),
     ' so a broken backend doesn't restart in a tight loop.
@@ -65,7 +67,7 @@ Do
       delay = 3
     End If
 
-    LogLine "Backend stopped (exit code " & exitCode & ") - restarting in " & delay & " s."
+    LogLine "Backend " & stopReason & " - restarting in " & delay & " s."
     WScript.Sleep delay * 1000
   End If
 Loop
@@ -80,7 +82,7 @@ Function WatchBackend()
   WScript.Sleep 5000
   Do
     If Not NodeRunning(False) Then
-      WatchBackend = 0
+      WatchBackend = "stopped"
       Exit Function
     End If
     If Elapsed(startedAt) > 30 Then started = True
@@ -92,7 +94,7 @@ Function WatchBackend()
         If misses >= 6 Then
           LogLine "Backend stopped answering for about a minute - ending it."
           NodeRunning True
-          WatchBackend = -2
+          WatchBackend = "was ended"
           Exit Function
         End If
       End If
@@ -158,13 +160,13 @@ Function Elapsed(since)
   Elapsed = seconds
 End Function
 
-' The log may be held open by a backend writing to it; a missed line is fine.
+' A missed line is fine, but should not stop the watchdog.
 Sub LogLine(message)
   Dim f, stamp
   stamp = Year(Now) & "-" & Right("0" & Month(Now), 2) & "-" & Right("0" & Day(Now), 2) & " " & _
     Right("0" & Hour(Now), 2) & ":" & Right("0" & Minute(Now), 2) & ":" & Right("0" & Second(Now), 2)
   On Error Resume Next
-  Set f = fso.OpenTextFile(logFile, 8, True)
+  Set f = fso.OpenTextFile(watchdogLog, 8, True)
   f.WriteLine "[" & stamp & "] WATCHDOG " & message
   f.Close
   On Error GoTo 0

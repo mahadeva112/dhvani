@@ -87,7 +87,7 @@ Register-ScheduledTask `
     -Force | Out-Null
 
 Write-Host "Registered '$TaskName' - the backend now starts at every logon." -ForegroundColor Green
-Write-Host "  Logs:      $(Join-Path $Root 'logs\backend.log')"
+Write-Host "  Logs:      $(Join-Path $Root 'logs\backend.log'), restarts in $(Join-Path $Root 'logs\watchdog.log')"
 Write-Host "  Start now: Start-ScheduledTask -TaskName '$TaskName'"
 Write-Host "  Stop:      Stop-ScheduledTask -TaskName '$TaskName', then end node (otherwise it comes back)"
 Write-Host "  Remove:    powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1 -Uninstall"
