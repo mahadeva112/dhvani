@@ -4032,11 +4032,6 @@ export default function App() {
         onOpenSyncSettings={() => setSyncSettingsRequest((n) => n + 1)}
         pauseSensitivity={activeJob?.analysisSensitivity ?? 50}
         projects={queue}
-        onSelectProject={handleSelectJob}
-        onRenameProject={handleRenameJob}
-        onRemoveProject={handleRemoveJobFromQueue}
-        onExportProject={handleExportProject}
-        onImportProject={handleImportProject}
         onResetSession={handleResetSession}
       />
 
@@ -4413,6 +4408,7 @@ export default function App() {
         onRemoveJob={handleRemoveJobFromQueue}
         onRenameJob={handleRenameJob}
         onExportJob={handleExportProject}
+        onImportProject={handleImportProject}
         onClearQueue={handleClearAllQueue}
         onNewDub={activeJob ? handleResetSession : undefined}
         onAddFiles={handleAddFilesToQueue}

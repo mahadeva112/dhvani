@@ -19,7 +19,6 @@ import {
 } from 'lucide-react';
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported, useUpdateState } from './UpdateControl';
-import { ProjectsMenu } from './ProjectsMenu';
 import { CenteredPanel } from './CenteredPanel';
 import { HubMeter, ToolsHub, type ToolsHubItem } from './ToolsHub';
 import { readOptions } from './SyncPanel';
@@ -109,17 +108,10 @@ export interface ProHeaderProps {
   onOpenSyncSettings?: () => void;
   pauseSensitivity?: number;
   onResetSession?: () => void;
-  /** Opens Your projects, the full list. */
+  /** Opens Your projects, the full list (the header's Projects button). */
   onOpenQueue?: () => void;
-  /** Every saved project, newest first, for the projects menu. */
+  /** Every saved project, for the count on the Projects button. */
   projects?: BatchJob[];
-  onSelectProject?: (id: string) => void;
-  onRenameProject?: (id: string, name: string) => void;
-  onRemoveProject?: (id: string) => void;
-  /** Saves a project as a .dhvani file. */
-  onExportProject?: (id: string, options?: { light?: boolean }) => Promise<void>;
-  /** Opens a .dhvani file as a new project. */
-  onImportProject?: (file: File) => Promise<void>;
 }
 
 const formatClock = (seconds: number) => {
@@ -250,19 +242,12 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   onResetSession,
   onOpenQueue,
   projects = [],
-  onSelectProject,
-  onRenameProject,
-  onRemoveProject,
-  onExportProject,
-  onImportProject,
 }) => {
   const [toolsOpen, setToolsOpen] = React.useState(false);
   const [servicesOpen, setServicesOpen] = React.useState(false);
-  const [projectsOpen, setProjectsOpen] = React.useState(false);
   const toolsRef = React.useRef<HTMLDivElement>(null);
   const closeTools = React.useCallback(() => setToolsOpen(false), []);
   const closeServices = React.useCallback(() => setServicesOpen(false), []);
-  const closeProjects = React.useCallback(() => setProjectsOpen(false), []);
 
 
   const hasCues = Boolean(activeJob && activeJob.segments.length > 0);
@@ -296,7 +281,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       if (!toolsOpen && document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       e.preventDefault();
       setServicesOpen(false);
-      setProjectsOpen(false);
       setToolsOpen((o) => !o);
     };
     window.addEventListener('keydown', onKey);
@@ -633,7 +617,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               type="button"
               onClick={() => {
                 setToolsOpen(false);
-                setProjectsOpen(false);
                 setServicesOpen((o) => !o);
               }}
               aria-haspopup="dialog"
@@ -777,48 +760,27 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
             </CenteredPanel>
           </div>
 
-          {onSelectProject && (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => {
-                  setToolsOpen(false);
-                  setServicesOpen(false);
-                  setProjectsOpen((o) => !o);
-                }}
-                aria-haspopup="dialog"
-                aria-expanded={projectsOpen}
-                className={`relative h-[34px] px-2.5 flex items-center gap-1.5 rounded-[9px] border text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default ${
-                  projectsOpen
-                    ? 'bg-slate-800 border-slate-700 text-slate-100'
-                    : 'border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
-                }`}
-                title="Your projects"
-                aria-label={projects.length > 0 ? `Your projects, ${projects.length}` : 'Your projects'}
-              >
-                <FolderOpen className="w-4 h-4" />
-                <span className="hidden lg:inline">Projects</span>
-                {projects.length > 0 && (
-                  <span className="min-w-[17px] h-[17px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-mono font-semibold flex items-center justify-center">
-                    {projects.length}
-                  </span>
-                )}
-              </button>
-              <CenteredPanel open={projectsOpen} onClose={closeProjects} label="Your projects" className="max-w-[28rem] p-2.5">
-                <ProjectsMenu
-                  projects={projects}
-                  activeJobId={activeJob?.id ?? null}
-                  onSelect={onSelectProject}
-                  onRename={(id, name) => onRenameProject?.(id, name)}
-                  onRemove={(id) => onRemoveProject?.(id)}
-                  onExport={onExportProject}
-                  onImport={onImportProject}
-                  onNewDub={activeJob ? onResetSession : undefined}
-                  onSeeAll={onOpenQueue}
-                  onClose={closeProjects}
-                />
-              </CenteredPanel>
-            </div>
+          {onOpenQueue && (
+            <button
+              type="button"
+              onClick={() => {
+                setToolsOpen(false);
+                setServicesOpen(false);
+                onOpenQueue();
+              }}
+              aria-haspopup="dialog"
+              className="relative h-[34px] px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default"
+              title="Your projects"
+              aria-label={projects.length > 0 ? `Your projects, ${projects.length}` : 'Your projects'}
+            >
+              <FolderOpen className="w-4 h-4" />
+              <span className="hidden lg:inline">Projects</span>
+              {projects.length > 0 && (
+                <span className="min-w-[17px] h-[17px] px-1 rounded-full bg-indigo-500 text-white text-[10px] font-mono font-semibold flex items-center justify-center">
+                  {projects.length}
+                </span>
+              )}
+            </button>
           )}
 
           <div className="relative" ref={toolsRef}>
@@ -826,7 +788,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               type="button"
               onClick={() => {
                 setServicesOpen(false);
-                setProjectsOpen(false);
                 setToolsOpen((o) => !o);
               }}
               aria-haspopup="dialog"

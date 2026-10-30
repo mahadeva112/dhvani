@@ -13,6 +13,7 @@ import {
   FolderOpen,
   Pencil,
   FileDown,
+  FileUp,
 } from 'lucide-react';
 import { BatchJob } from '../types';
 import { jobStage, projectName, projectWhen, StageKind } from '../services/projects';
@@ -41,8 +42,10 @@ interface BatchQueueModalProps {
   onSelectJob: (id: string) => void;
   onRemoveJob: (id: string) => void;
   onRenameJob: (id: string, name: string) => void;
-  /** Saves a project as a .dhvani file: its media, edits and takes. */
-  onExportJob?: (id: string) => Promise<void>;
+  /** Saves a project as a .dhvani file: its media, edits and takes; `light` leaves out the original and the takes not playing. */
+  onExportJob?: (id: string, options?: { light?: boolean }) => Promise<void>;
+  /** Opens a .dhvani file or a Dhvani JSON as a new project. */
+  onImportProject?: (file: File) => Promise<void>;
   onClearQueue: () => void;
   /** Starts a new project beside these; shown while one is open. */
   onNewDub?: () => void;
@@ -60,6 +63,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
   onRemoveJob,
   onRenameJob,
   onExportJob,
+  onImportProject,
   onClearQueue,
   onNewDub,
   onAddFiles,
@@ -76,6 +80,10 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
   const [confirmClear, setConfirmClear] = useState(false);
   // Packing a project with its video takes a moment; its row shows it.
   const [exportingId, setExportingId] = useState<string | null>(null);
+  // Export asks which file first: the whole project, or Light (no original).
+  const [exportChoiceId, setExportChoiceId] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
 
   const completedJobs = queue.filter((j) => jobStage(j).kind === 'dubbed');
 
@@ -237,6 +245,22 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
     </button>
   );
 
+  const importButton = (large = false) =>
+    onImportProject && (
+      <button
+        type="button"
+        disabled={importing}
+        onClick={() => importInputRef.current?.click()}
+        className={`${
+          large ? 'h-[38px] px-4 rounded-[10px] text-[13px]' : 'h-[34px] px-3 rounded-[9px] text-[12.5px]'
+        } flex items-center gap-1.5 border border-slate-800 bg-slate-900 hover:bg-slate-800 font-medium text-slate-200 shrink-0 disabled:opacity-60 cursor-default`}
+        title={`Open a ${PROJECT_FILE_EXTENSION} project or a Dhvani JSON as a new project`}
+      >
+        {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
+        {importing ? 'Opening…' : 'Import project'}
+      </button>
+    );
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
@@ -262,6 +286,25 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
             e.target.value = '';
           }}
         />
+        {onImportProject && (
+          <input
+            ref={importInputRef}
+            type="file"
+            accept={`${PROJECT_FILE_EXTENSION},application/zip,.json,application/json`}
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              setImporting(true);
+              // A failed import shows the error popup; either way the project (or what it asks for) is behind this window.
+              onImportProject(file).finally(() => {
+                setImporting(false);
+                onClose();
+              });
+            }}
+          />
+        )}
 
         {/* Header */}
         <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
@@ -297,7 +340,10 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
             <p className="text-[13px] text-slate-400 max-w-[44ch]">
               Add several talks at once. Each becomes its own dub, and you can switch between them from here. You can also drop files onto this window.
             </p>
-            <div className="mt-2">{addButton(true)}</div>
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              {addButton(true)}
+              {importButton(true)}
+            </div>
           </div>
         ) : (
           <>
@@ -322,6 +368,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                     ))}
                 </div>
               </div>
+              {importButton()}
               {addButton()}
             </div>
 
@@ -447,12 +494,13 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                           type="button"
                           disabled={exportingId !== null}
                           onClick={() => {
-                            setExportingId(job.id);
-                            onExportJob(job.id).finally(() => setExportingId(null));
+                            setConfirmRemoveId(null);
+                            setExportChoiceId(exportChoiceId === job.id ? null : job.id);
                           }}
+                          aria-expanded={exportChoiceId === job.id}
                           className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-slate-100 hover:bg-slate-800 disabled:hover:bg-transparent disabled:hover:text-slate-500 cursor-default"
                           aria-label={`Export ${name}`}
-                          title={`Export project (${PROJECT_FILE_EXTENSION}): media, edits and takes, to open again later or on another computer`}
+                          title={`Export project (${PROJECT_FILE_EXTENSION}), whole or light, to open again later or on another computer`}
                         >
                           {exportingId === job.id ? (
                             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -465,6 +513,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                         type="button"
                         onClick={() => {
                           setConfirmRemoveId(null);
+                          setExportChoiceId(null);
                           setEditingId(job.id);
                         }}
                         className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-default"
@@ -477,6 +526,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                         type="button"
                         onClick={() => {
                           setEditingId(null);
+                          setExportChoiceId(null);
                           setConfirmRemoveId(job.id);
                         }}
                         className="w-8 h-8 flex items-center justify-center rounded-[9px] text-slate-500 hover:text-rose-300 hover:bg-slate-800 cursor-default"
@@ -489,6 +539,32 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
 
                     {stage.kind === 'error' && job.errorMsg && (
                       <span className="col-start-2 col-span-2 sm:col-span-3 text-[11.5px] text-rose-300 leading-snug">{job.errorMsg}</span>
+                    )}
+
+                    {exportChoiceId === job.id && onExportJob && (
+                      <div className="col-span-3 sm:col-span-4 flex flex-col gap-1 p-1.5 rounded-[10px] bg-slate-800/60 text-[12.5px] text-slate-200">
+                        {(
+                          [
+                            { light: false, label: 'Whole project', detail: 'Original, edits, every take. To open again later or on another computer.' },
+                            { light: true, label: 'Light', detail: 'The dub without the original, only the takes that play. Smaller, for the script person.' },
+                          ] as const
+                        ).map((choice) => (
+                          <button
+                            key={choice.label}
+                            type="button"
+                            disabled={exportingId !== null}
+                            onClick={() => {
+                              setExportChoiceId(null);
+                              setExportingId(job.id);
+                              onExportJob(job.id, { light: choice.light }).finally(() => setExportingId(null));
+                            }}
+                            className="text-left px-2.5 py-1.5 rounded-[7px] hover:bg-slate-700/70 cursor-default disabled:opacity-50"
+                          >
+                            <span className="block font-semibold text-slate-100">{choice.label}</span>
+                            <span className="block text-[11.5px] text-slate-400">{choice.detail}</span>
+                          </button>
+                        ))}
+                      </div>
                     )}
 
                     {/* Deleting loses the project's file, translation and dub, so it asks first. */}
