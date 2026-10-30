@@ -192,9 +192,11 @@ pipelineRouter.post(
         onBatchDone: job ? (progress) => saveCheckpoint(jobId, fingerprint, progress) : undefined,
       });
 
+      // `pausedText` is the line as the voice says it, with the speaker's pauses kept (translationPauses.js).
       const translatedCues = retextCues(sourceCues, outcome.translations, 'translatedText').map((cue) => ({
         ...cue,
         translatedText: cue.translatedText || cue.text,
+        ...(outcome.pausedTexts?.has(cue.id) && { pausedText: outcome.pausedTexts.get(cue.id) }),
       }));
 
       assertTimingsPreserved(sourceCues, translatedCues);

@@ -144,6 +144,8 @@ export const runSubtitlePipeline = async (
       // A cue the model skipped keeps its source text so the SRT stays complete
       // and cue numbering never shifts.
       translatedText: cue.translatedText || cue.text,
+      // The line as the voice says it, with the speaker's pauses kept (translationPauses.js).
+      ...(outcome.pausedTexts?.has(cue.id) && { pausedText: outcome.pausedTexts.get(cue.id) }),
     }));
 
     assertTimingsPreserved(sourceCues, translatedCues);

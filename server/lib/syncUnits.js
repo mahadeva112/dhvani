@@ -12,6 +12,8 @@
 
 import { DEFAULT_JOIN_SETTINGS, MAX_KEPT_PAUSE_SECONDS } from './syncSettings.js';
 import { endsSentence } from './ttsText.js';
+import { MAX_PAUSE_SECONDS, stripPauses } from './linePauses.js';
+import { TRANSLATION_PAUSE_SECONDS } from './translationPauses.js';
 
 /** Cues closer together than this were spoken as one phrase (the default; see syncSettings.js). */
 export const UNIT_GAP_SECONDS = DEFAULT_JOIN_SETTINGS.unitGap;
@@ -36,8 +38,33 @@ export const MAX_UNIT_SECONDS = DEFAULT_JOIN_SETTINGS.maxUnit;
 export const MAX_SENTENCE_UNIT_SECONDS = 30;
 
 const cueText = (segment) => String(segment?.textTarget || segment?.targetText || '').trim();
-/** What a cue is voiced from: its text with delivery tags (voice expression Natural), or its text. */
-const cueVoiceText = (segment) => String(segment?.voiceText || '').trim() || cueText(segment);
+
+/**
+ * The cue's line with the speaker's pauses its translation kept
+ * (translationPauses.js), while the cue still says that translation; null
+ * once the line was edited, or for one translated before pauses were kept.
+ */
+const pausedText = (segment) => {
+  const paused = String(segment?.pausedTarget || '').trim();
+  return paused && stripPauses(paused) === cueText(segment) ? paused : null;
+};
+
+/** What a cue is voiced from: its text with delivery tags (voice expression Natural), else with the speaker's pauses, else its text. */
+const cueVoiceText = (segment) => String(segment?.voiceText || '').trim() || pausedText(segment) || cueText(segment);
+
+/**
+ * The pause the voice makes between two cues joined in one unit: a pause
+ * mark as long as the speaker's silence between them, when it is a real
+ * pause and the first cue doesn't end a sentence (the voice stops there by
+ * itself). Only between cues voiced from their pause-keeping translations,
+ * so a line typed or edited by hand is voiced as it always was.
+ */
+const pauseBetween = (previous, cue) => {
+  const gap = cue.startTime - previous.endTime;
+  if (!(gap >= TRANSLATION_PAUSE_SECONDS) || endsSentence(cueText(previous))) return '';
+  if (String(previous.voiceText || cue.voiceText || '').trim() || !pausedText(previous) || !pausedText(cue)) return '';
+  return `[pause ${Math.min(MAX_PAUSE_SECONDS, gap).toFixed(1)}s] `;
+};
 const cueSourceText = (segment) => String(segment?.textSource || segment?.originalText || '').trim();
 
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
@@ -76,7 +103,8 @@ export const buildSyncUnits = (segments = [], { unitGap = UNIT_GAP_SECONDS, maxU
     if (joins) {
       current.cueIds.push(cue.id);
       current.text += ` ${cueText(cue)}`;
-      current.voiceText += ` ${cueVoiceText(cue)}`;
+      current.voiceText += ` ${pauseBetween(current.last, cue)}${cueVoiceText(cue)}`;
+      current.last = cue;
       current.sourceText = [current.sourceText, cueSourceText(cue)].filter(Boolean).join(' ');
       current.srcEnd = Math.max(current.srcEnd, cue.endTime);
     } else {
@@ -88,12 +116,14 @@ export const buildSyncUnits = (segments = [], { unitGap = UNIT_GAP_SECONDS, maxU
         srcStart: cue.startTime,
         srcEnd: cue.endTime,
         speaker: cue.speaker || null,
+        // The unit's last cue so far, for the pause before the next one.
+        last: cue,
       };
       units.push(current);
     }
   }
 
-  return units.map((unit, index) => {
+  return units.map(({ last, ...unit }, index) => {
     const previous = units[index - 1];
     const next = units[index + 1];
     const gapBefore = previous ? unit.srcStart - previous.srcEnd : null;

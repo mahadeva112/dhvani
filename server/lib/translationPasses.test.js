@@ -142,21 +142,106 @@ test('a batch far too long after its checks is translated once more, and the bet
   assert.equal(once.retriedBatches, 0);
 });
 
-test('later batches are told how earlier ones said the key terms', async () => {
-  const cues = Array.from({ length: 10 }, (_, i) => ({ id: String(i + 1), startTime: i * 2, endTime: i * 2 + 2, text: i === 7 ? 'Inertia is settled.' : 'line' }));
-  const { generate, prompts } = fakeModel((prompt) => {
-    const ids = [...prompt.matchAll(/"id": "(\d+)"/g)].map((m) => m[1]);
-    return {
-      translations: ids.map((id) => ({ id, translatedText: id === '2' ? 'জড়তা বসে' : say(10) })),
-      terms: [{ english: 'inertia', translated: 'জড়তা' }],
-    };
-  });
+test('every batch is told the key terms read from the whole talk first, and batches run three at a time', async () => {
+  const cues = Array.from({ length: 30 }, (_, i) => ({ id: String(i + 1), startTime: i * 2, endTime: i * 2 + 2, text: i === 27 ? 'Inertia is settled.' : 'line' }));
+  const prompts = [];
+  let running = 0;
+  let most = 0;
+  const generate = async ({ contents }) => {
+    const prompt = contents.parts[0].text;
+    prompts.push(prompt);
+    let answer = { translations: [] };
+    if (prompt.includes('preparing the glossary')) answer = { terms: [{ english: 'inertia', translated: 'জড়তা' }] };
+    else if (prompt.includes('strict reviewer')) answer = { sentences: [] };
+    else if (prompt.includes('professional dubbing translator')) {
+      running += 1;
+      most = Math.max(most, running);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      running -= 1;
+      const ids = [...prompt.split('CUES (JSON)')[1].matchAll(/"id": "(\d+)"/g)].map((m) => m[1]);
+      answer = { translations: ids.map((id) => ({ id, translatedText: id === '28' ? 'জড়তা বসে।' : say(10) })) };
+    }
+    return { response: { text: JSON.stringify(answer) }, modelUsed: 'fake' };
+  };
   const out = await translateCueTexts(cues, { targetLanguage: 'Bengali', voiceRate: 5, batchSize: 5, generate });
+  assert.match(prompts[0], /preparing the glossary[\s\S]*Inertia is settled\./);
   const translatePrompts = prompts.filter((p) => p.includes('professional dubbing translator'));
-  assert.equal(translatePrompts.length, 2);
-  assert.doesNotMatch(translatePrompts[0], /KEY TERMS SO FAR/);
-  assert.match(translatePrompts[1], /KEY TERMS SO FAR[\s\S]*- inertia → জড়তা/);
+  assert.equal(translatePrompts.length, 6);
+  assert.ok(translatePrompts.every((p) => /KEY TERMS SO FAR[\s\S]*- inertia → জড়তা/.test(p)));
+  assert.equal(most, 3);
+  assert.equal(out.translatedCount, 30);
   assert.deepEqual(out.terms, [{ english: 'inertia', translated: 'জড়তা' }]);
+
+  // A glossary that fails leaves the batches to share their own terms, as before.
+  const noGlossary = fakeModel((prompt) => ({ translations: [...prompt.split('CUES (JSON)')[1].matchAll(/"id": "(\d+)"/g)].map((m) => ({ id: m[1], translatedText: say(10) })) }));
+  const plain = await translateCueTexts(cues.slice(0, 10), { targetLanguage: 'Bengali', voiceRate: 5, batchSize: 5, generate: noGlossary.generate });
+  assert.equal(plain.translatedCount, 10);
+  assert.ok(noGlossary.prompts.some((p) => p.includes('preparing the glossary')));
+});
+
+/** A cue whose speaker pauses 0.5 s after "And then", and once more, 0.4 s, after "I sat". */
+const pausing = {
+  id: '1',
+  startTime: 0,
+  endTime: 4,
+  text: 'And then I sat, and realized it.',
+  words: [
+    { text: 'And', start: 0, end: 0.3 },
+    { text: 'then', start: 0.3, end: 0.8 },
+    { text: 'I', start: 1.3, end: 1.4 },
+    { text: 'sat,', start: 1.4, end: 1.9 },
+    { text: 'and', start: 2.3, end: 2.5 },
+    { text: 'realized', start: 2.5, end: 3.4 },
+    { text: 'it.', start: 3.45, end: 4 },
+  ],
+};
+
+test("a cue is sent with its speaker's pauses, and each piece is sized for the time it was said in", async () => {
+  const { generate, prompts } = fakeModel(() => ({ translations: [{ id: '1', translatedText: 'আর তারপর ‖ আমি বসলাম, ‖ আর বুঝলাম।' }] }));
+  const out = await translateCueTexts([pausing], { targetLanguage: 'Bengali', voiceRate: 5, check: false, generate });
+  const prompt = prompts[0];
+  assert.match(prompt, /PAUSES\nA "‖" in a cue's text/);
+  assert.match(prompt, /"text": "And then ‖ I sat, ‖ and realized it\."/);
+  // 4 s less the 0.9 s of pauses, at 5 syllables a second.
+  assert.match(prompt, /"syllables": 16/);
+  assert.match(prompt, /"partSyllables": \[\s*4,\s*3,\s*9\s*\]/);
+  assert.equal(out.translations.get('1'), 'আর তারপর আমি বসলাম, আর বুঝলাম।');
+  assert.equal(out.pausedTexts.get('1'), 'আর তারপর [pause 0.5s] আমি বসলাম, [pause 0.4s] আর বুঝলাম।');
+});
+
+test('a line that comes back with another number of pause marks keeps none, and a cue without pauses is sent as before', async () => {
+  const cues = [pausing, { id: '2', startTime: 4, endTime: 6, text: 'That was all.' }];
+  const { generate, prompts } = fakeModel(() => ({
+    translations: [
+      { id: '1', translatedText: 'আর তারপর আমি বসলাম ‖ আর বুঝলাম।' },
+      { id: '2', translatedText: 'এটুকুই ‖ ছিল।' },
+    ],
+  }));
+  const out = await translateCueTexts(cues, { targetLanguage: 'Bengali', check: false, generate });
+  assert.match(prompts[0], /"text": "That was all\."/);
+  assert.equal(out.translations.get('1'), 'আর তারপর আমি বসলাম আর বুঝলাম।');
+  assert.equal(out.pausedTexts.get('1'), 'আর তারপর আমি বসলাম আর বুঝলাম।');
+  assert.equal(out.translations.get('2'), 'এটুকুই ছিল।');
+
+  // No pauses in a batch: no PAUSES directive at all.
+  const quiet = fakeModel(() => ({ translations: [{ id: '2', translatedText: 'এটুকুই ছিল।' }] }));
+  await translateCueTexts(cues.slice(1), { targetLanguage: 'Bengali', check: false, generate: quiet.generate });
+  assert.doesNotMatch(quiet.prompts[0], /PAUSES/);
+});
+
+test("the checks keep a line's pause marks: fixes are told to, and the reviewer never sees them", async () => {
+  const cues = [{ id: '1', text: 'And then I sat, and realized it.', pausedText: 'And then ‖ I sat, ‖ and realized it.', syllables: 6, pauses: [0.5, 0.4] }];
+  const prompts = [];
+  const answers = [{ sentences: [] }, { translations: [{ id: '1', translatedText: 'তারপর ‖ বসলাম, ‖ বুঝলাম।' }] }];
+  const ask = async (prompt) => {
+    prompts.push(prompt);
+    return answers.shift();
+  };
+  const out = await refineBatch(cues, new Map([['1', 'আর তারপর ‖ আমি বসলাম, ‖ আর বুঝলাম।']]), { targetLanguage: 'Bengali', ask });
+  assert.doesNotMatch(prompts[0], /‖/);
+  assert.match(prompts[1], /Keep every "‖" a translation has/);
+  assert.match(prompts[1], /"english": "And then ‖ I sat, ‖ and realized it\."/);
+  assert.equal(out.translations.get('1'), 'তারপর ‖ বসলাম, ‖ বুঝলাম।');
 });
 
 test('a key term said with another word is found; its inflected forms are not', () => {

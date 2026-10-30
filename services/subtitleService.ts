@@ -19,6 +19,8 @@ export interface PipelineCue {
   speaker: string;
   text: string;
   translatedText?: string;
+  /** The translation with the speaker's pauses as pause marks, for the voice only. */
+  pausedText?: string;
   words: WordTimestamp[];
 }
 
@@ -57,6 +59,7 @@ export const cuesToSegments = (cues: PipelineCue[]): AudioSegment[] =>
     speaker: cue.speaker || 'Speaker',
     textSource: cue.text || '',
     textTarget: cue.translatedText ?? cue.text ?? '',
+    ...(cue.pausedText && { pausedTarget: cue.pausedText }),
     // Retained verbatim so SRT export can cut cues on real word boundaries.
     words: cue.words || [],
     timingSource: 'elevenlabs',
@@ -295,6 +298,8 @@ export const retranslateCues = async (
         // startTime / endTime deliberately untouched.
         textTarget: translated,
         targetText: translated,
+        // A new translation replaces the pauses of the one before.
+        pausedTarget: cue.pausedText || undefined,
       } as AudioSegment;
     }),
     translatedSrt: response.translatedSrt,

@@ -32,6 +32,12 @@ export interface AudioSegment {
   speaker?: string;
   textSource?: string; // Transcribed source-language text
   textTarget?: string; // Translated text (timings are NOT re-derived from it)
+  /**
+   * The translation as the voice says it: `textTarget` with a pause mark
+   * (`[pause 0.6s]`) where the original speaker paused. Sync voices it only
+   * while `textTarget` is still that translation; an edit leaves it unused.
+   */
+  pausedTarget?: string;
   emotion?: string; // Specific tone or vocal style
   speedRate?: number; // Target speed pacing
   /**

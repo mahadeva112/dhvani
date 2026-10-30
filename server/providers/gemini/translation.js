@@ -18,7 +18,9 @@ import {
   buildMeaningFixPrompt,
   readMeaningIssues,
   readFix,
+  MAX_TERMS,
 } from '../../lib/translationChecks.js';
+import { cuePauses, partSyllables, readPausedLine, withoutSplits, PAUSE_SPLIT } from '../../lib/translationPauses.js';
 
 /**
  * Gemini translation.
@@ -60,9 +62,14 @@ export const cleanSpeakerRates = (value) =>
 /** The rate of the voice that speaks `cue`: its speaker's own, else the main voice's `rate`. */
 export const rateForCue = (cue, rate, speakerRates = {}) => speakerRates[cue.speaker || 'Speaker'] ?? rate;
 
-/** Syllables the voice says at `rate` in the time the speaker took for `cue`, or null without timings. */
-export const syllableTarget = (cue, rate) => {
-  const seconds = Number(cue.endTime) - Number(cue.startTime);
+/**
+ * Syllables the voice says at `rate` in the time the speaker took for `cue`,
+ * or null without timings. `silent` seconds of it are pauses the dub keeps
+ * (translationPauses.js): the voice is quiet then too, so they are not time
+ * to talk in.
+ */
+export const syllableTarget = (cue, rate, silent = 0) => {
+  const seconds = Number(cue.endTime) - Number(cue.startTime) - silent;
   return rate && seconds > 0 ? Math.max(1, Math.round(seconds * rate)) : null;
 };
 
@@ -74,13 +81,20 @@ Each cue has a "syllables" number: about how many ${targetLanguage} syllables th
 - Never pad a short cue with words the speaker did not say. A very short cue (a word or two) takes the last word or words of its sentence, even if that runs a little long; it never gets a filler word of its own.
 - A clear, natural line a little over is better than a line squeezed until it is unclear, and never invert the language's normal word order to save syllables.`;
 
+const pauseDirective = (targetLanguage) => `PAUSES
+A "${PAUSE_SPLIT}" in a cue's text is where the speaker stopped for a moment inside that cue. The dub voice stops at the same places, so its line stays with the speaker:
+- Put a "${PAUSE_SPLIT}" in your translation of that cue at the matching place: the same number of "${PAUSE_SPLIT}" as the English cue, in the same order, each between the same two ideas, so what comes before each "${PAUSE_SPLIT}" says what came before it in the English.
+- Each piece between the marks is a natural spoken phrase that can stand before a short silence. "partSyllables" is about how many syllables each piece has time for.
+- If ${targetLanguage}'s own word order cannot keep a pause where the English has it without sounding unnatural, leave out every "${PAUSE_SPLIT}" of that cue. Never bend the word order to keep one.
+- Never put a "${PAUSE_SPLIT}" in a cue that has none, and never mark a pause any other way: no "…" and no extra comma for it.`;
+
 /** Lines around a batch, read for context only: the end of the batch before (with how it was translated) and the start of the next. */
 const contextBlock = (before = [], after = []) => {
   if (!before.length && !after.length) return '';
   const lines = [];
   if (before.length) {
-    lines.push('Just before these cues (already translated, do not translate again):');
-    for (const cue of before) lines.push(`- "${cue.text}" → "${cue.translatedText ?? ''}"`);
+    lines.push('Just before these cues (translated in another part, do not translate again):');
+    for (const cue of before) lines.push(cue.translatedText ? `- "${cue.text}" → "${withoutSplits(cue.translatedText)}"` : `- "${cue.text}"`);
   }
   if (after.length) {
     lines.push('Just after these cues (translated in the next part, do not translate now):');
@@ -89,8 +103,17 @@ const contextBlock = (before = [], after = []) => {
   return `\nCONTEXT\n${lines.join('\n')}\n`;
 };
 
+/** A cue as the model reads it: its text with "‖" where the speaker paused, and the syllables it (and each piece) has time for. */
+const promptCue = ({ id, text, pausedText, syllables, partSyllables: parts }) => ({
+  id,
+  text: pausedText ?? text,
+  ...(syllables && { syllables }),
+  ...(parts && { partSyllables: parts }),
+});
+
 const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms = [] }) => {
   const sized = batch.some((cue) => cue.syllables);
+  const paused = batch.some((cue) => cue.pausedText);
   const styleDirective = customPrompt?.trim()
     ? `TRANSLATION STYLE & PERSONA DIRECTIVE (follow strictly):\n${customPrompt.trim()}`
     : `TRANSLATION STYLE:\nNatural, idiomatic, context-aware ${targetLanguage}. Preserve meaning, register and emotional tone. Do not translate proper nouns or established technical/brand terms.`;
@@ -129,7 +152,7 @@ These lines will be spoken aloud by a voice as a dub, and must sound like a pers
 - Punctuate for the ear: commas where the speaker breathes, "?" and "!" where their voice rises, "…" where a thought trails off.
 - Write out anything a voice would stumble on: no abbreviations, symbols, brackets or slashes; numbers as they are said.
 The style directive above still sets the tone (formal, witty, cinematic...) — this only makes it sound spoken.
-${sized ? `\n${lengthDirective(targetLanguage)}\n` : ''}${contextBlock(before, after)}${termsBlock(terms)}
+${sized ? `\n${lengthDirective(targetLanguage)}\n` : ''}${paused ? `\n${pauseDirective(targetLanguage)}\n` : ''}${contextBlock(before, after)}${termsBlock(terms)}
 HARD RULES
 1. Return exactly one translation for every input id. Never merge, split, drop or reorder cues, and never leave a cue empty.
 2. Copy each "id" back verbatim.
@@ -140,7 +163,7 @@ HARD RULES
 7. Sound notes in square brackets, such as [laughs] or [applause], are not speech: copy each one exactly as it is, in English, where it stands. Never translate, drop or add one.
 
 INPUT CUES (JSON):
-${JSON.stringify(batch.map(({ id, text, syllables }) => (syllables ? { id, text, syllables } : { id, text })), null, 2)}
+${JSON.stringify(batch.map(promptCue), null, 2)}
 
 KEY TERMS
 A key term (a concept, a name, a technical word; not everyday words) that comes up more than once is said with the same ${targetLanguage} word each time. After translating, list up to 6 key terms of these cues that may come back later in the talk, each with the exact ${targetLanguage} word your translation used for it.
@@ -420,24 +443,242 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
   };
 };
 
+/** Batches a full translation (each with its checks) sends at once, after its glossary. */
+export const FULL_PARALLEL = 3;
+
+/** The most transcript text the glossary is read from: well over a two-hour talk. */
+const GLOSSARY_CHARS = 200000;
+
+const buildGlossaryPrompt = ({ translatable, sourceLanguage, targetLanguage, customPrompt }) => {
+  const script = scriptOf(targetLanguage);
+  let text = '';
+  for (const cue of translatable) {
+    if (text.length + cue.text.length > GLOSSARY_CHARS) break;
+    text += `${cue.text}\n`;
+  }
+  return `You are preparing the glossary for a ${targetLanguage} dubbing translation of one talk, before its parts are translated at the same time by different translators.
+${sourceLanguage && sourceLanguage !== 'Auto Detect' ? `The source language is ${sourceLanguage}.\n` : ''}${customPrompt?.trim() ? `\nTRANSLATION STYLE (the translators follow it):\n${customPrompt.trim()}\n` : ''}
+Read the whole transcript below. List up to ${MAX_TERMS} key terms that come back more than once in it: concepts, names and technical words, not everyday words. For each, give the one ${targetLanguage} word or phrase every part will use for it: the word a native speaker would say out loud, not a bookish one. Keep a name, or a term a ${targetLanguage} speaker says in English, as they would say it.${script ? ` Write every term in the ${script} script only.` : ''}
+
+TRANSCRIPT:
+${text}
+Respond with ONLY this JSON:
+{"terms":[{"english":"<key term>","translated":"<the ${targetLanguage} word>"}]}`;
+};
+
+/**
+ * The talk's key terms, read from the whole transcript before any batch, so
+ * batches translated at once say them the same way from the first line. A
+ * glossary that fails leaves the list empty: the batches still report and
+ * share their own terms, as before.
+ */
+const readGlossary = async (translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate }) => {
+  try {
+    const answer = await askJson(buildGlossaryPrompt({ translatable, sourceLanguage, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2, generate });
+    return mergeTerms([], answer?.terms);
+  } catch (err) {
+    logger.warn(`Translation glossary skipped: ${err?.message || err}`);
+    return [];
+  }
+};
+
+/** An error no other batch can get past: every batch after it would fail the same way. */
+const stopsAll = (err) => err?.code === 'invalid_api_key' || err?.status === 401 || err?.status === 403;
+
+/**
+ * Full translation: every batch is translated and then checked (refineBatch),
+ * FULL_PARALLEL batches at a time, after one call reads the whole talk for its
+ * key terms (readGlossary). A batch still far too long after its checks is
+ * translated once more and the better version kept. A batch that times out
+ * is sent again in halves, and the batches not yet sent are cut to that size
+ * too: a model that is slow on one batch is slow on all of them.
+ */
+const translateBatchesChecked = async (
+  batches,
+  translatable,
+  { sourceLanguage, targetLanguage, customPrompt, apiKey, models, check, onProgress, generate, resumeFrom, onBatchDone }
+) => {
+  const { translations, terms: resumedTerms, modelUsed: resumedModel } = resumeState(resumeFrom, translatable);
+  let modelUsed = resumedModel;
+  let failedBatches = 0;
+  let firstError = null;
+  let lengthFixed = 0;
+  let meaningFixed = 0;
+  let retriedBatches = 0;
+  let termsFixed = 0;
+  // How the talk says its key terms, so every batch uses the same words.
+  let terms = resumedTerms;
+
+  const queue = batches.filter((batch) => !isDone(batch, translations));
+  let batchCount = batches.length;
+  let finished = batches.length - queue.length;
+
+  // A run carried on after a restart keeps the terms it had; so does a talk of one batch.
+  if (queue.length > 1 && !resumeFrom) {
+    onProgress?.({ stage: 'translating', batch: 1, batchCount, step: 'translate', message: `Reading the whole talk for its key terms...` });
+    terms = await readGlossary(translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate });
+  }
+
+  const sendOne = async (batch) => {
+    const position = translatable.indexOf(batch[0]);
+    const span = `${position + 1}-${position + batch.length}`;
+    onProgress?.({
+      stage: 'translating',
+      batch: finished + 1,
+      batchCount,
+      step: 'translate',
+      message: `Translating cues ${span} of ${translatable.length} to ${targetLanguage}...`,
+    });
+    const before = translatable.slice(Math.max(0, position - CONTEXT_CUES), position).map((cue) => ({ text: cue.text, translatedText: translations.get(cue.id) }));
+    const after = translatable.slice(position + batch.length, position + batch.length + CONTEXT_CUES).map((cue) => ({ text: cue.text }));
+    const batchIndex = Math.floor(position / Math.max(1, batch.length));
+    const attempt = async () => {
+      const outcome = await translateBatch({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, apiKey, models, generate });
+      modelUsed = outcome.modelUsed;
+      if (!check) return { translations: outcome.result, lengthFixed: 0, meaningFixed: 0, termsFixed: 0, terms: outcome.terms };
+      onProgress?.({
+        stage: 'translating',
+        batch: finished + 1,
+        batchCount,
+        step: 'check',
+        message: `Checking length and meaning of cues ${span}...`,
+      });
+      const ask = (prompt, options) => askJson(prompt, { ...options, generate });
+      const known = mergeTerms(terms, outcome.terms, outcome.result);
+      const refined = await refineBatch(batch, outcome.result, { targetLanguage, customPrompt, terms: known, apiKey, models, ask });
+      return { ...refined, terms: outcome.terms };
+    };
+    let kept = await attempt();
+    // A batch still far too long after its fixes is translated once more,
+    // and the better of the two is kept.
+    if (check && isOutlier(batch, kept.translations)) {
+      try {
+        const again = await attempt();
+        if (issueScore(batch, again.translations) < issueScore(batch, kept.translations)) kept = again;
+        retriedBatches += 1;
+      } catch (err) {
+        logger.warn(`Translation of cues ${span} retry skipped: ${err?.message || err}`);
+      }
+    }
+    lengthFixed += kept.lengthFixed;
+    meaningFixed += kept.meaningFixed;
+    termsFixed += kept.termsFixed;
+    terms = mergeTerms(terms, kept.terms, kept.translations);
+    for (const [id, text] of kept.translations) translations.set(id, text);
+    onBatchDone?.({ translations, terms, modelUsed });
+  };
+
+  const worker = async () => {
+    while (queue.length) {
+      const batch = queue.shift();
+      try {
+        await sendOne(batch);
+        finished += 1;
+      } catch (err) {
+        /*
+         * A slow model can take longer to write a batch than the gateway (or
+         * the proxy in front of it) waits. Asking again for the same long
+         * answer times out again, so this batch and every one not yet sent
+         * are cut to half the size, and this one goes first.
+         */
+        if (isTimeoutError(err) && batch.length > MIN_BATCH) {
+          const size = Math.max(MIN_BATCH, Math.ceil(batch.length / 2));
+          logger.warn(`Translation of ${batch.length} cues timed out; sending ${size} cues at a time from here on.`);
+          onProgress?.({ stage: 'translating', batch: finished + 1, batchCount, step: 'translate', message: `The model is slow; sending ${size} cues at a time...` });
+          const waiting = queue.splice(0, Infinity).flat();
+          queue.push(...chunk(batch, size), ...chunk(waiting, size));
+          batchCount = finished + queue.length + (running - 1);
+          continue;
+        }
+        // One bad batch must not discard the batches that already succeeded.
+        failedBatches += 1;
+        finished += 1;
+        firstError ??= err;
+        logger.error(`Translation of cues ${translatable.indexOf(batch[0]) + 1}-${translatable.indexOf(batch[0]) + batch.length} failed: ${err?.message || err}`);
+        if (stopsAll(err)) queue.length = 0;
+      }
+    }
+  };
+  // Workers busy on a batch, so a cut can count the batches still to come.
+  let running = 0;
+  const counted = async () => {
+    running += 1;
+    try {
+      await worker();
+    } finally {
+      running -= 1;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(FULL_PARALLEL, queue.length) }, counted));
+
+  if (failedBatches > 0 && translations.size === 0) throw firstError;
+
+  const missingIds = translatable.filter((cue) => !translations.has(cue.id)).map((cue) => cue.id);
+  if (missingIds.length > 0) {
+    logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
+  }
+  if (lengthFixed || meaningFixed || retriedBatches || termsFixed) {
+    logger.info(
+      `Translation checks refit ${lengthFixed} cue(s) for length, restored the meaning of ${meaningFixed} and made ${termsFixed} use the talk's key term` +
+        (retriedBatches ? `; ${retriedBatches} batch(es) far too long were translated again.` : '.')
+    );
+  }
+
+  return {
+    translations,
+    modelUsed,
+    translatedCount: translations.size,
+    missingIds,
+    failedBatches,
+    lengthFixed,
+    meaningFixed,
+    retriedBatches,
+    termsFixed,
+    terms,
+  };
+};
+
+/**
+ * The finished lines without their "‖" marks, as the script keeps them, and
+ * `pausedTexts`: each line as the voice says it, with a pause where its
+ * speaker paused (translationPauses.js), or the line itself where it keeps
+ * none. Only cues that came back are in either.
+ */
+const readBack = (translatable, translations) => {
+  const clean = new Map();
+  const pausedTexts = new Map();
+  let kept = 0;
+  let asked = 0;
+  for (const cue of translatable) {
+    if (!translations.has(cue.id)) continue;
+    const { text, paused } = readPausedLine(translations.get(cue.id), cue.pauses);
+    clean.set(cue.id, text);
+    pausedTexts.set(cue.id, paused ?? text);
+    if (cue.pauses) asked += 1;
+    if (paused) kept += 1;
+  }
+  if (asked) logger.info(`Translation kept the speaker's pauses in ${kept} of ${asked} cue(s) that have them.`);
+  return { translations: clean, pausedTexts };
+};
+
 /**
  * Translates cue texts, batching long transcripts so a single request never
  * grows unbounded. `voiceRate` is the dub voice's speaking rate in syllables a
  * second, when the app has measured it: each cue is then sized for that voice.
  * `speakerRates` holds the rates of the voices speakers have of their own, by
- * speaker name; their cues are sized for those. `check` (on by default)
- * runs refineBatch on every batch: a meaning review, then length and
- * sentence ends counted in code; a batch still far too long after that is
- * translated once more and the better version kept. Each batch reports how
- * it said the talk's key terms, and later batches are asked to say them the
- * same way. `fast` skips all of that for speed: one call a batch, no
- * checks, several batches at once (translateBatchesFast). `onBatchDone`
- * hears the translations so far after every finished batch, and
- * `resumeFrom` (what it last heard) skips the batches already done, so a run
- * cut off by a backend restart carries on instead of starting over.
+ * speaker name; their cues are sized for those. A cue whose word timestamps
+ * show its speaker pausing inside it is sent with those pauses
+ * (translationPauses.js), and comes back in `pausedTexts` with them as pause
+ * marks for the voice; `translations` never carries them. `check` (on by
+ * default) runs refineBatch on every batch: a meaning review, then length and
+ * sentence ends counted in code (translateBatchesChecked). `fast` skips all
+ * of that for speed: one call a batch, no checks (translateBatchesFast).
+ * `onBatchDone` hears the translations so far after every finished batch,
+ * and `resumeFrom` (what it last heard) skips the batches already done, so a
+ * run cut off by a backend restart carries on instead of starting over.
  * `generate` stands in for the text model in tests.
  *
- * @returns {Promise<{translations: Map<string,string>, modelUsed: string|null,
+ * @returns {Promise<{translations: Map<string,string>, pausedTexts: Map<string,string>, modelUsed: string|null,
  *   translatedCount: number, missingIds: string[], failedBatches: number}>}
  */
 export const translateCueTexts = async (
@@ -471,146 +712,32 @@ export const translateCueTexts = async (
   customPrompt = withoutThreeStepNotes(customPrompt);
 
   const translatable = cues
-    .map((cue) => ({ id: String(cue.id), text: String(cue.text ?? '').trim(), syllables: syllableTarget(cue, rateForCue(cue, rate, ownRates)) }))
+    .map((cue) => {
+      const text = String(cue.text ?? '').trim();
+      const split = cuePauses({ ...cue, text });
+      const silent = split ? split.pauses.reduce((sum, pause) => sum + pause, 0) : 0;
+      const syllables = syllableTarget(cue, rateForCue(cue, rate, ownRates), silent);
+      return {
+        id: String(cue.id),
+        text,
+        syllables,
+        ...(split && {
+          pauses: split.pauses,
+          pausedText: split.parts.map((part) => part.text).join(` ${PAUSE_SPLIT} `),
+          ...(syllables && { partSyllables: partSyllables(split.parts, syllables) }),
+        }),
+      };
+    })
     .filter((cue) => cue.text.length > 0);
 
   if (translatable.length === 0) {
-    return { translations: new Map(), modelUsed: null, translatedCount: 0, missingIds: [], failedBatches: 0 };
+    return { translations: new Map(), pausedTexts: new Map(), modelUsed: null, translatedCount: 0, missingIds: [], failedBatches: 0 };
   }
 
   const batches = chunk(translatable, Math.max(MIN_BATCH, batchSize || config.translationBatchSize));
-  if (fast) {
-    return translateBatchesFast(batches, translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate, resumeFrom, onBatchDone });
-  }
-  const { translations, terms: resumedTerms, modelUsed: resumedModel } = resumeState(resumeFrom, translatable);
-  let modelUsed = resumedModel;
-  let failedBatches = 0;
-  let lengthFixed = 0;
-  let meaningFixed = 0;
-  let retriedBatches = 0;
-  let termsFixed = 0;
-  // How earlier batches said the talk's key terms, so later ones use the same words.
-  let terms = resumedTerms;
-
-  for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
-    const batch = batches[batchIndex];
-    // Done before a restart: kept from the saved progress, not sent again.
-    if (isDone(batch, translations)) continue;
-    // Cues in the batches before this one, for the progress message.
-    const done = batches.slice(0, batchIndex).reduce((sum, earlier) => sum + earlier.length, 0);
-    onProgress?.({
-      stage: 'translating',
-      batch: batchIndex + 1,
-      batchCount: batches.length,
-      step: 'translate',
-      message: `Translating cues ${done + 1}-${done + batch.length} of ${translatable.length} to ${targetLanguage}...`,
-    });
-
-    try {
-      const before = (batches[batchIndex - 1] ?? []).slice(-CONTEXT_CUES).map((cue) => ({ text: cue.text, translatedText: translations.get(cue.id) }));
-      const after = (batches[batchIndex + 1] ?? []).slice(0, CONTEXT_CUES).map((cue) => ({ text: cue.text }));
-      const attempt = async () => {
-        const outcome = await translateBatch({
-          batch,
-          sourceLanguage,
-          targetLanguage,
-          customPrompt,
-          batchIndex,
-          batchCount: batches.length,
-          before,
-          after,
-          terms,
-          apiKey,
-          models,
-          generate,
-        });
-        modelUsed = outcome.modelUsed;
-        if (!check) return { translations: outcome.result, lengthFixed: 0, meaningFixed: 0, termsFixed: 0, terms: outcome.terms };
-        onProgress?.({
-          stage: 'translating',
-          batch: batchIndex + 1,
-          batchCount: batches.length,
-          step: 'check',
-          message: `Checking length and meaning of cues ${done + 1}-${done + batch.length}...`,
-        });
-        const ask = (prompt, options) => askJson(prompt, { ...options, generate });
-        const known = mergeTerms(terms, outcome.terms, outcome.result);
-        const refined = await refineBatch(batch, outcome.result, { targetLanguage, customPrompt, terms: known, apiKey, models, ask });
-        return { ...refined, terms: outcome.terms };
-      };
-      let kept = await attempt();
-      // A batch still far too long after its fixes is translated once more,
-      // and the better of the two is kept.
-      if (check && isOutlier(batch, kept.translations)) {
-        try {
-          const again = await attempt();
-          if (issueScore(batch, again.translations) < issueScore(batch, kept.translations)) kept = again;
-          retriedBatches += 1;
-        } catch (err) {
-          logger.warn(`Translation batch ${batchIndex + 1} retry skipped: ${err?.message || err}`);
-        }
-      }
-      lengthFixed += kept.lengthFixed;
-      meaningFixed += kept.meaningFixed;
-      termsFixed += kept.termsFixed;
-      terms = mergeTerms(terms, kept.terms, kept.translations);
-      for (const [id, text] of kept.translations) translations.set(id, text);
-      onBatchDone?.({ translations, terms, modelUsed });
-    } catch (err) {
-      /*
-       * A slow model can take longer to write a batch than the gateway (or
-       * the proxy in front of it) waits. Asking again for the same long
-       * answer times out again, so this batch and every one after it are cut
-       * to half the size and this one is sent again.
-       */
-      if (isTimeoutError(err) && batch.length > MIN_BATCH) {
-        const size = Math.max(MIN_BATCH, Math.ceil(batch.length / 2));
-        logger.warn(`Translation batch ${batchIndex + 1} timed out; sending ${size} cues at a time from here on.`);
-        onProgress?.({
-          stage: 'translating',
-          batch: batchIndex + 1,
-          batchCount: batches.length,
-          step: 'translate',
-          message: `The model is slow; sending ${size} cues at a time...`,
-        });
-        batches.splice(batchIndex, Infinity, ...chunk(batches.slice(batchIndex).flat(), size));
-        batchIndex -= 1;
-        continue;
-      }
-      // One bad batch must not discard the batches that already succeeded.
-      failedBatches += 1;
-      logger.error(
-        `Translation batch ${batchIndex + 1}/${batches.length} failed: ${err?.message || err}`
-      );
-      if (batches.length === 1) throw err;
-    }
-  }
-
-  const missingIds = translatable.filter((cue) => !translations.has(cue.id)).map((cue) => cue.id);
-
-  if (missingIds.length > 0) {
-    logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
-  }
-
-  if (lengthFixed || meaningFixed || retriedBatches || termsFixed) {
-    logger.info(
-      `Translation checks refit ${lengthFixed} cue(s) for length, restored the meaning of ${meaningFixed} and made ${termsFixed} use the talk's key term` +
-        (retriedBatches ? `; ${retriedBatches} batch(es) far too long were translated again.` : '.')
-    );
-  }
-
-  return {
-    translations,
-    modelUsed,
-    translatedCount: translations.size,
-    missingIds,
-    failedBatches,
-    lengthFixed,
-    meaningFixed,
-    retriedBatches,
-    termsFixed,
-    terms,
-  };
+  const options = { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate, resumeFrom, onBatchDone };
+  const outcome = fast ? await translateBatchesFast(batches, translatable, options) : await translateBatchesChecked(batches, translatable, { ...options, check });
+  return { ...outcome, ...readBack(translatable, outcome.translations) };
 };
 
 /**

@@ -1334,7 +1334,7 @@ export default function App() {
         const fresh = byId.get(String(seg.id));
         if (!fresh) return seg;
         const text = fresh.textTarget || (fresh as any).targetText || '';
-        return { ...seg, textTarget: text, targetText: text };
+        return { ...seg, textTarget: text, targetText: text, pausedTarget: fresh.pausedTarget };
       });
       const step = recordReviewStep(job.reviewHistory, job.segments, segments, { label: 'Translate missing lines' });
       updateJob(jobId, {
@@ -2999,6 +2999,8 @@ export default function App() {
         const byId = new Map(tagged.map((segment) => [String(segment.id), segment.textTarget || segment.targetText || '']));
         voiceText = unit.cueIds.map((id) => (byId.get(String(id)) || '').trim()).filter(Boolean).join(' ');
       }
+      // A line Sync read with the speaker's pauses is retaken with them too.
+      const paused = !spoken && !phrase && !voiceText ? base.units[n].pausedText || null : null;
       // The lines either side, by the same speaker when there are several, as Sync tells the voice about them.
       const neighbour = (step: number) => {
         for (let j = n + step; j >= 0 && j < base.units.length; j += step) {
@@ -3011,7 +3013,7 @@ export default function App() {
           bank,
           bankBlob: job.syncBankBlob,
           line,
-          unit: spoken ? { ...base.units[n], text: spoken } : base.units[n],
+          unit: spoken ? { ...base.units[n], text: spoken } : paused ? { ...base.units[n], text: paused } : base.units[n],
           voiceText,
           previousText: neighbour(-1)?.text.slice(-300),
           nextText: neighbour(1)?.text.slice(0, 300),
@@ -3045,7 +3047,7 @@ export default function App() {
       const nowLine = now.syncBank.lines.find((l) => l.key === unit.key) || line;
       const kept = takesOf(now.syncTakes, nowLine, base.units[n]);
       // A take keeps the words the script takes from it, and what the voice read, pauses and all.
-      const added = result.takes.map((take) => (spoken ? { ...take, text: words, spoken } : take));
+      const added = result.takes.map((take) => (spoken ? { ...take, text: words, spoken } : paused ? { ...take, text: base.units[n].text, spoken: paused } : take));
       const voiced: BatchJob = {
         ...now,
         syncBank: { ...now.syncBank, bankId: result.bankId },

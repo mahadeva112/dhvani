@@ -218,6 +218,8 @@ export interface SyncUnitReport {
   speaker?: string | null;
   /** What the dub says: the script as written. */
   text: string;
+  /** `text` as the voice read it, with the speaker's pauses kept by the translation; absent when it has none. */
+  pausedText?: string;
   sourceText: string;
   srcStart: number;
   srcEnd: number;
@@ -476,6 +478,8 @@ const slimSegment = (segment: AudioSegment, voiceTexts?: Record<string, string>,
   // The original's word timestamps: Match source pauses reads its pauses from them, and Verify its words.
   ...(segment.words && segment.words.length > 0 && { words: withWords ? segment.words : segment.words.map(({ start, end, text }) => ({ start, end, text })) }),
   ...(voiceTexts?.[segment.id] && { voiceText: voiceTexts[segment.id] }),
+  // The speaker's pauses, kept by the translation: Sync voices them while the line is unedited.
+  ...(segment.pausedTarget && { pausedTarget: segment.pausedTarget }),
 });
 
 /**

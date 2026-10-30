@@ -1,4 +1,5 @@
 import { lineSyllables } from './syllables.js';
+import { PAUSE_SPLIT, withoutSplits } from './translationPauses.js';
 
 /**
  * Checks on a fresh translation that code can make better than the model can:
@@ -190,10 +191,16 @@ const describeIssue = (issue) => {
  * neighbouring cue of the same sentence; the model returns only the cues it
  * changes.
  */
+/** The rule that keeps a fix from losing the speaker's pauses, when the cues have any. */
+const keepPausesRule = (cues) =>
+  cues.some((cue) => cue.pausedText)
+    ? `\n- A "${PAUSE_SPLIT}" is where the speaker paused, and the voice pauses there too. Keep every "${PAUSE_SPLIT}" a translation has, in the same place between the same ideas.`
+    : '';
+
 export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, customPrompt = '' }) => {
   const rows = cues.map((cue) => ({
     id: cue.id,
-    english: cue.text,
+    english: cue.pausedText ?? cue.text,
     translation: translations.get(cue.id) ?? '',
     ...(cue.syllables && { syllables: cue.syllables, now: dubSyllables(translations.get(cue.id)) }),
   }));
@@ -210,7 +217,7 @@ RULES
 - Keep the language's normal word order; never invert it or turn poetic to save syllables. If a line cannot fit without becoming unclear or unnatural, keep a clear natural line that runs a little long.
 - Never fill a cue with a word the speaker did not say. Copy sound notes in square brackets ([laughs]) exactly as they are.
 - Natural spoken ${targetLanguage}, never word for word from the English.
-- A word may move only to the next or previous cue of the same sentence, and only into a cue that has room.
+- A word may move only to the next or previous cue of the same sentence, and only into a cue that has room.${keepPausesRule(cues)}
 - Return only the cues you change, each with its id copied verbatim. Never return an empty cue.
 
 CUES (JSON):
@@ -249,7 +256,7 @@ For every English sentence:
 3. Mark "same" false only when the idea of that word is missing or became something else, by the rules above. A natural expression of the same idea is the same: "people think you need an investigation" said as "people think you should be investigated" keeps every word; "anyone on the spiritual path" said as "spiritual seekers" keeps it.
 
 CUES (JSON):
-${JSON.stringify(cues.map((cue) => ({ id: cue.id, english: cue.text, translation: translations.get(cue.id) ?? '' })), null, 2)}
+${JSON.stringify(cues.map((cue) => ({ id: cue.id, english: cue.text, translation: withoutSplits(translations.get(cue.id)) })), null, 2)}
 
 Respond with ONLY this JSON, one entry per English sentence, "problem" empty when the sentence keeps its meaning:
 {"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>","englishShaped":"<what follows English instead of ${targetLanguage}, in English; empty if nothing>"}]}`;
@@ -266,11 +273,11 @@ RULES
 - Keep each line as spoken as it is now: the same everyday, colloquial forms and the English words it already uses. Never make a line bookish or formal.
 - Add nothing the English does not say: no "only", "also" or "even", no verb of your own (gave, showed), no "like" or "as if" that turns what he states into a comparison.
 - Where it "reads like English", build that sentence again the way ${targetLanguage} builds it, by whole phrases and clauses. Its meaning stays exactly the same: the same ideas, who does what to whom, tense, negation and certainty. A word moves only to the next or previous cue of the same sentence, and each sentence still ends in the cue it ended in.
-- Stay within the time: "syllables" is about how many ${targetLanguage} syllables the voice has in that cue. Make room by tighter wording elsewhere in the line, not by running long.
+- Stay within the time: "syllables" is about how many ${targetLanguage} syllables the voice has in that cue. Make room by tighter wording elsewhere in the line, not by running long.${keepPausesRule(cues)}
 - Return only the cues you change, each with its id copied verbatim.
 
 CUES (JSON):
-${JSON.stringify(cues.map((cue) => ({ id: cue.id, english: cue.text, translation: translations.get(cue.id) ?? '', ...(cue.syllables && { syllables: cue.syllables }) })), null, 2)}
+${JSON.stringify(cues.map((cue) => ({ id: cue.id, english: cue.pausedText ?? cue.text, translation: translations.get(cue.id) ?? '', ...(cue.syllables && { syllables: cue.syllables }) })), null, 2)}
 
 Respond with ONLY this JSON:
 {"translations":[{"id":"<the same id>","translatedText":"<corrected ${targetLanguage} line>"}]}`;
@@ -333,13 +340,14 @@ export const MAX_TERMS = 30;
  * the running list of the talk. A term the list already has keeps its first
  * word, and a reported word the batch's final lines don't contain is
  * skipped: a fix may have changed it, and the list must only hold words the
- * talk really uses.
+ * talk really uses. Without `translations` (the glossary read before any
+ * line is translated) every well-formed term is taken.
  *
  * @param {{english: string, translated: string}[]} known
  * @returns {{english: string, translated: string}[]}
  */
-export const mergeTerms = (known, reported, translations) => {
-  const said = [...translations.values()].join(' ').toLowerCase();
+export const mergeTerms = (known, reported, translations = null) => {
+  const said = translations ? [...translations.values()].join(' ').toLowerCase() : null;
   const list = [...known];
   const seen = new Set(list.map((term) => term.english.toLowerCase()));
   for (const item of Array.isArray(reported) ? reported : []) {
@@ -347,7 +355,7 @@ export const mergeTerms = (known, reported, translations) => {
     const english = String(item?.english ?? '').trim();
     const translated = String(item?.translated ?? item?.translatedAs ?? '').trim();
     if (!english || !translated || english.length > 60 || translated.length > 60) continue;
-    if (seen.has(english.toLowerCase()) || !said.includes(translated.toLowerCase())) continue;
+    if (seen.has(english.toLowerCase()) || (said !== null && !said.includes(translated.toLowerCase()))) continue;
     seen.add(english.toLowerCase());
     list.push({ english, translated });
   }

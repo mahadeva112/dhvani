@@ -27,6 +27,7 @@ import { placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, removeBreaths, shortenPauses, tightenSilences, composeCuts, applyCuts, renderTimeline, startAfterCut, TIGHT_BLEND_SECONDS } from './syncRender.js';
 import { matchingGains } from './loudness.js';
 import { TTS_CONTEXT_CHARS, withSentenceEnd } from './ttsText.js';
+import { stripPauses } from './linePauses.js';
 import { mixSpeakers, speakerGains } from './speakerMix.js';
 import { tooDeepCut } from './syncRewrite.js';
 import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
@@ -1412,6 +1413,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       speaker: unit.speaker || null,
       voiceId: baseVoiceOf(unit).voiceId,
       text: unit.text,
+      // The line as voiced with the speaker's pauses (syncUnits.js), so a retake of the same words keeps them.
+      ...(unit.voiceText && unit.voiceText !== unit.text && stripPauses(unit.voiceText) === stripPauses(unit.text) && { pausedText: unit.voiceText }),
       sourceText: unit.sourceText,
       srcStart: unit.srcStart,
       srcEnd: unit.srcEnd,
