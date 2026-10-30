@@ -5,6 +5,10 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.12',
+    changes: ['The update notice in the corner now goes away by itself after 5 seconds.'],
+  },
+  {
     version: '1.4.11',
     changes: [
       'Sync timeline: the waveforms are audio bars again, each line in its own colour, with no marks over them. A line in sync is one colour stacked straight; hover a line to see how it landed.',
