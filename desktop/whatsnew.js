@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.10',
+    changes: [
+      'Sync timeline: no more number strips or slanted link lines. Each line has one colour in both lanes, so a line in sync is one colour stacked straight. Four calmer colours that take turns.',
+      'A line that starts off gets a dashed amber or red bracket with how far, and the part that runs into the next line is striped red. The bar at the bottom shows the whole dub in line colours.',
+    ],
+  },
+  {
     version: '1.4.9',
     changes: [
       'ElevenLabs voices load through the newer voice list, page by page, so every voice on your account shows.',
