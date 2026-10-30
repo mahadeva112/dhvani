@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.9',
+    changes: [
+      'ElevenLabs voices load through the newer voice list, page by page, so every voice on your account shows.',
+      'Saving a new ElevenLabs key in Settings no longer gets refused because the old key stopped working.',
+    ],
+  },
+  {
     version: '1.4.8',
     changes: [
       'Tools and settings (Ctrl K): change the voice engine, dub expression and the main Sync settings right in the window. A click picks an item; a double click opens it.',
