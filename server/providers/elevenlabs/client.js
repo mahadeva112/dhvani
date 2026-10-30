@@ -1,12 +1,14 @@
-import { config, resolveKey } from '../../env.js';
+import { config, resolveKey, SERVER_MANAGED_KEY } from '../../env.js';
 import { missingKey } from '../../errors.js';
 import { requestWithRetry } from '../../lib/http.js';
 
 export const PROVIDER_LABEL = 'ElevenLabs';
 
 /** Resolves the key for a request: env key first, caller override only as fallback. */
-export const elevenLabsKey = (overrideKey) => {
-  const key = resolveKey(config.elevenlabs.apiKey, overrideKey);
+export const elevenLabsKey = (overrideKey, { candidate = false } = {}) => {
+  // A key being checked before it is saved must be the one probed, not the stored key it would replace.
+  const given = (overrideKey || '').trim();
+  const key = candidate && given && given !== SERVER_MANAGED_KEY ? given : resolveKey(config.elevenlabs.apiKey, overrideKey);
   if (!key) throw missingKey('elevenlabs');
   return key;
 };
@@ -19,17 +21,23 @@ export const hasElevenLabsKey = () => Boolean(config.elevenlabs.apiKey);
  * `baseUrl` overrides the configured endpoint for one call, which is what lets
  * the settings screen check a candidate host before it is saved.
  */
-const url = (endpoint, baseUrl) =>
-  `${(baseUrl || '').trim().replace(/\/+$/, '') || config.elevenlabs.baseUrl}${endpoint}`;
+const url = (endpoint, baseUrl, version) => {
+  const base = (baseUrl || '').trim().replace(/\/+$/, '') || config.elevenlabs.baseUrl;
+  // A few endpoints (voice search) only exist under /v2; the host stays the user's.
+  return `${version ? base.replace(/\/v\d+$/, `/${version}`) : base}${endpoint}`;
+};
 
-/** JSON GET/POST against the ElevenLabs REST API. */
-export const elevenLabsJson = async (endpoint, { method = 'GET', body, apiKey, baseUrl, timeoutMs } = {}) => {
+/** JSON GET/POST against the ElevenLabs REST API. `version` ("v2") swaps the /v1 in the configured base. */
+export const elevenLabsJson = async (
+  endpoint,
+  { method = 'GET', body, apiKey, baseUrl, timeoutMs, version, candidate } = {}
+) => {
   const response = await requestWithRetry(
-    url(endpoint, baseUrl),
+    url(endpoint, baseUrl, version),
     {
       method,
       headers: {
-        'xi-api-key': elevenLabsKey(apiKey),
+        'xi-api-key': elevenLabsKey(apiKey, { candidate }),
         ...(body ? { 'Content-Type': 'application/json' } : {}),
       },
       ...(body ? { body: JSON.stringify(body) } : {}),

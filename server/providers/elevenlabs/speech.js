@@ -742,12 +742,43 @@ export const cloneVoice = async ({ name, files, description, labels }, { apiKey 
  * `baseUrl` lets that check run against a candidate endpoint the user is still
  * typing, rather than the one currently configured.
  */
-export const getUser = ({ apiKey, baseUrl } = {}) =>
-  elevenLabsJson('/user', { apiKey, baseUrl, timeoutMs: 20000 });
+export const getUser = ({ apiKey, baseUrl, candidate } = {}) =>
+  elevenLabsJson('/user', { apiKey, baseUrl, candidate, timeoutMs: 20000 });
+
+const VOICE_PAGE_SIZE = 100;
+const VOICE_MAX_PAGES = 100;
+
+/** Every voice via the paginated /v2/voices search; the old /v1/voices list misses many. */
+const getVoicesV2 = async ({ apiKey }) => {
+  const voices = [];
+  const seen = new Set();
+  let token = '';
+  for (let page = 0; page < VOICE_MAX_PAGES; page += 1) {
+    const query = new URLSearchParams({ page_size: String(VOICE_PAGE_SIZE), include_total_count: 'false' });
+    if (token) query.set('next_page_token', token);
+    const data = await elevenLabsJson(`/voices?${query}`, { apiKey, timeoutMs: 30000, version: 'v2' });
+    for (const voice of Array.isArray(data.voices) ? data.voices : []) {
+      if (voice?.voice_id && !seen.has(voice.voice_id)) {
+        seen.add(voice.voice_id);
+        voices.push(voice);
+      }
+    }
+    token = data.has_more ? data.next_page_token || '' : '';
+    if (!token) break;
+  }
+  return voices;
+};
 
 export const getVoices = async ({ apiKey } = {}) => {
-  const data = await elevenLabsJson('/voices', { apiKey, timeoutMs: 30000 });
-  const voices = Array.isArray(data.voices) ? data.voices : [];
+  let voices;
+  try {
+    voices = await getVoicesV2({ apiKey });
+  } catch (err) {
+    // Keys or proxies without /v2 access still get the old list rather than an empty picker.
+    if (err?.status === 401 || err?.code === 'MISSING_KEY') throw err;
+    const data = await elevenLabsJson('/voices', { apiKey, timeoutMs: 30000 });
+    voices = Array.isArray(data.voices) ? data.voices : [];
+  }
   return voices.sort((a, b) =>
     String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' })
   );

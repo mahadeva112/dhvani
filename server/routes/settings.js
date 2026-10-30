@@ -179,6 +179,7 @@ settingsRouter.post(
         const user = await getUser({
           apiKey: effectiveElevenLabsKey,
           baseUrl: elevenLabsBaseUrl,
+          candidate: true,
         });
         results.elevenLabs = {
           valid: true,
