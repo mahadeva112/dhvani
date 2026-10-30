@@ -10,8 +10,9 @@
     /api call with "Failed to fetch" while still looking fine.
 
     This registers a per-user logon task so the backend is simply always there.
-    It runs as the current user (no elevation, no stored password) and restarts
-    itself a few times if it dies.
+    It runs as the current user (no elevation, no stored password). The
+    launcher it runs is also a watchdog: whenever node stops, it starts the
+    backend again a few seconds later.
 
 .PARAMETER Uninstall
     Remove the task instead of creating it.
@@ -88,4 +89,5 @@ Register-ScheduledTask `
 Write-Host "Registered '$TaskName' - the backend now starts at every logon." -ForegroundColor Green
 Write-Host "  Logs:      $(Join-Path $Root 'logs\backend.log')"
 Write-Host "  Start now: Start-ScheduledTask -TaskName '$TaskName'"
+Write-Host "  Stop:      Stop-ScheduledTask -TaskName '$TaskName', then end node (otherwise it comes back)"
 Write-Host "  Remove:    powershell -ExecutionPolicy Bypass -File scripts\install-autostart.ps1 -Uninstall"
