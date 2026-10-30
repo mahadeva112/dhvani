@@ -103,6 +103,21 @@ const previousVersion = readKey(LAST_VERSION_KEY);
 
 const megabytes = (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`;
 
+/** How long a corner notice stays before it leaves by itself. */
+const NOTICE_MS = 5000;
+
+/** Calls `onDone` after `ms`, unless `paused`; mounts with the notice it times. */
+const AutoDismiss: React.FC<{ onDone: () => void; paused?: boolean; ms?: number }> = ({ onDone, paused = false, ms = NOTICE_MS }) => {
+  const done = React.useRef(onDone);
+  done.current = onDone;
+  React.useEffect(() => {
+    if (paused) return;
+    const t = window.setTimeout(() => done.current(), ms);
+    return () => window.clearTimeout(t);
+  }, [paused, ms]);
+  return null;
+};
+
 const PillSpinner = () => (
   <span className="w-2.5 h-2.5 rounded-full border-[1.5px] border-current border-r-transparent animate-spin" aria-hidden="true" />
 );
@@ -296,6 +311,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
             role="status"
             className="fixed bottom-6 right-6 z-50 w-[min(22rem,calc(100vw-2rem))] flex items-start gap-3 p-4 rounded-[14px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 animate-in fade-in slide-in-from-bottom-2 duration-300"
           >
+            <AutoDismiss paused={showNewNotes} onDone={() => markUpdatedSeen(currentVersion)} />
             <div className="w-8 h-8 rounded-[9px] bg-emerald-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
               <CheckCircle2 className="w-4 h-4" strokeWidth={2.5} />
             </div>
@@ -344,6 +360,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
             role="status"
             className="fixed bottom-6 right-6 z-50 w-[min(22rem,calc(100vw-2rem))] flex items-start gap-3 p-4 rounded-[14px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 animate-in fade-in slide-in-from-bottom-2 duration-300"
           >
+            <AutoDismiss onDone={() => markNoticeSeen(version)} />
             <div className="w-8 h-8 rounded-[9px] bg-blue-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
               <Download className="w-4 h-4" strokeWidth={2.5} />
             </div>
