@@ -51,3 +51,35 @@ test('each Indian dub language names its script, so Punjabi is asked for in Gurm
   assert.equal(scriptOf('hindi'), 'Devanagari');
   assert.equal(scriptOf('French'), '');
 });
+
+test('a resumed translation sends only the batches not done before, and reports each batch it finishes', async () => {
+  const { translateCueTexts } = await import('./translation.js');
+  const cues = Array.from({ length: 15 }, (_, i) => ({ id: `c${i + 1}`, text: `line ${i + 1}` }));
+  const asked = [];
+  const generate = async ({ contents }) => {
+    const ids = [...contents.parts[0].text.matchAll(/"id": "(c\d+)"/g)].map((m) => m[1]);
+    asked.push(ids);
+    return { response: { text: JSON.stringify({ translations: ids.map((id) => ({ id, translatedText: `T${id}` })) }) }, modelUsed: 'stub' };
+  };
+  // The first two batches were saved before a restart.
+  const saved = Object.fromEntries(cues.slice(0, 10).map((cue) => [cue.id, `saved ${cue.id}`]));
+
+  for (const fast of [false, true]) {
+    asked.length = 0;
+    const heard = [];
+    const outcome = await translateCueTexts(cues, {
+      targetLanguage: 'Hindi',
+      batchSize: 5,
+      check: false,
+      fast,
+      generate,
+      resumeFrom: { translations: saved, terms: [], modelUsed: 'stub' },
+      onBatchDone: ({ translations }) => heard.push(translations.size),
+    });
+    assert.deepEqual(asked, [['c11', 'c12', 'c13', 'c14', 'c15']], `fast: ${fast}`);
+    assert.equal(outcome.translations.get('c1'), 'saved c1');
+    assert.equal(outcome.translations.get('c15'), 'Tc15');
+    assert.deepEqual(outcome.missingIds, []);
+    assert.deepEqual(heard, [15]);
+  }
+});

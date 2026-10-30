@@ -10,6 +10,10 @@ import {
   updateTranslationJob,
   finishTranslationJob,
   getTranslationJob,
+  translationFingerprint,
+  saveCheckpoint,
+  loadCheckpoint,
+  pruneCheckpoints,
 } from '../lib/translationJobs.js';
 
 export const pipelineRouter = Router();
@@ -160,6 +164,19 @@ pipelineRouter.post(
     const cueCount = sourceCues.filter((cue) => cue.text).length;
     send({ type: 'progress', stage: 'translating', batch: 0, batchCount: 0, cueCount, message: 'Preparing the cues...' });
 
+    // The same translation sent again under the same id, after a backend
+    // restart, carries on from the batches it had finished.
+    const fingerprint = job
+      ? translationFingerprint({ cues: sourceCues.map(({ id, text, startTime, endTime, speaker }) => ({ id, text, startTime, endTime, speaker })), sourceLanguage, targetLanguage, customPrompt, voiceRate, speakerRates, fast: fast === true })
+      : null;
+    if (job) pruneCheckpoints();
+    const resumeFrom = job ? loadCheckpoint(jobId, fingerprint) : null;
+    if (resumeFrom) {
+      const kept = Object.keys(resumeFrom.translations || {}).length;
+      logger.info(`Resuming translation ${jobId}: ${kept} cue(s) were done before the restart.`);
+      send({ type: 'progress', stage: 'translating', batch: 0, batchCount: 0, cueCount, message: `Carrying on: ${kept} of ${cueCount} cues were already translated...` });
+    }
+
     try {
       const outcome = await translateCueTexts(sourceCues, {
         sourceLanguage,
@@ -171,6 +188,8 @@ pipelineRouter.post(
         fast: fast === true,
         apiKey: req.get('x-gemini-key') || undefined,
         onProgress: (event) => send({ type: 'progress', cueCount, ...event }),
+        resumeFrom,
+        onBatchDone: job ? (progress) => saveCheckpoint(jobId, fingerprint, progress) : undefined,
       });
 
       const translatedCues = retextCues(sourceCues, outcome.translations, 'translatedText').map((cue) => ({

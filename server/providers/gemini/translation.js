@@ -312,16 +312,33 @@ const MIN_BATCH = 5;
 /** Batches a fast translation sends at once. */
 export const FAST_PARALLEL = 3;
 
+/** True when every cue of a batch already has its translation. */
+const isDone = (batch, translations) => batch.every((cue) => translations.has(cue.id));
+
+/** The translations, terms and model of a run being resumed, kept to the cues still asked for. */
+const resumeState = (resumeFrom, translatable) => {
+  const saved = resumeFrom?.translations || {};
+  const translations = new Map();
+  for (const cue of translatable) {
+    if (typeof saved[cue.id] === 'string') translations.set(cue.id, saved[cue.id]);
+  }
+  return {
+    translations,
+    terms: Array.isArray(resumeFrom?.terms) ? resumeFrom.terms : [],
+    modelUsed: resumeFrom?.modelUsed ?? null,
+  };
+};
+
 /**
  * Fast translation: one model call a batch, no checks, FAST_PARALLEL batches
  * at a time. A batch sees the source text around it, and the key terms of
  * the batches already done; a batch that times out is sent again in halves.
  */
-const translateBatchesFast = async (batches, translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate }) => {
-  const translations = new Map();
-  let modelUsed = null;
+const translateBatchesFast = async (batches, translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate, resumeFrom, onBatchDone }) => {
+  const { translations, terms: resumedTerms, modelUsed: resumedModel } = resumeState(resumeFrom, translatable);
+  let modelUsed = resumedModel;
   let failedBatches = 0;
-  let terms = [];
+  let terms = resumedTerms;
   let finished = 0;
   let cuesDone = 0;
   let firstError = null;
@@ -335,6 +352,7 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
       modelUsed = outcome.modelUsed;
       terms = mergeTerms(terms, outcome.terms, outcome.result);
       for (const [id, text] of outcome.result) translations.set(id, text);
+      onBatchDone?.({ translations, terms, modelUsed });
     } catch (err) {
       if (isTimeoutError(err) && batch.length > MIN_BATCH) {
         const size = Math.max(MIN_BATCH, Math.ceil(batch.length / 2));
@@ -353,7 +371,8 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
       next += 1;
       const batch = batches[batchIndex];
       try {
-        await sendOne(batch, batchIndex);
+        // Done before a restart: kept from the saved progress, not sent again.
+        if (!isDone(batch, translations)) await sendOne(batch, batchIndex);
       } catch (err) {
         failedBatches += 1;
         firstError ??= err;
@@ -412,8 +431,11 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
  * translated once more and the better version kept. Each batch reports how
  * it said the talk's key terms, and later batches are asked to say them the
  * same way. `fast` skips all of that for speed: one call a batch, no
- * checks, several batches at once (translateBatchesFast). `generate` stands
- * in for the text model in tests.
+ * checks, several batches at once (translateBatchesFast). `onBatchDone`
+ * hears the translations so far after every finished batch, and
+ * `resumeFrom` (what it last heard) skips the batches already done, so a run
+ * cut off by a backend restart carries on instead of starting over.
+ * `generate` stands in for the text model in tests.
  *
  * @returns {Promise<{translations: Map<string,string>, modelUsed: string|null,
  *   translatedCount: number, missingIds: string[], failedBatches: number}>}
@@ -432,6 +454,8 @@ export const translateCueTexts = async (
     speakerRates,
     check = true,
     fast = false,
+    resumeFrom,
+    onBatchDone,
     generate = generateText,
   } = {}
 ) => {
@@ -456,20 +480,22 @@ export const translateCueTexts = async (
 
   const batches = chunk(translatable, Math.max(MIN_BATCH, batchSize || config.translationBatchSize));
   if (fast) {
-    return translateBatchesFast(batches, translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate });
+    return translateBatchesFast(batches, translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate, resumeFrom, onBatchDone });
   }
-  const translations = new Map();
-  let modelUsed = null;
+  const { translations, terms: resumedTerms, modelUsed: resumedModel } = resumeState(resumeFrom, translatable);
+  let modelUsed = resumedModel;
   let failedBatches = 0;
   let lengthFixed = 0;
   let meaningFixed = 0;
   let retriedBatches = 0;
   let termsFixed = 0;
   // How earlier batches said the talk's key terms, so later ones use the same words.
-  let terms = [];
+  let terms = resumedTerms;
 
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex += 1) {
     const batch = batches[batchIndex];
+    // Done before a restart: kept from the saved progress, not sent again.
+    if (isDone(batch, translations)) continue;
     // Cues in the batches before this one, for the progress message.
     const done = batches.slice(0, batchIndex).reduce((sum, earlier) => sum + earlier.length, 0);
     onProgress?.({
@@ -529,6 +555,7 @@ export const translateCueTexts = async (
       termsFixed += kept.termsFixed;
       terms = mergeTerms(terms, kept.terms, kept.translations);
       for (const [id, text] of kept.translations) translations.set(id, text);
+      onBatchDone?.({ translations, terms, modelUsed });
     } catch (err) {
       /*
        * A slow model can take longer to write a batch than the gateway (or

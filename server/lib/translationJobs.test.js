@@ -31,3 +31,25 @@ test('no id, a malformed id or an unknown id makes no job', () => {
   assert.equal(startTranslationJob('bad id!'), null);
   assert.equal(getTranslationJob('tr-never-started'), null);
 });
+
+test('a checkpoint is read back only for the same translation, and old ones are pruned', async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const { saveCheckpoint, loadCheckpoint, pruneCheckpoints, translationFingerprint } = await import('./translationJobs.js');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dhvani-tr-'));
+  try {
+    const fingerprint = translationFingerprint({ cues: [{ id: 'c1', text: 'hello' }], targetLanguage: 'Hindi' });
+    saveCheckpoint('tr-check-001', fingerprint, { translations: new Map([['c1', 'नमस्ते']]), terms: [], modelUsed: 'm' }, dir);
+
+    assert.deepEqual(loadCheckpoint('tr-check-001', fingerprint, dir).translations, { c1: 'नमस्ते' });
+    const other = translationFingerprint({ cues: [{ id: 'c1', text: 'hello' }], targetLanguage: 'Bengali' });
+    assert.equal(loadCheckpoint('tr-check-001', other, dir), null, 'another language never resumes from it');
+    assert.equal(loadCheckpoint('tr-none-0001', fingerprint, dir), null);
+
+    pruneCheckpoints(dir, Date.now() + 2 * 24 * 60 * 60_000);
+    assert.equal(loadCheckpoint('tr-check-001', fingerprint, dir), null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
