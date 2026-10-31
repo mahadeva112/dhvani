@@ -16,7 +16,7 @@ import { synthesizeLines as synthesizeCartesiaLines, toCartesiaOutputFormat } fr
 import { decodeAudio, encodeAudio, ffmpegAvailable, parseOutputFormat, timeStretch, wavToMp3 } from '../lib/media.js';
 import { pcmToWav, floatToWav, parseWav } from '../lib/wav.js';
 import { runSync, cachedClip, rememberClip, clipHash, lineKey } from '../lib/syncDub.js';
-import { TAKE_DIRECTIONS, MAX_TAKES_PER_REQUEST, directedSettings, fitTake, phraseCut, splicePhrase, takeGain } from '../lib/syncTakes.js';
+import { TAKE_DIRECTIONS, MAX_TAKES_PER_REQUEST, directedSettings, fitTake, phraseCut, phraseWords, splicePhrase, takeGain } from '../lib/syncTakes.js';
 import { resolveJoinSettings } from '../lib/syncSettings.js';
 import { prepareClip } from '../lib/syncRender.js';
 import { TTS_CONTEXT_CHARS, withSentenceEnd } from '../lib/ttsText.js';
@@ -692,8 +692,9 @@ syncRouter.post('/sync/takes/words', asyncHandler(async (req, res) => {
  * the voice's stability for these takes alone. `line` is `{ bankStart, length, gain,
  * text, voiceText?, speaker, previousText, nextText, readCount }`: where the
  * line's current take is in the bank and what it says. `phrase`, `{ before,
- * words, after }`, voices only `words` and puts them in place of those words
- * in the current take. Each seed is one take. Replies `{ bankId, baseLength,
+ * words, after, say? }`, voices only `words` (or `say`, other words typed in
+ * their place, with `ownTags` for its tags) and puts them in place of those
+ * words in the current take. Each seed is one take. Replies `{ bankId, baseLength,
  * audioId, takes }`: the new bank's id, how many samples the old bank had,
  * the takes' samples as they were added (a WAV in the bank's own format,
  * fetched from /api/sync/audio/:audioId) and each take's `{ seed, bankStart,
@@ -741,6 +742,9 @@ syncRouter.post(
     const before = phrase ? textOf(phrase.before) : '';
     const after = phrase ? textOf(phrase.after) : '';
     if (phrase && !words) throw new ApiError('Pick the words to retake.', { status: 400, code: 'no_phrase' });
+    // Words typed in place of the picked ones are read instead; the picked ones are still what is found in the take.
+    const picked = phrase ? phraseWords(words, textOf(phrase.say, 2000)) : null;
+    if (phrase && !picked) throw new ApiError('Type the words to say in place of the picked ones.', { status: 400, code: 'no_phrase_words' });
 
     const cartesia = isCartesiaVoice(voiceId);
     const requested = parseOutputFormat(outputFormat) ? outputFormat : FALLBACK_FORMAT;
@@ -778,8 +782,8 @@ syncRouter.post(
     const voiceText = textOf(line?.voiceText);
     const sourceTagged = tags && !phrase && performanceTags === true && Boolean(voiceText);
     if (sourceTagged) voice = { ...voice, performanceTags: true };
-    // Tags the user typed into the line's words are read as they are, and none are added to them.
-    const typedTags = tags && !cartesia && !phrase && ownTags === true;
+    // Tags the user typed into the line's words, or into the words said in place of the picked ones, are read as they are, and none are added to them.
+    const typedTags = tags && !cartesia && (!phrase || picked.reworded) && ownTags === true;
     if (typedTags) voice = { ...voice, ownTags: true };
 
     // A direction changes how the voice is asked to read, starting from the settings the line was read with.
@@ -808,7 +812,7 @@ syncRouter.post(
       const [cued] = await cueLinesWith({ language, apiKey: textModelKey })([text]);
       if (typeof cued === 'string' && cued.trim()) text = cued;
     }
-    const spoken = phrase ? (after ? words : withSentenceEnd(words)) : withSentenceEnd(text);
+    const spoken = phrase ? (after ? picked.read : withSentenceEnd(picked.read)) : withSentenceEnd(text);
     const previousText = [textOf(line?.previousText), before].filter(Boolean).join(' ').slice(-TTS_CONTEXT_CHARS) || undefined;
     const nextText = [after, textOf(line?.nextText)].filter(Boolean).join(' ').slice(0, TTS_CONTEXT_CHARS) || undefined;
     const joinSettings = resolveJoinSettings(join);

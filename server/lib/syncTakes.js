@@ -11,6 +11,8 @@
  *   line's current take. Both joins are at the quietest point of the pause
  *   between words, so every sample either side is copied untouched: no fade,
  *   no gain and no resample.
+ *   The user may type other words in place of the picked ones (`say`, with
+ *   pause marks and typed tags): those are read instead, and put in the same place.
  * - A direction (faster, slower, calmer, more energy) changes how the voice is
  *   asked to read the line, never its words, and never the audio afterwards.
  */
@@ -18,6 +20,21 @@ import { prepareClip, removeBreaths } from './syncRender.js';
 import { dbToAmplitude } from './syncSettings.js';
 import { speechLoudness, matchGainTo } from './loudness.js';
 import { quietestPoint } from './dubTakes.js';
+import { stripTags } from './lineTags.js';
+import { stripPauses } from './linePauses.js';
+
+/**
+ * The words of a phrase take: those found in the take (`find`, the words
+ * picked) and those read in their place (`read`: `say` when the user typed
+ * other words or tags, else the words picked). Null when `say` was typed with
+ * no word in it.
+ */
+export const phraseWords = (words, say) => {
+  const typed = typeof say === 'string' ? say.trim() : '';
+  if (!typed || typed === words) return { find: words, read: words, reworded: false };
+  if (!stripTags(stripPauses(typed)).trim()) return null;
+  return { find: words, read: typed, reworded: true };
+};
 
 /** How a take may be read differently from the line as Sync voiced it. */
 export const TAKE_DIRECTIONS = ['same', 'faster', 'slower', 'calmer', 'energy'];

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directedSettings, fitTake, phraseCut, splicePhrase, takeGain } from './syncTakes.js';
+import { directedSettings, fitTake, phraseCut, phraseWords, splicePhrase, takeGain } from './syncTakes.js';
 import { resolveJoinSettings } from './syncSettings.js';
 import { speechLoudness } from './loudness.js';
 import { prepareClip } from './syncRender.js';
@@ -37,6 +37,13 @@ test('a direction changes only how the voice is asked to read, within what each 
   assert.equal(livelier.similarity_boost, 0.75, 'what the direction is not about is kept');
   assert.equal(directedSettings({ speed: 1 }, 'calmer', 'cartesia').emotion, 'calm');
   assert.equal(directedSettings(undefined, 'faster', 'cartesia').speed, 1.08);
+});
+
+test('a phrase take finds the picked words and reads the words typed in their place', () => {
+  assert.deepEqual(phraseWords('जीवन को', undefined), { find: 'जीवन को', read: 'जीवन को', reworded: false });
+  assert.deepEqual(phraseWords('जीवन को', ' जीवन को '), { find: 'जीवन को', read: 'जीवन को', reworded: false }, 'the same words are no change');
+  assert.deepEqual(phraseWords('जीवन को', '[softly] जीवन के रहस्य को'), { find: 'जीवन को', read: '[softly] जीवन के रहस्य को', reworded: true });
+  assert.equal(phraseWords('जीवन को', '[softly] [pause 0.4s]'), null, 'tags and pauses alone say nothing');
 });
 
 test('a phrase retake keeps every sample of the line around the phrase as it was', () => {

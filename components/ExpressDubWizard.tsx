@@ -153,7 +153,7 @@ import { CueEditBar, PickableWords, useCueEditing, useReviewUndoKeys, type Revie
 import { reviewHistoryLabels } from '../services/reviewHistory';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
 import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
-import { firstWordAt, takesOf, type TakeAsk } from '../services/syncTakesService';
+import { alignTakeWords, firstWordAt, takesOf, type TakeAsk } from '../services/syncTakesService';
 import { TakesPanel } from './TakesPanel';
 
 type ReviewMode = 'table' | 'script' | 'qa';
@@ -3333,6 +3333,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     voiceTags={takesVoiceTags}
                     pro={Boolean(inWindow?.pro)}
                     language={targetLanguage}
+                    onAlignWords={
+                      activeJob.syncBankBlob && !syncPendingLines.includes(unit.key)
+                        ? () => alignTakeWords(takesBank, activeJob.syncBankBlob!, line, unit.text, { apiKey: elApiKey || undefined })
+                        : undefined
+                    }
                   />
                 );
               }

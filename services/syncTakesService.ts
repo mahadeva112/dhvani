@@ -40,8 +40,8 @@ export interface TakesRequest {
   nextText?: string;
   /** How many lines the dub has, so a take is voiced with the settings the whole read was. */
   readCount: number;
-  /** Words of the line to voice again (indexes into wordsOf, inclusive); the whole line when left out. */
-  phrase?: { from: number; to: number };
+  /** Words of the line to voice again (indexes into wordsOf, inclusive), or `say` in their place; the whole line when left out. */
+  phrase?: { from: number; to: number; say?: string };
   direction: TakeDirection;
   count: number;
   join: SyncJoinSettings;
@@ -76,6 +76,7 @@ export const voiceTakes = async (
 ): Promise<{ bankId: string; bankBlob: Blob; takes: SyncTake[] }> => {
   const { bank, bankBlob, line, unit, phrase, cartesia } = request;
   const words = phrase ? phraseOf(unit.text, phrase.from, phrase.to) : null;
+  const say = phrase?.say?.trim() && phrase.say.trim() !== words?.words ? phrase.say.trim() : null;
   const voice =
     cartesia && isCartesiaVoice(request.voiceId)
       ? { modelId: cartesia.modelId || undefined, voiceSettings: cartesiaDelivery(cartesia) }
@@ -102,7 +103,7 @@ export const voiceTakes = async (
           nextText: request.nextText,
           readCount: request.readCount,
         },
-        ...(words && { phrase: words }),
+        ...(words && { phrase: { ...words, ...(say && { say }) } }),
         seeds,
         direction: request.direction,
         join: request.join,
@@ -154,7 +155,7 @@ export const voiceTakes = async (
       dropped: 0,
       seed: take.seed,
       direction: request.direction,
-      ...(words && { phrase: words.words }),
+      ...(words && { phrase: say ?? words.words }),
       text: unit.text,
     })),
   };

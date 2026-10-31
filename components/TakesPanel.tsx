@@ -9,7 +9,9 @@ import { useTagPrefs } from '../services/tagPrefs';
 import { TagTextarea, type TagTextareaHandle } from './TagTextarea';
 import { usePhoneticTyping } from './review/usePhoneticTyping';
 import { getIndicLanguageConfig } from '../services/indicTransliteration';
+import type { TakeWord } from '../services/takeRange';
 import {
+  phraseLine,
   phraseOf,
   SYNC_TAKE_ID,
   TAKE_COUNTS,
@@ -92,6 +94,30 @@ export interface WordingRequest {
 /** A take's name in the list: Sync's own, or its number among the takes asked for. */
 const takeName = (take: SyncTake, index: number) => (take.id === SYNC_TAKE_ID ? "Sync's take" : `Take ${index}`);
 
+/** Bars the take in the dub is drawn with. */
+const WAVE_BARS = 240;
+
+/** The take's loudest sample in each of `bars` stretches, 0 to 1 of its loudest: read from its samples in the bank (a plain 44-byte WAV header). */
+const peaksOf = async (bankBlob: Blob, take: Pick<SyncTake, 'bankStart' | 'length'>, float: boolean, bars = WAVE_BARS) => {
+  const bytes = float ? 4 : 2;
+  const from = 44 + take.bankStart * bytes;
+  const buffer = await bankBlob.slice(from, from + take.length * bytes).arrayBuffer();
+  const data = float ? new Float32Array(buffer) : new Int16Array(buffer);
+  const full = float ? 1 : 32768;
+  const per = Math.max(1, Math.floor(data.length / bars));
+  const peaks: number[] = [];
+  for (let b = 0; b < bars; b++) {
+    let top = 0;
+    for (let i = b * per, end = Math.min(data.length, (b + 1) * per); i < end; i++) top = Math.max(top, Math.abs(data[i]) / full);
+    peaks.push(top);
+  }
+  const loudest = Math.max(...peaks, 1e-4);
+  return peaks.map((p) => p / loudest);
+};
+
+/** Shortened for a button. */
+const short = (text: string, max = 24) => (text.length > max ? `${text.slice(0, max - 2)}…` : text);
+
 /** Below this share of the original speech, a line's wordings are asked for fuller. */
 const LONGER_BELOW = 0.8;
 
@@ -143,6 +169,8 @@ export const TakesPanel: React.FC<{
   inWindow?: boolean;
   /** Whether the words were edited and not yet voiced: what closing would lose. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** Where each word is in the take in the dub, by forced alignment: asked only when the user drags across its wave. */
+  onAlignWords?: () => Promise<TakeWord[]>;
 }> = ({
   unit,
   lineNumber,
@@ -169,6 +197,7 @@ export const TakesPanel: React.FC<{
   voiceTags = { on: false, note: 'This voice reads no tags.' },
   pro = false,
   language = '',
+  onAlignWords,
 }) => {
   const words = useMemo(() => wordsOf(unit.text), [unit.text]);
   const [direction, setDirection] = useState<TakeDirection>('same');
@@ -177,6 +206,107 @@ export const TakesPanel: React.FC<{
   useEffect(() => setPick(initialPhrase ?? null), [unit.key, unit.text, initialPhrase]);
   const phrase = pick ? phraseOf(unit.text, pick.from, pick.to) : null;
   const wholeLine = !phrase || (!phrase.before && !phrase.after);
+  // Esc lets go of the words picked before it closes the window.
+  useEffect(() => {
+    if (!pick) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || (e.target as HTMLElement | null)?.closest?.('input, textarea, [contenteditable="true"]')) return;
+      e.stopImmediatePropagation();
+      setPick(null);
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [pick]);
+
+  // Other words to say in place of the picked ones, typed where they are picked: the picked words until changed.
+  const sayEditor = useRef<TagTextareaHandle>(null);
+  const [say, setSay] = useState('');
+  useEffect(() => setSay(phrase && !wholeLine ? phrase.words : ''), [phrase?.words, wholeLine]);
+  const sayMarked = dotsToPauses(say.trim());
+  const saySaid = stripTags(stripPauses(sayMarked));
+  const resay = Boolean(phrase && !wholeLine && sayMarked && sayMarked !== phrase.words);
+  // Other words, not only tags or pauses added to the same ones: the picked words are replaced.
+  const replaced = resay && saySaid !== phrase?.words;
+  const sayProblems = tagProblems(sayMarked);
+  const sayTags = tagsOf(sayMarked);
+
+  // The take in the dub, drawn from its samples; its words where forced alignment finds them, asked only on a drag (it may use credits).
+  const inDub = lineTakes.takes.find((take) => take.id === lineTakes.active) ?? lineTakes.takes[0];
+  const takeSeconds = inDub ? inDub.length / sampleRate : 0;
+  const [peaks, setPeaks] = useState<number[] | null>(null);
+  useEffect(() => {
+    setPeaks(null);
+    if (!bankBlob || !inDub) return;
+    let live = true;
+    peaksOf(bankBlob, inDub, float).then((p) => live && setPeaks(p), () => {});
+    return () => {
+      live = false;
+    };
+  }, [bankBlob, inDub?.bankStart, inDub?.length, float]);
+  const [takeWords, setTakeWords] = useState<TakeWord[] | null>(null);
+  const [aligning, setAligning] = useState(false);
+  const aligned = useRef(0);
+  useEffect(() => {
+    setTakeWords(null);
+    setAligning(false);
+    aligned.current += 1;
+  }, [unit.key, unit.text, inDub?.bankStart]);
+  const wave = useRef<HTMLDivElement>(null);
+  // A drag across the wave, as shares of its width: kept while its words are looked for.
+  const [drag, setDrag] = useState<{ a: number; b: number } | null>(null);
+  // The drag as the pointer has it now, before it is drawn.
+  const dragging = useRef<{ a: number; b: number } | null>(null);
+  const shareAt = (clientX: number) => {
+    const box = wave.current?.getBoundingClientRect();
+    return box && box.width > 0 ? Math.min(1, Math.max(0, (clientX - box.left) / box.width)) : 0;
+  };
+  /** Picks the words a drag crossed, or the one nearest a click. */
+  const pickFromWave = (words: TakeWord[], { a, b }: { a: number; b: number }) => {
+    if (!words.length) return;
+    const lo = Math.min(a, b) * takeSeconds;
+    const hi = Math.max(a, b) * takeSeconds;
+    let crossed = words.filter((w) => w.end > lo && w.start < hi);
+    if (!crossed.length) {
+      const gap = (w: TakeWord) => (lo < w.start ? w.start - lo : lo > w.end ? lo - w.end : 0);
+      crossed = [words.reduce((best, w) => (gap(w) < gap(best) ? w : best))];
+    }
+    setPick({ from: crossed[0].index, to: crossed[crossed.length - 1].index });
+  };
+  const endDrag = async (range: { a: number; b: number }) => {
+    if (takeWords) {
+      setDrag(null);
+      return pickFromWave(takeWords, range);
+    }
+    if (!onAlignWords) return setDrag(null);
+    const id = ++aligned.current;
+    setAligning(true);
+    try {
+      const words = await onAlignWords();
+      if (aligned.current !== id) return;
+      setTakeWords(words);
+      pickFromWave(words, range);
+    } catch (err) {
+      if (aligned.current !== id) return;
+      reportError(err, { title: 'The words could not be found in the take', safe: 'Nothing was voiced, and the take is as it was.' });
+    } finally {
+      if (aligned.current === id) {
+        setAligning(false);
+        setDrag(null);
+      }
+    }
+  };
+  // Where the picked words are in the take, once their times are known.
+  const pickedSpan =
+    takeWords && pick && !wholeLine
+      ? (() => {
+          const first = takeWords.find((w) => w.index === Math.min(pick.from, pick.to));
+          const last = takeWords.find((w) => w.index === Math.max(pick.from, pick.to));
+          return first && last ? { start: first.start, end: last.end } : null;
+        })()
+      : null;
+
+  // The whole line's words are edited in a section opened for it; Retake pro has it open beside its tags.
+  const [lineOpen, setLineOpen] = useState(false);
 
   // The line's words, to edit before a retake. Nothing is voiced, and the script is not changed, until the user asks.
   const [draft, setDraft] = useState(unit.text);
@@ -191,9 +321,14 @@ export const TakesPanel: React.FC<{
   }, [unit.key, unit.text]);
   const reworded = draft.trim() !== '' && draft.trim() !== unit.text.trim();
   // Edited words not yet voiced in any take are what closing would lose.
-  const dirty = reworded && !lineTakes.takes.some((take) => (take.spoken ?? take.text).trim() === dotsToPauses(draft.trim()));
+  const dirty =
+    (reworded && !lineTakes.takes.some((take) => (take.spoken ?? take.text).trim() === dotsToPauses(draft.trim()))) ||
+    (!reworded && resay && !lineTakes.takes.some((take) => take.phrase === sayMarked));
   useEffect(() => onDirtyChange?.(dirty), [dirty]);
   useEffect(() => () => onDirtyChange?.(false), []);
+  const showLine = pro || lineOpen || reworded;
+  // Some words picked, of a line whose words are as they are: those are what a retake voices.
+  const some = !reworded && !wholeLine && phrase ? phrase : null;
   // An ellipsis typed between words is a pause: timed, voiced and kept out of the script as one.
   const marked = dotsToPauses(draft.trim());
   // The words said: no pause marks, and no tags, which are not read as words.
@@ -266,7 +401,9 @@ export const TakesPanel: React.FC<{
     }
   };
 
-  const chars = (wholeLine ? unit.text.length : phrase.words.length) * takeCount;
+  const chars = (some ? (resay ? stripPauses(sayMarked).length : some.words.length) : unit.text.length) * takeCount;
+  // The line with the new words in place of the picked ones, and about how long it would take.
+  const resaidSeconds = some && resay && pick ? secondsOf(phraseLine(unit.text, pick.from, pick.to, sayMarked)) : null;
 
   const clickWord = (index: number, extend: boolean) => {
     if (extend && pick) setPick({ from: pick.from, to: index });
@@ -325,10 +462,12 @@ export const TakesPanel: React.FC<{
   const sectionLabel = 'text-[10.5px] uppercase tracking-wide font-semibold text-slate-500';
   const chip = 'inline-flex items-center rounded px-1.5 py-0.5 font-mono text-[11.5px] bg-indigo-500/20 text-indigo-200 hover:bg-indigo-500/35 cursor-default';
   const cleanNewTag = newTag.trim().replace(/[\[\]]/g, '').toLowerCase();
+  // Tags from the library go into the words said in place of the picked ones, while some are picked; else into the line.
+  const tagTarget = () => (some ? sayEditor : editor).current;
   const addNewTag = () => {
     if (!isTagName(cleanNewTag)) return;
     addOwn(cleanNewTag);
-    editor.current?.insertTag(cleanNewTag);
+    tagTarget()?.insertTag(cleanNewTag);
     setNewTag('');
   };
   const lineTags = [...new Set(typedTags)].slice(0, 8);
@@ -356,7 +495,7 @@ export const TakesPanel: React.FC<{
             <div className="flex flex-wrap gap-1">
               {tags.map((t) => (
                 <span key={t} className="group relative">
-                  <button type="button" onClick={() => editor.current?.insertTag(t)} title={`Put [${t}] where the caret is (before the words selected)`} className={chip}>
+                  <button type="button" onClick={() => tagTarget()?.insertTag(t)} title={`Put [${t}] where the caret is (before the words selected)`} className={chip}>
                     [{t}]
                   </button>
                   {own && (
@@ -402,7 +541,7 @@ export const TakesPanel: React.FC<{
             <div key={style.name} className="group relative">
               <button
                 type="button"
-                onClick={() => editor.current?.leadWith(style.tags)}
+                onClick={() => tagTarget()?.leadWith(style.tags)}
                 title="Start the line with these tags, in place of the tags it starts with"
                 className="w-full text-left rounded-md border border-slate-800 hover:bg-slate-900 px-2 py-1.5 cursor-default"
               >
@@ -485,7 +624,174 @@ export const TakesPanel: React.FC<{
         )}
       </div>
 
+      {/* The take in the dub: drag across it, or click its words, to retake only those */}
+      {!reworded && (
+        <div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1">
+            <span className={sectionLabel}>The take in the dub</span>
+            <span className="ml-auto text-[11px] text-slate-500">
+              {onAlignWords ? 'Drag across the wave, or click a word and Shift + click another' : 'Click a word, then Shift + click another'} · <kbd className="font-mono text-slate-300">Esc</kbd> clears
+            </span>
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-2.5 pt-2 pb-1.5">
+            {peaks && takeSeconds > 0 && (
+              <div
+                ref={wave}
+                className="relative h-14 select-none touch-none"
+                title={onAlignWords ? (takeWords ? 'Drag across words to pick them; picks snap to whole words' : 'Drag across words to pick them. The first drag finds the words with ElevenLabs forced alignment; it may use alignment credits. No voice is made until you retake.') : undefined}
+                onPointerDown={(e) => {
+                  if (!onAlignWords || aligning || e.button !== 0) return;
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  const at = shareAt(e.clientX);
+                  dragging.current = { a: at, b: at };
+                  setDrag(dragging.current);
+                }}
+                onPointerMove={(e) => {
+                  if (!dragging.current) return;
+                  dragging.current = { ...dragging.current, b: shareAt(e.clientX) };
+                  setDrag(dragging.current);
+                }}
+                onPointerUp={(e) => {
+                  const range = dragging.current;
+                  if (!range) return;
+                  dragging.current = null;
+                  void endDrag({ ...range, b: shareAt(e.clientX) });
+                }}
+              >
+                <svg viewBox={`0 0 ${peaks.length} 100`} preserveAspectRatio="none" className="absolute inset-0 w-full h-full" aria-hidden="true">
+                  {peaks.map((p, i) => {
+                    const t = ((i + 0.5) / peaks.length) * takeSeconds;
+                    const inPick = pickedSpan && t >= pickedSpan.start && t <= pickedSpan.end;
+                    const h = Math.max(1, p * 94);
+                    return <rect key={i} x={i + 0.15} y={50 - h / 2} width={0.7} height={h} className={inPick ? 'fill-indigo-300' : pickedSpan ? 'fill-slate-600' : 'fill-slate-500'} />;
+                  })}
+                </svg>
+                {pickedSpan && (
+                  <div
+                    className="absolute inset-y-0 border-x-2 border-indigo-400 bg-indigo-500/15 pointer-events-none"
+                    style={{ left: `${(pickedSpan.start / takeSeconds) * 100}%`, width: `${((pickedSpan.end - pickedSpan.start) / takeSeconds) * 100}%` }}
+                  >
+                    <span className="absolute top-0.5 left-1 text-[10px] font-semibold text-indigo-100 whitespace-nowrap">{replaced ? 'replaced' : 'voiced again'}</span>
+                  </div>
+                )}
+                {drag && (
+                  <div
+                    className="absolute inset-y-0 bg-indigo-400/20 border-x border-indigo-300/70 pointer-events-none"
+                    style={{ left: `${Math.min(drag.a, drag.b) * 100}%`, width: `${Math.abs(drag.b - drag.a) * 100}%` }}
+                  />
+                )}
+                {aligning && (
+                  <span className="absolute right-1 top-0.5 flex items-center gap-1 text-[10.5px] text-slate-300 bg-slate-950/80 rounded px-1.5 py-0.5">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Finding the words…
+                  </span>
+                )}
+              </div>
+            )}
+            <p className="mt-1 flex flex-wrap gap-x-1 gap-y-0.5 text-[13.5px] leading-relaxed" aria-label="Words of the line">
+              {words.map((word, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={(e) => clickWord(index, e.shiftKey)}
+                  aria-pressed={inPick(index)}
+                  title="Click to pick · Shift + click to pick up to here"
+                  className={`rounded px-0.5 cursor-default ${
+                    inPick(index) && !wholeLine
+                      ? `bg-indigo-500/25 ring-1 ring-indigo-400/60 ${replaced ? 'text-indigo-300/70 line-through decoration-rose-400/70' : 'text-indigo-100'}`
+                      : 'text-slate-200 hover:bg-slate-800'
+                  }`}
+                >
+                  {word}
+                </button>
+              ))}
+            </p>
+          </div>
+          {pick && wholeLine && <p className="mt-1 text-[11.5px] text-slate-500">Every word is picked: the whole line is voiced again.</p>}
+        </div>
+      )}
+
+      {/* The words picked: said again, or in other words typed in their place */}
+      {some && (
+        <div className="rounded-lg border border-indigo-500/30 bg-indigo-950/30 px-3 py-2.5 flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[12.5px] text-slate-300">
+              Picked <span className="text-indigo-100 font-medium">“{some.words}”</span> · {wordsOf(some.words).length} word{wordsOf(some.words).length === 1 ? '' : 's'}
+              {pickedSpan && <span className="font-mono text-[11px] text-slate-500 tabular-nums"> · {(pickedSpan.end - pickedSpan.start).toFixed(2)} s at {pickedSpan.start.toFixed(2)} s</span>}
+            </span>
+            <button type="button" onClick={() => setPick(null)} title="Esc" className="ml-auto h-6 px-2 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-default">
+              Clear · whole line
+            </button>
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <label htmlFor={`take-say-${unit.key}`} className={sectionLabel}>
+                Say instead
+              </label>
+              {!showLine && phoneticButton}
+              {voiceTags.on && !pro && (
+                <button
+                  type="button"
+                  onClick={() => sayEditor.current?.openTags()}
+                  title="Put a tag before these words (where the caret is). Typing [ does the same."
+                  className="h-6 px-2 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 flex items-center gap-1 cursor-default"
+                >
+                  <Tag className="w-3 h-3" /> Tags <kbd className="font-mono text-slate-500">[</kbd>
+                </button>
+              )}
+              <span className="ml-auto text-[11px] text-slate-500">Leave it as it is to voice the same words again</span>
+            </div>
+            <TagTextarea
+              ref={sayEditor}
+              id={`take-say-${unit.key}`}
+              value={say}
+              onChange={setSay}
+              onBlur={() => resay && sayMarked !== say.trim() && setSay(sayMarked)}
+              ownTags={prefs.own}
+              onNewTag={addOwn}
+              phonetic={language ? phonetic : undefined}
+              lang={language}
+            />
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] tabular-nums">
+              {resaidSeconds !== null && perChar > 0 ? (
+                <span className={`font-semibold ${resaidSeconds <= slot + tolerance ? 'text-emerald-300' : 'text-amber-300'}`} title="Estimated from how fast this voice said the line">
+                  The line about {resaidSeconds.toFixed(1)} s{resaidSeconds <= slot + tolerance ? ' · fits its slot' : ` · +${(resaidSeconds - slot).toFixed(1)} s past its slot`}
+                </span>
+              ) : (
+                <span className="text-slate-500">Type other words to change only these</span>
+              )}
+              {sayTags.length > 0 && voiceTags.on && <span className="text-indigo-300">{sayTags.length} tag{sayTags.length === 1 ? '' : 's'} · not in the script</span>}
+            </div>
+            {sayProblems.unclosed && <p className="mt-1 text-[11.5px] text-rose-300">A tag is not closed: add ] so the voice does not read it aloud.</p>}
+            {sayProblems.foreign.length > 0 && (
+              <p className="mt-1 text-[11.5px] text-amber-300">Tags work in English: [{sayProblems.foreign[0]}] may be read aloud. Write it as an English tag, such as [softly].</p>
+            )}
+            {sayTags.length > 0 && !voiceTags.on && (
+              <p className="mt-1 flex items-start gap-1.5 text-[11.5px] text-amber-300">
+                <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" /> {voiceTags.note} The tags are left out of these takes.
+              </p>
+            )}
+          </div>
+          <p className="text-[11.5px] text-slate-500">
+            {resay
+              ? 'Only these words are voiced, read with the words around them, and put in place of the picked ones. The rest of the take stays as it is, sample for sample. The script takes the new words only when you use a take; tags stay out of it.'
+              : 'Only the picked words are voiced again, read with the words around them, and put in where they are. The rest of the take stays as it is, sample for sample.'}
+          </p>
+        </div>
+      )}
+
+      {!showLine && (
+        <button
+          type="button"
+          onClick={() => setLineOpen(true)}
+          className="self-start h-7 px-2 -ml-2 rounded-md flex items-center gap-1.5 text-[12px] text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
+          title="Edit the whole line: its words, tags and pauses, or ask for other wordings. Shift+T opens Retake pro."
+        >
+          <Pencil className="w-3.5 h-3.5" /> Change the whole line's words, tags or pauses
+        </button>
+      )}
+
       {/* The line's words, to change before a retake */}
+      {showLine && (
       <div>
         <div className="flex items-center gap-2 mb-1">
           <label htmlFor={`take-words-${unit.key}`} className={sectionLabel}>
@@ -553,6 +859,11 @@ export const TakesPanel: React.FC<{
                 <RotateCcw className="w-3 h-3" /> Undo edit
               </button>
             )}
+            {!pro && !reworded && lineOpen && (
+              <button type="button" onClick={() => setLineOpen(false)} className="h-7 px-2 rounded-md text-[11.5px] text-slate-400 hover:text-slate-200 cursor-default">
+                Hide
+              </button>
+            )}
           </span>
         </div>
         {problems.unclosed && <p className="mt-1 text-[11.5px] text-rose-300">A tag is not closed: add ] so the voice does not read it aloud.</p>}
@@ -606,38 +917,13 @@ export const TakesPanel: React.FC<{
           </div>
         )}
       </div>
-
-      {/* The words: click one, shift-click another, to retake only those */}
-      {!reworded && (
-      <div>
-        <p className="flex flex-wrap gap-x-1 gap-y-0.5 text-[13.5px] leading-relaxed" aria-label="Words of the line">
-          {words.map((word, index) => (
-            <button
-              key={index}
-              type="button"
-              onClick={(e) => clickWord(index, e.shiftKey)}
-              aria-pressed={inPick(index)}
-              className={`rounded px-0.5 cursor-default ${inPick(index) ? 'bg-indigo-500/25 text-indigo-100 ring-1 ring-indigo-400/60' : 'text-slate-200 hover:bg-slate-800'}`}
-            >
-              {word}
-            </button>
-          ))}
-        </p>
-        <p className="mt-1 text-[11.5px] text-slate-500">
-          {pick
-            ? wholeLine
-              ? 'Every word is picked: the whole line is voiced again.'
-              : 'Only the picked words are voiced again, read with the words around them, and put in where they are. The rest of the take stays as it is, sample for sample.'
-            : 'Click a word, then Shift + click another, to voice again only those words.'}
-        </p>
-      </div>
       )}
 
       {pro && (
         <div>
           <span className={sectionLabel}>Sent to the voice</span>
           <p className="mt-1 font-mono text-[12px] leading-relaxed text-slate-300 bg-slate-900/70 border border-slate-800 rounded-md px-2.5 py-1.5 break-words">
-            {sentText(marked, voiceTags.on) || <span className="text-slate-500">No words yet</span>}
+            {sentText(some ? sayMarked : marked, voiceTags.on) || <span className="text-slate-500">No words yet</span>}
           </p>
           <p className="mt-1 text-[11px] text-slate-500">
             {voiceTags.on ? 'Tags are read as you typed them; pauses go as …. Tags stay out of the script and the subtitles.' : `${voiceTags.note} Tags are left out.`}
@@ -705,47 +991,63 @@ export const TakesPanel: React.FC<{
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => ask(reworded ? { direction, text: marked } : { direction })}
-          disabled={anyBusy || pending || !said || problems.unclosed}
-          className={`min-h-8 px-3 py-1 rounded-lg text-xs flex items-center gap-1.5 disabled:opacity-40 cursor-default ${
-            reworded ? 'bg-indigo-600 hover:bg-indigo-500 text-white font-semibold' : 'border border-slate-700 text-slate-100'
-          }`}
-          title={
-            problems.unclosed
-              ? 'Close the tag with ] first'
-              : reworded
-                ? `Voices ${takeCount} take${takeCount === 1 ? '' : 's'} in your words. The script takes them only when you use one, without the tags.`
-                : undefined
-          }
-        >
-          {busy && reworded ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
-          {busy && reworded
-            ? 'Voicing takes…'
-            : `Retake line ${String(lineNumber).padStart(2, '0')}${reworded ? (said === unit.text.trim() ? ' with your tags' : ' in your words') : ''} · ${takeCount} take${takeCount === 1 ? '' : 's'} · ${((reworded ? billed : unit.text.length) * takeCount).toLocaleString()} chars`}
-        </button>
-        {!reworded && (
-        <button
-          type="button"
-          onClick={() => ask({ direction, ...(!wholeLine && pick && { phrase: pick }) })}
-          disabled={anyBusy || pending || wholeLine}
-          title={
-            pending
-              ? "This line's words changed since Sync: Sync again, then take it again"
-              : `Voices ${takeCount} take${takeCount === 1 ? '' : 's'} now (${takeCount} voicing${takeCount === 1 ? '' : 's'} of ${wholeLine ? 'the line' : 'the words'}). Nothing changes in the dub until you use one.`
-          }
-          className="min-h-8 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
-        >
-          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
-          {busy
-            ? 'Voicing takes…'
-            : wholeLine
-              ? 'Select words for phrase retake'
-              : `Retake “${phrase?.words.length && phrase.words.length > 28 ? `${phrase.words.slice(0, 26)}…` : phrase?.words}” only · ${takeCount} take${takeCount === 1 ? '' : 's'} · ${chars.toLocaleString()} chars`}
-        </button>
+        {some && pick ? (
+          <>
+            <button
+              type="button"
+              onClick={() => ask({ direction, phrase: { from: pick.from, to: pick.to, ...(resay && { say: sayMarked }) } })}
+              disabled={anyBusy || pending || !saySaid || sayProblems.unclosed}
+              title={
+                pending
+                  ? "This line's words changed since Sync: Sync again, then take it again"
+                  : !saySaid
+                    ? 'Type the words to say in place of the picked ones'
+                    : sayProblems.unclosed
+                      ? 'Close the tag with ] first'
+                      : `Voices ${takeCount} take${takeCount === 1 ? '' : 's'} of ${resay ? 'your words' : 'the picked words'} now and puts them in place of the picked ones. Nothing changes in the dub until you use one.`
+              }
+              className="min-h-8 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
+            >
+              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
+              {busy
+                ? 'Voicing takes…'
+                : resay
+                  ? `Retake “${short(saySaid || sayMarked)}” in place of the picked words · ${takeCount} take${takeCount === 1 ? '' : 's'} · ${chars.toLocaleString()} chars`
+                  : `Retake “${short(some.words)}” only · ${takeCount} take${takeCount === 1 ? '' : 's'} · ${chars.toLocaleString()} chars`}
+            </button>
+            <button
+              type="button"
+              onClick={() => ask({ direction })}
+              disabled={anyBusy || pending || !said}
+              title="Voices the whole line again; the picked words are ignored"
+              className="min-h-8 px-3 py-1 rounded-lg border border-slate-700 text-slate-100 text-xs flex items-center gap-1.5 hover:bg-slate-800 disabled:opacity-40 cursor-default"
+            >
+              Retake whole line instead · {(unit.text.length * takeCount).toLocaleString()} chars
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => ask(reworded ? { direction, text: marked } : { direction })}
+            disabled={anyBusy || pending || !said || problems.unclosed}
+            className="min-h-8 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
+            title={
+              pending
+                ? "This line's words changed since Sync: Sync again, then take it again"
+                : problems.unclosed
+                  ? 'Close the tag with ] first'
+                  : reworded
+                    ? `Voices ${takeCount} take${takeCount === 1 ? '' : 's'} in your words. The script takes them only when you use one, without the tags.`
+                    : `Voices ${takeCount} take${takeCount === 1 ? '' : 's'} of the whole line now. Nothing changes in the dub until you use one. Pick words above to voice only those.`
+            }
+          >
+            {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
+            {busy
+              ? 'Voicing takes…'
+              : `Retake line ${String(lineNumber).padStart(2, '0')}${reworded ? (said === unit.text.trim() ? ' with your tags' : ' in your words') : ''} · ${takeCount} take${takeCount === 1 ? '' : 's'} · ${((reworded ? billed : unit.text.length) * takeCount).toLocaleString()} chars`}
+          </button>
         )}
-        <span className="text-[11.5px] text-slate-500">Character counts are estimates. Phrase retakes also use forced alignment.</span>
+        <span className="text-[11.5px] text-slate-500">Character counts are estimates. Retaking picked words also uses forced alignment.</span>
         {pending && <span className="text-[11.5px] text-amber-300">The words changed since Sync: Sync again first.</span>}
       </div>
 

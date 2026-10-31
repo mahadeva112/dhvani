@@ -26,8 +26,8 @@ export const TAKE_DIRECTIONS: { id: TakeDirection; label: string; hint: string }
   { id: 'energy', label: 'More energy', hint: 'Livelier and more stylised (a confident emotion on Cartesia)' },
 ];
 
-/** Takes voiced each time the user asks; each costs a voicing of the line (or of the words picked). */
-export const TAKES_PER_ASK = 2;
+/** Takes voiced each time the user asks, unless Retake pro picks more; each costs a voicing of the line (or of the words picked). */
+export const TAKES_PER_ASK = 1;
 
 /** How many takes Retake pro may ask for at once (the server takes up to 5). */
 export const TAKE_COUNTS = [1, 2, 3, 5] as const;
@@ -41,12 +41,13 @@ export const TAKE_STABILITIES = [
 
 /**
  * What the retake window asks for: a direction, and only some words
- * (`phrase`) or the whole line in other words (`text`, which may carry pause
- * marks and typed tags); Retake pro may also set how many takes and the stability.
+ * (`phrase`, with `say` when other words are typed in their place) or the
+ * whole line in other words (`text`); both may carry pause marks and typed
+ * tags. Retake pro may also set how many takes and the stability.
  */
 export interface TakeAsk {
   direction: TakeDirection;
-  phrase?: { from: number; to: number };
+  phrase?: { from: number; to: number; say?: string };
   text?: string;
   count?: number;
   stability?: number;
@@ -125,6 +126,12 @@ export const phraseOf = (text: string, from: number, to: number) => {
   const a = Math.max(0, Math.min(from, to));
   const b = Math.min(words.length - 1, Math.max(from, to));
   return { before: words.slice(0, a).join(' '), words: words.slice(a, b + 1).join(' '), after: words.slice(b + 1).join(' ') };
+};
+
+/** The line with `say` in place of the words picked (`from` to `to`): what a phrase take in other words says. */
+export const phraseLine = (text: string, from: number, to: number, say: string) => {
+  const { before, after } = phraseOf(text, from, to);
+  return [before, say.trim(), after].filter(Boolean).join(' ');
 };
 
 /* ---------- The bank's WAV ---------- */

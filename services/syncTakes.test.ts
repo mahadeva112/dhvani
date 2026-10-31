@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendManyToBank, appendToBank, compactBank, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
+import { appendManyToBank, appendToBank, compactBank, phraseLine, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
 import { measureEdits, partEnd, partsOf } from './syncEditModel.ts';
@@ -129,6 +129,8 @@ test('voice-changed lines go after the bank in order, its own bytes untouched', 
 test('a phrase splits the line around the words picked, in either order', () => {
   assert.deepEqual(phraseOf('one two three four', 1, 2), { before: 'one', words: 'two three', after: 'four' });
   assert.deepEqual(phraseOf('one two three four', 3, 0), { before: '', words: 'one two three four', after: '' });
+  assert.equal(phraseLine('one two three four', 1, 2, ' [softly] new words '), 'one [softly] new words four', 'other words go in place of the picked ones');
+  assert.equal(phraseLine('one two three four', 0, 0, 'zero'), 'zero two three four');
 });
 
 test("a take is put in the dub with its first word where the line's is, and the report follows it", () => {

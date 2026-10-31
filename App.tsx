@@ -147,7 +147,7 @@ import {
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { BASE_LABELS, backToFirstStep, recordReviewStep, redoReviewStep, startReviewHistory, undoReviewStep } from './services/reviewHistory';
 import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
-import { pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type TakeAsk } from './services/syncTakesService';
+import { phraseLine, phraseOf, pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type TakeAsk } from './services/syncTakesService';
 import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
 import { stripTags, tagsOf } from './server/lib/lineTags.js';
 import {
@@ -2982,9 +2982,12 @@ export default function App() {
     // New words are a new reading of the whole line: no phrase of the old take, no tags matched to the old words.
     const spoken = text?.trim() && text.trim() !== unit.text ? text.trim() : null;
     if (spoken && phrase) return;
+    // Other words typed in place of the picked ones: the line says them there once a take of them is used.
+    const say = phrase?.say?.trim() && phrase.say.trim() !== phraseOf(unit.text, phrase.from, phrase.to).words ? phrase.say.trim() : null;
+    const resaid = say && phrase ? phraseLine(unit.text, phrase.from, phrase.to, say) : null;
     // The script keeps the words alone: no pause marks, and no tags typed for the voice.
-    const words = spoken ? stripTags(stripPauses(spoken)) : unit.text;
-    const typedTags = Boolean(spoken && tagsOf(spoken).length > 0);
+    const words = spoken ? stripTags(stripPauses(spoken)) : resaid ? stripTags(stripPauses(resaid)) : unit.text;
+    const typedTags = Boolean((spoken && tagsOf(spoken).length > 0) || (say && tagsOf(say).length > 0));
     setSyncTakesBusy({ jobId: job.id, key: unit.key });
     const controller = new AbortController();
     try {
@@ -3047,7 +3050,9 @@ export default function App() {
       const nowLine = now.syncBank.lines.find((l) => l.key === unit.key) || line;
       const kept = takesOf(now.syncTakes, nowLine, base.units[n]);
       // A take keeps the words the script takes from it, and what the voice read, pauses and all.
-      const added = result.takes.map((take) => (spoken ? { ...take, text: words, spoken } : paused ? { ...take, text: base.units[n].text, spoken: paused } : take));
+      const added = result.takes.map((take) =>
+        spoken ? { ...take, text: words, spoken } : resaid ? { ...take, text: words, spoken: resaid } : paused ? { ...take, text: base.units[n].text, spoken: paused } : take
+      );
       const voiced: BatchJob = {
         ...now,
         syncBank: { ...now.syncBank, bankId: result.bankId },
