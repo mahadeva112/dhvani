@@ -8,6 +8,9 @@ import { keySource, translationSetup, gatewayEnabled } from '../env.js';
 
 export const healthRouter = Router();
 
+/** When this backend started, so the app can tell a restart from a backend that was up all along. */
+const startedAt = Date.now();
+
 /**
  * Tells the frontend what the backend can actually do, so the UI can explain a
  * missing key instead of failing on the first request.
@@ -29,6 +32,7 @@ healthRouter.get(
       ok: true,
       service: 'dhvani-backend',
       version: config.version,
+      startedAt,
       elevenLabsConfigured: Boolean(config.elevenlabs.apiKey),
       cartesiaConfigured: Boolean(config.cartesia.apiKey),
       transcriptionProvider: activeProviders.transcription,

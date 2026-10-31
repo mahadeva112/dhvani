@@ -259,7 +259,7 @@ export interface DubProgress {
 }
 
 export const getDubProgress = (jobId: string): Promise<DubProgress> =>
-  apiGet<DubProgress>(`/elevenlabs/tts/jobs/${encodeURIComponent(jobId)}`);
+  apiGet<DubProgress>(`/elevenlabs/tts/jobs/${encodeURIComponent(jobId)}`, { retry: false });
 
 /** Stops a dub. No passage after the one in flight is requested. */
 export const cancelDub = (jobId: string): Promise<{ cancelled: boolean }> =>

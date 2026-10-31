@@ -580,6 +580,36 @@ const routeToEngine = () => {
   });
 };
 
+/** When the engine stopped on its own lately, so one that keeps dying is reported, not restarted in a loop. */
+let engineStops = [];
+
+/**
+ * Starts the engine again when it stops on its own, as the watchdog does for
+ * the auto-started backend: the window keeps its project, and the app's
+ * requests wait for the engine to answer again and are sent once more.
+ */
+const restartBackend = async (code) => {
+  appendLog(`\n--- The DHVANI engine stopped (exit code ${code}) - starting it again ---\n`);
+  const now = Date.now();
+  engineStops = engineStops.filter((at) => now - at < 5 * 60_000);
+  engineStops.push(now);
+  if (engineStops.length > 3) {
+    dialog.showErrorBox(
+      'DHVANI stopped unexpectedly',
+      `The DHVANI engine stopped ${engineStops.length} times in a few minutes (last exit code ${code}).\n\nDetails were written to:\n${logFile}`
+    );
+    app.quit();
+    return;
+  }
+  try {
+    await startBackend();
+  } catch (err) {
+    if (isQuitting) return;
+    dialog.showErrorBox('DHVANI could not restart', `${err.message}\n\nDetails were written to:\n${logFile}`);
+    app.quit();
+  }
+};
+
 /** Starts the Express backend as a child Node process. */
 const startBackend = async () => {
   const proxyEnv = await systemProxyEnv();
@@ -631,13 +661,7 @@ const startBackend = async () => {
         fail(new Error(`The DHVANI engine stopped while starting (exit code ${code}).`));
         return;
       }
-      if (!isQuitting && code !== 0) {
-        dialog.showErrorBox(
-          'DHVANI stopped unexpectedly',
-          `The DHVANI engine exited with code ${code}.\n\nDetails were written to:\n${logFile}`
-        );
-        app.quit();
-      }
+      if (!isQuitting) restartBackend(code);
     });
 
     // Poll the health endpoint rather than guessing a fixed startup delay.

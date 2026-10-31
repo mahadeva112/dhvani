@@ -192,7 +192,7 @@ const awaitTranslationJob = async (
     await pause(TRANSLATION_POLL_MS, signal);
     let job: { state: string; progress: StreamEvent | null; result: RetranslateResult | null; error: any };
     try {
-      job = await apiGet(`/pipeline/retranslate/${jobId}`, { signal });
+      job = await apiGet(`/pipeline/retranslate/${jobId}`, { signal, retry: false });
       unreachableSince = null;
     } catch (err) {
       if (signal?.aborted) throw err;

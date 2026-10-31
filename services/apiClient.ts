@@ -80,28 +80,93 @@ const toApiError = async (response: Response): Promise<DhvaniApiError> => {
   });
 };
 
-const withNetworkGuard = async <T>(action: () => Promise<T>): Promise<T> => {
-  try {
-    return await action();
-  } catch (err: any) {
-    if (err instanceof DhvaniApiError) throw err;
-    throw new DhvaniApiError(
-      `Could not reach the local DHVANI backend: ${err?.message || 'network error'}. ` +
-        'Check that the server is running on the configured port.',
-      { code: 'backend_unreachable' }
+/** How long a request waits for the backend to come back: the watchdog restarts a stopped one in seconds. */
+const BACKEND_RETURN_MS = 90_000;
+const BACKEND_PROBE_MS = 1_500;
+/** Restarts one request is sent again through before it gives up. */
+const MAX_RESENDS = 2;
+
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true }
     );
+  });
+
+/**
+ * Waits for the backend after a request to it failed. True once a backend
+ * that started after `sentAt` answers: the request died with the old one and
+ * can be sent again. False when the backend that answers was up all along
+ * (the failure was something else) or none answers in time.
+ */
+const backendRestartedSince = async (sentAt: number, signal?: AbortSignal): Promise<boolean> => {
+  const deadline = Date.now() + BACKEND_RETURN_MS;
+  let wentDown = false;
+  while (!signal?.aborted && Date.now() < deadline) {
+    try {
+      const response = await fetch(`${API_BASE}/health`, { signal });
+      if (response.ok) {
+        const startedAt = Number((await response.json())?.startedAt) || 0;
+        // An older backend doesn't say when it started: having seen it gone has to do.
+        return startedAt ? startedAt >= sentAt : wentDown;
+      }
+    } catch {
+      // Nothing answers yet.
+    }
+    wentDown = true;
+    await sleep(BACKEND_PROBE_MS, signal);
+  }
+  return false;
+};
+
+/**
+ * Runs a request, and when the backend stops halfway (a crash, or the
+ * watchdog ending a hung one) waits for it to come back and sends the request
+ * again, so a dub or a sync carries on instead of failing.
+ */
+const withNetworkGuard = async <T>(
+  action: () => Promise<T>,
+  { signal, retry = true }: { signal?: AbortSignal; retry?: boolean } = {}
+): Promise<T> => {
+  for (let resends = 0; ; resends += 1) {
+    const sentAt = Date.now();
+    let failure: DhvaniApiError;
+    try {
+      return await action();
+    } catch (err: any) {
+      if (err instanceof DhvaniApiError && err.code !== 'backend_unreachable') throw err;
+      failure =
+        err instanceof DhvaniApiError
+          ? err
+          : new DhvaniApiError(
+              `Could not reach the local DHVANI backend: ${err?.message || 'network error'}. ` +
+                'Check that the server is running on the configured port.',
+              { code: 'backend_unreachable' }
+            );
+    }
+    if (!retry || signal?.aborted || resends >= MAX_RESENDS) throw failure;
+    if (!(await backendRestartedSince(sentAt, signal)) || signal?.aborted) throw failure;
+    console.info('The DHVANI backend restarted; sending the request again.');
   }
 };
 
 export interface RequestOptions {
   keys?: { elevenLabsKey?: string; geminiKey?: string };
   signal?: AbortSignal;
+  /** Send the request again after a backend restart (default). Off for polls that are sent again anyway. */
+  retry?: boolean;
 }
 
 /** JSON request returning parsed JSON. */
 export const apiJson = async <T = any>(
   path: string,
-  { method = 'POST', body, keys, signal }: RequestOptions & { method?: string; body?: unknown } = {}
+  { method = 'POST', body, keys, signal, retry }: RequestOptions & { method?: string; body?: unknown } = {}
 ): Promise<T> =>
   withNetworkGuard(async () => {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -116,7 +181,7 @@ export const apiJson = async <T = any>(
 
     if (!response.ok) throw await toApiError(response);
     return response.json() as Promise<T>;
-  });
+  }, { signal, retry });
 
 /** GET helper. */
 export const apiGet = <T = any>(path: string, options: RequestOptions = {}): Promise<T> =>
@@ -126,7 +191,7 @@ export const apiGet = <T = any>(path: string, options: RequestOptions = {}): Pro
 export const apiUpload = async <T = any>(
   path: string,
   formData: FormData,
-  { keys, signal }: RequestOptions = {}
+  { keys, signal, retry }: RequestOptions = {}
 ): Promise<T> =>
   withNetworkGuard(async () => {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -138,13 +203,13 @@ export const apiUpload = async <T = any>(
 
     if (!response.ok) throw await toApiError(response);
     return response.json() as Promise<T>;
-  });
+  }, { signal, retry });
 
 /** POST returning binary audio as a Blob. */
 export const apiAudio = async (
   path: string,
   body: unknown,
-  { keys, signal, onHeaders }: RequestOptions & { onHeaders?: (headers: Headers) => void } = {}
+  { keys, signal, retry, onHeaders }: RequestOptions & { onHeaders?: (headers: Headers) => void } = {}
 ): Promise<Blob> =>
   withNetworkGuard(async () => {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -157,10 +222,10 @@ export const apiAudio = async (
     if (!response.ok) throw await toApiError(response);
     onHeaders?.(response.headers);
     return response.blob();
-  });
+  }, { signal, retry });
 
 /** POST of a file returning binary audio as a Blob. */
-export const apiPostBlobAudio = async (path: string, blob: Blob, { keys, signal }: RequestOptions = {}): Promise<Blob> =>
+export const apiPostBlobAudio = async (path: string, blob: Blob, { keys, signal, retry }: RequestOptions = {}): Promise<Blob> =>
   withNetworkGuard(async () => {
     const response = await fetch(`${API_BASE}${path}`, {
       method: 'POST',
@@ -171,19 +236,19 @@ export const apiPostBlobAudio = async (path: string, blob: Blob, { keys, signal 
 
     if (!response.ok) throw await toApiError(response);
     return response.blob();
-  });
+  }, { signal, retry });
 
 /** GET returning binary audio as a Blob. */
-export const apiGetAudio = async (path: string, { keys, signal }: RequestOptions = {}): Promise<Blob> =>
+export const apiGetAudio = async (path: string, { keys, signal, retry }: RequestOptions = {}): Promise<Blob> =>
   withNetworkGuard(async () => {
     const response = await fetch(`${API_BASE}${path}`, { headers: keyHeaders(keys), signal });
 
     if (!response.ok) throw await toApiError(response);
     return response.blob();
-  });
+  }, { signal, retry });
 
 /** PUT of one file as the raw body, returning parsed JSON. */
-export const apiPutBlob = async <T = any>(path: string, blob: Blob, { keys, signal }: RequestOptions = {}): Promise<T> =>
+export const apiPutBlob = async <T = any>(path: string, blob: Blob, { keys, signal, retry }: RequestOptions = {}): Promise<T> =>
   withNetworkGuard(async () => {
     const response = await fetch(`${API_BASE}${path}`, {
       method: 'PUT',
@@ -194,13 +259,13 @@ export const apiPutBlob = async <T = any>(path: string, blob: Blob, { keys, sign
 
     if (!response.ok) throw await toApiError(response);
     return response.json() as Promise<T>;
-  });
+  }, { signal, retry });
 
 /** Multipart POST returning binary audio as a Blob. */
 export const apiAudioUpload = async (
   path: string,
   formData: FormData,
-  { keys, signal }: RequestOptions = {}
+  { keys, signal, retry }: RequestOptions = {}
 ): Promise<Blob> =>
   withNetworkGuard(async () => {
     const response = await fetch(`${API_BASE}${path}`, {
@@ -212,7 +277,7 @@ export const apiAudioUpload = async (
 
     if (!response.ok) throw await toApiError(response);
     return response.blob();
-  });
+  }, { signal, retry });
 
 export interface StreamEvent {
   type: 'progress' | 'result' | 'error';
@@ -224,7 +289,8 @@ export interface StreamEvent {
  * resolving with the terminal `result` event.
  *
  * Streaming is what lets a ten-minute transcription report real progress rather
- * than sitting on an indeterminate spinner.
+ * than sitting on an indeterminate spinner. A dropped stream is not sent again
+ * here: only the caller knows whether the work can pick up where it stopped.
  */
 export const apiStream = async <T = any>(
   path: string,
@@ -303,7 +369,7 @@ export const apiStream = async <T = any>(
     }
 
     return result;
-  });
+  }, { signal, retry: false });
 
 export type KeyOrigin = 'env' | 'saved' | 'none';
 

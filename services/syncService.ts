@@ -561,7 +561,7 @@ export const syncDub = async (
 };
 
 export const getSyncProgress = (jobId: string): Promise<SyncProgress> =>
-  apiGet<SyncProgress>(`/sync/jobs/${encodeURIComponent(jobId)}`);
+  apiGet<SyncProgress>(`/sync/jobs/${encodeURIComponent(jobId)}`, { retry: false });
 
 export const cancelSync = (jobId: string): Promise<{ cancelled: boolean }> =>
   apiJson(`/sync/jobs/${encodeURIComponent(jobId)}/cancel`, { body: {} });
