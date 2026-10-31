@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.14',
+    changes: [
+      'Dub, Sync and voicing no longer fail with "Could not reach the local DHVANI backend" when the app\'s engine restarts halfway: they wait for it to come back and carry on by themselves.',
+      'If DHVANI\'s engine stops, the app starts it again instead of closing.',
+    ],
+  },
+  {
     version: '1.4.13',
     changes: [
       'Translation keeps the speaker\'s pauses: Sync reads a translated line with the same pauses as the original, so it sits under the English without typing "..." by hand. Full translation is also faster.',
