@@ -81,6 +81,16 @@ const stepsFor = (code: string, provider: string, details: unknown): string[] =>
         'Make sure the key has not expired and is allowed to use this feature.',
         'Then try again.',
       ];
+    case 'key_missing_permission': {
+      const label = (details as { label?: string } | null)?.label || 'the feature this needs';
+      return /elevenlabs/i.test(provider)
+        ? [
+            'In ElevenLabs, open Developers → API Keys and edit the key Dhvani uses.',
+            `Turn on ${label} for it and save. The key stays the same, so nothing changes in Dhvani.`,
+            'Then try again.',
+          ]
+        : [`Ask whoever issued the ${provider} key to allow ${label} for it.`, 'Then try again.'];
+    }
     case 'upstream_key_invalid': {
       const info = details as { upstream?: string; model?: string } | null;
       return [

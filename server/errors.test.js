@@ -12,6 +12,22 @@ test('ElevenLabs refusing an output format is told apart from a bad key', () => 
   assert.equal(fromProviderResponse('ElevenLabs', 401, { detail: 'Invalid API key' }).code, 'invalid_api_key');
 });
 
+test('a restricted ElevenLabs key missing one permission is told apart from a bad key, and names it', () => {
+  const err = fromProviderResponse('ElevenLabs', 401, {
+    detail: { status: 'missing_permissions', message: 'The API key you used is missing the permission forced_alignment to execute this operation.' },
+  });
+  assert.equal(err.code, 'key_missing_permission');
+  assert.equal(err.status, 403);
+  assert.equal(err.details.permission, 'forced_alignment');
+  assert.equal(err.details.label, 'Forced Alignment');
+  assert.match(err.message, /key works, but it is not allowed to use Forced Alignment/);
+  const stt = fromProviderResponse('ElevenLabs', 401, { detail: { message: 'The API key you used is missing the permission speech_to_text to execute this operation.' } });
+  assert.equal(stt.details.label, 'Speech to Text');
+  const unnamed = fromProviderResponse('ElevenLabs', 401, { detail: { status: 'missing_permissions', message: 'Not allowed.' } });
+  assert.equal(unnamed.code, 'key_missing_permission');
+  assert.match(unnamed.message, /not allowed to use this feature/);
+});
+
 test('an HTML error page from a proxy becomes its title, not markup', () => {
   const page =
     '<!DOCTYPE html> <!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]--> ' +

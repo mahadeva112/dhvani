@@ -96,6 +96,14 @@ export const upstreamKeyFailure = (text) => {
 export const isTimeoutError = (err) =>
   err?.code === 'timeout' || err?.upstreamStatus === 504 || err?.upstreamStatus === 524;
 
+/** A permission as ElevenLabs's key settings name it: forced_alignment → Forced Alignment, speech_to_text → Speech to Text. */
+const permissionLabel = (permission) =>
+  permission
+    .split('_')
+    .filter(Boolean)
+    .map((word, i) => (i > 0 && ['to', 'and', 'of'].includes(word.toLowerCase()) ? word.toLowerCase() : word[0].toUpperCase() + word.slice(1).toLowerCase()))
+    .join(' ');
+
 /**
  * Translates a provider HTTP status into a message a user can act on.
  */
@@ -155,6 +163,20 @@ export const fromProviderResponse = (provider, status, body) => {
         provider,
         details: permitted.length ? { permitted } : detailText || null,
       });
+    }
+
+    /*
+     * A restricted ElevenLabs key answers 401 when it lacks one feature
+     * ("missing the permission forced_alignment"): the key is fine, so say
+     * which permission to turn on rather than that the key is wrong.
+     */
+    const permission = /missing the permission\s+([a-z_]+)/i.exec(raw)?.[1] || (detailStatus === 'missing_permissions' ? '' : null);
+    if (permission !== null) {
+      const label = permissionLabel(permission);
+      return new ApiError(
+        `Your ${provider} key works, but it is not allowed to use ${label || 'this feature'}, which this needs.`,
+        { status: 403, code: 'key_missing_permission', provider, details: { permission: permission || null, label: label || null, raw: detailText || null } }
+      );
     }
 
     const upstream = upstreamKeyFailure(raw);
