@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.16',
+    changes: [
+      'Retake lines in Sync now voices each line once. Pick 2 or 3 takes in the confirmation when you want Sync to keep the take that fits best; the cost shown follows your pick.',
+    ],
+  },
+  {
     version: '1.4.15',
     changes: [
       'Retake only some words: the retake window shows the take\'s wave and words. Drag across the wave, or click a word and Shift-click another, then retake just those, or type other words or a tag for only that part. The rest of the line stays as it was.',
