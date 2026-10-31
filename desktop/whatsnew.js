@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.15',
+    changes: [
+      'Retake only some words: the retake window shows the take\'s wave and words. Drag across the wave, or click a word and Shift-click another, then retake just those, or type other words or a tag for only that part. The rest of the line stays as it was.',
+      'A retake now makes one take; pick 2, 3 or 5 in Retake pro. If your ElevenLabs key is missing a permission, the message now says which one to turn on.',
+    ],
+  },
+  {
     version: '1.4.14',
     changes: [
       'Dub, Sync and voicing no longer fail with "Could not reach the local DHVANI backend" when the app\'s engine restarts halfway: they wait for it to come back and carry on by themselves.',
