@@ -430,6 +430,8 @@ export interface SyncRequest {
   tuneStability?: boolean;
   /** Retaken lines, by key: each is voiced again with its own seed. */
   lineSeeds?: Record<string, number>;
+  /** Takes to voice of each retaken line, by key, the best fitting one kept (3 when left out). */
+  lineTakes?: Record<string, number>;
   /** Takes chosen in Review for lines that ran long, by key, and lines whose old take was kept. */
   takeChoices?: Record<string, { seed: number; speedScale?: number; pace?: string; text: string }>;
   declinedTakes?: string[];

@@ -5,7 +5,7 @@ import { DEFAULT_JOIN_SETTINGS, resolveJoinSettings, dbToAmplitude } from './syn
 import { pava, placeClips, measureSync } from './syncPlace.js';
 import { prepareClip, removeBreaths, shortenPauses, renderTimeline, MIN_INNER_PAUSE_SECONDS } from './syncRender.js';
 import { acceptRewrite } from './syncRewrite.js';
-import { runSync, clearClipCache, clipHash, MAX_RETAKES, RETAKE_TAKES } from './syncDub.js';
+import { runSync, clearClipCache, clipHash, MAX_RETAKES, MAX_RETAKE_TAKES, RETAKE_TAKES } from './syncDub.js';
 
 const RATE = 8000;
 
@@ -750,6 +750,24 @@ test('a resync after a retake or a changed line voices only that line', async ()
   const edited = [segments[0], segments[1], cue(3, 7, 8, 'cccc')];
   await runSync({ segments: edited, sourceDuration: 9, sampleRate: RATE, voice, lineSeeds: { 1: 99 } }, changed.deps);
   assert.deepEqual(changed.voiced, ['cccc.']);
+});
+
+test('a retake voices as many takes as each line asked for', async () => {
+  clearClipCache();
+  const segments = [cue(1, 1, 2, 'aaaaaaaaaa'), cue(2, 4, 5, 'bbbbbbbbbb'), cue(3, 7, 8, 'cccccccccc')];
+  await runSync({ segments, sourceDuration: 9, sampleRate: RATE, voice }, fakeDeps().deps);
+
+  const retake = fakeDeps();
+  const { report } = await runSync(
+    { segments, sourceDuration: 9, sampleRate: RATE, voice, lineSeeds: { 1: 11, 2: 22, 3: 33 }, lineTakes: { 1: 1, 2: 2, 3: 9 } },
+    retake.deps
+  );
+  // Line 1 once, line 2 twice, line 3 clamped to the most a retake may ask for.
+  assert.deepEqual(
+    report.units.map((unit) => unit.takesCompared),
+    [1, 2, MAX_RETAKE_TAKES]
+  );
+  assert.equal(retake.voiced.length, 1 + 2 + MAX_RETAKE_TAKES);
 });
 
 /** A voice that cuts off the takes whose seed is in `cutSeeds` (no seed counts as -1). */

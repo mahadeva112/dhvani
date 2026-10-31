@@ -2779,6 +2779,7 @@ export default function App() {
             verifyWords,
             timingProtection,
             lineSeeds: activeJob.syncLineSeeds || undefined,
+            lineTakes: activeJob.syncLineTakes || undefined,
             ...(activeJob.syncTakeChoices && { takeChoices: activeJob.syncTakeChoices }),
             ...(activeJob.syncDeclinedTakes?.length && { declinedTakes: activeJob.syncDeclinedTakes }),
             debug: audioDebugEnabled(),
@@ -2914,16 +2915,22 @@ export default function App() {
 
   /**
    * Asks for a new take of synced lines: the next Sync voices each again with
-   * its own seed. A line locked in Edit timing keeps its take and is skipped.
+   * its own seed, `takes` times, and keeps the take that fits best. A line
+   * locked in Edit timing keeps its take and is skipped.
    */
-  const handleRetakeSyncLines = (units: SyncUnitReport[]) => {
+  const handleRetakeSyncLines = (units: SyncUnitReport[], takes: number) => {
     if (!activeJob) return;
     const keys = units.map((unit) => unit.key).filter((key) => !activeJob.syncEdits?.[key]?.locked);
     if (keys.length === 0) return;
     const seeds = { ...activeJob.syncLineSeeds };
-    for (const key of keys) seeds[key] = Math.floor(Math.random() * 2 ** 31);
+    const counts = { ...activeJob.syncLineTakes };
+    for (const key of keys) {
+      seeds[key] = Math.floor(Math.random() * 2 ** 31);
+      counts[key] = takes;
+    }
     updateJob(activeJob.id, {
       syncLineSeeds: seeds,
+      syncLineTakes: counts,
       syncPendingLines: withPendingLines(activeJob.syncPendingLines, keys),
     });
   };

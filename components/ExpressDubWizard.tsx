@@ -433,7 +433,7 @@ interface ExpressDubWizardProps {
   syncPendingLines?: string[];
   onApplySyncLine?: (unit: SyncUnitReport, text: string) => void;
   /** Asks for a new take of each of these synced lines. */
-  onRetakeSyncLines?: (units: SyncUnitReport[]) => void;
+  onRetakeSyncLines?: (units: SyncUnitReport[], takes: number) => void;
   /** Uses, or turns down, the take Sync offered for a line that ran long. */
   onUseOfferedTake?: (unit: SyncUnitReport) => void;
   onKeepOfferedTake?: (unit: SyncUnitReport) => void;
@@ -3861,7 +3861,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 }
                 applyVoicesNow={Boolean(renderTakes)}
                 takesBusyKey={syncTakesBusy}
-                onRetakeLine={onRetakeSyncLines && ((unit) => onRetakeSyncLines([unit]))}
+                onRetakeLine={onRetakeSyncLines && ((unit, takes) => onRetakeSyncLines([unit], takes))}
                 onRetakeLines={onRetakeSyncLines}
                 onUseTake={onUseOfferedTake}
                 onKeepTake={onKeepOfferedTake}

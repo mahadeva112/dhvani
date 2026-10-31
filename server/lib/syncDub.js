@@ -129,10 +129,13 @@ const alignmentCache = new Map();
 export const MAX_RETAKES = 2;
 
 /**
- * Takes voiced of a line the user asks to retake, the best fitting one kept.
- * Each costs a voicing, so a retake costs this many of the line.
+ * Takes voiced of a line the user asks to retake, the best fitting one kept,
+ * when the retake does not say how many (`lineTakes`): retakes asked for
+ * before the count could be picked. Each costs a voicing of the line.
  */
 export const RETAKE_TAKES = 3;
+/** The most takes a retake may ask for. */
+export const MAX_RETAKE_TAKES = 3;
 /** Where those takes' seeds start, clear of the seeds of cut-off retakes (1 to MAX_RETAKES). */
 const RETAKE_TAKE_OFFSET = 100;
 
@@ -237,12 +240,14 @@ const mapLimit = async (items, limit, fn) => {
 /**
  * Runs a sync.
  *
- * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, keep, language, voice, voiceFor, multiSpeaker, peak, lineSeeds, matchLoudness, locked, debug }`,
+ * `params`: `{ segments, sourceDuration, sampleRate, precision, join, suggest, suggestLonger, keep, language, voice, voiceFor, multiSpeaker, peak, lineSeeds, lineTakes, matchLoudness, locked, debug }`,
  * where `join` is how lines are joined (gaps, pauses, tails and flags; see syncSettings.js, Natural when left out),
  * where `suggest` asks for shorter wordings of long lines and `suggestLonger` for fuller wordings of short ones (both on by default),
  * `keep` the glossary terms a wording must keep exactly,
  * where `voice` is `{ voiceId, modelId, outputFormat, voiceSettings, seed }`,
  * `lineSeeds` maps a line's key (see lineKey) to the seed of a retake of it,
+ * `lineTakes` a retaken line's key to how many takes of it to voice (1 to
+ * MAX_RETAKE_TAKES; RETAKE_TAKES when left out),
  * `matchLoudness` evens out the lines' loudness (off by default: each line is
  * kept at the level it was voiced at) and `debug` adds `report.audioDebug`,
  * a sample-exact account of every cut, placement, gain and fade.
@@ -303,6 +308,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     multiSpeaker = false,
     peak = 'float',
     lineSeeds = {},
+    lineTakes = {},
     matchLoudness = false,
     locked = {},
     debug = false,
@@ -480,7 +486,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   );
   for (let i = 0; i < units.length; i++) if (taken[i]) await fit(i);
 
-  // A line the user asked to retake is voiced RETAKE_TAKES times, and the take
+  // A line the user asked to retake is voiced as many times as asked, and the take
   // that best fits its slot is kept: one that finishes its last word, then
   // one that runs least past the slot, then one closest to how long the
   // original speaker took. The takes' seeds follow from the line's own, so a
@@ -491,12 +497,18 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       ? Infinity
       : (clip.cutOff ? 1000 : 0) + Math.max(0, clip.speech - slotOf(unit)) * 10 + Math.abs(clip.speech - Math.max(0, unit.srcEnd - unit.srcStart));
   const askedRetake = units.map((_, i) => i).filter((i) => Number.isInteger(lineSeeds[lineKey(units[i])]) && !taken[i]);
+  const takesAsked = (i) => {
+    const n = lineTakes?.[lineKey(units[i])];
+    return Number.isInteger(n) ? Math.min(MAX_RETAKE_TAKES, Math.max(1, n)) : RETAKE_TAKES;
+  };
   const takesCompared = units.map((_, i) => (askedRetake.includes(i) ? 1 : 0));
   if (askedRetake.length > 0) {
     const best = new Map(askedRetake.map((i) => [i, { buffer: buffers[i], clip: clips[i], length: voicedLength[i], breaths: breathsRemoved[i] }]));
-    for (let take = 1; take < RETAKE_TAKES; take++) {
-      await voiceAndFit(askedRetake, (unit) => retakeSeed(seedOf(unit), RETAKE_TAKE_OFFSET + take));
-      for (const i of askedRetake) {
+    for (let take = 1; take < MAX_RETAKE_TAKES; take++) {
+      const more = askedRetake.filter((i) => take < takesAsked(i));
+      if (more.length === 0) break;
+      await voiceAndFit(more, (unit) => retakeSeed(seedOf(unit), RETAKE_TAKE_OFFSET + take));
+      for (const i of more) {
         takesCompared[i]++;
         if (takeScore(clips[i], units[i]) < takeScore(best.get(i).clip, units[i])) {
           best.set(i, { buffer: buffers[i], clip: clips[i], length: voicedLength[i], breaths: breathsRemoved[i] });

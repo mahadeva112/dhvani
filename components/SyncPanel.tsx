@@ -1340,10 +1340,10 @@ export interface SyncResultsPanelProps {
   applyVoicesNow?: boolean;
   /** The line whose takes are being voiced, if any: one at a time. */
   takesBusyKey?: string | null;
-  /** Asks for a new take of a line. */
-  onRetakeLine?: (unit: SyncUnitReport) => void;
+  /** Asks for a new take of a line, `takes` of them voiced at the next Sync. */
+  onRetakeLine?: (unit: SyncUnitReport, takes: number) => void;
   /** Asks for a new take of every line in `units` at once. */
-  onRetakeLines?: (units: SyncUnitReport[]) => void;
+  onRetakeLines?: (units: SyncUnitReport[], takes: number) => void;
   /**
    * The takes panel of a line (TakesPanel), shown under its row: new takes
    * voiced at once and one picked. With it, a row's Retake opens the panel
@@ -1375,8 +1375,8 @@ export interface SyncResultsPanelProps {
 /** Which lines the list shows: those worth a listen, one kind of them, or every line. */
 type LineFilter = 'review' | 'long' | 'early' | 'edited' | 'all';
 
-/** Takes voiced of a retaken line, the best fitting one kept (RETAKE_TAKES in server/lib/syncDub.js). */
-const RETAKE_TAKES = 3;
+/** Takes a retake may voice of each line, the best fitting one kept (MAX_RETAKE_TAKES in server/lib/syncDub.js). */
+const RETAKE_TAKE_COUNTS = [1, 2, 3];
 
 /** The Dub step's main panel: what the dub will take, its progress, then how every line landed. */
 export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
@@ -1460,8 +1460,10 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
     () => rows.map((row) => row.unit).filter((unit) => !unit.silent && !pendingLines.includes(unit.key) && !lockedKeys.includes(unit.key)),
     [rows, pendingLines, lockedKeys]
   );
-  /** The retake of every listed line waits for a yes: it costs RETAKE_TAKES voicings of each. */
+  /** The retake of every listed line waits for a yes: it costs `retakeTakes` voicings of each. */
   const [confirmRetake, setConfirmRetake] = useState(false);
+  /** Takes voiced of each retaken line; one unless the user asks for more. */
+  const [retakeTakes, setRetakeTakes] = useState(1);
   useEffect(() => setConfirmRetake(false), [filter, report]);
   const retakeChars = retakeable.reduce((sum, unit) => sum + unit.text.length, 0);
   /** The line whose takes are open under its row. */
@@ -1680,7 +1682,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                   onClick={() => setConfirmRetake(true)}
                   aria-expanded={confirmRetake}
                   className="flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200 cursor-default"
-                  title={`Voices ${showAll ? 'every line' : 'every line listed here'} again, three takes each, and keeps the take of each that fits its slot best`}
+                  title={`Voices ${showAll ? 'every line' : 'every line listed here'} again at the next Sync. You pick how many takes of each; with more than one, the take that fits its slot best is kept.`}
                 >
                   <Mic className="w-3 h-3" /> {showAll ? `Retake all ${retakeable.length}` : `Retake these ${retakeable.length}`}
                 </button>
@@ -1699,15 +1701,34 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             {confirmRetake && onRetakeLines && retakeable.length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-950/20 px-3.5 py-2.5" role="alertdialog" aria-label="Retake lines">
                 <span className="flex-1 min-w-[16rem] text-[12.5px] text-slate-200">
-                  Retake {retakeable.length} lines? Each is voiced {RETAKE_TAKES} times and the take that fits its slot best is kept: about{' '}
-                  {(retakeChars * RETAKE_TAKES).toLocaleString()} characters of voicing ({RETAKE_TAKES} × {retakeChars.toLocaleString()}).
+                  Retake {retakeable.length} lines?{' '}
+                  {retakeTakes === 1
+                    ? `Each is voiced once: about ${retakeChars.toLocaleString()} characters of voicing.`
+                    : `Each is voiced ${retakeTakes} times and the take that fits its slot best is kept: about ${(retakeChars * retakeTakes).toLocaleString()} characters of voicing (${retakeTakes} × ${retakeChars.toLocaleString()}).`}
                   {lockedKeys.some((key) => rows.some((row) => row.unit.key === key)) && ' Lines locked in Edit timing keep their take.'}
                   {(report.summary.fromDub ?? 0) > 0 && ' Retaken lines are voiced on their own, not cut from the continuous read.'}
                 </span>
+                <div className="flex items-center gap-1.5" role="group" aria-label="Takes of each line">
+                  <span className="text-[11.5px] text-slate-400 mr-1">Takes</span>
+                  {RETAKE_TAKE_COUNTS.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setRetakeTakes(n)}
+                      aria-pressed={retakeTakes === n}
+                      title={n === 1 ? 'Voice each line once' : `Voice each line ${n} times and keep the take that fits best`}
+                      className={`h-7 w-8 rounded-full border text-[11.5px] tabular-nums cursor-default ${
+                        retakeTakes === n ? 'border-amber-400/70 bg-amber-500/15 text-amber-100' : 'border-slate-700 text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   onClick={() => {
-                    onRetakeLines(retakeable);
+                    onRetakeLines(retakeable, retakeTakes);
                     setConfirmRetake(false);
                   }}
                   className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold cursor-default"
@@ -1757,7 +1778,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                     applyVoicesNow={applyVoicesNow}
                     voicing={takesBusyKey === unit.key}
                     takesBusy={Boolean(takesBusyKey)}
-                    onRetake={onRetakeLine}
+                    onRetake={onRetakeLine && ((unit) => onRetakeLine(unit, retakeTakes))}
+                    retakeTakes={retakeTakes}
                     onSuggest={onSuggestLine}
                     takesOpen={takesKey === unit.key}
                     onToggleTakes={renderTakes && (() => setTakesKey((key) => (key === unit.key ? null : unit.key)))}
@@ -1924,6 +1946,8 @@ const ReviewRow: React.FC<{
   /** Some line's takes are being voiced: one request at a time. */
   takesBusy?: boolean;
   onRetake?: (unit: SyncUnitReport) => void;
+  /** Takes a row's Retake voices at the next Sync. */
+  retakeTakes?: number;
   onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion[]>;
   /** The takes panel: a toggle in the row, and the panel under it while open. */
   takesOpen?: boolean;
@@ -1941,6 +1965,7 @@ const ReviewRow: React.FC<{
   voicing = false,
   takesBusy = false,
   onRetake,
+  retakeTakes = 1,
   onSuggest,
   takesOpen = false,
   onToggleTakes,
@@ -2237,7 +2262,11 @@ const ReviewRow: React.FC<{
             onClick={() => onRetake(unit)}
             disabled={pending}
             className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
-            title="Voices this line three times and keeps the take that fits its slot best (three voicings of the line). Sync again to hear it."
+            title={
+              retakeTakes === 1
+                ? 'Voices this line again (one voicing of the line). Sync again to hear it.'
+                : `Voices this line ${retakeTakes} times and keeps the take that fits its slot best (${retakeTakes} voicings of the line). Sync again to hear it.`
+            }
           >
             <Mic className="w-3 h-3" /> Retake
           </button>

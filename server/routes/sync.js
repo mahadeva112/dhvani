@@ -59,6 +59,12 @@ const cleanTakeChoices = (value) =>
       ])
   );
 
+/** Takes asked of each retaken line, by key: whole numbers, clamped in runSync. */
+const cleanLineTakes = (value) =>
+  Object.fromEntries(
+    Object.entries(value && typeof value === 'object' ? value : {}).filter(([key, n]) => key.length <= 128 && Number.isInteger(n) && n >= 1)
+  );
+
 const cleanLineSeeds = (value) =>
   Object.fromEntries(
     Object.entries(value && typeof value === 'object' ? value : {}).filter(
@@ -412,7 +418,7 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  * fading it.
  *
  * Body: `{ segments, sourceDuration, voiceId, modelId, outputFormat,
- * voiceSettings, language, seed, lineSeeds, precision, join, suggest,
+ * voiceSettings, language, seed, lineSeeds, lineTakes, precision, join, suggest,
  * suggestLonger, keep, matchLoudness, expressive, performanceTags, steady, debug, jobId }`.
  * As in a dub, `performanceTags` voices each cue's `voiceText` (its text
  * tagged for voice expression Natural) and `expressive` (Expressive) adds
@@ -425,8 +431,8 @@ const logAudioDebug = ({ sampleRate, channels, resampled, matchLoudness, output,
  * (both on unless false) ask for shorter wordings of long lines and fuller
  * wordings of lines that end early, keeping every term in `keep` (the
  * glossary) exactly. `lineSeeds` maps a line's key to the seed
- * of a retake of it; `matchLoudness` evens out the lines' loudness (off
- * unless asked for); `debug`, or DHVANI_AUDIO_DEBUG=1, adds
+ * of a retake of it and `lineTakes` to how many takes of it to voice;
+ * `matchLoudness` evens out the lines' loudness (off unless asked for); `debug`, or DHVANI_AUDIO_DEBUG=1, adds
  * `report.audioDebug` and logs it. Replies with `{ audioId, contentType,
  * report }`; the dub itself, lossless WAV, is fetched from
  * /api/sync/audio/:audioId. A `jobId` makes the run pollable at
@@ -445,6 +451,7 @@ syncRouter.post(
       language,
       seed,
       lineSeeds,
+      lineTakes,
       precision,
       join,
       verifyWords,
@@ -563,6 +570,7 @@ syncRouter.post(
           multiSpeaker: several,
           peak: MIX_PEAK_MODES.includes(peak) ? peak : 'float',
           lineSeeds: cleanLineSeeds(lineSeeds),
+          lineTakes: cleanLineTakes(lineTakes),
           takeChoices: cleanTakeChoices(takeChoices),
           declinedTakes: Array.isArray(declinedTakes) ? declinedTakes.filter((key) => typeof key === 'string' && key.length <= 128).slice(0, 20000) : [],
           matchLoudness: matchLoudness === true,

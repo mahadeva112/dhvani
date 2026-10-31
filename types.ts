@@ -289,6 +289,8 @@ export interface BatchJob {
   syncBaseReport?: SyncReport | null;
   /** Retaken lines, by line key: each keeps its own seed, so its new take survives later Syncs and reloads. */
   syncLineSeeds?: Record<string, number> | null;
+  /** How many takes each retaken line asked for (1 to 3), by line key; a line missing here had 3. */
+  syncLineTakes?: Record<string, number> | null;
   /** The seed every line of this project's dub is read with, kept so a dub run after a restart finds the lines it already voiced. */
   syncSeed?: number | null;
   /** A dub was running when Dhvani closed; Dub offers to resume it. */
