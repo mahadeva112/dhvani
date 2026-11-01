@@ -604,7 +604,12 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       key: 'translationEffort',
       label: 'Thinking',
       placeholder: 'low',
-      hint: 'low, medium, high, or model to leave it to the model. Less thinking translates much faster; the meaning check thinks one step more.',
+      hint: 'Less thinking translates much faster; the meaning check of a full translation thinks one step more.',
+      options: [
+        { value: 'low', label: 'Low, fastest' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'high', label: 'High, slowest' },
+      ],
       origin: server?.origins.translationEffort,
     },
     {

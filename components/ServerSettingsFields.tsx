@@ -10,7 +10,20 @@ export interface ServerField {
   placeholder: string;
   hint?: string;
   origin?: SettingOrigin;
+  /** Choices for a setting with a fixed set of values, shown as a dropdown instead of a text box. */
+  options?: { value: string; label: string }[];
 }
+
+/**
+ * A dropdown's choices with the field's current value in them: an empty value
+ * (after Reset to defaults) shows as the default, and a value set in .env that
+ * is not a listed choice is shown as it is rather than as a wrong choice.
+ */
+const choicesFor = (field: ServerField, value: string) => {
+  const options = field.options || [];
+  if (options.some((option) => option.value === value)) return options;
+  return [{ value, label: value ? value : `Default (${field.placeholder})` }, ...options];
+};
 
 interface ServerSettingsFieldsProps {
   /** Summary text on the disclosure, e.g. "ElevenLabs server settings". */
@@ -97,16 +110,34 @@ export const ServerSettingsFields: React.FC<ServerSettingsFieldsProps> = ({
                   </span>
                 )}
               </div>
-              <input
-                id={`dhvani-setting-${field.key}`}
-                type="text"
-                value={values[field.key] ?? ''}
-                onChange={(e) => onChange(field.key, e.target.value)}
-                placeholder={field.placeholder}
-                autoComplete="off"
-                spellCheck={false}
-                className="w-full h-9 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-3 text-[12.5px] text-slate-100 placeholder-slate-600 focus:outline-none font-mono transition-all"
-              />
+              {field.options ? (
+                <div className="relative">
+                  <select
+                    id={`dhvani-setting-${field.key}`}
+                    value={values[field.key] ?? ''}
+                    onChange={(e) => onChange(field.key, e.target.value)}
+                    className="appearance-none w-full h-9 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] pl-3 pr-9 text-[12.5px] text-slate-100 focus:outline-none font-mono transition-all cursor-default"
+                  >
+                    {choicesFor(field, values[field.key] ?? '').map((option) => (
+                      <option key={option.value} value={option.value} className="bg-slate-900">
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                </div>
+              ) : (
+                <input
+                  id={`dhvani-setting-${field.key}`}
+                  type="text"
+                  value={values[field.key] ?? ''}
+                  onChange={(e) => onChange(field.key, e.target.value)}
+                  placeholder={field.placeholder}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="w-full h-9 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-3 text-[12.5px] text-slate-100 placeholder-slate-600 focus:outline-none font-mono transition-all"
+                />
+              )}
               {field.hint && <p className="text-[10.5px] text-slate-500 mt-1 leading-relaxed">{field.hint}</p>}
             </div>
           ))}

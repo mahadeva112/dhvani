@@ -14,11 +14,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the same line said the way a native speaker would, then split over the cues by their length.
   Only the language being translated into is sent, also to the fixes of a full translation.
   Before, every language saw the Hindi and Bengali examples.
-- **Translation speed settings.** **Thinking** (low, medium, high, or left to the model) and
+- **Translation speed settings.** **Thinking** (a dropdown: low, medium or high) and
   **Batches at once** (1 to 8) under **Translation speed** in the setup screen, or
-  `TRANSLATION_EFFORT` and `TRANSLATION_PARALLEL`. The defaults, low thinking and 5 batches,
-  translate much faster; the meaning check of a full translation thinks one step more. A gateway
-  that rejects the thinking setting is asked again without it.
+  `TRANSLATION_EFFORT` (also `model`, to leave it to the model) and `TRANSLATION_PARALLEL`. The
+  defaults, low thinking and 5 batches, translate much faster; the meaning check of a full
+  translation thinks one step more. A gateway that rejects the thinking setting is asked again
+  without it.
 
 - **Save the synced dub as MP3.** The synced dub is rendered as lossless WAV, so it always
   downloaded as WAV, even with an MP3 **Audio quality** picked (that only sets the format the
