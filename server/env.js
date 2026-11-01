@@ -140,6 +140,12 @@ const normalizeBaseUrl = (value, defaultPath = '') => {
   }
 };
 
+/** The thinking levels a translation can ask for; 'model' asks for none. */
+export const TRANSLATION_EFFORTS = ['low', 'medium', 'high', 'model'];
+
+/** The most batches a translation sends at once, so a typo cannot flood the gateway. */
+export const MAX_TRANSLATION_PARALLEL = 8;
+
 /** Cartesia defaults, used until something else is saved or set in the environment. */
 export const CARTESIA_DEFAULT_VERSION = '2026-08-14';
 export const CARTESIA_DEFAULT_TTS_MODEL = 'sonic-3.6';
@@ -160,6 +166,24 @@ export const config = {
   maxUploadBytes: num('MAX_UPLOAD_MB', 1024) * 1024 * 1024,
   extractAudioFromVideo: bool('EXTRACT_AUDIO_FROM_VIDEO', true),
   translationBatchSize: num('TRANSLATION_BATCH_SIZE', 40),
+
+  /**
+   * How long a reasoning model thinks before it writes a translation: 'low',
+   * 'medium' or 'high', or 'model' to send nothing and leave it to the model.
+   * Thinking is written out like the answer, so it is most of a call's time;
+   * the worked examples in the prompt carry much of what more thinking adds.
+   * The meaning review of a full translation thinks one step more.
+   */
+  get translationEffort() {
+    const value = setting('translationEffort', 'TRANSLATION_EFFORT', 'low').toLowerCase();
+    return TRANSLATION_EFFORTS.includes(value) ? value : 'low';
+  },
+
+  /** Batches a translation sends at once. More finishes a long talk sooner, until the gateway's rate limit. */
+  get translationParallel() {
+    const value = Math.round(Number(setting('translationParallel', 'TRANSLATION_PARALLEL', '5')));
+    return Number.isFinite(value) && value > 0 ? Math.min(value, MAX_TRANSLATION_PARALLEL) : 5;
+  },
 
   /**
    * Lets the UI save settings to the local config file. Only ever honoured for
@@ -347,6 +371,8 @@ export const serverSettings = () => ({
     cartesiaBaseUrl: config.cartesia.baseUrl,
     cartesiaApiVersion: config.cartesia.apiVersion,
     cartesiaTtsModel: config.cartesia.ttsModel,
+    translationEffort: config.translationEffort,
+    translationParallel: String(config.translationParallel),
   },
   origins: {
     elevenLabsBaseUrl: originOf('elevenLabsBaseUrl', 'ELEVENLABS_BASE_URL'),
@@ -363,6 +389,8 @@ export const serverSettings = () => ({
     cartesiaBaseUrl: originOf('cartesiaBaseUrl', 'CARTESIA_BASE_URL'),
     cartesiaApiVersion: originOf('cartesiaApiVersion', 'CARTESIA_API_VERSION'),
     cartesiaTtsModel: originOf('cartesiaTtsModel', 'CARTESIA_TTS_MODEL'),
+    translationEffort: originOf('translationEffort', 'TRANSLATION_EFFORT'),
+    translationParallel: originOf('translationParallel', 'TRANSLATION_PARALLEL'),
   },
 });
 
@@ -406,6 +434,8 @@ const TEXT_FIELDS = [
   'cartesiaBaseUrl',
   'cartesiaApiVersion',
   'cartesiaTtsModel',
+  'translationEffort',
+  'translationParallel',
 ];
 
 const LIST_FIELDS = ['geminiTranslationModels', 'llmGatewayModels'];

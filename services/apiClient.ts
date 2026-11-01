@@ -424,6 +424,10 @@ export interface ServerSettings {
     cartesiaBaseUrl?: string;
     cartesiaApiVersion?: string;
     cartesiaTtsModel?: string;
+    /** 'low', 'medium', 'high' or 'model'. */
+    translationEffort?: string;
+    /** Batches a translation sends at once, as a string. */
+    translationParallel?: string;
   };
   origins: Record<keyof ServerSettings['values'], SettingOrigin>;
 }
@@ -541,6 +545,8 @@ export interface SaveKeysPayload {
   cartesiaBaseUrl?: string;
   cartesiaApiVersion?: string;
   cartesiaTtsModel?: string;
+  translationEffort?: string;
+  translationParallel?: string;
 }
 
 export const saveBackendKeys = (keys: SaveKeysPayload): Promise<SaveKeysResult> =>

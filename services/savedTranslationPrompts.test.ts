@@ -1,7 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSavedPrompts, upsertSavedPrompt } from './savedTranslationPrompts.ts';
-import { currentPromptChoice, DEFAULT_PROMPT_PRESET_ID, SAVED_PROMPT_ID_PREFIX } from './translationPromptPresets.ts';
+import {
+  currentPromptChoice,
+  getPresetById,
+  promptFingerprint,
+  DEFAULT_PROMPT_PRESET_ID,
+  EARLIER_TEXTS,
+  SAVED_PROMPT_ID_PREFIX,
+  TRANSLATION_PRESETS,
+} from './translationPromptPresets.ts';
 
 test("a saved prompt is kept as saved, whatever the built-in styles are", () => {
   const id = `${SAVED_PROMPT_ID_PREFIX}abc`;
@@ -32,4 +40,16 @@ test('stored prompts are read back, dropping anything broken', () => {
   assert.deepEqual(parseSavedPrompts(raw), [good]);
   assert.deepEqual(parseSavedPrompts('not json'), []);
   assert.deepEqual(parseSavedPrompts(null), []);
+});
+
+test("a style saved with an earlier text of its own gets today's text; an edited one is kept", () => {
+  assert.equal(promptFingerprint('  abc \n'), '1a47e90b', 'FNV-1a of the trimmed text');
+  for (const preset of TRANSLATION_PRESETS) {
+    assert.ok(!(EARLIER_TEXTS[preset.id] || []).includes(promptFingerprint(preset.prompt)), `${preset.id}: today's text is not listed as an earlier one`);
+  }
+  const today = getPresetById('sadhguru_spoken').prompt;
+  const edited = `${today}\n- Keep "Isha" in English.`;
+  assert.equal(currentPromptChoice('sadhguru_spoken', edited).prompt, edited);
+  assert.equal(currentPromptChoice('sadhguru_spoken', today).prompt, today);
+  assert.equal(currentPromptChoice('sadhguru_spoken', '').prompt, today);
 });

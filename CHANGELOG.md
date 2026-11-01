@@ -9,6 +9,17 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Translation examples in every dub language.** Each of the 12 dub languages now has its own
+  worked examples in the translation prompt: a line kept in English word order cue by cue, and
+  the same line said the way a native speaker would, then split over the cues by their length.
+  Only the language being translated into is sent, also to the fixes of a full translation.
+  Before, every language saw the Hindi and Bengali examples.
+- **Translation speed settings.** **Thinking** (low, medium, high, or left to the model) and
+  **Batches at once** (1 to 8) under **Translation speed** in the setup screen, or
+  `TRANSLATION_EFFORT` and `TRANSLATION_PARALLEL`. The defaults, low thinking and 5 batches,
+  translate much faster; the meaning check of a full translation thinks one step more. A gateway
+  that rejects the thinking setting is asked again without it.
+
 - **Save the synced dub as MP3.** The synced dub is rendered as lossless WAV, so it always
   downloaded as WAV, even with an MP3 **Audio quality** picked (that only sets the format the
   lines are voiced in). **Synced dub** now has an **MP3** button beside **WAV**: a 320 kbps copy
@@ -232,6 +243,12 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Translation prompt.** The parts that are the same for every batch come first and the batch
+  itself last, so a model that caches a prompt start can reuse it. The Sadhguru style now says
+  plainly that the order of thoughts is kept between sentences, while inside a sentence the
+  language's own word order is used. Its Hindi example no longer adds an "and" the English does
+  not have. A project or browser that saved the Sadhguru or Natural Spoken style unedited moves
+  to the new text; an edited style is kept as it is.
 - **Timelines play in pages, as in DaVinci Resolve.** The waveform holds still while playing and
   the playhead walks across it; past the right edge, the next page starts where the last one
   ended. Before, the timeline glided under a playhead parked part way across.

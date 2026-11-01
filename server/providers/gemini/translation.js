@@ -5,6 +5,7 @@ import { parseJsonResponse } from './client.js';
 import { generateText } from '../textModel.js';
 import { alignScript } from '../../lib/scriptAlign.js';
 import { scriptOf } from '../../lib/languages.js';
+import { examplesBlock } from '../../lib/translationExamples.js';
 import {
   cueIssues,
   longIssues,
@@ -114,6 +115,7 @@ const promptCue = ({ id, text, pausedText, syllables, partSyllables: parts }) =>
 const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms = [] }) => {
   const sized = batch.some((cue) => cue.syllables);
   const paused = batch.some((cue) => cue.pausedText);
+  const examples = examplesBlock(targetLanguage);
   const styleDirective = customPrompt?.trim()
     ? `TRANSLATION STYLE & PERSONA DIRECTIVE (follow strictly):\n${customPrompt.trim()}`
     : `TRANSLATION STYLE:\nNatural, idiomatic, context-aware ${targetLanguage}. Preserve meaning, register and emotional tone. Do not translate proper nouns or established technical/brand terms.`;
@@ -124,10 +126,11 @@ const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batc
 
   const script = scriptOf(targetLanguage);
 
-  return `You are a professional dubbing translator working on part ${batchIndex + 1} of ${batchCount} of one continuous transcript.
-
-${sourceNote}
-Translate every cue below into ${targetLanguage}.${script ? ` Write every line, and every key term, in the ${script} script only, never in another script.` : ''}
+  // Everything that is the same for every batch of a run comes first and the
+  // batch's own part last, so a model that caches a shared prompt start can
+  // reuse it from the second batch on.
+  return `You are a professional dubbing translator working on one continuous transcript, sent in parts.
+Translate every cue of the part below into ${targetLanguage}.${script ? ` Write every line, and every key term, in the ${script} script only, never in another script.` : ''}
 
 ${styleDirective}
 
@@ -144,17 +147,17 @@ MEANING, NOT WORDS
 - Each cue's part must be a natural spoken phrase, not a broken fragment.
 - A cue that holds only the last word or two of an English sentence ("situation.", "happen.") gets the last word or words of your sentence, often its verb. Never a word of its own, never a repeat of what came before: the sentence read across its cues must say it once, as one sentence.
 - A sentence ends ("।", ".", "?", "!") in the same cue the English sentence ends in. A cue that ends mid-sentence in English does not end the sentence in ${targetLanguage}.
-
+${examples ? `\n${examples}` : ''}
 SPOKEN, NOT WRITTEN
 These lines will be spoken aloud by a voice as a dub, and must sound like a person talking, not someone reading a text.
 - Write the ${targetLanguage} people actually speak: everyday words and sentence shapes, not bookish, literary or officialese vocabulary. Where a common spoken word exists, prefer it over a rare formal one. Keep the English words a ${targetLanguage} speaker would naturally say in English.
 - Follow the speaker's own rhythm: if they speak in short bursts, restart a sentence or trail off, keep that; do not smooth speech into polished prose.
-- Punctuate for the ear: commas where the speaker breathes, "?" and "!" where their voice rises, "…" where a thought trails off.
+- Punctuate for the ear: commas where the speaker breathes, "?" and "!" where their voice rises, "…" only where a thought really trails off or the speaker hesitates.
 - Write out anything a voice would stumble on: no abbreviations, symbols, brackets or slashes; numbers as they are said.
 The style directive above still sets the tone (formal, witty, cinematic...) — this only makes it sound spoken.
-${sized ? `\n${lengthDirective(targetLanguage)}\n` : ''}${paused ? `\n${pauseDirective(targetLanguage)}\n` : ''}${contextBlock(before, after)}${termsBlock(terms)}
+${sized ? `\n${lengthDirective(targetLanguage)}\n` : ''}
 HARD RULES
-1. Return exactly one translation for every input id. Never merge, split, drop or reorder cues, and never leave a cue empty.
+1. Return exactly one translation for every input id. Never merge two cues into one, break one cue into two, drop or reorder cues, and never leave a cue empty.
 2. Copy each "id" back verbatim.
 3. Translate the text only. Never output timestamps, cue numbers or timing of any kind.
 4. Read the cues as consecutive lines of one conversation so pronouns and continuations stay coherent across cue boundaries.
@@ -162,11 +165,14 @@ HARD RULES
 6. If a cue cannot be translated, return its original text unchanged rather than an empty string.
 7. Sound notes in square brackets, such as [laughs] or [applause], are not speech: copy each one exactly as it is, in English, where it stands. Never translate, drop or add one.
 
-INPUT CUES (JSON):
-${JSON.stringify(batch.map(promptCue), null, 2)}
-
 KEY TERMS
 A key term (a concept, a name, a technical word; not everyday words) that comes up more than once is said with the same ${targetLanguage} word each time. After translating, list up to 6 key terms of these cues that may come back later in the talk, each with the exact ${targetLanguage} word your translation used for it.
+
+THIS PART
+This is part ${batchIndex + 1} of ${batchCount}. ${sourceNote}
+${paused ? `\n${pauseDirective(targetLanguage)}\n` : ''}${contextBlock(before, after)}${termsBlock(terms)}
+INPUT CUES (JSON):
+${JSON.stringify(batch.map(promptCue), null, 2)}
 
 Respond with ONLY this JSON:
 {"translations":[{"id":"<the same id>","translatedText":"<${targetLanguage} translation>"}],"terms":[{"english":"<key term>","translated":"<the ${targetLanguage} word used>"}]}`;
@@ -183,6 +189,7 @@ const translateBatchOnce = async ({ batch, sourceLanguage, targetLanguage, custo
       ],
     },
     generationConfig: { responseMimeType: 'application/json', temperature: 0.3 },
+    effort: writeEffort(),
     models,
     apiKey,
   });
@@ -239,11 +246,18 @@ export const withoutThreeStepNotes = (prompt = '') =>
         .trim()
     : prompt;
 
+/** The thinking level a translation and its fixes ask for, or undefined to leave it to the model (TRANSLATION_EFFORT). */
+export const writeEffort = () => (config.translationEffort === 'model' ? undefined : config.translationEffort);
+
+/** The meaning review thinks one step more than the writing: judging meaning is where thinking pays most. */
+export const reviewEffort = () => ({ low: 'medium', medium: 'high' })[config.translationEffort] ?? writeEffort();
+
 /** One JSON answer from the text model, for the checks after a translation. */
-const askJson = async (prompt, { apiKey, models, temperature, generate = generateText }) => {
+const askJson = async (prompt, { apiKey, models, temperature, effort = writeEffort(), generate = generateText }) => {
   const { response } = await generate({
     contents: { role: 'user', parts: [{ text: prompt }] },
     generationConfig: { responseMimeType: 'application/json', temperature },
+    effort,
     models,
     apiKey,
   });
@@ -273,7 +287,7 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
   let meaningFixed = 0;
 
   try {
-    const review = await ask(buildMeaningReviewPrompt({ cues: batch, translations, targetLanguage }), { apiKey, models, temperature: 0 });
+    const review = await ask(buildMeaningReviewPrompt({ cues: batch, translations, targetLanguage }), { apiKey, models, temperature: 0, effort: reviewEffort() });
     const problems = readMeaningIssues(review, ids);
     if (problems.length) {
       const answer = await ask(buildMeaningFixPrompt({ cues: batch, translations, problems, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2 });
@@ -332,8 +346,8 @@ const CONTEXT_CUES = 2;
 /** The fewest cues a batch is sent with, also when a timed-out batch is cut smaller. */
 const MIN_BATCH = 5;
 
-/** Batches a fast translation sends at once. */
-export const FAST_PARALLEL = 3;
+/** Batches a translation, fast or full, sends at once (TRANSLATION_PARALLEL). */
+export const translationParallel = () => config.translationParallel;
 
 /** True when every cue of a batch already has its translation. */
 const isDone = (batch, translations) => batch.every((cue) => translations.has(cue.id));
@@ -353,7 +367,7 @@ const resumeState = (resumeFrom, translatable) => {
 };
 
 /**
- * Fast translation: one model call a batch, no checks, FAST_PARALLEL batches
+ * Fast translation: one model call a batch, no checks, translationParallel() batches
  * at a time. A batch sees the source text around it, and the key terms of
  * the batches already done; a batch that times out is sent again in halves.
  */
@@ -365,6 +379,7 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
   let finished = 0;
   let cuesDone = 0;
   let firstError = null;
+  const parallel = translationParallel();
 
   const sendOne = async (batch, batchIndex) => {
     const position = translatable.indexOf(batch[0]);
@@ -408,7 +423,7 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
         batch: finished + 1,
         batchCount: batches.length,
         step: 'translate',
-        message: `Translated ${cuesDone} of ${translatable.length} cues to ${targetLanguage}, ${FAST_PARALLEL} batches at a time...`,
+        message: `Translated ${cuesDone} of ${translatable.length} cues to ${targetLanguage}, ${parallel} batches at a time...`,
       });
     }
   };
@@ -418,9 +433,9 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
     batch: 1,
     batchCount: batches.length,
     step: 'translate',
-    message: `Translating ${translatable.length} cues to ${targetLanguage}, ${FAST_PARALLEL} batches at a time...`,
+    message: `Translating ${translatable.length} cues to ${targetLanguage}, ${parallel} batches at a time...`,
   });
-  await Promise.all(Array.from({ length: Math.min(FAST_PARALLEL, batches.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(parallel, batches.length) }, worker));
 
   if (failedBatches === batches.length) throw firstError;
 
@@ -442,9 +457,6 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
     terms,
   };
 };
-
-/** Batches a full translation (each with its checks) sends at once, after its glossary. */
-export const FULL_PARALLEL = 3;
 
 /** The most transcript text the glossary is read from: well over a two-hour talk. */
 const GLOSSARY_CHARS = 200000;
@@ -487,7 +499,7 @@ const stopsAll = (err) => err?.code === 'invalid_api_key' || err?.status === 401
 
 /**
  * Full translation: every batch is translated and then checked (refineBatch),
- * FULL_PARALLEL batches at a time, after one call reads the whole talk for its
+ * translationParallel() batches at a time, after one call reads the whole talk for its
  * key terms (readGlossary). A batch still far too long after its checks is
  * translated once more and the better version kept. A batch that times out
  * is sent again in halves, and the batches not yet sent are cut to that size
@@ -609,7 +621,7 @@ const translateBatchesChecked = async (
       running -= 1;
     }
   };
-  await Promise.all(Array.from({ length: Math.min(FULL_PARALLEL, queue.length) }, counted));
+  await Promise.all(Array.from({ length: Math.min(translationParallel(), queue.length) }, counted));
 
   if (failedBatches > 0 && translations.size === 0) throw firstError;
 

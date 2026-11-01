@@ -10,6 +10,8 @@ import {
   STORED_FIELDS,
   CONFIG_FILE,
   translationSetup,
+  TRANSLATION_EFFORTS,
+  MAX_TRANSLATION_PARALLEL,
 } from '../env.js';
 import { getUser } from '../providers/elevenlabs/speech.js';
 import { checkKey as checkCartesiaKey } from '../providers/cartesia/speech.js';
@@ -112,6 +114,8 @@ settingsRouter.post(
       cartesiaBaseUrl,
       cartesiaApiVersion,
       cartesiaTtsModel,
+      translationEffort,
+      translationParallel,
       validate = true,
     } = req.body || {};
 
@@ -151,7 +155,10 @@ settingsRouter.post(
 
     const cartesiaAdminTouched = cartesiaAdminKey !== undefined;
 
-    if (!elevenLabsTouched && !geminiTouched && !gatewayTouched && !cartesiaTouched && !cartesiaAdminTouched) {
+    // How translation runs, whichever backend does it: nothing to check against a provider.
+    const speedTouched = translationEffort !== undefined || translationParallel !== undefined;
+
+    if (!elevenLabsTouched && !geminiTouched && !gatewayTouched && !cartesiaTouched && !cartesiaAdminTouched && !speedTouched) {
       throw new ApiError('No settings were supplied.', { status: 400, code: 'no_keys' });
     }
 
@@ -326,6 +333,22 @@ settingsRouter.post(
             ? gatewayModels
             : [];
       }
+    }
+
+    if (translationEffort !== undefined) {
+      const effort = String(translationEffort || '').trim().toLowerCase();
+      if (effort && !TRANSLATION_EFFORTS.includes(effort)) {
+        throw new ApiError(`Thinking must be one of ${TRANSLATION_EFFORTS.join(', ')}.`, { status: 400, code: 'bad_setting' });
+      }
+      toSave.translationEffort = effort;
+    }
+    if (translationParallel !== undefined) {
+      const raw = String(translationParallel ?? '').trim();
+      const parallel = Number(raw);
+      if (raw && !(Number.isInteger(parallel) && parallel >= 1 && parallel <= MAX_TRANSLATION_PARALLEL)) {
+        throw new ApiError(`Batches at once must be a whole number from 1 to ${MAX_TRANSLATION_PARALLEL}.`, { status: 400, code: 'bad_setting' });
+      }
+      toSave.translationParallel = raw;
     }
 
     let keys = keySource();

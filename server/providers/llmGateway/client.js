@@ -3,6 +3,7 @@ import { ApiError } from '../../errors.js';
 import { logger } from '../../logger.js';
 import { requestWithRetry } from '../../lib/http.js';
 import { cleanGatewayUrl, candidateBases, isLocalGateway, rankModels } from './url.js';
+import { thinksInLevels } from '../gemini/client.js';
 
 /**
  * Client for a self-hosted LLM gateway.
@@ -111,6 +112,9 @@ const WHOLE_REPLY_MS = 600000;
 /** Gateways that refused `stream`, so later calls skip the refused attempt. */
 const refusesStreaming = new Set();
 
+/** Gateways that refused `reasoning_effort`, so later calls leave it out. */
+const refusesEffort = new Set();
+
 /**
  * Reads an OpenAI-style server-sent-events reply into one answer.
  *
@@ -188,7 +192,7 @@ const readEventStream = async (response) => {
 /* OpenAI Chat Completions                                             */
 /* ------------------------------------------------------------------ */
 
-const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfig, gateway }) => {
+const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfig, effort, gateway }) => {
   const body = {
     model,
     // Media goes first, as in the Gemini request, so the instructions read after the audio.
@@ -198,6 +202,8 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
   if (typeof generationConfig.temperature === 'number') {
     body.temperature = generationConfig.temperature;
   }
+  // How long a reasoning model thinks before it answers (LiteLLM passes it on to Gemini).
+  if (effort && !refusesEffort.has(gateway.url)) body.reasoning_effort = effort;
   /*
    * Always send a budget. Left unset, the gateway's own default applies — and
    * a small default starves a reasoning model, which then returns null content
@@ -240,8 +246,15 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
       break;
     } catch (err) {
       if (!(err instanceof ApiError && err.status === 400)) throw err;
-      // A gateway that does not implement JSON mode answers 400. Retry plain.
-      if (payload.response_format) {
+      // Tried first: the newest parameter, and a gateway that refuses it would
+      // otherwise lose JSON mode for nothing on every call.
+      if (payload.reasoning_effort) {
+        logger.warn('Gateway rejected reasoning_effort; retrying without it, and leaving it out from now on.');
+        refusesEffort.add(gateway.url);
+        const { reasoning_effort, ...withoutEffort } = payload;
+        payload = withoutEffort;
+      } else if (payload.response_format) {
+        // A gateway that does not implement JSON mode answers 400. Retry plain.
         logger.warn('Gateway rejected response_format; retrying without JSON mode.');
         const { response_format, ...withoutJsonMode } = payload;
         payload = withoutJsonMode;
@@ -300,8 +313,9 @@ const callOpenAiCompatible = async ({ model, prompt, media = [], generationConfi
 /* Google generativelanguage REST                                      */
 /* ------------------------------------------------------------------ */
 
-const callGeminiRest = async ({ model, contents, generationConfig, gateway }) => {
+const callGeminiRest = async ({ model, contents, generationConfig, effort, gateway }) => {
   const normalized = Array.isArray(contents) ? contents : [contents];
+  const thinking = effort && thinksInLevels(model) ? { thinkingConfig: { thinkingLevel: effort } } : {};
 
   const response = await requestWithRetry(
     `${gateway.url}/models/${encodeURIComponent(model)}:generateContent`,
@@ -317,7 +331,7 @@ const callGeminiRest = async ({ model, contents, generationConfig, gateway }) =>
             ? { role: 'user', parts: [{ text: entry }] }
             : { role: entry.role || 'user', parts: entry.parts || [{ text: entry.text || '' }] }
         ),
-        generationConfig,
+        generationConfig: { ...generationConfig, ...thinking },
       }),
     },
     { provider: PROVIDER_LABEL, timeoutMs: 180000, retries: 1 }
@@ -351,7 +365,7 @@ export const gatewaySupportsMedia = () => true;
  * Gemini client so callers do not need to know which one they are using.
  */
 export const generateContent = async (
-  { contents, generationConfig = {}, models, apiKey, retriesPerModel = 0, gateway: override } = {}
+  { contents, generationConfig = {}, effort, models, apiKey, retriesPerModel = 0, gateway: override } = {}
 ) => {
   const gateway = assertUsable(
     resolveGateway({
@@ -384,8 +398,8 @@ export const generateContent = async (
       try {
         const text =
           gateway.protocol === 'gemini'
-            ? await callGeminiRest({ model, contents, generationConfig, gateway })
-            : await callOpenAiCompatible({ model, prompt, media, generationConfig, gateway });
+            ? await callGeminiRest({ model, contents, generationConfig, effort, gateway })
+            : await callOpenAiCompatible({ model, prompt, media, generationConfig, effort, gateway });
 
         return { response: { text }, modelUsed: model };
       } catch (err) {

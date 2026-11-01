@@ -466,6 +466,8 @@ Everything below is optional; `.env.example` documents each one.
 | `CARTESIA_API_VERSION` | `2026-08-14` | Sent as the `Cartesia-Version` header. |
 | `MAX_UPLOAD_MB` | `1024` | Upload size limit. |
 | `TRANSLATION_BATCH_SIZE` | `40` | Cues per Gemini request. |
+| `TRANSLATION_EFFORT` | `low` | How long a reasoning model thinks per translation: `low`, `medium`, `high`, or `model` to leave it to the model. |
+| `TRANSLATION_PARALLEL` | `5` | Translation requests at once, 1 to 8. |
 | `EXTRACT_AUDIO_FROM_VIDEO` | `true` | Set `false` to upload video as-is. |
 
 ### Adding another provider

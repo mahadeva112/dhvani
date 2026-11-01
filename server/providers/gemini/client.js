@@ -23,6 +23,18 @@ export const geminiClient = (overrideKey, overrideBaseUrl) => {
   return new GoogleGenAI({ apiKey, ...(baseUrl ? { httpOptions: { baseUrl } } : {}) });
 };
 
+/**
+ * Gemini models that think in levels (Gemini 3 and later) take `thinkingLevel`;
+ * an earlier one rejects it, so it is only sent to these.
+ */
+export const thinksInLevels = (model) => {
+  const major = /gemini-(\d+)/i.exec(String(model || ''));
+  return Boolean(major) && Number(major[1]) >= 3;
+};
+
+/** Models that refused a thinking level, so later calls leave it out. */
+const refusesThinking = new Set();
+
 const RETRYABLE = /(429|RESOURCE_EXHAUSTED|500|503|INTERNAL|UNAVAILABLE|deadline|ETIMEDOUT|fetch failed)/i;
 const FATAL_KEY = /(401|403|PERMISSION_DENIED|API key not valid|API_KEY_INVALID)/i;
 
@@ -58,7 +70,7 @@ const readableGeminiError = (message) => {
  * candidate; an invalid key stops immediately rather than retrying four times.
  */
 export const generateContent = async (
-  { contents, generationConfig = {}, models, apiKey, baseUrl, retriesPerModel = 1 } = {}
+  { contents, generationConfig = {}, effort, models, apiKey, baseUrl, retriesPerModel = 1 } = {}
 ) => {
   const client = geminiClient(apiKey, baseUrl);
   const candidates = models?.length ? models : config.gemini.translationModels;
@@ -67,10 +79,11 @@ export const generateContent = async (
   for (const model of candidates) {
     for (let attempt = 0; attempt <= retriesPerModel; attempt += 1) {
       try {
+        const thinking = effort && thinksInLevels(model) && !refusesThinking.has(model);
         const response = await client.models.generateContent({
           model,
           contents,
-          config: generationConfig,
+          config: thinking ? { ...generationConfig, thinkingConfig: { thinkingLevel: effort } } : generationConfig,
         });
         return { response, modelUsed: model };
       } catch (err) {
@@ -83,6 +96,14 @@ export const generateContent = async (
             code: 'invalid_api_key',
             provider: 'gemini',
           });
+        }
+
+        // A model that does not take this thinking level is asked again without one.
+        if (effort && thinksInLevels(model) && !refusesThinking.has(model) && /thinking/i.test(message)) {
+          logger.warn(`Gemini model ${model} refused thinking level "${effort}"; asking without it from now on.`);
+          refusesThinking.add(model);
+          attempt -= 1;
+          continue;
         }
 
         if (RETRYABLE.test(message) && attempt < retriesPerModel) {

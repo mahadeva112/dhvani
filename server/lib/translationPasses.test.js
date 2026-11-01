@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { lengthUnits, cueIssues, isOutlier, mergeTerms, termsBlock, termIssues, buildFixPrompt, unsaidMarks, dubSyllables, issueScore, MAX_TERMS } from './translationChecks.js';
-import { refineBatch, translateCueTexts } from '../providers/gemini/translation.js';
+import { refineBatch, translateCueTexts, translationParallel } from '../providers/gemini/translation.js';
 import { lineSyllables } from './syllables.js';
 import { ApiError } from '../errors.js';
 
@@ -142,7 +142,7 @@ test('a batch far too long after its checks is translated once more, and the bet
   assert.equal(once.retriedBatches, 0);
 });
 
-test('every batch is told the key terms read from the whole talk first, and batches run three at a time', async () => {
+test('every batch is told the key terms read from the whole talk first, and batches run as many at a time as the setting allows', async () => {
   const cues = Array.from({ length: 30 }, (_, i) => ({ id: String(i + 1), startTime: i * 2, endTime: i * 2 + 2, text: i === 27 ? 'Inertia is settled.' : 'line' }));
   const prompts = [];
   let running = 0;
@@ -168,7 +168,7 @@ test('every batch is told the key terms read from the whole talk first, and batc
   const translatePrompts = prompts.filter((p) => p.includes('professional dubbing translator'));
   assert.equal(translatePrompts.length, 6);
   assert.ok(translatePrompts.every((p) => /KEY TERMS SO FAR[\s\S]*- inertia → জড়তা/.test(p)));
-  assert.equal(most, 3);
+  assert.equal(most, Math.min(translationParallel(), 6));
   assert.equal(out.translatedCount, 30);
   assert.deepEqual(out.terms, [{ english: 'inertia', translated: 'জড়তা' }]);
 
@@ -353,7 +353,7 @@ test('a batch that times out is cut in half, and later batches keep the smaller 
   assert.equal(broken.prompts.length, 1);
 });
 
-test('fast translation makes one call a batch, no checks, three batches at a time', async () => {
+test('fast translation makes one call a batch, no checks, as many batches at a time as the setting allows', async () => {
   const cues = Array.from({ length: 20 }, (_, i) => ({ id: String(i + 1), text: `Line number ${i + 1} is long enough to be checked.`, startTime: i, endTime: i + 0.5 }));
   const prompts = [];
   let running = 0;
@@ -374,7 +374,7 @@ test('fast translation makes one call a batch, no checks, three batches at a tim
   const out = await translateCueTexts(cues, { targetLanguage: 'Bengali', voiceRate: 5, batchSize: 5, fast: true, generate, onProgress: (event) => progress.push(event) });
   assert.equal(prompts.length, 4);
   assert.ok(prompts.every((p) => p.includes('professional dubbing translator')));
-  assert.equal(most, 3);
+  assert.equal(most, Math.min(translationParallel(), 4));
   assert.equal(out.translatedCount, 20);
   assert.deepEqual(out.missingIds, []);
   assert.ok(progress.every((event) => event.step === 'translate'));

@@ -1,5 +1,6 @@
 import { lineSyllables } from './syllables.js';
 import { PAUSE_SPLIT, withoutSplits } from './translationPauses.js';
+import { examplesBlock } from './translationExamples.js';
 
 /**
  * Checks on a fresh translation that code can make better than the model can:
@@ -192,6 +193,12 @@ const describeIssue = (issue) => {
  * changes.
  */
 /** The rule that keeps a fix from losing the speaker's pauses, when the cues have any. */
+/** The target language's worked examples, so a fix rebuilds a line the way the translation was told to. */
+const examplesSection = (targetLanguage) => {
+  const examples = examplesBlock(targetLanguage);
+  return examples ? `\n${examples}` : '';
+};
+
 const keepPausesRule = (cues) =>
   cues.some((cue) => cue.pausedText)
     ? `\n- A "${PAUSE_SPLIT}" is where the speaker paused, and the voice pauses there too. Keep every "${PAUSE_SPLIT}" a translation has, in the same place between the same ideas.`
@@ -205,7 +212,7 @@ export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, cus
     ...(cue.syllables && { syllables: cue.syllables, now: dubSyllables(translations.get(cue.id)) }),
   }));
   return `You are revising a ${targetLanguage} dubbing translation so it can be spoken in sync with the original video.
-${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}
+${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}${examplesSection(targetLanguage)}
 "syllables" is about how many ${targetLanguage} syllables the voice says in the time the speaker took for that cue; "now" is what the translation has.
 
 FIX THESE CUES
@@ -263,7 +270,7 @@ Respond with ONLY this JSON, one entry per English sentence, "problem" empty whe
 
 /** Asks for the cues the reviewer found, with what it found. */
 export const buildMeaningFixPrompt = ({ cues, translations, problems, targetLanguage, customPrompt = '' }) => `You are correcting a ${targetLanguage} dubbing translation where a reviewer found the meaning changed or the sentence shaped like English.
-${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}
+${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}${examplesSection(targetLanguage)}
 WHAT THE REVIEWER FOUND
 ${problems.map((p) => `- ids ${p.ids.join(', ')}: ${p.problem}`).join('\n')}
 

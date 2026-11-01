@@ -99,6 +99,56 @@ test('OpenAI-compatible: retries without JSON mode when the gateway rejects it',
   }
 });
 
+test('OpenAI-compatible: sends the thinking level, and leaves it out for a gateway that rejects it', async () => {
+  const stub = await startStub((req, res) => {
+    if (req.body.reasoning_effort) {
+      json(res, 400, { error: { message: 'Unsupported parameter: reasoning_effort' } });
+      return;
+    }
+    json(res, 200, { choices: [{ message: { content: 'ok' } }] });
+  });
+
+  try {
+    const ask = () =>
+      generateContent({
+        contents: { role: 'user', parts: [{ text: 'hello' }] },
+        generationConfig: { responseMimeType: 'application/json' },
+        effort: 'low',
+        gateway: { url: stub.url, apiKey: 'sk-test', protocol: 'openai', models: ['m1'] },
+      });
+
+    assert.equal((await ask()).response.text, 'ok');
+    assert.equal(stub.seen[0].body.reasoning_effort, 'low');
+    assert.equal(stub.seen[1].body.reasoning_effort, undefined, 'the retry drops it');
+    assert.ok(stub.seen[1].body.response_format, 'and keeps JSON mode');
+
+    await ask();
+    assert.equal(stub.seen.length, 3, 'the next call leaves it out from the start');
+    assert.equal(stub.seen[2].body.reasoning_effort, undefined);
+  } finally {
+    await stub.close();
+  }
+});
+
+test('Gemini REST: a thinking level goes only to models that think in levels', async () => {
+  const stub = await startStub((req, res) => json(res, 200, { candidates: [{ content: { parts: [{ text: 'ok' }] } }] }));
+
+  try {
+    for (const model of ['gemini-3.7-flash', 'gemini-2.5-flash']) {
+      await generateContent({
+        contents: { role: 'user', parts: [{ text: 'hi' }] },
+        generationConfig: { temperature: 0.3 },
+        effort: 'low',
+        gateway: { url: stub.url, apiKey: 'proxy-key', protocol: 'gemini', models: [model] },
+      });
+    }
+    assert.deepEqual(stub.seen[0].body.generationConfig, { temperature: 0.3, thinkingConfig: { thinkingLevel: 'low' } });
+    assert.deepEqual(stub.seen[1].body.generationConfig, { temperature: 0.3 });
+  } finally {
+    await stub.close();
+  }
+});
+
 /** Answers as an OpenAI streaming gateway does, one SSE event per chunk. */
 const sse = (res, events) => {
   res.writeHead(200, { 'Content-Type': 'text/event-stream' });

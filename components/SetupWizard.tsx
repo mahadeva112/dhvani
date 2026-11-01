@@ -109,6 +109,8 @@ const seedServerValues = (server?: ServerSettings | null): ServerValues => ({
   cartesiaBaseUrl: server?.values.cartesiaBaseUrl || '',
   cartesiaApiVersion: server?.values.cartesiaApiVersion || '',
   cartesiaTtsModel: server?.values.cartesiaTtsModel || '',
+  translationEffort: server?.values.translationEffort || '',
+  translationParallel: server?.values.translationParallel || '',
 });
 
 type FieldState = { valid: boolean; message: string } | null;
@@ -596,6 +598,24 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     },
   ];
 
+  // How translation runs on either backend: the same two settings for Google and a gateway.
+  const speedServerFields: ServerField[] = [
+    {
+      key: 'translationEffort',
+      label: 'Thinking',
+      placeholder: 'low',
+      hint: 'low, medium, high, or model to leave it to the model. Less thinking translates much faster; the meaning check thinks one step more.',
+      origin: server?.origins.translationEffort,
+    },
+    {
+      key: 'translationParallel',
+      label: 'Batches at once',
+      placeholder: '5',
+      hint: 'From 1 to 8. More finishes a long talk sooner; lower it if the gateway answers "too many requests".',
+      origin: server?.origins.translationParallel,
+    },
+  ];
+
   const cartesiaServerFields: ServerField[] = [
     {
       key: 'cartesiaBaseUrl',
@@ -623,6 +643,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   const elevenLabsFieldsChanged = serverFieldsChanged(elevenLabsServerFields);
   const geminiFieldsChanged = serverFieldsChanged(geminiServerFields);
   const cartesiaFieldsChanged = serverFieldsChanged(cartesiaServerFields);
+  const speedFieldsChanged = serverFieldsChanged(speedServerFields);
 
   /*
    * What each step has that is not saved yet. A step with changes can't be
@@ -636,7 +657,8 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     gateway.model.trim() !== (translation?.models?.[0] || '');
   const dirty: Record<StepId, boolean> = {
     transcribe: elevenLabsKey.trim().length > 0 || elevenLabsFieldsChanged,
-    translate: mode !== savedMode || (mode === 'google' ? geminiKey.trim().length > 0 || geminiFieldsChanged : gatewayChanged),
+    translate:
+      mode !== savedMode || speedFieldsChanged || (mode === 'google' ? geminiKey.trim().length > 0 || geminiFieldsChanged : gatewayChanged),
     voice: engineChanged || (engine === 'cartesia' ? cartesiaKey.trim().length > 0 || cartesiaFieldsChanged : elevenLabsKey.trim().length > 0 || elevenLabsFieldsChanged),
   };
   const unsaved = dirty.transcribe || dirty.translate || dirty.voice || cartesiaAdminKey.trim().length > 0;
@@ -1035,6 +1057,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           {gatewayFromEnv && envHint('gateway address')}
         </div>
       )}
+      <ServerSettingsFields
+        title="Translation speed"
+        fields={speedServerFields}
+        values={serverValues}
+        onChange={setServerValue}
+        onReset={() => resetServerGroup(speedServerFields.map((field) => field.key))}
+      />
     </>
   );
 

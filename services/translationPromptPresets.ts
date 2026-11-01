@@ -23,20 +23,12 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 - First understand what the whole sentence says and why he says it. Then say that the way a native speaker of the language would say it out loud. Never copy the English word order or sentence shape.
 - Where an English word is broad, pick the specific word this context needs. Carry the relation, not the connective: "Because X, Y" can become "X, that is why Y" when that is how the language says it.
 - English idioms and turns of phrase become the language's own expression for the same idea, never a word-for-word copy.
-- Example of the approach (English, then natural Hindi and Bengali):
-  English: "Today, if you say you are a spiritual person, people think you need an investigation."
-  Not this (literal): "आज, यदि आप कहते हैं कि आप एक आध्यात्मिक व्यक्ति हैं, लोग सोचते हैं कि आपको एक जाँच की ज़रूरत है।"
-  This: "और आज, अगर आप कहें कि आप आध्यात्मिक इंसान हैं, तो लोग सोचते हैं कि आपकी जाँच होनी चाहिए!"
-  This (Bengali): "আর আজ, আপনি যদি বলেন যে আপনি আধ্যাত্মিক মানুষ, তবে লোকে মনে করে আপনার ওপর তদন্ত চালানো দরকার!"
-  English: "not with a sword or any kind of weapon, but simply out of their consciousness."
-  This (Hindi): "किसी तलवार या हथियार के बल पर नहीं, बल्कि सिर्फ़ अपनी चेतना से।"
-  This (Bengali): "কোনো তলোয়ার বা অস্ত্রের জোরে নয়, বরং স্রেফ তাঁদের চেতনার ক্ষমতায়।"
-  The joke lands, the emphasis stays, and nothing in it sounds translated.
+- Where the translation rules that follow give examples in the language you are writing, follow their approach.
 
 2. HIS WAY OF SPEAKING
-- He speaks in thought units and pause-driven fragments, not textbook sentences. Keep his breaks: a pause before a punchline, after a deep question, before a contradiction ("No...").
+- He speaks in thought units and pause-driven fragments, not textbook sentences. Keep his breaks: a pause before a punchline, after a deep question, before a contradiction ("No…").
 - A provocative line stays sharp, a calm one stays calm, humour keeps its setup and its landing. A line that lands on a point ends on its key word.
-- Keep the order of his thoughts. Never flip cause and effect or swap the halves of an idea to read smoother.
+- Keep the order of his thoughts from one sentence to the next, and never flip cause and effect. Inside a sentence, use the language's own word order: the verb, a "which / that" part and words like "only" and "even" go where the language puts them, even when that moves a word into the next or previous cue.
 - Questions stay short and spoken. A quotation keeps its speaker: put quoted words or an inner thought in double quotes, with the "said / asked / thought" verb where the language naturally puts it.
 
 3. NOTHING DROPPED, NOTHING ADDED
@@ -53,7 +45,7 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 - Use the classical spiritual word where the idea calls for it (mukti, sadhana, chitta), and keep the English words the audience itself says in English (internet, hospital, meditation app).
 
 5. MARKS FOR THE VOICE
-- "," between chunks of one sentence; "..." only for a real hesitation inside a thought, never inside a line he said in one breath.
+- "," between chunks of one sentence; "…" only for a real hesitation inside a thought, never inside a line he said in one breath.
 - " - " before an aside, a list or the phrase that completes what came just before.
 - "!" where a point lands sharply.
 
@@ -72,7 +64,7 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 1. MEANING, NEVER WORD FOR WORD
 - First understand what the whole sentence says and why. Then say it the way a native speaker would say it out loud. Never copy the English word order or sentence shape.
 - English idioms become the language's own expression for the same idea. Where an English word is broad, pick the specific word this context needs.
-- Example of the approach: "people think you need an investigation" is not "लोग सोचते हैं कि आपको एक जाँच की ज़रूरत है" but "लोग सोचते हैं कि आपकी जाँच होनी चाहिए!"; in Bengali "লোকে মনে করে আপনার ওপর তদন্ত চালানো দরকার!".
+- Inside a sentence, use the language's own word order, even when that moves a word into the next or previous cue. Where the translation rules that follow give examples in the language you are writing, follow their approach.
 
 2. THE SPEAKER'S OWN VOICE
 - Keep each speaker's register: a casual speaker stays casual, a formal one formal, a joke keeps its setup and its landing, an emotional moment keeps its weight.
@@ -127,16 +119,42 @@ export const getPresetById = (id: string): TranslationPromptPreset => {
 /** Ids of prompts the user saved under their own names (services/savedTranslationPrompts.ts). */
 export const SAVED_PROMPT_ID_PREFIX = 'my_';
 
+/** A short fingerprint of a prompt's text (32-bit FNV-1a), to recognise an old version without keeping its text. */
+export const promptFingerprint = (prompt: string) => {
+  let hash = 0x811c9dc5;
+  const text = prompt.trim();
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+};
+
+/**
+ * Fingerprints of each style's earlier texts. A project or a browser that
+ * saved one of these saved the style as the app wrote it, not an edit of its
+ * own, so it moves to the style's text of today. Add the old fingerprint here
+ * whenever a style's text changes.
+ */
+export const EARLIER_TEXTS: Record<string, string[]> = {
+  sadhguru_spoken: ['bec608bf'],
+  natural_spoken: ['69f648d4'],
+};
+
 /**
  * A saved style (the app's or a project's) as it reads today. A style that has
  * since been removed comes back as the default, with the default's prompt, so
  * nobody is left translating with a prompt the style list no longer shows.
- * Custom instructions, the user's own named prompts and the styles still
- * listed are kept as saved: no update ever replaces them.
+ * A listed style saved with one of its earlier texts gets its text of today.
+ * Custom instructions, the user's own named prompts and edited styles are kept
+ * as saved: no update ever replaces them.
  */
 export const currentPromptChoice = (presetId: string | null | undefined, prompt: string | null | undefined) => {
   if (presetId?.startsWith(SAVED_PROMPT_ID_PREFIX) && prompt) return { presetId, prompt };
   const known = TRANSLATION_PRESETS.some((p) => p.id === presetId);
-  if (presetId && known) return { presetId, prompt: prompt || getPresetById(presetId).prompt };
+  if (presetId && known) {
+    const outdated = Boolean(prompt) && (EARLIER_TEXTS[presetId] || []).includes(promptFingerprint(prompt!));
+    return { presetId, prompt: !prompt || outdated ? getPresetById(presetId).prompt : prompt };
+  }
   return { presetId: DEFAULT_PROMPT_PRESET_ID, prompt: getPresetById(DEFAULT_PROMPT_PRESET_ID).prompt };
 };
