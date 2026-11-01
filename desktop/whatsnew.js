@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.17',
+    changes: [
+      'Translation is about twice as fast. Each dub language now has its own examples, so a line follows that language\'s own word order instead of the English one, and Tamil comes out as spoken Tamil.',
+      'New "Translation speed" settings in API Settings, under translation: Thinking (Low is fastest; pick Medium if lines come out short) and how many batches are translated at once.',
+    ],
+  },
+  {
     version: '1.4.16',
     changes: [
       'Retake lines in Sync now voices each line once. Pick 2 or 3 takes in the confirmation when you want Sync to keep the take that fits best; the cost shown follows your pick.',
