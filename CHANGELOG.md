@@ -13,7 +13,8 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   worked examples in the translation prompt: a line kept in English word order cue by cue, and
   the same line said the way a native speaker would, then split over the cues by their length.
   Only the language being translated into is sent, also to the fixes of a full translation.
-  Before, every language saw the Hindi and Bengali examples.
+  Before, every language saw the Hindi and Bengali examples. The Tamil examples are in spoken
+  Tamil and say so, so the dub sounds spoken rather than read out of a book.
 - **Translation speed settings.** **Thinking** (a dropdown: low, medium or high) and
   **Batches at once** (1 to 8) under **Translation speed** in the setup screen, or
   `TRANSLATION_EFFORT` (also `model`, to leave it to the model) and `TRANSLATION_PARALLEL`. The

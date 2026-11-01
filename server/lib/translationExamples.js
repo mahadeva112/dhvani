@@ -28,6 +28,8 @@ const LESSONS = [
 /**
  * Per language: for each of SOURCES, `[wrong, right]`, each one string per
  * cue. `extra` holds further examples with their own English and no wrong form.
+ * `note` is one line said under the heading, for what the examples alone do
+ * not get across.
  */
 const LANGUAGE_EXAMPLES = {
   Hindi: {
@@ -203,18 +205,20 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Tamil: {
+    // Written Tamil (நீங்கள், சொன்னால்) is not how anyone talks; examples in it made the dub sound read out.
+    note: 'Use spoken Tamil, as it is said aloud (நீங்க, சொன்னா, நினைக்கிறாங்க), not written Tamil (நீங்கள், சொன்னால், நினைக்கிறார்கள்), unless the style above asks for written Tamil.',
     pairs: [
       [
         ['இன்று, நீங்கள் ஒரு ஆன்மீக நபர் என்று நீங்கள் சொன்னால், மக்கள் உங்களுக்கு ஒரு விசாரணை தேவை என்று நினைக்கிறார்கள்.'],
-        ['இன்று நீங்கள் ஆன்மீகவாதி என்று சொன்னால், உங்களை விசாரணை செய்ய வேண்டும் என்று மக்கள் நினைக்கிறார்கள்!'],
+        ['இன்னைக்கு நீங்க ஆன்மீகவாதின்னு சொன்னா, உங்கள விசாரிக்கணும்னு மக்கள் நினைக்கிறாங்க!'],
       ],
       [
         ['நீங்கள் அமைதியாக உட்கார்ந்தால் வெறும் பத்து நிமிடங்களுக்கு', 'ஒவ்வொரு நாளும், உங்கள் வாழ்க்கை மாறும்.'],
-        ['தினமும் வெறும் பத்து நிமிடம் அமைதியாக உட்கார்ந்தால்,', 'உங்கள் வாழ்க்கை மாறிவிடும்!'],
+        ['தினமும் வெறும் பத்து நிமிஷம் அமைதியா உட்கார்ந்தா,', 'உங்க வாழ்க்கையே மாறிடும்!'],
       ],
       [
         ['பெரும்பாலான மக்கள் தங்கள் முழு வாழ்க்கையையும் செலவிடுகிறார்கள் பொருட்களின் பின்னால் ஓடி', 'அவர்களுக்குத் தேவை கூட இல்லாத.'],
-        ['பெரும்பாலானோர் வாழ்நாள் முழுவதையும், தேவையே இல்லாத பொருட்களின் பின்னால்', 'ஓடியே கழித்துவிடுகிறார்கள்!'],
+        ['பெரும்பாலானவங்க வாழ்நாள் முழுக்க, தேவையே இல்லாத விஷயங்களுக்குப் பின்னாடி', 'ஓடியே கழிச்சிடுறாங்க!'],
       ],
     ],
   },
@@ -253,6 +257,7 @@ export const examplesBlock = (targetLanguage) => {
   const lines = [
     `EXAMPLES IN ${targetLanguage.toUpperCase()}`,
     `How the approach above sounds in ${targetLanguage}. "|" separates cues. "Not this" keeps the English word order cue by cue; "This" says the whole sentence the way a ${targetLanguage} speaker would, then splits it over the same cues by their length. Learn the approach from them; never copy their words into the translation.`,
+    ...(set.note ? [set.note] : []),
   ];
   set.pairs.forEach(([wrong, right], index) => {
     lines.push('', `${index + 1}. ${LESSONS[index]}`, `English: ${cueLine(SOURCES[index])}`, `Not this: ${cueLine(wrong)}`, `This: ${cueLine(right)}`);

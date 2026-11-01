@@ -49,6 +49,13 @@ test('an example adds no "and" the English does not have', () => {
   assert.doesNotMatch(examplesBlock('Bengali'), /This: "আর/);
 });
 
+test('the Tamil examples are spoken Tamil, and say so', () => {
+  const block = examplesBlock('Tamil');
+  const right = lines(block).filter(([label]) => label === 'This').flatMap(([, cues]) => cues).join(' ');
+  assert.match(block, /Use spoken Tamil/);
+  assert.doesNotMatch(right, /நீங்கள்|உங்கள்|ால்[ ,]|ார்கள்/, 'no written forms in the right versions');
+});
+
 test('a language without examples gets none, and only the target language is shown', () => {
   assert.equal(examplesBlock('French'), '');
   assert.equal(examplesBlock(''), '');
