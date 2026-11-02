@@ -33,11 +33,11 @@ jobs:
             command: npm run dist:linux
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
 
       - run: npm ci
@@ -49,7 +49,7 @@ jobs:
           # CSC_LINK / CSC_KEY_PASSWORD for macOS and Windows code signing.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dhvani-${{ matrix.os }}
           # latest*.yml and the blockmaps are what the installed app's updater
@@ -68,18 +68,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
 
       - run: npm ci
       - run: npm run build
       - run: npm run dist:zip
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dhvani-portable
           path: release/*.zip
@@ -92,13 +92,13 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
 
       - name: Publish release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           # Published, not a draft: the updater ignores drafts, and this is
           # the step that offers the new version to installed copies.
