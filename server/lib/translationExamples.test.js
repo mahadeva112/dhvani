@@ -56,6 +56,13 @@ test('the Tamil examples are spoken Tamil, and say so', () => {
   assert.doesNotMatch(right, /நீங்கள்|உங்கள்|ால்[ ,]|ார்கள்/, 'no written forms in the right versions');
 });
 
+test('the Kannada examples are spoken Kannada, and say so', () => {
+  const block = examplesBlock('Kannada');
+  const right = lines(block).filter(([label]) => label === 'This').flatMap(([, cues]) => cues).join(' ');
+  assert.match(block, /Use spoken Kannada/);
+  assert.doesNotMatch(right, /ದರೆ|ತ್ತದೆ|ುತ್ತಾರೆ|ಕೊಳ್ಳು|ುವುದ/, 'no written forms in the right versions');
+});
+
 test('a language without examples gets none, and only the target language is shown', () => {
   assert.equal(examplesBlock('French'), '');
   assert.equal(examplesBlock(''), '');
