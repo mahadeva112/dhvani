@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.18',
+    changes: [
+      'New DHVANI logo in the taskbar, Start menu, title bar and installer. If a pinned taskbar icon still shows the old one, unpin it and pin it again.',
+    ],
+  },
+  {
     version: '1.4.17',
     changes: [
       'Translation is about twice as fast. Each dub language now has its own examples, so a line follows that language\'s own word order instead of the English one, and Tamil comes out as spoken Tamil.',

@@ -1,134 +1,162 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Generates the DHVANI app icon as a 1024x1024 PNG.
+ * Builds every DHVANI app icon from the one logo in desktop/icon-source.png.
  *
- * Written by hand rather than committed as a binary so the mark stays
- * reviewable in diffs and regenerable at any size. electron-builder converts
- * this single PNG into .ico and .icns automatically.
+ * The source sits outside desktop/icons/ so the full-size artwork is not
+ * shipped inside the app. To change the logo, replace that file (any square
+ * image with a transparent background) and run:
  *
- *   node scripts/generate-icon.mjs
+ *   npm run icon
+ *
+ * The empty margin around the logo is trimmed so the tile fills the icon the
+ * way other taskbar icons do. Downscaling is an area average in premultiplied
+ * alpha, so the soft edge of the tile does not pick up a dark fringe at 16px.
  */
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SOURCE = path.join(ROOT, 'desktop', 'icon-source.png');
 
-/** Each output and the size it is rendered at. */
-const TARGETS = [
-  // electron-builder converts this one into .ico and .icns.
+/** How much of the icon square the logo's visible tile should fill. */
+const FILL = 0.9;
+
+/** PNG outputs and the size each is rendered at. */
+const PNG_TARGETS = [
+  // The .icns for macOS and the Linux icon are converted from this one, and
+  // the loading screen and About window show it.
   { file: path.join(ROOT, 'desktop', 'icons', 'icon.png'), size: 1024 },
   // Browser tab icon for the web and Docker distributions.
   { file: path.join(ROOT, 'public', 'favicon.png'), size: 256 },
 ];
 
-/* ------------------------------------------------------------------ */
-/* Drawing helpers                                                     */
-/* ------------------------------------------------------------------ */
-
-const clamp01 = (value) => (value < 0 ? 0 : value > 1 ? 1 : value);
-
-const lerp = (a, b, t) => a + (b - a) * t;
-
-/** Mixes a colour over a destination with the given alpha. */
-const blend = (dst, offset, [r, g, b], alpha) => {
-  const a = clamp01(alpha);
-  if (a <= 0) return;
-  dst[offset] = Math.round(lerp(dst[offset], r, a));
-  dst[offset + 1] = Math.round(lerp(dst[offset + 1], g, a));
-  dst[offset + 2] = Math.round(lerp(dst[offset + 2], b, a));
-  dst[offset + 3] = Math.round(lerp(dst[offset + 3], 255, a));
-};
-
 /**
- * Signed distance to a rounded rectangle, used to antialias the app tile.
- * Negative inside, positive outside.
+ * Windows icon: the .exe, taskbar, Start menu and title bar. Each size is
+ * drawn from the source rather than left to Windows to shrink the 256 one;
+ * 20 and 40 are what the taskbar asks for at 125% display scaling.
  */
-const roundedRectDistance = (x, y, cx, cy, halfW, halfH, radius) => {
-  const dx = Math.abs(x - cx) - (halfW - radius);
-  const dy = Math.abs(y - cy) - (halfH - radius);
-  const outside = Math.hypot(Math.max(dx, 0), Math.max(dy, 0));
-  return outside + Math.min(Math.max(dx, dy), 0) - radius;
+const ICO_FILE = path.join(ROOT, 'desktop', 'icons', 'icon.ico');
+const ICO_SIZES = [16, 20, 24, 32, 40, 48, 64, 128, 256];
+
+/* ------------------------------------------------------------------ */
+/* Reading the source                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Decodes the source to raw RGBA with the bundled ffmpeg. */
+const decodeSource = () => {
+  const ffmpeg = createRequire(import.meta.url)('ffmpeg-static');
+  if (!ffmpeg) throw new Error('ffmpeg-static is not installed; run npm install first.');
+
+  const header = fs.readFileSync(SOURCE);
+  if (header.toString('ascii', 1, 4) !== 'PNG') throw new Error(`${SOURCE} is not a PNG.`);
+  const width = header.readUInt32BE(16);
+  const height = header.readUInt32BE(20);
+
+  const rgba = execFileSync(
+    ffmpeg,
+    ['-v', 'error', '-i', SOURCE, '-pix_fmt', 'rgba', '-f', 'rawvideo', '-'],
+    { maxBuffer: width * height * 4 + 1024 }
+  );
+  return { rgba, width, height };
 };
 
-/** Converts a signed distance into a 0..1 coverage value (1px feather). */
-const coverage = (distance) => clamp01(0.5 - distance);
-
-/* ------------------------------------------------------------------ */
-/* The mark                                                            */
-/* ------------------------------------------------------------------ */
-
-const render = (SIZE) => {
-  const pixels = new Uint8ClampedArray(SIZE * SIZE * 4); // transparent
-
-  const center = SIZE / 2;
-  const tileHalf = SIZE * 0.44;
-  const tileRadius = SIZE * 0.22;
-
-  // Brand gradient: indigo -> cyan, matching the header mark in the web UI.
-  const from = [79, 70, 229]; // indigo-600
-  const mid = [99, 102, 241]; // indigo-500
-  const to = [34, 211, 238]; // cyan-400
-
-  for (let y = 0; y < SIZE; y += 1) {
-    for (let x = 0; x < SIZE; x += 1) {
-      const offset = (y * SIZE + x) * 4;
-
-      const tile = coverage(roundedRectDistance(x, y, center, center, tileHalf, tileHalf, tileRadius));
-      if (tile <= 0) continue;
-
-      // Diagonal gradient across the tile.
-      const t = clamp01((x / SIZE) * 0.55 + (1 - y / SIZE) * 0.45);
-      const colour =
-        t < 0.5
-          ? from.map((c, i) => lerp(c, mid[i], t * 2))
-          : mid.map((c, i) => lerp(c, to[i], (t - 0.5) * 2));
-
-      blend(pixels, offset, colour, tile);
+/** The square, centred on the visible logo, that the logo fills by FILL. */
+const logoSquare = ({ rgba, width, height }) => {
+  let x0 = width;
+  let y0 = height;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (rgba[(y * width + x) * 4 + 3] <= 8) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
     }
   }
+  if (x1 < 0) throw new Error(`${SOURCE} is fully transparent.`);
 
-  /*
-   * Concentric broadcast arcs plus a centre dot — the same "radio" idea as the
-   * in-app logo, which reads clearly even at 16px in a taskbar.
-   */
-  const white = [255, 255, 255];
-  const rings = [
-    { radius: SIZE * 0.085, thickness: SIZE * 0.085, alpha: 1 }, // solid core
-    { radius: SIZE * 0.175, thickness: SIZE * 0.035, alpha: 0.95 },
-    { radius: SIZE * 0.255, thickness: SIZE * 0.032, alpha: 0.75 },
-    { radius: SIZE * 0.33, thickness: SIZE * 0.028, alpha: 0.5 },
-  ];
+  const side = Math.max(x1 - x0 + 1, y1 - y0 + 1) / FILL;
+  return { left: (x0 + x1 + 1) / 2 - side / 2, top: (y0 + y1 + 1) / 2 - side / 2, side };
+};
 
-  for (let y = 0; y < SIZE; y += 1) {
-    for (let x = 0; x < SIZE; x += 1) {
-      const offset = (y * SIZE + x) * 4;
-      const dx = x - center;
-      const dy = y - center;
-      const distance = Math.hypot(dx, dy);
+/* ------------------------------------------------------------------ */
+/* Resampling                                                          */
+/* ------------------------------------------------------------------ */
 
-      for (const ring of rings) {
-        // Outer rings are drawn as left/right arcs, leaving a gap top and
-        // bottom so the mark reads as sound rather than as a target.
-        if (ring.thickness < SIZE * 0.06) {
-          const angle = Math.abs(Math.atan2(dy, dx));
-          const fromHorizontal = Math.min(angle, Math.PI - angle);
-          if (fromHorizontal > Math.PI * 0.34) continue;
-        }
+/**
+ * For each output pixel along one axis, the source pixels it covers and how
+ * much of each. Source pixels outside the image count as transparent.
+ */
+const areaWeights = (start, span, size, limit) => {
+  const scale = span / size;
+  const rows = [];
+  for (let i = 0; i < size; i += 1) {
+    const from = start + i * scale;
+    const to = from + scale;
+    const taps = [];
+    for (let s = Math.floor(from); s < Math.ceil(to); s += 1) {
+      const weight = (Math.min(to, s + 1) - Math.max(from, s)) / scale;
+      if (weight > 0 && s >= 0 && s < limit) taps.push([s, weight]);
+    }
+    rows.push(taps);
+  }
+  return rows;
+};
 
-        const band = Math.abs(distance - ring.radius) - ring.thickness / 2;
-        const alpha = coverage(band) * ring.alpha;
-        if (alpha > 0) blend(pixels, offset, white, alpha);
+const resample = ({ rgba, width, height }, { left, top, side }, size) => {
+  // Premultiply once, so transparent pixels carry no colour into the average.
+  const premul = new Float64Array(width * height * 4);
+  for (let i = 0; i < width * height; i += 1) {
+    const a = rgba[i * 4 + 3] / 255;
+    premul[i * 4] = rgba[i * 4] * a;
+    premul[i * 4 + 1] = rgba[i * 4 + 1] * a;
+    premul[i * 4 + 2] = rgba[i * 4 + 2] * a;
+    premul[i * 4 + 3] = a;
+  }
+
+  const xs = areaWeights(left, side, size, width);
+  const ys = areaWeights(top, side, size, height);
+
+  // Horizontal pass into a size x height buffer, then vertical.
+  const across = new Float64Array(size * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const out = (y * size + x) * 4;
+      for (const [s, w] of xs[x]) {
+        const src = (y * width + s) * 4;
+        for (let c = 0; c < 4; c += 1) across[out + c] += premul[src + c] * w;
       }
     }
   }
 
-  return Buffer.from(pixels.buffer);
+  const pixels = Buffer.alloc(size * size * 4);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const sum = [0, 0, 0, 0];
+      for (const [s, w] of ys[y]) {
+        const src = (s * size + x) * 4;
+        for (let c = 0; c < 4; c += 1) sum[c] += across[src + c] * w;
+      }
+      const out = (y * size + x) * 4;
+      const a = sum[3];
+      if (a <= 0) continue;
+      pixels[out] = Math.round(Math.min(255, sum[0] / a));
+      pixels[out + 1] = Math.round(Math.min(255, sum[1] / a));
+      pixels[out + 2] = Math.round(Math.min(255, sum[2] / a));
+      pixels[out + 3] = Math.round(Math.min(255, a * 255));
+    }
+  }
+  return pixels;
 };
 
 /* ------------------------------------------------------------------ */
-/* PNG encoding                                                        */
+/* PNG and ICO encoding                                                */
 /* ------------------------------------------------------------------ */
 
 const crcTable = (() => {
@@ -182,13 +210,48 @@ const encodePng = (rgba, width, height) => {
   ]);
 };
 
+/** An .ico holding one PNG per size (supported since Windows Vista). */
+const encodeIco = (images) => {
+  const header = Buffer.alloc(6);
+  header.writeUInt16LE(0, 0); // reserved
+  header.writeUInt16LE(1, 2); // type: icon
+  header.writeUInt16LE(images.length, 4);
+
+  let offset = 6 + images.length * 16;
+  const entries = images.map(({ size, png }) => {
+    const entry = Buffer.alloc(16);
+    entry[0] = size >= 256 ? 0 : size; // 0 means 256
+    entry[1] = size >= 256 ? 0 : size;
+    entry[2] = 0; // no palette
+    entry[3] = 0; // reserved
+    entry.writeUInt16LE(1, 4); // colour planes
+    entry.writeUInt16LE(32, 6); // bits per pixel
+    entry.writeUInt32LE(png.length, 8);
+    entry.writeUInt32LE(offset, 12);
+    offset += png.length;
+    return entry;
+  });
+
+  return Buffer.concat([header, ...entries, ...images.map(({ png }) => png)]);
+};
+
 /* ------------------------------------------------------------------ */
 
-for (const { file, size } of TARGETS) {
+const source = decodeSource();
+const square = logoSquare(source);
+
+const write = (file, data, label) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const png = encodePng(render(size), size, size);
-  fs.writeFileSync(file, png);
-  console.log(
-    `Wrote ${path.relative(ROOT, file)} (${size}x${size}, ${(png.length / 1024).toFixed(1)} KB)`
-  );
+  fs.writeFileSync(file, data);
+  console.log(`Wrote ${path.relative(ROOT, file)} (${label}, ${(data.length / 1024).toFixed(1)} KB)`);
+};
+
+for (const { file, size } of PNG_TARGETS) {
+  write(file, encodePng(resample(source, square, size), size, size), `${size}x${size}`);
 }
+
+const icoImages = ICO_SIZES.map((size) => ({
+  size,
+  png: encodePng(resample(source, square, size), size, size),
+}));
+write(ICO_FILE, encodeIco(icoImages), ICO_SIZES.join('/'));

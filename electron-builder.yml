@@ -54,7 +54,9 @@ win:
       arch: [x64]
     - target: portable
       arch: [x64]
-  icon: desktop/icons/icon.png
+  # Every size drawn from the logo by `npm run icon`, so the taskbar and Start
+  # menu get a proper 16/24/32px icon rather than a shrunk 256px one.
+  icon: desktop/icons/icon.ico
   # Only the zip falls through to this name; nsis and portable set their own.
   artifactName: DHVANI-${version}-Portable-${arch}.${ext}
 

@@ -39,7 +39,7 @@ uploads
 
 # Desktop / release artifacts
 release
-desktop/icons/*.ico
+# icon.ico is committed: the Windows build and the window icon both use it.
 desktop/icons/*.icns
 
 # Local, machine-specific Claude Code permissions

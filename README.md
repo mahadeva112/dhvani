@@ -163,7 +163,7 @@ last word instead, set `ALLOW_KEY_SETUP=false`, which refuses UI writes outright
 | `npm run dist:win` / `dist:mac` / `dist:linux` | Builds that platform's installer into `release/` |
 | `npm run dist:zip` | Builds the portable zip into `release/` |
 | `npm run docker:build` / `docker:run` | Builds and starts the container |
-| `npm run icon` | Regenerates the app icon and favicon |
+| `npm run icon` | Rebuilds the app icon (.png/.ico) and favicon from `desktop/icon-source.png` |
 
 ### Publishing an update
 
