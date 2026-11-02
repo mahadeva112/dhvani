@@ -19,6 +19,16 @@ export const LONG_SHARE = 0.15;
 /** ...and by at least this many syllables, so short cues are not sent back over one syllable. */
 export const LONG_MIN_SYLLABLES = 2;
 /**
+ * A cue this much under its budget counts as short: the voice falls silent
+ * while the speaker is still talking. Only when it is also at least
+ * SHORT_MIN_SYLLABLES under, and says fewer syllables than its own English,
+ * which these languages almost never do unless part of the line moved to a
+ * neighbouring cue or was left out. A short English line said slowly
+ * ("Nowhere.") is not short: nothing is missing from it.
+ */
+export const SHORT_SHARE = 0.3;
+export const SHORT_MIN_SYLLABLES = 4;
+/**
  * Cues with less time than this many syllables are not judged on their own: a
  * one-word cue ("situation.") carries the end of its sentence, and squeezing
  * it only makes the model move that word away and fill the cue with a word
@@ -100,9 +110,16 @@ export const lengthUnits = (cues) => {
 
 const unitSyllables = (unit, translations) => unit.ids.reduce((sum, id) => sum + dubSyllables(translations.get(id)), 0);
 
+/** Syllables in a unit's English, the most a line that kept all of it can fall below. */
+const unitSourceSyllables = (unit, byId) => unit.ids.reduce((sum, id) => sum + lineSyllables(spoken(byId.get(id)?.text)), 0);
+
+const isShort = (syllables, target, source) =>
+  syllables < target * (1 - SHORT_SHARE) && target - syllables >= SHORT_MIN_SYLLABLES && syllables < source;
+
 /**
  * What is off with each translated cue: `long` (with its syllables and
- * budget, and `ids` when a tiny cue is judged with the one before it), `end`
+ * budget, and `ids` when a tiny cue is judged with the one before it), `short`
+ * (the same, for a cue far under its budget that says less than its English), `end`
  * (the English ends a sentence here and the translation runs on), `open`
  * (the translation ends a sentence the English carries on), `unsaid` (a
  * number or symbol left as digits, with `marks`), or `empty`. Cues without a
@@ -110,11 +127,12 @@ const unitSyllables = (unit, translations) => unit.ids.reduce((sum, id) => sum +
  *
  * @param {{id: string, text: string, syllables?: number|null}[]} cues
  * @param {Map<string,string>} translations
- * @returns {{id: string, ids?: string[], kind: 'long'|'end'|'open'|'unsaid'|'empty', syllables?: number, target?: number, marks?: string[]}[]}
+ * @returns {{id: string, ids?: string[], kind: 'long'|'short'|'end'|'open'|'unsaid'|'empty', syllables?: number, target?: number, marks?: string[]}[]}
  */
 export const cueIssues = (cues, translations) => {
   const issues = [];
   const units = new Map(lengthUnits(cues).map((unit) => [unit.ids[0], unit]));
+  const byId = new Map(cues.map((cue) => [cue.id, cue]));
   for (const cue of cues) {
     const text = translations.get(cue.id);
     if (!text?.trim()) {
@@ -126,6 +144,8 @@ export const cueIssues = (cues, translations) => {
       const syllables = unitSyllables(unit, translations);
       if (syllables > unit.target * (1 + LONG_SHARE) && syllables - unit.target >= LONG_MIN_SYLLABLES) {
         issues.push({ id: cue.id, ...(unit.ids.length > 1 && { ids: unit.ids }), kind: 'long', syllables, target: unit.target });
+      } else if (isShort(syllables, unit.target, unitSourceSyllables(unit, byId))) {
+        issues.push({ id: cue.id, ...(unit.ids.length > 1 && { ids: unit.ids }), kind: 'short', syllables, target: unit.target });
       }
     }
     const source = sentenceEnding(cue.text);
@@ -139,13 +159,16 @@ export const cueIssues = (cues, translations) => {
 
 /**
  * How far the cues are from right, to compare a fix against what it replaces:
- * the syllables past every budget, plus a few for every misplaced sentence
- * end, number left in digits or empty cue. Lower is better.
+ * the syllables past every budget, half the syllables missing from a short
+ * cue (a silence is easier on the dub than a line running over the next),
+ * plus a few for every misplaced sentence end, number left in digits or empty
+ * cue. Lower is better.
  */
 export const issueScore = (cues, translations) => {
   let score = 0;
   for (const issue of cueIssues(cues, translations)) {
     if (issue.kind === 'long') score += issue.syllables - issue.target;
+    else if (issue.kind === 'short') score += (issue.target - issue.syllables) / 2;
     else if (issue.kind === 'empty') score += 20;
     else score += 3;
   }
@@ -174,6 +197,10 @@ const describeIssue = (issue) => {
   }
   if (issue.kind === 'long') {
     return `- id ${issue.id}: ${issue.syllables} syllables, the voice has time for about ${issue.target}. Say the same thing in fewer syllables, or move a word to the next or previous cue of the same sentence if that cue has room.`;
+  }
+  if (issue.kind === 'short') {
+    const which = issue.ids ? `ids ${issue.ids.join(', ')} together` : `id ${issue.id}`;
+    return `- ${which}: only ${issue.syllables} syllables where the voice has time for about ${issue.target}, so it falls silent while the speaker is still talking. Say all of this cue's English here: if part of it moved to the cue before or after, bring it back, and use fuller natural wording. Never add an idea the speaker did not say.`;
   }
   if (issue.kind === 'unsaid') {
     return `- id ${issue.id}: ${issue.marks.map((mark) => `"${mark}"`).join(', ')} is written in digits or symbols; write it out in words, the way it is said aloud.`;

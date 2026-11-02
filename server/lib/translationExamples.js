@@ -27,7 +27,8 @@ const LESSONS = [
 
 /**
  * Per language: for each of SOURCES, `[wrong, right]`, each one string per
- * cue. `extra` holds further examples with their own English and no wrong form.
+ * cue. `extra` holds further examples with their own English, and a lesson
+ * and wrong form when they have one.
  * `note` is one line said under the heading, for what the examples alone do
  * not get across.
  */
@@ -109,19 +110,29 @@ const LANGUAGE_EXAMPLES = {
     ],
   },
   Kannada: {
+    // Written Kannada (ಹೇಳಿದರೆ, ಮಾಡುತ್ತದೆ) in the examples made the dub mix it with spoken forms in one line.
+    note: 'Use spoken Kannada, as it is said aloud (ಹೇಳಿದ್ರೆ, ಕೂತ್ರೆ, ಬದಲಾಗುತ್ತೆ, ಅಂದ್ಕೊಳ್ತಾರೆ), not written Kannada (ಹೇಳಿದರೆ, ಕುಳಿತರೆ, ಬದಲಾಗುತ್ತದೆ, ಅಂದುಕೊಳ್ಳುತ್ತಾರೆ), and never both in one line, unless the style above asks for written Kannada. An English word Kannada speakers say in English in everyday talk stays English, in Kannada letters (ಕೆಮಿಸ್ಟ್ರಿ, ಸಿಸ್ಟಮ್), not the textbook Kannada word (ರಸಾಯನಶಾಸ್ತ್ರ).',
     pairs: [
       [
         ['ಇಂದು, ನೀವು ಒಬ್ಬ ಆಧ್ಯಾತ್ಮಿಕ ವ್ಯಕ್ತಿ ಎಂದು ನೀವು ಹೇಳಿದರೆ, ಜನರು ನಿಮಗೆ ಒಂದು ತನಿಖೆಯ ಅಗತ್ಯವಿದೆ ಎಂದು ಯೋಚಿಸುತ್ತಾರೆ.'],
-        ['ಇವತ್ತು ನೀವು ಆಧ್ಯಾತ್ಮಿಕ ವ್ಯಕ್ತಿ ಅಂತ ಹೇಳಿದರೆ, ಜನ ನಿಮ್ಮ ಮೇಲೆ ತನಿಖೆ ಮಾಡಬೇಕು ಅಂತ ಅಂದುಕೊಳ್ಳುತ್ತಾರೆ!'],
+        ['ಇವತ್ತಿನ ದಿನ ನೀವೇನಾದ್ರೂ ನಾನು ಆಧ್ಯಾತ್ಮಿಕ ವ್ಯಕ್ತಿ ಅಂತ ಹೇಳಿದ್ರೆ, ಜನ ನಿಮ್ಮ ಮೇಲೆ ತನಿಖೆ ಮಾಡ್ಬೇಕು ಅಂತ ಅಂದ್ಕೊಳ್ತಾರೆ!'],
       ],
       [
         ['ನೀವು ಶಾಂತವಾಗಿ ಕುಳಿತರೆ ಕೇವಲ ಹತ್ತು ನಿಮಿಷಗಳ ಕಾಲ', 'ಪ್ರತಿದಿನ, ನಿಮ್ಮ ಜೀವನ ಬದಲಾಗುತ್ತದೆ.'],
-        ['ನೀವು ಪ್ರತಿದಿನ ಬರೀ ಹತ್ತು ನಿಮಿಷ ಶಾಂತವಾಗಿ ಕುಳಿತರೆ,', 'ನಿಮ್ಮ ಜೀವನ ಬದಲಾಗುತ್ತದೆ!'],
+        ['ನೀವು ದಿನಾ ಬರೀ ಹತ್ತು ನಿಮಿಷ ಸುಮ್ನೆ ಶಾಂತವಾಗಿ ಕೂತ್ಕೊಂಡ್ರೆ,', 'ನಿಮ್ಮ ಜೀವನಾನೇ ಬದಲಾಗೋಗುತ್ತೆ!'],
       ],
       [
         ['ಹೆಚ್ಚಿನ ಜನರು ತಮ್ಮ ಇಡೀ ಜೀವನವನ್ನು ಕಳೆಯುತ್ತಾರೆ ವಸ್ತುಗಳ ಹಿಂದೆ ಓಡುತ್ತಾ', 'ಅವರಿಗೆ ಅಗತ್ಯವೂ ಇಲ್ಲದ.'],
-        ['ಹೆಚ್ಚಿನ ಜನ ಇಡೀ ಜೀವನವನ್ನು, ತಮಗೆ ಬೇಕೇ ಇಲ್ಲದ ವಸ್ತುಗಳ ಹಿಂದೆ', 'ಓಡುವುದರಲ್ಲೇ ಕಳೆದುಬಿಡುತ್ತಾರೆ!'],
+        ['ತುಂಬಾ ಜನ ತಮ್ಮ ಇಡೀ ಜೀವನಾನ, ತಮಗೆ ಬೇಕೇ ಇಲ್ಲದ ವಸ್ತುಗಳ ಹಿಂದೆ', 'ಓಡ್ತಾ ಓಡ್ತಾನೇ ಕಳೆದುಬಿಡ್ತಾರೆ!'],
       ],
+    ],
+    extra: [
+      {
+        lesson: 'When a part moves into the other cue, the cue it left gets another part of the sentence, so neither cue goes quiet; a describing word stays with its word.',
+        english: ['Every human being has the capacity to live', 'a joyful and peaceful life.'],
+        wrong: ['ಪ್ರತಿಯೊಬ್ಬ ಮನುಷ್ಯನಿಗೂ ಆನಂದದ ಮತ್ತು ಶಾಂತಿಯುತ ಜೀವನವನ್ನು ಬದುಕುವ ಸಾಮರ್ಥ್ಯ', 'ಇದೆ.'],
+        right: ['ಪ್ರತಿಯೊಬ್ಬ ಮನುಷ್ಯನಿಗೂ ಬದುಕೋಕೆ ಸಾಮರ್ಥ್ಯ ಇದೆ,', 'ಅದೂ ಆನಂದವಾಗಿ, ನೆಮ್ಮದಿಯಾಗಿ!'],
+      },
     ],
   },
   Malayalam: {
@@ -263,7 +274,11 @@ export const examplesBlock = (targetLanguage) => {
     lines.push('', `${index + 1}. ${LESSONS[index]}`, `English: ${cueLine(SOURCES[index])}`, `Not this: ${cueLine(wrong)}`, `This: ${cueLine(right)}`);
   });
   for (const example of set.extra || []) {
-    lines.push('', `English: ${cueLine(example.english)}`, `This: ${cueLine(example.right)}`);
+    lines.push('');
+    if (example.lesson) lines.push(`${set.pairs.length + 1}. ${example.lesson}`);
+    lines.push(`English: ${cueLine(example.english)}`);
+    if (example.wrong) lines.push(`Not this: ${cueLine(example.wrong)}`);
+    lines.push(`This: ${cueLine(example.right)}`);
   }
   return `${lines.join('\n')}\n`;
 };

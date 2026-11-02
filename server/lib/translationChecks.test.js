@@ -19,12 +19,25 @@ const cues = [
   { id: '2', text: 'and ruled by powerful men.', syllables: 10 },
 ];
 
-test('a cue past its budget, a sentence ended early and a run-on are each found', () => {
+test('a cue past its budget, a cue its words left, a sentence ended early and a run-on are each found', () => {
   const long = 'মানবসভ্যতা দীর্ঘদিন ধরে ক্ষমতাধর পুরুষদের শাসন ও নিয়ন্ত্রণে চলে এসেছে।';
   const issues = cueIssues(cues, new Map([['1', long], ['2', 'আর তাই চলেছে']]));
-  assert.deepEqual(issues.map((i) => [i.id, i.kind]), [['1', 'long'], ['1', 'open'], ['2', 'end']]);
+  assert.deepEqual(issues.map((i) => [i.id, i.kind]), [['1', 'long'], ['1', 'open'], ['2', 'short'], ['2', 'end']]);
   assert.equal(issues[0].syllables, lineSyllables(long));
   assert.equal(issues[0].target, 16);
+});
+
+test('a cue far under its budget is short only when it says less than its English', () => {
+  const sized = [
+    { id: '1', text: 'everything that previous generations only dreamt of,', syllables: 18 },
+    { id: '2', text: 'Nowhere.', syllables: 8 },
+  ];
+  const issues = cueIssues(sized, new Map([['1', 'আজকের দিনেও'], ['2', 'কোথাও না।']]));
+  assert.deepEqual(issues.map((i) => [i.id, i.kind]), [['1', 'short']], 'a short English line said slowly is not short');
+  assert.equal(issues[0].target, 18);
+  const whole = new Map([['1', 'আগের প্রজন্ম যা শুধু স্বপ্নে দেখেছিল, সেই সব'], ['2', 'কোথাও না।']]);
+  assert.deepEqual(cueIssues(sized, whole), []);
+  assert.ok(issueScore(sized, whole) < issueScore(sized, new Map([['1', 'আজকের দিনেও'], ['2', 'কোথাও না।']])));
 });
 
 test('a cue a syllable or two over is not sent back', () => {

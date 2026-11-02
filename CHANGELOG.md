@@ -389,6 +389,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Kannada translation sounds spoken again.** Its examples were in written Kannada, so a
+  translation mixed written and spoken forms, sometimes in one line. They are now in spoken
+  Kannada, about as long as the line they replace, and say so.
 - **Line-by-line voice change no longer hits the local request limit.** Each changed line also
   fetched its clip, so a long dub sent ~180 requests a minute against the 120 cap and stopped
   part way. Clip fetches and Edit timing renders stay on this computer and no longer count; the
