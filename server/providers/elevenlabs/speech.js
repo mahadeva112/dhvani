@@ -756,7 +756,16 @@ const getVoicesV2 = async ({ apiKey }) => {
   for (let page = 0; page < VOICE_MAX_PAGES; page += 1) {
     const query = new URLSearchParams({ page_size: String(VOICE_PAGE_SIZE), include_total_count: 'false' });
     if (token) query.set('next_page_token', token);
-    const data = await elevenLabsJson(`/voices?${query}`, { apiKey, timeoutMs: 30000, version: 'v2' });
+    let data;
+    try {
+      data = await elevenLabsJson(`/voices?${query}`, { apiKey, timeoutMs: 30000, version: 'v2' });
+    } catch (err) {
+      // A later page failing keeps the thousands already loaded; dropping to
+      // /v1/voices would leave only the 21 premade voices.
+      if (!voices.length) throw err;
+      logger.warn(`ElevenLabs voice list stopped at ${voices.length} voices: ${err?.message || err}`);
+      break;
+    }
     for (const voice of Array.isArray(data.voices) ? data.voices : []) {
       if (voice?.voice_id && !seen.has(voice.voice_id)) {
         seen.add(voice.voice_id);

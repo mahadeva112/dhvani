@@ -27,6 +27,20 @@ test('getVoices falls back to /v1/voices when /v2 is unavailable', async () => {
   assert.deepEqual(voices.map((v) => v.voice_id), ['b']);
 });
 
+test('getVoices keeps the pages it has when a later /v2 page fails', async () => {
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).includes('next_page_token=t1')) return json({ detail: { message: 'bad gateway' } }, 502);
+    return String(url).includes('/v2/voices')
+      ? json({ voices: [{ voice_id: 'z', name: 'Zed' }], has_more: true, next_page_token: 't1' })
+      : json({ voices: [{ voice_id: 'b', name: 'Bela' }] });
+  };
+  const voices = await getVoices({ apiKey: 'k' });
+  assert.deepEqual(voices.map((v) => v.voice_id), ['z']);
+  assert.ok(urls.every((u) => u.includes('/v2/voices?')), urls.join('\n'));
+});
+
 test('a candidate key is probed even when another key is already stored', async () => {
   const { config } = await import('../../env.js');
   const { getUser } = await import('./speech.js');
