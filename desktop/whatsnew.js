@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.20',
+    changes: [
+      'Edit timing: with Snap on (N), a line you move stops at the next line of the same speaker instead of playing over it; drag further to jump into the next gap. Turn Snap off to move over lines.',
+      'At a cut between two parts, each side now trims its own part and the middle of the cut rolls both, as in DaVinci Resolve, with DaVinci\'s trim cursors.',
+    ],
+  },
+  {
     version: '1.4.19',
     changes: [
       'New DHVANI logo: a D with a play button and sound bars. If a pinned taskbar icon still shows the old one, unpin it and pin it again.',
