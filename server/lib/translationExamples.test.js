@@ -40,7 +40,7 @@ test('each example splits over as many cues as its English, and the wrong and ri
       assert.equal(cues.length, english.length, `${language}: ${label} has ${cues.length} cue(s), the English ${english.length}`);
       assert.ok(cues.every((cue) => cue.trim()), `${language}: an empty cue`);
     }
-    assert.equal(lines(block).filter(([label]) => label === 'Not this').length, 3, language);
+    assert.ok(lines(block).filter(([label]) => label === 'Not this').length >= 3, language);
   }
 });
 
@@ -60,6 +60,8 @@ test('the Kannada examples are spoken Kannada, and say so', () => {
   const block = examplesBlock('Kannada');
   const right = lines(block).filter(([label]) => label === 'This').flatMap(([, cues]) => cues).join(' ');
   assert.match(block, /Use spoken Kannada/);
+  assert.match(block, /ಕೆಮಿಸ್ಟ್ರಿ/, 'everyday English words stay English');
+  assert.match(block, /\n4\. When a part moves[^\n]*\nEnglish: [^\n]*\nNot this: [^\n]*\nThis: /, 'the fourth example has its lesson and wrong form');
   assert.doesNotMatch(right, /ದರೆ|ತ್ತದೆ|ುತ್ತಾರೆ|ಕೊಳ್ಳು|ುವುದ/, 'no written forms in the right versions');
 });
 
