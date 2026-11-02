@@ -109,6 +109,42 @@ export type SyncEditStatus = {
 
 /** How close to a line's edge (px) a drag trims or stretches rather than moves. */
 const EDGE_PX = 7;
+/**
+ * At a cut between two parts, as in DaVinci Resolve: the middle (this many px
+ * either side) rolls the cut, and out to CUT_EDGE_PX each side trims its own part.
+ */
+const ROLL_PX = 3;
+const CUT_EDGE_PX = 12;
+
+/**
+ * DaVinci Resolve's trim cursors, 28 px: ◂] trims a part's end, [▸ its start,
+ * ◂][▸ rolls a cut. A rounded white bracket and a small white triangle
+ * pointing into the part that changes, outlined dark to read on any wave.
+ * Drawn on a 32-unit grid; `x` is the bracket's bar, where the edge is.
+ */
+const TRIM_CURSOR_PX = 28;
+const trimCursor = (bracket: string, triangle: string, x: number, flip: boolean, fallback: string) => {
+  const svg =
+    `<svg xmlns='http://www.w3.org/2000/svg' width='${TRIM_CURSOR_PX}' height='${TRIM_CURSOR_PX}' viewBox='-1 -1 34 34'>` +
+    `<defs><filter id='s' x='-20%' y='-20%' width='140%' height='140%'><feDropShadow dx='0' dy='0.8' stdDeviation='0.7' flood-color='#000' flood-opacity='.5'/></filter></defs>` +
+    `<g filter='url(#s)' stroke-linecap='round' stroke-linejoin='round'${flip ? " transform='matrix(-1 0 0 1 32 0)'" : ''}>` +
+    `<path d='${bracket}' fill='none' stroke='#111827' stroke-width='5.6'/>` +
+    `<path d='${bracket}' fill='none' stroke='#ffffff' stroke-width='2.8'/>` +
+    `<path d='${triangle}' fill='#ffffff' stroke='#111827' stroke-width='1.5' paint-order='stroke fill'/>` +
+    `</g></svg>`;
+  const at = (u: number) => Math.round(((u + 1) / 34) * TRIM_CURSOR_PX);
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}") ${at(flip ? 32 - x : x)} ${at(16)}, ${fallback}`;
+};
+const END_BRACKET = 'M13.5 5.5H16.5Q19.5 5.5 19.5 8.5V23.5Q19.5 26.5 16.5 26.5H13.5';
+const TRIM_END_CURSOR = trimCursor(END_BRACKET, 'M5.5 16L11.5 11V21Z', 19.5, false, 'e-resize');
+const TRIM_START_CURSOR = trimCursor(END_BRACKET, 'M5.5 16L11.5 11V21Z', 19.5, true, 'w-resize');
+const ROLL_CURSOR = trimCursor(
+  'M9 5.5H11Q14 5.5 14 8.5V23.5Q14 26.5 11 26.5H9 M23 5.5H21Q18 5.5 18 8.5V23.5Q18 26.5 21 26.5H23',
+  'M1.5 16L7.5 11V21Z M30.5 16L24.5 11V21Z',
+  16,
+  false,
+  'col-resize'
+);
 /** Two parts of a line closer than this (s) on the timeline and in the line meet at a cut. */
 const SEAM_SECONDS = 0.001;
 /** The band along a line's top (px) where its fade corners and gain are. */
@@ -1290,14 +1326,57 @@ export const SyncEditTimeline: React.FC<{
   };
 
   /**
+   * With Snap on, how far `movers` may go of `delta` without playing over
+   * another line of the same speaker. One part takes the nearest gap it fits
+   * in: it stops against the line it runs into, and goes past once the gap
+   * beyond is nearer. Several stop at the first line any of them meets. Lines
+   * a part already plays over are let be, as `roomOf` lets them be.
+   */
+  const unoverlapped = (movers: Chunk[], delta: number, among: Chunk[]) => {
+    const ids = new Set(movers.map((c) => c.part.id));
+    const blockers = (m: Chunk) =>
+      among.filter((o) => !ids.has(o.part.id) && !o.part.muted && o.lane === m.lane && !(o.part.start < partEnd(m.part) - 1e-6 && partEnd(o.part) > m.part.start + 1e-6));
+    if (movers.length === 1) {
+      const m = movers[0];
+      if (m.part.muted) return delta;
+      const length = partEnd(m.part) - m.part.start;
+      const wanted = Math.max(0, m.part.start + delta);
+      const gaps: [number, number][] = [];
+      let free = 0;
+      for (const o of blockers(m).sort((a, b) => a.part.start - b.part.start)) {
+        if (o.part.start > free) gaps.push([free, o.part.start]);
+        free = Math.max(free, partEnd(o.part));
+      }
+      gaps.push([free, Infinity]);
+      let best = m.part.start;
+      for (const [from, to] of gaps) {
+        if (to - from < length - 1e-9) continue;
+        const start = clamp(wanted, from, to - length);
+        if (Math.abs(start - wanted) < Math.abs(best - wanted)) best = start;
+      }
+      return best - m.part.start;
+    }
+    let d = delta;
+    for (const m of movers) {
+      if (m.part.muted) continue;
+      for (const o of blockers(m)) {
+        if (d > 0 && o.part.start >= partEnd(m.part) - 1e-6) d = Math.min(d, o.part.start - partEnd(m.part));
+        if (d < 0 && partEnd(o.part) <= m.part.start + 1e-6) d = Math.max(d, partEnd(o.part) - m.part.start);
+      }
+    }
+    return d;
+  };
+
+  /**
    * Moves a part by `delta` seconds. Without `rippled` it goes where it is
    * sent, as in REAPER, over its neighbours if need be (stopping only at
-   * 0:00); with it, every part that starts after it goes too.
+   * 0:00), or with Snap on up to them; with it, every part that starts after
+   * it goes too.
    */
   const shifted = (base: SyncEdits, chunk: Chunk, delta: number, rippled: boolean, among: Chunk[]) => {
     const start = chunk.part.start;
     if (!rippled) {
-      const moved = Math.max(0, start + delta);
+      const moved = Math.max(0, start + (snap ? unoverlapped([chunk], delta, among) : delta));
       return { edits: replacePart(base, chunk, { ...chunk.part, start: moved }), moved: moved - start, blocked: Math.abs(moved - start - delta) > 1e-6 };
     }
     const { lo } = roomOf(chunk.part.id, among);
@@ -1312,9 +1391,9 @@ export const SyncEditTimeline: React.FC<{
   };
 
   /**
-   * Moves several parts by the same `delta`: freely, stopping only at 0:00;
-   * with `rippled`, every part after the first of them goes too, as far as
-   * the parts before them allow.
+   * Moves several parts by the same `delta`: freely, stopping only at 0:00,
+   * or with Snap on at the first line they meet; with `rippled`, every part
+   * after the first of them goes too, as far as the parts before them allow.
    */
   const shiftedMany = (base: SyncEdits, movers: Chunk[], delta: number, rippled: boolean, among: Chunk[]) => {
     if (movers.length === 1) return shifted(base, movers[0], delta, rippled, among);
@@ -1325,7 +1404,7 @@ export const SyncEditTimeline: React.FC<{
     const staying = among.filter((c) => !movingIds.has(c.part.id));
     let low = -first;
     if (rippled) for (const m of moving) low = Math.max(low, roomOf(m.part.id, [...staying, m]).lo - m.part.start);
-    const d = Math.max(delta, low);
+    const d = !rippled && snap ? unoverlapped(movers, Math.max(delta, low), among) : Math.max(delta, low);
     let next = base;
     for (const m of moving) next = replacePart(next, m, { ...m.part, start: Math.max(0, m.part.start + d) });
     return { edits: next, moved: d, blocked: Math.abs(d - delta) > 1e-6 };
@@ -1350,7 +1429,8 @@ export const SyncEditTimeline: React.FC<{
    *
    *   the middle             move (Shift: ripple)        Alt: slip
    *   either edge            trim                        Alt: stretch
-   *   a cut between parts    roll: both edges move       Shift: trim this part only
+   *   a cut between parts    its middle rolls: both edges move, either side trims its own part
+   *                          (Shift: trim in the middle too)
    *   a top corner           fade in / fade out
    *   the top edge between   gain (drag up or down)
    */
@@ -1384,20 +1464,24 @@ export const SyncEditTimeline: React.FC<{
       if (Math.abs(x - fadeOutX) <= CORNER_PX && x >= box.width / 2) return 'fadeOut';
       if (x > edge && x < box.width - edge) return 'gain';
     }
-    if (x <= edge) return alt ? 'stretchLeft' : !shift && seamPartner(chunk, 'left') ? 'rollLeft' : 'trimLeft';
-    if (x >= box.width - edge) return alt ? 'stretchRight' : !shift && seamPartner(chunk, 'right') ? 'rollRight' : 'trimRight';
+    // At a cut the edge is wider: its middle rolls, the rest trims this part alone.
+    const cutEdge = Math.min(CUT_EDGE_PX, box.width / 4);
+    if (!alt && seamPartner(chunk, 'left') && x <= cutEdge) return !shift && x <= ROLL_PX ? 'rollLeft' : 'trimLeft';
+    if (!alt && seamPartner(chunk, 'right') && x >= box.width - cutEdge) return !shift && x >= box.width - ROLL_PX ? 'rollRight' : 'trimRight';
+    if (x <= edge) return alt ? 'stretchLeft' : 'trimLeft';
+    if (x >= box.width - edge) return alt ? 'stretchRight' : 'trimRight';
     return alt ? 'slip' : 'move';
   };
 
   const ZONE_CURSOR: Record<Zone, string> = {
     move: 'default',
     slip: 'ew-resize',
-    trimLeft: 'w-resize',
-    trimRight: 'e-resize',
+    trimLeft: TRIM_START_CURSOR,
+    trimRight: TRIM_END_CURSOR,
     stretchLeft: 'col-resize',
     stretchRight: 'col-resize',
-    rollLeft: 'col-resize',
-    rollRight: 'col-resize',
+    rollLeft: ROLL_CURSOR,
+    rollRight: ROLL_CURSOR,
     fadeIn: 'default',
     fadeOut: 'default',
     gain: 'ns-resize',
@@ -1405,14 +1489,16 @@ export const SyncEditTimeline: React.FC<{
   /** A hint under the timeline: what a drag or click does, then the keys that change it. */
   type Hint = { text: string; keys?: [string, string][] };
   const ZONE_HINT: Record<Zone, Hint> = {
-    move: { text: 'Drag anywhere, over other lines too', keys: [['Shift', 'push the rest'], ['Alt', 'slip'], ['Esc', 'put back']] },
+    move: snap
+      ? { text: 'Drag to move: it stops at the next line', keys: [['N', 'Snap off to go over it'], ['Shift', 'push the rest'], ['Alt', 'slip'], ['Esc', 'put back']] }
+      : { text: 'Drag anywhere, over other lines too', keys: [['Shift', 'push the rest'], ['Alt', 'slip'], ['Esc', 'put back']] },
     slip: { text: 'Drag to slip the audio inside' },
     trimLeft: { text: 'Drag to trim the start', keys: [['Alt', 'stretch']] },
     trimRight: { text: 'Drag to trim the end', keys: [['Alt', 'stretch']] },
     stretchLeft: { text: 'Drag to stretch, pitch kept' },
     stretchRight: { text: 'Drag to stretch, pitch kept' },
-    rollLeft: { text: 'Drag to move the cut: both parts follow', keys: [['Shift', 'trim this part only'], ['Alt', 'stretch']] },
-    rollRight: { text: 'Drag to move the cut: both parts follow', keys: [['Shift', 'trim this part only'], ['Alt', 'stretch']] },
+    rollLeft: { text: 'Drag to move the cut: both parts follow', keys: [['either side', 'trim one part'], ['Alt', 'stretch']] },
+    rollRight: { text: 'Drag to move the cut: both parts follow', keys: [['either side', 'trim one part'], ['Alt', 'stretch']] },
     fadeIn: { text: 'Drag to fade in' },
     fadeOut: { text: 'Drag to fade out' },
     gain: { text: 'Drag up or down for gain' },
@@ -1653,8 +1739,16 @@ export const SyncEditTimeline: React.FC<{
       const unit = baseReport.units[chunk.unitIndex];
       const newPart = partsOf(next, line, rate).find((p) => p.id === part.id) ?? part;
       const onsetNow = line.lead > newPart.from && line.lead < newPart.to ? partTime(newPart, line.lead) : newPart.start;
+      // Snap on: the line it stopped against, so a move that won't go further says why.
+      const groupIds = new Set(d.group.map((c) => c.part.id));
+      const against = result.blocked && snap && !d.rippled
+        ? d.among.find((o) => !groupIds.has(o.part.id) && !o.part.muted && o.lane === chunk.lane &&
+            (Math.abs(partEnd(o.part) - newPart.start) < 1e-6 || Math.abs(o.part.start - partEnd(newPart)) < 1e-6))
+        : undefined;
       d.label = `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}`;
-      text = `Δ ${formatShift(result.moved)}${several}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}`;
+      text = `Δ ${formatShift(result.moved)}${several}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${
+        against ? ` · against ${against.original ? 'clip' : 'line'} ${against.label}` : snapped ? ` · snap: ${snapped.label}` : ''
+      }`;
     } else if (zone === 'slip') {
       const span = part.to - part.from;
       const from = clamp(part.from - dt * part.rate, 0, lineSeconds(chunk) - span);
@@ -2104,7 +2198,10 @@ export const SyncEditTimeline: React.FC<{
     nudge: (seconds: number) => {
       if (group.length === 0) return;
       const result = shiftedMany(committed, group, seconds, ripple, chunks);
-      if (Math.abs(result.moved) < 1e-6) return say(ripple ? `No room to move ${group.length > 1 ? 'them' : 'it'} further that way.` : 'Already at 0:00.');
+      if (Math.abs(result.moved) < 1e-6) {
+        if (ripple) return say(`No room to move ${group.length > 1 ? 'them' : 'it'} further that way.`);
+        return say(seconds < 0 && group.some((c) => c.part.start < 1e-6) ? 'Already at 0:00.' : 'Up against the next line. Turn Snap off (N) to go over it.');
+      }
       commit(result.edits, `Nudge ${groupName(group)} ${formatShift(result.moved)}`);
     },
     undo: () => goTo(history.at - 1),
@@ -2663,14 +2760,14 @@ export const SyncEditTimeline: React.FC<{
             <Scissors className="w-4 h-4" />
             Blade
           </ToolButton>
-          <ToolButton label="Snap" shortcut="N" hint="Edges snap to the original's lines, other lines and the playhead." pressed={snap} onClick={() => setSnap((v) => !v)}>
+          <ToolButton label="Snap" shortcut="N" hint="Edges snap to the original's lines, other lines and the playhead, and a moved line stops at the next one instead of playing over it." pressed={snap} onClick={() => setSnap((v) => !v)}>
             <Magnet className="w-4 h-4" />
             Snap
           </ToolButton>
           <ToolButton
             label="Ripple"
             shortcut="Shift + drag"
-            hint="Moving a line pushes every line after it along too. Off, a line stops at its neighbours."
+            hint="Moving a line pushes every line after it along too. Off, a line goes where it is dragged: up to its neighbours with Snap on, over them with Snap off."
             pressed={ripple}
             onClick={() => setRipple((v) => !v)}
           >

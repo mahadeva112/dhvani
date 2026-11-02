@@ -245,6 +245,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Edit timing: Snap stops a moved line at the next one, and a cut trims like DaVinci.** With
+  Snap on, a moved line (or a keyboard nudge) stops against the next line of the same speaker
+  instead of playing over it, and jumps into the next gap it fits once that is nearer; several
+  picked lines stop at the first line any of them meets. Snap off moves over lines as before.
+  At a cut between two parts, each side now trims its own part and only the middle (±3 px)
+  rolls the cut; Shift trims in the middle too. The edges show DaVinci Resolve's bracket
+  cursors (◂], [▸, ◂][▸) at 28 px.
 - **Full translation also sends back lines that leave the voice silent.** Before, its length
   check only sent back cues that ran long. Now a cue far under its time (30% and at least 4
   syllables) that also says less than its own English, because part of it moved to the next
