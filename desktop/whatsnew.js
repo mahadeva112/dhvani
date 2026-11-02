@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.19',
+    changes: [
+      'New DHVANI logo: a D with a play button and sound bars. If a pinned taskbar icon still shows the old one, unpin it and pin it again.',
+      'Kannada translations are written in spoken Kannada, keep everyday English words (like ಕೆಮಿಸ್ಟ್ರಿ) as they are said, and a line that leaves the voice silent while the speaker is still talking is sent back to be filled.',
+    ],
+  },
+  {
     version: '1.4.18',
     changes: [
       'New DHVANI logo in the taskbar, Start menu, title bar and installer. If a pinned taskbar icon still shows the old one, unpin it and pin it again.',
