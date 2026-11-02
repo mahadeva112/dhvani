@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.21',
+    changes: [
+      'The voice list loads every voice on your ElevenLabs account again. A slow moment while loading no longer cuts it down to the 21 built-in voices.',
+    ],
+  },
+  {
     version: '1.4.20',
     changes: [
       'Edit timing: with Snap on (N), a line you move stops at the next line of the same speaker instead of playing over it; drag further to jump into the next gap. Turn Snap off to move over lines.',
