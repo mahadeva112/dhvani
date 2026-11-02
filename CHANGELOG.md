@@ -245,6 +245,11 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Full translation also sends back lines that leave the voice silent.** Before, its length
+  check only sent back cues that ran long. Now a cue far under its time (30% and at least 4
+  syllables) that also says less than its own English, because part of it moved to the next
+  cue or was left out, goes back too, to bring its words home. A short English line said
+  slowly ("Nowhere.") is left alone. A fix is still kept only when it fits better than before.
 - **Translation prompt.** The parts that are the same for every batch come first and the batch
   itself last, so a model that caches a prompt start can reuse it. The Sadhguru style now says
   plainly that the order of thoughts is kept between sentences, while inside a sentence the
@@ -391,7 +396,9 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Kannada translation sounds spoken again.** Its examples were in written Kannada, so a
   translation mixed written and spoken forms, sometimes in one line. They are now in spoken
-  Kannada, about as long as the line they replace, and say so.
+  Kannada, about as long as the line they replace, and say so. English words Kannada speakers
+  say in English stay English in Kannada letters (ಕೆಮಿಸ್ಟ್ರಿ, not the textbook ರಸಾಯನಶಾಸ್ತ್ರ),
+  and a fourth example shows a cue kept full when a phrase moves out of it.
 - **Line-by-line voice change no longer hits the local request limit.** Each changed line also
   fetched its clip, so a long dub sent ~180 requests a minute against the 120 cap and stopped
   part way. Clip fetches and Edit timing renders stay on this computer and no longer count; the
