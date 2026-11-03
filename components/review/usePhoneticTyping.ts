@@ -1,13 +1,55 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { getPhoneticSuggestions, transliterateWordOffline } from '../../services/indicTransliteration';
+import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { findIndicLanguageConfig, getPhoneticSuggestions, transliterateWordOffline } from '../../services/indicTransliteration';
 
 const PHONETIC_KEY = 'dhvani_script_phonetic';
 /** Keys that end a Roman word and turn it into the script. */
-const ENDS_WORD = [' ', 'Enter', ',', '.', '?', '!', '।'];
+const ENDS_WORD = [' ', 'Enter', ',', '.', '?', '!', '।', '|'];
 /** The Roman word just before the caret; digits alone are left as they are. */
 const romanAt = (text: string, pos: number) => {
   const word = text.substring(0, pos).match(/([a-zA-Z0-9]+)$/)?.[1] ?? '';
   return /[a-zA-Z]/.test(word) ? word : '';
+};
+
+// One switch for every box that types phonetically: Ctrl+G in one turns them all on or off.
+let phoneticOn = (() => {
+  try {
+    return localStorage.getItem(PHONETIC_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+})();
+const switchListeners = new Set<() => void>();
+const subscribeSwitch = (l: () => void) => {
+  switchListeners.add(l);
+  return () => switchListeners.delete(l);
+};
+export const togglePhonetic = () => {
+  phoneticOn = !phoneticOn;
+  try {
+    localStorage.setItem(PHONETIC_KEY, String(phoneticOn));
+  } catch {
+    /* the switch still works for this session */
+  }
+  switchListeners.forEach((l) => l());
+};
+export const usePhoneticSwitch = () => useSyncExternalStore(subscribeSwitch, () => phoneticOn);
+
+/**
+ * The language's own mark for a typed `.` or `|`, given the text before the
+ * caret: `cut` letters before the caret make way for `put`. Null leaves the
+ * key as typed: a language that writes `.`, a decimal point after a digit.
+ * `..` after a full stop gives `...`, and `||` gives `॥`.
+ */
+export const nativeMark = (key: string, language: string, before: string): { cut: number; put: string } | null => {
+  const stop = findIndicLanguageConfig(language)?.purnaViram;
+  if (!stop || stop === '.') return null;
+  if (key === '.') {
+    if (/[0-9.]$/.test(before)) return null;
+    if (before.endsWith(stop)) return { cut: stop.length, put: '..' };
+    return { cut: 0, put: stop };
+  }
+  if (key === '|') return before.endsWith(stop) ? { cut: stop.length, put: '॥' } : { cut: 0, put: stop };
+  return null;
 };
 
 export interface PhoneticPopup {
@@ -49,13 +91,9 @@ const caretPoint = (ta: HTMLTextAreaElement) => {
  * textarea's value and the setter that writes it.
  */
 export function usePhoneticTyping(language: string) {
-  const [enabled, setEnabled] = useState(() => {
-    try {
-      return localStorage.getItem(PHONETIC_KEY) !== 'false';
-    } catch {
-      return true;
-    }
-  });
+  const switchedOn = usePhoneticSwitch();
+  // A language with no script of its own to type (an English dub) leaves the keys alone.
+  const enabled = switchedOn && !!findIndicLanguageConfig(language);
   const [popup, setPopup] = useState<PhoneticPopup | null>(null);
   const latestLookup = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -73,14 +111,7 @@ export function usePhoneticTyping(language: string) {
   }, [popup]);
 
   const toggle = useCallback(() => {
-    setEnabled((on) => {
-      try {
-        localStorage.setItem(PHONETIC_KEY, String(!on));
-      } catch {
-        /* the switch still works for this session */
-      }
-      return !on;
-    });
+    togglePhonetic();
     setPopup(null);
   }, []);
 
@@ -183,10 +214,23 @@ export function usePhoneticTyping(language: string) {
 
     if (ENDS_WORD.includes(e.key) && roman) {
       e.preventDefault();
-      const sep = e.key === 'Enter' ? '\n' : e.key;
+      const sep = e.key === 'Enter' ? '\n' : (nativeMark(e.key, language, ta.value.substring(0, ta.selectionStart))?.put ?? e.key);
       // Before the suggestions land, the offline spelling stands in.
       const converted = current ? current.suggestions[current.selected] : transliterateWordOffline(roman, language) || roman;
       replaceWord(ta, setValue, converted, sep);
+      return true;
+    }
+
+    const mark = !e.ctrlKey && !e.metaKey && !e.altKey ? nativeMark(e.key, language, ta.value.substring(0, ta.selectionStart)) : null;
+    if (mark) {
+      e.preventDefault();
+      dismiss();
+      const before = ta.value.substring(0, ta.selectionStart - mark.cut) + mark.put;
+      setValue(before + ta.value.substring(ta.selectionEnd));
+      setTimeout(() => {
+        ta.focus();
+        ta.setSelectionRange(before.length, before.length);
+      }, 0);
       return true;
     }
     return false;

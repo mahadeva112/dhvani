@@ -1,8 +1,8 @@
 import React, { forwardRef, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { isTagName, TAG_LIBRARY } from '../server/lib/lineTags.js';
 import { PAUSE_MARK } from '../server/lib/linePauses.js';
 import type { usePhoneticTyping } from './review/usePhoneticTyping';
+import { PhoneticSpellings } from './review/PhoneticTextarea';
 
 /** Whether the caret is inside a `[` not yet closed: a tag, typed in English, never turned into the script. */
 const inBracket = (el: HTMLTextAreaElement) => /\[[^\]\n]*$/.test(el.value.slice(0, el.selectionStart));
@@ -228,43 +228,7 @@ export const TagTextarea = forwardRef<
         </div>
       )}
       {/* Spellings of the Roman word at the caret, over the window the words are in */}
-      {phonetic?.popup &&
-        createPortal(
-          <div
-            role="listbox"
-            aria-label={`Spellings of ${phonetic.popup.word}`}
-            className="fixed z-[200] min-w-[12rem] max-w-[22rem] rounded-xl border border-slate-700 bg-slate-950 p-1.5 shadow-2xl shadow-black/60"
-            style={{ left: Math.min(phonetic.popup.x - 8, window.innerWidth - 360), top: phonetic.popup.y + 4 }}
-          >
-            <div className="px-1 pb-1 font-mono text-[11px] text-slate-500">{phonetic.popup.word}</div>
-            <div className="flex flex-wrap gap-1" lang={lang || undefined}>
-              {phonetic.popup.suggestions.map((s, i) => (
-                <button
-                  key={`${i}-${s}`}
-                  type="button"
-                  role="option"
-                  aria-selected={i === phonetic.popup!.selected}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    if (area.current) phonetic.pick(area.current, onChange, i);
-                  }}
-                  className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[15px] cursor-default ${
-                    i === phonetic.popup!.selected ? 'bg-indigo-500/25 text-white' : 'text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  <span className="font-mono text-[10px] text-slate-500">{i + 1}</span>
-                  {s}
-                </button>
-              ))}
-            </div>
-            <div className="mt-1.5 flex gap-3 border-t border-slate-800 px-1 pt-1 text-[10.5px] text-slate-500">
-              <span>Space use</span>
-              <span>1–5 pick</span>
-              <span>Esc keep English</span>
-            </div>
-          </div>,
-          document.body
-        )}
+      {phonetic && <PhoneticSpellings phonetic={phonetic} area={area} onChange={onChange} lang={lang} />}
     </div>
   );
 });

@@ -14,6 +14,7 @@ import {
   countWords,
 } from '../services/scriptAlignService';
 import { reportError } from '../services/errorPopup';
+import { PhoneticTextarea } from './review/PhoneticTextarea';
 
 export type AlignmentStrategy = 'ai' | 'line' | 'proportional' | 'sentence';
 
@@ -629,15 +630,16 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                 </span>
               </div>
             ) : (
-            <textarea
+            <PhoneticTextarea
               id="align-paste"
+              language={targetLanguage}
               value={pastedText}
               readOnly={isAligning}
               onPaste={() => {
                 pastePending.current = true;
               }}
-              onChange={(e) => {
-                setPastedText(e.target.value);
+              onChange={(text) => {
+                setPastedText(text);
                 resetFit();
               }}
               onKeyDown={(e) => {
@@ -837,11 +839,12 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                       >
                         <ArrowUp className="w-3 h-3" />
                       </button>
-                      <textarea
+                      <PhoneticTextarea
+                        language={targetLanguage}
                         value={item.targetText}
-                        onChange={(e) => {
+                        onChange={(text) => {
                           const texts = draft.map((r) => r.targetText);
-                          texts[index] = e.target.value;
+                          texts[index] = text;
                           updateTexts(texts, [index]);
                         }}
                         rows={2}

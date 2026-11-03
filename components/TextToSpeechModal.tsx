@@ -55,6 +55,7 @@ import { POPULAR_ELEVENLABS_VOICES, VoiceSelectorCard, VoiceEngine, VOICE_ENGINE
 import { MiniWaveform } from './MediaStrip';
 import { DEFAULT_LANGUAGES } from './ProHeader';
 import { reportError } from '../services/errorPopup';
+import { PhoneticTextarea } from './review/PhoneticTextarea';
 
 /**
  * Text to speech studio.
@@ -824,11 +825,12 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                   Clear
                 </button>
               </div>
-              <textarea
+              <PhoneticTextarea
                 id="tts-text"
                 ref={textareaRef}
+                language={prefs.language}
                 value={text}
-                onChange={(ev) => setText(ev.target.value)}
+                onChange={setText}
                 onKeyDown={(ev) => {
                   if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter' && canGenerate) {
                     ev.preventDefault();

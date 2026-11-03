@@ -21,6 +21,7 @@ import type { EstimateMethod } from '../services/syncService';
 import type { RateBasis } from '../services/voiceRate';
 import { timeLine } from '../services/speechTiming';
 import { reportError } from '../services/errorPopup';
+import { PhoneticTextarea } from './review/PhoneticTextarea';
 
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
@@ -790,10 +791,10 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
               Says: {state.options.find((o) => o.text === state.text)?.backTranslation}
             </p>
           )}
-          <textarea
+          <PhoneticTextarea
             id={`preview-line-${unit.key}`}
             value={state.text}
-            onChange={(e) => onDraft(e.target.value)}
+            onChange={onDraft}
             rows={2}
             className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
           />

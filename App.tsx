@@ -193,6 +193,7 @@ import { OpenProjectJsonPanel, type PendingProjectJson } from './components/Open
 import { addSignoffs, signoffsForJob } from './services/signoffService';
 import { speakerSyllableRates, useVoiceRates, type VoiceRateVoice } from './services/voiceRate';
 import { currentStep, hasTranscript, openSteps } from './services/steps';
+import { setDubLanguage } from './services/dubLanguage';
 import {
   BatchJob,
   ProcessingStatus,
@@ -765,6 +766,8 @@ export default function App() {
 
   // Active Job helper
   const activeJob = useMemo(() => queue.find((j) => j.id === activeJobId) || null, [queue, activeJobId]);
+  // Text boxes for the dub's words type phonetically in its language without being handed it.
+  useEffect(() => setDubLanguage(activeJob?.language || selectedLanguage), [activeJob?.language, selectedLanguage]);
   const activeJobIdRef = useRef(activeJobId);
   activeJobIdRef.current = activeJobId;
 

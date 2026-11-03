@@ -77,6 +77,7 @@ import { SyncSettingsDiagram } from './SyncSettingsDiagram';
 import { SyncPresetLibrary } from './SyncPresetLibrary';
 import { reportError } from '../services/errorPopup';
 import { dotsToPauses, stripPauses } from '../server/lib/linePauses.js';
+import { PhoneticTextarea } from './review/PhoneticTextarea';
 
 /**
  * Sync, in the Dub step: voices the script line by line, places each line in
@@ -2149,11 +2150,11 @@ const ReviewRow: React.FC<{
                   Says: {says}
                 </p>
               )}
-              <textarea
+              <PhoneticTextarea
                 id={`sync-line-${unit.key}`}
                 value={draft}
-                onChange={(e) => {
-                  setDraft(e.target.value);
+                onChange={(text) => {
+                  setDraft(text);
                   setSuggested(false);
                   setIssues(null);
                   setOver(null);

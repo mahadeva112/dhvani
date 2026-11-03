@@ -47,7 +47,7 @@ export const INDIC_LANGUAGES: Record<string, IndicLanguageConfig> = {
     nativeName: 'తెలుగు',
     itcCode: 'te-t-i0-und',
     script: 'Telugu',
-    purnaViram: '।',
+    purnaViram: '.',
     om: 'ఓం',
   },
   Marathi: {
@@ -65,7 +65,7 @@ export const INDIC_LANGUAGES: Record<string, IndicLanguageConfig> = {
     nativeName: 'ગુજરાતી',
     itcCode: 'gu-t-i0-und',
     script: 'Gujarati',
-    purnaViram: '।',
+    purnaViram: '.',
     om: 'ૐ',
   },
   Kannada: {
@@ -74,7 +74,7 @@ export const INDIC_LANGUAGES: Record<string, IndicLanguageConfig> = {
     nativeName: 'ಕನ್ನಡ',
     itcCode: 'kn-t-i0-und',
     script: 'Kannada',
-    purnaViram: '।',
+    purnaViram: '.',
     om: 'ಓಂ',
   },
   Malayalam: {
@@ -138,7 +138,14 @@ export const INDIC_LANGUAGES: Record<string, IndicLanguageConfig> = {
  */
 export function getIndicLanguageConfig(langNameOrCode: string = ''): IndicLanguageConfig {
   if (!langNameOrCode) return INDIC_LANGUAGES.Hindi;
-  
+  // Devanagari default
+  return findIndicLanguageConfig(langNameOrCode) ?? INDIC_LANGUAGES.Hindi;
+}
+
+/** The config for a language string, or null when it is not one of the Indian languages (an English dub, say). */
+export function findIndicLanguageConfig(langNameOrCode: string = ''): IndicLanguageConfig | null {
+  if (!langNameOrCode) return null;
+
   if (INDIC_LANGUAGES[langNameOrCode]) {
     return INDIC_LANGUAGES[langNameOrCode];
   }
@@ -158,8 +165,7 @@ export function getIndicLanguageConfig(langNameOrCode: string = ''): IndicLangua
     }
   }
 
-  // Devanagari default
-  return INDIC_LANGUAGES.Hindi;
+  return null;
 }
 
 

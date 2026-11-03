@@ -21,6 +21,7 @@ import {
   saveUserCustomWord,
 } from '../services/indicTransliteration';
 import { polishIndicDialogueWithAI } from '../services/geminiService';
+import { nativeMark, togglePhonetic, usePhoneticSwitch } from './review/usePhoneticTyping';
 
 export interface PhoneticSmartTextareaProps {
   value: string;
@@ -66,7 +67,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   fontSize,
 }) => {
   // Enabled state for phonetic auto-transliteration (persisted or on by default)
-  const [isPhoneticOn, setIsPhoneticOn] = useState<boolean>(true);
+  const isPhoneticOn = usePhoneticSwitch();
   const [currentWord, setCurrentWord] = useState<string>('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   // The Roman word the current suggestions were fetched for. Typing outruns the
@@ -96,7 +97,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
 
   // Global Ctrl+G / Cmd+G shortcut to toggle phonetic
   const handleTogglePhonetic = () => {
-    setIsPhoneticOn((prev) => !prev);
+    togglePhonetic();
     setSuggestions([]);
     setCurrentWord('');
   };
@@ -281,7 +282,8 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
       e.key === '.' ||
       e.key === '?' ||
       e.key === '!' ||
-      e.key === '।'
+      e.key === '।' ||
+      e.key === '|'
     ) {
       const textarea = textareaRef.current;
       if (!textarea) return;
@@ -292,7 +294,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
 
       if (match && match[1]) {
         e.preventDefault();
-        const sep = e.key === 'Enter' ? '\n' : e.key;
+        const sep = e.key === 'Enter' ? '\n' : (nativeMark(e.key, language, textBefore)?.put ?? e.key);
 
         if (suggestionsAreCurrent) {
           const chosen = suggestions[selectedCandidateIdx] || suggestions[0];
@@ -302,7 +304,21 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
           const offlineCandidate = transliterateWordOffline(match[1], language);
           commitSuggestion(offlineCandidate || match[1], sep);
         }
+        return;
       }
+    }
+
+    // 5. A full stop or | typed on its own: the language's own mark
+    const mark = !e.ctrlKey && !e.metaKey && !e.altKey ? nativeMark(e.key, language, value.substring(0, e.currentTarget.selectionStart)) : null;
+    if (mark) {
+      e.preventDefault();
+      const textarea = e.currentTarget;
+      const before = value.substring(0, textarea.selectionStart - mark.cut) + mark.put;
+      onChange(before + value.substring(textarea.selectionEnd));
+      setTimeout(() => {
+        textarea.focus();
+        textarea.setSelectionRange(before.length, before.length);
+      }, 0);
     }
   };
 
