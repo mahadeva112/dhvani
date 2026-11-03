@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.22',
+    changes: [
+      'The Retake window always opens in its full view, with tags, styles, stability and more takes beside the words. T opens it; there is no small view to switch from any more.',
+    ],
+  },
+  {
     version: '1.4.21',
     changes: [
       'The voice list loads every voice on your ElevenLabs account again. A slow moment while loading no longer cuts it down to the 21 built-in voices.',
