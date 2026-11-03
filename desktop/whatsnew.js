@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.24',
+    changes: [
+      'A new DHVANI logo: a film clapperboard with a voice wave on the board, in the app\'s midnight blue. It shows in the taskbar, Start menu, title bar and browser tab.',
+    ],
+  },
+  {
     version: '1.4.23',
     changes: [
       'Phonetic typing now works in every box for the dub\'s words: Shorten this line, Your wording, Paste script and Text to speech. Ctrl+G turns it on or off everywhere at once.',
