@@ -106,6 +106,7 @@ import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncStatusBar, useSyncOptions } from './SyncPanel';
 import { DubSettingsCard } from './DubSettingsCard';
+import { SyncProgressPage, useSyncRun } from './SyncProgressPage';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import { LinePair } from './LinePair';
 import { applyJoinPreset, describeChange, joinPresetLabel, presetName } from './SyncJoinSettings';
@@ -131,7 +132,7 @@ import {
   withLineTargets,
 } from '../services/syncService';
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
-import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
+import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { useSyncPreview, useLineFixes, LineFixControls, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane } from './SyncPreviewPanel';
 import type { WordingRequest } from './TakesPanel';
@@ -1122,6 +1123,25 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     [speakerRateTable]
   );
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
+  // Dub & sync on the Dub step: the progress page while it runs, then its result until Open the dub.
+  const syncRun = useSyncRun(isSyncing, syncProgress, syncWaitingFor ?? null);
+  const [syncDoneFor, setSyncDoneFor] = useState<string | null>(null);
+  /** The report there was when the sync started; a new one when it stops means it finished (not cancelled or failed). */
+  const reportAtSyncStart = useRef<SyncReport | null | undefined>(undefined);
+  useEffect(() => {
+    if (isSyncing) {
+      if (reportAtSyncStart.current === undefined) reportAtSyncStart.current = activeJob?.syncReport ?? null;
+      return;
+    }
+    if (reportAtSyncStart.current === undefined) return;
+    const before = reportAtSyncStart.current;
+    reportAtSyncStart.current = undefined;
+    if (activeJob && hasSyncReport && activeJob.syncReport && activeJob.syncReport !== before) setSyncDoneFor(activeJob.id);
+  }, [isSyncing, hasSyncReport, activeJob]);
+  // The result is for the moment after: leaving the Dub step or the project goes back to the dub itself.
+  useEffect(() => {
+    if (syncDoneFor && (activeStep !== 3 || activeJob?.id !== syncDoneFor)) setSyncDoneFor(null);
+  }, [syncDoneFor, activeStep, activeJob?.id]);
   /*
    * The second track is the synced dub once there is one (App picks the same
    * file), else a dub made before Dub and Sync were one step.
@@ -3850,6 +3870,31 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           </>
         );
 
+        // While Dub & sync runs, and right after it finishes: what it is doing, with no settings.
+        if (isSyncing || (syncDoneFor === activeJob.id && report)) {
+          return (
+            <SyncProgressPage
+              run={syncRun}
+              progress={syncProgress}
+              reading={readProgress}
+              waitingFor={syncWaitingFor}
+              isCancelling={isCancellingSync}
+              onCancel={() => onCancelSync?.()}
+              done={isSyncing ? null : report}
+              onOpen={() => setSyncDoneFor(null)}
+              characters={dubCharacterCount}
+              about={[
+                voiceShortName,
+                ttsModelName,
+                multiSpeaker ? `${speakers.length} speakers` : syncOptions.voicing === 'continuous' ? 'one continuous read' : 'line by line',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              suggesting={syncOptions.suggest || syncOptions.suggestLonger}
+            />
+          );
+        }
+
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           {report && !isSyncing && (
@@ -4135,7 +4180,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             }`}
           >
             <div className="flex flex-col gap-4 min-w-0 min-h-0">
-              {(report || isSyncing) && (
+              {report && (
                 <SyncResultsPanel
                   report={report}
                   handEdits={editedLineCount}
@@ -4193,7 +4238,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   }
                 />
               )}
-              {!report && !isSyncing && dubSettingsCard}
+              {!report && dubSettingsCard}
             </div>
 
             <div className="flex flex-col gap-4 min-w-0 min-h-0">
