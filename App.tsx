@@ -169,7 +169,7 @@ import {
   deleteJobFromStorage,
   clearAllJobsFromStorage,
 } from './services/storageService';
-import { byNewest, projectName } from './services/projects';
+import { byNewest, projectFileStem, projectName } from './services/projects';
 import {
   exportProject,
   exportProjectJson,
@@ -3311,7 +3311,7 @@ export default function App() {
     const blob = playsSynced ? activeJob.syncedBlob : activeJob.synthesizedBlob;
     const buffer = playsSynced ? activeJob.syncedAudioBuffer : activeJob.synthAudioBuffer;
     const file = blob || (buffer ? audioBufferToWav(buffer) : null);
-    return file && { file, name: `dhvani_${activeJob.language || 'dubbed'}_${playsSynced ? 'synced' : 'master'}` };
+    return file && { file, name: projectFileStem(activeJob) };
   }, [activeJob, playsSynced]);
 
   // Download Master Lossless WAV
@@ -3366,7 +3366,7 @@ export default function App() {
       const url = URL.createObjectURL(stem.blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `dhvani_${activeJob?.language || 'dubbed'}_${playsSynced ? 'synced_' : ''}${speaker.replace(/[^\p{L}\p{N}]+/gu, '_')}.${audioFileExtension(stem.blob)}`;
+      a.download = `${activeJob ? projectFileStem(activeJob) : 'Untitled dub'} - ${speaker.replace(/[^\p{L}\p{N}]+/gu, '_')}.${audioFileExtension(stem.blob)}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -3388,7 +3388,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `dhvani_${activeJob.language || 'captions'}.srt`;
+    a.download = `${projectFileStem(activeJob)}.srt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -3411,14 +3411,14 @@ export default function App() {
           audioDuration: activeJob.audioBuffer?.duration,
         }
       );
-      const cleanLang = targetLang.toLowerCase().replace(/\s+/g, '_');
+      const name = projectFileStem(activeJob);
       if (format === 'json') {
-        downloadFile(scriptContent, `dhvani_${cleanLang}_script.json`, 'application/json');
+        downloadFile(scriptContent, `${name} - script.json`, 'application/json');
         return;
       }
       const ext = format === 'csv' ? 'csv' : 'txt';
       const mime = format === 'csv' ? 'text/csv' : 'text/plain;charset=utf-8';
-      downloadFile(scriptContent, `dhvani_${cleanLang}_script_${format}.${ext}`, mime);
+      downloadFile(scriptContent, `${name} - script ${format}.${ext}`, mime);
     },
     [activeJob, selectedLanguage]
   );

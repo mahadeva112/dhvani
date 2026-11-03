@@ -68,6 +68,8 @@ interface SrtExportModalProps {
   targetLanguage: string;
   /** Source language ElevenLabs transcribed, used to label the original track. */
   sourceLanguage?: string;
+  /** The project's name, which saved files start with: "talk - Hindi synced.srt". */
+  fileStem?: string;
   initialOptions?: SrtOptions;
   onOptionsChange?: (options: SrtOptions) => void;
   synthAudioDuration?: number;
@@ -158,6 +160,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   segments,
   targetLanguage,
   sourceLanguage = '',
+  fileStem,
   initialOptions,
   onOptionsChange,
   synthAudioDuration = 0,
@@ -402,7 +405,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
     const language = scriptTrack === 'source' ? sourceLanguage || 'Original' : targetLanguage;
     const content = generateTargetLanguageScript(lines, language, format, `${language} subtitles`);
     const ext = format === 'csv' ? 'csv' : 'txt';
-    downloadFile(content, `dhvani_${exportLabel}_subtitles_script_${format}.${ext}`, format === 'csv' ? 'text/csv' : 'text/plain;charset=utf-8');
+    downloadFile(content, `${filePrefix} script ${format}.${ext}`, format === 'csv' ? 'text/csv' : 'text/plain;charset=utf-8');
   };
 
   const handleCopy = () => {
@@ -419,16 +422,18 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
 
   /** Names the file after the track actually being exported. */
   const exportLabel = subtitleFileLabel(scriptTrack === 'source' ? sourceLanguage || 'original' : targetLanguage, syncMode);
+  /** "talk - hindi_synced": the project's name, then the track; "dhvani_hindi_synced_subtitles" when there is no project. */
+  const filePrefix = fileStem ? `${fileStem} - ${exportLabel}` : `dhvani_${exportLabel}_subtitles`;
 
   const handleDownloadSrt = () => {
     if (!outSrt) return;
-    downloadFile(outSrt, `dhvani_${exportLabel}_subtitles.srt`, 'text/srt;charset=utf-8');
+    downloadFile(outSrt, `${filePrefix}.srt`, 'text/srt;charset=utf-8');
     onClose();
   };
 
   const handleDownloadVtt = () => {
     if (!outVtt.replace('WEBVTT', '').trim()) return;
-    downloadFile(outVtt, `dhvani_${exportLabel}_subtitles.vtt`, 'text/vtt;charset=utf-8');
+    downloadFile(outVtt, `${filePrefix}.vtt`, 'text/vtt;charset=utf-8');
     onClose();
   };
 

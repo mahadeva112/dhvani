@@ -110,6 +110,8 @@ interface ScriptTableViewProps {
   fontSize?: number;
   /** The Word file's heading, e.g. the media's name. */
   exportTitle?: string;
+  /** The Word file's name without ".docx": the project's name. */
+  exportFileStem: string;
 }
 
 /**
@@ -136,6 +138,7 @@ export function ScriptTableView({
   onTogglePlay,
   fontSize = 15,
   exportTitle,
+  exportFileStem,
 }: ScriptTableViewProps) {
   const passages = useMemo(() => buildPassages(segments, passagePause), [segments, passagePause]);
   const shown = passages.filter((p) => p.cues.some((seg) => visibleIds.has(String(seg.id))));
@@ -244,7 +247,7 @@ export function ScriptTableView({
         { type: DOCX_MIME }
       );
     try {
-      await saveFileAs(build, scriptDocxFileName(targetLanguage), { description: 'Word document', mime: DOCX_MIME, extension: '.docx' });
+      await saveFileAs(build, scriptDocxFileName(exportFileStem), { description: 'Word document', mime: DOCX_MIME, extension: '.docx' });
     } catch (err) {
       console.warn('Saving the Word script failed:', err);
       setWordError(`Couldn't save the Word file: ${err instanceof Error ? err.message : String(err)}`);

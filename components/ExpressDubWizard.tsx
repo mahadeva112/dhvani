@@ -52,6 +52,7 @@ import {
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
+import { projectFileStem } from '../services/projects';
 import { useVoiceMatches } from '../services/useVoiceMatches';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
@@ -1926,7 +1927,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         let message: string;
         try {
           // The dialog opens first, while the click still counts; the file is built after.
-          const outcome = await saveFileAs(build, scriptDocxFileName(targetLanguage), { description: 'Word document', mime: DOCX_MIME, extension: '.docx' });
+          const outcome = await saveFileAs(build, scriptDocxFileName(activeJob ? projectFileStem(activeJob) : 'Untitled dub'), { description: 'Word document', mime: DOCX_MIME, extension: '.docx' });
           if (outcome.status === 'cancelled') return;
           message = outcome.downloaded ? `Saved ${outcome.name} to your Downloads folder` : `Saved the ${targetLanguage} script as Word`;
         } catch (err) {
@@ -1957,7 +1958,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         audioDuration: activeJob.audioBuffer?.duration,
       }
     );
-    const cleanLang = (targetLanguage || 'script').toLowerCase().replace(/\s+/g, '_');
+    const name = projectFileStem(activeJob);
     const extension = format === 'json' ? 'json' : format === 'csv' ? 'csv' : 'txt';
     const mimeType =
       format === 'json'
@@ -1965,7 +1966,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         : format === 'csv'
         ? 'text/csv'
         : 'text/plain;charset=utf-8';
-    const fileName = format === 'json' ? `dhvani_${cleanLang}_script.json` : `dhvani_${cleanLang}_script_${format}.${extension}`;
+    const fileName = format === 'json' ? `${name} - script.json` : `${name} - script ${format}.${extension}`;
 
     downloadFile(scriptContent, fileName, mimeType);
     setExportSuccessMessage(`Saved the ${targetLanguage} script`);
@@ -2745,6 +2746,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onTogglePlay={onTogglePlay}
               fontSize={reviewFontPx}
               exportTitle={activeJob.file?.name}
+              exportFileStem={projectFileStem(activeJob)}
             />
           )}
 
@@ -4771,6 +4773,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         segments={segments}
         targetLanguage={targetLanguage}
         sourceLanguage={subtitleSourceLanguage}
+        fileStem={activeJob ? projectFileStem(activeJob) : undefined}
         initialOptions={srtOptions}
         onOptionsChange={(newOpts) => setSrtOptions(newOpts)}
         synthAudioDuration={activeJob?.synthAudioBuffer?.duration}

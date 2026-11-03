@@ -10,6 +10,10 @@ export const projectName = (job: BatchJob): string => {
   return 'Untitled dub';
 };
 
+/** The project's name made safe to save a file under: "talk.mp4" saves its dub as "talk.wav". */
+export const projectFileStem = (job: BatchJob): string =>
+  projectName(job).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 120) || 'Untitled dub';
+
 /** When a project was last worked on: "Today, 10:42", "Yesterday", "2 Oct". Empty for projects saved before dates were kept. */
 export const projectWhen = (job: BatchJob, now = new Date()): string => {
   const ms = job.updatedAt ?? job.createdAt;

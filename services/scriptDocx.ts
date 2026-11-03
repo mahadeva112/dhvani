@@ -282,5 +282,5 @@ export const buildScriptDocx = async (options: ScriptDocxOptions): Promise<Uint8
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 };
 
-export const scriptDocxFileName = (targetLanguage: string) =>
-  `dhvani_${(targetLanguage || 'dub').toLowerCase().replace(/\s+/g, '_')}_script.docx`;
+/** Named after the project, which is named after the uploaded file. */
+export const scriptDocxFileName = (projectFileStem: string) => `${projectFileStem} - script.docx`;
