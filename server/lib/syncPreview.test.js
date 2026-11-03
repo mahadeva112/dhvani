@@ -115,3 +115,20 @@ test('acceptLengthen rejects lines that are not longer or that run far past the 
   assert.equal(acceptLengthen('a short line', '"a short line, said in full"', 30), 'a short line, said in full');
   assert.equal(acceptLengthen('a short line', 'x'.repeat(40), 30), null); // past 1.25 x 30
 });
+
+test('a line is judged at the length Sync leaves it, as the last sync closed its lines up', () => {
+  // 36 characters at 10 chars/s: read in 3.6 s, in a slot of 3.4 s (to the next line, less 0.6 s).
+  const segments = [cue(1, 0, 2, 'x'.repeat(36)), cue(2, 4, 5, 'yy')];
+  const read = previewSync({ segments, charsPerSecond: 10, precision: 'lipsync' });
+  assert.ok(Math.abs(read.units[0].slot - 3.4) < 1e-9);
+  assert.equal(read.placedShare, 1);
+  assert.equal(read.units[0].status, 'long');
+  const placed = previewSync({ segments, charsPerSecond: 10, precision: 'lipsync', placedShare: 0.9 });
+  assert.ok(Math.abs(placed.units[0].read - 3.6) < 1e-9);
+  assert.ok(Math.abs(placed.units[0].estimate - 3.24) < 1e-9);
+  assert.equal(placed.units[0].status, 'tight');
+  assert.equal(placed.summary.long, 0);
+  // A share past what Sync could believably close up is brought back inside.
+  assert.equal(previewSync({ segments, charsPerSecond: 10, placedShare: 0.1 }).placedShare, 0.6);
+  assert.equal(previewSync({ segments, charsPerSecond: 10, placedShare: 3 }).placedShare, 1);
+});

@@ -165,6 +165,7 @@ export const useSyncPreview = ({
   join,
   charsPerSecond,
   speakerRates,
+  placedShare,
   sourceDuration,
 }: {
   enabled: boolean;
@@ -174,6 +175,8 @@ export const useSyncPreview = ({
   charsPerSecond: number;
   /** Characters a second of the speakers whose voices speak at their own rate. */
   speakerRates?: Record<string, number>;
+  /** The share of a read the last sync left once it placed its lines (syncedPlacedShare); omitted before any sync. */
+  placedShare?: number;
   sourceDuration: number;
 }) => {
   // By value, so a new object with the same rates doesn't fetch again.
@@ -190,7 +193,7 @@ export const useSyncPreview = ({
     // Typing in the script changes the segments on every key; wait for a pause.
     const timer = window.setTimeout(() => {
       setLoading(true);
-      previewSync({ segments, precision, join, charsPerSecond, speakerRates: JSON.parse(speakerRatesKey), sourceDuration }, { signal: controller.signal })
+      previewSync({ segments, precision, join, charsPerSecond, speakerRates: JSON.parse(speakerRatesKey), placedShare, sourceDuration }, { signal: controller.signal })
         .then((next) => {
           setPreview(next);
           setError(null);
@@ -210,7 +213,7 @@ export const useSyncPreview = ({
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [enabled, segments, precision, join, charsPerSecond, speakerRatesKey, sourceDuration]);
+  }, [enabled, segments, precision, join, charsPerSecond, speakerRatesKey, placedShare, sourceDuration]);
 
   return { preview: enabled ? preview : null, error: enabled ? error : null, loading };
 };
@@ -413,6 +416,10 @@ export const EstimateSwitch: React.FC<{ method: EstimateMethod; onChange: (metho
   </div>
 );
 
+/** How long the voice reads a line, after its placed length, when Sync closes it up by a tenth of a second or more. */
+export const readNote = (unit: Pick<SyncPreviewUnit, 'read' | 'estimate'>) =>
+  unit.read - unit.estimate >= 0.1 ? ` (read in ${unit.read.toFixed(1)} s, closed up by Sync)` : '';
+
 /** What the preview's figures are worked out from, in a few words. */
 /** Where an estimate's rate came from, after its value. */
 export const RATE_BASIS_NOTE: Record<RateBasis, string> = {
@@ -594,8 +601,8 @@ export const lineNote = (unit: SyncPreviewUnit, state: LineFixState, direction: 
             ? `Kept. The dub goes quiet for about ${unit.underflow.toFixed(1)} s while the original speaker is still talking.`
             : 'Kept. Sync shortens the pauses inside it first; if it is still long, the next line starts late and shows in Worth a listen.'
           : longer
-            ? `About ${unit.estimate.toFixed(1)} s of speech; the original speaker talks for ${unit.spoken.toFixed(1)} s`
-            : `About ${unit.estimate.toFixed(1)} s of speech for a ${unit.slot.toFixed(1)} s slot`,
+            ? `About ${unit.estimate.toFixed(1)} s of speech${readNote(unit)}; the original speaker talks for ${unit.spoken.toFixed(1)} s`
+            : `About ${unit.estimate.toFixed(1)} s of speech${readNote(unit)} for a ${unit.slot.toFixed(1)} s slot`,
   };
 };
 
@@ -1078,7 +1085,7 @@ export const PreviewTimeline: React.FC<{
             const selected = u.key === selectedKey;
             const trim = drag?.key === u.key ? drag.seconds : u.wantSeconds;
             const handleAt = trim ?? Math.min(u.estimate, u.slot);
-            const title = `${u.text}\nAbout ${u.estimate.toFixed(1)} s${
+            const title = `${u.text}\nAbout ${u.estimate.toFixed(1)} s${readNote(u)}${
               u.expert ? ` (${u.expert.low.toFixed(1)} to ${u.expert.high.toFixed(1)} s, ${u.expert.syllables} syllables)` : ''
             } · slot ${u.slot.toFixed(1)} s${over > 0 ? ` · +${over.toFixed(1)} s` : ''}${
               u.wantSeconds !== undefined ? ` · your trim ${u.wantSeconds.toFixed(1)} s` : ''

@@ -5,7 +5,7 @@ import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './ca
 import { castPayload, fetchMixed } from './castService';
 import { keepTermsFor } from './glossaryService';
 import type { lockedLines, SyncBank } from './syncEditService';
-import { matchedLips, READ_SPREAD, sourceLipTimes, syllablesHeld, timeLine, type TimedWord } from './speechTiming';
+import { matchedLips, READ_SPREAD, sourceLipTimes, syllablesHeld, timeLine, type LineTiming, type TimedWord } from './speechTiming';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
@@ -652,7 +652,9 @@ export interface SyncPreviewUnit {
   slot: number;
   /** Seconds the original speaker talks for. */
   spoken: number;
-  /** Estimated seconds of speech. */
+  /** Estimated seconds the voice takes to say the line. */
+  read: number;
+  /** Estimated seconds the line lasts once Sync has placed it: `read` closed up as the last sync closed its lines up. */
   estimate: number;
   /** Estimated seconds past the slot, 0 when it fits. */
   overflow: number;
@@ -724,6 +726,8 @@ export const wantsChange = (unit: SyncPreviewUnit) =>
 export interface SyncPreview {
   precision: SyncPrecision;
   charsPerSecond: number;
+  /** The share of a read that is left once Sync places it, from the last sync (syncedPlacedShare); 1 before any sync. */
+  placedShare: number;
   units: SyncPreviewUnit[];
   /** `fits` includes the short lines, which fit their slot; `short` counts them on their own. */
   summary: {
@@ -779,9 +783,12 @@ export const expertPreview = (
 ): SyncPreview => {
   const cueById = new Map(segments.map((seg) => [String(seg.id), seg]));
   const allowed = ALLOWED_OVERFLOW[preview.precision] ?? ALLOWED_OVERFLOW.phrase;
+  // Judged as Sync will place it, as the Quick estimate is: the read closed up by the last sync's share.
+  const share = preview.placedShare > 0 ? preview.placedShare : 1;
   const units = preview.units.map((unit): SyncPreviewUnit => {
     const rate = rateOf(unit.speaker);
-    const timing = timeLine(unit.text, rate);
+    const read = timeLine(unit.text, rate);
+    const timing = share === 1 ? read : closeUp(read, share);
     const estimate = timing.seconds;
     const overflow = estimate - unit.slot;
     const short = isShortSpeech(estimate, unit.spoken);
@@ -795,9 +802,10 @@ export const expertPreview = (
       .flatMap((id) => sourceLipTimes(cueById.get(String(id))?.words))
       .filter((t) => t >= unit.srcStart - 0.05 && t <= unit.srcStart + unit.slot);
     const dubLips = timing.lips;
-    const holds = syllablesHeld(timing, unit.slot, rate);
+    const holds = syllablesHeld(read, unit.slot / share, rate);
     return {
       ...unit,
+      read: read.seconds,
       estimate,
       overflow: Math.max(0, overflow),
       underflow: status === 'short' ? Math.max(0, unit.spoken - estimate) : 0,
@@ -838,6 +846,14 @@ export const expertPreview = (
   };
 };
 
+/** A line's timing with every second scaled by `share`, as Sync's closing up shortens it. */
+const closeUp = (timing: LineTiming, share: number): LineTiming => ({
+  ...timing,
+  seconds: timing.seconds * share,
+  words: timing.words.map((word) => ({ ...word, start: word.start * share, end: word.end * share })),
+  lips: timing.lips.map((t) => t * share),
+});
+
 /** Which lines are likely to fit, before anything is voiced. No voice or text model is called. */
 export const previewSync = (
   request: {
@@ -848,6 +864,8 @@ export const previewSync = (
     join?: SyncJoinSettings;
     /** Characters a second of the speakers whose voices speak at their own rate. */
     speakerRates?: Record<string, number>;
+    /** The share of a read Sync leaves once it places the line (syncedPlacedShare); 1 judges each line as read. */
+    placedShare?: number;
   },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncPreview> =>
@@ -1029,6 +1047,34 @@ export const syncedSpeakingRate = (report: Pick<SyncReport, 'units'> | null | un
     seconds += unit.speech;
   }
   return speakingRate(characters, seconds);
+};
+
+/** A sync closing up fewer lines than this, or less speech, doesn't say how much it closes lines up. */
+const MIN_PLACED_LINES = 3;
+const MIN_PLACED_SECONDS = 3;
+
+/**
+ * How much of a line's read the last sync left once it placed it: the seconds
+ * from each line's first word to its last as placed, over the seconds its words
+ * took as voiced. Sync cuts the pauses the original never made, closes up the
+ * chunks said in one go and drops the quiet tail, so this is under 1; the
+ * preview judges a line at its read times this. Lines read faster or swapped
+ * for another take are left out, since their read is not the voice's own.
+ * Null when too little was placed to tell.
+ */
+export const syncedPlacedShare = (report: Pick<SyncReport, 'units'> | null | undefined): number | null => {
+  let placed = 0;
+  let speech = 0;
+  let lines = 0;
+  for (const unit of report?.units || []) {
+    if (unit.silent || unit.cutOff || !(unit.speech > 0) || unit.placedStart === null || unit.placedEnd === null) continue;
+    if (unit.speedFit || unit.takeFit?.used || unit.takeChosen) continue;
+    placed += Math.max(0, unit.placedEnd - unit.placedStart);
+    speech += unit.speech;
+    lines++;
+  }
+  if (lines < MIN_PLACED_LINES || speech < MIN_PLACED_SECONDS) return null;
+  return Math.min(1, Math.max(0.6, placed / speech));
 };
 
 /** Rates of each current speaker's voice from complete lines of the previous dub. */

@@ -115,6 +115,7 @@ import {
   scriptCharacterCount,
   speakingRate,
   syncedSpeakingRate,
+  syncedPlacedShare,
   syncedSpeakerRates,
   suggestShorterLine,
   suggestLongerLine,
@@ -126,7 +127,7 @@ import {
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
-import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, readNote, RATE_BASIS_NOTE, LINE_OPTIONS } from './SyncPreviewPanel';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
 import type { RateBasis, VoiceRateState } from '../services/voiceRate';
@@ -263,6 +264,7 @@ const reviewLineOf = (seg: AudioSegment, text: string, sourceText: string): Sync
     nextStart: null,
     slot: duration,
     spoken: duration,
+    read: estimate,
     estimate,
     overflow: Math.max(0, estimate - duration),
     underflow: short ? duration - estimate : 0,
@@ -1059,6 +1061,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Counted when the dub was made, so editing lines afterwards doesn't shift the rate. Older dubs didn't save it.
   const rateCharacters = activeJob?.dubScriptCharacters ?? scriptCharacters;
   const syncRate = useMemo(() => syncedSpeakingRate(activeJob?.syncReport), [activeJob?.syncReport]);
+  // How much the last sync closed its lines up once placed: the preview judges each line at that length.
+  const placedShare = useMemo(() => {
+    const share = syncedPlacedShare(activeJob?.syncReport);
+    // Rounded, as the rate is, so it refetches the preview only when it really moves.
+    return share === null ? undefined : Math.round(share * 100) / 100;
+  }, [activeJob?.syncReport]);
   const fitSpeakerRates = useMemo(() => syncedSpeakerRates(activeJob?.syncReport,
     Object.fromEntries(Object.entries(activeJob?.cast || {}).map(([speaker, voice]) => [speaker, voice.voiceId])), elVoiceId, targetLanguage),
     [activeJob?.syncReport, activeJob?.cast, elVoiceId, targetLanguage]);
@@ -1321,6 +1329,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     join: syncOptions.join,
     charsPerSecond: previewRate,
     speakerRates: previewSpeakerRates,
+    placedShare,
     sourceDuration: activeJob?.audioBuffer?.duration || 0,
   });
 
@@ -1519,7 +1528,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const first = cueIndexById.get(String(unit.cueIds[0]));
     const last = cueIndexById.get(String(unit.cueIds[unit.cueIds.length - 1]));
     const cues = unit.cueIds.length > 1 && first !== undefined && last !== undefined ? `${first + 1}–${last + 1}` : null;
-    return { ...syllableFit(text, unit.slot, syllableRateOf(unit.speaker ?? seg.speaker)), own, cues };
+    // The slot holds as many syllables as Sync's closing up lets in: the slot at the read's length.
+    return { ...syllableFit(text, unit.slot / (linePreview?.placedShare || 1), syllableRateOf(unit.speaker ?? seg.speaker)), own, cues };
   };
   /** Lines with no suggestion asked for yet, for Review's Suggest for all. */
   const linesToFix = (linePreview?.units || []).filter((u) => needsFix(u) && lineFixes.notStarted(u));
@@ -3372,6 +3382,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         {estimateMethod === 'expert'
                           ? `Counted in syllables at your voice's rate (${estimateBasis(linePreview, rateBasis)}), with pauses at commas and full stops, a fast to slow range, and where the lips close. Sync still measures the real clips.`
                           : `${rateBasis === 'typical' ? 'A rough estimate' : 'An estimate'} from the text length, at ${linePreview.charsPerSecond.toFixed(1)} chars/s ${RATE_BASIS_NOTE[rateBasis]}.`}{' '}
+                        {linePreview.placedShare < 1 &&
+                          `Each line is judged at the length Sync leaves it once placed: ${Math.round(linePreview.placedShare * 100)}% of its read, as the last sync closed its lines up. `}
                         Click a dub bar to see its line, with wordings that fit it. Drag the bar's end to the length you want, and its suggestions aim for that.
                       </p>
                     </div>
@@ -3406,7 +3418,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             <span className="text-[13px] font-semibold text-slate-100">Line {String(lineNumber).padStart(2, '0')}</span>
                             <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">{formatClock(unit.srcStart)}</span>
                             <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">
-                              about {unit.estimate.toFixed(1)} s · slot {unit.slot.toFixed(1)} s · original speech {unit.spoken.toFixed(1)} s
+                              about {unit.estimate.toFixed(1)} s{readNote(unit)} · slot {unit.slot.toFixed(1)} s · original speech {unit.spoken.toFixed(1)} s
                             </span>
                             <span className="ml-auto flex items-center gap-1.5">
                               {unit.wantSeconds !== undefined && (

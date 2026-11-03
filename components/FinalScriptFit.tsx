@@ -51,13 +51,17 @@ export const fitAdvice = (unit: SyncPreviewUnit) =>
         wantsChange(unit) ? '' : ' Matches your trim.'
       }`
     : unit.status === 'long'
-    ? `Runs about ${unit.overflow.toFixed(1)} s into the next line. Aim for about ${unit.targetChars} characters (now ${unit.text.length})${
+    ? `Runs about ${unit.overflow.toFixed(1)} s into the next line${
+        unit.read - unit.estimate >= 0.1 ? `, even once Sync closes it up (read in ${unit.read.toFixed(1)} s, placed in about ${unit.estimate.toFixed(1)} s)` : ''
+      }. Aim for about ${unit.targetChars} characters (now ${unit.text.length})${
         unit.expert && unit.expert.cut > 0 ? `, about ${unit.expert.cut} syllable${unit.expert.cut === 1 ? '' : 's'} fewer` : ''
       }.`
     : unit.status === 'short'
       ? `Ends about ${unit.underflow.toFixed(1)} s before the original speaker stops. Aim for about ${unit.targetChars} characters (now ${unit.text.length}).`
       : unit.status === 'tight'
-        ? 'Fits, just. Sync can shorten the pauses inside it.'
+        ? unit.read - unit.estimate >= 0.1
+          ? `Fits, just, once Sync closes it up: read in ${unit.read.toFixed(1)} s, placed in about ${unit.estimate.toFixed(1)} s.`
+          : 'Fits, just. Sync can shorten the pauses inside it.'
         : '';
 
 /**
@@ -86,7 +90,7 @@ export const FitMeter: React.FC<{ unit: SyncPreviewUnit; className?: string }> =
   return (
     <div
       className={`flex flex-col items-start sm:items-end gap-1 ${className}`}
-      title={`${unit.text}\nAbout ${unit.estimate.toFixed(1)} s of speech · slot ${unit.slot.toFixed(1)} s · original speech ${unit.spoken.toFixed(1)} s`}
+      title={`${unit.text}\nAbout ${unit.estimate.toFixed(1)} s of speech${unit.read - unit.estimate >= 0.1 ? ` once placed (read in ${unit.read.toFixed(1)} s)` : ''} · slot ${unit.slot.toFixed(1)} s · original speech ${unit.spoken.toFixed(1)} s`}
     >
       <span className={`font-mono text-[11px] px-2 py-0.5 rounded-md tabular-nums ${LABEL_TONE[unit.status]}`}>{fitLabel(unit)}</span>
       <span className="relative block w-full max-w-[9rem] h-1.5 rounded-full bg-slate-800 my-0.5" aria-hidden="true">

@@ -6,7 +6,11 @@
  * starts, less the breath Sync leaves there. How long the dub line will take
  * is only estimated, from its length in characters and a speaking rate (the
  * client measures one from the last sync, or falls back to a typical rate).
- * Sync measures the real clips, so this is a guide to which lines to shorten
+ * A line is judged at the length Sync will leave it, not as the voice reads
+ * it: Sync cuts the pauses the original never made and closes up the rest, so
+ * a line the voice reads a little long often still fits once placed. How much
+ * it closes up is measured from the last sync too (`placedShare`). Sync
+ * measures the real clips, so this is a guide to which lines to shorten
  * first, never a promise.
  */
 import { buildSyncUnits, unitGapAfter } from './syncUnits.js';
@@ -21,13 +25,20 @@ export const TIGHT_SHARE = 0.9;
 const MIN_CPS = 4;
 const MAX_CPS = 40;
 
+/** A share of the read Sync leaves outside this range is not believable; the caller's value is clamped to it. */
+export const MIN_PLACED_SHARE = 0.6;
+export const MAX_PLACED_SHARE = 1;
+
 const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
 
 /**
- * Returns `{ precision, charsPerSecond, units, summary }`. Each unit is
+ * Returns `{ precision, charsPerSecond, placedShare, units, summary }`. Each unit is
  * `{ index, key, cueIds, text, sourceText, srcStart, srcEnd, nextStart, slot,
- * spoken, estimate, overflow, underflow, status, targetChars, unpausedMarks }`, `status`
- * being 'fits', 'tight', 'long' or 'short'. `spoken` is how long the original
+ * spoken, read, estimate, overflow, underflow, status, targetChars, unpausedMarks }`, `status`
+ * being 'fits', 'tight', 'long' or 'short'. `read` is how long the voice will
+ * take to say the line, `estimate` how long it lasts once Sync has placed it:
+ * `read` times `placedShare`, the share of a read the last sync left (1, the
+ * read as it is, before any sync); every figure after it is worked from `estimate`. `spoken` is how long the original
  * speaker talks for and `underflow` how much of that the dub leaves silent;
  * `unpausedMarks` the marks in the line the original speaker talks straight
  * through (see sourcePauses.js), empty where its words have no timestamps.
@@ -38,11 +49,12 @@ const hasWords = (text) => /[\p{L}\p{N}]/u.test(text);
  * a speaker to their own voice's rate in characters a second; a line of a
  * speaker not in it is estimated at `charsPerSecond`.
  */
-export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDuration = 0, join: requested, speakerRates = {} } = {}) => {
+export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDuration = 0, join: requested, speakerRates = {}, placedShare: share = 1 } = {}) => {
   const join = resolveJoinSettings(requested);
   const level = SYNC_PRECISION[precision] ? precision : 'phrase';
   const { allowedOverflow } = SYNC_PRECISION[level];
   const cps = Math.min(MAX_CPS, Math.max(MIN_CPS, Number(charsPerSecond) || 14));
+  const placedShare = Math.min(MAX_PLACED_SHARE, Math.max(MIN_PLACED_SHARE, Number(share) || 1));
   const rateOf = (speaker) => {
     const own = speakerRates && typeof speakerRates === 'object' && Object.hasOwn(speakerRates, speaker || 'Speaker') ? Number(speakerRates[speaker || 'Speaker']) : NaN;
     return own > 0 ? Math.min(MAX_CPS, Math.max(MIN_CPS, own)) : cps;
@@ -59,7 +71,8 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
         : Math.max(Number(sourceDuration) || 0, unit.srcEnd) + 0.5;
     const slot = Math.max(0.05, end - unit.srcStart);
     const rate = rateOf(unit.speaker);
-    const estimate = unit.text.length / rate;
+    const read = unit.text.length / rate;
+    const estimate = read * placedShare;
     const overflow = estimate - slot;
     const spoken = Math.max(0, unit.srcEnd - unit.srcStart);
     const underflow = Math.max(0, spoken - estimate);
@@ -67,7 +80,7 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
     const status = overflow > allowedOverflow ? 'long' : estimate > slot * TIGHT_SHARE ? 'tight' : short ? 'short' : 'fits';
     const targetChars =
       status === 'short'
-        ? Math.max(unit.text.length + 1, Math.floor(rate * Math.min(spoken * LENGTHEN_FILL, slot * SUGGESTION_MARGIN)))
+        ? Math.max(unit.text.length + 1, Math.floor((rate / placedShare) * Math.min(spoken * LENGTHEN_FILL, slot * SUGGESTION_MARGIN)))
         : Math.max(1, Math.floor(unit.text.length * Math.min(1, slot / estimate) * SUGGESTION_MARGIN));
     return {
       index,
@@ -81,6 +94,7 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
       nextStart: unit.nextStart,
       slot,
       spoken,
+      read,
       estimate,
       overflow: Math.max(0, overflow),
       underflow: status === 'short' ? underflow : 0,
@@ -94,6 +108,7 @@ export const previewSync = ({ segments = [], precision, charsPerSecond, sourceDu
   return {
     precision: level,
     charsPerSecond: cps,
+    placedShare,
     units: previews,
     summary: {
       lines: previews.length,
