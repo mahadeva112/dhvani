@@ -58,6 +58,14 @@ export interface ReviewWaveformPlayerProps {
    * each row named on its left.
    */
   pausesRow?: (view: { start: number; span: number }) => React.ReactNode;
+  /**
+   * How a cue sits, for its mark on the waveform and its chip under the
+   * player: the Sync fit of its line, when the caller has one. Without it a
+   * cue is judged on its own, by characters a second.
+   */
+  cuePace?: (segment: AudioSegment) => { level: 'natural' | 'tight' | 'fast'; label: string };
+  /** The marked cues' name in the legend: "Too fast" by characters, "Too long" by the Sync fit. */
+  fastLabel?: string;
 }
 
 /** Cues closer than this share a cut that can be dragged. */
@@ -166,6 +174,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   belowWave,
   belowWaveLabel,
   pausesRow,
+  cuePace,
+  fastLabel = 'Too fast',
 }) => {
   /*
    * Two clocks for two jobs. Playheads and the played colour move every frame
@@ -177,6 +187,14 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const liveRef = useRef(reportedTime);
 
   const total = duration || audioBuffer?.duration || segments[segments.length - 1]?.endTime || 0;
+  const paceOf = (seg: AudioSegment) => {
+    if (cuePace) return cuePace(seg);
+    const cps = cpsOf(seg);
+    return cps > 18 ? { level: 'fast' as const, label: 'Too fast' } : cps > 14 ? { level: 'tight' as const, label: 'Tight' } : { level: 'natural' as const, label: 'Natural' };
+  };
+  // The marked cues by id, so the waveforms redraw when a mark changes and not on every render.
+  const fastIds = segments.filter((seg) => paceOf(seg).level === 'fast').map((seg) => String(seg.id)).join('|');
+  const fastSet = useMemo(() => new Set(fastIds.split('|')), [fastIds]);
   const palette = PALETTE;
 
   const [zoom, setZoom] = useState(1);
@@ -443,7 +461,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       const a = x(seg.startTime);
       const b = x(seg.endTime);
       const isCurrent = i === activeIndex;
-      const fast = cpsOf(seg) > 18;
+      const fast = fastSet.has(String(seg.id));
       ctx.fillStyle = isCurrent ? palette.current : fast ? palette.fast : palette.cue;
       ctx.fillRect(a, 0, b - a, h);
       ctx.fillStyle = isCurrent ? palette.currentEdge : fast ? palette.fastEdge : palette.cueEdge;
@@ -470,7 +488,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       ctx.fillRect(cx - 4, h / 2 - 10, 8.5, 20);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId]);
+  }, [compact, peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet]);
 
   useEffect(() => {
     if (compact) return;
@@ -490,7 +508,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       if (marks) {
         ctx.fillStyle = palette.fastEdge;
         segments.forEach((seg) => {
-          if (cpsOf(seg) > 18) ctx.fillRect((seg.startTime / total) * w, 0, Math.max(1.5, ((seg.endTime - seg.startTime) / total) * w), 3);
+          if (fastSet.has(String(seg.id))) ctx.fillRect((seg.startTime / total) * w, 0, Math.max(1.5, ((seg.endTime - seg.startTime) / total) * w), 3);
         });
       }
       drawBars(ctx, w, marks ? 4 : 2, h - (marks ? 6 : 4), 0, total, palette.wave);
@@ -501,7 +519,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     if (compact) draw(compactRef.current, compactPlayedRef.current, true);
     if (showMini) draw(miniRef.current, miniPlayedRef.current, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, showMini, peaks, segments, total, palette, redrawTick]);
+  }, [compact, showMini, peaks, segments, total, palette, redrawTick, fastSet]);
 
   // ---------- pointer ----------
   const timeAt = (e: React.PointerEvent | React.MouseEvent, el: HTMLElement, whole: boolean) => {
@@ -620,8 +638,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const ticks: number[] = [];
   for (let t = Math.ceil(vs / rulerStep) * rulerStep; t <= vs + span; t += rulerStep) ticks.push(t);
 
-  const cps = activeCue ? cpsOf(activeCue) : 0;
-  const paceClass = cps > 18 ? 'bg-rose-500/15 text-rose-300' : cps > 14 ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300';
+  const activePace = activeCue ? paceOf(activeCue) : null;
+  const paceClass =
+    activePace?.level === 'fast' ? 'bg-rose-500/15 text-rose-300' : activePace?.level === 'tight' ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300';
 
   const iconBtn = (pressed = false) =>
     `w-[30px] h-[30px] flex items-center justify-center rounded-lg border transition-colors cursor-default ${
@@ -797,7 +816,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 <span className="w-3 h-2 rounded-sm bg-indigo-400/20 border border-indigo-400" /> Current cue
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-3 h-2 rounded-sm bg-rose-400/30" /> Too fast
+                <span className="w-3 h-2 rounded-sm bg-rose-400/30" /> {fastLabel}
               </span>
               {belowWave && (
                 <span className="flex items-center gap-1.5">
@@ -918,7 +937,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                     </span>
                     {targetOf(activeCue) && (
                       <span className={`shrink-0 text-[10.5px] font-medium px-2 py-0.5 rounded-full ${paceClass}`}>
-                        {cps > 18 ? 'Too fast' : cps > 14 ? 'Tight' : 'Natural'}
+                        {activePace?.label}
                       </span>
                     )}
                   </>

@@ -1511,6 +1511,32 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return map;
   }, [linePreview]);
   /**
+   * How a cue sits, everywhere Review marks it (its row, the filters, the
+   * passages, the Script view, the player): the Sync fit of the line it is in,
+   * so every mark agrees with the fit. A cue in no line yet, or before the fit
+   * is worked out, is judged on its own by characters a second, as before.
+   */
+  const cuePace = useCallback(
+    (seg: AudioSegment, text = getTargetText(seg)) => {
+      const own = getPace(text, seg.duration);
+      const unit = unitOfCue.get(String(seg.id));
+      if (!unit) return { ...own, endsEarly: endsEarly(seg, text), underflow: 0, lineKey: undefined as string | undefined };
+      const level: 'natural' | 'tight' | 'fast' = unit.status === 'long' ? 'fast' : unit.status === 'tight' ? 'tight' : 'natural';
+      return {
+        cps: own.cps,
+        level,
+        meter: Math.min(100, (unit.estimate / Math.max(0.1, unit.slot)) * 80),
+        label: unit.status === 'long' ? 'Too long' : unit.status === 'tight' ? 'Tight' : unit.status === 'short' ? 'Ends early' : 'Fits',
+        pillClass: own.pillClass,
+        barClass: level === 'fast' ? 'bg-rose-400' : level === 'tight' ? 'bg-amber-400' : unit.status === 'short' ? 'bg-sky-400' : 'bg-emerald-400',
+        endsEarly: unit.status === 'short',
+        underflow: unit.underflow,
+        lineKey: unit.key as string | undefined,
+      };
+    },
+    [unitOfCue]
+  );
+  /**
    * A cue's dub line in syllables against its slot, from the live text. A cue
    * in a sync line of several cues is judged with that whole line, in its slot.
    */
@@ -1555,16 +1581,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         return false;
       }
 
-      const charCount = getTargetText(seg).length;
-      const cps = seg.duration > 0 ? charCount / seg.duration : 0;
-
-      if (pacingFilter === 'risk') return cps > 18;
-      if (pacingFilter === 'tight') return cps > 14 && cps <= 18;
-      if (pacingFilter === 'short') return endsEarly(seg, getTargetText(seg));
+      const pace = cuePace(seg);
+      if (pacingFilter === 'risk') return pace.level === 'fast';
+      if (pacingFilter === 'tight') return pace.level === 'tight';
+      if (pacingFilter === 'short') return pace.endsEarly;
       if (pacingFilter === 'fix') return fixCueIds.has(String(seg.id));
       return true;
     });
-  }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips, voiceOnly, voiceFlags, fixCueIds]);
+  }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips, voiceOnly, voiceFlags, fixCueIds, cuePace]);
   const filteredIds = useMemo(() => new Set(filteredSegments.map((seg) => String(seg.id))), [filteredSegments]);
 
 
@@ -1631,29 +1655,45 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return full.trim().split(/\s+[-–—|]\s+/)[0];
   }, [availableVoices, elVoiceId]);
 
+  // With the Sync fit, lines are counted, as its card counts them; without it, cues.
   const pacingCounts = useMemo(() => {
     const counts = { natural: 0, tight: 0, fast: 0, short: 0 };
+    if (linePreview) {
+      for (const u of linePreview.units) {
+        if (u.status === 'long') counts.fast++;
+        else if (u.status === 'tight') counts.tight++;
+        else counts.natural++;
+        if (u.status === 'short') counts.short++;
+      }
+      return counts;
+    }
     segments.forEach((seg) => {
       counts[getPace(getTargetText(seg), seg.duration).level]++;
       if (endsEarly(seg, getTargetText(seg))) counts.short++;
     });
     return counts;
-  }, [segments]);
+  }, [segments, linePreview]);
 
   /** The script's passages, cut where the original pauses, with what needs fixing in each. */
   const passages = useMemo(
     () =>
       buildPassages(segments, passagePause).map((p) => {
         const counts = { fast: 0, tight: 0, short: 0 };
+        // A line is counted once, in the passage its last cue is in.
+        const counted = new Set<string>();
         p.cues.forEach((seg) => {
-          const level = getPace(getTargetText(seg), seg.duration).level;
-          if (level === 'fast') counts.fast++;
-          else if (level === 'tight') counts.tight++;
-          if (endsEarly(seg, getTargetText(seg))) counts.short++;
+          const pace = cuePace(seg);
+          if (pace.lineKey) {
+            if (counted.has(pace.lineKey)) return;
+            counted.add(pace.lineKey);
+          }
+          if (pace.level === 'fast') counts.fast++;
+          else if (pace.level === 'tight') counts.tight++;
+          if (pace.endsEarly) counts.short++;
         });
         return { ...p, counts };
       }),
-    [segments, passagePause]
+    [segments, passagePause, cuePace]
   );
   const passageOfCue = useMemo(() => {
     const map = new Map<string, (typeof passages)[number]>();
@@ -2366,6 +2406,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 : undefined
             }
             // The lines' pauses in a row of their own, so they never cover a line.
+            cuePace={linePreview && !hearingDub ? (seg) => cuePace(seg) : undefined}
+            fastLabel={linePreview && !hearingDub ? 'Too long' : 'Too fast'}
             pausesRow={
               linePreview && !hearingDub && !awaitingScript
                 ? ({ start, span }) => <PauseTicksLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} />
@@ -2544,7 +2586,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <div role="group" aria-label="Pacing filter" className="flex items-center gap-1.5">
                       {[
                         { id: 'all' as const, label: 'All', count: segments.length, dot: '' },
-                        { id: 'risk' as const, label: 'Too fast', count: pacingCounts.fast, dot: 'bg-rose-400' },
+                        { id: 'risk' as const, label: linePreview ? 'Too long' : 'Too fast', count: pacingCounts.fast, dot: 'bg-rose-400' },
                         { id: 'tight' as const, label: 'Tight', count: pacingCounts.tight, dot: 'bg-amber-400' },
                         { id: 'short' as const, label: 'Ends early', count: pacingCounts.short, dot: 'bg-sky-400' },
                         ...(linePreview ? [{ id: 'fix' as const, label: 'Lines to fix', count: linesToFixCount, dot: 'bg-indigo-400' }] : []),
@@ -2687,7 +2729,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               getSourceText={getSourceText}
               getTargetText={getTargetText}
               onUpdateLines={handleUpdateLines}
-              getPacing={linePacingOf}
+              getPacing={(seg, text) => {
+                const pace = cuePace(seg, text);
+                return pace.lineKey
+                  ? { level: pace.level, cps: pace.cps, endsEarlyBy: pace.endsEarly ? pace.underflow : null, lineKey: pace.lineKey }
+                  : linePacingOf(seg, text);
+              }}
+              fastLabel={linePreview ? 'too long' : 'too fast'}
               passagePause={passagePause}
               onPassagePauseChange={setPassagePause}
               activeSegmentId={activeSegmentId}
@@ -2790,7 +2838,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 const tgtText = getTargetText(seg);
                 const isCuePlaying = playingSegmentId === seg.id;
                 const isCueActive = (sourceClockTime >= seg.startTime && sourceClockTime <= seg.endTime) || isCuePlaying;
-                const pace = getPace(tgtText, seg.duration);
+                const pace = cuePace(seg, tgtText);
                 // The cue's own number, so a filtered list still names cues as everywhere else.
                 const cueNumber = (cueIndexById.get(String(seg.id)) ?? (currentPage - 1) * itemsPerPage + index) + 1;
 
@@ -2845,7 +2893,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         </span>
                         <span className="ml-auto flex flex-wrap gap-1.5">
                           {fast > 0 && (
-                            <span className="px-1.5 py-0.5 rounded-md text-[10.5px] bg-rose-500/15 text-rose-300">{fast} too fast</span>
+                            <span className="px-1.5 py-0.5 rounded-md text-[10.5px] bg-rose-500/15 text-rose-300">{fast} {linePreview ? 'too long' : 'too fast'}</span>
                           )}
                           {tight > 0 && (
                             <span className="px-1.5 py-0.5 rounded-md text-[10.5px] bg-amber-500/15 text-amber-300">{tight} tight</span>
@@ -2853,7 +2901,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           {short > 0 && (
                             <span className="px-1.5 py-0.5 rounded-md text-[10.5px] bg-sky-500/15 text-sky-300">{short} ends early</span>
                           )}
-                          {fast + tight + short === 0 && <span className="text-[10.5px] text-slate-500">All natural</span>}
+                          {fast + tight + short === 0 && <span className="text-[10.5px] text-slate-500">{linePreview ? 'All fit' : 'All natural'}</span>}
                         </span>
                       </button>
                     </>
@@ -3222,7 +3270,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     )}
                   </div>
                 )}
-                {/* Pacing: one line and a way to the cues that need work */}
+                {/* Pacing, cue by cue: only until the Sync fit above is worked out, so the two never disagree */}
+                {!linePreview && (
                 <div className="px-4 sm:px-5 py-4 flex flex-col gap-1.5">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Pacing</span>
                   <p className="text-[13px] text-slate-200">
@@ -3257,6 +3306,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     </button>
                   )}
                 </div>
+                )}
 
                 {/* Translation */}
                 <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">

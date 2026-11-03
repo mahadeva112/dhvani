@@ -20,6 +20,8 @@ import { saveFileAs } from '../../services/saveFile';
 export interface LinePacing {
   level: 'natural' | 'tight' | 'fast';
   cps: number;
+  /** The sync line the cue is in, when the pace is that line's Sync fit: its cues are counted once. */
+  lineKey?: string;
   /** Seconds the line ends before the original speaker stops, when it ends early. */
   endsEarlyBy: number | null;
 }
@@ -95,6 +97,8 @@ interface ScriptTableViewProps {
   onUpdateLines: (lines: { id: string | number; text: string }[]) => void;
   /** How a line fits its cue, worked out from the text being typed. */
   getPacing: (seg: AudioSegment, text: string) => LinePacing;
+  /** What the lines marked fast are called: "too fast" by characters, "too long" by the Sync fit. */
+  fastLabel?: string;
   passagePause: number;
   onPassagePauseChange: (pause: number) => void;
   activeSegmentId: string | number | null;
@@ -122,6 +126,7 @@ export function ScriptTableView({
   getTargetText,
   onUpdateLines,
   getPacing,
+  fastLabel = 'too fast',
   passagePause,
   onPassagePauseChange,
   activeSegmentId,
@@ -357,8 +362,9 @@ export function ScriptTableView({
             const lines = value.split('\n');
             const mismatch = lines.length !== cues.length;
             const paces = cues.map((seg, i) => getPacing(seg, lines[i] ?? ''));
-            const fast = paces.filter((p) => p.level === 'fast').length;
-            const tight = paces.filter((p) => p.level === 'tight').length;
+            const count = (level: LinePacing['level']) => new Set(paces.map((p, i) => (p.level === level ? p.lineKey ?? `cue-${i}` : null)).filter(Boolean)).size;
+            const fast = count('fast');
+            const tight = count('tight');
             const start = cues[0].startTime;
             const end = cues[cues.length - 1].endTime;
             const playingIndex = key === activeKey ? cues.findIndex((seg) => seg.id === activeSegmentId) : -1;
@@ -395,7 +401,7 @@ export function ScriptTableView({
                   <div className="mt-1">
                     {cues.length} {cues.length === 1 ? 'line' : 'lines'}
                   </div>
-                  {fast > 0 && <div className="mt-1 text-rose-300">{fast} too fast</div>}
+                  {fast > 0 && <div className="mt-1 text-rose-300">{fast} {fastLabel}</div>}
                   {tight > 0 && <div className="mt-0.5 text-amber-300/90">{tight} tight</div>}
                 </td>
 
