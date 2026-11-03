@@ -1466,6 +1466,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     for (const unit of linePreview?.units || []) for (const id of unit.cueIds) map.set(String(id), unit);
     return map;
   }, [linePreview]);
+  /** Each line's stretch of the original, in its colour, for the Review player to draw the speech in. */
+  const reviewLineSpans = useMemo(
+    () => (linePreview && !hearingDub && !awaitingScript ? linePreview.units.map((u) => ({ from: u.srcStart, to: u.srcEnd, color: hueOf(u.index) })) : undefined),
+    [linePreview, hearingDub, awaitingScript]
+  );
   /**
    * How a cue sits, everywhere Review marks it (its row, the filters, the
    * passages, the Script view, the player): the Sync fit of the line it is in,
@@ -2364,6 +2369,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             // The lines' pauses in a row of their own, so they never cover a line.
             cuePace={linePreview && !hearingDub ? (seg) => cuePace(seg) : undefined}
             fastLabel={linePreview && !hearingDub ? 'Too long' : 'Too fast'}
+            lineSpans={reviewLineSpans}
             pausesRow={
               linePreview && !hearingDub && !awaitingScript
                 ? ({ start, span }) => <PauseTicksLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} />

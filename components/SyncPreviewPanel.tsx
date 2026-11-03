@@ -1067,8 +1067,8 @@ export const DubEstimateLane: React.FC<{
               style={{
                 left: `${pct(u.srcStart)}%`,
                 width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart))}%`,
-                background: withAlpha(hue, words ? 0.06 : 0.14),
-                borderColor: withAlpha(hue, 0.75),
+                background: withAlpha(hue, words ? 0.1 : 0.28),
+                borderColor: hue,
                 boxShadow: selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
               }}
             >

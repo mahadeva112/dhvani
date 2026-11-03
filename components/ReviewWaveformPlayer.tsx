@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
-import { computeWave, drawWave } from '../services/waveform';
+import { computeWave, drawWave, WaveStyle } from '../services/waveform';
 
 export interface ReviewWaveformPlayerProps {
   audioBuffer: AudioBuffer | null;
@@ -67,6 +67,12 @@ export interface ReviewWaveformPlayerProps {
   cuePace?: (segment: AudioSegment) => { level: 'natural' | 'tight' | 'fast'; label: string };
   /** The marked cues' name in the legend: "Too fast" by characters, "Too long" by the Sync fit. */
   fastLabel?: string;
+  /**
+   * The original's stretch for each sync line, in that line's colour: the
+   * waveform is drawn in it there, so a line's speech above and its dub chunk
+   * below share one colour. Keep the array stable; a new one redraws.
+   */
+  lineSpans?: { from: number; to: number; color: string }[];
 }
 
 /** Cues closer than this share a cut that can be dragged. */
@@ -180,6 +186,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   pausesRow,
   cuePace,
   fastLabel = 'Too fast',
+  lineSpans,
 }) => {
   /*
    * Two clocks for two jobs. Playheads and the played colour move every frame
@@ -450,8 +457,17 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     height: number,
     from: number,
     to: number,
-    color: string
+    color: string | ((t: number) => WaveStyle)
   ) => drawWave(ctx, peaks, { x: 0, y: top, w, h: height, from, to, style: color });
+  /** Bars in their line's colour inside a line (dimmed until played), `base` between lines. */
+  const lineBars = (base: string, played: boolean): string | ((t: number) => WaveStyle) => {
+    if (!lineSpans?.length) return base;
+    const fixed = { color: base };
+    return (t: number) => {
+      const line = lineSpans.find((l) => t >= l.from && t <= l.to);
+      return line ? { color: line.color, alpha: played ? 1 : 0.5 } : fixed;
+    };
+  };
 
   useEffect(() => {
     if (compact) return;
@@ -487,7 +503,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
         ctx.fillText(String(i + 1).padStart(2, '0'), a + 5, 14);
       }
     });
-    drawBars(ctx, w, 24, h - 30, vs, ve, palette.wave);
+    drawBars(ctx, w, 24, h - 30, vs, ve, lineBars(palette.wave, false));
     const cue = segments[activeIndex];
     if (cue) {
       ctx.strokeStyle = palette.currentEdge;
@@ -503,16 +519,16 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       ctx.fillRect(cx - 4, h / 2 - 10, 8.5, 20);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet]);
+  }, [compact, peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet, lineSpans]);
 
   useEffect(() => {
     if (compact) return;
     const c = prepareCanvas(wavePlayedRef.current);
     if (!c) return;
     const vs = zoom === 1 ? 0 : viewStart;
-    drawBars(c.ctx, c.w, 24, c.h - 30, vs, vs + span, palette.played);
+    drawBars(c.ctx, c.w, 24, c.h - 30, vs, vs + span, lineBars(palette.played, true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, peaks, zoom, viewStart, span, palette, redrawTick]);
+  }, [compact, peaks, zoom, viewStart, span, palette, redrawTick, lineSpans]);
 
   // The compact strip: the part of the track on view, with the cues to fix marked along its top. Pauses are the full view's.
   useEffect(() => {
@@ -527,12 +543,12 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
         if (!fastSet.has(String(seg.id)) || seg.endTime < vs || seg.startTime > ve) return;
         ctx.fillRect(((seg.startTime - vs) / span) * w, 0, Math.max(1.5, ((seg.endTime - seg.startTime) / span) * w), 3);
       });
-      drawBars(ctx, w, 4, h - 6, vs, ve, palette.wave);
+      drawBars(ctx, w, 4, h - 6, vs, ve, lineBars(palette.wave, false));
     }
     const p = prepareCanvas(compactPlayedRef.current);
-    if (p) drawBars(p.ctx, p.w, 4, p.h - 6, vs, ve, palette.played);
+    if (p) drawBars(p.ctx, p.w, 4, p.h - 6, vs, ve, lineBars(palette.played, true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compact, peaks, segments, total, zoom, viewStart, span, palette, redrawTick, fastSet]);
+  }, [compact, peaks, segments, total, zoom, viewStart, span, palette, redrawTick, fastSet, lineSpans]);
 
   // Whole-file overview (full view), and the mini strip.
   useEffect(() => {
