@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.23',
+    changes: [
+      'Phonetic typing now works in every box for the dub\'s words: Shorten this line, Your wording, Paste script and Text to speech. Ctrl+G turns it on or off everywhere at once.',
+      'A full stop types the language\'s own mark (। in Hindi, Bangla and more); ... stays three dots, 2.5 keeps its point, and || gives ॥. Telugu, Gujarati and Kannada keep the plain full stop.',
+    ],
+  },
+  {
     version: '1.4.22',
     changes: [
       'The Retake window always opens in its full view, with tags, styles, stability and more takes beside the words. T opens it; there is no small view to switch from any more.',
