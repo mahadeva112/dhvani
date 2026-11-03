@@ -758,12 +758,31 @@ const createWindow = () => {
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
   // Anything that is not our local app opens in the user's real browser.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  mainWindow.webContents.setWindowOpenHandler(({ url, frameName }) => {
+    // The review video in a window of its own: a blank page the app fills
+    // itself. It stays over DHVANI (not over other apps) and closes with it.
+    if (url === 'about:blank' && frameName.startsWith('dhvani-review-video')) {
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          parent: mainWindow,
+          backgroundColor: '#020617',
+          autoHideMenuBar: true,
+          minWidth: 200,
+          minHeight: 140,
+          icon: path.join(__dirname, 'icons', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+        },
+      };
+    }
     if (!url.startsWith(APP_URL)) {
       shell.openExternal(url);
       return { action: 'deny' };
     }
     return { action: 'allow' };
+  });
+
+  mainWindow.webContents.on('did-create-window', (child, { frameName }) => {
+    if (frameName.startsWith('dhvani-review-video')) child.setMenu(null);
   });
 
   mainWindow.webContents.on('will-navigate', (event, url) => {

@@ -13,7 +13,9 @@ export const useLiveFrame = (
   reportedTime: number,
   isPlaying: boolean,
   getLiveTime: (() => number | null) | undefined,
-  onFrame: (time: number) => void
+  onFrame: (time: number) => void,
+  /** The window whose frames to follow: a picture in a window of its own keeps playing while the app's is covered. */
+  view: Window = window
 ) => {
   const callback = useRef(onFrame);
   const reported = useRef(reportedTime);
@@ -31,11 +33,11 @@ export const useLiveFrame = (
     const tick = () => {
       const t = getLiveTime();
       callback.current(t !== null && Number.isFinite(t) ? t : reported.current);
-      frame = requestAnimationFrame(tick);
+      frame = view.requestAnimationFrame(tick);
     };
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [isPlaying, getLiveTime]);
+    frame = view.requestAnimationFrame(tick);
+    return () => view.cancelAnimationFrame(frame);
+  }, [isPlaying, getLiveTime, view]);
 };
 
 /**
@@ -51,13 +53,14 @@ export const useLiveTime = (
   reportedTime: number,
   isPlaying: boolean,
   getLiveTime?: () => number | null,
-  step = 0
+  step = 0,
+  view?: Window
 ): number => {
   const [time, setTime] = useState(reportedTime);
   useLiveFrame(reportedTime, isPlaying, getLiveTime, (t) => {
     // The epsilon keeps 0.3 / 0.1 = 2.9999… from showing 0.2.
     const shown = step > 0 ? Math.floor(t / step + 1e-6) * step : t;
     setTime((prev) => (prev === shown ? prev : shown));
-  });
+  }, view);
   return time;
 };

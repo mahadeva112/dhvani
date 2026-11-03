@@ -65,8 +65,10 @@ export const ReviewPicture: React.FC<
     style?: React.CSSProperties;
     /** The picture's width over its height, once known. */
     onAspect?: (aspect: number) => void;
+    /** The window it is shown in, when that is not the app's own. */
+    view?: Window;
   }
-> = ({ video, currentTime, isPlaying, getLiveTime, playbackRate, fit = 'contain', className = '', style, onAspect }) => {
+> = ({ video, currentTime, isPlaying, getLiveTime, playbackRate, fit = 'contain', className = '', style, onAspect, view }) => {
   const ref = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
   const lastSeek = useRef(0);
@@ -92,7 +94,7 @@ export const ReviewPicture: React.FC<
   };
 
   // The player's own clock drives it: every frame while playing, on each change while paused.
-  useLiveFrame(currentTime, isPlaying, getLiveTime, (t) => follow(t, isPlaying ? MAX_DRIFT : 1 / 60));
+  useLiveFrame(currentTime, isPlaying, getLiveTime, (t) => follow(t, isPlaying ? MAX_DRIFT : 1 / 60), view);
 
   useEffect(() => {
     // Pausing is immediate; playing starts from the frame loop, which knows the clock.
