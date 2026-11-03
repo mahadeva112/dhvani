@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.26',
+    changes: [
+      'The Review player is compact by default: one control bar on top and a full-width timeline you can zoom with Ctrl + wheel, move with the wheel or the scroll bar under it, and double-click a line to zoom to it.',
+      'Each line\'s speech and its dub estimate chunk share one colour, so you can see which chunk is which.',
+      'Before a sync the Dub step shows Dub settings and Ready to dub; while it runs, a progress page shows each step, the time left and the lines filling, then Dubbed until you open the dub.',
+    ],
+  },
+  {
     version: '1.4.25',
     changes: [
       'Sync fit now lives in Review: a track view shows the original, the pauses and the dub estimate, and each line says if it fits, is tight or runs long, with shorter wordings ready to pick.',
