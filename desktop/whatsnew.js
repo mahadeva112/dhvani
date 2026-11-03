@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.25',
+    changes: [
+      'Sync fit now lives in Review: a track view shows the original, the pauses and the dub estimate, and each line says if it fits, is tight or runs long, with shorter wordings ready to pick.',
+      'The dub, speaker tracks, subtitles and scripts download under your uploaded file\'s name, the same name as the project.',
+      'The mouse wheel moves a zoomed-in timeline through time; Ctrl + wheel still zooms.',
+    ],
+  },
+  {
     version: '1.4.24',
     changes: [
       'A new DHVANI logo: a film clapperboard with a voice wave on the board, in the app\'s midnight blue. It shows in the taskbar, Start menu, title bar and browser tab.',
