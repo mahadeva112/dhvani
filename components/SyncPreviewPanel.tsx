@@ -508,39 +508,6 @@ export const ExpertLineDetail: React.FC<{ unit: SyncPreviewUnit }> = ({ unit }) 
   );
 };
 
-/** The preview's five counts, as the Dub step shows them before the first sync. */
-export const PreviewCards: React.FC<{ preview: SyncPreview }> = ({ preview: { summary } }) => (
-  <div className={`grid grid-cols-2 sm:grid-cols-3 ${summary.lips ? 'xl:grid-cols-6' : 'xl:grid-cols-5'} gap-3`}>
-    {[
-      { label: 'Likely to fit', value: `${summary.fits} / ${summary.lines}` },
-      { label: 'Tight, likely fit', value: String(summary.tight) },
-      { label: 'Likely too long', value: String(summary.long), tone: summary.long > 0 ? 'text-amber-300' : 'text-emerald-300' },
-      { label: 'Ends early, est.', value: String(summary.short), tone: summary.short > 0 ? 'text-sky-300' : 'text-slate-100' },
-      {
-        label: 'Longest overrun, est.',
-        value: summary.long > 0 ? `+${summary.maxOverflow.toFixed(1)} s` : 'none',
-        tone: summary.long > 0 ? 'text-amber-300' : 'text-slate-100',
-      },
-      ...(summary.lips
-        ? [
-            summary.lips.total > 0
-              ? {
-                  label: 'Lip closures matched',
-                  value: `${summary.lips.matched} / ${summary.lips.total}`,
-                  tone: summary.lips.matched < summary.lips.total ? 'text-amber-300' : 'text-emerald-300',
-                }
-              : { label: 'Lip closures', value: 'no timings', tone: 'text-slate-500' },
-          ]
-        : []),
-    ].map((m) => (
-      <div key={m.label} className="rounded-xl bg-slate-950/60 border border-slate-800 px-3.5 py-2.5">
-        <span className="block text-[11.5px] text-slate-400">{m.label}</span>
-        <span className={`block text-xl font-semibold tabular-nums ${m.tone || 'text-slate-100'}`}>{m.value}</span>
-      </div>
-    ))}
-  </div>
-);
-
 /**
  * The estimate for a wording: against the line's slot, and against the
  * original speech, which a fuller wording has to fill without running past.

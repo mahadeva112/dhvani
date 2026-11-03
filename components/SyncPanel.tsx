@@ -6,6 +6,7 @@ import {
   Bookmark,
   Check,
   ChevronRight,
+  ChevronUp,
   Combine,
   Copy,
   Download,
@@ -488,6 +489,13 @@ export interface SyncSettingsPanelProps {
   openRequest?: number;
   /** Lines the sync voices, from the last sync or the preview: what Verify actual word timing sends, one request each. */
   lineCount?: number;
+  /**
+   * 'ready' before the first sync: the card is "Ready to dub", as tall as the
+   * settings beside it, with `summary` in place of the settings chips (the
+   * settings themselves sit on the Dub settings card) and the tools under the button.
+   */
+  variant?: 'rail' | 'ready';
+  summary?: React.ReactNode;
 }
 
 /** The sections of the Sync settings window, in the order its list shows them. */
@@ -1078,6 +1086,48 @@ export const SyncSettingsDialog: React.FC<{
 };
 
 /** The Dub step's rail: what the sync will use, in brief, with every setting a click away; the Dub & sync button; and the files. */
+/**
+ * Ready to dub's script and tools under one button, so the card stays one
+ * window high: they open over the card, above the button. A click in a menu
+ * one of them opens (Save script's, in a portal) leaves them open.
+ */
+const ReadyTools: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const away = (e: PointerEvent) => {
+      const target = e.target as Element | null;
+      if (box.current?.contains(target) || target?.closest?.('[role="menu"], [role="dialog"]')) return;
+      setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('pointerdown', away);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [open]);
+  return (
+    <div ref={box} className="relative">
+      {open && (
+        <div className="absolute bottom-full inset-x-0 mb-2 z-30 flex flex-col gap-1.5 p-2.5 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl shadow-black/60">
+          {children}
+        </div>
+      )}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((now) => !now)}
+        className="w-full h-8 flex items-center justify-center gap-1.5 rounded-lg text-[12.5px] font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default"
+      >
+        Script and tools <ChevronUp className={`w-3.5 h-3.5 transition-transform ${open ? '' : 'rotate-180'}`} />
+      </button>
+    </div>
+  );
+};
+
 export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   options,
   onOptionsChange,
@@ -1106,7 +1156,10 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   lineCount,
   openRequest = 0,
   presetSuggestion,
+  variant = 'rail',
+  summary,
 }) => {
+  const ready = variant === 'ready';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingMp3, setSavingMp3] = useState(false);
   // Only a request made while the rail is on screen opens it, not one left from before the Dub step.
@@ -1131,14 +1184,20 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   ];
 
   return (
-  <aside aria-label="Sync settings" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden lg:sticky lg:top-4">
+  <aside
+    aria-label={ready ? 'Ready to dub' : 'Sync settings'}
+    className={`flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden ${ready ? 'min-h-0 lg:sticky lg:top-4 xl:static xl:h-full' : 'lg:sticky lg:top-4'}`}
+  >
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
-      <h2 className="text-[15px] font-semibold text-slate-100">Sync settings</h2>
+      <h2 className="text-[15px] font-semibold text-slate-100">{ready ? 'Ready to dub' : 'Sync settings'}</h2>
       <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-default">
         <ArrowLeft className="w-3 h-3" /> Review
       </button>
     </div>
 
+    {ready ? (
+      summary && <div className="px-4 sm:px-5 py-3 min-h-0 overflow-y-auto">{summary}</div>
+    ) : (
     <div className="px-4 sm:px-5 py-4">
       <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3.5">
         <div className="flex flex-wrap gap-1.5">
@@ -1167,6 +1226,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         {previewShown && <span className="text-[11.5px] text-slate-500 text-center">The preview follows any change you make.</span>}
       </div>
     </div>
+    )}
 
     {settingsOpen && (
       <SyncSettingsWindow
@@ -1237,7 +1297,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       </div>
     )}
 
-    {extras && (
+    {extras && !ready && (
       <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
         <span className={sectionLabel}>Script and tools</span>
         {extras}
@@ -1296,6 +1356,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
                     .join(' ')}
         </p>
       )}
+      {ready && extras && <ReadyTools>{extras}</ReadyTools>}
     </div>
   </aside>
   );
