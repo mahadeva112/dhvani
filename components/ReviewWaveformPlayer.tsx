@@ -12,6 +12,7 @@ import {
   Crosshair,
   ChevronDown,
   ChevronUp,
+  LocateFixed,
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
@@ -75,7 +76,10 @@ const CUT_GRAB_PX = 6;
 
 const RATES = [0.75, 1, 1.25, 1.5];
 const ZOOMS = [1, 2, 4, 8, 16, 32];
-const COMPACT_KEY = 'dhvani_player_compact';
+/** The compact timeline opens showing about this much, so the wheel and its scroll bar move it from the start. */
+const COMPACT_OPEN_SECONDS = 30;
+/** The view picked, compact unless full was chosen. A new key: the old one was saved on every visit, so it can't tell a choice from the old default. */
+const COMPACT_KEY = 'dhvani_player_compact_v2';
 /** Height of the mini player bar along the bottom of the window. */
 const MINI_BAR_PX = 40;
 
@@ -203,9 +207,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const [loop, setLoop] = useState(false);
   const [compact, setCompact] = useState(() => {
     try {
-      return localStorage.getItem(COMPACT_KEY) === 'true';
+      return localStorage.getItem(COMPACT_KEY) !== 'false';
     } catch {
-      return false;
+      return true;
     }
   });
   const [hoverTime, setHoverTime] = useState<number | null>(null);
@@ -250,6 +254,17 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   }, [compact]);
 
   const span = total > 0 ? total / zoom : 1;
+  // Opened compact, a track longer than COMPACT_OPEN_SECONDS starts zoomed in on where playback is.
+  const openedZoomRef = useRef(false);
+  useEffect(() => {
+    if (openedZoomRef.current || !compact || total <= 0) return;
+    openedZoomRef.current = true;
+    const z = ZOOMS.find((x) => total / x <= COMPACT_OPEN_SECONDS) ?? ZOOMS[ZOOMS.length - 1];
+    if (z === 1) return;
+    const ns = total / z;
+    setZoom(z);
+    setViewStart(Math.max(0, Math.min(total - ns, liveRef.current - ns * 0.25)));
+  }, [compact, total]);
   const clampStart = useCallback((start: number, s = span) => Math.max(0, Math.min(Math.max(0, total - s), start)), [total, span]);
   /** Where playback is this instant, not as of the last re-render. */
   const timeNow = () => liveRef.current;
@@ -345,7 +360,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     placePlayhead(waveHeadRef.current, wavePlayedRef.current, (t - vs) / span);
     const whole = total > 0 ? t / total : 0;
     placePlayhead(overviewHeadRef.current, overviewPlayedRef.current, whole);
-    placePlayhead(compactHeadRef.current, compactPlayedRef.current, whole);
+    placePlayhead(compactHeadRef.current, compactPlayedRef.current, (t - vs) / span);
     placePlayhead(miniHeadRef.current, miniPlayedRef.current, whole);
 
     const looped = segments[activeIndexRef.current];
@@ -381,9 +396,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     else if (e.key === ',') prevCue();
     else if (e.key === '.') nextCue();
     else if (e.key === 'l' || e.key === 'L') setLoop((v) => !v);
-    else if (!compact && (e.key === '+' || e.key === '=')) changeZoom(1);
-    else if (!compact && e.key === '-') changeZoom(-1);
-    else if (!compact && (e.key === 'f' || e.key === 'F')) setZoom(1);
+    else if (e.key === '+' || e.key === '=') changeZoom(1);
+    else if (e.key === '-') changeZoom(-1);
+    else if (e.key === 'f' || e.key === 'F') setZoom(1);
     else return;
     e.preventDefault();
   };
@@ -499,7 +514,27 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compact, peaks, zoom, viewStart, span, palette, redrawTick]);
 
-  // Whole-file overview (full view), and the compact and mini strips.
+  // The compact strip: the part of the track on view, with the cues to fix marked along its top. Pauses are the full view's.
+  useEffect(() => {
+    if (!compact || total <= 0) return;
+    const vs = zoom === 1 ? 0 : viewStart;
+    const ve = vs + span;
+    const c = prepareCanvas(compactRef.current);
+    if (c) {
+      const { ctx, w, h } = c;
+      ctx.fillStyle = palette.fastEdge;
+      segments.forEach((seg) => {
+        if (!fastSet.has(String(seg.id)) || seg.endTime < vs || seg.startTime > ve) return;
+        ctx.fillRect(((seg.startTime - vs) / span) * w, 0, Math.max(1.5, ((seg.endTime - seg.startTime) / span) * w), 3);
+      });
+      drawBars(ctx, w, 4, h - 6, vs, ve, palette.wave);
+    }
+    const p = prepareCanvas(compactPlayedRef.current);
+    if (p) drawBars(p.ctx, p.w, 4, p.h - 6, vs, ve, palette.played);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compact, peaks, segments, total, zoom, viewStart, span, palette, redrawTick, fastSet]);
+
+  // Whole-file overview (full view), and the mini strip.
   useEffect(() => {
     const draw = (canvas: HTMLCanvasElement | null, played: HTMLCanvasElement | null, marks: boolean) => {
       const c = prepareCanvas(canvas);
@@ -516,7 +551,6 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       if (p) drawBars(p.ctx, p.w, marks ? 4 : 2, p.h - (marks ? 6 : 4), 0, total, palette.played);
     };
     if (!compact) draw(overviewRef.current, overviewPlayedRef.current, true);
-    if (compact) draw(compactRef.current, compactPlayedRef.current, true);
     if (showMini) draw(miniRef.current, miniPlayedRef.current, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compact, showMini, peaks, segments, total, palette, redrawTick, fastSet]);
@@ -596,6 +630,46 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     setViewStart(clampStart(t - span / 2));
   };
 
+  /** Double-click a line on the dub lane: zoom until it fills most of the view. */
+  const zoomToBox = (e: React.MouseEvent<HTMLDivElement>) => {
+    const lane = e.currentTarget;
+    let box = e.target as HTMLElement | null;
+    while (box && box.parentElement !== lane) box = box.parentElement;
+    if (!box || total <= 0) return;
+    const r = lane.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    const vs = zoom === 1 ? 0 : viewStart;
+    const from = vs + ((b.left - r.left) / r.width) * span;
+    const to = vs + ((b.right - r.left) / r.width) * span;
+    const want = Math.max(0.5, (to - from) * 1.5);
+    const nz = [...ZOOMS].reverse().find((z) => total / z >= want) ?? 1;
+    const ns = total / nz;
+    setFollow(false);
+    setZoom(nz);
+    setViewStart(Math.max(0, Math.min(Math.max(0, total - ns), (from + to) / 2 - ns / 2)));
+  };
+
+  /** The compact timeline's scroll bar: drag the thumb, or press the track to bring that part into view. */
+  const thumbGrabRef = useRef<number | null>(null);
+  const onScrollbarPointer = (e: React.PointerEvent<HTMLDivElement>, kind: 'down' | 'move' | 'up') => {
+    if (total <= 0) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const t = ((e.clientX - r.left) / r.width) * total;
+    if (kind === 'down') {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const vs = zoom === 1 ? 0 : viewStart;
+      // Grabbed on the thumb, it keeps the point grabbed under the pointer; on the track, it centres there.
+      thumbGrabRef.current = t >= vs && t <= vs + span ? t - vs : span / 2;
+    }
+    if (kind === 'up') {
+      thumbGrabRef.current = null;
+      return;
+    }
+    if (thumbGrabRef.current === null || zoom === 1) return;
+    setFollow(false);
+    setViewStart(clampStart(t - thumbGrabRef.current));
+  };
+
   const onWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
@@ -616,15 +690,16 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const waveBoxRef = useRef<HTMLDivElement>(null);
   const laneRef = useRef<HTMLDivElement>(null);
   const pausesRef = useRef<HTMLDivElement>(null);
+  const scrollbarRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = waveBoxRef.current;
     if (!el) return;
     const stop = (e: WheelEvent) => {
-      // The compact strip always shows the whole track: a plain wheel there is the page's.
-      if (e.ctrlKey || e.metaKey || (zoom > 1 && !compact)) e.preventDefault();
+      // Showing the whole track, a plain wheel is the page's.
+      if (e.ctrlKey || e.metaKey || zoom > 1) e.preventDefault();
     };
     el.addEventListener('wheel', stop, { passive: false });
-    const rows = [laneRef.current, pausesRef.current].filter((row): row is HTMLDivElement => Boolean(row));
+    const rows = [laneRef.current, pausesRef.current, scrollbarRef.current].filter((row): row is HTMLDivElement => Boolean(row));
     rows.forEach((row) => row.addEventListener('wheel', stop, { passive: false }));
     return () => {
       el.removeEventListener('wheel', stop);
@@ -638,6 +713,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const ticks: number[] = [];
   for (let t = Math.ceil(vs / rulerStep) * rulerStep; t <= vs + span; t += rulerStep) ticks.push(t);
 
+  const onView = zoom === 1 ? 'whole' : `${span < 10 ? span.toFixed(1) : Math.round(span)} s`;
+  const playheadOffView = zoom > 1 && (currentTime < vs || currentTime > vs + span);
   const activePace = activeCue ? paceOf(activeCue) : null;
   const paceClass =
     activePace?.level === 'fast' ? 'bg-rose-500/15 text-rose-300' : activePace?.level === 'tight' ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300';
@@ -652,6 +729,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     `flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
       on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
     } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400 cursor-default`;
+  const smallRoundBtn = 'w-[30px] h-[30px] rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-default';
   const roundBtn = 'w-[34px] h-[34px] rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-default';
 
   const miniBtn =
@@ -685,7 +763,71 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   return (
     <>
       <section ref={sectionRef} aria-label="Playback" className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden">
-        {/* Top bar: the current cue, then how you listen */}
+        {compact ? (
+          /* Compact: everything in one bar, so the timeline below has the full width */
+          <div ref={transportRef} className="flex flex-wrap items-center gap-x-2 gap-y-2 px-3.5 py-2 border-b border-slate-800">
+            <button type="button" onClick={prevCue} className={smallRoundBtn} aria-label="Previous cue" title="Previous cue (,)">
+              <SkipBack className="w-3 h-3 fill-current" />
+            </button>
+            {playButton('w-[34px] h-[34px]')}
+            <button type="button" onClick={nextCue} className={smallRoundBtn} aria-label="Next cue" title="Next cue (.)">
+              <SkipForward className="w-3 h-3 fill-current" />
+            </button>
+            <span className="font-mono text-[13px] text-slate-100 tabular-nums whitespace-nowrap">
+              {formatTime(currentTime)} <span className="text-slate-500">/ {formatTime(total, false)}</span>
+            </span>
+            <span className="w-px h-4 bg-slate-800" aria-hidden="true" />
+            <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 whitespace-nowrap">
+              {activeCue ? `Cue ${String(activeIndex + 1).padStart(2, '0')} of ${segments.length}` : `${segments.length} cues`}
+            </span>
+            {activeCue && (
+              <span className="hidden sm:inline font-mono text-xs text-slate-400 whitespace-nowrap tabular-nums">
+                {formatTime(activeCue.startTime)} – {formatTime(activeCue.endTime)}
+              </span>
+            )}
+            <div className="ml-auto flex items-center gap-1">
+              <button type="button" onClick={() => changeZoom(-1)} disabled={zoom === 1} className={`${iconBtn()} disabled:opacity-40`} aria-label="Zoom out" title="Zoom out (−)">
+                <ZoomOut className="w-3.5 h-3.5" />
+              </button>
+              <span className="w-12 text-center font-mono text-[11px] text-slate-400 tabular-nums" title="How much of the track is on view (Ctrl + scroll over the timeline to zoom)">
+                {onView}
+              </span>
+              <button type="button" onClick={() => changeZoom(1)} disabled={zoom === ZOOMS[ZOOMS.length - 1]} className={`${iconBtn()} disabled:opacity-40`} aria-label="Zoom in" title="Zoom in (+)">
+                <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+              <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1} className={`${segBtn(false)} disabled:opacity-40`} title="Show the whole track (F)">
+                Fit
+              </button>
+              <span className="w-px h-4 mx-1 bg-slate-800" aria-hidden="true" />
+              <button
+                type="button"
+                onClick={() => setLoop((v) => !v)}
+                aria-pressed={loop}
+                title="Loop the current cue (L)"
+                className={`h-[30px] px-2.5 flex items-center gap-1.5 rounded-lg border text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
+                  loop ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                }`}
+              >
+                <Repeat className="w-3.5 h-3.5" /> Loop
+              </button>
+              {onPlaybackRateChange && (
+                <button
+                  type="button"
+                  onClick={() => onPlaybackRateChange(RATES[(RATES.indexOf(playbackRate) + 1) % RATES.length])}
+                  className="h-[30px] min-w-[3rem] px-2 rounded-lg border border-slate-800 font-mono text-xs text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default"
+                  aria-label={`Speed ${playbackRate}×`}
+                  title="Speed: click for the next one"
+                >
+                  {playbackRate}×
+                </button>
+              )}
+              <button type="button" onClick={() => setCompact(false)} className={iconBtn()} aria-label="Full view" title="Full view: taller, with the pauses">
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ) : (
+        /* Top bar: the current cue, then how you listen */
         <div className="flex flex-wrap items-center gap-2.5 px-3.5 py-2.5 border-b border-slate-800">
           <div className="flex items-center gap-2.5 min-w-0 flex-1 basis-full sm:basis-auto">
             <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 whitespace-nowrap">
@@ -711,7 +853,6 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             </div>
           )}
 
-          {!compact && (
             <div className="flex items-center gap-1">
               <button type="button" onClick={() => changeZoom(-1)} disabled={zoom === 1} className={`${iconBtn()} disabled:opacity-40`} aria-label="Zoom out" title="Zoom out (−)">
                 <ZoomOut className="w-3.5 h-3.5" />
@@ -736,7 +877,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 <ZoomIn className="w-3.5 h-3.5" />
               </button>
               <span className="w-[4.5rem] text-center font-mono text-[11.5px] text-slate-400 tabular-nums" title="How much of the track is on view">
-                {zoom === 1 ? 'whole' : `${span < 10 ? span.toFixed(1) : Math.round(span)} s`}
+                {onView}
               </span>
               <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1} className={`${segBtn(false)} disabled:opacity-40`} title="Show the whole track (F)">
                 Fit
@@ -755,53 +896,89 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 <Crosshair className="w-3.5 h-3.5" />
               </button>
             </div>
-          )}
 
-          <button
-            type="button"
-            onClick={() => setCompact((v) => !v)}
-            className={iconBtn()}
-            aria-label={compact ? 'Full view' : 'Compact view'}
-            title={compact ? 'Full view' : 'Compact view'}
-          >
-            {compact ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+          <button type="button" onClick={() => setCompact(true)} className={iconBtn()} aria-label="Compact view" title="Compact view">
+            <ChevronUp className="w-3.5 h-3.5" />
           </button>
         </div>
+        )}
 
         {compact ? (
-          <div ref={transportRef} className="flex flex-wrap items-center gap-3 px-3.5 py-2.5">
-            <button type="button" onClick={prevCue} className={roundBtn} aria-label="Previous cue">
-              <SkipBack className="w-3.5 h-3.5 fill-current" />
-            </button>
-            {playButton('w-[38px] h-[38px]')}
-            <button type="button" onClick={nextCue} className={roundBtn} aria-label="Next cue">
-              <SkipForward className="w-3.5 h-3.5 fill-current" />
-            </button>
-            <span className="font-mono text-[13px] text-slate-100 tabular-nums whitespace-nowrap">
-              {formatTime(currentTime)} <span className="text-slate-500">/ {formatTime(total, false)}</span>
-            </span>
-            <div className="flex-1 min-w-[12rem] flex flex-col gap-1">
-              <div
-                ref={waveBoxRef}
-                className="relative h-10 rounded-lg bg-slate-950/60 overflow-hidden cursor-default"
-                onPointerDown={(e) => {
-                  dragRef.current = 'overview';
-                  e.currentTarget.setPointerCapture(e.pointerId);
-                  seekTo(timeAt(e, e.currentTarget, true));
-                }}
-                onPointerMove={(e) => dragRef.current === 'overview' && seekTo(timeAt(e, e.currentTarget, true), false)}
-                onPointerUp={() => (dragRef.current = null)}
-              >
-                <canvas ref={compactRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
-                <canvas ref={compactPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
-                <div ref={compactHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
-              </div>
-              {/* The compact strip is the whole track, and so is its lane. */}
-              {belowWave && (
-                <div className="relative h-9 rounded-lg bg-slate-950/60 overflow-hidden cursor-default">{belowWave({ start: 0, span: total || 1, time: currentTime })}</div>
+          /* The timeline, full width: time, the part of the track on view, and its dub lane */
+          <div className="px-3.5 pt-1 pb-2.5">
+            <div className="relative h-4 font-mono text-[10px] text-slate-500" aria-hidden="true">
+              {ticks.map((t) => (
+                <span key={t} className="absolute top-0 -translate-x-1/2 tabular-nums" style={{ left: `${((t - vs) / span) * 100}%` }}>
+                  {formatTime(t, false)}
+                </span>
+              ))}
+            </div>
+            <div
+              ref={waveBoxRef}
+              id="review-compact-timeline"
+              className={`relative h-10 rounded-lg bg-slate-950/60 overflow-hidden cursor-crosshair touch-none`}
+              title={`Click to jump · Ctrl + scroll to zoom${zoom > 1 ? ' · scroll to move' : ''}`}
+              onPointerDown={(e) => {
+                dragRef.current = 'wave';
+                e.currentTarget.setPointerCapture(e.pointerId);
+                seekTo(timeAt(e, e.currentTarget, false));
+              }}
+              onPointerMove={(e) => dragRef.current === 'wave' && seekTo(timeAt(e, e.currentTarget, false), false)}
+              onPointerUp={() => (dragRef.current = null)}
+              onWheel={onWheel}
+            >
+              <canvas ref={compactRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+              <canvas ref={compactPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+              <div ref={compactHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
+              {!follow && playheadOffView && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => {
+                    setFollow(true);
+                    setViewStart(clampStart(timeNow() - span * 0.25));
+                  }}
+                  className="absolute right-1.5 top-1.5 h-6 px-2 flex items-center gap-1 rounded-md border border-indigo-500/50 bg-indigo-950/90 text-[11px] text-indigo-200 cursor-default"
+                  title="Back to the playhead, and keep it in view"
+                >
+                  <LocateFixed className="w-3 h-3" /> Playhead
+                </button>
               )}
             </div>
-            {loopButton}
+            {belowWave && (
+              <div
+                ref={laneRef}
+                className={`relative mt-1 h-9 rounded-lg bg-slate-950/60 overflow-hidden cursor-default`}
+                onWheel={onWheel}
+                onDoubleClick={zoomToBox}
+                title="Double-click a line to zoom to it"
+              >
+                {belowWave({ start: vs, span, time: currentTime })}
+              </div>
+            )}
+            <div
+              ref={scrollbarRef}
+              role="scrollbar"
+              aria-orientation="horizontal"
+              aria-controls="review-compact-timeline"
+              aria-valuemin={0}
+              aria-valuemax={Math.round(total)}
+              aria-valuenow={Math.round(vs)}
+              aria-label="Move along the track"
+              className="group relative mt-1.5 h-2.5 rounded-full bg-slate-950/60 cursor-default touch-none"
+              title={zoom === 1 ? 'The whole track is on view' : 'Drag to move along the track (or scroll over the timeline)'}
+              onPointerDown={(e) => onScrollbarPointer(e, 'down')}
+              onPointerMove={(e) => onScrollbarPointer(e, 'move')}
+              onPointerUp={(e) => onScrollbarPointer(e, 'up')}
+              onWheel={onWheel}
+            >
+              {total > 0 && (
+                <span
+                  className="absolute top-0.5 bottom-0.5 rounded-full bg-slate-600 group-hover:bg-slate-500 pointer-events-none"
+                  style={{ left: `${(vs / total) * 100}%`, width: `${Math.max(2, (span / total) * 100)}%` }}
+                />
+              )}
+            </div>
           </div>
         ) : (
           <>
@@ -882,7 +1059,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               {belowWave && (
                 <>
                   <TrackName dashed>{belowWaveLabel || 'Dub, est.'}</TrackName>
-                  <div ref={laneRef} className="relative mt-1 h-11 rounded-[10px] bg-slate-950/60 overflow-hidden cursor-default" onWheel={onWheel}>
+                  <div ref={laneRef} className="relative mt-1 h-11 rounded-[10px] bg-slate-950/60 overflow-hidden cursor-default" onWheel={onWheel} onDoubleClick={zoomToBox}>
                     {belowWave({ start: vs, span, time: currentTime })}
                   </div>
                 </>
