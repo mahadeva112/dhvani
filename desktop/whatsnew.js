@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.27',
+    changes: [
+      'The review video can open in a window of its own, like REAPER\'s video window: move it anywhere, even onto another screen. Use the arrow button in its title bar, and the arrow at the bottom puts it back in the app.',
+    ],
+  },
+  {
     version: '1.4.26',
     changes: [
       'The Review player is compact by default: one control bar on top and a full-width timeline you can zoom with Ctrl + wheel, move with the wheel or the scroll bar under it, and double-click a line to zoom to it.',
