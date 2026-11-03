@@ -758,7 +758,6 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
       ['L', 'Lock'],
       [',  .', 'Nudge 10 ms (Shift: 100 ms)'],
       ['T', 'Takes'],
-      ['Shift+T', 'Retake pro: tags, stability, more takes'],
       ['D', 'Split at pauses'],
       ['Q', 'Tighten silences'],
       ['Del', 'Remove'],
@@ -992,8 +991,7 @@ export const SyncEditTimeline: React.FC<{
   speakerLanes?: SpeakerLanes;
   /** Opens the takes of a line (TakesPanel): new readings of it, voiced now, to pick from. */
   /** Opens the retake window on a line; with `follow`, only moves an open window to it. */
-  /** `pro` opens it as Retake pro (Shift+T), or as the plain window (T); left out, as it was last. */
-  onOpenTakes?: (key: string, phrase?: { from: number; to: number }, follow?: boolean, pro?: boolean) => void;
+  onOpenTakes?: (key: string, phrase?: { from: number; to: number }, follow?: boolean) => void;
   elApiKey?: string;
   takesUnavailableKeys?: string[];
   /** The editor's own markers with notes; Shift + M adds one at the playhead. */
@@ -1224,7 +1222,7 @@ export const SyncEditTimeline: React.FC<{
   useEffect(() => {
     if (pickedLineKey && !rangeTool) onOpenTakes?.(pickedLineKey, undefined, true);
   }, [pickedLineKey]);
-  const openTakes = (pro = false) => (current && !current.original ? onOpenTakes?.(current.key, undefined, false, pro) : say('Pick a line of the dub to retake it'));
+  const openTakes = () => (current && !current.original ? onOpenTakes?.(current.key, undefined, false) : say('Pick a line of the dub to retake it'));
   /** How the picked parts are named in the history: "line 4", "clip O1", or "3 lines". */
   const groupName = (list: Chunk[]) => (list.length === 1 ? `${list[0].original ? 'clip' : 'line'} ${list[0].label}` : `${list.length} lines`);
 
@@ -2384,7 +2382,6 @@ export const SyncEditTimeline: React.FC<{
       { label: 'Nudge 10 ms later', shortcut: '.', icon: <ArrowRight className={icon} />, run: () => act.nudge(0.01) },
       'rule',
       !several && dub && onOpenTakes && { label: 'Takes…', shortcut: 'T', icon: <Mic className={icon} />, run: () => openTakes() },
-      !several && dub && onOpenTakes && { label: 'Retake pro…', shortcut: 'Shift+T', icon: <Mic className={icon} />, run: () => openTakes(true) },
       { label: 'Split at pauses…', shortcut: 'D', icon: <ScissorsLineDashed className={icon} />, run: openSplit },
       { label: 'Tighten silences…', shortcut: 'Q', icon: <FoldHorizontal className={icon} />, run: openTighten },
       !several && { label: 'Start, speed, gain, fades…', shortcut: 'F2', icon: <SlidersHorizontal className={icon} />, run: () => openProps(current.part.id) },
@@ -2604,7 +2601,7 @@ export const SyncEditTimeline: React.FC<{
     } else if (lower === 'm') act.mute();
     else if (lower === 'l') act.lock();
     else if (lower === 'n') setSnap((v) => !v);
-    else if (lower === 't' && onOpenTakes) openTakes(e.shiftKey);
+    else if (lower === 't' && onOpenTakes) openTakes();
     else if (lower === 'd') (tighten?.settings.silence === 'keep' ? closeTighten : openSplit)();
     else if (lower === 'q') (tighten?.settings.silence === 'remove' ? closeTighten : openTighten)();
     else if (key === 'Delete' || key === 'Backspace') act.remove();
@@ -3531,7 +3528,7 @@ export const SyncEditTimeline: React.FC<{
               label="Takes"
               shortcut="T"
               onClick={() => openTakes()}
-              title="Open the retake window for the picked line: voice new takes of it, or of some of its words, and use one. Shift+T opens Retake pro, with tags, stability and more takes"
+              title="Open the retake window for the picked line: voice new takes of it, or of some of its words, and use one, with tags, stability and more takes beside the words"
             >
               <Mic className="w-4 h-4" />
             </ActionButton>

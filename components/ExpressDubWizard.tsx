@@ -49,8 +49,6 @@ import {
   FileText,
   Video,
   Zap,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
@@ -714,8 +712,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** Edit timing: the line whose takes are open under the timeline. */
   const [timingTakesKey, setTimingTakesKey] = useState<string | null>(null);
   const [timingTakesPhrase, setTimingTakesPhrase] = useState<{ from: number; to: number } | null>(null);
-  /** The retake window as Retake pro (Shift+T): tags, styles, stability and more takes beside the words. */
-  const [timingTakesPro, setTimingTakesPro] = useState(false);
   /** The retake window holds edited words not yet voiced. */
   const [timingTakesDirty, setTimingTakesDirty] = useState(false);
   useEffect(() => {
@@ -3630,13 +3626,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onMarkersChange={onUpdateJobFields && ((markers) => onUpdateJobFields({ syncMarkers: markers.length > 0 ? markers : null }))}
                   onOpenTakes={
                     renderTakes
-                      ? (key, phrase, follow, pro) => {
+                      ? (key, phrase, follow) => {
                           // Following the picked line moves an open window only; it never opens one.
                           if (follow && timingTakesKey === null) return;
                           // Nor does it leave edited words that are not voiced yet.
                           if (follow && (key === timingTakesKey || timingTakesDirty)) return;
-                          // T opens the window, Shift+T Retake pro; a phrase picked opens the window as it is.
-                          if (!follow && pro !== undefined) setTimingTakesPro(pro);
                           setTimingTakesKey(key);
                           setTimingTakesPhrase(phrase ?? null);
                         }
@@ -3649,19 +3643,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   title={
                     <>
                       <Mic className="w-3.5 h-3.5 text-indigo-300" aria-hidden="true" />
-                      {timingTakesPro ? 'Retake pro' : 'Retake'} · line {String(segments.findIndex((seg) => String(seg.id) === timingTakesUnit.key) + 1).padStart(2, '0')}
-                      <button
-                        type="button"
-                        onClick={() => setTimingTakesPro((pro) => !pro)}
-                        title={timingTakesPro ? 'Back to Retake (T)' : 'Retake pro: tags, styles, stability and more takes (Shift+T)'}
-                        aria-label={timingTakesPro ? 'Back to Retake' : 'Open Retake pro'}
-                        className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default"
-                      >
-                        {timingTakesPro ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-                      </button>
+                      Retake · line {String(segments.findIndex((seg) => String(seg.id) === timingTakesUnit.key) + 1).padStart(2, '0')}
                     </>
                   }
-                  width={timingTakesPro ? 920 : 560}
+                  // Always the full window: tags, styles, stability and more takes beside the words.
+                  width={920}
                   storageKey="dhvani.retakeWindow.position"
                   confirmClose={timingTakesDirty ? 'Your edited words have not been voiced yet. Close and lose them?' : null}
                   onClose={() => {
@@ -3669,7 +3655,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     setTimingTakesDirty(false);
                   }}
                 >
-                  {renderTakes(timingTakesUnit, () => { setTimingTakesKey(null); setTimingTakesDirty(false); }, timingTakesPhrase, { onDirtyChange: setTimingTakesDirty, pro: timingTakesPro })}
+                  {renderTakes(timingTakesUnit, () => { setTimingTakesKey(null); setTimingTakesDirty(false); }, timingTakesPhrase, { onDirtyChange: setTimingTakesDirty, pro: true })}
                 </FloatingWindow>
               )}
               {report && syncedPlayer && (

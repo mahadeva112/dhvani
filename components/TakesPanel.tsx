@@ -784,7 +784,7 @@ export const TakesPanel: React.FC<{
           type="button"
           onClick={() => setLineOpen(true)}
           className="self-start h-7 px-2 -ml-2 rounded-md flex items-center gap-1.5 text-[12px] text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
-          title="Edit the whole line: its words, tags and pauses, or ask for other wordings. Shift+T opens Retake pro."
+          title="Edit the whole line: its words, tags and pauses, or ask for other wordings."
         >
           <Pencil className="w-3.5 h-3.5" /> Change the whole line's words, tags or pauses
         </button>
