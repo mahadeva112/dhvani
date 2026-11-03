@@ -163,8 +163,11 @@ export const ScriptFitStrip: React.FC<{
       <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-300">Sync fit</span>
       <span className="flex flex-wrap items-center gap-1.5">
         <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 tabular-nums">
-          {summary.fits - summary.short + summary.tight} fit
+          {summary.fits - summary.short} fit
         </span>
+        {summary.tight > 0 && (
+          <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-amber-300/10 text-amber-200 tabular-nums">{summary.tight} tight</span>
+        )}
         {summary.long > 0 && (
           <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 tabular-nums">{summary.long} too long</span>
         )}
