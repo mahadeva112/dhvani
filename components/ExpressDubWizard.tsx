@@ -111,6 +111,10 @@ import { presetSuggestion, type SyncJoinPreset } from '../services/syncPresets';
 import {
   distributeLineText,
   expertPreview,
+  withLiveText,
+  ALLOWED_OVERFLOW,
+  PACE_DIRECTION,
+  PACE_SHARE,
   measureSpeechSeconds,
   scriptCharacterCount,
   speakingRate,
@@ -127,7 +131,7 @@ import {
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
-import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, PreviewTimeline, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, readNote, RATE_BASIS_NOTE, LINE_OPTIONS } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, lineNote, PreviewCards, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane } from './SyncPreviewPanel';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
 import type { RateBasis, VoiceRateState } from '../services/voiceRate';
@@ -192,6 +196,10 @@ const SyllableCount: React.FC<{ text: string; className?: string }> = ({ text, c
 type SyllableFitInfo = ReturnType<typeof syllableFit> & { own: number; cues: string | null };
 
 /** A dub line's syllables and what it takes to fit its slot: fewer, or room for more. */
+/** Wordings ahead (Review): remembered on/off, and at most this many lines asked for at once. */
+const WORDINGS_AHEAD_KEY = 'dhvani_wordings_ahead';
+const MAX_WORDINGS_AHEAD = 6;
+
 const SyllableFitNote: React.FC<{ fit: SyllableFitInfo; className?: string }> = ({ fit, className = '' }) =>
   fit.own === 0 && fit.syllables === 0 ? null : (
   <span
@@ -474,7 +482,7 @@ interface ExpressDubWizardProps {
   /** Saves the script; `lines` replaces the cues when the script follows the synced dub. */
   onDownloadScript?: (format?: TargetScriptFormat, lines?: AudioSegment[]) => void;
   /** Saves the project's subtitle edits and Edit timing markers. */
-  onUpdateJobFields?: (patch: Partial<Pick<BatchJob, 'subtitleEdits' | 'syncMarkers'>>) => void;
+  onUpdateJobFields?: (patch: Partial<Pick<BatchJob, 'subtitleEdits' | 'syncMarkers' | 'syncTakeChoices'>>) => void;
   isCompact?: boolean;
   customPrompt?: string;
   promptPresetId?: string;
@@ -1271,41 +1279,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeStep]);
-  /*
-   * The sync previews draw lines where they will sit on the original's clock,
-   * and their playheads read that clock whatever is heard. Playing or
-   * clicking one keeps the track picked in Listen to (Original, Dub or Both);
-   * a click is mapped onto the heard track's clock.
-   */
-  const previewSeek = seekSource;
-  const previewTogglePlay = onTogglePlay;
   /** Plays from a time on the original's clock on the track picked in Listen to. */
   const listenHere = useCallback(
     (t: number) => switchTrack(trackMode, { seek: toHeardClock(t), play: true }),
     [switchTrack, trackMode, toHeardClock]
   );
   const listenOriginal = useCallback((t: number) => switchTrack('source', { seek: t, play: true }), [switchTrack]);
-  /*
-   * The unsynced dub is one take with its lines back to back, so it has no
-   * place on the previews' timeline (the original's): a playhead there could
-   * only guess the line, and would jump over every pause between lines. So
-   * while it is heard the previews hide their playhead and say why.
-   */
-  const previewOffClockNote = dubClockDiffers ? (
-    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <span>
-        You're hearing the dub, which isn't synced yet: its lines run back to back, so they don't sit on this timeline. The player above shows where the
-        dub is.
-      </span>
-      <button
-        type="button"
-        onClick={() => switchTrack('source', { play: true })}
-        className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-100 cursor-default"
-      >
-        <Play className="w-3 h-3 fill-current" /> Hear the original here
-      </button>
-    </span>
-  ) : undefined;
   /** The preview line under the playhead, for the Final script to pick out and keep in view. */
   const [nowLineKey, setNowLineKey] = useState<string | null>(null);
   const finalListRef = useRef<HTMLDivElement>(null);
@@ -1442,11 +1421,26 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     [speakerRateTable, syllablesPerSecond]
   );
   const linePreview = useMemo(() => {
-    const base = syncPreview.preview;
+    // The script as typed now, not as the server last saw it: the fit follows each key.
+    const base = withLiveText(syncPreview.preview, segments);
     return withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond, syllableRateOf) : base, segments);
   }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond, syllableRateOf]);
+  // The line under the playhead, on the original's clock; none while the unsynced dub (which has no place on it) is heard.
+  const playingLineKey = useMemo(() => {
+    if (dubClockDiffers || !linePreview) return null;
+    let found: string | null = null;
+    for (const u of linePreview.units) {
+      if (u.srcStart > sourceClockTime) break;
+      if (sourceClockTime < Math.max(u.nextStart ?? -Infinity, u.srcEnd, u.srcStart + u.estimate)) found = u.key;
+    }
+    return found;
+  }, [dubClockDiffers, linePreview, sourceClockTime]);
+  useEffect(() => setNowLineKey(playingLineKey), [playingLineKey]);
   /** The dub bar picked on the Dub step's preview timeline, for trimming. */
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
+  /** A trim being dragged on Review's dub lane, and whether that lane shows bars or words. */
+  const [laneDrag, setLaneDrag] = useState<{ key: string; seconds: number } | null>(null);
+  const [laneView, setLaneView] = useLaneView();
   const selectedLine = linePreview?.units.find((u) => u.key === selectedLineKey) || null;
   /**
    * A cue's colour: its line's (lineColors.ts), so a line keeps one colour here,
@@ -1667,6 +1661,114 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return map;
   }, [passages]);
   /** Opens a folded passage so one of its cues can be shown. */
+  /**
+   * Read faster: Eleven v3 and v4 ignore the speed setting, so a line too long
+   * can be read with a pace direction instead (server/lib/syncDub.js), chosen
+   * here before the sync as Review's offered takes are after one. The next
+   * sync voices it so; it lapses once the line's words change.
+   */
+  const canReadFaster = voiceEngine === 'elevenlabs' && /^eleven_v[34]/.test(elModelId || '') && Boolean(onUpdateJobFields);
+  const readsFaster = (unit: SyncPreviewUnit) => {
+    const choice = activeJob?.syncTakeChoices?.[unit.key];
+    return Boolean(choice?.pace && choice.text === unit.text);
+  };
+  const setReadsFaster = (unit: SyncPreviewUnit, on: boolean) => {
+    if (!activeJob || !onUpdateJobFields) return;
+    const { [unit.key]: _old, ...choices } = activeJob.syncTakeChoices || {};
+    const seed = activeJob.syncSeed;
+    onUpdateJobFields({
+      syncTakeChoices: on ? { ...choices, [unit.key]: { ...(Number.isInteger(seed) && { seed: seed as number }), pace: PACE_DIRECTION, text: unit.text } } : choices,
+    });
+  };
+  /**
+   * Wordings ahead: as soon as a line is likely to run long, its shorter
+   * wordings are asked for in the background, so they are there when the user
+   * looks. Once per line as worded; a line too long to shorten without losing
+   * meaning (deepCut) is left for the user to ask for. Uses the text model, so
+   * it can be turned off.
+   */
+  const [wordingsAhead, setWordingsAhead] = useState(() => {
+    try {
+      return localStorage.getItem(WORDINGS_AHEAD_KEY) !== 'false';
+    } catch {
+      return true;
+    }
+  });
+  const changeWordingsAhead = (on: boolean) => {
+    setWordingsAhead(on);
+    try {
+      localStorage.setItem(WORDINGS_AHEAD_KEY, String(on));
+    } catch {
+      /* Storage off: the choice lasts until the app closes. */
+    }
+  };
+  const lineFixesRef = useRef(lineFixes);
+  lineFixesRef.current = lineFixes;
+  const askedAhead = useRef(new Set<string>());
+  useEffect(() => {
+    if (!wordingsAhead || activeStep !== 2 || !linePreview) return;
+    // Once typing stops: a line being written is long for a moment on every key.
+    const timer = window.setTimeout(() => {
+      const fixes = lineFixesRef.current;
+      linePreview.units
+        .filter((u) => u.status === 'long' && fixes.stateOf(u).kind === 'idle' && !deepCut(u) && !askedAhead.current.has(`${u.key}|${u.text}`))
+        .slice(0, MAX_WORDINGS_AHEAD)
+        .forEach((u) => {
+          askedAhead.current.add(`${u.key}|${u.text}`);
+          fixes.controlsFor(u).onSuggest();
+        });
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [wordingsAhead, activeStep, linePreview]);
+
+  /** A line picked on Review's dub lane: the player goes to it, and its last cue (where its fit sits) opens ready to type. */
+  const pickReviewLine = (unit: SyncPreviewUnit) => {
+    setSelectedLineKey(unit.key);
+    onSeek(unit.srcStart);
+    const last = unit.cueIds[unit.cueIds.length - 1];
+    unfoldPassageOf(last);
+    requestAnimationFrame(() => {
+      const card = document.getElementById(`cue-card-${last}`);
+      scrollWithin(card, 'center', true);
+      card?.querySelector('textarea')?.focus({ preventScroll: true });
+    });
+  };
+  /*
+   * Review keys for the lines to fix: Alt + ↓ / ↑ goes to the next or previous
+   * one; Alt + 1 / 2 puts that wording of the line being edited into the script.
+   */
+  const reviewKeys = useRef<(e: KeyboardEvent) => void>(() => {});
+  reviewKeys.current = (e: KeyboardEvent) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || !linePreview) return;
+    const units = linePreview.units;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const toFix = units.filter(needsFix);
+      if (toFix.length === 0) return;
+      e.preventDefault();
+      const at = units.findIndex((u) => u.key === selectedLineKey);
+      const step = e.key === 'ArrowDown' ? 1 : -1;
+      for (let k = 1; k <= units.length; k++) {
+        const u = units[(((at < 0 ? (step > 0 ? -1 : 0) : at) + step * k) % units.length + units.length) % units.length];
+        if (needsFix(u)) return pickReviewLine(u);
+      }
+    }
+    if (e.key === '1' || e.key === '2') {
+      const card = (document.activeElement as HTMLElement | null)?.closest('[id^="cue-card-"]');
+      const unit = card ? unitOfCue.get(card.id.slice('cue-card-'.length)) : selectedLine;
+      if (!unit) return;
+      const state = lineFixes.stateOf(unit);
+      const option = state.kind === 'draft' ? state.options?.[Number(e.key) - 1] : undefined;
+      if (!option) return;
+      e.preventDefault();
+      lineFixes.controlsFor(unit).onUse(option.text);
+    }
+  };
+  useEffect(() => {
+    if (activeStep !== 2) return;
+    const listener = (e: KeyboardEvent) => reviewKeys.current(e);
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, [activeStep]);
   const unfoldPassageOf = (id: string | number) => {
     const key = passageOfCue.get(String(id))?.key;
     if (!key || !foldedPassages.has(key)) return;
@@ -2244,6 +2346,31 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             onSensitivityChange={onSensitivityChange}
             onDragCut={!hearingDub && !awaitingScript ? cueEditing.dragCut : undefined}
             selectedCutId={hearingDub ? null : cueEditing.boundaryId}
+            // Each line as Sync will place it, on the original's clock: picked here, it opens in the list below.
+            belowWave={
+              linePreview && !hearingDub && !awaitingScript
+                ? ({ start, span, time }) => (
+                    <DubEstimateLane
+                      units={linePreview.units}
+                      windowStart={start}
+                      windowSeconds={span}
+                      selectedKey={selectedLineKey}
+                      currentKey={linePreview.units.find((u) => time >= u.srcStart && time < Math.max(u.nextStart ?? -Infinity, u.srcEnd))?.key}
+                      onSelect={pickReviewLine}
+                      onTrim={trimLine}
+                      rythmo={estimateMethod === 'expert' && laneView === 'rythmo'}
+                      drag={laneDrag}
+                      setDrag={setLaneDrag}
+                    />
+                  )
+                : undefined
+            }
+            // The lines' pauses in a row of their own, so they never cover a line.
+            pausesRow={
+              linePreview && !hearingDub && !awaitingScript
+                ? ({ start, span }) => <PauseTicksLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} />
+                : undefined
+            }
           />
 
           {!awaitingScript && (
@@ -2511,7 +2638,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     setReviewMode('table');
                     setPacingFilter('fix');
                   }}
-                  estimate={<EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />}
+                  estimate={
+                    <span className="flex flex-wrap items-center gap-2">
+                      <EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />
+                      {estimateMethod === 'expert' && <LaneViewSwitch view={laneView} onChange={setLaneView} />}
+                      <label
+                        className="flex items-center gap-1.5 text-[11.5px] text-slate-400 cursor-default"
+                        title="As soon as a line is likely to run long, two shorter wordings are asked for in the background, ready when you look. Uses your text model. Alt + 1 or 2 puts one in; Alt + ↓ or ↑ goes to the next line to fix."
+                      >
+                        <input type="checkbox" className="accent-indigo-500" checked={wordingsAhead} onChange={(e) => changeWordingsAhead(e.target.checked)} />
+                        Wordings ahead
+                      </label>
+                    </span>
+                  }
                 />
               )}
 
@@ -2922,11 +3061,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           if (!needsFix(unit) && fix.state.kind === 'idle') {
                             return (
                               <>
+                                <FitMeter unit={unit} className="mt-1.5 sm:items-start" />
                                 {pauses && <p className="mt-1 text-[11.5px] leading-snug text-slate-400">{pauses}</p>}
                                 <OtherWordingsButton onClick={fix.onSuggest} />
                               </>
                             );
                           }
+                          const fasterOn = readsFaster(unit);
+                          const fasterSeconds = unit.estimate * PACE_SHARE;
                           const note = fix.state.kind === 'idle' ? { text: [fitAdvice(unit), pauses].filter(Boolean).join(' '), tone: '' } : lineNote(unit, fix.state, fix.direction);
                           const tone = note.tone || (unit.status === 'long' ? 'text-amber-300' : unit.status === 'short' ? 'text-sky-300' : 'text-slate-400');
                           const firstCue = cueIndexById.get(String(unit.cueIds[0]));
@@ -2941,7 +3083,28 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                   </span>
                                 )}
                               </div>
+                              <FitMeter unit={unit} className="mt-1.5 sm:items-start" />
                               {note.text && <p className={`mt-1 text-[11.5px] leading-snug ${tone}`}>{note.text}</p>}
+                              {unit.wantSeconds !== undefined && (
+                                <button type="button" onClick={() => trimLine(unit, null)} className={`${railButton} mt-1.5`} title="Go back to the length worked out from the slot">
+                                  <RotateCcw className="w-3.5 h-3.5" /> Reset trim
+                                </button>
+                              )}
+                              {canReadFaster && (unit.status === 'long' || fasterOn) && (
+                                <label className="mt-1.5 flex items-start gap-2 text-[11.5px] leading-snug text-slate-300 cursor-default">
+                                  <input type="checkbox" className="mt-0.5 accent-indigo-500" checked={fasterOn} onChange={(e) => setReadsFaster(unit, e.target.checked)} />
+                                  <span>
+                                    Read faster with a pace direction: about {fasterSeconds.toFixed(1)} s, {fasterSeconds - unit.slot > ALLOWED_OVERFLOW[syncOptions.precision] ? 'still long' : 'fits'}.{' '}
+                                    <span className="text-slate-500">{elModelId?.startsWith('eleven_v4') ? 'Eleven v4' : 'Eleven v3'} ignores the speed setting, so Sync asks the voice to read faster instead.</span>
+                                  </span>
+                                </label>
+                              )}
+                              {unit.expert && (
+                                <details className="mt-1.5">
+                                  <summary className="text-[11.5px] text-slate-400 hover:text-slate-200 cursor-default select-none">Syllables, pauses and lips</summary>
+                                  <ExpertLineDetail unit={unit} />
+                                </details>
+                              )}
                               <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...fix} />
                             </div>
                           );
@@ -3020,6 +3183,45 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </div>
 
               <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                {/* Sync fit: how the lines are likely to sit once Sync places them, worked out as the script changes */}
+                {linePreview && !awaitingScript && (
+                  <div className="px-4 sm:px-5 py-4 flex flex-col gap-2 border-b border-slate-800">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Sync fit</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: 'fit', value: linePreview.summary.fits, tone: 'text-slate-100' },
+                        { label: 'tight', value: linePreview.summary.tight, tone: linePreview.summary.tight > 0 ? 'text-amber-300' : 'text-slate-100' },
+                        { label: 'too long', value: linePreview.summary.long, tone: linePreview.summary.long > 0 ? 'text-rose-300' : 'text-slate-100' },
+                      ].map((m) => (
+                        <div key={m.label} className="rounded-lg bg-slate-950/60 border border-slate-800 px-2.5 py-1.5">
+                          <span className={`block text-[19px] font-semibold tabular-nums leading-tight ${m.tone}`}>{m.value}</span>
+                          <span className="text-[11px] text-slate-400">{m.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11.5px] text-slate-500 tabular-nums leading-snug">
+                      {linePreview.summary.short > 0 && `${linePreview.summary.short} end early · `}
+                      {linePreview.summary.long > 0 ? `longest +${linePreview.summary.maxOverflow.toFixed(1)} s` : 'none runs past its slot'}
+                      {linePreview.summary.lips && linePreview.summary.lips.total > 0 && ` · lips ${linePreview.summary.lips.matched} / ${linePreview.summary.lips.total}`}
+                    </p>
+                    <p className="text-[11.5px] text-slate-500 leading-snug">
+                      {estimateBasis(linePreview, rateBasis)}
+                      {linePreview.placedShare < 1 && `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed`}.
+                    </p>
+                    {linesToFixCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReviewMode('table');
+                          setPacingFilter('fix');
+                        }}
+                        className="mt-0.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:bg-slate-800 cursor-default transition-colors"
+                      >
+                        Show {linesToFixCount} {linesToFixCount === 1 ? 'line' : 'lines'} to fix <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
                 {/* Pacing: one line and a way to the cues that need work */}
                 <div className="px-4 sm:px-5 py-4 flex flex-col gap-1.5">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Pacing</span>
@@ -3371,76 +3573,38 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               ))}
             </div>
             {linePreview ? (
-                <div role="group" aria-label="Sync preview" className="flex flex-col gap-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
+                <div role="group" aria-label="Sync fit" className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2.5">
-                        <h2 className="text-[15px] font-semibold text-slate-100">Sync preview</h2>
-                        <EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />
-                      </div>
+                      <h2 className="text-[15px] font-semibold text-slate-100">Sync fit</h2>
                       <p className="text-xs text-slate-400 mt-1">
-                        {estimateMethod === 'expert'
-                          ? `Counted in syllables at your voice's rate (${estimateBasis(linePreview, rateBasis)}), with pauses at commas and full stops, a fast to slow range, and where the lips close. Sync still measures the real clips.`
-                          : `${rateBasis === 'typical' ? 'A rough estimate' : 'An estimate'} from the text length, at ${linePreview.charsPerSecond.toFixed(1)} chars/s ${RATE_BASIS_NOTE[rateBasis]}.`}{' '}
-                        {linePreview.placedShare < 1 &&
-                          `Each line is judged at the length Sync leaves it once placed: ${Math.round(linePreview.placedShare * 100)}% of its read, as the last sync closed its lines up. `}
-                        Click a dub bar to see its line, with wordings that fit it. Drag the bar's end to the length you want, and its suggestions aim for that.
+                        Worked out in Review, where you edit the lines: {estimateBasis(linePreview, rateBasis)}
+                        {linePreview.placedShare < 1 && `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed`}. Sync still measures the real clips.
                       </p>
                     </div>
                     {syncPreview.loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
                   </div>
                   <PreviewCards preview={linePreview} />
-                  <PreviewTimeline
-                    units={linePreview.units}
-                    reportedTime={sourceClockTime}
-                    getLiveTime={getSourceLiveTime}
-                    onSeek={previewSeek}
-                    isPlaying={isPlaying}
-                    onTogglePlay={previewTogglePlay}
-                    selectedKey={selectedLineKey}
-                    // Picking a line only shows it in the card below; the page stays where the user scrolled it.
-                    onSelect={(unit) => setSelectedLineKey(unit.key)}
-                    onTrim={trimLine}
-                    charsPerSecond={linePreview.charsPerSecond}
-                    offClockNote={previewOffClockNote}
-                    onCurrentLine={(unit) => setNowLineKey(unit?.key ?? null)}
-                    sourceBuffer={sourceBuffer}
-                  />
-                  {selectedLine &&
-                    (() => {
-                      const unit = selectedLine;
-                      const fixing = needsFix(unit);
-                      const note = [fitAdvice(unit), pauseAdvice(unit)].filter(Boolean).join(' ');
-                      const lineNumber = segments.findIndex((seg) => String(seg.id) === unit.key) + 1;
-                      return (
-                        <div className="rounded-xl border border-indigo-500/30 bg-slate-950/60 px-3.5 py-3">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                            <span className="text-[13px] font-semibold text-slate-100">Line {String(lineNumber).padStart(2, '0')}</span>
-                            <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">{formatClock(unit.srcStart)}</span>
-                            <span className="font-mono text-[11.5px] text-slate-400 tabular-nums">
-                              about {unit.estimate.toFixed(1)} s{readNote(unit)} · slot {unit.slot.toFixed(1)} s · original speech {unit.spoken.toFixed(1)} s
-                            </span>
-                            <span className="ml-auto flex items-center gap-1.5">
-                              {unit.wantSeconds !== undefined && (
-                                <button type="button" onClick={() => trimLine(unit, null)} className={railButton} title="Go back to the length worked out from the slot">
-                                  <RotateCcw className="w-3.5 h-3.5" /> Reset trim
-                                </button>
-                              )}
-                              <button type="button" onClick={() => setSelectedLineKey(null)} className={railButton} aria-label="Close this line">
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </span>
-                          </div>
-                          <p className="mt-1.5 text-[14px] text-slate-100 leading-snug">{unit.text}</p>
-                          {unit.sourceText && <p className="text-xs text-slate-500 mt-0.5">{unit.sourceText}</p>}
-                          <ExpertLineDetail unit={unit} />
-                          <p className={`text-[11.5px] mt-1.5 ${fixing ? (directionFor(unit) === 'longer' ? 'text-sky-300' : 'text-amber-300') : 'text-slate-400'}`}>
-                            {note || 'Fits its slot. Drag the end of its bar to set a length of your own.'}
-                          </p>
-                          {fixing && <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...lineFixes.controlsFor(unit)} />}
-                        </div>
-                      );
-                    })()}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <p className={`text-[13px] ${linePreview.summary.long > 0 ? 'text-rose-300' : 'text-slate-300'}`}>
+                      {linePreview.summary.long > 0
+                        ? `${linePreview.summary.long} ${linePreview.summary.long === 1 ? 'line runs' : 'lines run'} long. Shorten ${linePreview.summary.long === 1 ? 'it' : 'them'} in Review first, or sync anyway: they show in Worth a listen.`
+                        : 'Every line should fit once Sync places it.'}
+                    </p>
+                    {linesToFixCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStepOverride(2);
+                          setReviewMode('table');
+                          setPacingFilter('fix');
+                        }}
+                        className={`${railButton} ml-auto`}
+                      >
+                        Fix in Review <ArrowRight className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
             ) : (
               <p className="flex items-center gap-2 text-xs text-slate-400" role="status">
@@ -4052,8 +4216,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                       <Play className="w-3 h-3 fill-current" /> Original
                                     </button>
                                   )}
+                                  {/* Lines are reworded in one place: Review, with the line open there. */}
+                                  {fixing && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setStepOverride(2);
+                                        setReviewMode('table');
+                                        requestAnimationFrame(() => pickReviewLine(unit));
+                                      }}
+                                      className="flex items-center gap-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
+                                      title="Open this line in Review, where its wordings are"
+                                    >
+                                      Fix in Review <ArrowRight className="w-3 h-3" />
+                                    </button>
+                                  )}
                                 </div>
-                                {fixing && linePreview && <LineFixControls unit={unit} cps={linePreview.charsPerSecond} {...lineFixes.controlsFor(unit)} />}
                               </div>
                             )}
                           </div>

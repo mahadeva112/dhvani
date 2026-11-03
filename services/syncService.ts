@@ -433,7 +433,7 @@ export interface SyncRequest {
   /** Takes to voice of each retaken line, by key, the best fitting one kept (3 when left out). */
   lineTakes?: Record<string, number>;
   /** Takes chosen in Review for lines that ran long, by key, and lines whose old take was kept. */
-  takeChoices?: Record<string, { seed: number; speedScale?: number; pace?: string; text: string }>;
+  takeChoices?: Record<string, { seed?: number; speedScale?: number; pace?: string; text: string }>;
   declinedTakes?: string[];
   /** Report what the render did to every line (SyncReport.audioDebug). */
   debug?: boolean;
@@ -758,7 +758,11 @@ export type EstimateMethod = 'quick' | 'expert';
  * syncDub.js), so an Expert line is called long, tight or short exactly as a
  * Quick one would be at the same length.
  */
-const ALLOWED_OVERFLOW: Record<SyncPrecision, number> = { lipsync: 0.15, phrase: 0.3, loose: 0.6 };
+export const ALLOWED_OVERFLOW: Record<SyncPrecision, number> = { lipsync: 0.15, phrase: 0.3, loose: 0.6 };
+/** What Eleven v3 and v4 are asked to perform to read a line faster, as Sync does (server/lib/syncDub.js). */
+export const PACE_DIRECTION = '[calm, fast]';
+/** About how much of its length a line keeps read with PACE_DIRECTION: 12% faster, measured on one Hindi line. */
+export const PACE_SHARE = 0.88;
 const TIGHT_SHARE = 0.9;
 const SUGGESTION_MARGIN = 0.92;
 const LENGTHEN_FILL = 0.95;
@@ -766,6 +770,52 @@ const SHORT_SHARE = 0.6;
 const MIN_SHORT_GAP = 1;
 /** True when `seconds` of dub leave too much of `spoken` seconds of original unsaid. */
 export const isShortSpeech = (seconds: number, spoken: number) => seconds < spoken * SHORT_SHARE && spoken - seconds >= MIN_SHORT_GAP;
+
+/**
+ * The server's preview with each line's text as the script has it now, timed
+ * again here, so the fit follows the user's typing at once instead of after
+ * the server's next preview. Slots, grouping and the original's pauses stay as
+ * the server worked them out; they change with the timing, not the words. A
+ * line is timed at the rate the server gave it (its speaker's own, if any),
+ * judged as the server judges it (server/lib/syncPreview.js).
+ */
+export const withLiveText = (preview: SyncPreview | null, segments: AudioSegment[]): SyncPreview | null => {
+  if (!preview) return null;
+  const textOf = new Map(segments.map((seg) => [String(seg.id), (seg.textTarget || seg.targetText || '').trim()]));
+  const allowed = ALLOWED_OVERFLOW[preview.precision] ?? ALLOWED_OVERFLOW.phrase;
+  const share = preview.placedShare > 0 ? preview.placedShare : 1;
+  let changed = false;
+  const units = preview.units.map((unit): SyncPreviewUnit => {
+    const text = unit.cueIds.map((id) => textOf.get(String(id)) ?? '').filter(Boolean).join(' ');
+    if (text === unit.text) return unit;
+    changed = true;
+    const rate = unit.read > 0 && unit.text.length > 0 ? unit.text.length / unit.read : preview.charsPerSecond;
+    const read = text.length / rate;
+    const estimate = read * share;
+    const overflow = estimate - unit.slot;
+    const short = isShortSpeech(estimate, unit.spoken);
+    const status = overflow > allowed ? 'long' : estimate > unit.slot * TIGHT_SHARE ? 'tight' : short ? 'short' : 'fits';
+    const targetChars =
+      status === 'short'
+        ? Math.max(text.length + 1, Math.floor((rate / share) * Math.min(unit.spoken * LENGTHEN_FILL, unit.slot * SUGGESTION_MARGIN)))
+        : Math.max(1, Math.floor(text.length * Math.min(1, unit.slot / Math.max(0.1, estimate)) * SUGGESTION_MARGIN));
+    return { ...unit, text, read, estimate, overflow: Math.max(0, overflow), underflow: status === 'short' ? Math.max(0, unit.spoken - estimate) : 0, status, targetChars };
+  });
+  if (!changed) return preview;
+  const count = (status: SyncPreviewUnit['status']) => units.filter((u) => u.status === status).length;
+  return {
+    ...preview,
+    units,
+    summary: {
+      ...preview.summary,
+      fits: count('fits') + count('short'),
+      tight: count('tight'),
+      long: count('long'),
+      short: count('short'),
+      maxOverflow: units.reduce((max, u) => (u.status === 'long' ? Math.max(max, u.overflow) : max), 0),
+    },
+  };
+};
 
 /**
  * The server's preview re-timed by the Expert estimate: every line in

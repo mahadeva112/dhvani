@@ -50,6 +50,9 @@ const STATUS_DOT: Record<SyncPreviewUnit['status'], string> = {
 const QUIET_BOX = 'border border-dashed border-sky-400/70 bg-sky-400/5';
 /** The length the user trimmed a line to. */
 const TRIM_BOX = 'border-2 border-dashed border-indigo-300/90';
+/** Past a line's slot: striped red when it runs long, a softer amber while it is only tight. */
+const OVER_LONG = 'bg-[repeating-linear-gradient(135deg,rgba(239,68,68,0.7)_0_5px,rgba(239,68,68,0.35)_5px_10px)]';
+const OVER_TIGHT = 'bg-[repeating-linear-gradient(135deg,rgba(251,191,36,0.45)_0_5px,rgba(251,191,36,0.15)_5px_10px)]';
 /** The dub bar picked for trimming. */
 const SELECTED_RING = '0 0 0 2px rgba(165,180,252,0.95)';
 /** The line under the playhead. */
@@ -614,6 +617,50 @@ export const MeaningWarning: React.FC<{ issues: string[] }> = ({ issues }) => (
   </div>
 );
 
+/**
+ * A wording against the line it would replace, word by word: the new words
+ * picked out, and the words it drops listed under it, struck through. Where
+ * the two share no word, the wording is shown as it is.
+ */
+const WordingDiff: React.FC<{ from: string; to: string }> = ({ from, to }) => {
+  const a = from.trim().split(/\s+/).filter(Boolean);
+  const b = to.trim().split(/\s+/).filter(Boolean);
+  // Longest common run of words, from the end, so both lines can be walked from the start.
+  const common = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) common[i][j] = a[i] === b[j] ? common[i + 1][j + 1] + 1 : Math.max(common[i + 1][j], common[i][j + 1]);
+  if (common[0][0] === 0) return <span className="block text-[13px] text-slate-100 leading-snug">{to}</span>;
+  const words: { text: string; added: boolean }[] = [];
+  const dropped: string[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      words.push({ text: b[j++], added: false });
+      i++;
+    } else if (common[i + 1][j] >= common[i][j + 1]) dropped.push(a[i++]);
+    else words.push({ text: b[j++], added: true });
+  }
+  while (j < b.length) words.push({ text: b[j++], added: true });
+  while (i < a.length) dropped.push(a[i++]);
+  return (
+    <>
+      <span className="block text-[13px] text-slate-100 leading-snug">
+        {words.map((w, n) => (
+          <React.Fragment key={n}>
+            {n > 0 && ' '}
+            {w.added ? <span className="rounded-sm bg-sky-400/20 text-sky-100 px-0.5">{w.text}</span> : w.text}
+          </React.Fragment>
+        ))}
+      </span>
+      {dropped.length > 0 && (
+        <span className="block mt-0.5 text-[11.5px] text-slate-500 line-through leading-snug" title="Words this wording drops">
+          {dropped.join(' ')}
+        </span>
+      )}
+    </>
+  );
+};
+
 export interface LineFixControlsProps {
   unit: SyncPreviewUnit;
   cps: number;
@@ -755,7 +802,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                         {i + 1}
                       </span>
                       <span className="flex-1 min-w-0">
-                        <span className="block text-[13px] text-slate-100 leading-snug">{option.text}</span>
+                        <WordingDiff from={unit.text} to={option.text} />
                         {option.backTranslation && (
                           <span className="block mt-0.5 text-[11.5px] text-slate-500 leading-snug" title="This wording translated back into English, without the original line in view">
                             Says: {option.backTranslation}
@@ -877,6 +924,294 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
   );
 };
 
+/** Bars or Rythmo for a dub lane, remembered across sessions. */
+export const useLaneView = () => {
+  const [view, setView] = useState<'bars' | 'rythmo'>(() => {
+    try {
+      return localStorage.getItem(PREVIEW_VIEW_KEY) === 'rythmo' ? 'rythmo' : 'bars';
+    } catch {
+      return 'bars';
+    }
+  });
+  const change = (next: 'bars' | 'rythmo') => {
+    setView(next);
+    try {
+      localStorage.setItem(PREVIEW_VIEW_KEY, next);
+    } catch {
+      /* Storage off: the view lasts until the app closes. */
+    }
+  };
+  return [view, change] as const;
+};
+
+/** The Bars / Rythmo switch for an Expert dub lane. */
+export const LaneViewSwitch: React.FC<{ view: 'bars' | 'rythmo'; onChange: (view: 'bars' | 'rythmo') => void }> = ({ view, onChange }) => (
+  <div role="group" aria-label="Dub lane" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+    {[
+      { id: 'bars' as const, label: 'Bars', hint: 'Each line as a bar' },
+      { id: 'rythmo' as const, label: 'Rythmo', hint: 'The dub text on the timeline, each word as wide as the time it takes. Zoom in to read short lines.' },
+    ].map((v) => (
+      <button
+        key={v.id}
+        type="button"
+        title={v.hint}
+        aria-pressed={view === v.id}
+        onClick={() => onChange(v.id)}
+        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${view === v.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+      >
+        {v.label}
+      </button>
+    ))}
+  </div>
+);
+
+/** A gap between the original's words this long is a pause (server/lib/sourcePauses.js). */
+const SOURCE_PAUSE_SECONDS = 0.15;
+
+/**
+ * A line's pauses: a cyan tick on top where the original speaker pauses (from
+ * the cues' word timings), an amber one below where the dub has a mark the
+ * original talks straight through, which Match source pauses cuts. An Expert
+ * line places the dub's mark at its word; a Quick one at its share of the
+ * line's characters. Lines without word timings show none.
+ */
+const LinePauseTicks: React.FC<{ unit: SyncPreviewUnit; pct: (t: number) => number; segments: AudioSegment[] }> = ({ unit, pct, segments }) => {
+  const ids = new Set(unit.cueIds.map(String));
+  const words = segments
+    .filter((seg) => ids.has(String(seg.id)))
+    .flatMap((seg) => seg.words || [])
+    .filter((w) => /[\p{L}\p{N}]/u.test(String(w.text ?? '')) && Number.isFinite(w.start) && Number.isFinite(w.end))
+    .sort((a, b) => a.start - b.start);
+  const source = words.slice(1).flatMap((w, i) => (w.start - words[i].end >= SOURCE_PAUSE_SECONDS ? [(words[i].end + w.start) / 2] : []));
+  const bare = (t: string) => t.replace(/[^\p{L}\p{N}\p{M}]/gu, '');
+  const dub = (unit.unpausedMarks || []).flatMap(({ after, mark }) => {
+    if (unit.expert) {
+      const word = unit.expert.words.find((w) => bare(w.text) === bare(after));
+      return word ? [unit.srcStart + word.end] : [];
+    }
+    const at = unit.text.indexOf(`${after}${mark}`);
+    return at >= 0 && unit.text.length > 0 ? [unit.srcStart + unit.estimate * ((at + after.length) / unit.text.length)] : [];
+  });
+  return (
+    <>
+      {source.map((t, n) => (
+        <span key={`s${n}`} aria-hidden="true" title="The original pauses here" className="absolute top-0 w-0 h-0 -ml-[4px] border-x-[4px] border-x-transparent border-t-[6px] border-t-cyan-300 pointer-events-none" style={{ left: `${pct(t)}%` }} />
+      ))}
+      {dub.map((t, n) => (
+        <span key={`d${n}`} aria-hidden="true" title="The dub may pause here, where the original runs straight on; Sync cuts it" className="absolute bottom-0 w-0 h-0 -ml-[4px] border-x-[4px] border-x-transparent border-b-[7px] border-b-amber-400 pointer-events-none" style={{ left: `${pct(t)}%` }} />
+      ))}
+    </>
+  );
+};
+
+/** Zoomed out past this, a dub lane leaves out the lips' marks, which would crowd its lines. */
+const LIP_MARK_SECONDS = 20;
+/** Zoomed out past this, a pause row says to zoom in instead of crowding its ticks. */
+const PAUSE_ROW_SECONDS = 30;
+
+/**
+ * The pause row of a track view, on the dub lane's clock: every line's pauses
+ * (LinePauseTicks) in a row of their own, so they never cover a line.
+ */
+export const PauseTicksLane: React.FC<{ units: SyncPreviewUnit[]; segments: AudioSegment[]; windowStart: number; windowSeconds: number }> = ({ units, segments, windowStart, windowSeconds }) => {
+  if (windowSeconds > PAUSE_ROW_SECONDS)
+    return <span className="absolute left-2 inset-y-0 flex items-center text-[10.5px] text-slate-500 pointer-events-none">Zoom in to see each pause</span>;
+  const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
+  return (
+    <>
+      {units
+        .filter((u) => Math.max(u.srcEnd, u.srcStart + u.estimate) >= windowStart && u.srcStart <= windowStart + windowSeconds)
+        .map((u) => (
+          <LinePauseTicks key={u.key} unit={u} pct={pct} segments={segments} />
+        ))}
+    </>
+  );
+};
+
+/**
+ * The dub lane of a sync preview: each line where Sync will start it, as long
+ * as it is likely to last once placed, in the line's colour; past its slot the
+ * rest is striped (red when it runs long). With Rythmo, an Expert line's words
+ * sit where they are likely said. A picked line gets a handle to drag its end
+ * to the length it should take (a trim). Positions are on the window from
+ * `windowStart`, `windowSeconds` wide; `drag` and `setDrag` hold a trim in
+ * progress, so the caller can spell it out. Pauses have a row of their own
+ * (PauseTicksLane); an Expert line's lip closures show once zoomed in.
+ */
+export const DubEstimateLane: React.FC<{
+  units: SyncPreviewUnit[];
+  windowStart: number;
+  windowSeconds: number;
+  selectedKey?: string | null;
+  currentKey?: string | null;
+  onSelect?: (unit: SyncPreviewUnit) => void;
+  onTrim?: (unit: SyncPreviewUnit, seconds: number) => void;
+  rythmo?: boolean;
+  drag?: { key: string; seconds: number } | null;
+  setDrag?: (drag: { key: string; seconds: number } | null) => void;
+  onDragStart?: () => void;
+}> = ({ units, windowStart, windowSeconds: WINDOW_SECONDS, selectedKey, currentKey, onSelect, onTrim, rythmo = false, drag = null, setDrag, onDragStart }) => {
+  const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
+  const end = windowStart + WINDOW_SECONDS * 2;
+  const visible = units.filter((u) => Math.max(u.srcEnd, u.srcStart + u.estimate) >= windowStart && u.srcStart <= end);
+  /** A trim from where the pointer is over the dub lane, held to the line's slot, snapping to the end of the original speech. */
+  const trimAt = (u: SyncPreviewUnit, clientX: number, lane: Element) => {
+    const r = lane.getBoundingClientRect();
+    const seconds = windowStart + ((clientX - r.left) / r.width) * WINDOW_SECONDS - u.srcStart;
+    const snapped = Math.abs(seconds - u.spoken) <= 0.15 ? u.spoken : Math.round(seconds * 10) / 10;
+    return Math.max(MIN_TRIM_SECONDS, Math.min(u.slot, snapped));
+  };
+  const lineNumber = (u: SyncPreviewUnit, seconds: number, dot?: string) =>
+    pct(u.srcStart + seconds) - pct(u.srcStart) > 3.2 ? (
+      <span
+        className="absolute z-10 left-1 top-1 flex items-center gap-1 rounded bg-slate-950/85 px-1 font-mono text-[9.5px] font-semibold leading-[14px] pointer-events-none"
+        style={{ color: hueOf(u.index) }}
+      >
+        {dot && <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />}
+        {u.index + 1}
+      </span>
+    ) : null;
+  return (
+    <>
+      {visible.map((u) => {
+        const over = u.estimate - u.slot;
+        const hue = hueOf(u.index);
+        const selected = u.key === selectedKey;
+        const trim = drag?.key === u.key ? drag.seconds : u.wantSeconds;
+        const handleAt = trim ?? Math.min(u.estimate, u.slot);
+        const title = `${u.text}\nAbout ${u.estimate.toFixed(1)} s${readNote(u)}${
+          u.expert ? ` (${u.expert.low.toFixed(1)} to ${u.expert.high.toFixed(1)} s, ${u.expert.syllables} syllables)` : ''
+        } · slot ${u.slot.toFixed(1)} s${over > 0 ? ` · +${over.toFixed(1)} s` : ''}${
+          u.wantSeconds !== undefined ? ` · your trim ${u.wantSeconds.toFixed(1)} s` : ''
+        }${onSelect ? '\nClick to pick this line' : ''}`;
+        const words = rythmo ? u.expert?.words : undefined;
+        const pick = onSelect
+          ? (e: React.MouseEvent) => {
+              e.stopPropagation();
+              onSelect(u);
+            }
+          : undefined;
+        return (
+          <React.Fragment key={u.key}>
+            <span
+              title={title}
+              onClick={pick}
+              className="absolute top-1.5 bottom-1.5 rounded border border-dashed"
+              style={{
+                left: `${pct(u.srcStart)}%`,
+                width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart))}%`,
+                background: withAlpha(hue, words ? 0.06 : 0.14),
+                borderColor: withAlpha(hue, 0.75),
+                boxShadow: selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
+              }}
+            >
+              {!words && lineNumber(u, u.estimate, STATUS_DOT[u.status])}
+              {!words && pct(u.srcStart + u.estimate) - pct(u.srcStart) > 9 && (
+                <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
+                  {u.expert ? '' : '≈'}
+                  {u.estimate.toFixed(1)} s
+                </span>
+              )}
+            </span>
+            {/* Rythmo: each word where it is likely said, red once past the line's slot */}
+            {words?.map((w, n) => (
+              <RythmoWord
+                key={n}
+                text={w.text}
+                late={w.end > u.slot + 0.02}
+                className="text-[12px]"
+                left={`${pct(u.srcStart + w.start)}%`}
+                width={`${Math.max(0.2, pct(u.srcStart + w.end) - pct(u.srcStart + w.start))}%`}
+              />
+            ))}
+            {/* Expert: a fast to a slow read, in the colour of how it fits */}
+            {u.expert && !words && (
+              <span
+                aria-hidden="true"
+                className="absolute bottom-[7px] h-[2px] rounded-full pointer-events-none"
+                style={{
+                  left: `${pct(u.srcStart + u.expert.low)}%`,
+                  width: `${Math.max(0.2, pct(u.srcStart + u.expert.high) - pct(u.srcStart + u.expert.low))}%`,
+                  background: STATUS_HEX[u.status],
+                }}
+              />
+            )}
+            {WINDOW_SECONDS <= LIP_MARK_SECONDS && u.expert?.dubLips.map((t, n) => <LipMark key={`lip-${n}`} up left={`${pct(u.srcStart + t)}%`} />)}
+            {over > 0 && (
+              <span
+                title={title}
+                className={`absolute top-1.5 bottom-1.5 rounded-r pointer-events-none ${u.status === 'long' ? OVER_LONG : OVER_TIGHT}`}
+                style={{ left: `${pct(u.srcStart + u.slot)}%`, width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart + u.slot))}%` }}
+              />
+            )}
+            {u.status === 'short' && (
+              <span
+                title={`${u.text}\nEnds about ${u.underflow.toFixed(1)} s before the original speaker stops`}
+                className={`absolute top-1.5 bottom-1.5 rounded-r ${QUIET_BOX}`}
+                style={{ left: `${pct(u.srcStart + u.estimate)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart + u.estimate))}%` }}
+              />
+            )}
+            <span
+              aria-hidden="true"
+              className="absolute top-0.5 bottom-0.5 w-px bg-slate-600 pointer-events-none"
+              style={{ left: `${pct(u.srcStart + u.slot)}%` }}
+            />
+            {trim !== undefined && (
+              <span
+                aria-hidden="true"
+                className={`absolute top-0.5 bottom-0.5 rounded pointer-events-none ${TRIM_BOX}`}
+                style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcStart + trim) - pct(u.srcStart))}%` }}
+              />
+            )}
+            {selected && onTrim && setDrag && (
+              <span
+                role="slider"
+                tabIndex={0}
+                aria-label="Trim out: the length this line should take"
+                aria-valuemin={MIN_TRIM_SECONDS}
+                aria-valuemax={Math.round(u.slot * 10) / 10}
+                aria-valuenow={Math.round(handleAt * 10) / 10}
+                aria-valuetext={`${handleAt.toFixed(1)} seconds`}
+                title="Drag to the length this line should take"
+                className="absolute top-0 bottom-0 w-2 -ml-1 rounded-sm bg-indigo-300 hover:bg-indigo-200 cursor-ew-resize touch-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                style={{ left: `${pct(u.srcStart + handleAt)}%` }}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  try {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  } catch {
+                    // A pointer that is already gone: the drag still follows moves over the handle.
+                  }
+                  onDragStart?.();
+                  setDrag({ key: u.key, seconds: handleAt });
+                }}
+                onPointerMove={(e) => {
+                  if (drag?.key !== u.key || !e.currentTarget.parentElement) return;
+                  setDrag({ key: u.key, seconds: trimAt(u, e.clientX, e.currentTarget.parentElement) });
+                }}
+                onPointerUp={(e) => {
+                  if (drag?.key !== u.key) return;
+                  if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+                  onTrim(u, drag.seconds);
+                  setDrag(null);
+                }}
+                onPointerCancel={() => setDrag(null)}
+                onKeyDown={(e) => {
+                  const step = e.key === 'ArrowRight' ? 0.1 : e.key === 'ArrowLeft' ? -0.1 : 0;
+                  if (!step) return;
+                  e.preventDefault();
+                  onTrim(u, Math.max(MIN_TRIM_SECONDS, Math.min(u.slot, Math.round((handleAt + step) * 10) / 10)));
+                }}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </>
+  );
+};
+
 /**
  * The report's timeline, before a sync: the original's waveform and lines
  * above, the dub lines where Sync will start them below, outlined in dashes
@@ -992,13 +1327,6 @@ export const PreviewTimeline: React.FC<{
     setFollow(true);
     onSeek(zoom.viewStart() + ((e.clientX - r.left) / r.width) * WINDOW_SECONDS);
   };
-  /** A trim from where the pointer is over the dub lane, held to the line's slot, snapping to the end of the original speech. */
-  const trimAt = (u: SyncPreviewUnit, clientX: number, lane: Element) => {
-    const r = lane.getBoundingClientRect();
-    const seconds = windowStart + ((clientX - r.left) / r.width) * WINDOW_SECONDS - u.srcStart;
-    const snapped = Math.abs(seconds - u.spoken) <= 0.15 ? u.spoken : Math.round(seconds * 10) / 10;
-    return Math.max(MIN_TRIM_SECONDS, Math.min(u.slot, snapped));
-  };
   const dragged = drag ? units.find((u) => u.key === drag.key) : undefined;
   const sourcePeaks = usePeaks(sourceBuffer);
   const sourceSpans = useMemo(() => units.map((u) => ({ from: u.srcStart, to: u.srcEnd, color: hueOf(u.index) })), [units]);
@@ -1079,141 +1407,19 @@ export const PreviewTimeline: React.FC<{
         </span>
         <div className="relative h-11 rounded-lg bg-slate-950/60 overflow-hidden cursor-default" onClick={seekAt} onWheel={onWheel}>
           <div ref={zoom.strip} className="absolute inset-0">
-          {visible.map((u) => {
-            const over = u.estimate - u.slot;
-            const hue = hueOf(u.index);
-            const selected = u.key === selectedKey;
-            const trim = drag?.key === u.key ? drag.seconds : u.wantSeconds;
-            const handleAt = trim ?? Math.min(u.estimate, u.slot);
-            const title = `${u.text}\nAbout ${u.estimate.toFixed(1)} s${readNote(u)}${
-              u.expert ? ` (${u.expert.low.toFixed(1)} to ${u.expert.high.toFixed(1)} s, ${u.expert.syllables} syllables)` : ''
-            } · slot ${u.slot.toFixed(1)} s${over > 0 ? ` · +${over.toFixed(1)} s` : ''}${
-              u.wantSeconds !== undefined ? ` · your trim ${u.wantSeconds.toFixed(1)} s` : ''
-            }${onSelect ? '\nClick to pick this line' : ''}`;
-            const words = rythmo ? u.expert?.words : undefined;
-            const pick = onSelect
-              ? (e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  onSelect(u);
-                }
-              : undefined;
-            return (
-              <React.Fragment key={u.key}>
-                <span
-                  title={title}
-                  onClick={pick}
-                  className="absolute top-1.5 bottom-1.5 rounded border border-dashed"
-                  style={{
-                    left: `${pct(u.srcStart)}%`,
-                    width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart))}%`,
-                    background: withAlpha(hue, words ? 0.06 : 0.14),
-                    borderColor: withAlpha(hue, 0.75),
-                    boxShadow: selected ? SELECTED_RING : u.key === current?.key ? NOW_RING : undefined,
-                  }}
-                >
-                  {!words && lineNumber(u, u.estimate, STATUS_DOT[u.status])}
-                  {!words && pct(u.srcStart + u.estimate) - pct(u.srcStart) > 9 && (
-                    <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
-                      {u.expert ? '' : '≈'}
-                      {u.estimate.toFixed(1)} s
-                    </span>
-                  )}
-                </span>
-                {/* Rythmo: each word where it is likely said, red once past the line's slot */}
-                {words?.map((w, n) => (
-                  <RythmoWord
-                    key={n}
-                    text={w.text}
-                    late={w.end > u.slot + 0.02}
-                    className="text-[12px]"
-                    left={`${pct(u.srcStart + w.start)}%`}
-                    width={`${Math.max(0.2, pct(u.srcStart + w.end) - pct(u.srcStart + w.start))}%`}
-                  />
-                ))}
-                {/* Expert: a fast to a slow read, in the colour of how it fits */}
-                {u.expert && !words && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute bottom-[7px] h-[2px] rounded-full pointer-events-none"
-                    style={{
-                      left: `${pct(u.srcStart + u.expert.low)}%`,
-                      width: `${Math.max(0.2, pct(u.srcStart + u.expert.high) - pct(u.srcStart + u.expert.low))}%`,
-                      background: STATUS_HEX[u.status],
-                    }}
-                  />
-                )}
-                {u.expert?.dubLips.map((t, n) => <LipMark key={`lip-${n}`} up left={`${pct(u.srcStart + t)}%`} />)}
-                {over > 0 && (
-                  <span
-                    title={title}
-                    className="absolute bottom-0.5 h-[3px] rounded-full bg-amber-400 pointer-events-none"
-                    style={{ left: `${pct(u.srcStart + u.slot)}%`, width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart + u.slot))}%` }}
-                  />
-                )}
-                {u.status === 'short' && (
-                  <span
-                    title={`${u.text}\nEnds about ${u.underflow.toFixed(1)} s before the original speaker stops`}
-                    className={`absolute top-1.5 bottom-1.5 rounded-r ${QUIET_BOX}`}
-                    style={{ left: `${pct(u.srcStart + u.estimate)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart + u.estimate))}%` }}
-                  />
-                )}
-                <span
-                  aria-hidden="true"
-                  className="absolute top-0.5 bottom-0.5 w-px bg-slate-600 pointer-events-none"
-                  style={{ left: `${pct(u.srcStart + u.slot)}%` }}
-                />
-                {trim !== undefined && (
-                  <span
-                    aria-hidden="true"
-                    className={`absolute top-0.5 bottom-0.5 rounded pointer-events-none ${TRIM_BOX}`}
-                    style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcStart + trim) - pct(u.srcStart))}%` }}
-                  />
-                )}
-                {selected && onTrim && (
-                  <span
-                    role="slider"
-                    tabIndex={0}
-                    aria-label="Trim out: the length this line should take"
-                    aria-valuemin={MIN_TRIM_SECONDS}
-                    aria-valuemax={Math.round(u.slot * 10) / 10}
-                    aria-valuenow={Math.round(handleAt * 10) / 10}
-                    aria-valuetext={`${handleAt.toFixed(1)} seconds`}
-                    title="Drag to the length this line should take"
-                    className="absolute top-0 bottom-0 w-2 -ml-1 rounded-sm bg-indigo-300 hover:bg-indigo-200 cursor-ew-resize touch-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                    style={{ left: `${pct(u.srcStart + handleAt)}%` }}
-                    onClick={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      try {
-                        e.currentTarget.setPointerCapture(e.pointerId);
-                      } catch {
-                        // A pointer that is already gone: the drag still follows moves over the handle.
-                      }
-                      setFollow(false);
-                      setDrag({ key: u.key, seconds: handleAt });
-                    }}
-                    onPointerMove={(e) => {
-                      if (drag?.key !== u.key || !e.currentTarget.parentElement) return;
-                      setDrag({ key: u.key, seconds: trimAt(u, e.clientX, e.currentTarget.parentElement) });
-                    }}
-                    onPointerUp={(e) => {
-                      if (drag?.key !== u.key) return;
-                      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
-                      onTrim(u, drag.seconds);
-                      setDrag(null);
-                    }}
-                    onPointerCancel={() => setDrag(null)}
-                    onKeyDown={(e) => {
-                      const step = e.key === 'ArrowRight' ? 0.1 : e.key === 'ArrowLeft' ? -0.1 : 0;
-                      if (!step) return;
-                      e.preventDefault();
-                      onTrim(u, Math.max(MIN_TRIM_SECONDS, Math.min(u.slot, Math.round((handleAt + step) * 10) / 10)));
-                    }}
-                  />
-                )}
-              </React.Fragment>
-            );
-          })}
+          <DubEstimateLane
+            units={visible}
+            windowStart={windowStart}
+            windowSeconds={WINDOW_SECONDS}
+            selectedKey={selectedKey}
+            currentKey={current?.key}
+            onSelect={onSelect}
+            onTrim={onTrim}
+            rythmo={rythmo}
+            drag={drag}
+            setDrag={setDrag}
+            onDragStart={() => setFollow(false)}
+          />
           </div>
           {playhead(1)}
         </div>

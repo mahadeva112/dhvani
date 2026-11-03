@@ -45,6 +45,19 @@ export interface ReviewWaveformPlayerProps {
   onDragCut?: (leftId: string | number, time: number, phase: 'start' | 'move' | 'end') => void;
   /** The cue left of the cut being edited, whose cut is drawn as a handle. */
   selectedCutId?: string | number | null;
+  /**
+   * A lane drawn under the waveform on the same clock (the Sync fit's dub
+   * lane): given the window on screen and the time, in seconds.
+   */
+  belowWave?: (view: { start: number; span: number; time: number }) => React.ReactNode;
+  /** The lane's name in the legend. */
+  belowWaveLabel?: string;
+  /**
+   * A thin row between the waveform and `belowWave` (the lines' pauses), on
+   * the same clock. With a lane below, the full view becomes a track view:
+   * each row named on its left.
+   */
+  pausesRow?: (view: { start: number; span: number }) => React.ReactNode;
 }
 
 /** Cues closer than this share a cut that can be dragged. */
@@ -90,6 +103,15 @@ const formatTime = (seconds: number, tenths = true) => {
   const sec = tenths ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${String(m).padStart(2, '0')}:${sec}`;
 };
+
+/** A row's name on the left of the track view. */
+const TrackName: React.FC<{ children: React.ReactNode; dot?: string; dashed?: boolean; small?: boolean }> = ({ children, dot, dashed, small }) => (
+  <span className={`flex items-center gap-1.5 text-slate-400 ${small ? 'text-[10.5px] mt-1' : 'text-[11.5px]'} ${dashed ? 'mt-1' : ''}`}>
+    {dot && <span className={`w-2 h-2 rounded-full ${dot}`} />}
+    {dashed && <span className="w-2.5 h-2 rounded-sm border border-dashed border-indigo-300" />}
+    {children}
+  </span>
+);
 
 /** Sizes a canvas to its box at device resolution and hands back a drawing context. */
 const prepareCanvas = (canvas: HTMLCanvasElement | null) => {
@@ -141,6 +163,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   onPlaybackRateChange,
   onDragCut,
   selectedCutId = null,
+  belowWave,
+  belowWaveLabel,
+  pausesRow,
 }) => {
   /*
    * Two clocks for two jobs. Playheads and the played colour move every frame
@@ -326,7 +351,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     applyFrame(liveRef.current);
   });
 
-  // Keyboard: arrows move 5 s, comma and full stop step cues, L loops. Space is the app's.
+  // Keyboard: arrows move 5 s, comma and full stop step cues, L loops, + and − zoom, F shows the whole track. Space is the app's.
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => {});
   keyHandler.current = (e: KeyboardEvent) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -338,6 +363,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     else if (e.key === ',') prevCue();
     else if (e.key === '.') nextCue();
     else if (e.key === 'l' || e.key === 'L') setLoop((v) => !v);
+    else if (!compact && (e.key === '+' || e.key === '=')) changeZoom(1);
+    else if (!compact && e.key === '-') changeZoom(-1);
+    else if (!compact && (e.key === 'f' || e.key === 'F')) setZoom(1);
     else return;
     e.preventDefault();
   };
@@ -568,6 +596,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
 
   // Ctrl+wheel and a zoomed-in wheel must be cancellable, so they are bound without React's passive listener.
   const waveBoxRef = useRef<HTMLDivElement>(null);
+  const laneRef = useRef<HTMLDivElement>(null);
+  const pausesRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = waveBoxRef.current;
     if (!el) return;
@@ -576,8 +606,13 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       if (e.ctrlKey || e.metaKey || (zoom > 1 && !compact)) e.preventDefault();
     };
     el.addEventListener('wheel', stop, { passive: false });
-    return () => el.removeEventListener('wheel', stop);
-  }, [zoom, compact]);
+    const rows = [laneRef.current, pausesRef.current].filter((row): row is HTMLDivElement => Boolean(row));
+    rows.forEach((row) => row.addEventListener('wheel', stop, { passive: false }));
+    return () => {
+      el.removeEventListener('wheel', stop);
+      rows.forEach((row) => row.removeEventListener('wheel', stop));
+    };
+  }, [zoom, compact, Boolean(belowWave), Boolean(pausesRow)]);
 
   // ---------- pieces ----------
   const vs = zoom === 1 ? 0 : viewStart;
@@ -659,12 +694,33 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
 
           {!compact && (
             <div className="flex items-center gap-1">
-              <button type="button" onClick={() => changeZoom(-1)} disabled={zoom === 1} className={`${iconBtn()} disabled:opacity-40`} aria-label="Zoom out">
+              <button type="button" onClick={() => changeZoom(-1)} disabled={zoom === 1} className={`${iconBtn()} disabled:opacity-40`} aria-label="Zoom out" title="Zoom out (−)">
                 <ZoomOut className="w-3.5 h-3.5" />
               </button>
-              <span className="w-9 text-center font-mono text-[11.5px] text-slate-400 tabular-nums">{zoom}×</span>
-              <button type="button" onClick={() => changeZoom(1)} disabled={zoom === ZOOMS[ZOOMS.length - 1]} className={`${iconBtn()} disabled:opacity-40`} aria-label="Zoom in">
+              <input
+                type="range"
+                min={0}
+                max={ZOOMS.length - 1}
+                step={1}
+                value={Math.max(0, ZOOMS.indexOf(zoom))}
+                onChange={(e) => {
+                  const next = ZOOMS[Number(e.target.value)] ?? 1;
+                  const ns = total / next;
+                  setViewStart(Math.max(0, Math.min(Math.max(0, total - ns), liveRef.current - ns * 0.35)));
+                  setZoom(next);
+                }}
+                className="hidden md:block w-24 accent-indigo-500"
+                aria-label="Zoom"
+                title="Zoom (Ctrl + scroll over the timeline)"
+              />
+              <button type="button" onClick={() => changeZoom(1)} disabled={zoom === ZOOMS[ZOOMS.length - 1]} className={`${iconBtn()} disabled:opacity-40`} aria-label="Zoom in" title="Zoom in (+)">
                 <ZoomIn className="w-3.5 h-3.5" />
+              </button>
+              <span className="w-[4.5rem] text-center font-mono text-[11.5px] text-slate-400 tabular-nums" title="How much of the track is on view">
+                {zoom === 1 ? 'whole' : `${span < 10 ? span.toFixed(1) : Math.round(span)} s`}
+              </span>
+              <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1} className={`${segBtn(false)} disabled:opacity-40`} title="Show the whole track (F)">
+                Fit
               </button>
               <button
                 type="button"
@@ -705,20 +761,26 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             <span className="font-mono text-[13px] text-slate-100 tabular-nums whitespace-nowrap">
               {formatTime(currentTime)} <span className="text-slate-500">/ {formatTime(total, false)}</span>
             </span>
-            <div
-              ref={waveBoxRef}
-              className="relative flex-1 min-w-[12rem] h-10 rounded-lg bg-slate-950/60 overflow-hidden cursor-default"
-              onPointerDown={(e) => {
-                dragRef.current = 'overview';
-                e.currentTarget.setPointerCapture(e.pointerId);
-                seekTo(timeAt(e, e.currentTarget, true));
-              }}
-              onPointerMove={(e) => dragRef.current === 'overview' && seekTo(timeAt(e, e.currentTarget, true), false)}
-              onPointerUp={() => (dragRef.current = null)}
-            >
-              <canvas ref={compactRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
-              <canvas ref={compactPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
-              <div ref={compactHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
+            <div className="flex-1 min-w-[12rem] flex flex-col gap-1">
+              <div
+                ref={waveBoxRef}
+                className="relative h-10 rounded-lg bg-slate-950/60 overflow-hidden cursor-default"
+                onPointerDown={(e) => {
+                  dragRef.current = 'overview';
+                  e.currentTarget.setPointerCapture(e.pointerId);
+                  seekTo(timeAt(e, e.currentTarget, true));
+                }}
+                onPointerMove={(e) => dragRef.current === 'overview' && seekTo(timeAt(e, e.currentTarget, true), false)}
+                onPointerUp={() => (dragRef.current = null)}
+              >
+                <canvas ref={compactRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+                <canvas ref={compactPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+                <div ref={compactHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
+              </div>
+              {/* The compact strip is the whole track, and so is its lane. */}
+              {belowWave && (
+                <div className="relative h-9 rounded-lg bg-slate-950/60 overflow-hidden cursor-default">{belowWave({ start: 0, span: total || 1, time: currentTime })}</div>
+              )}
             </div>
             {loopButton}
           </div>
@@ -737,12 +799,18 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               <span className="flex items-center gap-1.5">
                 <span className="w-3 h-2 rounded-sm bg-rose-400/30" /> Too fast
               </span>
+              {belowWave && (
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-2 rounded-sm border border-dashed border-indigo-300 bg-indigo-300/15" /> {belowWaveLabel || 'Dub, est.'}
+                </span>
+              )}
               <span className="ml-auto hidden md:inline">
                 Click to jump · drag to scrub{onDragCut ? ' · drag a cut between cues to move it' : ''} · Ctrl+scroll to zoom{zoom > 1 ? ' · scroll to move' : ''}
               </span>
             </div>
 
-            <div className="px-3.5">
+            <div className={belowWave ? 'px-3.5 grid grid-cols-[5.25rem_minmax(0,1fr)] gap-x-2.5 items-center' : 'px-3.5'}>
+              {belowWave && <span />}
               <div className="relative h-[22px] font-mono text-[10px] text-slate-500" aria-hidden="true">
                 {ticks.map((t) => (
                   <span key={t} className="absolute top-1.5 -translate-x-1/2 tabular-nums" style={{ left: `${((t - vs) / span) * 100}%` }}>
@@ -750,6 +818,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                   </span>
                 ))}
               </div>
+              {belowWave && <TrackName dot="bg-cyan-400">Original</TrackName>}
               <div
                 ref={waveBoxRef}
                 role="slider"
@@ -783,6 +852,23 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                   </span>
                 )}
               </div>
+              {belowWave && pausesRow && (
+                <>
+                  <TrackName small>Pauses</TrackName>
+                  <div ref={pausesRef} className="relative mt-1 h-4 overflow-hidden cursor-default" onWheel={onWheel}>
+                    {pausesRow({ start: vs, span })}
+                  </div>
+                </>
+              )}
+              {belowWave && (
+                <>
+                  <TrackName dashed>{belowWaveLabel || 'Dub, est.'}</TrackName>
+                  <div ref={laneRef} className="relative mt-1 h-11 rounded-[10px] bg-slate-950/60 overflow-hidden cursor-default" onWheel={onWheel}>
+                    {belowWave({ start: vs, span, time: currentTime })}
+                  </div>
+                </>
+              )}
+              {belowWave && <span />}
               <div
                 className="relative mt-2.5 h-[26px] rounded-[7px] bg-slate-950/60 overflow-hidden cursor-default touch-none"
                 title={zoom === 1 ? 'The whole file' : 'The whole file. Drag the box to move around.'}
