@@ -555,21 +555,25 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       e.preventDefault();
       const el = e.currentTarget as HTMLElement;
       changeZoom(e.deltaY < 0 ? 1 : -1, timeAt(e, el, false));
-    } else if (zoom > 1 && (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY))) {
+    } else if (zoom > 1) {
+      // Zoomed in, any wheel moves through time, as in a timeline editor: up/down, sideways or Shift + wheel.
       e.preventDefault();
       setFollow(false);
-      const delta = (e.shiftKey ? e.deltaY : e.deltaX) / 600;
+      const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY);
+      const lines = e.deltaMode === 1 ? 16 : 1;
+      const delta = ((sideways ? e.deltaX : e.deltaY) * lines) / 600;
       setViewStart((vs) => clampStart(vs + delta * span));
     }
   };
 
-  // Ctrl+wheel must be cancellable, so it is bound without React's passive listener.
+  // Ctrl+wheel and a zoomed-in wheel must be cancellable, so they are bound without React's passive listener.
   const waveBoxRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = waveBoxRef.current;
     if (!el) return;
     const stop = (e: WheelEvent) => {
-      if (e.ctrlKey || e.metaKey || (zoom > 1 && (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)))) e.preventDefault();
+      // The compact strip always shows the whole track: a plain wheel there is the page's.
+      if (e.ctrlKey || e.metaKey || (zoom > 1 && !compact)) e.preventDefault();
     };
     el.addEventListener('wheel', stop, { passive: false });
     return () => el.removeEventListener('wheel', stop);
@@ -734,7 +738,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 <span className="w-3 h-2 rounded-sm bg-rose-400/30" /> Too fast
               </span>
               <span className="ml-auto hidden md:inline">
-                Click to jump · drag to scrub{onDragCut ? ' · drag a cut between cues to move it' : ''} · Ctrl+scroll to zoom
+                Click to jump · drag to scrub{onDragCut ? ' · drag a cut between cues to move it' : ''} · Ctrl+scroll to zoom{zoom > 1 ? ' · scroll to move' : ''}
               </span>
             </div>
 

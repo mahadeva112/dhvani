@@ -36,8 +36,8 @@ export type TimelineZoom = ReturnType<typeof useTimelineZoom>;
  * The part of a timeline on screen. It opens on the whole of `total`; zooming
  * in (the buttons, or Ctrl + wheel or a pinch over `lanesRef`) shows a window
  * of it, which follows playback while `follow` is on.
- * With `wheelScrollsTime`, a plain up/down wheel over the lanes moves a zoomed
- * window through time instead of scrolling the page.
+ * A plain up/down wheel over the lanes moves a zoomed window through time
+ * instead of scrolling the page, as in a timeline editor; `wheelScrollsTime: false` leaves it to the page.
  *
  * With `glide`, following playback moves the timeline smoothly under a
  * playhead that stops at GLIDE_ANCHOR, as a DAW does, instead of paging.
@@ -45,7 +45,7 @@ export type TimelineZoom = ReturnType<typeof useTimelineZoom>;
  * given the `strip` ref, and only those are moved, on the GPU, each frame;
  * the timeline is drawn again only once it has moved that far.
  */
-export const useTimelineZoom = (total: number, currentTime: number, { wheelScrollsTime = false, glide = false } = {}) => {
+export const useTimelineZoom = (total: number, currentTime: number, { wheelScrollsTime = true, glide = false } = {}) => {
   const fullSpan = Math.max(MIN_WINDOW_SECONDS, total);
   // Seconds on screen; null is the whole timeline.
   const [zoomSpan, setZoomSpan] = useState<number | null>(null);
@@ -218,7 +218,7 @@ const ZOOM_BUTTON =
 /** Zoom in / out and back to the whole timeline, with how else to zoom. */
 export const TimelineZoomControls: React.FC<{ zoom: TimelineZoom }> = ({ zoom }) => (
   <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-slate-500">
-    <span className="hidden sm:inline">Ctrl + scroll to zoom</span>
+    <span className="hidden sm:inline">{zoom.zoomed ? 'Scroll to move · ' : ''}Ctrl + scroll to zoom</span>
     <div className="flex items-center gap-0.5 rounded-lg border border-slate-800 bg-slate-950/60 p-0.5" role="group" aria-label="Zoom">
       <button type="button" className={ZOOM_BUTTON} onClick={() => zoom.zoomBy(1 / ZOOM_STEP)} disabled={!zoom.canZoomIn} aria-label="Zoom in" title="Zoom in">
         <ZoomIn className="w-4 h-4" />
