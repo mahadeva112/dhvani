@@ -1,8 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Download, Keyboard, Pause, Play } from 'lucide-react';
+import { CheckCheck, Download, Keyboard, Languages, Loader2, Pause, Play } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import { scrollWithin } from '../scrollWithin';
-import { SCRIPT_PALETTES, getIndicLanguageConfig } from '../../services/indicTransliteration';
+import { SCRIPT_PALETTES, getIndicLanguageConfig, transliterateTextSmart, transliterateWordOffline } from '../../services/indicTransliteration';
+import { polishIndicDialogueWithAI } from '../../services/geminiService';
 import { buildScriptParagraphs, scriptParagraphSeconds } from './passages';
 import { usePhoneticTyping, type PhoneticField } from './usePhoneticTyping';
 import { inlineField, placeCaret } from './inlineField';
@@ -95,6 +96,8 @@ interface ScriptTableViewProps {
   exportTitle?: string;
   /** The Word file's name without ".docx": the project's name. */
   exportFileStem: string;
+  /** Opens the on-screen phonetic keyboard on a line, as from a cue in the Cues table. */
+  onOpenKeyboard?: (seg: AudioSegment) => void;
 }
 
 /**
@@ -122,6 +125,7 @@ export function ScriptTableView({
   fontSize = 15,
   exportTitle,
   exportFileStem,
+  onOpenKeyboard,
 }: ScriptTableViewProps) {
   // The getter is a new function each render; the paragraphs only change with the cues.
   const sourceOf = useRef(getSourceText);
@@ -422,6 +426,66 @@ export function ScriptTableView({
   const editSeg = edit ? segOf(edit.id) : undefined;
   const editPace = edit && editSeg ? getPacing(editSeg, edit.text) : null;
 
+  // The Cues table's line tools: every Roman word at once, and AI polish, opt-in as there.
+  const [aiPolishOn, setAiPolishOn] = useState(false);
+  const [lineBusy, setLineBusy] = useState<'convert' | 'polish' | null>(null);
+  const [lineNote, setLineNote] = useState<string | null>(null);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
+  const showNote = (note: string) => {
+    setLineNote(note);
+    clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setLineNote(null), 4000);
+  };
+  /** Puts a whole new text in a line: into the typing when it is still open, else straight into its cue. */
+  const replaceLine = (id: string, text: string) => {
+    const seg = segOf(id);
+    if (!seg) return;
+    if (editRef.current?.id === id) {
+      typed(id)(text);
+      setTimeout(() => {
+        const el = rootRef.current?.querySelector<HTMLElement>(`[data-dub-cue="${CSS.escape(id)}"]`);
+        if (el && document.activeElement === el) placeCaret(el, text.length);
+      }, 0);
+    } else if (text !== savedOf(seg)) onUpdateLines([{ id: seg.id, text }]);
+  };
+  const convertLine = async () => {
+    const e = editRef.current;
+    if (!e || lineBusy) return;
+    setLineBusy('convert');
+    let text: string;
+    try {
+      text = await transliterateTextSmart(e.text, targetLanguage);
+    } catch {
+      text = transliterateWordOffline(e.text, targetLanguage);
+    } finally {
+      setLineBusy(null);
+    }
+    // Typing on while it converted keeps what was typed.
+    if (editRef.current?.id === e.id && editRef.current.text !== e.text) return;
+    replaceLine(e.id, asLine(text));
+  };
+  const polishLine = async () => {
+    const e = editRef.current;
+    if (!e || !e.text.trim() || lineBusy) return;
+    setLineBusy('polish');
+    try {
+      const res = await polishIndicDialogueWithAI(e.text, langConfig.name, `Dialogue cue for Indic dubbing in ${langConfig.nativeName}`);
+      if (editRef.current?.id === e.id && editRef.current.text !== e.text) return;
+      if (res.correctedText) {
+        replaceLine(e.id, asLine(res.correctedText));
+        showNote(res.notes || `Polished ${langConfig.nativeName} spelling and nuances`);
+      }
+    } catch {
+      showNote('AI Polish unavailable. Check internet or API key.');
+    } finally {
+      setLineBusy(null);
+    }
+  };
+  // Bar buttons keep the caret in the line.
+  const keepCaret = (e: React.MouseEvent) => e.preventDefault();
+  const barButton = 'h-7 px-2 rounded-md border flex items-center gap-1 text-[11px] font-medium transition-colors cursor-default disabled:opacity-50';
+
   /** Every passage, not just those shown, as a Word table: the original's paragraph left, the dub's right. */
   const [savingWord, setSavingWord] = useState(false);
   const [wordSize, setWordSize] = useState<WordParagraphSize>(loadWordParagraphSize);
@@ -588,6 +652,70 @@ export function ScriptTableView({
           </button>
           {editPace?.level === 'fast' && <span className="mr-1 text-[11px] text-rose-300">{fastLabel}</span>}
           {editPace?.level === 'tight' && <span className="mr-1 text-[11px] text-amber-300/90">tight</span>}
+          {phonetic.enabled && /[a-zA-Z]{2,}/.test(edit.text) && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onMouseDown={keepCaret}
+              onClick={convertLine}
+              disabled={lineBusy !== null}
+              className={`${barButton} border-slate-800 text-slate-300 hover:text-slate-100 hover:bg-slate-800`}
+              title="Turn every English-letter word in this line into the script"
+            >
+              {lineBusy === 'convert' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
+              Convert all
+            </button>
+          )}
+          <button
+            type="button"
+            tabIndex={-1}
+            onMouseDown={keepCaret}
+            onClick={() => setAiPolishOn((on) => !on)}
+            aria-pressed={aiPolishOn}
+            className={`${barButton} ${
+              aiPolishOn ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
+            }`}
+            title="Let the translation engine fix vowel signs, joined letters and wording in this line"
+          >
+            <CheckCheck className="w-3 h-3" />
+            AI polish {aiPolishOn ? 'on' : 'off'}
+          </button>
+          {aiPolishOn && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onMouseDown={keepCaret}
+              onClick={polishLine}
+              disabled={lineBusy !== null || !edit.text.trim()}
+              className={`${barButton} border-transparent bg-emerald-600 hover:bg-emerald-500 text-white font-semibold`}
+            >
+              {lineBusy === 'polish' ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" /> Polishing…
+                </>
+              ) : (
+                'Polish this line'
+              )}
+            </button>
+          )}
+          {onOpenKeyboard && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onMouseDown={keepCaret}
+              onClick={() => {
+                // The line is saved first, so the keyboard adds to what is typed in it.
+                rootRef.current?.querySelector<HTMLElement>(`[data-dub-cue="${CSS.escape(edit.id)}"]`)?.blur();
+                onOpenKeyboard(editSeg);
+              }}
+              className={`${barButton} border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800`}
+              title="Open the on-screen keyboard on this line"
+            >
+              <Keyboard className="w-3 h-3" />
+              Keyboard
+            </button>
+          )}
+          {lineNote && <span className="mx-1 text-[11px] text-emerald-300">{lineNote}</span>}
           <span className="mx-1.5 text-[11px] text-slate-500">Signs</span>
           {signs.map((sign) => (
             <button

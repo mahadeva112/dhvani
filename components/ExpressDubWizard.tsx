@@ -2754,6 +2754,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               fontSize={reviewFontPx}
               exportTitle={activeJob.file?.name}
               exportFileStem={projectFileStem(activeJob)}
+              onOpenKeyboard={onOpenPhoneticKeyboard}
             />
           )}
 
