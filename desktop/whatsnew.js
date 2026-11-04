@@ -5,6 +5,15 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.29',
+    changes: [
+      'The Review player is one compact view: the original, its pauses and the dub estimate share one lane, with a plain scroll bar under it and the key hints behind the ? button.',
+      'The dub estimate can show each line as a Wave or as word Blocks: pick Wave, Blocks, Bars or Rythmo next to Quick | Expert, and zoom in to read the words in Blocks.',
+      'A reel shows whole in the video window at any size, and Fit to the video keeps the window on screen with its controls still working.',
+      'The video menu is simpler: no preset sizes and no crop; size the window yourself. Replace video works from inside the video window.',
+    ],
+  },
+  {
     version: '1.4.28',
     changes: [
       'The review video always opens in a window of its own, so you can move it anywhere, and it opens again where you left it.',
