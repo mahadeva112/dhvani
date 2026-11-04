@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2, Pencil, RefreshCw, RotateCcw, X } from 'lucide-react';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
@@ -53,14 +53,83 @@ const TRIM_BOX = 'border-2 border-dashed border-indigo-300/90';
 /** Past a line's slot: striped red when it runs long, a softer amber while it is only tight. */
 const OVER_LONG = 'bg-[repeating-linear-gradient(135deg,rgba(239,68,68,0.7)_0_5px,rgba(239,68,68,0.35)_5px_10px)]';
 const OVER_TIGHT = 'bg-[repeating-linear-gradient(135deg,rgba(251,191,36,0.45)_0_5px,rgba(251,191,36,0.15)_5px_10px)]';
+/** The same, faint, behind a Wave or Blocks line whose own end already turns red past its slot. */
+const OVER_LONG_SOFT = 'bg-[repeating-linear-gradient(135deg,rgba(239,68,68,0.22)_0_5px,transparent_5px_10px)]';
+const OVER_TIGHT_SOFT = 'bg-[repeating-linear-gradient(135deg,rgba(251,191,36,0.18)_0_5px,transparent_5px_10px)]';
 /** The dub bar picked for trimming. */
 const SELECTED_RING = '0 0 0 2px rgba(165,180,252,0.95)';
 /** The line under the playhead. */
 const NOW_RING = '0 0 0 2px rgba(255,255,255,0.8)';
 /** How a line is likely to fit, as the colour of its Expert range. */
 const STATUS_HEX: Record<SyncPreviewUnit['status'], string> = { fits: '#34d399', tight: '#fcd34d', long: '#fbbf24', short: '#38bdf8' };
-/** Bars or Rythmo, for the Expert estimate's dub lane. */
+/** How the dub lane draws its lines: Wave, Blocks, Bars, or (Expert only) Rythmo. */
 const PREVIEW_VIEW_KEY = 'dhvani_preview_view';
+export type LaneView = 'wave' | 'blocks' | 'bars' | 'rythmo';
+const LANE_VIEWS: LaneView[] = ['wave', 'blocks', 'bars', 'rythmo'];
+/** Zoomed out past this many pixels a second, Blocks draws each line as one bar: its words would be slivers. */
+const BLOCKS_MIN_PX_PER_SECOND = 6;
+
+/** A mark a voice is likely to pause at, ending a word. */
+const PAUSE_MARK = /[,.;:!?\u0964\u0965\u2013\u2014]$/;
+
+/**
+ * Where each word of a line is likely to fall, in seconds from its start,
+ * stretched to the line's estimate. An Expert line has its own timed words; a
+ * Quick one shares the estimate out by characters, with a short pause after a
+ * mark. A guess drawn from the text: nothing has been voiced yet.
+ */
+export const estimatedWords = (u: SyncPreviewUnit): { text: string; start: number; end: number }[] => {
+  const length = u.estimate;
+  if (length <= 0) return [];
+  const timed = u.expert?.words;
+  if (timed?.length) {
+    const last = timed[timed.length - 1].end;
+    const k = last > 0 ? length / last : 1;
+    return timed.map((w) => ({ text: w.text, start: w.start * k, end: w.end * k }));
+  }
+  const tokens = u.text.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return [];
+  const gaps = tokens.slice(0, -1).map((t) => (PAUSE_MARK.test(t) ? 0.25 : 0.04));
+  const gapTotal = gaps.reduce((a, b) => a + b, 0);
+  // Pauses never take more than a third of the line.
+  const squeeze = gapTotal > length / 3 ? length / 3 / gapTotal : 1;
+  const speech = length - gapTotal * squeeze;
+  const chars = tokens.reduce((a, t) => a + Math.max(1, t.length), 0);
+  let at = 0;
+  return tokens.map((text, i) => {
+    const d = (speech * Math.max(1, text.length)) / chars;
+    const word = { text, start: at, end: at + d };
+    at += d + (gaps[i] ?? 0) * squeeze;
+    return word;
+  });
+};
+
+/** A steady pseudo-random 0..1, so a line's wave keeps its shape from one render to the next. */
+const wobble = (i: number, j: number) => {
+  const x = Math.sin(i * 12.9898 + j * 78.233) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/** A line's Wave: one swell per estimated word, flat in its pauses, on a 1000 × 100 box mirrored about its middle. */
+const wavePath = (words: { start: number; end: number }[], length: number) => {
+  if (!words.length || length <= 0) return '';
+  const top: [number, number][] = [[0, 0]];
+  words.forEach((w, i) => {
+    const a = (w.start / length) * 1000;
+    const b = (w.end / length) * 1000;
+    const steps = Math.max(4, Math.round((b - a) / 6));
+    const peak = 0.6 + 0.4 * wobble(i, 1);
+    for (let n = 0; n <= steps; n++) {
+      const p = n / steps;
+      const jag = n === 0 || n === steps ? 0 : 0.72 + 0.28 * wobble(i, n + 2);
+      top.push([a + (b - a) * p, Math.sin(Math.PI * p) ** 0.6 * peak * jag * 46]);
+    }
+  });
+  top.push([1000, 0]);
+  const up = top.map(([x, h]) => `${x.toFixed(1)},${(50 - h).toFixed(1)}`);
+  const down = [...top].reverse().map(([x, h]) => `${x.toFixed(1)},${(50 + h).toFixed(1)}`);
+  return `M${up.join('L')}L${down.join('L')}Z`;
+};
 /**
  * Every Rythmo word's box, to the span holding its text. One observer fits
  * them all: a band can hold thousands of words, and fitting each on its own
@@ -891,16 +960,17 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
   );
 };
 
-/** Bars or Rythmo for a dub lane, remembered across sessions. */
+/** How the dub lane draws its lines, remembered across sessions: Wave until another is picked. */
 export const useLaneView = () => {
-  const [view, setView] = useState<'bars' | 'rythmo'>(() => {
+  const [view, setView] = useState<LaneView>(() => {
     try {
-      return localStorage.getItem(PREVIEW_VIEW_KEY) === 'rythmo' ? 'rythmo' : 'bars';
+      const saved = localStorage.getItem(PREVIEW_VIEW_KEY);
+      return LANE_VIEWS.find((v) => v === saved) ?? 'wave';
     } catch {
-      return 'bars';
+      return 'wave';
     }
   });
-  const change = (next: 'bars' | 'rythmo') => {
+  const change = (next: LaneView) => {
     setView(next);
     try {
       localStorage.setItem(PREVIEW_VIEW_KEY, next);
@@ -911,26 +981,31 @@ export const useLaneView = () => {
   return [view, change] as const;
 };
 
-/** The Bars / Rythmo switch for an Expert dub lane. */
-export const LaneViewSwitch: React.FC<{ view: 'bars' | 'rythmo'; onChange: (view: 'bars' | 'rythmo') => void }> = ({ view, onChange }) => (
+/** How the dub lane draws its lines. Rythmo needs the Expert estimate's timed words; without them it shows as Wave. */
+export const LaneViewSwitch: React.FC<{ view: LaneView; onChange: (view: LaneView) => void; rythmo?: boolean }> = ({ view, onChange, rythmo = false }) => {
+  const shown = view === 'rythmo' && !rythmo ? 'wave' : view;
+  return (
   <div role="group" aria-label="Dub lane" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
     {[
+      { id: 'wave' as const, label: 'Wave', hint: 'Each line as a wave: a swell for each word, flat where the voice is likely to pause. A guess from the text; nothing is voiced yet.' },
+      { id: 'blocks' as const, label: 'Blocks', hint: 'Each word as a box as wide as the time it is likely to take, red past the line\'s slot. Zoom in to read the words.' },
       { id: 'bars' as const, label: 'Bars', hint: 'Each line as a bar' },
-      { id: 'rythmo' as const, label: 'Rythmo', hint: 'The dub text on the timeline, each word as wide as the time it takes. Zoom in to read short lines.' },
+      ...(rythmo ? [{ id: 'rythmo' as const, label: 'Rythmo', hint: 'The dub text on the timeline, each word as wide as the time it takes. Zoom in to read short lines.' }] : []),
     ].map((v) => (
       <button
         key={v.id}
         type="button"
         title={v.hint}
-        aria-pressed={view === v.id}
+        aria-pressed={shown === v.id}
         onClick={() => onChange(v.id)}
-        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${view === v.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${shown === v.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
       >
         {v.label}
       </button>
     ))}
   </div>
-);
+  );
+};
 
 /** A gap between the original's words this long is a pause (server/lib/sourcePauses.js). */
 const SOURCE_PAUSE_SECONDS = 0.15;
@@ -1014,11 +1089,39 @@ export const DubEstimateLane: React.FC<{
   onSelect?: (unit: SyncPreviewUnit) => void;
   onTrim?: (unit: SyncPreviewUnit, seconds: number) => void;
   rythmo?: boolean;
+  /** How a line is drawn when it isn't a Rythmo band: a bar, a wave of its words, or a box per word. */
+  look?: 'bars' | 'wave' | 'blocks';
   drag?: { key: string; seconds: number } | null;
   setDrag?: (drag: { key: string; seconds: number } | null) => void;
   onDragStart?: () => void;
-}> = ({ units, windowStart, windowSeconds: WINDOW_SECONDS, selectedKey, currentKey, onSelect, onTrim, rythmo = false, drag = null, setDrag, onDragStart }) => {
+}> = ({ units, windowStart, windowSeconds: WINDOW_SECONDS, selectedKey, currentKey, onSelect, onTrim, rythmo = false, look = 'bars', drag = null, setDrag, onDragStart }) => {
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
+  // Each line's estimated words, and its wave, worked out once per set of lines.
+  const shapes = useMemo(
+    () =>
+      look === 'bars'
+        ? null
+        : new Map(
+            units.map((u) => {
+              const words = estimatedWords(u);
+              return [u.key, { words, path: look === 'wave' ? wavePath(words, u.estimate) : '' }] as const;
+            })
+          ),
+    [units, look]
+  );
+  const gradientId = useId().replace(/[^\w-]/g, '');
+  // Blocks write a word in its box only where it fits, so the lane's width is needed.
+  const probe = useRef<HTMLSpanElement>(null);
+  const [laneWidth, setLaneWidth] = useState(0);
+  useLayoutEffect(() => {
+    const lane = probe.current?.parentElement;
+    if (look !== 'blocks' || !lane) return;
+    setLaneWidth(lane.clientWidth);
+    const observer = new ResizeObserver(() => setLaneWidth(lane.clientWidth));
+    observer.observe(lane);
+    return () => observer.disconnect();
+  }, [look]);
+  const pxPerSecond = WINDOW_SECONDS > 0 ? laneWidth / WINDOW_SECONDS : 0;
   const end = windowStart + WINDOW_SECONDS * 2;
   const visible = units.filter((u) => Math.max(u.srcEnd, u.srcStart + u.estimate) >= windowStart && u.srcStart <= end);
   /** A trim from where the pointer is over the dub lane, held to the line's slot, snapping to the end of the original speech. */
@@ -1040,6 +1143,7 @@ export const DubEstimateLane: React.FC<{
     ) : null;
   return (
     <>
+      {look === 'blocks' && <span ref={probe} aria-hidden="true" className="hidden" />}
       {visible.map((u) => {
         const over = u.estimate - u.slot;
         const hue = hueOf(u.index);
@@ -1052,6 +1156,10 @@ export const DubEstimateLane: React.FC<{
           u.wantSeconds !== undefined ? ` · your trim ${u.wantSeconds.toFixed(1)} s` : ''
         }${onSelect ? '\nClick to pick this line' : ''}`;
         const words = rythmo ? u.expert?.words : undefined;
+        const shape = words ? undefined : shapes?.get(u.key);
+        const drawn = words ? 'rythmo' : !shape || (look === 'blocks' && pxPerSecond < BLOCKS_MIN_PX_PER_SECOND) ? 'bars' : look;
+        // Past this share of the line it runs over its slot, and turns red.
+        const inSlot = over > 0 ? u.slot / u.estimate : 1;
         const pick = onSelect
           ? (e: React.MouseEvent) => {
               e.stopPropagation();
@@ -1067,13 +1175,48 @@ export const DubEstimateLane: React.FC<{
               style={{
                 left: `${pct(u.srcStart)}%`,
                 width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart))}%`,
-                background: withAlpha(hue, words ? 0.1 : 0.28),
-                borderColor: hue,
+                background: drawn === 'bars' || drawn === 'rythmo' ? withAlpha(hue, words ? 0.1 : 0.28) : 'transparent',
+                borderColor: drawn === 'bars' || drawn === 'rythmo' ? hue : 'transparent',
                 boxShadow: selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
               }}
             >
+              {/* Wave: a swell per estimated word, red past the slot */}
+              {drawn === 'wave' && shape && (
+                <svg aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 100" preserveAspectRatio="none">
+                  <defs>
+                    <linearGradient id={`${gradientId}-${u.index}`} gradientUnits="userSpaceOnUse" x1="0" x2="1000" y1="0" y2="0">
+                      <stop offset={inSlot} stopColor={hue} />
+                      <stop offset={inSlot} stopColor="#fb7185" />
+                    </linearGradient>
+                  </defs>
+                  <line x1="0" x2="1000" y1="50" y2="50" stroke={hue} strokeOpacity={0.35} vectorEffect="non-scaling-stroke" />
+                  <path d={shape.path} fill={`url(#${gradientId}-${u.index})`} fillOpacity={0.85} />
+                </svg>
+              )}
+              {/* Blocks: a box per estimated word, its text inside where it fits */}
+              {drawn === 'blocks' &&
+                shape?.words.map((w, n) => {
+                  const late = w.end > u.slot + 0.02;
+                  const fits = (w.end - w.start) * pxPerSecond >= w.text.length * 5 + 6;
+                  return (
+                    <span
+                      key={n}
+                      aria-hidden="true"
+                      className="absolute top-0 bottom-0 flex items-center justify-center overflow-hidden rounded-[3px] border text-[11px] leading-none whitespace-nowrap pointer-events-none"
+                      style={{
+                        left: `${(w.start / u.estimate) * 100}%`,
+                        width: `calc(${((w.end - w.start) / u.estimate) * 100}% - 1px)`,
+                        background: late ? 'rgba(244,63,94,0.25)' : withAlpha(hue, 0.24),
+                        borderColor: late ? '#fb7185' : withAlpha(hue, 0.85),
+                        color: late ? '#fecdd3' : '#f1f5f9',
+                      }}
+                    >
+                      {fits ? w.text : null}
+                    </span>
+                  );
+                })}
               {!words && lineNumber(u, u.estimate, STATUS_DOT[u.status])}
-              {!words && pct(u.srcStart + u.estimate) - pct(u.srcStart) > 9 && (
+              {!words && drawn !== 'blocks' && pct(u.srcStart + u.estimate) - pct(u.srcStart) > 9 && (
                 <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
                   {u.expert ? '' : '≈'}
                   {u.estimate.toFixed(1)} s
@@ -1107,7 +1250,9 @@ export const DubEstimateLane: React.FC<{
             {over > 0 && (
               <span
                 title={title}
-                className={`absolute top-1.5 bottom-1.5 rounded-r pointer-events-none ${u.status === 'long' ? OVER_LONG : OVER_TIGHT}`}
+                className={`absolute top-1.5 bottom-1.5 rounded-r pointer-events-none ${
+                  drawn === 'wave' || drawn === 'blocks' ? (u.status === 'long' ? OVER_LONG_SOFT : OVER_TIGHT_SOFT) : u.status === 'long' ? OVER_LONG : OVER_TIGHT
+                }`}
                 style={{ left: `${pct(u.srcStart + u.slot)}%`, width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart + u.slot))}%` }}
               />
             )}

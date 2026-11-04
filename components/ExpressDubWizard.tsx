@@ -2380,6 +2380,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       onSelect={pickReviewLine}
                       onTrim={trimLine}
                       rythmo={estimateMethod === 'expert' && laneView === 'rythmo'}
+                      look={laneView === 'rythmo' ? 'wave' : laneView}
                       drag={laneDrag}
                       setDrag={setLaneDrag}
                     />
@@ -2665,7 +2666,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   estimate={
                     <span className="flex flex-wrap items-center gap-2">
                       <EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />
-                      {estimateMethod === 'expert' && <LaneViewSwitch view={laneView} onChange={setLaneView} />}
+                      <LaneViewSwitch view={laneView} onChange={setLaneView} rythmo={estimateMethod === 'expert'} />
                       <label
                         className="flex items-center gap-1.5 text-[11.5px] text-slate-400 cursor-default"
                         title="As soon as a line is likely to run long, two shorter wordings are asked for in the background, ready when you look. Uses your text model. Alt + 1 or 2 puts one in; Alt + ↓ or ↑ goes to the next line to fix."
