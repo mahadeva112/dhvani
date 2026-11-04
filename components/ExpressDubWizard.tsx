@@ -127,14 +127,16 @@ import {
   suggestShorterLine,
   suggestLongerLine,
   suggestRewordedLine,
+  checkWording,
   syncedSegments,
   TYPICAL_CHARS_PER_SECOND,
   withLineTargets,
+  type LineSuggestion,
 } from '../services/syncService';
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
-import { useSyncPreview, useLineFixes, LineFixControls, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, type PlaceDrag } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, type PlaceDrag } from './SyncPreviewPanel';
 import { placeOf, withCut, withLinePlaces, withPartStart } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
@@ -290,19 +292,17 @@ const reviewLineOf = (seg: AudioSegment, text: string, sourceText: string): Sync
 const SLOT_MARGIN = 0.92;
 
 /**
- * Other wordings for a line that already fits: shown when the row is hovered
- * or focused, so the list stays quiet until the user wants one.
+ * How much shorter or longer a wording aims to be when the user picks a way
+ * the line's fit does not point: a fifth either side of the line as it is.
  */
-const OtherWordingsButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    className="mt-1.5 h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity cursor-default"
-    title="Other ways to say this line, about as long, with the same meaning"
-  >
-    <RefreshCw className="w-3 h-3" /> Suggest other wordings
-  </button>
-);
+const PICKED_SHORTER = 0.8;
+const PICKED_LONGER = 1.2;
+
+/**
+ * Shorter, Longer and Same length for a line that already fits: shown when the
+ * row is hovered or focused, so the list stays quiet until the user wants one.
+ */
+const hoverWordings = 'mt-1.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity';
 
 /** True when a cue's line ends well before the original speaker stops: one to make fuller. */
 const endsEarly = (seg: AudioSegment, text: string) => reviewLineOf(seg, text, '').status === 'short';
@@ -1346,7 +1346,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       speaker: (speaker ?? segments[first].speaker) || undefined,
     };
   };
-  /** Shorter or fuller wordings of a line, from the text model; the line's status decides which. */
+  /**
+   * Shorter, fuller or same-length wordings of a line, from the text model: the
+   * way the user pressed. The way the line's fit points aims at its slot (targetChars);
+   * the other way aims a fifth shorter or longer than the line is now.
+   */
   const suggestLine = (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection, count: number) =>
     (direction === 'longer' ? suggestLongerLine : direction === 'same' ? suggestRewordedLine : suggestShorterLine)({
       text: unit.text,
@@ -1356,12 +1360,21 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       targetChars:
         direction === 'same'
           ? Math.max(unit.text.length, Math.floor((unit.text.length * unit.slot * SLOT_MARGIN) / Math.max(0.1, unit.estimate)))
-          : unit.targetChars,
+          : direction === directionFor(unit)
+            ? unit.targetChars
+            : direction === 'shorter'
+              ? Math.max(1, Math.floor(unit.text.length * PICKED_SHORTER))
+              : Math.max(unit.text.length + 1, Math.ceil(unit.text.length * PICKED_LONGER)),
       avoid,
       count,
+      // One wording from one fast call; its meaning is checked behind it (checkLine).
+      quick: true,
       context: lineContextOf(unit.cueIds),
       examples: choicesFor(activeJob?.id, unit.text),
-    });
+    }).then((options) => options.map((o) => (o.issues ? o : { ...o, checking: true })));
+  /** The meaning check of a quick wording, run while the user already reads it. */
+  const checkLine = (unit: SyncPreviewUnit, option: LineSuggestion, direction: RewriteDirection) =>
+    checkWording({ text: unit.text, sourceText: unit.sourceText, candidate: option.text, language: targetLanguage, direction });
   /**
    * Wordings of a synced line for its retake, asked for from the Takes panel:
    * shorter when the words run past the slot, otherwise reworded, with pauses
@@ -1385,9 +1398,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     return applyPreviewLine(unit, text);
   };
   /** Review's rewording of a sync line, the one place a line is reworded before it is voiced. */
-  const lineFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: useLine, onRestore: restoreCueTexts });
+  const lineFixes = useLineFixes({ onSuggest: suggestLine, onCheck: checkLine, onUseLine: useLine, onRestore: restoreCueTexts });
   /** Review's rewording of one cue, while the line fit is still being worked out. */
-  const reviewFixes = useLineFixes({ onSuggest: suggestLine, onUseLine: useLine, onRestore: restoreCueTexts });
+  const reviewFixes = useLineFixes({ onSuggest: suggestLine, onCheck: checkLine, onUseLine: useLine, onRestore: restoreCueTexts });
   /** The preview with the lengths the user trimmed lines to on the timeline; both steps use it. */
   /** Quick or Expert, the user's pick, kept across restarts; both steps' previews follow it. */
   const [estimateMethod, setEstimateMethod] = useState<EstimateMethod>(() => {
@@ -1719,9 +1732,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
    */
   const [wordingsAhead, setWordingsAhead] = useState(() => {
     try {
-      return localStorage.getItem(WORDINGS_AHEAD_KEY) !== 'false';
+      return localStorage.getItem(WORDINGS_AHEAD_KEY) === 'true';
     } catch {
-      return true;
+      return false;
     }
   });
   const changeWordingsAhead = (on: boolean) => {
@@ -3125,7 +3138,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 <FitMeter unit={unit} className="mt-1.5 sm:items-start" />
                                 {pauses && <p className="mt-1 text-[11.5px] leading-snug text-slate-400">{pauses}</p>}
                                 {placedNote}
-                                <OtherWordingsButton onClick={fix.onSuggest} />
+                                <WordingButtons unit={unit} onSuggest={fix.onSuggest} className={hoverWordings} />
                               </>
                             );
                           }
@@ -3176,7 +3189,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         const { cps: lineCps, ...line } = reviewLineOf(seg, tgtText, srcText);
                         const fix = reviewFixes.controlsFor(line);
                         const flagged = line.status === 'long' || line.status === 'short';
-                        if (!flagged && fix.state.kind === 'idle') return <OtherWordingsButton onClick={fix.onSuggest} />;
+                        if (!flagged && fix.state.kind === 'idle') return <WordingButtons unit={line} onSuggest={fix.onSuggest} className={hoverWordings} />;
                         const started = fix.state.kind !== 'idle' && fix.state.kind !== 'error';
                         return (
                           <>

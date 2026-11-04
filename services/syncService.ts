@@ -971,6 +971,8 @@ type LineRequest = {
   examples?: { from: string; to: string }[];
   /** A retake's seconds to spare: its wordings may mark pauses ([pause 0.4s]) where the meaning wants them, within that. */
   pauseBudget?: number;
+  /** One wording from one fast call, its meaning not yet checked: ask checkWording for that, behind it. */
+  quick?: boolean;
 };
 
 /**
@@ -984,7 +986,26 @@ export interface LineSuggestion {
   backTranslation?: string;
   /** Syllables a shorter wording still runs past its target: offered only when none fit, to trim by a word. */
   over?: number;
+  /** A quick wording whose meaning check is still running. */
+  checking?: boolean;
 }
+
+/** The meaning check of one quick wording, as /sync/check-wording gives it. */
+export const checkWording = async (
+  request: { text: string; sourceText?: string; candidate: string; language?: string; direction: 'shorter' | 'longer' | 'same' },
+  { signal }: { signal?: AbortSignal } = {}
+): Promise<{ ok: boolean; issues: string[]; backTranslation?: string }> => {
+  const result = await apiJson<{ ok?: boolean; issues?: string[]; backTranslation?: string | null }>('/sync/check-wording', {
+    body: { ...request, keep: keepTermsFor(request.language || '') },
+    signal,
+  });
+  const issues = Array.isArray(result.issues) ? result.issues.filter((i) => typeof i === 'string' && i.trim()) : [];
+  return {
+    ok: result.ok === true,
+    issues: result.ok === true ? [] : issues.length ? issues : ['The meaning may differ from the original line.'],
+    ...(typeof result.backTranslation === 'string' && result.backTranslation.trim() && { backTranslation: result.backTranslation.trim() }),
+  };
+};
 
 /**
  * New wordings from the server, which has checked each means what the source

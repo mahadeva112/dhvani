@@ -40,6 +40,7 @@
  */
 import { logger } from '../logger.js';
 import { generateText } from '../providers/textModel.js';
+import { writeEffort, reviewEffort } from '../providers/gemini/translation.js';
 import { parseJsonResponse } from '../providers/gemini/client.js';
 import { normalizePauses, pauseSeconds, PAUSE_MARK, stripPauses } from './linePauses.js';
 import { lineSyllables } from './syllables.js';
@@ -422,10 +423,12 @@ const MAX_REPAIRS = 1;
  * read beside the wording. An answer that can't be read counts as a failure:
  * a suggestion is only shown when the check positively passed.
  */
-export const checkMeaning = async ({ text, sourceText, candidate, language, direction }, { apiKey, generate = generateText } = {}) => {
+export const checkMeaning = async ({ text, sourceText, candidate, language, direction }, { apiKey, generate = generateText, effort = reviewEffort() } = {}) => {
   const { response } = await generate({
     contents: { role: 'user', parts: [{ text: buildMeaningCheckPrompt({ text, sourceText, candidate, language, direction }) }] },
     generationConfig: { responseMimeType: 'application/json', temperature: 0 },
+    // As long as the translation's own meaning review thinks: the app's setting, not the model's default.
+    ...(effort && { effort }),
     apiKey,
   });
   let parsed;
@@ -478,6 +481,7 @@ export const suggestLine = async (
       contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, fix, miss, context, keep, examples }) }] },
       // A second try at the same line is asked to differ, and given more room to.
       generationConfig: { temperature: avoid.length > 0 || fix || retried ? 0.7 : 0.3 },
+      ...(writeEffort() && { effort: writeEffort() }),
       apiKey,
     });
     const raw = cleanLine(response?.text);
@@ -519,6 +523,59 @@ export const suggestLine = async (
   }
   if (!flagged) logger.info(`A suggested ${kind} dub line was not usable; none is shown for that line.`);
   return { line: null, reason: flagged ? 'meaning' : 'unusable', flagged };
+};
+
+/**
+ * One wording of a line, as fast as the text model gives it: one call, at the
+ * app's own thinking level (writeEffort), no meaning check and no second try.
+ * Review asks for it when the user presses Shorter, Longer or Same length, shows
+ * it at once, and asks for the meaning check (checkWording) on its own, behind it.
+ * A dropped name, number or term is still caught here, in code, and comes back
+ * with `issues`. A shorter wording that runs a little past its target comes back
+ * with `over`, the syllables still to cut. Returns `{ line, issues, over }`, or
+ * `{ line: null }` when the answer is unusable (cut off, the wrong length, or
+ * one already offered). Throws when the text model can't be reached.
+ */
+export const quickLine = async (
+  { text, sourceText, language, targetChars, avoid = [], direction, context = null, keep = [], examples = [] },
+  { apiKey, generate = generateText, effort = writeEffort() } = {}
+) => {
+  const { build, accept, kind } = directionOf(direction);
+  const started = Date.now();
+  const { response } = await generate({
+    contents: { role: 'user', parts: [{ text: build({ text, sourceText, language, targetChars, avoid, context, keep, examples }) }] },
+    generationConfig: { temperature: avoid.length > 0 ? 0.7 : 0.3 },
+    ...(effort && { effort }),
+    apiKey,
+  });
+  const raw = cleanLine(response?.text);
+  const isNew = (line) => line !== cleanLine(text) && !avoid.some((earlier) => cleanLine(earlier) === line);
+  let line = accept(text, raw, targetChars);
+  // A shorter wording too long to fit is still offered, marked, rather than nothing: the user trims a word.
+  if (!line && kind === 'shorter' && raw && raw.length < text.length && raw.length >= Math.min(text.length, targetChars) * MIN_TARGET_SHARE) line = raw;
+  const seconds = ((Date.now() - started) / 1000).toFixed(1);
+  if (!line || !isNew(line)) {
+    logger.info(`A quick ${kind} wording of a dub line was not usable (${seconds} s).`);
+    return { line: null };
+  }
+  const over = kind === 'shorter' ? shorterFit(text, line, targetChars).over : 0;
+  const missing = missingTerms(text, line, keep);
+  logger.info(`Suggested a quick ${kind} wording of a dub line in ${seconds} s.`);
+  return { line, ...(missing.length > 0 && { issues: droppedIssues(missing) }), ...(over > 0 && { over }) };
+};
+
+/**
+ * The meaning check of one wording, asked for apart from the wording itself
+ * (quickLine): a dropped name, number or term fails in code, anything else goes
+ * to checkMeaning. Returns `{ ok, issues, backTranslation }`.
+ */
+export const checkWording = async ({ text, sourceText, candidate, language, direction, keep = [] }, options = {}) => {
+  const missing = missingTerms(text, candidate, keep);
+  if (missing.length > 0) return { ok: false, issues: droppedIssues(missing), backTranslation: null };
+  const started = Date.now();
+  const result = await checkMeaning({ text, sourceText, candidate, language, direction }, options);
+  logger.info(`Checked the meaning of a suggested wording in ${((Date.now() - started) / 1000).toFixed(1)} s: ${result.ok ? 'same meaning' : 'changed'}.`);
+  return result;
 };
 
 /** Most wordings one line is offered at once. */
@@ -695,6 +752,7 @@ export const suggestLines = async (
         ],
       },
       generationConfig: { responseMimeType: 'application/json', temperature: 0.7 },
+      ...(writeEffort() && { effort: writeEffort() }),
       apiKey,
     });
     let parsed = null;

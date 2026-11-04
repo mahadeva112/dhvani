@@ -23,7 +23,7 @@ import { TTS_CONTEXT_CHARS, withSentenceEnd } from '../lib/ttsText.js';
 import { checkParts, lineArrays, ORIGINAL_SPEAKER, renderEdits } from '../lib/syncEdit.js';
 import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
-import { shortenLine, lengthenLine, suggestLine, suggestLines, rewordLimit, MAX_OPTIONS } from '../lib/syncRewrite.js';
+import { shortenLine, lengthenLine, suggestLine, suggestLines, quickLine, checkWording, rewordLimit, MAX_OPTIONS } from '../lib/syncRewrite.js';
 import { stripPauses } from '../lib/linePauses.js';
 import { previewSync } from '../lib/syncPreview.js';
 import { fitJoinSettings } from '../lib/syncFit.js';
@@ -1197,7 +1197,7 @@ const keepTermsOf = (keep) =>
  */
 const rewordRoute = (direction) =>
   asyncHandler(async (req, res) => {
-    const { text: asked, sourceText, language, targetChars, avoid, count, context, keep, examples, pauseBudget } = req.body || {};
+    const { text: asked, sourceText, language, targetChars, avoid, count, context, keep, examples, pauseBudget, quick } = req.body || {};
     // A retake's wordings may carry pauses within the seconds its slot has to spare; its words are judged without them.
     const budget = Number.isFinite(Number(pauseBudget)) && pauseBudget !== null ? Math.max(0, Math.min(10, Number(pauseBudget))) : null;
     const text = budget !== null && typeof asked === 'string' ? stripPauses(asked) : asked;
@@ -1229,6 +1229,13 @@ const rewordRoute = (direction) =>
       examples: examplesOf(examples),
     };
     const options = { apiKey: req.get('x-gemini-key') || undefined };
+    // Review's one wording, at once: its meaning is checked by /sync/check-wording, behind it.
+    if (quick === true && budget === null) {
+      const { line, issues, over } = await quickLine(request, options);
+      const offered = line ? { line, ...(issues && { issues }), ...(over > 0 && { over }) } : null;
+      res.json({ options: offered ? [offered] : [], line: offered && !issues ? line : null, reason: line ? (issues ? 'meaning' : null) : 'unusable', flagged: issues ? offered : null });
+      return;
+    }
     const wanted = Math.max(1, Math.min(MAX_OPTIONS, Math.floor(Number(count)) || 1));
     if (wanted > 1 || budget !== null) {
       const result = await suggestLines({ ...request, count: wanted, ...(budget !== null && { pauseBudget: budget }) }, options);
@@ -1265,6 +1272,34 @@ syncRouter.post('/sync/shorten', rewordRoute('shorter'));
  * script is never changed here.
  */
 syncRouter.post('/sync/lengthen', rewordRoute('longer'));
+
+/**
+ * POST /api/sync/check-wording — the meaning check of one wording that came
+ * back quick (body `quick` on /sync/shorten, /sync/lengthen, /sync/reword).
+ * Body: `{ text, sourceText, candidate, language, direction, keep }`. Replies
+ * `{ ok, issues, backTranslation }`. Nothing is changed here.
+ */
+syncRouter.post(
+  '/sync/check-wording',
+  asyncHandler(async (req, res) => {
+    const { text, sourceText, candidate, language, direction, keep } = req.body || {};
+    if (typeof text !== 'string' || !text.trim() || typeof candidate !== 'string' || !candidate.trim()) {
+      throw new ApiError('There is no wording to check.', { status: 400, code: 'no_text' });
+    }
+    const result = await checkWording(
+      {
+        text,
+        sourceText: typeof sourceText === 'string' ? sourceText : '',
+        candidate: candidate.trim(),
+        language,
+        direction: direction === 'longer' || direction === 'same' ? direction : 'shorter',
+        keep: keepTermsOf(keep),
+      },
+      { apiKey: req.get('x-gemini-key') || undefined }
+    );
+    res.json({ ok: result.ok, issues: result.issues, backTranslation: result.backTranslation ?? null });
+  })
+);
 
 /**
  * POST /api/sync/reword — other wordings of a line that already fits, for a

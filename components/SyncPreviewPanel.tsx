@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Check, Loader2, Pencil, RefreshCw, RotateCcw, X } from 'lucide-react';
+import { Check, Loader2, Pencil, RotateCcw, X } from 'lucide-react';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { hueOf, withAlpha } from './lineColors';
@@ -198,8 +198,10 @@ const MAX_CUT_SHARE = 0.35;
 export const deepCut = (unit: SyncPreviewUnit) =>
   directionFor(unit) === 'shorter' && unit.wantSeconds === undefined && unit.targetChars < unit.text.trim().length * (1 - MAX_CUT_SHARE);
 
-/** Wordings a line is offered when the user asks for that line; Suggest for all asks for one each. */
+/** Wordings a retake or a synced line is offered at once, in the Takes and Sync panels. */
 export const LINE_OPTIONS = 2;
+/** Wordings a line in Review is offered when the user asks: one, quick; Another asks for the next. */
+const REVIEW_OPTIONS = 1;
 /**
  * Earlier wordings sent back with a new request, so new ones read differently
  * and none comes back twice: a user may ask for a line as often as they like.
@@ -306,10 +308,13 @@ export const directionFor = (unit: SyncPreviewUnit): RewriteDirection =>
  */
 export const useLineFixes = ({
   onSuggest,
+  onCheck,
   onUseLine,
   onRestore,
 }: {
   onSuggest: (unit: SyncPreviewUnit, avoid: string[], direction: RewriteDirection, count: number) => Promise<LineSuggestion[]>;
+  /** The meaning check of a wording that came back `checking`, run behind it while the user already reads it. */
+  onCheck?: (unit: SyncPreviewUnit, option: LineSuggestion, direction: RewriteDirection) => Promise<{ ok: boolean; issues: string[]; backTranslation?: string }>;
   onUseLine: (unit: SyncPreviewUnit, text: string) => Record<string, string>;
   onRestore: (before: Record<string, string>) => void;
 }) => {
@@ -332,8 +337,46 @@ export const useLineFixes = ({
   const open = (u: SyncPreviewUnit) => stateOf(u).kind !== 'kept' && stateOf(u).kind !== 'used';
   const notStarted = (u: SyncPreviewUnit) => stateOf(u).kind === 'idle' || stateOf(u).kind === 'error';
 
-  /** Asks for `count` wordings of a line: several when the user asks for that line, one each from Suggest for all. */
-  const suggest = async (unit: SyncPreviewUnit, count = LINE_OPTIONS) => {
+  /**
+   * Asks for `count` wordings of a line: several when the user asks for that line, one each from Suggest for all.
+   * `chosen`: the way the user picked (Shorter, Longer, Same length), in place of the one the line's fit decides.
+   */
+  /**
+   * The meaning check of a quick wording, behind it: once it is back, the
+   * wording carries what it says in English, or what the check found changed.
+   * A check that fails to run marks the wording as not checked. Dropped when the
+   * line was asked for again, or the wording is no longer being edited.
+   */
+  const checkBehind = async (unit: SyncPreviewUnit, option: LineSuggestion, direction: RewriteDirection, id: number) => {
+    let result: { ok: boolean; issues: string[]; backTranslation?: string };
+    try {
+      result = await onCheck!(unit, option, direction);
+    } catch {
+      result = { ok: false, issues: ['The meaning could not be checked. Read it against the original before using it.'] };
+    }
+    if (requests.current[unit.key] !== id) return;
+    const checked: LineSuggestion = {
+      text: option.text,
+      ...(option.over && { over: option.over }),
+      ...(result.backTranslation && { backTranslation: result.backTranslation }),
+      ...(!result.ok && { issues: result.issues }),
+    };
+    setRows((r) => {
+      const row = r[unit.key];
+      if (row?.kind !== 'draft' || !row.options) return r;
+      const picked = row.suggested && row.text === option.text;
+      return {
+        ...r,
+        [unit.key]: {
+          ...row,
+          options: row.options.map((o) => (o.text === option.text ? checked : o)),
+          ...(picked && { issues: checked.issues }),
+        },
+      };
+    });
+  };
+  const suggest = async (unit: SyncPreviewUnit, count = REVIEW_OPTIONS, chosen?: RewriteDirection) => {
+    if (chosen) directions.current[unit.key] = chosen;
     const current = rows[unit.key];
     const tried = current && 'tried' in current ? current.tried : [];
     const direction = directionOf(unit);
@@ -353,7 +396,8 @@ export const useLineFixes = ({
           issues: first.issues,
           options,
         });
-      else
+      if (first && onCheck) for (const option of options.filter((o) => o.checking)) void checkBehind(unit, option, direction, id);
+      if (!first)
         setRow(unit, {
           kind: 'error',
           message: `No usable ${wordingKind(direction)} wording came back. Try again, or edit it yourself.`,
@@ -389,16 +433,17 @@ export const useLineFixes = ({
   const controlsFor = (unit: SyncPreviewUnit) => ({
     direction: directionOf(unit),
     state: stateOf(unit),
-    onSuggest: () => suggest(unit),
+    /** Wordings of the line, the way the user picked, or with none picked the way its fit decides. */
+    onSuggest: (chosen?: RewriteDirection) => suggest(unit, REVIEW_OPTIONS, chosen),
     /**
      * New wordings for a line already settled, from the words it has now. Its
-     * direction is worked out again: a long line made to fit is now reworded.
+     * direction is the one picked, or worked out again: a long line made to fit is now reworded.
      */
-    onSuggestAgain: () => {
+    onSuggestAgain: (chosen?: RewriteDirection) => {
       const current = rows[unit.key];
       if (current?.kind === 'used') undoTo.current[unit.key] = current.before;
       delete directions.current[unit.key];
-      suggest(unit);
+      suggest(unit, REVIEW_OPTIONS, chosen);
     },
     onStop: () => leave(unit),
     onEdit: () => setRow(unit, { kind: 'draft', text: unit.text, suggested: false, tried: [] }),
@@ -674,14 +719,70 @@ const WordingDiff: React.FC<{ from: string; to: string }> = ({ from, to }) => {
   );
 };
 
+/** Why the line's own way is the one marked, for its button's tooltip. */
+const suggestedReason = (unit: SyncPreviewUnit, direction: RewriteDirection) =>
+  unit.wantSeconds !== undefined
+    ? `toward your trim of ${unit.wantSeconds.toFixed(1)} s`
+    : direction === 'shorter'
+      ? 'this line runs past its slot'
+      : direction === 'longer'
+        ? 'this line ends before the original speaker stops'
+        : 'this line fits';
+
+const WORDING_CHOICES: { direction: RewriteDirection; label: string; title: string }[] = [
+  { direction: 'shorter', label: 'Shorter', title: 'Shorter wordings of this line, same meaning' },
+  { direction: 'longer', label: 'Longer', title: 'Longer, fuller wordings of this line, same meaning' },
+  { direction: 'same', label: 'Same length', title: 'Other ways to say this line, about as long, same meaning' },
+];
+
+/**
+ * Shorter, Longer and Same length for one line: nothing is asked for until one
+ * is pressed, and only for this line. The way the line's fit points (directionFor)
+ * is marked, never chosen for the user; a line too long to shorten without losing
+ * meaning (deepCut) marks none.
+ */
+export const WordingButtons: React.FC<{
+  unit: SyncPreviewUnit;
+  onSuggest: (direction: RewriteDirection) => void;
+  /** Smaller buttons, for the row under a settled line. */
+  compact?: boolean;
+  className?: string;
+}> = ({ unit, onSuggest, compact = false, className = '' }) => {
+  const natural = directionFor(unit);
+  const marked = deepCut(unit) ? null : natural;
+  return (
+    <div role="group" aria-label="Ask for wordings of this line" className={`flex flex-wrap items-center gap-1.5 ${className}`}>
+      {WORDING_CHOICES.map(({ direction, label, title }) => {
+        const isMarked = direction === marked;
+        return (
+          <button
+            key={direction}
+            type="button"
+            onClick={() => onSuggest(direction)}
+            title={`${title}. Nothing changes until you use one.${isMarked ? ` Suggested: ${suggestedReason(unit, direction)}.` : ''}`}
+            className={`${compact ? 'h-6 px-2' : 'h-7 px-2.5'} rounded-md border text-[11.5px] cursor-default transition-colors ${
+              isMarked
+                ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20'
+                : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 export interface LineFixControlsProps {
   unit: SyncPreviewUnit;
   cps: number;
   direction: RewriteDirection;
   state: LineFixState;
-  onSuggest: () => void;
+  /** Wordings the way picked, or with none picked the way the line's fit decides. */
+  onSuggest: (chosen?: RewriteDirection) => void;
   /** New wordings for a line whose wording was used or kept. */
-  onSuggestAgain: () => void;
+  onSuggestAgain: (chosen?: RewriteDirection) => void;
   onStop: () => void;
   onEdit: () => void;
   onDraft: (text: string) => void;
@@ -745,19 +846,16 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
       )}
       {(state.kind === 'idle' || state.kind === 'error') && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={onSuggest}
-            className="h-7 px-2.5 rounded-md border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
-          >
-            {state.kind === 'error'
-              ? 'Try again'
-              : want !== undefined
-                ? `Suggest ${want.toFixed(1)} s lines`
-                : direction === 'shorter' && deepCut(unit)
-                  ? 'Suggest shorter anyway'
-                  : `Suggest ${kind} wordings`}
-          </button>
+          {state.kind === 'error' && (
+            <button
+              type="button"
+              onClick={() => onSuggest()}
+              className="h-7 px-2.5 rounded-md border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
+            >
+              Try again
+            </button>
+          )}
+          <WordingButtons unit={unit} onSuggest={onSuggest} />
           <button
             type="button"
             onClick={onEdit}
@@ -775,7 +873,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
       )}
 
       {state.kind === 'working' && (
-        <div role="status" className="mt-2 flex items-center gap-2 h-7 text-xs text-slate-300">
+        <div role="status" className="mt-2 flex flex-wrap items-center gap-2 min-h-7 text-xs text-slate-300">
           <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin" /> Asking the text model for{' '}
           {state.count > 1 ? `${state.count} ${kind} wordings` : `a${kind === 'other' ? 'n' : ''} ${kind} wording`}…
           <button type="button" onClick={onStop} className="ml-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-400 cursor-default">
@@ -853,6 +951,11 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                 : 'Your wording'}
           </label>
           {state.suggested && state.issues && <MeaningWarning issues={state.issues} />}
+          {state.suggested && state.options?.find((o) => o.text === state.text)?.checking && (
+            <p role="status" className="mb-1 flex items-center gap-1.5 text-[11.5px] text-slate-500 leading-snug">
+              <Loader2 className="w-3 h-3 animate-spin" /> Checking the meaning against the original…
+            </p>
+          )}
           {state.suggested && (!state.options || state.options.length < 2) && state.options?.find((o) => o.text === state.text)?.backTranslation && (
             <p className="mb-1 text-[11.5px] text-slate-500 leading-snug" title="This wording translated back into English, without the original line in view">
               Says: {state.options.find((o) => o.text === state.text)?.backTranslation}
@@ -877,10 +980,10 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
             </button>
             <button
               type="button"
-              onClick={onSuggest}
+              onClick={() => onSuggest()}
               className="h-7 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
             >
-              {state.options && state.options.length > 0 ? `${LINE_OPTIONS} more` : `Suggest ${LINE_OPTIONS}`}
+              {state.options && state.options.length > 0 ? 'Another' : 'Suggest one'}
             </button>
             <button
               type="button"
@@ -916,14 +1019,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                 : `About ${fitOf(state.text, unit, cps).seconds.toFixed(1)} s for a ${unit.slot.toFixed(1)} s slot`
               : 'Kept'}
           </span>
-          <button
-            type="button"
-            onClick={onSuggestAgain}
-            className="h-6 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
-            title="Ask for new wordings of this line as it reads now. Undo still goes back to the line as it was."
-          >
-            <RefreshCw className="w-3 h-3" /> Suggest again
-          </button>
+          <WordingButtons unit={unit} onSuggest={onSuggestAgain} compact />
           <button
             type="button"
             onClick={onUndo}

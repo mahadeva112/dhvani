@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   suggestLine,
   suggestLines,
+  quickLine,
+  checkWording,
   checkMeaning,
   contextNote,
   buildMeaningCheckPrompt,
@@ -423,4 +425,49 @@ test('among several, wordings that fit come first; one a little long is marked, 
   53 characters, 19 syllables`));
   assert.ok(prompts.options[1].includes(`${LONG_BY_THREE}
   45 characters, 17 syllables`));
+});
+
+test('a quick wording is one call at the app thinking level, with no meaning check', async () => {
+  const sent = [];
+  const { generate: inner, prompts } = fakeModel({ lines: ['कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी'] });
+  const generate = (options) => {
+    sent.push(options);
+    return inner(options);
+  };
+  const result = await quickLine({ ...request, direction: 'shorter' }, { generate, effort: 'low' });
+  assert.equal(result.line, 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी');
+  assert.equal(result.issues, undefined);
+  assert.equal(prompts.rewrite.length, 1);
+  assert.equal(prompts.check.length, 0);
+  assert.equal(sent[0].effort, 'low');
+});
+
+test('a quick wording that drops a number comes back marked, without asking a model to check it', async () => {
+  const { generate, prompts } = fakeModel({ lines: ['कल सुबह बाज़ार नहीं जाऊँगा, बारिश होगी'] });
+  const text = 'मैं कल सुबह 10 बजे बाज़ार नहीं जाऊँगा, क्योंकि बारिश होगी';
+  const result = await quickLine({ ...request, text, direction: 'shorter' }, { generate });
+  assert.equal(result.line, 'कल सुबह बाज़ार नहीं जाऊँगा, बारिश होगी');
+  assert.deepEqual(result.issues, ['leaves out "10"']);
+  assert.equal(prompts.check.length, 0);
+});
+
+test('a quick wording that repeats the line or one already offered is not used', async () => {
+  const repeat = await quickLine({ ...request, direction: 'same', targetChars: 70 }, { generate: fakeModel({ lines: [request.text] }).generate });
+  assert.equal(repeat.line, null);
+  const offered = 'कल दस बजे बाज़ार नहीं जाऊँगा, बारिश होगी';
+  const again = await quickLine({ ...request, direction: 'shorter', avoid: [offered] }, { generate: fakeModel({ lines: [offered] }).generate });
+  assert.equal(again.line, null);
+});
+
+test('checkWording catches a dropped term in code and asks the model only otherwise', async () => {
+  const text = 'मैं कल सुबह 10 बजे बाज़ार नहीं जाऊँगा';
+  const dropped = fakeModel({ checks: [] });
+  const missing = await checkWording({ ...request, text, candidate: 'कल बाज़ार नहीं जाऊँगा', direction: 'shorter' }, { generate: dropped.generate });
+  assert.equal(missing.ok, false);
+  assert.equal(dropped.prompts.check.length, 0);
+  const asked = fakeModel({ checks: [{ sameMeaning: true, issues: [] }] });
+  const passed = await checkWording({ ...request, candidate: 'कल दस बजे बाज़ार नहीं जाऊँगा', direction: 'shorter' }, { generate: asked.generate });
+  assert.equal(passed.ok, true);
+  assert.equal(asked.prompts.check.length, 1);
+  assert.match(passed.backTranslation, /^EN: /);
 });
