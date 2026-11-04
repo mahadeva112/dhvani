@@ -81,7 +81,20 @@ const CUT_GAP_SECONDS = 0.8;
 const CUT_GRAB_PX = 6;
 
 const RATES = [0.75, 1, 1.25, 1.5];
-const ZOOMS = [1, 2, 4, 8, 16, 32];
+/** The deepest zoom shows about this many seconds, however long the track: a word of a long video. */
+const MIN_VIEW_SECONDS = 0.5;
+/**
+ * The zoom steps for a track this long: half a power of two apart, from the
+ * whole track down to MIN_VIEW_SECONDS on view. A fixed list ran out at a
+ * minute or more on view for a long video.
+ */
+const zoomLevels = (total: number) => {
+  const levels = [1];
+  for (let k = 1; k < 60 && total / 2 ** (k / 2) >= MIN_VIEW_SECONDS; k++) levels.push(2 ** (k / 2));
+  return levels;
+};
+/** Each frame a glide covers this share of the way left, so a wheel or a page turn eases in, not jumps. */
+const GLIDE = 0.22;
 /** The timeline opens showing about this much, so the wheel and its scroll bar move it from the start. */
 const OPEN_SECONDS = 30;
 /** Where the waveform's bars start below the top of its strip, under the cue numbers. */
@@ -200,7 +213,46 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const palette = PALETTE;
 
   const [zoom, setZoom] = useState(1);
-  const [viewStart, setViewStart] = useState(0);
+  const [viewStart, setViewStartState] = useState(0);
+  /*
+   * A glide toward a new view start: the wheel and following playback ease
+   * the view there over a few frames. Anything that sets the view outright
+   * (zoom, the scroll bar, a cue jump) stops a glide first.
+   */
+  const glideRef = useRef<{ at: number; target: number; raf: number } | null>(null);
+  const viewStartRef = useRef(0);
+  viewStartRef.current = viewStart;
+  const stopGlide = () => {
+    const g = glideRef.current;
+    if (g) cancelAnimationFrame(g.raf);
+    glideRef.current = null;
+  };
+  const setViewStart: typeof setViewStartState = (value) => {
+    stopGlide();
+    setViewStartState(value);
+  };
+  const glideTo = (target: number, close: number) => {
+    const g = glideRef.current;
+    if (g) {
+      g.target = target;
+      return;
+    }
+    const glide = { at: viewStartRef.current, target, raf: 0 };
+    glideRef.current = glide;
+    const step = () => {
+      const left = glide.target - glide.at;
+      if (Math.abs(left) <= close) {
+        glide.at = glide.target;
+        glideRef.current = null;
+      } else {
+        glide.at += left * GLIDE;
+        glide.raf = requestAnimationFrame(step);
+      }
+      setViewStartState(glide.at);
+    };
+    glide.raf = requestAnimationFrame(step);
+  };
+  useEffect(() => stopGlide, []);
   const [follow, setFollow] = useState(true);
   const [loop, setLoop] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -234,6 +286,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const [redrawTick, setRedrawTick] = useState(0);
 
   const span = total > 0 ? total / zoom : 1;
+  const ZOOMS = useMemo(() => zoomLevels(total), [total]);
   // A track longer than OPEN_SECONDS opens zoomed in on where playback is.
   const openedZoomRef = useRef(false);
   useEffect(() => {
@@ -250,7 +303,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const timeNow = () => liveRef.current;
 
   /*
-   * Peaks for the whole file, computed once per buffer. About forty per
+   * Peaks for the whole file, computed once per buffer. Two hundred per
    * second, capped, is fine enough for the deepest zoom and cheap to redraw.
    * They are placed by the buffer's own length, so they line up with the
    * audio whatever `duration` the caller passes.
@@ -258,7 +311,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const peaks = useMemo(() => {
     if (!audioBuffer) return null;
     try {
-      return computeWave(audioBuffer, Math.max(200, Math.min(400000, Math.ceil(audioBuffer.duration * 100))));
+      // 200 a second, so a deep zoom on a long video still shows the shape of each word.
+      return computeWave(audioBuffer, Math.max(200, Math.min(1200000, Math.ceil(audioBuffer.duration * 200))));
     } catch (e) {
       console.warn('Could not read the waveform:', e);
       return null;
@@ -315,16 +369,18 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
 
   const changeZoom = useCallback(
     (dir: 1 | -1, anchor?: number) => {
+      stopGlide();
       setZoom((z) => {
         const i = ZOOMS.indexOf(z);
         const nz = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? 0 : i) + dir))];
         const ns = total / nz;
         const focus = anchor ?? liveRef.current;
-        setViewStart(Math.max(0, Math.min(Math.max(0, total - ns), focus - ns * 0.35)));
+        setViewStartState(Math.max(0, Math.min(Math.max(0, total - ns), focus - ns * 0.35)));
         return nz;
       });
     },
-    [total]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [total, ZOOMS]
   );
 
   /*
@@ -350,9 +406,11 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       activeIndexRef.current = index;
       setActiveIndex(index);
     }
-    // Follow playback: keep the playhead in the view while zoomed in.
-    if (follow && zoom > 1 && (t < vs + span * 0.05 || t > vs + span * 0.85)) {
-      setViewStart(clampStart(t - span * 0.25));
+    // Follow playback: keep the playhead in the view while zoomed in, gliding a page on rather than jumping.
+    if (follow && zoom > 1 && !dragRef.current) {
+      if (t < vs + span * 0.05 || t > vs + span * 0.85) glideTo(clampStart(t - span * 0.25), span * 0.001);
+      // A seek far off view isn't glided to through everything between: it is shown at once.
+      if (Math.abs(t - prev) > span && (t < vs || t > vs + span)) setViewStart(clampStart(t - span * 0.25));
     }
   };
   useLiveFrame(reportedTime, isPlaying, getLiveTime, applyFrame);
@@ -602,19 +660,19 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     setViewStart(clampStart(t - thumbGrabRef.current));
   };
 
+  // The page's own scroll is stopped by the native listeners below: React's wheel listener is passive and can't.
   const onWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
       const el = e.currentTarget as HTMLElement;
       changeZoom(e.deltaY < 0 ? 1 : -1, timeAt(e, el, false));
     } else if (zoom > 1) {
       // Zoomed in, any wheel moves through time, as in a timeline editor: up/down, sideways or Shift + wheel.
-      e.preventDefault();
       setFollow(false);
       const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY);
       const lines = e.deltaMode === 1 ? 16 : 1;
       const delta = ((sideways ? e.deltaX : e.deltaY) * lines) / 600;
-      setViewStart((vs) => clampStart(vs + delta * span));
+      // Eased over a few frames from where the last turn of the wheel was headed, so quick turns add up smoothly.
+      glideTo(clampStart((glideRef.current?.target ?? viewStart) + delta * span), span * 0.0005);
     }
   };
 
@@ -920,7 +978,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             {belowWave && (
               <div
                 ref={laneRef}
-                className={`relative h-8 overflow-hidden cursor-default ${pausesRow ? '' : 'border-t border-slate-800'}`}
+                className={`relative h-14 overflow-hidden cursor-default ${pausesRow ? '' : 'border-t border-slate-800'}`}
                 onWheel={onWheel}
                 onDoubleClick={zoomToBox}
               >

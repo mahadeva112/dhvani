@@ -78,25 +78,34 @@ const wobble = (i: number, j: number) => {
   return x - Math.floor(x);
 };
 
-/** A line's Wave: one swell per estimated word, flat in its pauses, on a 1000 × 100 box mirrored about its middle. */
-const wavePath = (words: { start: number; end: number }[], length: number) => {
-  if (!words.length || length <= 0) return '';
-  const top: [number, number][] = [[0, 0]];
+/** Wave bars sit about this many pixels apart, like a recording's waveform. */
+const BAR_PX = 3.2;
+/**
+ * Seconds between two Wave bars at this zoom: a power of two, so zooming
+ * redraws the bars only when their spacing doubles or halves.
+ */
+const barStepAt = (pxPerSecond: number) => (pxPerSecond > 0 ? 2 ** Math.round(Math.log2(BAR_PX / pxPerSecond)) : 0.05);
+/**
+ * A line's Wave: thin bars, a group per estimated word, none in its pauses,
+ * on a 1000 × 100 box mirrored about its middle. Drawn as one path of
+ * vertical strokes, so the bars keep their width however the box is stretched.
+ */
+const wavePath = (words: { start: number; end: number }[], length: number, step: number) => {
+  if (!words.length || length <= 0 || step <= 0) return '';
+  const x = (t: number) => ((t / length) * 1000).toFixed(1);
+  let d = '';
   words.forEach((w, i) => {
-    const a = (w.start / length) * 1000;
-    const b = (w.end / length) * 1000;
-    const steps = Math.max(4, Math.round((b - a) / 6));
-    const peak = 0.6 + 0.4 * wobble(i, 1);
-    for (let n = 0; n <= steps; n++) {
-      const p = n / steps;
-      const jag = n === 0 || n === steps ? 0 : 0.72 + 0.28 * wobble(i, n + 2);
-      top.push([a + (b - a) * p, Math.sin(Math.PI * p) ** 0.6 * peak * jag * 46]);
+    const span = w.end - w.start;
+    if (span <= 0) return;
+    const n = Math.max(1, Math.floor(span / step));
+    const peak = 0.65 + 0.35 * wobble(i, 1);
+    for (let k = 0; k < n; k++) {
+      const p = (k + 0.5) / n;
+      const h = Math.max(2, 46 * peak * Math.sin(Math.PI * p) ** 0.55 * (0.55 + 0.45 * wobble(i * 31 + k, 7)));
+      d += `M${x(w.start + span * p)},${(50 - h).toFixed(1)}V${(50 + h).toFixed(1)}`;
     }
   });
-  top.push([1000, 0]);
-  const up = top.map(([x, h]) => `${x.toFixed(1)},${(50 - h).toFixed(1)}`);
-  const down = [...top].reverse().map(([x, h]) => `${x.toFixed(1)},${(50 + h).toFixed(1)}`);
-  return `M${up.join('L')}L${down.join('L')}Z`;
+  return d;
 };
 /**
  * Every Rythmo word's box, to the span holding its text. One observer fits
@@ -1117,7 +1126,21 @@ export const DubEstimateLane: React.FC<{
   snapTimes = [],
 }) => {
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
-  // Each line's estimated words, and its wave, worked out once per set of lines.
+  // Blocks write a word in its box only where it fits, and Wave spaces its bars in pixels, so the lane's width is needed.
+  const probe = useRef<HTMLSpanElement>(null);
+  const [laneWidth, setLaneWidth] = useState(0);
+  const measured = look === 'blocks' || look === 'wave';
+  useLayoutEffect(() => {
+    const lane = probe.current?.parentElement;
+    if (!measured || !lane) return;
+    setLaneWidth(lane.clientWidth);
+    const observer = new ResizeObserver(() => setLaneWidth(lane.clientWidth));
+    observer.observe(lane);
+    return () => observer.disconnect();
+  }, [measured]);
+  const pxPerSecond = WINDOW_SECONDS > 0 ? laneWidth / WINDOW_SECONDS : 0;
+  const barStep = barStepAt(pxPerSecond);
+  // Each line's estimated words, and its wave, worked out once per set of lines (and per bar spacing).
   const shapes = useMemo(
     () =>
       look === 'bars'
@@ -1125,24 +1148,12 @@ export const DubEstimateLane: React.FC<{
         : new Map(
             units.map((u) => {
               const words = estimatedWords(u);
-              return [u.key, { words, path: look === 'wave' ? wavePath(words, u.estimate) : '' }] as const;
+              return [u.key, { words, path: look === 'wave' ? wavePath(words, u.estimate, barStep) : '' }] as const;
             })
           ),
-    [units, look]
+    [units, look, barStep]
   );
   const gradientId = useId().replace(/[^\w-]/g, '');
-  // Blocks write a word in its box only where it fits, so the lane's width is needed.
-  const probe = useRef<HTMLSpanElement>(null);
-  const [laneWidth, setLaneWidth] = useState(0);
-  useLayoutEffect(() => {
-    const lane = probe.current?.parentElement;
-    if (look !== 'blocks' || !lane) return;
-    setLaneWidth(lane.clientWidth);
-    const observer = new ResizeObserver(() => setLaneWidth(lane.clientWidth));
-    observer.observe(lane);
-    return () => observer.disconnect();
-  }, [look]);
-  const pxPerSecond = WINDOW_SECONDS > 0 ? laneWidth / WINDOW_SECONDS : 0;
   const end = windowStart + WINDOW_SECONDS * 2;
   const partsOf = useMemo(() => new Map(units.map((u) => [u.key, lanePartsOf(u)])), [units]);
   const lastEnd = (u: SyncPreviewUnit) => {
@@ -1272,7 +1283,7 @@ export const DubEstimateLane: React.FC<{
     ) : null;
   return (
     <>
-      {look === 'blocks' && <span ref={probe} aria-hidden="true" className="hidden" />}
+      {measured && <span ref={probe} aria-hidden="true" className="hidden" />}
       {visible.map((u) => {
         const over = u.estimate - u.slot;
         const hue = hueOf(u.index);
@@ -1299,7 +1310,7 @@ export const DubEstimateLane: React.FC<{
               const width = pct(p.start + length) - pct(p.start);
               const dragging = placeDrag?.key === u.key && placeDrag.part === p.index;
               const partWords = shape?.words.slice(p.first, p.last + 1).map((w) => ({ ...w, start: w.start - p.from, end: w.end - p.from })) ?? [];
-              const path = drawn === 'wave' ? (cut ? wavePath(partWords, length) : shape?.path ?? '') : '';
+              const path = drawn === 'wave' ? (cut ? wavePath(partWords, length, barStep) : shape?.path ?? '') : '';
               // Past this share of the part it runs over the line's room, and turns red.
               const inSlot = length > 0 ? Math.min(1, Math.max(0, (room - p.start) / length)) : 1;
               const pick = onSelect
@@ -1390,7 +1401,7 @@ export const DubEstimateLane: React.FC<{
                       boxShadow: selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
                     }}
                   >
-                    {/* Wave: a swell per estimated word, red past the line's room */}
+                    {/* Wave: thin bars, a group per estimated word, red past the line's room */}
                     {drawn === 'wave' && path && (
                       <svg aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 100" preserveAspectRatio="none">
                         <defs>
@@ -1400,7 +1411,15 @@ export const DubEstimateLane: React.FC<{
                           </linearGradient>
                         </defs>
                         <line x1="0" x2="1000" y1="50" y2="50" stroke={hue} strokeOpacity={0.35} vectorEffect="non-scaling-stroke" />
-                        <path d={path} fill={`url(#${gradientId}-${u.index}-${p.index})`} fillOpacity={0.85} />
+                        <path
+                          d={path}
+                          fill="none"
+                          stroke={`url(#${gradientId}-${u.index}-${p.index})`}
+                          strokeOpacity={0.95}
+                          strokeWidth={1.7}
+                          strokeLinecap="round"
+                          vectorEffect="non-scaling-stroke"
+                        />
                       </svg>
                     )}
                     {/* Blocks: a box per estimated word, its text inside where it fits */}
