@@ -7,7 +7,6 @@ import {
   MoreHorizontal,
   Pause,
   Play,
-  SquareArrowDownLeft,
   SquareArrowOutUpRight,
   Video,
   VolumeX,
@@ -17,8 +16,8 @@ import { ReviewPicture, type ReviewClock, type ReviewVideo } from './ReviewVideo
 import { useLiveTime } from './useLiveTime';
 
 type Box = { x: number; y: number; w: number; h: number };
-/** `out`: in a window of its own, last left at `win` on the screen (its picture area). */
-type Saved = Box & { compact: boolean; fill: boolean; out?: boolean; win?: Box };
+/** `win`: where its own window was last left on the screen (its page area). */
+type Saved = Box & { compact: boolean; fill: boolean; win?: Box };
 
 const KEY = 'dhvani.reviewVideo.float';
 const MARGIN = 8;
@@ -111,15 +110,16 @@ const openOwnWindow = (box: Box, title: string): { win: Window; host: HTMLElemen
 };
 
 /**
- * The review video as a window over the page, like a video editor's video
- * window: moved by its title bar (settling into a corner when dropped near
- * one), sized from any edge or corner, and kept where it was left. The box
- * has any shape; a reel or a wide video fits inside it whole, with black
- * bars, or fills it. It plays nothing itself: its buttons drive the player.
+ * The review video in a window of its own, like REAPER's video window: moved
+ * anywhere, onto another screen, sized by the system, and opened again where
+ * it was left. Closing it hides the video; Show video opens it again. A reel
+ * or a wide video fits inside it whole, with black bars, or fills it. It
+ * plays nothing itself: its buttons drive the player.
  *
- * It can also leave the app for a window of its own, like REAPER's video
- * window: moved anywhere, onto another screen, sized by the system. Closing
- * that window hides the video, and Show video opens it there again.
+ * Only where a window can't open (a browser blocking pop-ups) does it show as
+ * a box over the page instead: moved by its title bar (settling into a corner
+ * when dropped near one), sized from any edge or corner, with a button that
+ * tries the window again.
  */
 export const ReviewVideoFloat: React.FC<
   ReviewClock & {
@@ -141,6 +141,9 @@ export const ReviewVideoFloat: React.FC<
   const [menuOpen, setMenuOpen] = useState(false);
   const [aspect, setAspect] = useState<number | null>(null);
   const [own, setOwn] = useState<{ win: Window; host: HTMLElement } | null>(null);
+  /** The window couldn't open, so it is the box over the page; `attempt` tries again. */
+  const [blocked, setBlocked] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   const menuRef = useRef<HTMLDivElement>(null);
   const live = useRef(saved);
   live.current = saved;
@@ -170,12 +173,9 @@ export const ReviewVideoFloat: React.FC<
   useEffect(() => setAspect(null), [video.url]);
 
   useEffect(() => {
-    if (!saved.out) return;
     const opened = openOwnWindow(live.current.win ?? onScreen(live.current), video.name);
-    if (!opened) {
-      update({ out: false });
-      return;
-    }
+    setBlocked(!opened);
+    if (!opened) return;
     const { win } = opened;
     setOwn(opened);
     /** Kept while it is open: moving a window on screen fires nothing to listen for. */
@@ -217,7 +217,7 @@ export const ReviewVideoFloat: React.FC<
       setOwn(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [saved.out]);
+  }, [attempt]);
 
   useEffect(() => {
     if (own) own.win.document.title = video.name;
@@ -342,23 +342,27 @@ export const ReviewVideoFloat: React.FC<
       {menuOpen && (
         <div
           role="menu"
-          className={`absolute right-0 ${own ? 'bottom-8' : 'top-8'} z-10 w-52 rounded-lg border border-slate-700 bg-slate-900 p-1 text-[12px] shadow-xl shadow-black/50`}
+          className={`${
+            own ? 'fixed right-1 bottom-11 max-w-[calc(100vw-8px)] max-h-[calc(100vh-52px)] overflow-y-auto' : 'absolute right-0 top-8'
+          } z-10 w-52 rounded-lg border border-slate-700 bg-slate-900 p-1 text-[12px] shadow-xl shadow-black/50`}
         >
           <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); onReplace(); }}>
             Replace video…
           </button>
           <div className="my-1 border-t border-slate-800" />
-          {(Object.keys(SIZES) as (keyof typeof SIZES)[]).map((name) => (
-            <button
-              key={name}
-              type="button"
-              role="menuitem"
-              className={menuItem}
-              onClick={() => { setMenuOpen(false); sizeTo(SIZES[name][0], SIZES[name][1]); }}
-            >
-              {name}
-            </button>
-          ))}
+          <div role="group" aria-label="Size" className="flex gap-0.5">
+            {(Object.keys(SIZES) as (keyof typeof SIZES)[]).map((name) => (
+              <button
+                key={name}
+                type="button"
+                role="menuitem"
+                className="flex-1 min-w-0 px-1 py-1.5 rounded-md hover:bg-slate-800 text-slate-200 text-center cursor-default"
+                onClick={() => { setMenuOpen(false); sizeTo(SIZES[name][0], SIZES[name][1]); }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
           <button type="button" role="menuitem" className={menuItem} disabled={!aspect} onClick={() => { setMenuOpen(false); fitToPicture(); }}>
             {own ? 'Fit the window to the video' : 'Fit the box to the video'}
           </button>
@@ -368,10 +372,11 @@ export const ReviewVideoFloat: React.FC<
           <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); update({ compact: !saved.compact }); }}>
             {saved.compact ? 'Show the controls' : 'Video only'}
           </button>
-          <div className="my-1 border-t border-slate-800" />
-          <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); update({ out: !saved.out }); }}>
-            {own ? 'Put back in the app' : 'Open in its own window'}
-          </button>
+          {!own && (
+            <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); setAttempt((a) => a + 1); }}>
+              Open in its own window
+            </button>
+          )}
           <div className="my-1 border-t border-slate-800" />
           <button
             type="button"
@@ -386,46 +391,48 @@ export const ReviewVideoFloat: React.FC<
     </div>
   );
 
+  /** In a narrow window the clock goes first, then the line jumps; play, Listen to and the menu always fit. */
   const controls = (end?: React.ReactNode) => (
-    <div className="flex items-center gap-1.5 px-2 h-10 shrink-0 border-t border-slate-800">
-      <button type="button" onClick={press(onPrevLine)} aria-label="Previous line" className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default">
-        <ChevronsLeft className="w-3.5 h-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={press(onTogglePlay)}
-        aria-label={clock.isPlaying ? 'Pause' : 'Play'}
-        className="w-7 h-7 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-default"
-      >
-        {clock.isPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
-      </button>
-      <button type="button" onClick={press(onNextLine)} aria-label="Next line" className="w-6 h-6 rounded-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default">
-        <ChevronsRight className="w-3.5 h-3.5" />
-      </button>
-      <span className="font-mono text-[11px] text-slate-200 tabular-nums">{formatClock(time)}</span>
-      <div role="group" aria-label="Listen to" className="ml-auto flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 gap-0.5 text-[10.5px]">
-        {([
-          ['source', 'Orig'],
-          ['synth', 'Dub'],
-          ['both', 'Both'],
-        ] as const).map(([mode, label]) => (
-          <button
-            key={mode}
-            type="button"
-            aria-pressed={trackMode === mode}
-            onClick={press(() => onTrackMode(mode))}
-            className={`px-1.5 py-0.5 rounded-md cursor-default ${trackMode === mode ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
-          >
-            {label}
-          </button>
-        ))}
+    <div className="@container shrink-0 border-t border-slate-800">
+      <div className="flex items-center gap-1.5 px-2 h-10 min-w-0">
+        <button type="button" onClick={press(onPrevLine)} aria-label="Previous line" className="hidden @[17rem]:flex shrink-0 w-6 h-6 rounded-full items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default">
+          <ChevronsLeft className="w-3.5 h-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={press(onTogglePlay)}
+          aria-label={clock.isPlaying ? 'Pause' : 'Play'}
+          className="shrink-0 w-7 h-7 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center cursor-default"
+        >
+          {clock.isPlaying ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-0.5" />}
+        </button>
+        <button type="button" onClick={press(onNextLine)} aria-label="Next line" className="hidden @[17rem]:flex shrink-0 w-6 h-6 rounded-full items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default">
+          <ChevronsRight className="w-3.5 h-3.5" />
+        </button>
+        <span className="hidden @[20rem]:inline shrink-0 font-mono text-[11px] text-slate-200 tabular-nums">{formatClock(time)}</span>
+        <div role="group" aria-label="Listen to" className="ml-auto shrink-0 flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 gap-0.5 text-[10.5px]">
+          {([
+            ['source', 'Orig'],
+            ['synth', 'Dub'],
+            ['both', 'Both'],
+          ] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              aria-pressed={trackMode === mode}
+              onClick={press(() => onTrackMode(mode))}
+              className={`px-1.5 py-0.5 rounded-md cursor-default ${trackMode === mode ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {end}
       </div>
-      {end}
     </div>
   );
 
-  if (saved.out) {
-    if (!own) return null;
+  if (own) {
     return createPortal(
       <section aria-label="Review video" className="h-screen flex flex-col bg-slate-950 select-none">
         <div
@@ -435,25 +442,12 @@ export const ReviewVideoFloat: React.FC<
         >
           <ReviewPicture video={video} {...clock} fit={saved.fill ? 'cover' : 'contain'} onAspect={setAspect} view={own.win} className="absolute inset-0" />
         </div>
-        {!saved.compact &&
-          controls(
-            <>
-              <button
-                type="button"
-                onClick={press(() => update({ out: false }))}
-                title="Put back in the app"
-                aria-label="Put back in the app"
-                className={iconButton}
-              >
-                <SquareArrowDownLeft className="w-4 h-4" />
-              </button>
-              {menu}
-            </>
-          )}
+        {!saved.compact && controls(menu)}
       </section>,
       own.host
     );
   }
+  if (!blocked) return null;
 
   return (
     <>
@@ -485,7 +479,7 @@ export const ReviewVideoFloat: React.FC<
           </span>
           <button
             type="button"
-            onClick={press(() => update({ out: true }))}
+            onClick={press(() => setAttempt((a) => a + 1))}
             title="Open in its own window, to move anywhere (even another screen)"
             aria-label="Open in its own window"
             className={iconButton}
