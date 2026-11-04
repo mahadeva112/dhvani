@@ -136,6 +136,31 @@ export const useSyncRun = (isSyncing: boolean, progress: SyncProgress | null, wa
   return run;
 };
 
+/**
+ * Whether the Dub step shows this page: while a sync runs, and once one it
+ * watched has ended with a new report, until Open the dub. Decided while
+ * rendering, not after, so the moment the sync ends the page turns into
+ * Dubbed with nothing in between (deciding it in an effect drew the whole dub
+ * page for a moment, then this page again, fading in a second time). A
+ * cancelled or failed sync leaves the report as it was and goes straight back.
+ */
+export const useSyncPageView = (
+  isSyncing: boolean,
+  jobId: string | null,
+  report: SyncReport | null,
+  onDubStep: boolean
+): { show: boolean; done: SyncReport | null; open: () => void } => {
+  /** The project being dubbed, the report it had when the sync started, and whether that sync has ended. */
+  const [watch, setWatch] = useState<{ jobId: string; before: SyncReport | null; ended: boolean } | null>(null);
+  const finished = Boolean(!isSyncing && watch && watch.jobId === jobId && onDubStep && report && report !== watch.before);
+  if (isSyncing) {
+    // A sync started while the last one's result shows is a new one to watch.
+    if (jobId && (watch?.jobId !== jobId || watch.ended)) setWatch({ jobId, before: report, ended: false });
+  } else if (watch && !finished) setWatch(null);
+  else if (watch && !watch.ended) setWatch({ ...watch, ended: true });
+  return { show: isSyncing || finished, done: finished ? report : null, open: () => setWatch(null) };
+};
+
 const clock = (seconds: number) => {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -208,7 +233,8 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
   const tookOf = (n: number) => {
     const s = run?.steps[n];
     if (!s) return null;
-    return s.took + (s.start !== null && !done ? (now - s.start) / 1000 : 0);
+    // A step still open when the page turns to Dubbed (its end is noted just after) runs to now.
+    return s.took + (s.start !== null ? (now - s.start) / 1000 : 0);
   };
   const detailOf = (n: number, phase: Phase): string => {
     const state = n < step ? 'done' : n === step ? 'now' : 'next';
@@ -296,7 +322,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
       ];
 
   const log = [...(run?.log ?? [])];
-  if (done && run?.endedAt) log.push({ at: run.endedAt, text: `Done: ${done.summary.inSync} of ${done.summary.lines} lines in sync`, took: elapsed, strong: true });
+  if (done && run) log.push({ at: run.endedAt ?? now, text: `Done: ${done.summary.inSync} of ${done.summary.lines} lines in sync`, took: elapsed, strong: true });
 
   return (
     <div className="flex-1 w-full max-w-[1280px] mx-auto flex flex-col gap-[18px] py-2 animate-in fade-in duration-200">

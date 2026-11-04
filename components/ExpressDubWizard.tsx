@@ -106,7 +106,7 @@ import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncStatusBar, useSyncOptions } from './SyncPanel';
 import { DubSettingsCard } from './DubSettingsCard';
-import { SyncProgressPage, useSyncRun } from './SyncProgressPage';
+import { SyncProgressPage, useSyncPageView, useSyncRun } from './SyncProgressPage';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import { LinePair } from './LinePair';
 import { applyJoinPreset, describeChange, joinPresetLabel, presetName } from './SyncJoinSettings';
@@ -1125,23 +1125,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   // Dub & sync on the Dub step: the progress page while it runs, then its result until Open the dub.
   const syncRun = useSyncRun(isSyncing, syncProgress, syncWaitingFor ?? null);
-  const [syncDoneFor, setSyncDoneFor] = useState<string | null>(null);
-  /** The report there was when the sync started; a new one when it stops means it finished (not cancelled or failed). */
-  const reportAtSyncStart = useRef<SyncReport | null | undefined>(undefined);
-  useEffect(() => {
-    if (isSyncing) {
-      if (reportAtSyncStart.current === undefined) reportAtSyncStart.current = activeJob?.syncReport ?? null;
-      return;
-    }
-    if (reportAtSyncStart.current === undefined) return;
-    const before = reportAtSyncStart.current;
-    reportAtSyncStart.current = undefined;
-    if (activeJob && hasSyncReport && activeJob.syncReport && activeJob.syncReport !== before) setSyncDoneFor(activeJob.id);
-  }, [isSyncing, hasSyncReport, activeJob]);
-  // The result is for the moment after: leaving the Dub step or the project goes back to the dub itself.
-  useEffect(() => {
-    if (syncDoneFor && (activeStep !== 3 || activeJob?.id !== syncDoneFor)) setSyncDoneFor(null);
-  }, [syncDoneFor, activeStep, activeJob?.id]);
+  // Leaving the Dub step or the project drops the result: it is for the moment after.
+  const syncPage = useSyncPageView(isSyncing, activeJob?.id ?? null, hasSyncReport ? activeJob?.syncReport ?? null : null, activeStep === 3);
   /*
    * The second track is the synced dub once there is one (App picks the same
    * file), else a dub made before Dub and Sync were one step.
@@ -3878,7 +3863,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         );
 
         // While Dub & sync runs, and right after it finishes: what it is doing, with no settings.
-        if (isSyncing || (syncDoneFor === activeJob.id && report)) {
+        if (syncPage.show) {
           return (
             <SyncProgressPage
               run={syncRun}
@@ -3887,8 +3872,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               waitingFor={syncWaitingFor}
               isCancelling={isCancellingSync}
               onCancel={() => onCancelSync?.()}
-              done={isSyncing ? null : report}
-              onOpen={() => setSyncDoneFor(null)}
+              done={syncPage.done}
+              onOpen={syncPage.open}
               characters={dubCharacterCount}
               about={[
                 voiceShortName,
