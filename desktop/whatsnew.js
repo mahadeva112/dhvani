@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.32',
+    changes: [
+      'The Script view shows the script as long paragraphs, sized from the length of the talk (about one to three minutes each), and the Lines layout is gone.',
+      'Type straight into the dub in the Script view, like a document: click anywhere in a sentence and type. It saves as you type. Space types a space, and Ctrl+Space plays and pauses without leaving the line.',
+      "Review's dub estimate is drawn as audio bars, as tall as the original wave. You can zoom in to about half a second on view, even on long videos, and scrolling the timeline glides instead of jumping.",
+    ],
+  },
+  {
     version: '1.4.31',
     changes: [
       'In Review you can drag a dub line to where it should be heard, and Sync places it there.',
