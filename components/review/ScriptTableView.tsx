@@ -244,11 +244,17 @@ export function ScriptTableView({
     const id = String(seg.id);
     const el = e.currentTarget;
     const field = inlineField(el);
-    // Ctrl+Space plays and pauses without leaving the line, so it can be heard while it is typed.
+    // Ctrl+Space plays and pauses without leaving the line, so it can be heard while it is typed:
+    // from this line's start (to its paragraph's end), or on from where it was paused inside this line.
     if (e.key === ' ' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
       e.preventDefault();
       phonetic.dismiss();
-      onTogglePlay();
+      if (isPlaying || seg.id === activeSegmentId) {
+        onTogglePlay();
+      } else {
+        const passage = passages.find((p) => p.cues.some((c) => c.id === seg.id));
+        onPlayPassage(seg.startTime, passage ? passage.cues[passage.cues.length - 1].endTime : seg.endTime);
+      }
       return;
     }
     if (phonetic.onKeyDown(e, typed(id), field)) return;
@@ -290,6 +296,30 @@ export function ScriptTableView({
     }
   };
 
+  // The line last highlighted, by playback, a click in the original or typing: a paragraph's play
+  // button plays on from it. A paragraph heard to its end forgets it, so the next play starts the paragraph over.
+  const resumeRef = useRef<string | null>(null);
+  const wasPlaying = useRef(isPlaying);
+  useEffect(() => {
+    if (activeSegmentId != null) resumeRef.current = String(activeSegmentId);
+  }, [activeSegmentId]);
+  useEffect(() => {
+    if (edit) resumeRef.current = edit.id;
+  }, [edit?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (wasPlaying.current && !isPlaying) {
+      const p = passages.find((q) => q.cues.some((c) => String(c.id) === resumeRef.current));
+      if (p && String(p.cues[p.cues.length - 1].id) === resumeRef.current && activeSegmentId == null) resumeRef.current = null;
+    }
+    wasPlaying.current = isPlaying;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlaying]);
+  /** Plays a paragraph from the line last highlighted in it, or from its start. */
+  const playParagraph = (cues: AudioSegment[]) => {
+    const from = cues.find((c) => String(c.id) === resumeRef.current) ?? cues[0];
+    onPlayPassage(from.startTime, cues[cues.length - 1].endTime);
+  };
+
   // Follow playback to the paragraph being heard, but never while someone is typing.
   const activeKey = useMemo(
     () => passages.find((p) => p.cues.some((seg) => seg.id === activeSegmentId))?.key ?? null,
@@ -322,7 +352,9 @@ export function ScriptTableView({
             className={`rounded-sm [box-decoration-break:clone] cursor-default transition-colors duration-[450ms] motion-reduce:transition-none ${
               seg.id === activeSegmentId
                 ? `${PLAYING_WASH} text-white shadow-[inset_0_-2px_0_rgb(252_211_77/0.7)]`
-                : 'hover:bg-white/[0.06] hover:text-slate-100'
+                : edit?.id === String(seg.id)
+                  ? 'bg-indigo-400/[0.18] text-white shadow-[inset_0_-2px_0_rgb(165_180_252/0.8)]'
+                  : 'hover:bg-white/[0.06] hover:text-slate-100'
             }`}
             title={`${formatTime(seg.startTime)} · play from here`}
           >
@@ -355,6 +387,9 @@ export function ScriptTableView({
               aria-label={`Paragraph ${passageNumber}, line at ${formatTime(seg.startTime)}, ${targetLanguage || 'dub script'}`}
               title={`${formatTime(seg.startTime)}–${formatTime(seg.endTime)}`}
               onFocus={(e) => {
+                // While nothing plays, the player moves to the line clicked into: its original is
+                // highlighted beside it, and play starts there. Playing on is never interrupted.
+                if (!isPlaying && seg.id !== activeSegmentId) onSeek(seg.startTime);
                 open(seg);
                 typingRef.current = { field: inlineField(e.currentTarget), key: id };
               }}
@@ -499,9 +534,9 @@ export function ScriptTableView({
                         <span className="text-[13px] font-semibold text-slate-200">{passage.index + 1}</span>
                         <button
                           type="button"
-                          onClick={() => (playingHere ? onTogglePlay() : onPlayPassage(start, end))}
+                          onClick={() => (playingHere ? onTogglePlay() : playParagraph(cues))}
                           aria-label={playingHere ? `Pause paragraph ${passage.index + 1}` : `Play paragraph ${passage.index + 1}`}
-                          title={playingHere ? 'Pause' : 'Play this paragraph'}
+                          title={playingHere ? 'Pause' : 'Play this paragraph from the line last highlighted in it'}
                           className={`w-7 h-7 rounded-full border flex items-center justify-center transition-colors cursor-default ${
                             playingHere
                               ? 'border-slate-300 bg-slate-100 text-slate-900'
@@ -569,7 +604,7 @@ export function ScriptTableView({
               {palette.matras.includes(sign) ? `◌${sign}` : sign}
             </button>
           ))}
-          <span className="ml-auto text-[11px] text-slate-500">Ctrl+Space play / pause · Saves as you type · Enter next line · Esc throws away unsaved typing</span>
+          <span className="ml-auto text-[11px] text-slate-500">Ctrl+Space play this line / pause · Saves as you type · Enter next line · Esc throws away unsaved typing</span>
         </div>
       )}
 
