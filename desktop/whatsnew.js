@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.34',
+    changes: [
+      "In the Script view, click a dub line and the original line beside it lights up. Ctrl+Space plays from the line you are typing in, and a paragraph's play button carries on from the last lit line instead of starting over.",
+      'Typing in the Script view has the same tools as the Cues table: Convert all, AI polish and the on-screen keyboard, right under the line.',
+    ],
+  },
+  {
     version: '1.4.33',
     changes: [
       'In Review every line has Shorter, Longer and Same length buttons. The one that fits the line best is marked, but nothing is asked for until you press one.',
