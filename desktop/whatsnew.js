@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.28',
+    changes: [
+      'The review video always opens in a window of its own, so you can move it anywhere, and it opens again where you left it.',
+      'In a small video window the controls and the ⋯ menu fit: the clock and line jumps step aside first, and nothing is cut off.',
+    ],
+  },
+  {
     version: '1.4.27',
     changes: [
       'The review video can open in a window of its own, like REAPER\'s video window: move it anywhere, even onto another screen. Use the arrow button in its title bar, and the arrow at the bottom puts it back in the app.',
