@@ -845,6 +845,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                     {onDragCut && <span>Drag a cut between cues to move it</span>}
                     <span>Ctrl + scroll to zoom · scroll to move once zoomed in</span>
                     {belowWave && <span>Double-click a dub line to zoom to it</span>}
+                    {belowWave && <span>Drag a dub line to where it should be heard · S over it cuts it between two words · double-click a cut to join · Backspace puts it back</span>}
                     <span>Drag the bar under the timeline to move along the track</span>
                   </div>
                   <div className="mt-2.5 pt-2.5 border-t border-slate-800 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">

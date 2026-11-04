@@ -39,10 +39,14 @@ export interface ScriptUpdate {
 
 const byId = (list: AudioSegment[]) => new Map(list.map((s) => [String(s.id), s]));
 
-/** The dub's own trim of a line stays with the cue here; the script never sets it. */
+/** The dub's own trim and place of a line stay with the cue here; the script never sets them. */
 const withDubTrim = (cue: AudioSegment, here: AudioSegment | undefined): AudioSegment => {
-  const { dubTargetSeconds: _theirs, ...rest } = cue;
-  return here?.dubTargetSeconds !== undefined ? { ...rest, dubTargetSeconds: here.dubTargetSeconds } : rest;
+  const { dubTargetSeconds: _theirs, dubPlace: _theirPlace, ...rest } = cue;
+  return {
+    ...rest,
+    ...(here?.dubTargetSeconds !== undefined && { dubTargetSeconds: here.dubTargetSeconds }),
+    ...(here?.dubPlace && { dubPlace: here.dubPlace }),
+  };
 };
 
 const startOf = (s: AudioSegment) => (Number.isFinite(s.startTime) ? s.startTime : Infinity);

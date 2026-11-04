@@ -153,7 +153,7 @@ export const splitCue = (segment: AudioSegment, k: number, newId: string | numbe
     segment.startTime,
     firstEnd
   );
-  const { dubTargetSeconds: _trim, ...rest } = segment;
+  const { dubTargetSeconds: _trim, dubPlace: _place, ...rest } = segment;
   const second = timed(
     withText({ ...rest, id: newId }, source.slice(k).join(' '), dub.slice(dubCut).join(' ')),
     secondTokens,

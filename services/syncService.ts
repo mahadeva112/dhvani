@@ -5,6 +5,8 @@ import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './ca
 import { castPayload, fetchMixed } from './castService';
 import { keepTermsFor } from './glossaryService';
 import type { lockedLines, SyncBank } from './syncEditService';
+import type { LinePart } from './linePlaces';
+import { ALLOWED_OVERFLOW, isShortSpeech, LENGTHEN_FILL, SUGGESTION_MARGIN, TIGHT_SHARE } from './fitThresholds';
 import { matchedLips, READ_SPREAD, sourceLipTimes, syllablesHeld, timeLine, type LineTiming, type TimedWord } from './speechTiming';
 
 /**
@@ -482,6 +484,8 @@ const slimSegment = (segment: AudioSegment, voiceTexts?: Record<string, string>,
   ...(voiceTexts?.[segment.id] && { voiceText: voiceTexts[segment.id] }),
   // The speaker's pauses, kept by the translation: Sync voices them while the line is unedited.
   ...(segment.pausedTarget && { pausedTarget: segment.pausedTarget }),
+  // Where the user placed the line and cut it on Review's dub lane: Sync places it there.
+  ...(segment.dubPlace && { dubPlace: segment.dubPlace }),
 });
 
 /**
@@ -666,6 +670,9 @@ export interface SyncPreviewUnit {
   targetChars: number;
   /** Seconds the user trimmed the line to on the timeline; set only client-side, by withLineTargets. */
   wantSeconds?: number;
+  /** Where the user placed the line's first word, and its parts once cut; set only client-side, by withLinePlaces. */
+  dubStart?: number;
+  parts?: LinePart[];
   /** Set by the Expert estimate (expertPreview): the line timed in syllables, and its lip closures. */
   expert?: ExpertLine;
   /** Marks in the line the voice may pause at where the original speaker talks straight through; `after` is the word before. */
@@ -753,23 +760,12 @@ export interface SyncPreview {
  */
 export type EstimateMethod = 'quick' | 'expert';
 
-/*
- * The thresholds the server's preview uses (server/lib/syncPreview.js and
- * syncDub.js), so an Expert line is called long, tight or short exactly as a
- * Quick one would be at the same length.
- */
-export const ALLOWED_OVERFLOW: Record<SyncPrecision, number> = { lipsync: 0.15, phrase: 0.3, loose: 0.6 };
+// An Expert line is called long, tight or short exactly as a Quick one would be at the same length.
+export { ALLOWED_OVERFLOW, isShortSpeech };
 /** What Eleven v3 and v4 are asked to perform to read a line faster, as Sync does (server/lib/syncDub.js). */
 export const PACE_DIRECTION = '[calm, fast]';
 /** About how much of its length a line keeps read with PACE_DIRECTION: 12% faster, measured on one Hindi line. */
 export const PACE_SHARE = 0.88;
-const TIGHT_SHARE = 0.9;
-const SUGGESTION_MARGIN = 0.92;
-const LENGTHEN_FILL = 0.95;
-const SHORT_SHARE = 0.6;
-const MIN_SHORT_GAP = 1;
-/** True when `seconds` of dub leave too much of `spoken` seconds of original unsaid. */
-export const isShortSpeech = (seconds: number, spoken: number) => seconds < spoken * SHORT_SHARE && spoken - seconds >= MIN_SHORT_GAP;
 
 /**
  * The server's preview with each line's text as the script has it now, timed

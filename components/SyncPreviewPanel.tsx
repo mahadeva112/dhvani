@@ -22,6 +22,7 @@ import type { RateBasis } from '../services/voiceRate';
 import { timeLine } from '../services/speechTiming';
 import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
+import { LINE_GAP_SECONDS, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, roomEnd, type LinePart } from '../services/linePlaces';
 
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
@@ -69,40 +70,7 @@ const LANE_VIEWS: LaneView[] = ['wave', 'blocks', 'bars', 'rythmo'];
 /** Zoomed out past this many pixels a second, Blocks draws each line as one bar: its words would be slivers. */
 const BLOCKS_MIN_PX_PER_SECOND = 6;
 
-/** A mark a voice is likely to pause at, ending a word. */
-const PAUSE_MARK = /[,.;:!?\u0964\u0965\u2013\u2014]$/;
-
-/**
- * Where each word of a line is likely to fall, in seconds from its start,
- * stretched to the line's estimate. An Expert line has its own timed words; a
- * Quick one shares the estimate out by characters, with a short pause after a
- * mark. A guess drawn from the text: nothing has been voiced yet.
- */
-export const estimatedWords = (u: SyncPreviewUnit): { text: string; start: number; end: number }[] => {
-  const length = u.estimate;
-  if (length <= 0) return [];
-  const timed = u.expert?.words;
-  if (timed?.length) {
-    const last = timed[timed.length - 1].end;
-    const k = last > 0 ? length / last : 1;
-    return timed.map((w) => ({ text: w.text, start: w.start * k, end: w.end * k }));
-  }
-  const tokens = u.text.split(/\s+/).filter(Boolean);
-  if (!tokens.length) return [];
-  const gaps = tokens.slice(0, -1).map((t) => (PAUSE_MARK.test(t) ? 0.25 : 0.04));
-  const gapTotal = gaps.reduce((a, b) => a + b, 0);
-  // Pauses never take more than a third of the line.
-  const squeeze = gapTotal > length / 3 ? length / 3 / gapTotal : 1;
-  const speech = length - gapTotal * squeeze;
-  const chars = tokens.reduce((a, t) => a + Math.max(1, t.length), 0);
-  let at = 0;
-  return tokens.map((text, i) => {
-    const d = (speech * Math.max(1, text.length)) / chars;
-    const word = { text, start: at, end: at + d };
-    at += d + (gaps[i] ?? 0) * squeeze;
-    return word;
-  });
-};
+export { estimatedWords };
 
 /** A steady pseudo-random 0..1, so a line's wave keeps its shape from one render to the next. */
 const wobble = (i: number, j: number) => {
@@ -1027,12 +995,13 @@ const LinePauseTicks: React.FC<{ unit: SyncPreviewUnit; pct: (t: number) => numb
   const source = words.slice(1).flatMap((w, i) => (w.start - words[i].end >= SOURCE_PAUSE_SECONDS ? [(words[i].end + w.start) / 2] : []));
   const bare = (t: string) => t.replace(/[^\p{L}\p{N}\p{M}]/gu, '');
   const dub = (unit.unpausedMarks || []).flatMap(({ after, mark }) => {
+    // On the dub's clock: where the line, or its part, was placed.
     if (unit.expert) {
       const word = unit.expert.words.find((w) => bare(w.text) === bare(after));
-      return word ? [unit.srcStart + word.end] : [];
+      return word ? [lineTimeAt(unit, word.end)] : [];
     }
     const at = unit.text.indexOf(`${after}${mark}`);
-    return at >= 0 && unit.text.length > 0 ? [unit.srcStart + unit.estimate * ((at + after.length) / unit.text.length)] : [];
+    return at >= 0 && unit.text.length > 0 ? [lineTimeAt(unit, unit.estimate * ((at + after.length) / unit.text.length))] : [];
   });
   return (
     <>
@@ -1070,15 +1039,40 @@ export const PauseTicksLane: React.FC<{ units: SyncPreviewUnit[]; segments: Audi
   );
 };
 
+/** A part of a line being dragged on the dub lane: the line, the part (LinePart.index), and where its first word would be heard; null is where Sync puts it. */
+export interface PlaceDrag {
+  key: string;
+  part: number;
+  start: number | null;
+}
+
+/** A dragged start this close to a snap point, in pixels, lands on it. */
+const SNAP_PX = 8;
+/** Pointed this close to a pause in the dub, in pixels, a cut goes there. */
+const PAUSE_CUT_PX = 16;
+
+const isTyping = (target: EventTarget | null) => {
+  const el = target as HTMLElement | null;
+  return Boolean(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable));
+};
+
 /**
  * The dub lane of a sync preview: each line where Sync will start it, as long
- * as it is likely to last once placed, in the line's colour; past its slot the
+ * as it is likely to last once placed, in the line's colour; past its room the
  * rest is striped (red when it runs long). With Rythmo, an Expert line's words
  * sit where they are likely said. A picked line gets a handle to drag its end
  * to the length it should take (a trim). Positions are on the window from
  * `windowStart`, `windowSeconds` wide; `drag` and `setDrag` hold a trim in
  * progress, so the caller can spell it out. Pauses have a row of their own
  * (PauseTicksLane); an Expert line's lip closures show once zoomed in.
+ *
+ * Given onPlace and onCut, a line can be placed by hand (services/linePlaces.ts):
+ * dragged to where its first word should be heard, snapping to the original's
+ * words and stopping at the lines either side; cut with S between the two words
+ * nearest the pointer (at a pause when one is close) into parts placed on their
+ * own; joined again with a double-click on the cut; put back where Sync puts it
+ * with Backspace. A placed part shows a flag, and a dashed outline where Sync
+ * would have put it.
  */
 export const DubEstimateLane: React.FC<{
   units: SyncPreviewUnit[];
@@ -1094,7 +1088,34 @@ export const DubEstimateLane: React.FC<{
   drag?: { key: string; seconds: number } | null;
   setDrag?: (drag: { key: string; seconds: number } | null) => void;
   onDragStart?: () => void;
-}> = ({ units, windowStart, windowSeconds: WINDOW_SECONDS, selectedKey, currentKey, onSelect, onTrim, rythmo = false, look = 'bars', drag = null, setDrag, onDragStart }) => {
+  /** Puts the part of a line after `letters` letters (LinePart.letters) where its first word is heard, or back where Sync puts it with null. */
+  onPlace?: (unit: SyncPreviewUnit, letters: number, start: number | null) => void;
+  /** Cuts a line after `letters` letters, or joins it there again. */
+  onCut?: (unit: SyncPreviewUnit, letters: number, on: boolean) => void;
+  /** A part being dragged, held by the caller so the fit follows it. */
+  placeDrag?: PlaceDrag | null;
+  setPlaceDrag?: (drag: PlaceDrag | null) => void;
+  /** Where the original's words start: a dragged part snaps to them. */
+  snapTimes?: number[];
+}> = ({
+  units,
+  windowStart,
+  windowSeconds: WINDOW_SECONDS,
+  selectedKey,
+  currentKey,
+  onSelect,
+  onTrim,
+  rythmo = false,
+  look = 'bars',
+  drag = null,
+  setDrag,
+  onDragStart,
+  onPlace,
+  onCut,
+  placeDrag = null,
+  setPlaceDrag,
+  snapTimes = [],
+}) => {
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
   // Each line's estimated words, and its wave, worked out once per set of lines.
   const shapes = useMemo(
@@ -1123,16 +1144,124 @@ export const DubEstimateLane: React.FC<{
   }, [look]);
   const pxPerSecond = WINDOW_SECONDS > 0 ? laneWidth / WINDOW_SECONDS : 0;
   const end = windowStart + WINDOW_SECONDS * 2;
-  const visible = units.filter((u) => Math.max(u.srcEnd, u.srcStart + u.estimate) >= windowStart && u.srcStart <= end);
+  const partsOf = useMemo(() => new Map(units.map((u) => [u.key, lanePartsOf(u)])), [units]);
+  const lastEnd = (u: SyncPreviewUnit) => {
+    const parts = partsOf.get(u.key) ?? lanePartsOf(u);
+    return partEnd(parts[parts.length - 1]);
+  };
+  const visible = units.filter((u) => {
+    const parts = partsOf.get(u.key) ?? [];
+    return Math.max(u.srcEnd, lastEnd(u)) >= windowStart && Math.min(u.srcStart, parts[0]?.start ?? u.srcStart) <= end;
+  });
+  /** Seconds on the timeline under `clientX` on the lane. */
+  const timeAt = (clientX: number, lane: Element) => {
+    const r = lane.getBoundingClientRect();
+    return windowStart + ((clientX - r.left) / Math.max(1, r.width)) * WINDOW_SECONDS;
+  };
   /** A trim from where the pointer is over the dub lane, held to the line's slot, snapping to the end of the original speech. */
   const trimAt = (u: SyncPreviewUnit, clientX: number, lane: Element) => {
-    const r = lane.getBoundingClientRect();
-    const seconds = windowStart + ((clientX - r.left) / r.width) * WINDOW_SECONDS - u.srcStart;
+    const seconds = timeAt(clientX, lane) - (u.dubStart ?? u.srcStart);
     const snapped = Math.abs(seconds - u.spoken) <= 0.15 ? u.spoken : Math.round(seconds * 10) / 10;
     return Math.max(MIN_TRIM_SECONDS, Math.min(u.slot, snapped));
   };
-  const lineNumber = (u: SyncPreviewUnit, seconds: number, dot?: string) =>
-    pct(u.srcStart + seconds) - pct(u.srcStart) > 3.2 ? (
+
+  // ---- Placing by hand ----
+  /** The lines and window as last drawn, for the key handler and a drag in progress. */
+  const latest = useRef({ units, partsOf, windowStart, WINDOW_SECONDS });
+  latest.current = { units, partsOf, windowStart, WINDOW_SECONDS };
+  /** Where a part may start: after the part before it (by the same speaker) ends, before the next one starts. */
+  const rangeOf = (u: SyncPreviewUnit, p: LinePart) => {
+    let lo = 0;
+    let hi = Infinity;
+    for (const o of units) {
+      if (u.speaker && o.speaker && o.speaker !== u.speaker) continue;
+      for (const q of partsOf.get(o.key) ?? []) {
+        if (o.key === u.key && q.index === p.index) continue;
+        const own = o.key === u.key;
+        const before = own ? q.index < p.index : o.index < u.index;
+        if (before) lo = Math.max(lo, partEnd(q) + (own ? PART_GAP_SECONDS : LINE_GAP_SECONDS));
+        // A later part of the same line isn't run into; a later line's start is, as a long line runs into it.
+        else hi = Math.min(hi, own ? q.start - PART_GAP_SECONDS - (p.to - p.from) : q.start - LINE_GAP_SECONDS);
+      }
+    }
+    return { lo: Math.min(lo, p.auto), hi: Math.max(hi, p.auto) };
+  };
+  /** Where a part dragged to `wanted` lands: on an original word or its own Sync place when close, inside its range. Null is Sync's place. */
+  const placeAt = (u: SyncPreviewUnit, p: LinePart, wanted: number, lane: Element) => {
+    const reach = SNAP_PX / Math.max(1, lane.getBoundingClientRect().width / WINDOW_SECONDS);
+    let t = wanted;
+    let snapped: number | null = null;
+    for (const s of [p.auto, ...snapTimes]) {
+      if (Math.abs(s - wanted) < reach && (snapped === null || Math.abs(s - wanted) < Math.abs(snapped - wanted))) snapped = s;
+    }
+    if (snapped !== null) t = snapped;
+    const { lo, hi } = rangeOf(u, p);
+    const held = Math.min(hi, Math.max(lo, t));
+    if (held !== t) snapped = null;
+    return { start: Math.abs(held - p.auto) < 0.01 ? null : Math.round(held * 1000) / 1000, snapped };
+  };
+  /** Where S would cut part `p` with the pointer at `clientX`: between the two words nearest it, at a pause when one is close. */
+  const cutAt = (u: SyncPreviewUnit, p: LinePart, clientX: number, lane: Element) => {
+    if (p.last <= p.first) return null;
+    const words = estimatedWords(u);
+    const r = lane.getBoundingClientRect();
+    const pxs = r.width / Math.max(0.001, WINDOW_SECONDS);
+    const x = clientX - r.left;
+    let best: { k: number; t: number; d: number } | null = null;
+    let pause: { k: number; t: number; d: number } | null = null;
+    for (let k = p.first; k < p.last && k + 1 < words.length; k++) {
+      const t = p.start + (words[k].end + words[k + 1].start) / 2 - p.from;
+      const d = Math.abs((t - windowStart) * pxs - x);
+      if (!best || d < best.d) best = { k, t, d };
+      if (PAUSE_MARK.test(words[k].text) && d < PAUSE_CUT_PX && (!pause || d < pause.d)) pause = { k, t, d };
+    }
+    const pick = pause ?? best;
+    if (!pick) return null;
+    const letters = words.slice(0, pick.k + 1).reduce((sum, w) => sum + letterCount(w.text), 0);
+    return { key: u.key, t: pick.t, letters, atPause: PAUSE_MARK.test(words[pick.k].text) };
+  };
+
+  /** A press on a part: dragged past a few pixels it moves; let go where it was, it was a click. */
+  const press = useRef<{ key: string; part: number; letters: number; x0: number; grab: number; moved: boolean; start: number | null } | null>(null);
+  const clickHandled = useRef(false);
+  const [guide, setGuide] = useState<number | null>(null);
+  /** The part under the pointer, for S and Backspace, and where S would cut it. */
+  const hover = useRef<{ key: string; part: number; clientX: number; lane: Element } | null>(null);
+  const [cutPreview, setCutPreview] = useState<{ key: string; t: number; atPause: boolean } | null>(null);
+  const hovered = () => {
+    const h = hover.current;
+    if (!h) return null;
+    const u = latest.current.units.find((x) => x.key === h.key);
+    const p = u ? latest.current.partsOf.get(u.key)?.find((q) => q.index === h.part) : undefined;
+    return u && p ? { u, p, h } : null;
+  };
+  useEffect(() => {
+    if (!onCut && !onPlace) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || isTyping(e.target)) return;
+      const at = hovered();
+      if (!at) return;
+      // Over a dub line these keys are the line's: they don't reach Review's own S (split a cue at the playhead).
+      // By the key's place too, so S still cuts with a Bangla or Hindi keyboard on.
+      if (onCut && (e.key.toLowerCase() === 's' || e.code === 'KeyS')) {
+        const cut = cutAt(at.u, at.p, at.h.clientX, at.h.lane);
+        if (!cut) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onCut(at.u, cut.letters, true);
+        setCutPreview(null);
+      } else if (onPlace && (e.key === 'Backspace' || e.key === 'Delete') && at.p.placed) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onPlace(at.u, at.p.letters, null);
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
+
+  const lineNumber = (u: SyncPreviewUnit, width: number, dot?: string) =>
+    width > 3.2 ? (
       <span
         className="absolute z-10 left-1 top-1 flex items-center gap-1 rounded bg-slate-950/85 px-1 font-mono text-[9.5px] font-semibold leading-[14px] pointer-events-none"
         style={{ color: hueOf(u.index) }}
@@ -1148,134 +1277,251 @@ export const DubEstimateLane: React.FC<{
         const over = u.estimate - u.slot;
         const hue = hueOf(u.index);
         const selected = u.key === selectedKey;
-        const trim = drag?.key === u.key ? drag.seconds : u.wantSeconds;
+        const parts = partsOf.get(u.key) ?? lanePartsOf(u);
+        const cut = parts.length > 1;
+        const start = parts[0].start;
+        const finish = lastEnd(u);
+        const room = roomEnd(u);
+        const trim = cut ? undefined : drag?.key === u.key ? drag.seconds : u.wantSeconds;
         const handleAt = trim ?? Math.min(u.estimate, u.slot);
         const title = `${u.text}\nAbout ${u.estimate.toFixed(1)} s${readNote(u)}${
           u.expert ? ` (${u.expert.low.toFixed(1)} to ${u.expert.high.toFixed(1)} s, ${u.expert.syllables} syllables)` : ''
         } · slot ${u.slot.toFixed(1)} s${over > 0 ? ` · +${over.toFixed(1)} s` : ''}${
           u.wantSeconds !== undefined ? ` · your trim ${u.wantSeconds.toFixed(1)} s` : ''
-        }${onSelect ? '\nClick to pick this line' : ''}`;
-        const words = rythmo ? u.expert?.words : undefined;
+        }${onSelect ? '\nClick to pick this line' : ''}${onPlace ? ' · drag to move it' : ''}${onCut ? ' · S cuts it between two words' : ''}`;
+        const words = rythmo && !cut ? u.expert?.words : undefined;
         const shape = words ? undefined : shapes?.get(u.key);
         const drawn = words ? 'rythmo' : !shape || (look === 'blocks' && pxPerSecond < BLOCKS_MIN_PX_PER_SECOND) ? 'bars' : look;
-        // Past this share of the line it runs over its slot, and turns red.
-        const inSlot = over > 0 ? u.slot / u.estimate : 1;
-        const pick = onSelect
-          ? (e: React.MouseEvent) => {
-              e.stopPropagation();
-              onSelect(u);
-            }
-          : undefined;
         return (
           <React.Fragment key={u.key}>
-            <span
-              title={title}
-              onClick={pick}
-              className="absolute top-1.5 bottom-1.5 rounded border border-dashed"
-              style={{
-                left: `${pct(u.srcStart)}%`,
-                width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart))}%`,
-                background: drawn === 'bars' || drawn === 'rythmo' ? withAlpha(hue, words ? 0.1 : 0.28) : 'transparent',
-                borderColor: drawn === 'bars' || drawn === 'rythmo' ? hue : 'transparent',
-                boxShadow: selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
-              }}
-            >
-              {/* Wave: a swell per estimated word, red past the slot */}
-              {drawn === 'wave' && shape && (
-                <svg aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 100" preserveAspectRatio="none">
-                  <defs>
-                    <linearGradient id={`${gradientId}-${u.index}`} gradientUnits="userSpaceOnUse" x1="0" x2="1000" y1="0" y2="0">
-                      <stop offset={inSlot} stopColor={hue} />
-                      <stop offset={inSlot} stopColor="#fb7185" />
-                    </linearGradient>
-                  </defs>
-                  <line x1="0" x2="1000" y1="50" y2="50" stroke={hue} strokeOpacity={0.35} vectorEffect="non-scaling-stroke" />
-                  <path d={shape.path} fill={`url(#${gradientId}-${u.index})`} fillOpacity={0.85} />
-                </svg>
-              )}
-              {/* Blocks: a box per estimated word, its text inside where it fits */}
-              {drawn === 'blocks' &&
-                shape?.words.map((w, n) => {
-                  const late = w.end > u.slot + 0.02;
-                  const fits = (w.end - w.start) * pxPerSecond >= w.text.length * 5 + 6;
-                  return (
+            {parts.map((p) => {
+              const length = p.to - p.from;
+              const width = pct(p.start + length) - pct(p.start);
+              const dragging = placeDrag?.key === u.key && placeDrag.part === p.index;
+              const partWords = shape?.words.slice(p.first, p.last + 1).map((w) => ({ ...w, start: w.start - p.from, end: w.end - p.from })) ?? [];
+              const path = drawn === 'wave' ? (cut ? wavePath(partWords, length) : shape?.path ?? '') : '';
+              // Past this share of the part it runs over the line's room, and turns red.
+              const inSlot = length > 0 ? Math.min(1, Math.max(0, (room - p.start) / length)) : 1;
+              const pick = onSelect
+                ? (e: React.MouseEvent) => {
+                    e.stopPropagation();
+                    if (clickHandled.current) {
+                      clickHandled.current = false;
+                      return;
+                    }
+                    onSelect(u);
+                  }
+                : undefined;
+              return (
+                <React.Fragment key={`${u.key}-${p.index}`}>
+                  {(p.placed || dragging) && (
                     <span
-                      key={n}
                       aria-hidden="true"
-                      className="absolute top-0 bottom-0 flex items-center justify-center overflow-hidden rounded-[3px] border text-[11px] leading-none whitespace-nowrap pointer-events-none"
-                      style={{
-                        left: `${(w.start / u.estimate) * 100}%`,
-                        width: `calc(${((w.end - w.start) / u.estimate) * 100}% - 1px)`,
-                        background: late ? 'rgba(244,63,94,0.25)' : withAlpha(hue, 0.24),
-                        borderColor: late ? '#fb7185' : withAlpha(hue, 0.85),
-                        color: late ? '#fecdd3' : '#f1f5f9',
+                      className="absolute top-1.5 bottom-1.5 rounded border border-dashed pointer-events-none"
+                      style={{ left: `${pct(p.auto)}%`, width: `${Math.max(0.3, pct(p.auto + length) - pct(p.auto))}%`, borderColor: withAlpha(hue, 0.6) }}
+                    />
+                  )}
+                  <span
+                    title={`${title}${p.placed ? `\nPlaced by you, ${signedSeconds(p.start - p.auto)} from where Sync puts it · Backspace puts it back` : ''}`}
+                    onClick={pick}
+                    onPointerDown={
+                      onPlace && setPlaceDrag
+                        ? (e) => {
+                            if (e.button !== 0) return;
+                            const lane = e.currentTarget.parentElement;
+                            if (!lane) return;
+                            press.current = { key: u.key, part: p.index, letters: p.letters, x0: e.clientX, grab: timeAt(e.clientX, lane) - p.start, moved: false, start: null };
+                            try {
+                              e.currentTarget.setPointerCapture(e.pointerId);
+                            } catch {
+                              // A pointer that is already gone: the press ends with it.
+                            }
+                          }
+                        : undefined
+                    }
+                    onPointerMove={(e) => {
+                      const lane = e.currentTarget.parentElement;
+                      if (!lane) return;
+                      const held = press.current;
+                      if (held && held.key === u.key && held.part === p.index && setPlaceDrag) {
+                        if (!held.moved && Math.abs(e.clientX - held.x0) < 3) return;
+                        if (!held.moved) onDragStart?.();
+                        held.moved = true;
+                        const at = placeAt(u, p, timeAt(e.clientX, lane) - held.grab, lane);
+                        held.start = at.start;
+                        setGuide(at.snapped);
+                        setPlaceDrag({ key: u.key, part: p.index, start: at.start });
+                        return;
+                      }
+                      hover.current = { key: u.key, part: p.index, clientX: e.clientX, lane };
+                      if (!onCut) return;
+                      const next = cutAt(u, p, e.clientX, lane);
+                      setCutPreview((was) => (was?.key === next?.key && was?.t === next?.t ? was : next));
+                    }}
+                    onPointerUp={(e) => {
+                      const held = press.current;
+                      press.current = null;
+                      if (!held) return;
+                      if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+                      if (held.moved) {
+                        // The click that follows a drag doesn't pick the line too.
+                        clickHandled.current = true;
+                        onPlace?.(u, held.letters, held.start);
+                      }
+                      setPlaceDrag?.(null);
+                      setGuide(null);
+                    }}
+                    onPointerCancel={() => {
+                      press.current = null;
+                      setPlaceDrag?.(null);
+                      setGuide(null);
+                    }}
+                    onPointerLeave={() => {
+                      if (press.current) return;
+                      hover.current = null;
+                      setCutPreview(null);
+                    }}
+                    className="absolute top-1.5 bottom-1.5 rounded border border-dashed touch-none cursor-default"
+                    style={{
+                      left: `${pct(p.start)}%`,
+                      width: `${Math.max(0.3, width)}%`,
+                      background: drawn === 'bars' || drawn === 'rythmo' ? withAlpha(hue, words ? 0.1 : 0.28) : 'transparent',
+                      borderColor: drawn === 'bars' || drawn === 'rythmo' ? hue : 'transparent',
+                      boxShadow: selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
+                    }}
+                  >
+                    {/* Wave: a swell per estimated word, red past the line's room */}
+                    {drawn === 'wave' && path && (
+                      <svg aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 100" preserveAspectRatio="none">
+                        <defs>
+                          <linearGradient id={`${gradientId}-${u.index}-${p.index}`} gradientUnits="userSpaceOnUse" x1="0" x2="1000" y1="0" y2="0">
+                            <stop offset={inSlot} stopColor={hue} />
+                            <stop offset={inSlot} stopColor="#fb7185" />
+                          </linearGradient>
+                        </defs>
+                        <line x1="0" x2="1000" y1="50" y2="50" stroke={hue} strokeOpacity={0.35} vectorEffect="non-scaling-stroke" />
+                        <path d={path} fill={`url(#${gradientId}-${u.index}-${p.index})`} fillOpacity={0.85} />
+                      </svg>
+                    )}
+                    {/* Blocks: a box per estimated word, its text inside where it fits */}
+                    {drawn === 'blocks' &&
+                      length > 0 &&
+                      partWords.map((w, n) => {
+                        const late = p.start + w.end > room + 0.02;
+                        const fits = (w.end - w.start) * pxPerSecond >= w.text.length * 5 + 6;
+                        return (
+                          <span
+                            key={n}
+                            aria-hidden="true"
+                            className="absolute top-0 bottom-0 flex items-center justify-center overflow-hidden rounded-[3px] border text-[11px] leading-none whitespace-nowrap pointer-events-none"
+                            style={{
+                              left: `${(w.start / length) * 100}%`,
+                              width: `calc(${((w.end - w.start) / length) * 100}% - 1px)`,
+                              background: late ? 'rgba(244,63,94,0.25)' : withAlpha(hue, 0.24),
+                              borderColor: late ? '#fb7185' : withAlpha(hue, 0.85),
+                              color: late ? '#fecdd3' : '#f1f5f9',
+                            }}
+                          >
+                            {fits ? w.text : null}
+                          </span>
+                        );
+                      })}
+                    {!words && p.index === 0 && lineNumber(u, width, STATUS_DOT[u.status])}
+                    {!words && drawn !== 'blocks' && p.index === parts.length - 1 && width > 9 && (
+                      <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
+                        {u.expert ? '' : '≈'}
+                        {u.estimate.toFixed(1)} s
+                      </span>
+                    )}
+                    {/* Placed by hand: a flag at its start, and while dragged how far it is from Sync's place */}
+                    {p.placed && !dragging && (
+                      <span aria-hidden="true" className="absolute -top-px -left-px w-0 h-0 border-t-[7px] border-r-[7px] border-t-indigo-200 border-r-transparent pointer-events-none" />
+                    )}
+                    {dragging && (
+                      <span className="absolute z-20 left-1 top-0.5 rounded bg-slate-100 px-1 font-mono text-[9.5px] leading-[13px] text-slate-950 tabular-nums pointer-events-none whitespace-nowrap">
+                        {p.placed ? signedSeconds(p.start - p.auto) : 'Sync places it'}
+                      </span>
+                    )}
+                  </span>
+                  {/* A cut: notches top and bottom, white at a pause, amber where the voice runs on */}
+                  {p.index > 0 && (
+                    <span
+                      title={`${
+                        p.atPause ? 'Cut at a pause' : "Cut where the voice doesn't pause: it may stop mid-sentence"
+                      }\nDouble-click to join the parts again`}
+                      className="absolute z-10 top-0 bottom-0 w-3 -ml-1.5 cursor-default"
+                      style={{ left: `${pct((partEnd(parts[p.index - 1]) + p.start) / 2)}%` }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        onCut?.(u, p.letters, false);
                       }}
                     >
-                      {fits ? w.text : null}
+                      {/* A clear split through the wave, like a razor cut, with a solid line in it */}
+                      <span className="absolute top-0 bottom-0 left-1/2 -ml-[2px] w-[4px] bg-slate-950" />
+                      <span className={`absolute top-0 bottom-0 left-1/2 -ml-px w-[2px] ${p.atPause ? 'bg-slate-200' : 'bg-amber-300'}`} />
+                      <span className={`absolute top-0 left-1/2 -ml-[5px] w-0 h-0 border-x-[5px] border-x-transparent border-t-[7px] ${p.atPause ? 'border-t-slate-200' : 'border-t-amber-300'}`} />
+                      <span className={`absolute bottom-0 left-1/2 -ml-[5px] w-0 h-0 border-x-[5px] border-x-transparent border-b-[7px] ${p.atPause ? 'border-b-slate-200' : 'border-b-amber-300'}`} />
                     </span>
-                  );
-                })}
-              {!words && lineNumber(u, u.estimate, STATUS_DOT[u.status])}
-              {!words && drawn !== 'blocks' && pct(u.srcStart + u.estimate) - pct(u.srcStart) > 9 && (
-                <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
-                  {u.expert ? '' : '≈'}
-                  {u.estimate.toFixed(1)} s
-                </span>
-              )}
-            </span>
-            {/* Rythmo: each word where it is likely said, red once past the line's slot */}
+                  )}
+                </React.Fragment>
+              );
+            })}
+            {/* Rythmo: each word where it is likely said, red once past the line's room */}
             {words?.map((w, n) => (
               <RythmoWord
                 key={n}
                 text={w.text}
-                late={w.end > u.slot + 0.02}
+                late={start + w.end > room + 0.02}
                 className="text-[12px]"
-                left={`${pct(u.srcStart + w.start)}%`}
-                width={`${Math.max(0.2, pct(u.srcStart + w.end) - pct(u.srcStart + w.start))}%`}
+                left={`${pct(start + w.start)}%`}
+                width={`${Math.max(0.2, pct(start + w.end) - pct(start + w.start))}%`}
               />
             ))}
             {/* Expert: a fast to a slow read, in the colour of how it fits */}
-            {u.expert && !words && (
+            {u.expert && !words && !cut && (
               <span
                 aria-hidden="true"
                 className="absolute bottom-[7px] h-[2px] rounded-full pointer-events-none"
                 style={{
-                  left: `${pct(u.srcStart + u.expert.low)}%`,
-                  width: `${Math.max(0.2, pct(u.srcStart + u.expert.high) - pct(u.srcStart + u.expert.low))}%`,
+                  left: `${pct(start + u.expert.low)}%`,
+                  width: `${Math.max(0.2, pct(start + u.expert.high) - pct(start + u.expert.low))}%`,
                   background: STATUS_HEX[u.status],
                 }}
               />
             )}
-            {WINDOW_SECONDS <= LIP_MARK_SECONDS && u.expert?.dubLips.map((t, n) => <LipMark key={`lip-${n}`} up left={`${pct(u.srcStart + t)}%`} />)}
+            {WINDOW_SECONDS <= LIP_MARK_SECONDS && u.expert?.dubLips.map((t, n) => <LipMark key={`lip-${n}`} up left={`${pct(lineTimeAt(u, t))}%`} />)}
             {over > 0 && (
               <span
                 title={title}
                 className={`absolute top-1.5 bottom-1.5 rounded-r pointer-events-none ${
                   drawn === 'wave' || drawn === 'blocks' ? (u.status === 'long' ? OVER_LONG_SOFT : OVER_TIGHT_SOFT) : u.status === 'long' ? OVER_LONG : OVER_TIGHT
                 }`}
-                style={{ left: `${pct(u.srcStart + u.slot)}%`, width: `${Math.max(0.3, pct(u.srcStart + u.estimate) - pct(u.srcStart + u.slot))}%` }}
+                style={{ left: `${pct(room)}%`, width: `${Math.max(0.3, pct(finish) - pct(room))}%` }}
               />
             )}
             {u.status === 'short' && (
               <span
                 title={`${u.text}\nEnds about ${u.underflow.toFixed(1)} s before the original speaker stops`}
                 className={`absolute top-1.5 bottom-1.5 rounded-r ${QUIET_BOX}`}
-                style={{ left: `${pct(u.srcStart + u.estimate)}%`, width: `${Math.max(0.3, pct(u.srcEnd) - pct(u.srcStart + u.estimate))}%` }}
+                style={{ left: `${pct(finish)}%`, width: `${Math.max(0.3, pct(Math.max(finish, u.srcEnd)) - pct(finish))}%` }}
               />
             )}
-            <span
-              aria-hidden="true"
-              className="absolute top-0.5 bottom-0.5 w-px bg-slate-600 pointer-events-none"
-              style={{ left: `${pct(u.srcStart + u.slot)}%` }}
-            />
+            <span aria-hidden="true" className="absolute top-0.5 bottom-0.5 w-px bg-slate-600 pointer-events-none" style={{ left: `${pct(room)}%` }} />
+            {cutPreview?.key === u.key && !placeDrag && (
+              <span
+                aria-hidden="true"
+                className={`absolute z-10 top-0.5 bottom-0.5 w-0 border-l border-dashed pointer-events-none ${cutPreview.atPause ? 'border-slate-100' : 'border-amber-300'}`}
+                style={{ left: `${pct(cutPreview.t)}%` }}
+              />
+            )}
             {trim !== undefined && (
               <span
                 aria-hidden="true"
                 className={`absolute top-0.5 bottom-0.5 rounded pointer-events-none ${TRIM_BOX}`}
-                style={{ left: `${pct(u.srcStart)}%`, width: `${Math.max(0.3, pct(u.srcStart + trim) - pct(u.srcStart))}%` }}
+                style={{ left: `${pct(start)}%`, width: `${Math.max(0.3, pct(start + trim) - pct(start))}%` }}
               />
             )}
-            {selected && onTrim && setDrag && (
+            {selected && !cut && onTrim && setDrag && (
               <span
                 role="slider"
                 tabIndex={0}
@@ -1285,8 +1531,8 @@ export const DubEstimateLane: React.FC<{
                 aria-valuenow={Math.round(handleAt * 10) / 10}
                 aria-valuetext={`${handleAt.toFixed(1)} seconds`}
                 title="Drag to the length this line should take"
-                className="absolute top-0 bottom-0 w-2 -ml-1 rounded-sm bg-indigo-300 hover:bg-indigo-200 cursor-ew-resize touch-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                style={{ left: `${pct(u.srcStart + handleAt)}%` }}
+                className="absolute z-10 top-0 bottom-0 w-2 -ml-1 rounded-sm bg-indigo-300 hover:bg-indigo-200 cursor-ew-resize touch-none focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                style={{ left: `${pct(start + handleAt)}%` }}
                 onClick={(e) => e.stopPropagation()}
                 onPointerDown={(e) => {
                   e.stopPropagation();
@@ -1320,9 +1566,16 @@ export const DubEstimateLane: React.FC<{
           </React.Fragment>
         );
       })}
+      {/* Snapped while dragging: the original's word, or Sync's own place, it landed on */}
+      {guide !== null && placeDrag && (
+        <span aria-hidden="true" className="absolute z-20 top-0 bottom-0 w-px bg-amber-200 pointer-events-none" style={{ left: `${pct(guide)}%` }} />
+      )}
     </>
   );
 };
+
+/** Seconds with their sign, for how far a part was moved. */
+const signedSeconds = (d: number) => `${d > 0 ? '+' : '−'}${Math.abs(d).toFixed(1)} s`;
 
 /**
  * The report's timeline, before a sync: the original's waveform and lines

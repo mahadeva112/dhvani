@@ -109,6 +109,46 @@ export const splitChunks = (
   return chunks;
 };
 
+/**
+ * Where the user's cuts in a line (DubPlace.cuts in types.ts) fall in its
+ * voice, as `{ at, start }`: `at` the sample halfway between the last word
+ * before the cut, `letters` letters into the line, and the next word, as
+ * forced alignment hears them; `start` where the user put the part after it,
+ * if anywhere. A cut that doesn't fall between two words is left out.
+ */
+export const cutPoints = (words, cuts, sampleRate) => {
+  const spoken = (words || []).filter((word) => /[\p{L}\p{N}]/u.test(String(word?.text ?? '')) && finite(word.start) && finite(word.end));
+  let sum = 0;
+  const through = spoken.map((word) => (sum += clean(word.text).length));
+  return [...cuts]
+    .sort((a, b) => a.letters - b.letters)
+    .flatMap((cut) => {
+      const k = through.indexOf(cut.letters);
+      if (k < 0 || k >= spoken.length - 1) return [];
+      return [{ at: Math.round(((spoken[k].end + spoken[k + 1].start) / 2) * sampleRate), start: finite(cut.start) ? Math.max(0, cut.start) : undefined }];
+    });
+};
+
+/**
+ * `chunks` (`[{ from, to }]` samples, in order) cut at each of `points`
+ * (cutPoints): a chunk a point falls in is split there, and the chunk that
+ * starts each part after a cut is marked `cut`, with `pin` where the user put
+ * it, if anywhere.
+ */
+export const splitAtPoints = (chunks, points) => {
+  const out = chunks.map((chunk) => ({ ...chunk }));
+  for (const point of points) {
+    const k = out.findIndex((chunk) => chunk.from < point.at && chunk.to > point.at);
+    const part = { cut: true, ...(finite(point.start) && { pin: point.start }) };
+    if (k >= 0) out.splice(k, 1, { ...out[k], to: point.at }, { from: point.at, to: out[k].to, ...part });
+    else {
+      const next = out.find((chunk) => chunk.from >= point.at);
+      if (next) Object.assign(next, part);
+    }
+  }
+  return out;
+};
+
 /** How a pause reads in the script: after a sentence end, after a comma, or between words. */
 export const PAUSE_KINDS = ['word', 'comma', 'stop'];
 
@@ -190,7 +230,8 @@ export const joinSpokenBlocks = (blocks, pauses, floorOf) => {
     const last = joined.at(-1);
     const from = last?.chunks.at(-1).target;
     const to = block.chunks[0].target;
-    if (!last || !finite(from) || !finite(to) || pauses.some(([a, b]) => a < to && b > from)) {
+    // A block the user cut the line at (block.cut) stays apart.
+    if (!last || block.cut || !finite(from) || !finite(to) || pauses.some(([a, b]) => a < to && b > from)) {
       joined.push(block);
       continue;
     }

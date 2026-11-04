@@ -134,7 +134,8 @@ import {
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
-import { useSyncPreview, useLineFixes, LineFixControls, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, type PlaceDrag } from './SyncPreviewPanel';
+import { placeOf, withCut, withLinePlaces, withPartStart } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
 import type { RateBasis, VoiceRateState } from '../services/voiceRate';
@@ -1413,11 +1414,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     (speaker?: string | null) => speakerRateTable[speaker || 'Speaker']?.syllablesPerSecond ?? syllablesPerSecond,
     [speakerRateTable, syllablesPerSecond]
   );
+  /** A part of a dub line being dragged on Review's dub lane: the fit follows it before it is let go. */
+  const [placeDrag, setPlaceDrag] = useState<PlaceDrag | null>(null);
   const linePreview = useMemo(() => {
     // The script as typed now, not as the server last saw it: the fit follows each key.
     const base = withLiveText(syncPreview.preview, segments);
-    return withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond, syllableRateOf) : base, segments);
-  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond, syllableRateOf]);
+    const targeted = withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond, syllableRateOf) : base, segments);
+    // Judged where the user placed each line, and the one being dragged where it is now.
+    return withLinePlaces(targeted, segments, placeDrag);
+  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond, syllableRateOf, placeDrag]);
   /** The dub bar picked on the Dub step's preview timeline, for trimming. */
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   /** A trim being dragged on Review's dub lane, and whether that lane shows bars or words. */
@@ -1465,6 +1470,25 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     );
     lineFixes.reset(unit);
   };
+  /** Sets where a line is placed and cut, on its first cue (DubPlace); null puts it back where Sync puts it. */
+  const setLinePlace = (unit: SyncPreviewUnit, change: (place: ReturnType<typeof placeOf>) => ReturnType<typeof placeOf>) => {
+    const first = String(unit.cueIds[0]);
+    onReplaceSegments(
+      segments.map((seg) => {
+        if (String(seg.id) !== first) return seg;
+        const { dubPlace, ...rest } = seg;
+        const next = change(dubPlace ?? null);
+        return next ? { ...rest, dubPlace: next } : rest;
+      })
+    );
+  };
+  const placeLine = (unit: SyncPreviewUnit, letters: number, start: number | null) => setLinePlace(unit, (place) => withPartStart(place, unit, letters, start));
+  const cutLine = (unit: SyncPreviewUnit, letters: number, on: boolean) => setLinePlace(unit, (place) => withCut(place, unit, letters, on));
+  /** Where the original's words start, for a dragged dub line to snap to. */
+  const sourceWordStarts = useMemo(
+    () => segments.flatMap((seg) => (seg.words || []).filter((w) => /[\p{L}\p{N}]/u.test(String(w.text ?? '')) && Number.isFinite(w.start)).map((w) => w.start)),
+    [segments]
+  );
   /** Each cue's sync line, for Review to show a line's fit and rewording once, under its last cue. */
   const unitOfCue = useMemo(() => {
     const map = new Map<string, SyncPreviewUnit>();
@@ -2368,6 +2392,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       look={laneView === 'rythmo' ? 'wave' : laneView}
                       drag={laneDrag}
                       setDrag={setLaneDrag}
+                      onPlace={placeLine}
+                      onCut={cutLine}
+                      placeDrag={placeDrag}
+                      setPlaceDrag={setPlaceDrag}
+                      snapTimes={sourceWordStarts}
                     />
                   )
                 : undefined
@@ -3075,11 +3104,29 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           if (!unit || String(unit.cueIds[unit.cueIds.length - 1]) !== String(seg.id)) return null;
                           const fix = lineFixes.controlsFor(unit);
                           const pauses = pauseAdvice(unit);
+                          // Placed or cut on the dub lane: how, and the way back to Sync's own place.
+                          const moved = unit.parts?.filter((part) => part.placed) ?? [];
+                          const placedNote = unit.parts && (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-slate-400">
+                              <span>
+                                {unit.parts.length > 1 ? `Cut in ${unit.parts.length} parts` : 'Placed by you'}
+                                {moved.length > 0 &&
+                                  `, ${moved
+                                    .map((part) => `${unit.parts!.length > 1 ? `part ${part.index + 1} ` : ''}${part.start - part.auto > 0 ? '+' : '−'}${Math.abs(part.start - part.auto).toFixed(1)} s`)
+                                    .join(', ')} from where Sync puts it`}
+                                . Sync places it there.
+                              </span>
+                              <button type="button" onClick={() => setLinePlace(unit, () => null)} className={railButton} title="Join its parts and let Sync place the line again">
+                                <RotateCcw className="w-3.5 h-3.5" /> Back to auto
+                              </button>
+                            </div>
+                          );
                           if (!needsFix(unit) && fix.state.kind === 'idle') {
                             return (
                               <>
                                 <FitMeter unit={unit} className="mt-1.5 sm:items-start" />
                                 {pauses && <p className="mt-1 text-[11.5px] leading-snug text-slate-400">{pauses}</p>}
+                                {placedNote}
                                 <OtherWordingsButton onClick={fix.onSuggest} />
                               </>
                             );
@@ -3107,6 +3154,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                   <RotateCcw className="w-3.5 h-3.5" /> Reset trim
                                 </button>
                               )}
+                              {placedNote}
                               {canReadFaster && (unit.status === 'long' || fasterOn) && (
                                 <label className="mt-1.5 flex items-start gap-2 text-[11.5px] leading-snug text-slate-300 cursor-default">
                                   <input type="checkbox" className="mt-0.5 accent-indigo-500" checked={fasterOn} onChange={(e) => setReadsFaster(unit, e.target.checked)} />

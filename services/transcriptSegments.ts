@@ -161,7 +161,7 @@ export const splitSegment = (
   }
 
   const first = timedAs(withText(seg, halves[0], targets[0]), seg.startTime, firstEnd, words?.[0] ?? null);
-  const { dubTargetSeconds: _trim, ...rest } = seg;
+  const { dubTargetSeconds: _trim, dubPlace: _place, ...rest } = seg;
   const second = timedAs(withText({ ...rest, id: newId }, halves[1], targets[1]), secondStart, seg.endTime, words?.[1] ?? null);
   return { first, second, measured: plan.kind === 'measured' };
 };

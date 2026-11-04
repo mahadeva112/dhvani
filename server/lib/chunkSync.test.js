@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { splitChunks, wordKinds, pauseFloor, chunkTargets, linePauses, joinSpokenBlocks } from './chunkSync.js';
+import { splitChunks, wordKinds, pauseFloor, chunkTargets, linePauses, joinSpokenBlocks, cutPoints, splitAtPoints } from './chunkSync.js';
 import { runSync, clearClipCache } from './syncDub.js';
 import { checkParts, lineArrays, renderEdits } from './syncEdit.js';
 
@@ -269,6 +269,60 @@ test('chunks the original says in one go play back to back, and wait again where
   const paused = await slowSync(SLOW(0.8), {});
   assert.ok(Math.abs(paused[0] - 0.12) < 0.005, `said in one go: ${paused[0].toFixed(2)}`);
   assert.ok(paused[1] > 0.4, `the original pauses before the last word, and so does the dub: ${paused[1].toFixed(2)}`);
+});
+
+// ---- Lines the user placed and cut on Review's dub lane ----
+
+test("a user's cut falls between its two words, by the letters before it, and splits the chunk it falls in", () => {
+  const words = [
+    { text: 'नमस्ते,', start: 0.1, end: 0.5 },
+    { text: 'दोस्तों', start: 0.6, end: 1 },
+    { text: 'आज', start: 1.1, end: 1.3 },
+  ];
+  const letters = 'नमस्ते'.replace(/[^\p{L}\p{N}]/gu, '').length;
+  const points = cutPoints(words, [{ letters, start: 4 }, { letters: 999 }], RATE);
+  assert.deepEqual(points, [{ at: Math.round(0.55 * RATE), start: 4 }], 'a cut past the last word is left out');
+  const chunks = splitAtPoints([{ from: 0, to: RATE }, { from: RATE * 2, to: RATE * 3 }], [...points, { at: Math.round(1.5 * RATE) }]);
+  assert.deepEqual(chunks, [
+    { from: 0, to: Math.round(0.55 * RATE) },
+    { from: Math.round(0.55 * RATE), to: RATE, cut: true, pin: 4 },
+    // A cut in the silence between chunks marks the next one.
+    { from: RATE * 2, to: RATE * 3, cut: true },
+  ]);
+});
+
+test('a block the user cut the line at is never joined to the one before it', () => {
+  const block = (target, cut) => ({ length: 0.5, pauseBefore: 0.3, kindBefore: 'word', chunks: [{ at: 0, target }], ...(cut && { cut }) });
+  assert.equal(joinSpokenBlocks([block(1), block(2)], [], () => 0.12).length, 1);
+  assert.equal(joinSpokenBlocks([block(1), block(2, true)], [], () => 0.12).length, 2);
+});
+
+test('a line the user placed starts its first word where they put it, and is in sync there', async () => {
+  clearClipCache();
+  const segments = [SEGMENTS[0], { ...SEGMENTS[1], dubPlace: { start: 4.3 } }];
+  const { report, bank } = await runSync({ segments, sourceDuration: 6, sampleRate: RATE, voice }, deps(0.7, { align: alignOf() }));
+  const first = bank.lines[1].chunks[0];
+  // The chunk's lead pad is 0.01 s before its first sound.
+  assert.ok(Math.abs(first.startSample / RATE + 0.01 - 4.3) < 0.005, `its first word at ${(first.startSample / RATE + 0.01).toFixed(3)} s`);
+  assert.ok(Math.abs(report.units[1].offset) <= report.tolerance, `measured from where it was put: ${report.units[1].offset}`);
+  assert.equal(report.units[1].timingConflict, null);
+});
+
+test('a line cut where it is said in one go plays its part after the cut where the user put it', async () => {
+  clearClipCache();
+  // The voice leaves 0.05 s between words: too short to split, so the line is one chunk until it is cut.
+  const segments = [{ ...SLOW()[0], dubPlace: { text: 'aaaaaaa bbbbbbb ccccccc', cuts: [{ letters: 14, start: 3.3 }] } }];
+  const { bank } = await runSync({ segments, sourceDuration: 6, sampleRate: RATE, voice, join: { matchSourcePauses: false } }, deps(0.05, { align: alignOf() }));
+  const chunks = bank.lines[0].chunks;
+  assert.equal(chunks.length, 2);
+  // The cut is halfway through the 0.05 s between the words: the part's first word is 0.025 s in.
+  assert.ok(Math.abs(chunks[1].startSample / RATE + 0.025 - 3.3) < 0.005, `the last word at ${(chunks[1].startSample / RATE + 0.025).toFixed(3)} s`);
+
+  // Once the line's words change, the cut is dropped.
+  clearClipCache();
+  const edited = [{ ...segments[0], textTarget: 'aaaaaaa bbbbbbb ddddddd' }];
+  const after = await runSync({ segments: edited, sourceDuration: 6, sampleRate: RATE, voice, join: { matchSourcePauses: false } }, deps(0.05, { align: alignOf() }));
+  assert.equal(after.bank.lines[0].chunks.length, 1);
 });
 
 test('with Chunk sync, a pause on room tone the original never made is cut inside its chunk', async () => {

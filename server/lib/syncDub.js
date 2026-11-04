@@ -32,7 +32,7 @@ import { mixSpeakers, speakerGains } from './speakerMix.js';
 import { tooDeepCut } from './syncRewrite.js';
 import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
 import { sourcePausesOf } from './sourcePauses.js';
-import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, linePauses, joinSpokenBlocks, RIGID_GAP_SECONDS } from './chunkSync.js';
+import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, linePauses, joinSpokenBlocks, cutPoints, splitAtPoints, RIGID_GAP_SECONDS } from './chunkSync.js';
 import { takeDiffers } from './takeChecks.js';
 import { readStoredClip, storeClip } from './clipStore.js';
 
@@ -593,6 +593,27 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // and a clip that runs long first gives up silence between its words.
   report({ phase: 'placing', step: 4 });
   const segmentById = new Map(segments.map((cue) => [cue?.id, cue]));
+  /**
+   * Where the user placed line `i` on Review's dub lane (DubPlace in
+   * types.ts, on its first cue): `start`, where its first word is heard, and
+   * `cuts`, each `{ letters, start? }`, kept only while the line says what it
+   * said when it was cut. A locked line is placed by its lock instead.
+   */
+  const placeOf = (i) => {
+    const place = segmentById.get(units[i].cueIds[0])?.dubPlace;
+    if (!place || typeof place !== 'object' || lockOf[i]) return null;
+    const start = Number.isFinite(place.start) ? Math.max(0, place.start) : null;
+    const cuts =
+      place.text === units[i].text && Array.isArray(place.cuts)
+        ? place.cuts.filter((cut) => Number.isInteger(cut?.letters) && cut.letters > 0)
+        : [];
+    return start === null && cuts.length === 0 ? null : { start, cuts };
+  };
+  const places = units.map((_, i) => placeOf(i));
+  /** Where line `i`'s first word is to be heard: where the user put it, else with its original line. */
+  const placedStart = (i) => places[i]?.start ?? units[i].srcStart;
+  /** True when the user put line `i`'s first word somewhere. */
+  const isPlaced = (i) => places[i] !== null && places[i].start !== null;
   const sourcePauses = units.map((unit) => (join.matchSourcePauses ? sourcePausesOf(unit.cueIds.map((id) => segmentById.get(id))) : null));
   const sourcePauseTrimmed = new Map();
   const pauseTrimmed = new Map();
@@ -637,6 +658,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // words can't be timed is left as it is rather than cut blind.
   const silenceTightened = new Map();
   const cutCheckErrors = new Map();
+  // Lines a cut of the user's couldn't be made in: their words weren't timed, or it no longer fell between two.
+  const cutNotMade = new Set();
   if (join.tightenSilences) {
     const tightOptions = (i, protect = []) => ({
       firstWord: Math.round(clips[i].lead * sampleRate),
@@ -694,8 +717,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     return checked;
   };
   const chunkWords = new Map();
-  if (chunked && join.checkCutWords) {
-    const toAlign = units.map((_, i) => i).filter((i) => clips[i] && !lockOf[i]);
+  // A line the user cut is timed word by word all the same: its cuts go between its words.
+  const isCut = (i) => Boolean(places[i]?.cuts.length);
+  if (chunked && (join.checkCutWords || units.some((_, i) => isCut(i)))) {
+    const toAlign = units.map((_, i) => i).filter((i) => clips[i] && !lockOf[i] && (join.checkCutWords || isCut(i)));
     let aligned = 0;
     report({ phase: 'placing', step: 4, wordChecksTotal: toAlign.length, wordChecksDone: 0 });
     await mapLimit(toAlign, 6, async (i) => {
@@ -743,7 +768,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       protect,
     });
     // Only the silence before its first sound and after its last goes from a line kept whole.
-    const chunks = whole ? [{ from: split[0].from, to: split.at(-1).to }] : split;
+    // The user's cuts split it between their words; a part they placed is pinned there.
+    const place = places[i];
+    const points = place?.cuts.length && words ? cutPoints(words, place.cuts, sampleRate) : [];
+    if (place?.cuts.length && points.length < place.cuts.length) cutNotMade.add(i);
+    const chunks = splitAtPoints(whole ? [{ from: split[0].from, to: split.at(-1).to }] : split, points);
+    if (isPlaced(i) && chunks[0]) chunks[0].pin = place.start;
     // Where each chunk's first sound is, in seconds into the line: its first word, or past its leading pad.
     const onsets = chunks.map((chunk, k) => {
       const word = words?.find((w) => spokenWord(w) && w.end * sampleRate > chunk.from && w.start * sampleRate < chunk.to);
@@ -766,8 +796,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     const blocks = [];
     chunks.forEach((chunk, k) => {
       const last = blocks.at(-1);
-      const member = { ...chunk, onset: onsets[k], target: targets[k] };
-      if (last && (chunk.from - last.to) / sampleRate <= RIGID_GAP_SECONDS) {
+      // A pinned chunk's first word lands where the user put it; a cut starts a block of its own.
+      const pinned = Number.isFinite(chunk.pin);
+      const member = { ...chunk, onset: onsets[k], target: pinned ? chunk.pin : targets[k] };
+      if (last && !chunk.cut && !pinned && (chunk.from - last.to) / sampleRate <= RIGID_GAP_SECONDS) {
         last.chunks.push({ ...member, at: (chunk.from - last.from) / sampleRate });
         last.to = chunk.to;
         last.length = (last.to - last.from) / sampleRate;
@@ -779,6 +811,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           chunks: [{ ...member, at: 0 }],
           kindBefore: last ? kindBefore(chunk.from) : null,
           pauseBefore: last ? (chunk.from - last.to) / sampleRate : 0,
+          ...(chunk.cut && { cut: true }),
+          ...(pinned && { pin: chunk.pin }),
         });
       }
     });
@@ -814,7 +848,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       packed += block.length + (b < line.blocks.length - 1 ? chunkGapAfter(line, b, 2) : 0);
     });
     const lead = (Math.max(clip.lead * sampleRate, line.blocks[0].from) - line.blocks[0].from) / sampleRate;
-    const room = unit.nextStart !== null ? unit.nextStart - unit.srcStart - Math.max(0, chunkGapAfter(line, line.blocks.length - 1, 2)) : Infinity;
+    const room = unit.nextStart !== null ? placedStart(line.i + 1) - placedStart(line.i) - Math.max(0, chunkGapAfter(line, line.blocks.length - 1, 2)) : Infinity;
     return { over: packed - lead - room, packed: packed - lead };
   };
 
@@ -984,6 +1018,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // Chunk sync. Each line's chunks, by placed line: `{ from, to }` samples of
   // its clip and, once placed, `start` seconds on the timeline.
   const chunkPlan = new Map();
+  // By line: how much later than where the user put it a placed part had to start.
+  const pinnedLate = new Map();
   // How far each line runs past its slot with every pause it has shrunk as far as it may.
   const chunkOverflow = new Map();
   const placeChunks = () => {
@@ -1002,6 +1038,13 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
               timingConflicts.set(line.i, 'Your locked edit of this line runs into a protected pause. It is kept where you put it.');
             }
             items.push({ line, block, want: lock.start, length: lock.end - lock.start, gapAfter: gapAfter(line, b, tier), weight: LOCK_WEIGHT, fixed: true, earliest: lock.start, floor: 0 });
+            return;
+          }
+          // A part the user placed is held there, as a locked line is: its first word where they put it.
+          if (Number.isFinite(block.pin)) {
+            const first = block.chunks[0];
+            const want = block.pin - (first.onset - first.from / sampleRate);
+            items.push({ line, block, want, length: block.length, gapAfter: gapAfter(line, b, tier), weight: LOCK_WEIGHT, fixed: true, earliest: want, floor: 0 });
             return;
           }
           // Each chunk pulls by its length (Samanvaya: 0.3 to 3) towards the start that puts its first sound on its target.
@@ -1059,8 +1102,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
     const { items, at, conflicts } = solved;
     for (const k of conflicts) {
-      const { line } = items[k];
+      const { line, block } = items[k];
       if (!placeConflicts.includes(line.n)) placeConflicts.push(line.n);
+      if (Number.isFinite(block.pin)) {
+        const first = block.chunks[0];
+        pinnedLate.set(line.i, Math.max(pinnedLate.get(line.i) ?? 0, at[k] + first.onset - first.from / sampleRate - block.pin));
+      }
     }
     items.forEach((item, k) => {
       for (const chunk of item.block.chunks) {
@@ -1115,6 +1162,11 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           floor: 0,
         };
       }
+      // A line the user placed is held there, its first word where they put it.
+      if (isPlaced(i)) {
+        const held = places[i].start - cores[n].lead;
+        return { want: held, length: cores[n].length, gapAfter: n < placedIndex.length - 1 ? gapAfterUnit(i) : 0, weight: LOCK_WEIGHT, fixed: true, earliest: held, floor: 0 };
+      }
       const want = unit.srcStart - cores[n].lead;
       const preserveBefore = join.preserveLongPauses && unit.gapBefore >= join.protectedPause;
       const preserveAfter = join.preserveLongPauses && unit.gapAfter >= join.protectedPause;
@@ -1138,11 +1190,14 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   for (const n of placeConflicts) {
     const i = placedIndex[n];
     const moved = lockOf[i] ? positions[n] - lockOf[i].start : null;
+    const late = chunked ? pinnedLate.get(i) : isPlaced(i) ? positions[n] + cores[n].lead - places[i].start : undefined;
     timingConflicts.set(
       i,
       moved !== null
         ? `The lines before it needed more room, so your locked line moved ${moved.toFixed(2)} s later. Shorten or retake the line before it, or move the lock.`
-        : 'The lines before it need more room than its timing limit allows, so it starts late. Shorten or retake the line before it, or relax the limit.'
+        : late !== undefined
+          ? `The lines before it needed more room, so the line you placed starts ${Math.max(0, late).toFixed(2)} s later than where you put it. Shorten the line before it, or place this one later.`
+          : 'The lines before it need more room than its timing limit allows, so it starts late. Shorten or retake the line before it, or relax the limit.'
     );
   }
   checkCancelled();
@@ -1174,11 +1229,14 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     // A line that still starts past the Strict limit once its audio edge is placed is flagged, never dropped.
     placedIndex.forEach((i, n) => {
       if (lockOf[i] || timingConflicts.has(i)) return;
-      const late = positions[n] + cores[n].lead - units[i].srcStart;
+      const late = positions[n] + cores[n].lead - placedStart(i);
       if (late > join.maxLateStart + 1 / sampleRate) {
         timingConflicts.set(i, `It starts ${late.toFixed(2)} s after the original line, past the Strict limit. Shorten or retake the line before it, or relax the limit.`);
       }
     });
+  }
+  for (const i of cutNotMade) {
+    if (!timingConflicts.has(i)) timingConflicts.set(i, "A cut you made in this line wasn't made: its words couldn't be timed. Sync again, or cut it at another word.");
   }
   // How far the dub runs past the original's end; with Must end by, a dub that still does is flagged on its last line.
   const dubEnd = placedIndex.reduce((end, i, n) => Math.max(end, positions[n] + cores[n].length), 0);
@@ -1280,7 +1338,13 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
 
   // 6. Checking
   report({ phase: 'checking', step: 6 });
-  const { lines, summary } = measureSync(placedIndex.map((i) => units[i]), cores, positions, { tolerance });
+  // A line the user placed is in sync where they put it.
+  const { lines, summary } = measureSync(
+    placedIndex.map((i) => (isPlaced(i) ? { ...units[i], srcStart: places[i].start } : units[i])),
+    cores,
+    positions,
+    { tolerance }
+  );
   if (chunked) {
     // Chunks of one line playing over another's, as the chunks lie rather than as each line would whole.
     const spans = placedIndex

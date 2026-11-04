@@ -24,6 +24,21 @@ export interface PauseGate {
   trailPad: number;
 }
 
+/** A cut in a dub line: after this many letters of the line, and where the part after it starts, once the user placed it. */
+export interface DubCut {
+  letters: number;
+  start?: number;
+}
+
+/** A dub line as the user placed it (AudioSegment.dubPlace). */
+export interface DubPlace {
+  /** Seconds where the line's first word is heard; unset, Sync places it. */
+  start?: number;
+  /** The line's words when it was cut: once they change, the cuts are dropped. */
+  text?: string;
+  cuts?: DubCut[];
+}
+
 export interface AudioSegment {
   id: number | string;
   startTime: number; // in seconds
@@ -46,6 +61,12 @@ export interface AudioSegment {
    * worked out from the slot; Sync still starts the line with its sentence.
    */
   dubTargetSeconds?: number;
+  /**
+   * Where the user placed this cue's dub line on Review's dub lane, set on the
+   * line's first cue: where its first word is heard, and the cuts that split
+   * it into parts placed on their own. Sync places the line there.
+   */
+  dubPlace?: DubPlace;
   /** Word timings from ElevenLabs, used to cut SRT cues exactly. */
   words?: WordTimestamp[];
   /**
