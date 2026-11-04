@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.31',
+    changes: [
+      'In Review you can drag a dub line to where it should be heard, and Sync places it there.',
+      'Press S over a dub line to cut it between two words and place each part on its own. Double-click a cut to join it, Backspace puts a part back.',
+    ],
+  },
+  {
     version: '1.4.30',
     changes: [
       'When Dub & sync finishes, the progress page turns into Dubbed smoothly, without the dub page flashing in between.',
