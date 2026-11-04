@@ -90,19 +90,35 @@ jobs:
     needs: [build, zip]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    # One publish per tag at a time (a rerun waits for a running one). Different
+    # tags still publish side by side; the script settles which one is Latest.
+    concurrency:
+      group: publish-${{ github.ref }}
+      cancel-in-progress: false
 
     steps:
+      # Only the script is needed, not the whole repository.
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
       - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
 
+      # Creates (or reuses) a draft, uploads and checks all 13 files, then
+      # publishes it and marks the highest vX.Y.Z release Latest. Published,
+      # not left a draft: the updater ignores drafts, and this is the step that
+      # offers the new version to installed copies. See the script for why
+      # this is no longer softprops/action-gh-release.
       - name: Publish release
-        uses: softprops/action-gh-release@v3
-        with:
-          # Published, not a draft: the updater ignores drafts, and this is
-          # the step that offers the new version to installed copies.
-          draft: false
-          make_latest: true
-          generate_release_notes: true
-          files: artifacts/*
+        run: bash .github/scripts/publish-release.sh artifacts
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 3 latest*.yml, Setup .exe + blockmap, 2 .dmg + blockmaps, AppImage,
+          # Portable .zip and .exe, and the dhvani-x.y.z.zip bundle.
+          MIN_FILES: 13
