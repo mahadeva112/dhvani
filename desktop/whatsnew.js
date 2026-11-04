@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.30',
+    changes: [
+      'When Dub & sync finishes, the progress page turns into Dubbed smoothly, without the dub page flashing in between.',
+    ],
+  },
+  {
     version: '1.4.29',
     changes: [
       'The Review player is one compact view: the original, its pauses and the dub estimate share one lane, with a plain scroll bar under it and the key hints behind the ? button.',
