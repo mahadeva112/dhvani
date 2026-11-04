@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 import type { AudioSegment } from '../types';
-import { DEFAULT_PASSAGE_PAUSE, buildPassages } from '../components/review/passages.ts';
+import { DEFAULT_PASSAGE_PAUSE, buildPassages, endsSentence } from '../components/review/passages.ts';
 
 /**
  * The script as a Word document: one table row per paragraph, the original's
@@ -41,7 +41,7 @@ const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim();
 export type WordParagraphSize = 'short' | 'medium' | 'long' | 'full';
 
 export const WORD_PARAGRAPH_SIZES: { id: WordParagraphSize; label: string; seconds: number; hint: string }[] = [
-  { id: 'short', label: 'Short', seconds: 0, hint: 'a paragraph per passage, as in the Script view' },
+  { id: 'short', label: 'Short', seconds: 0, hint: 'a paragraph per short passage, split where the original pauses' },
   { id: 'medium', label: 'Medium', seconds: 25, hint: 'paragraphs of about 25 seconds of speech' },
   { id: 'long', label: 'Long', seconds: 60, hint: 'paragraphs of about a minute of speech' },
   { id: 'full', label: 'Full', seconds: Infinity, hint: 'the whole script in one passage, a paragraph per speaker turn' },
@@ -62,9 +62,6 @@ export const saveWordParagraphSize = (size: WordParagraphSize) => {
     localStorage.setItem(SIZE_KEY, size);
   } catch {}
 };
-
-// A full stop, question or exclamation mark, danda or ellipsis, maybe inside a closing quote or bracket.
-const endsSentence = (text: string) => /[.!?।॥…][\s"'”’)\]]*$/.test(text.trim());
 
 /**
  * The cues in the file's paragraphs: the passages, joined while the speaker

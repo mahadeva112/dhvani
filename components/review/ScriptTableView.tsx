@@ -3,8 +3,9 @@ import { Download, Keyboard, Pause, Play } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import { scrollWithin } from '../scrollWithin';
 import { SCRIPT_PALETTES, getIndicLanguageConfig } from '../../services/indicTransliteration';
-import { PASSAGE_PAUSES, buildPassages, loadPassageLayout, savePassageLayout, type PassageLayout } from './passages';
-import { usePhoneticTyping } from './usePhoneticTyping';
+import { buildScriptParagraphs, scriptParagraphSeconds } from './passages';
+import { usePhoneticTyping, type PhoneticField } from './usePhoneticTyping';
+import { inlineField, placeCaret } from './inlineField';
 import {
   DOCX_MIME,
   WORD_PARAGRAPH_SIZES,
@@ -32,62 +33,44 @@ const formatTime = (sec: number) => {
   return `${m}:${s < 10 ? '0' : ''}${s}`;
 };
 
-/** A cue's text as one line of the passage cell; a line break inside a cue would shift every line after it. */
+const formatLength = (sec: number) => (sec >= 90 ? `${Math.round(sec / 60)} min` : `${Math.round(sec)} s`);
+
+/** A cue's text as one sentence of the paragraph; a cue is one line, so a break inside it is read as a space. */
 const asLine = (text: string) => text.replace(/\s*\n\s*/g, ' ');
 
-// Shared by the textarea and the copy behind it, so the pace marks sit exactly under the words.
-const CELL_TEXT = 'px-3 py-2.5 leading-[1.75] whitespace-pre-wrap break-words [overflow-wrap:anywhere]';
+const CELL_TEXT = 'px-3 py-2.5 leading-[1.75] break-words [overflow-wrap:anywhere]';
 
-// The light wash on the line being heard, in both layouts.
+// The light wash on the line being heard.
 const PLAYING_WASH = 'bg-amber-200/[0.14]';
 
-const LAYOUTS: { id: PassageLayout; label: string; title: string }[] = [
-  { id: 'lines', label: 'Lines', title: 'One line per cue, to edit the dub' },
-  { id: 'paragraph', label: 'Paragraph', title: 'Each passage as running text, to read along while it plays' },
-];
-
 /**
- * The bar on the playing line of a cell. It glides from line to line, and
- * measures the lines of its sibling marked data-lines, so it fits a line that wraps.
+ * A dub sentence typed straight into, as in a document. The browser keeps the
+ * text while it is typed; only a change from outside (a phonetic word, a sign,
+ * an undo) is written back into it, so the caret is never disturbed by typing.
  */
-function PlayingLineBar({ index, text }: { index: number; text: string }) {
-  const barRef = useRef<HTMLDivElement>(null);
-  const placed = useRef(false);
+function InlineLine({ text, cueId, ...rest }: { text: string; cueId: string } & Omit<React.HTMLAttributes<HTMLSpanElement>, 'children'>) {
+  const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
-    const bar = barRef.current;
-    const lines = bar?.parentElement?.querySelector<HTMLElement>('[data-lines]');
-    if (!bar || !lines) return;
-    const place = () => {
-      const line = lines.children[index] as HTMLElement | undefined;
-      if (!line) return;
-      bar.style.transform = `translateY(${line.offsetTop}px)`;
-      bar.style.height = `${line.offsetHeight}px`;
-    };
-    if (placed.current) place();
-    else {
-      // Lands on the first line it shows without gliding in from the top.
-      bar.style.transition = 'none';
-      place();
-      void bar.offsetHeight;
-      bar.style.transition = '';
-      placed.current = true;
-    }
-    const observer = new ResizeObserver(place);
-    observer.observe(lines);
-    return () => observer.disconnect();
-  }, [index, text]);
+    const el = ref.current;
+    if (el && el.textContent !== text) el.textContent = text;
+  }, [text]);
   return (
-    <div
-      ref={barRef}
-      aria-hidden
-      className={`absolute inset-x-0 top-0 pointer-events-none border-l-[3px] border-amber-300 ${PLAYING_WASH} transition-[transform,height] duration-[450ms] ease-[cubic-bezier(.22,1,.36,1)] motion-reduce:transition-none`}
+    <span
+      ref={ref}
+      data-dub-cue={cueId}
+      data-review-text
+      contentEditable="plaintext-only"
+      suppressContentEditableWarning
+      spellCheck={false}
+      role="textbox"
+      {...rest}
     />
   );
 }
 
 interface ScriptTableViewProps {
   segments: AudioSegment[];
-  /** Passages shown: those with at least one of these cues, so search and the pacing filter still narrow the table. */
+  /** Paragraphs shown: those with at least one of these cues, so search and the pacing filter still narrow the table. */
   visibleIds: Set<string>;
   sourceLanguage: string;
   targetLanguage: string;
@@ -99,12 +82,12 @@ interface ScriptTableViewProps {
   getPacing: (seg: AudioSegment, text: string) => LinePacing;
   /** What the lines marked fast are called: "too fast" by characters, "too long" by the Sync fit. */
   fastLabel?: string;
+  /** The pause the Word file's short passages split at, set in the Cues table. */
   passagePause: number;
-  onPassagePauseChange: (pause: number) => void;
   activeSegmentId: string | number | null;
   isPlaying: boolean;
   onSeek: (time: number) => void;
-  /** Plays the original from a passage's start and stops at its end. */
+  /** Plays the original from a paragraph's start and stops at its end. */
   onPlayPassage: (start: number, end: number) => void;
   onTogglePlay: () => void;
   fontSize?: number;
@@ -115,9 +98,10 @@ interface ScriptTableViewProps {
 }
 
 /**
- * The script as a plain table, one row per passage: the original's lines
- * beside one editable cell of dub text, one line per cue. Edits go back to
- * the cues when the cell loses focus, and only when every cue still has its line.
+ * The script as a plain table of long paragraphs, sized from the script's
+ * length: the original's running text beside the dub's, which is typed
+ * straight into like a document. Each sentence stays its own cue's line,
+ * saved a second after typing stops and when the caret leaves it.
  */
 export function ScriptTableView({
   segments,
@@ -130,7 +114,6 @@ export function ScriptTableView({
   getPacing,
   fastLabel = 'too fast',
   passagePause,
-  onPassagePauseChange,
   activeSegmentId,
   isPlaying,
   onSeek,
@@ -140,78 +123,194 @@ export function ScriptTableView({
   exportTitle,
   exportFileStem,
 }: ScriptTableViewProps) {
-  const passages = useMemo(() => buildPassages(segments, passagePause), [segments, passagePause]);
+  // The getter is a new function each render; the paragraphs only change with the cues.
+  const sourceOf = useRef(getSourceText);
+  sourceOf.current = getSourceText;
+  const passages = useMemo(() => buildScriptParagraphs(segments, (seg) => sourceOf.current(seg)), [segments]);
+  const paragraphLength = useMemo(() => scriptParagraphSeconds(segments), [segments]);
   const shown = passages.filter((p) => p.cues.some((seg) => visibleIds.has(String(seg.id))));
+  const multiSpeaker = useMemo(() => new Set(segments.map((seg) => seg.speaker || '')).size > 1, [segments]);
 
-  // Text being typed, or kept because its lines no longer match the cues, by passage.
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [editing, setEditing] = useState<string | null>(null);
-  const [layout, setLayout] = useState<PassageLayout>(loadPassageLayout);
-  const changeLayout = (next: PassageLayout) => {
-    setLayout(next);
-    savePassageLayout(next);
-  };
+  // The dub line being typed in: what it says now, and what was last saved of it.
+  const [edit, setEdit] = useState<{ id: string; text: string; base: string } | null>(null);
+  const editRef = useRef(edit);
+  editRef.current = edit;
   const rootRef = useRef<HTMLDivElement>(null);
-  // The cell being typed in, so the signs row can write at its caret.
-  const typingRef = useRef<{ ta: HTMLTextAreaElement; key: string } | null>(null);
-  // Set by Esc: the blur that follows must not save the draft it is throwing away.
+  // The line being typed in, so the signs row can write at its caret.
+  const typingRef = useRef<{ field: PhoneticField; key: string } | null>(null);
+  // Set by Esc: the blur that follows must not save the text it is throwing away.
   const discardingRef = useRef<string | null>(null);
+  // The line that last lost focus, so opening the next one doesn't save it twice.
+  const closedRef = useRef<string | null>(null);
+  const autosave = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const phonetic = usePhoneticTyping(targetLanguage);
   const langConfig = getIndicLanguageConfig(targetLanguage);
   const palette = SCRIPT_PALETTES[langConfig.script] || SCRIPT_PALETTES.Devanagari;
   const signs = [...palette.matras, langConfig.purnaViram || '।', '॥', '₹'];
 
-  const setDraft = (key: string) => (text: string) => setDrafts((d) => ({ ...d, [key]: text }));
+  const savedOf = (seg: AudioSegment) => asLine(getTargetText(seg));
+  const segOf = (id: string) => segments.find((s) => String(s.id) === id);
 
-  /** Writes a sign at the caret of the cell being typed in. */
+  /** Writes a line to its cue; `finished` also drops the space a word ended with Enter leaves behind. */
+  const save = (seg: AudioSegment, typed: string, finished: boolean) => {
+    const text = finished ? typed.replace(/\s+$/, '') : typed;
+    if (text !== savedOf(seg)) onUpdateLines([{ id: seg.id, text }]);
+    return text;
+  };
+
+  // What the unmount needs, as it is now.
+  const latest = useRef({ save, segOf });
+  latest.current = { save, segOf };
+  useEffect(
+    () => () => {
+      clearTimeout(autosave.current);
+      const e = editRef.current;
+      const seg = e && closedRef.current !== e.id ? latest.current.segOf(e.id) : undefined;
+      if (e && seg) latest.current.save(seg, e.text, true);
+    },
+    []
+  );
+
+  /** Takes what is typed: a cue is one line, so a line break becomes a space. Saved a second after typing stops. */
+  const typed = (id: string) => (raw: string) => {
+    const text = raw.replace(/[ \t]*\n[ \t]*/g, ' ');
+    setEdit((e) => (e && e.id === id ? { ...e, text } : e));
+    clearTimeout(autosave.current);
+    autosave.current = setTimeout(() => {
+      const e = editRef.current;
+      const seg = e && e.id === id ? segOf(id) : undefined;
+      if (!e || !seg) return;
+      save(seg, e.text, false);
+      setEdit((cur) => (cur && cur.id === id ? { ...cur, base: e.text } : cur));
+    }, 1000);
+  };
+
+  // A change from outside (Ctrl+Z through the script's history) reaches the line being typed in, when nothing is waiting to be saved.
+  useEffect(() => {
+    const e = editRef.current;
+    const seg = e ? segOf(e.id) : undefined;
+    if (!e || !seg || e.text !== e.base) return;
+    const saved = savedOf(seg);
+    if (saved !== e.base) setEdit({ ...e, text: saved, base: saved });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segments]);
+
+  /** Writes a sign at the caret of the line being typed in. */
   const insertSign = (sign: string) => {
     const typing = typingRef.current;
     if (!typing) return;
-    const { ta, key } = typing;
-    const start = ta.selectionStart;
-    setDraft(key)(ta.value.substring(0, start) + sign + ta.value.substring(ta.selectionEnd));
-    setTimeout(() => ta.setSelectionRange(start + sign.length, start + sign.length), 0);
+    const { field, key } = typing;
+    const start = field.selectionStart;
+    typed(key)(field.value.substring(0, start) + sign + field.value.substring(field.selectionEnd));
+    setTimeout(() => field.setSelectionRange(start + sign.length, start + sign.length), 0);
   };
 
-  const savedText = (cues: AudioSegment[]) => cues.map((seg) => asLine(getTargetText(seg))).join('\n');
-
-  const dropDraft = (key: string) =>
-    setDrafts((d) => {
-      const next = { ...d };
-      delete next[key];
-      return next;
-    });
-
-  const commit = (key: string, cues: AudioSegment[]) => {
-    const draft = drafts[key];
-    if (draft === undefined) return;
-    const lines = draft.split('\n');
-    if (lines.length !== cues.length) return; // kept, with a note, until the lines match again
-    const changed = cues
-      .map((seg, i) => ({ id: seg.id, text: lines[i], before: asLine(getTargetText(seg)) }))
-      .filter((l) => l.text !== l.before)
-      .map(({ id, text }) => ({ id, text }));
-    if (changed.length > 0) onUpdateLines(changed);
-    dropDraft(key);
+  /** Starts typing in a line; one still open (it never lost focus) is saved first. */
+  const open = (seg: AudioSegment) => {
+    const id = String(seg.id);
+    const e = editRef.current;
+    if (e?.id === id) return;
+    const prev = e && closedRef.current !== e.id ? segOf(e.id) : undefined;
+    if (e && prev) save(prev, e.text, true);
+    clearTimeout(autosave.current);
+    closedRef.current = null;
+    const saved = savedOf(seg);
+    setEdit({ id, text: saved, base: saved });
   };
 
-  // Follow playback to the passage being heard, but never while someone is typing.
+  const close = (seg: AudioSegment) => {
+    const id = String(seg.id);
+    clearTimeout(autosave.current);
+    phonetic.dismiss();
+    if (typingRef.current?.key === id) typingRef.current = null;
+    const e = editRef.current;
+    closedRef.current = id;
+    setEdit((cur) => (cur && cur.id === id ? null : cur));
+    if (discardingRef.current === id) discardingRef.current = null;
+    else if (e && e.id === id) save(seg, e.text, true);
+  };
+
+  /** The dub lines on the page, in reading order. */
+  const allLines = () => Array.from(rootRef.current?.querySelectorAll<HTMLElement>('[data-dub-cue]') ?? []);
+  const step = (from: HTMLElement, by: 1 | -1, at: 'start' | 'end') => {
+    const lines = allLines();
+    const next = lines[lines.indexOf(from) + by];
+    if (!next) return false;
+    placeCaret(next, at === 'start' ? 0 : (next.textContent || '').length);
+    return true;
+  };
+
+  const onLineKeyDown = (e: React.KeyboardEvent<HTMLSpanElement>, seg: AudioSegment) => {
+    const id = String(seg.id);
+    const el = e.currentTarget;
+    const field = inlineField(el);
+    if (phonetic.onKeyDown(e, typed(id), field)) return;
+    const cur = editRef.current;
+    // Ctrl+Z first takes back what was typed since the line last saved; after that it steps back the script's history.
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && cur && cur.id === id && cur.text !== cur.base) {
+      e.preventDefault();
+      clearTimeout(autosave.current);
+      setEdit({ ...cur, text: cur.base });
+      setTimeout(() => placeCaret(el, cur.base.length), 0);
+      return;
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      discardingRef.current = id;
+      el.blur();
+      return;
+    }
+    if (e.key === 'Enter') {
+      // A cue is one line: Enter goes on to the next one.
+      e.preventDefault();
+      if (!step(el, 1, 'start')) el.blur();
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+    const at = field.selectionStart;
+    const collapsed = at === field.selectionEnd;
+    const end = field.value.length;
+    // The caret runs on from one sentence into the next, as in a document; nothing is ever joined or cut.
+    if (collapsed && (e.key === 'ArrowRight' || e.key === 'Delete') && at === end) {
+      if (step(el, 1, 'start')) e.preventDefault();
+    } else if (collapsed && (e.key === 'ArrowLeft' || e.key === 'Backspace') && at === 0) {
+      if (step(el, -1, 'end')) e.preventDefault();
+    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      // Up and down move within the sentence; at its first or last row they go on to the one before or after.
+      setTimeout(() => {
+        if (document.activeElement === el && field.selectionStart === at) step(el, e.key === 'ArrowDown' ? 1 : -1, e.key === 'ArrowDown' ? 'start' : 'end');
+      }, 0);
+    }
+  };
+
+  // Follow playback to the paragraph being heard, but never while someone is typing.
   const activeKey = useMemo(
     () => passages.find((p) => p.cues.some((seg) => seg.id === activeSegmentId))?.key ?? null,
     [passages, activeSegmentId]
   );
   useEffect(() => {
-    if (!isPlaying || !activeKey || editing) return;
-    scrollWithin(rootRef.current?.querySelector(`[data-passage="${CSS.escape(activeKey)}"]`), 'nearest', true);
-  }, [activeKey, isPlaying, editing]);
+    if (!isPlaying || activeSegmentId == null || edit) return;
+    // Paragraphs run for minutes, so it is the line being heard that is kept in view, not the row.
+    scrollWithin(rootRef.current?.querySelector(`[data-src-cue="${CSS.escape(String(activeSegmentId))}"]`), 'nearest', true);
+  }, [activeSegmentId, isPlaying, edit]);
 
-  /** A passage as running text: each cue's line flows on from the last, the one being heard washed. */
-  const paragraph = (cues: AudioSegment[], textOf: (seg: AudioSegment) => string, lang: string) => (
-    <div className={`${CELL_TEXT} whitespace-normal`} lang={lang || undefined}>
+  /** Where the speaker changes inside a paragraph, their name before their first line. */
+  const speakerMark = (cues: AudioSegment[], i: number) =>
+    multiSpeaker && cues[i].speaker && (i === 0 || (cues[i - 1].speaker || '') !== cues[i].speaker) ? (
+      <span contentEditable={false} className="mr-1 select-none rounded bg-slate-800/80 px-1 py-px text-[10.5px] font-semibold text-slate-400">
+        {cues[i].speaker}
+      </span>
+    ) : null;
+
+  /** The original as running text: each cue's line flows on from the last, the one being heard washed. */
+  const sourceParagraph = (cues: AudioSegment[]) => (
+    <div className={CELL_TEXT} lang={sourceLanguage || undefined}>
       {cues.map((seg, i) => (
         <React.Fragment key={String(seg.id)}>
           {i > 0 && ' '}
+          {speakerMark(cues, i)}
           <span
+            data-src-cue={String(seg.id)}
             onClick={() => window.getSelection()?.isCollapsed && onSeek(seg.startTime)}
             className={`rounded-sm [box-decoration-break:clone] cursor-default transition-colors duration-[450ms] motion-reduce:transition-none ${
               seg.id === activeSegmentId
@@ -220,12 +319,66 @@ export function ScriptTableView({
             }`}
             title={`${formatTime(seg.startTime)} · play from here`}
           >
-            {asLine(textOf(seg))}
+            {asLine(getSourceText(seg))}
           </span>
         </React.Fragment>
       ))}
     </div>
   );
+
+  const markClass = (p: LinePacing) => (p.level === 'fast' ? 'bg-rose-500/25' : p.level === 'tight' ? 'bg-amber-400/15' : '');
+
+  /**
+   * The dub as running text typed straight into, like a document: click
+   * anywhere in a sentence and type there. Each sentence is its cue's line,
+   * so typing never joins two cues or splits one.
+   */
+  const dubParagraph = (cues: AudioSegment[], paces: LinePacing[], passageNumber: number) => (
+    <div className={CELL_TEXT} lang={targetLanguage || undefined}>
+      {cues.map((seg, i) => {
+        const id = String(seg.id);
+        const typing = edit?.id === id;
+        return (
+          <React.Fragment key={id}>
+            {i > 0 && ' '}
+            {speakerMark(cues, i)}
+            <InlineLine
+              cueId={id}
+              text={typing && edit ? edit.text : savedOf(seg)}
+              aria-label={`Paragraph ${passageNumber}, line at ${formatTime(seg.startTime)}, ${targetLanguage || 'dub script'}`}
+              title={`${formatTime(seg.startTime)}–${formatTime(seg.endTime)}`}
+              onFocus={(e) => {
+                open(seg);
+                typingRef.current = { field: inlineField(e.currentTarget), key: id };
+              }}
+              onInput={(e) => typed(id)(e.currentTarget.textContent || '')}
+              onBlur={() => close(seg)}
+              onPaste={(e) => {
+                // Pasted text joins the line as words: no line breaks, no formatting.
+                e.preventDefault();
+                document.execCommand('insertText', false, e.clipboardData.getData('text/plain').replace(/\s*\n\s*/g, ' '));
+              }}
+              onKeyDown={(e) => onLineKeyDown(e, seg)}
+              onKeyUp={(e) => phonetic.onKeyUp(e, inlineField(e.currentTarget))}
+              className={`rounded-sm [box-decoration-break:clone] cursor-text outline-none caret-indigo-300 transition-colors duration-[450ms] motion-reduce:transition-none empty:inline-block empty:min-w-[3ch] empty:align-bottom empty:h-[1.4em] empty:border-b empty:border-dashed empty:border-slate-600 ${markClass(
+                paces[i]
+              )} ${
+                seg.id === activeSegmentId && !typing
+                  ? `${PLAYING_WASH} text-white shadow-[inset_0_-2px_0_rgb(252_211_77/0.7)]`
+                  : typing
+                    ? 'bg-indigo-400/[0.10] text-white'
+                    : 'hover:bg-white/[0.04]'
+              }`}
+            />
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+
+  // The line being typed in, for the bar along the bottom.
+  const editSeg = edit ? segOf(edit.id) : undefined;
+  const editPace = edit && editSeg ? getPacing(editSeg, edit.text) : null;
 
   /** Every passage, not just those shown, as a Word table: the original's paragraph left, the dub's right. */
   const [savingWord, setSavingWord] = useState(false);
@@ -256,46 +409,12 @@ export function ScriptTableView({
     }
   };
 
-  const markClass = (p: LinePacing) =>
-    p.level === 'fast' ? 'bg-rose-500/25 rounded-sm' : p.level === 'tight' ? 'bg-amber-400/15 rounded-sm' : '';
-
   return (
     <div ref={rootRef}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-slate-800 text-[11px] text-slate-400">
-        <span title="A new passage starts where the original speaker pauses this long, or the speaker changes">
-          Split at original pauses over
+        <span title="Paragraphs are sized from the script's length (a sixth of it, between one and three minutes) and end where the original pauses">
+          Paragraphs of about {formatLength(paragraphLength)} · {passages.length} {passages.length === 1 ? 'paragraph' : 'paragraphs'}
         </span>
-        <div role="group" aria-label="Pause that starts a passage" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
-          {PASSAGE_PAUSES.map((p) => (
-            <button
-              key={p}
-              type="button"
-              aria-pressed={passagePause === p}
-              onClick={() => onPassagePauseChange(p)}
-              className={`px-2 py-0.5 rounded-md font-mono tabular-nums cursor-default transition-colors ${
-                passagePause === p ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {p}s
-            </button>
-          ))}
-        </div>
-        <div role="group" aria-label="Passage layout" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
-          {LAYOUTS.map((l) => (
-            <button
-              key={l.id}
-              type="button"
-              aria-pressed={layout === l.id}
-              onClick={() => changeLayout(l.id)}
-              title={l.title}
-              className={`px-2 py-0.5 rounded-md cursor-default transition-colors ${
-                layout === l.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {l.label}
-            </button>
-          ))}
-        </div>
         <button
           type="button"
           onClick={saveWord}
@@ -326,10 +445,7 @@ export function ScriptTableView({
           ))}
         </div>
         {wordError && <span className="text-rose-300">{wordError}</span>}
-        <span className="ml-auto text-slate-500">
-          {layout === 'lines' ? 'One line per cue · Esc undoes the cell' : 'Click a line to play from it · edit in Lines'}
-        </span>
-        {layout === 'lines' && (
+        <span className="ml-auto text-slate-500">Type straight into the dub · click the original to play from there</span>
         <button
           type="button"
           onClick={phonetic.toggle}
@@ -342,186 +458,101 @@ export function ScriptTableView({
           <Keyboard className="w-3 h-3" />
           Phonetic {phonetic.enabled ? langConfig.nativeName : 'off'}
         </button>
-        )}
       </div>
       <div className="p-3 sm:p-4">
-      <table className="w-full table-fixed border-collapse text-slate-200" style={{ fontSize: `${fontSize}px` }}>
-        <colgroup>
-          <col className="w-[5.5rem]" />
-          <col />
-          <col />
-        </colgroup>
-        <thead>
-          <tr className="text-left text-[11px] font-semibold text-slate-400">
-            <th className="border border-slate-700/70 bg-slate-950/60 px-3 py-2 font-semibold">Passage</th>
-            <th className="border border-slate-700/70 bg-slate-950/60 px-3 py-2 font-semibold">{sourceLanguage || 'Original'}</th>
-            <th className="border border-slate-700/70 bg-slate-950/60 px-3 py-2 font-semibold">{targetLanguage || 'Dub script'}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((passage) => {
-            const { key, cues } = passage;
-            const value = drafts[key] ?? savedText(cues);
-            const lines = value.split('\n');
-            const mismatch = lines.length !== cues.length;
-            const paces = cues.map((seg, i) => getPacing(seg, lines[i] ?? ''));
-            const count = (level: LinePacing['level']) => new Set(paces.map((p, i) => (p.level === level ? p.lineKey ?? `cue-${i}` : null)).filter(Boolean)).size;
-            const fast = count('fast');
-            const tight = count('tight');
-            const start = cues[0].startTime;
-            const end = cues[cues.length - 1].endTime;
-            const playingIndex = key === activeKey ? cues.findIndex((seg) => seg.id === activeSegmentId) : -1;
-            const playingHere = playingIndex !== -1 && isPlaying;
-            return (
-              <tr key={key} data-passage={key} className={key === activeKey ? 'bg-indigo-500/[0.06]' : ''}>
-                <td className="border border-slate-700/70 px-3 py-2.5 align-top text-[11px] text-slate-500">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-[13px] font-semibold text-slate-200">{passage.index + 1}</span>
-                    <button
-                      type="button"
-                      onClick={() => (playingHere ? onTogglePlay() : onPlayPassage(start, end))}
-                      aria-label={playingHere ? `Pause passage ${passage.index + 1}` : `Play passage ${passage.index + 1}`}
-                      title={playingHere ? 'Pause' : 'Play this passage'}
-                      className={`w-7 h-7 rounded-full border flex items-center justify-center transition-colors cursor-default ${
-                        playingHere
-                          ? 'border-slate-300 bg-slate-100 text-slate-900'
-                          : 'border-slate-700 text-slate-300 hover:border-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {playingHere ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-px" />}
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onSeek(start)}
-                    className="mt-1 block text-left font-mono tabular-nums leading-relaxed hover:text-indigo-300 cursor-default"
-                    title="Play this passage"
-                  >
-                    {formatTime(start)}
-                    <br />
-                    {formatTime(end)}
-                  </button>
-                  <div className="mt-1">
-                    {cues.length} {cues.length === 1 ? 'line' : 'lines'}
-                  </div>
-                  {fast > 0 && <div className="mt-1 text-rose-300">{fast} {fastLabel}</div>}
-                  {tight > 0 && <div className="mt-0.5 text-amber-300/90">{tight} tight</div>}
-                </td>
-
-                {layout === 'paragraph' ? (
-                  <>
-                    <td className="border border-slate-700/70 align-top text-slate-400">
-                      {paragraph(cues, getSourceText, sourceLanguage)}
-                    </td>
-                    <td className="border border-slate-700/70 align-top text-slate-100">
-                      {paragraph(cues, getTargetText, targetLanguage)}
-                      {drafts[key] !== undefined && (
-                        <div className="px-3 pb-2.5 text-[11.5px] text-amber-300/90">Unsaved changes in Lines</div>
-                      )}
-                    </td>
-                  </>
-                ) : (
-                <>
-                <td className="border border-slate-700/70 align-top text-slate-400">
-                  <div className="relative">
-                  {playingIndex !== -1 && <PlayingLineBar index={playingIndex} text={value} />}
-                  <div data-lines className={CELL_TEXT} lang={sourceLanguage || undefined}>
-                    {cues.map((seg) => (
-                      <div
-                        key={String(seg.id)}
-                        onClick={() => window.getSelection()?.isCollapsed && onSeek(seg.startTime)}
-                        className={`relative cursor-default transition-colors duration-[450ms] hover:text-slate-200 ${seg.id === activeSegmentId ? 'text-white' : ''}`}
-                        title={`${formatTime(seg.startTime)} · play from here`}
-                      >
-                        {asLine(getSourceText(seg)) || ' '}
+        <table className="w-full table-fixed border-collapse text-slate-200" style={{ fontSize: `${fontSize}px` }}>
+          <colgroup>
+            <col className="w-[5.5rem]" />
+            <col />
+            <col />
+          </colgroup>
+          <thead>
+            <tr className="text-left text-[11px] font-semibold text-slate-400">
+              <th className="border border-slate-700/70 bg-slate-950/60 px-3 py-2 font-semibold">Paragraph</th>
+              <th className="border border-slate-700/70 bg-slate-950/60 px-3 py-2 font-semibold">{sourceLanguage || 'Original'}</th>
+              <th className="border border-slate-700/70 bg-slate-950/60 px-3 py-2 font-semibold">{targetLanguage || 'Dub script'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((passage) => {
+              const { key, cues } = passage;
+              const paces = cues.map((seg) => getPacing(seg, edit && edit.id === String(seg.id) ? edit.text : savedOf(seg)));
+              const count = (level: LinePacing['level']) =>
+                new Set(paces.map((p, i) => (p.level === level ? p.lineKey ?? `cue-${i}` : null)).filter(Boolean)).size;
+              const fast = count('fast');
+              const tight = count('tight');
+              const start = cues[0].startTime;
+              const end = cues[cues.length - 1].endTime;
+              const playingHere = key === activeKey && isPlaying;
+              return (
+                <tr key={key} data-passage={key} className={key === activeKey ? 'bg-indigo-500/[0.06]' : ''}>
+                  <td className="border border-slate-700/70 px-3 py-2.5 align-top text-[11px] text-slate-500">
+                    <div className="sticky top-2">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[13px] font-semibold text-slate-200">{passage.index + 1}</span>
+                        <button
+                          type="button"
+                          onClick={() => (playingHere ? onTogglePlay() : onPlayPassage(start, end))}
+                          aria-label={playingHere ? `Pause paragraph ${passage.index + 1}` : `Play paragraph ${passage.index + 1}`}
+                          title={playingHere ? 'Pause' : 'Play this paragraph'}
+                          className={`w-7 h-7 rounded-full border flex items-center justify-center transition-colors cursor-default ${
+                            playingHere
+                              ? 'border-slate-300 bg-slate-100 text-slate-900'
+                              : 'border-slate-700 text-slate-300 hover:border-slate-400 hover:text-white'
+                          }`}
+                        >
+                          {playingHere ? <Pause className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current ml-px" />}
+                        </button>
                       </div>
-                    ))}
-                  </div>
-                  </div>
-                </td>
-
-                <td className="border border-slate-700/70 align-top p-0 focus-within:outline focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-indigo-500">
-                  <div className="relative grid" lang={targetLanguage || undefined}>
-                    {playingIndex !== -1 && <PlayingLineBar index={playingIndex} text={value} />}
-                    {/* The same text, invisible, behind the textarea: it sizes the cell, carries the pace marks and places the playing bar. */}
-                    <div data-lines aria-hidden className={`${CELL_TEXT} [grid-area:1/1] text-transparent pointer-events-none select-none`}>
-                      {lines.map((line, i) => (
-                        <div key={i}>
-                          {/* An empty line still takes a line's height, as it does in the textarea. */}
-                          <span className={i < cues.length ? markClass(paces[i]) : ''}>{line || '\u200b'}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <textarea
-                      value={value}
-                      spellCheck={false}
-                      rows={1}
-                      onFocus={(e) => {
-                        typingRef.current = { ta: e.currentTarget, key };
-                        setEditing(key);
-                      }}
-                      onChange={(e) => setDraft(key)(e.target.value)}
-                      onBlur={() => {
-                        phonetic.dismiss();
-                        setEditing(null);
-                        if (discardingRef.current === key) discardingRef.current = null;
-                        else commit(key, cues);
-                      }}
-                      onKeyUp={phonetic.onKeyUp}
-                      data-review-text
-                      onKeyDown={(e) => {
-                        if (phonetic.onKeyDown(e, setDraft(key))) return;
-                        // Ctrl+Z first throws away what is being typed here; once the cell is as saved, it steps back the script's history.
-                        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && drafts[key] !== undefined) {
-                          e.preventDefault();
-                          dropDraft(key);
-                          return;
-                        }
-                        if (e.key === 'Escape') {
-                          discardingRef.current = key;
-                          dropDraft(key);
-                          e.currentTarget.blur();
-                        }
-                      }}
-                      aria-label={`Passage ${passage.index + 1}, ${targetLanguage || 'dub script'}, one line per cue`}
-                      className={`${CELL_TEXT} relative [grid-area:1/1] w-full h-full resize-none overflow-hidden bg-transparent text-slate-100 outline-none caret-indigo-300`}
-                    />
-                  </div>
-                  {mismatch && (
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-2.5 text-[11.5px] text-rose-300">
-                      <span>
-                        {lines.length} lines here, this passage has {cues.length} {cues.length === 1 ? 'cue' : 'cues'}. Make
-                        it one line per cue to save.
-                      </span>
                       <button
                         type="button"
-                        onClick={() => dropDraft(key)}
-                        className="text-slate-300 underline underline-offset-2 hover:text-slate-100 cursor-default"
+                        onClick={() => onSeek(start)}
+                        className="mt-1 block text-left font-mono tabular-nums leading-relaxed hover:text-indigo-300 cursor-default"
+                        title="Go to the start of this paragraph"
                       >
-                        Undo changes
+                        {formatTime(start)}
+                        <br />
+                        {formatTime(end)}
                       </button>
+                      <div className="mt-1">{formatLength(Math.max(0, end - start))}</div>
+                      <div className="mt-0.5">
+                        {cues.length} {cues.length === 1 ? 'line' : 'lines'}
+                      </div>
+                      {fast > 0 && <div className="mt-1 text-rose-300">{fast} {fastLabel}</div>}
+                      {tight > 0 && <div className="mt-0.5 text-amber-300/90">{tight} tight</div>}
                     </div>
-                  )}
-                </td>
-                </>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                  </td>
+                  <td className="border border-slate-700/70 align-top text-slate-400">{sourceParagraph(cues)}</td>
+                  <td className="border border-slate-700/70 align-top text-slate-100">{dubParagraph(cues, paces, passage.index + 1)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
-      {/* Signs that are awkward to spell in Roman letters, while a cell is being typed in. */}
-      {editing && (
+      {/* While a line is typed in: where it is, how it fits, and signs that are awkward to spell in Roman letters. */}
+      {edit && editSeg && (
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-1 px-4 py-2 border-t border-slate-800 bg-slate-950/95 backdrop-blur-sm">
-          <span className="mr-1.5 text-[11px] text-slate-500">Signs</span>
+          <button
+            type="button"
+            tabIndex={-1}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onSeek(editSeg.startTime)}
+            className="mr-1 font-mono text-[11px] tabular-nums text-slate-400 hover:text-indigo-300 cursor-default"
+            title="Go to this line in the original"
+          >
+            {formatTime(editSeg.startTime)}–{formatTime(editSeg.endTime)}
+          </button>
+          {editPace?.level === 'fast' && <span className="mr-1 text-[11px] text-rose-300">{fastLabel}</span>}
+          {editPace?.level === 'tight' && <span className="mr-1 text-[11px] text-amber-300/90">tight</span>}
+          <span className="mx-1.5 text-[11px] text-slate-500">Signs</span>
           {signs.map((sign) => (
             <button
               key={sign}
               type="button"
               onMouseDown={(e) => {
-                e.preventDefault(); // keeps the caret in the cell
+                e.preventDefault(); // keeps the caret in the line
                 insertSign(sign);
               }}
               className="min-w-[2rem] h-8 px-1.5 rounded-md border border-slate-800 bg-slate-900 text-slate-100 text-base hover:border-indigo-500/40 hover:bg-indigo-500/10 cursor-default"
@@ -531,6 +562,7 @@ export function ScriptTableView({
               {palette.matras.includes(sign) ? `◌${sign}` : sign}
             </button>
           ))}
+          <span className="ml-auto text-[11px] text-slate-500">Saves as you type · Enter next line · Esc throws away unsaved typing</span>
         </div>
       )}
 
@@ -553,7 +585,7 @@ export function ScriptTableView({
                 onMouseDown={(e) => {
                   e.preventDefault();
                   const typing = typingRef.current;
-                  if (typing) phonetic.pick(typing.ta, setDraft(typing.key), i);
+                  if (typing) phonetic.pick(typing.field, typed(typing.key), i);
                 }}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[15px] cursor-default ${
                   i === phonetic.popup!.selected ? 'bg-indigo-500/25 text-white' : 'text-slate-300 hover:bg-slate-800'

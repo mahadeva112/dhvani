@@ -61,8 +61,26 @@ export interface PhoneticPopup {
   y: number;
 }
 
+/**
+ * What phonetic typing needs of the box being typed in: a textarea, or a line
+ * of text typed in place (see inlineField), which brings its own caret point.
+ */
+export interface PhoneticField {
+  readonly value: string;
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+  setSelectionRange(start: number, end: number): void;
+  focus(): void;
+  /** The element that holds focus while typing. */
+  element?: Element;
+  /** Window position just below the caret. */
+  caretPoint?(): { x: number; y: number };
+}
+
+const elementOf = (field: PhoneticField) => field.element ?? (field as unknown as Element);
+
 /** Window position just below the caret of a textarea, measured on an invisible copy of it. */
-const caretPoint = (ta: HTMLTextAreaElement) => {
+const textareaCaretPoint = (ta: HTMLTextAreaElement) => {
   const cs = getComputedStyle(ta);
   const copy = document.createElement('div');
   for (const p of ['font', 'letterSpacing', 'padding', 'border', 'boxSizing', 'lineHeight', 'overflowWrap', 'wordBreak'] as const) {
@@ -84,8 +102,10 @@ const caretPoint = (ta: HTMLTextAreaElement) => {
   return { x, y };
 };
 
+const caretPoint = (field: PhoneticField) => (field.caretPoint ? field.caretPoint() : textareaCaretPoint(field as HTMLTextAreaElement));
+
 /**
- * Phonetic typing for any number of plain textareas: Roman letters become the
+ * Phonetic typing for any number of plain textareas, or lines typed in place: Roman letters become the
  * script when a word ends, with the same suggestions and saved words as the
  * cue cards. The text lives with the caller, so each handler is handed the
  * textarea's value and the setter that writes it.
@@ -98,7 +118,7 @@ export function usePhoneticTyping(language: string) {
   const latestLookup = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   // The last word turned into the script, so a Backspace right after brings the Roman letters back.
-  const undo = useRef<{ ta: HTMLTextAreaElement; start: number; roman: string; converted: string; sep: string } | null>(null);
+  const undo = useRef<{ ta: PhoneticField; start: number; roman: string; converted: string; sep: string } | null>(null);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -120,7 +140,7 @@ export function usePhoneticTyping(language: string) {
     setPopup(null);
   }, []);
 
-  const lookUp = (ta: HTMLTextAreaElement, word: string) => {
+  const lookUp = (ta: PhoneticField, word: string) => {
     clearTimeout(timer.current);
     latestLookup.current = word;
     timer.current = setTimeout(async () => {
@@ -131,13 +151,13 @@ export function usePhoneticTyping(language: string) {
         list = [transliterateWordOffline(word, language), word].filter(Boolean);
       }
       // A slower lookup for an earlier prefix must not replace the current word's list.
-      if (latestLookup.current !== word || document.activeElement !== ta) return;
+      if (latestLookup.current !== word || document.activeElement !== elementOf(ta)) return;
       setPopup({ word, suggestions: list, selected: 0, ...caretPoint(ta) });
     }, 90);
   };
 
   /** Puts `converted` in place of the Roman word before the caret. */
-  const replaceWord = (ta: HTMLTextAreaElement, setValue: (text: string) => void, converted: string, sep: string) => {
+  const replaceWord = (ta: PhoneticField, setValue: (text: string) => void, converted: string, sep: string) => {
     const value = ta.value;
     const pos = ta.selectionStart;
     const roman = romanAt(value, pos);
@@ -153,14 +173,17 @@ export function usePhoneticTyping(language: string) {
     }, 0);
   };
 
-  const pick = (ta: HTMLTextAreaElement, setValue: (text: string) => void, index: number) => {
+  const pick = (ta: PhoneticField, setValue: (text: string) => void, index: number) => {
     const choice = popup?.suggestions[index];
     if (choice) replaceWord(ta, setValue, choice, ' ');
   };
 
   /** True when the key was used for phonetic typing, so the caller leaves it alone. */
-  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>, setValue: (text: string) => void): boolean => {
-    const ta = e.currentTarget;
+  const onKeyDown = (
+    e: React.KeyboardEvent<HTMLElement>,
+    setValue: (text: string) => void,
+    ta: PhoneticField = e.currentTarget as HTMLTextAreaElement
+  ): boolean => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
       e.preventDefault();
       toggle();
@@ -236,9 +259,8 @@ export function usePhoneticTyping(language: string) {
     return false;
   };
 
-  const onKeyUp = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyUp = (e: React.KeyboardEvent<HTMLElement>, ta: PhoneticField = e.currentTarget as HTMLTextAreaElement) => {
     if (!enabled || ['ArrowDown', 'ArrowUp', 'Tab', 'Escape', 'Enter'].includes(e.key)) return;
-    const ta = e.currentTarget;
     const roman = romanAt(ta.value, ta.selectionStart);
     if (roman) lookUp(ta, roman);
     else dismiss();

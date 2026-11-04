@@ -1824,15 +1824,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
   const handleJumpToCue = (seg: AudioSegment) => {
     seekSource(seg.startTime);
-    // The Script view shows the cue's passage when no filter hides it.
-    const passageKey = passageOfCue.get(String(seg.id))?.key;
-    const row =
-      reviewMode === 'script' && passageKey
-        ? scriptScrollRef.current?.querySelector<HTMLElement>(`[data-passage="${CSS.escape(passageKey)}"]`)
+    // The Script view shows the cue's paragraph when no filter hides it: its dub sentence opens for typing.
+    const line =
+      reviewMode === 'script'
+        ? scriptScrollRef.current?.querySelector<HTMLElement>(`[data-dub-cue="${CSS.escape(String(seg.id))}"]`)
         : null;
-    if (row) {
-      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      row.querySelector('textarea')?.focus({ preventScroll: true });
+    if (line) {
+      line.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      line.focus({ preventScroll: true });
       return;
     }
     setReviewMode('table');
@@ -2715,7 +2714,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           )}
 
           {/* ========================================================================= */}
-          {/* SCRIPT: one row per passage, the dub text edited like a plain table cell */}
+          {/* SCRIPT: long paragraphs, each dub sentence typed in where it stands     */}
           {/* ========================================================================= */}
           {reviewMode === 'script' && filteredSegments.length > 0 && (
             <ScriptTableView
@@ -2734,7 +2733,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               }}
               fastLabel={linePreview ? 'too long' : 'too fast'}
               passagePause={passagePause}
-              onPassagePauseChange={setPassagePause}
               activeSegmentId={activeSegmentId}
               isPlaying={isPlaying}
               onSeek={seekSource}
