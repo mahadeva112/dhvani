@@ -93,7 +93,7 @@ import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, Voi
 import { MediaStrip } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
 import { useReviewVideo } from './ReviewVideoPanel';
-import { ReviewVideoFloat } from './ReviewVideoFloat';
+import { ReviewVideoFloat, releaseReviewWindow, reserveReviewWindow } from './ReviewVideoFloat';
 import { useLiveTime } from './useLiveTime';
 import { TrackStrip } from './TrackStrip';
 import type { MixerLevels, MixerTrack, TrackLevel } from './useTrackMixer';
@@ -3851,7 +3851,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             {!reviewVideo.video && (
               <button
                 type="button"
-                onClick={reviewVideo.pick}
+                onClick={() => {
+                  if (hasDub) reserveReviewWindow();
+                  reviewVideo.pick(document, releaseReviewWindow);
+                }}
                 title="Watch a local video while the dub plays. It stays silent and is not saved with the project."
                 className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
               >
@@ -3861,7 +3864,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             {reviewVideo.video && reviewVideoHidden && (
               <button
                 type="button"
-                onClick={() => setReviewVideoHidden(false)}
+                onClick={() => {
+                  if (hasDub) reserveReviewWindow();
+                  setReviewVideoHidden(false);
+                }}
                 className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
               >
                 <Video className="w-3.5 h-3.5" /> Show video
@@ -4116,7 +4122,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               {playerExtras}
               </div>
               )}
-              {reviewVideo.input}
             </section>
           )}
           {hasDub && reviewVideo.video && !reviewVideoHidden && (

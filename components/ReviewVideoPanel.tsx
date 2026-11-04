@@ -12,27 +12,40 @@ export type ReviewVideo = { url: string; name: string };
  */
 export const useReviewVideo = (projectId: string | undefined) => {
   const [video, setVideo] = useState<ReviewVideo | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef<string | null>(null);
   const clear = useCallback(() => {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
     urlRef.current = null;
     setVideo(null);
   }, []);
-  const pick = useCallback(() => inputRef.current?.click(), []);
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Cleared so picking the same file again still fires a change.
-    e.target.value = '';
-    if (!file) return;
-    if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    urlRef.current = URL.createObjectURL(file);
-    setVideo({ url: urlRef.current, name: file.name });
-  };
+  /**
+   * Opens the file picker in `doc`, the window the click was in: a browser
+   * shows one only from a click in its own window, so Replace in the video's
+   * own window opens it there. `onCancel` hears a picker closed with no file.
+   */
+  const pick = useCallback((doc: Document = document, onCancel?: () => void) => {
+    const input = doc.createElement('input');
+    input.type = 'file';
+    input.accept = 'video/*';
+    input.hidden = true;
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      input.remove();
+      if (!file) return onCancel?.();
+      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      urlRef.current = URL.createObjectURL(file);
+      setVideo({ url: urlRef.current, name: file.name });
+    });
+    input.addEventListener('cancel', () => {
+      input.remove();
+      onCancel?.();
+    });
+    doc.body.appendChild(input);
+    input.click();
+  }, []);
   // A review video belongs to the project it was picked for.
   useEffect(() => clear, [projectId, clear]);
-  const input = <input ref={inputRef} type="file" accept="video/*" className="hidden" onChange={onFile} />;
-  return { video, pick, clear, input };
+  return { video, pick, clear };
 };
 
 /** Where the picture's clock comes from: the player's position on the original's clock. */

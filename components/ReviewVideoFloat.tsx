@@ -7,7 +7,6 @@ import {
   MoreHorizontal,
   Pause,
   Play,
-  SquareArrowOutUpRight,
   Video,
   VolumeX,
   X,
@@ -85,7 +84,8 @@ const onScreen = (b: Box): Box => ({
  * are copied in), or null where pop-ups are blocked. The name is new each
  * time, so a window still closing is never handed back.
  */
-const openOwnWindow = (box: Box, title: string): { win: Window; host: HTMLElement } | null => {
+type OwnWindow = { win: Window; host: HTMLElement };
+const openOwnWindow = (box: Box, title: string): OwnWindow | null => {
   const win = window.open('', `${WINDOW_NAME}-${Date.now()}`, `popup,left=${box.x},top=${box.y},width=${box.w},height=${box.h}`);
   if (!win) return null;
   const doc = win.document;
@@ -109,6 +109,45 @@ const openOwnWindow = (box: Box, title: string): { win: Window; host: HTMLElemen
   return { win, host };
 };
 
+/** The desktop app opens a window whenever asked; a browser only straight from a click. */
+const IN_BROWSER = !navigator.userAgent.includes('Electron');
+let reserved: OwnWindow | null = null;
+let reservedTimer = 0;
+
+/** The window opened for a picker that was cancelled, or never taken, closes. */
+export const releaseReviewWindow = () => {
+  window.clearTimeout(reservedTimer);
+  reserved?.win.close();
+  reserved = null;
+};
+
+/**
+ * Called in the click that shows the video (Add video, Show video). The
+ * player comes a moment later, after a file is picked, when a browser would
+ * no longer let it open a window; so in a browser its window opens now, in
+ * the click, and the player takes it. The desktop app needs none of this.
+ */
+export const reserveReviewWindow = () => {
+  if (!IN_BROWSER || (reserved && !reserved.win.closed)) return;
+  const saved = readSaved();
+  reserved = openOwnWindow(saved.win ?? onScreen(saved), 'Review video');
+  if (!reserved) return;
+  const note = reserved.win.document.createElement('p');
+  note.textContent = 'Pick a video…';
+  note.style.cssText = 'margin:0;padding-top:40vh;text-align:center;font:13px system-ui,sans-serif;color:#64748b';
+  reserved.host.appendChild(note);
+  window.clearTimeout(reservedTimer);
+  reservedTimer = window.setTimeout(releaseReviewWindow, 5 * 60_000);
+};
+
+const takeReserved = (): OwnWindow | null => {
+  const taken = reserved && !reserved.win.closed ? reserved : null;
+  window.clearTimeout(reservedTimer);
+  reserved = null;
+  taken?.host.replaceChildren();
+  return taken;
+};
+
 /**
  * The review video in a window of its own, like REAPER's video window: moved
  * anywhere, onto another screen, sized by the system, and opened again where
@@ -118,8 +157,8 @@ const openOwnWindow = (box: Box, title: string): { win: Window; host: HTMLElemen
  *
  * Only where a window can't open (a browser blocking pop-ups) does it show as
  * a box over the page instead: moved by its title bar (settling into a corner
- * when dropped near one), sized from any edge or corner, with a button that
- * tries the window again.
+ * when dropped near one), sized from any edge or corner; its menu tries the
+ * window again.
  */
 export const ReviewVideoFloat: React.FC<
   ReviewClock & {
@@ -129,7 +168,8 @@ export const ReviewVideoFloat: React.FC<
     onNextLine: () => void;
     trackMode: 'source' | 'synth' | 'both';
     onTrackMode: (mode: 'source' | 'synth' | 'both') => void;
-    onReplace: () => void;
+    /** Opens the file picker in the given window's document. */
+    onReplace: (doc: Document) => void;
     onRemove: () => void;
     /** Hides the window; the video stays picked. */
     onHide: () => void;
@@ -173,7 +213,7 @@ export const ReviewVideoFloat: React.FC<
   useEffect(() => setAspect(null), [video.url]);
 
   useEffect(() => {
-    const opened = openOwnWindow(live.current.win ?? onScreen(live.current), video.name);
+    const opened = takeReserved() ?? openOwnWindow(live.current.win ?? onScreen(live.current), video.name);
     setBlocked(!opened);
     if (!opened) return;
     const { win } = opened;
@@ -358,7 +398,7 @@ export const ReviewVideoFloat: React.FC<
             own ? 'fixed right-1 bottom-11 max-w-[calc(100vw-8px)] max-h-[calc(100vh-52px)] overflow-y-auto' : 'absolute right-0 top-8'
           } z-10 w-52 rounded-lg border border-slate-700 bg-slate-900 p-1 text-[12px] shadow-xl shadow-black/50`}
         >
-          <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); onReplace(); }}>
+          <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); onReplace(own?.win.document ?? document); }}>
             Replace video…
           </button>
           <div className="my-1 border-t border-slate-800" />
@@ -474,15 +514,6 @@ export const ReviewVideoFloat: React.FC<
           <span title="The video is always silent; you hear what Listen to picks">
             <VolumeX className="w-3.5 h-3.5 shrink-0 text-slate-500" aria-label="Muted" />
           </span>
-          <button
-            type="button"
-            onClick={press(() => setAttempt((a) => a + 1))}
-            title="Open in its own window, to move anywhere (even another screen)"
-            aria-label="Open in its own window"
-            className={iconButton}
-          >
-            <SquareArrowOutUpRight className="w-3.5 h-3.5" />
-          </button>
           {menu}
           <button
             type="button"
