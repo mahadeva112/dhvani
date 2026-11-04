@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.33',
+    changes: [
+      'In Review every line has Shorter, Longer and Same length buttons. The one that fits the line best is marked, but nothing is asked for until you press one.',
+      'A suggestion now comes back as one wording, much faster, and you can read it right away while its meaning is checked against the original. Press Another for the next one.',
+      '"Wordings ahead" is off unless you turn it on, so no wordings are asked for in the background.',
+    ],
+  },
+  {
     version: '1.4.32',
     changes: [
       'The Script view shows the script as long paragraphs, sized from the length of the talk (about one to three minutes each), and the Lines layout is gone.',
