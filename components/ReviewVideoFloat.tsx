@@ -309,12 +309,31 @@ export const ReviewVideoFloat: React.FC<
     win.resizeTo(w + win.outerWidth - win.innerWidth, h - HEADER + win.outerHeight - win.innerHeight);
   };
 
-  /** The box made the picture's shape at its current width: no bars. */
+  /**
+   * The box made the picture's shape: no bars. At its current width when that
+   * fits; a reel too tall for that is made narrower instead, so all of it,
+   * controls included, stays on the screen (or in the app's window).
+   */
   const fitToPicture = () => {
     if (!aspect) return;
     const bar = saved.compact ? 0 : BAR;
-    if (!own) return update(clampBox({ ...saved, h: Math.round(saved.w / aspect + HEADER + bar) }));
-    sizeTo(own.win.innerWidth, Math.round(own.win.innerWidth / aspect + HEADER + bar));
+    if (!own) {
+      const h = Math.min(saved.w / aspect + HEADER + bar, window.innerHeight - 2 * MARGIN);
+      return update(clampBox({ ...saved, w: Math.round(Math.min(saved.w, (h - HEADER - bar) * aspect)), h: Math.round(h) }));
+    }
+    const { win } = own;
+    const frameW = win.outerWidth - win.innerWidth;
+    const frameH = win.outerHeight - win.innerHeight;
+    const screen = win.screen as Screen & { availLeft?: number; availTop?: number };
+    const left = screen.availLeft ?? 0;
+    const top = screen.availTop ?? 0;
+    const h = Math.min(win.innerWidth / aspect + bar, screen.availHeight - frameH);
+    const w = Math.round(Math.min(win.innerWidth, (h - bar) * aspect));
+    win.resizeTo(w + frameW, Math.round(h) + frameH);
+    // Moved up or left if the new size would run off the screen.
+    const x = Math.min(win.screenX, left + screen.availWidth - w - frameW);
+    const y = Math.min(win.screenY, top + screen.availHeight - Math.round(h) - frameH);
+    if (x !== win.screenX || y !== win.screenY) win.moveTo(Math.max(left, x), Math.max(top, y));
   };
 
   /** Clicks on its buttons leave the keyboard to the page, so Space still plays. */
@@ -435,12 +454,13 @@ export const ReviewVideoFloat: React.FC<
   if (own) {
     return createPortal(
       <section aria-label="Review video" className="h-screen flex flex-col bg-slate-950 select-none">
+        {/* The picture takes the room left over, so a reel fits whole and never covers the bar. */}
         <div
-          className="relative flex-1 min-h-0"
+          className="flex-1 min-h-0 flex flex-col"
           onDoubleClick={() => update({ compact: !saved.compact })}
           title={saved.compact ? 'Double-click for the controls' : 'Double-click for the video only'}
         >
-          <ReviewPicture video={video} {...clock} fit={saved.fill ? 'cover' : 'contain'} onAspect={setAspect} view={own.win} className="absolute inset-0" />
+          <ReviewPicture video={video} {...clock} fit={saved.fill ? 'cover' : 'contain'} onAspect={setAspect} view={own.win} className="flex-1 min-h-0" />
         </div>
         {!saved.compact && controls(menu)}
       </section>,
