@@ -21,9 +21,9 @@ export const useReviewVideo = (projectId: string | undefined) => {
   /**
    * Opens the file picker in `doc`, the window the click was in: a browser
    * shows one only from a click in its own window, so Replace in the video's
-   * own window opens it there. `onCancel` hears a picker closed with no file.
+   * own window opens it there.
    */
-  const pick = useCallback((doc: Document = document, onCancel?: () => void) => {
+  const pick = useCallback((doc: Document = document) => {
     const input = doc.createElement('input');
     input.type = 'file';
     input.accept = 'video/*';
@@ -31,15 +31,12 @@ export const useReviewVideo = (projectId: string | undefined) => {
     input.addEventListener('change', () => {
       const file = input.files?.[0];
       input.remove();
-      if (!file) return onCancel?.();
+      if (!file) return;
       if (urlRef.current) URL.revokeObjectURL(urlRef.current);
       urlRef.current = URL.createObjectURL(file);
       setVideo({ url: urlRef.current, name: file.name });
     });
-    input.addEventListener('cancel', () => {
-      input.remove();
-      onCancel?.();
-    });
+    input.addEventListener('cancel', () => input.remove());
     doc.body.appendChild(input);
     input.click();
   }, []);

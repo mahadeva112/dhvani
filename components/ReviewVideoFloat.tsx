@@ -112,37 +112,43 @@ const openOwnWindow = (box: Box, title: string): OwnWindow | null => {
 /** The desktop app opens a window whenever asked; a browser only straight from a click. */
 const IN_BROWSER = !navigator.userAgent.includes('Electron');
 let reserved: OwnWindow | null = null;
-let reservedTimer = 0;
-
-/** The window opened for a picker that was cancelled, or never taken, closes. */
-export const releaseReviewWindow = () => {
-  window.clearTimeout(reservedTimer);
-  reserved?.win.close();
-  reserved = null;
-};
 
 /**
- * Called in the click that shows the video (Add video, Show video). The
- * player comes a moment later, after a file is picked, when a browser would
- * no longer let it open a window; so in a browser its window opens now, in
- * the click, and the player takes it. The desktop app needs none of this.
+ * Called in the click that shows the video (Add video, Show video), and true
+ * when it opened the window. The player comes a moment later, when a browser
+ * would no longer let it open one, so in a browser its window opens now, in
+ * the click, and the player takes it. One click buys only one of a window or
+ * a file picker, so for a new video the window opens with a button that
+ * picks the file (`choose`, given the window's document) from a click of its
+ * own. The desktop app opens windows whenever asked and needs none of this.
  */
-export const reserveReviewWindow = () => {
-  if (!IN_BROWSER || (reserved && !reserved.win.closed)) return;
-  const saved = readSaved();
-  reserved = openOwnWindow(saved.win ?? onScreen(saved), 'Review video');
-  if (!reserved) return;
-  const note = reserved.win.document.createElement('p');
-  note.textContent = 'Pick a video…';
-  note.style.cssText = 'margin:0;padding-top:40vh;text-align:center;font:13px system-ui,sans-serif;color:#64748b';
-  reserved.host.appendChild(note);
-  window.clearTimeout(reservedTimer);
-  reservedTimer = window.setTimeout(releaseReviewWindow, 5 * 60_000);
+export const reserveReviewWindow = (choose?: (doc: Document) => void): boolean => {
+  if (!IN_BROWSER) return false;
+  if (!reserved || reserved.win.closed) {
+    const saved = readSaved();
+    reserved = openOwnWindow(saved.win ?? onScreen(saved), 'Review video');
+    if (!reserved) return false;
+    const { win } = reserved;
+    // Not left behind when the app's page goes.
+    window.addEventListener('pagehide', () => win.close(), { once: true });
+  }
+  const { win, host } = reserved;
+  win.focus();
+  host.replaceChildren();
+  if (choose) {
+    const button = win.document.createElement('button');
+    button.type = 'button';
+    button.textContent = 'Choose a video…';
+    button.style.cssText =
+      'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 14px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font:600 13px system-ui,sans-serif;cursor:default';
+    button.addEventListener('click', () => choose(win.document));
+    host.appendChild(button);
+  }
+  return true;
 };
 
 const takeReserved = (): OwnWindow | null => {
   const taken = reserved && !reserved.win.closed ? reserved : null;
-  window.clearTimeout(reservedTimer);
   reserved = null;
   taken?.host.replaceChildren();
   return taken;

@@ -93,7 +93,7 @@ import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, Voi
 import { MediaStrip } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
 import { useReviewVideo } from './ReviewVideoPanel';
-import { ReviewVideoFloat, releaseReviewWindow, reserveReviewWindow } from './ReviewVideoFloat';
+import { ReviewVideoFloat, reserveReviewWindow } from './ReviewVideoFloat';
 import { useLiveTime } from './useLiveTime';
 import { TrackStrip } from './TrackStrip';
 import type { MixerLevels, MixerTrack, TrackLevel } from './useTrackMixer';
@@ -3852,8 +3852,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (hasDub) reserveReviewWindow();
-                  reviewVideo.pick(document, releaseReviewWindow);
+                  // In a browser the video's window opens now and picks the file itself.
+                  if (!hasDub || !reserveReviewWindow((doc) => reviewVideo.pick(doc))) reviewVideo.pick();
                 }}
                 title="Watch a local video while the dub plays. It stays silent and is not saved with the project."
                 className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
