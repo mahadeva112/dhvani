@@ -1965,7 +1965,9 @@ export default function App() {
   // Spacebar shortcuts for play/pause
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      // Space types a space wherever text is typed: boxes, and the Script view's lines typed in place.
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) {
         return;
       }
       if (e.code === 'Space') {

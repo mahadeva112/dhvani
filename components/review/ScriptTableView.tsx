@@ -244,6 +244,13 @@ export function ScriptTableView({
     const id = String(seg.id);
     const el = e.currentTarget;
     const field = inlineField(el);
+    // Ctrl+Space plays and pauses without leaving the line, so it can be heard while it is typed.
+    if (e.key === ' ' && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      phonetic.dismiss();
+      onTogglePlay();
+      return;
+    }
     if (phonetic.onKeyDown(e, typed(id), field)) return;
     const cur = editRef.current;
     // Ctrl+Z first takes back what was typed since the line last saved; after that it steps back the script's history.
@@ -562,7 +569,7 @@ export function ScriptTableView({
               {palette.matras.includes(sign) ? `◌${sign}` : sign}
             </button>
           ))}
-          <span className="ml-auto text-[11px] text-slate-500">Saves as you type · Enter next line · Esc throws away unsaved typing</span>
+          <span className="ml-auto text-[11px] text-slate-500">Ctrl+Space play / pause · Saves as you type · Enter next line · Esc throws away unsaved typing</span>
         </div>
       )}
 
