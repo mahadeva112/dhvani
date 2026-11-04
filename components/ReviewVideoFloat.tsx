@@ -17,7 +17,7 @@ import { useLiveTime } from './useLiveTime';
 
 type Box = { x: number; y: number; w: number; h: number };
 /** `win`: where its own window was last left on the screen (its page area). */
-type Saved = Box & { compact: boolean; fill: boolean; win?: Box };
+type Saved = Box & { compact: boolean; win?: Box };
 
 const KEY = 'dhvani.reviewVideo.float';
 const MARGIN = 8;
@@ -25,7 +25,8 @@ const MIN_W = 200;
 const MIN_H = 180;
 /** How close to a corner of the window a dropped player has to be to settle into it. */
 const SNAP = 90;
-const SIZES = { Small: [240, 280], Medium: [320, 380], Large: [460, 520] } as const;
+/** A new box's size; after that it is the size it was left at. */
+const START: Box = { x: 0, y: 96, w: 320, h: 380 };
 /** The in-app box's title bar; in a window of its own the system's title bar takes its place. */
 const HEADER = 36;
 const BAR = 40;
@@ -62,8 +63,7 @@ const clampBox = (b: Box): Box => {
 };
 
 const readSaved = (): Saved => {
-  const [w, h] = SIZES.Medium;
-  const fallback = { x: window.innerWidth - w - 24, y: 96, w, h, compact: false, fill: false };
+  const fallback = { ...START, x: window.innerWidth - START.w - 24, compact: false };
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || 'null');
     return s && [s.x, s.y, s.w, s.h].every(Number.isFinite) ? { ...fallback, ...s, ...clampBox(s) } : fallback;
@@ -113,7 +113,7 @@ const openOwnWindow = (box: Box, title: string): { win: Window; host: HTMLElemen
  * The review video in a window of its own, like REAPER's video window: moved
  * anywhere, onto another screen, sized by the system, and opened again where
  * it was left. Closing it hides the video; Show video opens it again. A reel
- * or a wide video fits inside it whole, with black bars, or fills it. It
+ * or a wide video always fits inside it whole, with black bars. It
  * plays nothing itself: its buttons drive the player.
  *
  * Only where a window can't open (a browser blocking pop-ups) does it show as
@@ -302,13 +302,6 @@ export const ReviewVideoFloat: React.FC<
     window.addEventListener('pointerup', up);
   };
 
-  /** In its own window, `h` is the in-app box's: the window has no title bar of ours. */
-  const sizeTo = (w: number, h: number) => {
-    if (!own) return update(clampBox({ ...saved, w, h }));
-    const { win } = own;
-    win.resizeTo(w + win.outerWidth - win.innerWidth, h - HEADER + win.outerHeight - win.innerHeight);
-  };
-
   /**
    * The box made the picture's shape: no bars. At its current width when that
    * fits; a reel too tall for that is made narrower instead, so all of it,
@@ -369,24 +362,8 @@ export const ReviewVideoFloat: React.FC<
             Replace video…
           </button>
           <div className="my-1 border-t border-slate-800" />
-          <div role="group" aria-label="Size" className="flex gap-0.5">
-            {(Object.keys(SIZES) as (keyof typeof SIZES)[]).map((name) => (
-              <button
-                key={name}
-                type="button"
-                role="menuitem"
-                className="flex-1 min-w-0 px-1 py-1.5 rounded-md hover:bg-slate-800 text-slate-200 text-center cursor-default"
-                onClick={() => { setMenuOpen(false); sizeTo(SIZES[name][0], SIZES[name][1]); }}
-              >
-                {name}
-              </button>
-            ))}
-          </div>
           <button type="button" role="menuitem" className={menuItem} disabled={!aspect} onClick={() => { setMenuOpen(false); fitToPicture(); }}>
             {own ? 'Fit the window to the video' : 'Fit the box to the video'}
-          </button>
-          <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); update({ fill: !saved.fill }); }}>
-            {saved.fill ? 'Show the whole picture' : `Fill the ${own ? 'window' : 'box'} (crops)`}
           </button>
           <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); update({ compact: !saved.compact }); }}>
             {saved.compact ? 'Show the controls' : 'Video only'}
@@ -460,7 +437,7 @@ export const ReviewVideoFloat: React.FC<
           onDoubleClick={() => update({ compact: !saved.compact })}
           title={saved.compact ? 'Double-click for the controls' : 'Double-click for the video only'}
         >
-          <ReviewPicture video={video} {...clock} fit={saved.fill ? 'cover' : 'contain'} onAspect={setAspect} view={own.win} className="flex-1 min-h-0" />
+          <ReviewPicture video={video} {...clock} onAspect={setAspect} view={own.win} className="flex-1 min-h-0" />
         </div>
         {!saved.compact && controls(menu)}
       </section>,
@@ -520,7 +497,6 @@ export const ReviewVideoFloat: React.FC<
         <ReviewPicture
           video={video}
           {...clock}
-          fit={saved.fill ? 'cover' : 'contain'}
           onAspect={setAspect}
           className={`flex-1 min-h-0 ${saved.compact ? 'rounded-b-xl' : ''}`}
         />

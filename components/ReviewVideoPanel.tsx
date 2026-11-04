@@ -54,13 +54,12 @@ const ERROR_TEXT: Record<number, string> = {
 /**
  * The silent picture itself, following the player's clock: it only mirrors
  * play, pause and position, and the audio stays the player's, so Original,
- * Dub and Both work as they do without it. `fit` contains the whole picture
- * (black bars where its shape differs from the box) or fills the box.
+ * Dub and Both work as they do without it. The whole picture always shows,
+ * with black bars where its shape differs from the box.
  */
 export const ReviewPicture: React.FC<
   ReviewClock & {
     video: ReviewVideo;
-    fit?: 'contain' | 'cover';
     className?: string;
     style?: React.CSSProperties;
     /** The picture's width over its height, once known. */
@@ -68,7 +67,7 @@ export const ReviewPicture: React.FC<
     /** The window it is shown in, when that is not the app's own. */
     view?: Window;
   }
-> = ({ video, currentTime, isPlaying, getLiveTime, playbackRate, fit = 'contain', className = '', style, onAspect, view }) => {
+> = ({ video, currentTime, isPlaying, getLiveTime, playbackRate, className = '', style, onAspect, view }) => {
   const ref = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState<string | null>(null);
   const lastSeek = useRef(0);
@@ -114,7 +113,7 @@ export const ReviewPicture: React.FC<
         playsInline
         preload="auto"
         disablePictureInPicture
-        className={`w-full h-full ${fit === 'cover' ? 'object-cover' : 'object-contain'}`}
+        className="w-full h-full object-contain"
         onLoadedMetadata={(e) => {
           const v = e.currentTarget;
           v.muted = true;
