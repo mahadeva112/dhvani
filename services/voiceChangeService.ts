@@ -1,6 +1,9 @@
 import { apiGetAudio, apiJson, apiPutBlob, DhvaniApiError } from './apiClient';
 import { originalParts, partEnd, partsOf, type SyncBank, type SyncBankLine, type SyncEdits } from './syncEditModel.ts';
 import { appendManyToBank, takesOf, type SyncTake, type SyncTakes } from './syncTakes.ts';
+import type { ChangedVoice } from './changedVoices.ts';
+
+export * from './changedVoices.ts';
 import type { SyncReport } from './syncService';
 import type { ElevenLabsVoiceSettings } from './elevenLabsService';
 
@@ -48,8 +51,8 @@ export const speakersOf = (bank: SyncBank) => {
   return [...counts].map(([name, lines]) => ({ name, lines }));
 };
 
-/** The voice each speaker is changed into; a speaker left out keeps their voice. */
-export type SpeakerVoices = Record<string, { voiceId: string; name: string }>;
+/** The voice each speaker is changed into; a speaker left out keeps their voice. `settings` are that speaker's own, when they differ from the run's. */
+export type SpeakerVoices = Record<string, { voiceId: string; name: string; settings?: VoiceChangeSettings }>;
 
 /** The lines to change: every line of a speaker given a voice. */
 export const linesToChange = (bank: SyncBank, voices: SpeakerVoices) => bank.lines.filter((line) => Boolean(voices[line.speaker]));
@@ -78,7 +81,34 @@ export interface ChangedLine {
   gain: number;
   hash: string;
   voice: string;
+  voiceId: string;
 }
+
+type Changed = { silent?: boolean; audioId: string; length: number; change: number; gain: number; hash: string };
+
+/** Some samples of the bank (a line, or a take of it) put through the voice changer and fitted back to their length; nothing in the bank changes. */
+const changeRegion = (
+  bankId: string,
+  region: { bankStart: number; length: number; gain: number },
+  voiceId: string,
+  settings: VoiceChangeSettings,
+  { apiKey, signal }: { apiKey?: string; signal?: AbortSignal }
+) =>
+  apiJson<Changed>('/sync/voice-change', {
+    body: {
+      bankId,
+      line: { bankStart: region.bankStart, length: region.length, gain: region.gain },
+      voiceId,
+      modelId: settings.modelId,
+      voiceSettings: settings.voiceSettings,
+      removeBackgroundNoise: settings.removeBackgroundNoise,
+      ...(settings.seed !== undefined && { seed: settings.seed }),
+      // Each line stays at the level it had in the dub.
+      matchLoudness: true,
+    },
+    keys: { elevenLabsKey: apiKey },
+    signal,
+  });
 
 /**
  * Changes the voice of `lines`, a few at a time. A line the voice changer
@@ -95,24 +125,9 @@ export const voiceChangeLines = async (
   }: { bank: SyncBank; bankBlob: Blob; lines: SyncBankLine[]; voices: SpeakerVoices; settings: VoiceChangeSettings },
   { apiKey, signal, onLine }: { apiKey?: string; signal?: AbortSignal; onLine?: (key: string, progress: LineProgress) => void } = {}
 ): Promise<{ changed: ChangedLine[]; error: Error | null }> => {
-  type Changed = { silent?: boolean; audioId: string; length: number; change: number; gain: number; hash: string };
   let resent: Promise<unknown> | null = null;
   const send = (line: SyncBankLine) =>
-    apiJson<Changed>('/sync/voice-change', {
-      body: {
-        bankId: bank.bankId,
-        line: { bankStart: line.bankStart, length: line.length, gain: line.gain },
-        voiceId: voices[line.speaker].voiceId,
-        modelId: settings.modelId,
-        voiceSettings: settings.voiceSettings,
-        removeBackgroundNoise: settings.removeBackgroundNoise,
-        ...(settings.seed !== undefined && { seed: settings.seed }),
-        // Each line stays at the level it had in the dub.
-        matchLoudness: true,
-      },
-      keys: { elevenLabsKey: apiKey },
-      signal,
-    });
+    changeRegion(bank.bankId, line, voices[line.speaker].voiceId, voices[line.speaker].settings ?? settings, { apiKey, signal });
 
   const changed = new Map<string, ChangedLine>();
   let error: Error | null = null;
@@ -138,7 +153,16 @@ export const voiceChangeLines = async (
         }
         if (data.length !== line.length) throw new Error('A changed line came back at another length. Try again.');
         const wav = await apiGetAudio(`/sync/audio/${encodeURIComponent(data.audioId)}`, { signal });
-        changed.set(line.key, { key: line.key, wav, length: data.length, change: data.change, gain: data.gain, hash: data.hash, voice: voices[line.speaker].name });
+        changed.set(line.key, {
+          key: line.key,
+          wav,
+          length: data.length,
+          change: data.change,
+          gain: data.gain,
+          hash: data.hash,
+          voice: voices[line.speaker].name,
+          voiceId: voices[line.speaker].voiceId,
+        });
         onLine?.(line.key, { state: Math.abs(data.change) > VOICE_CHANGE_FLAG_SHARE ? 'flag' : 'done', change: data.change });
       } catch (err: any) {
         if (signal?.aborted) return;
@@ -199,6 +223,7 @@ export const putChangedLines = async (
         dropped: line.dropped,
         ...(line.maxStartShift !== undefined && { maxStartShift: line.maxStartShift }),
         voice: c.voice,
+        voiceId: c.voiceId,
         text: kept.takes.find((t) => t.id === kept.active)?.text ?? unit.text,
       };
       nextTakes[line.key] = { takes: [...kept.takes, take], active: take.id };
@@ -208,4 +233,50 @@ export const putChangedLines = async (
   const bankId = newBankId();
   await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bankId)}`, blob, { signal });
   return { bank: { ...bank, bankId, lines }, bankBlob: blob, takes: Object.keys(nextTakes).length > 0 ? nextTakes : null };
+};
+
+/**
+ * Takes of a line put through the voice changer into `voice`, each fitted to
+ * its own length, so it plays exactly as the take it was changed from. They
+ * come back as new takes after the bank's samples (a new bank, sent to the
+ * server under a new id); a take the voice changer gives back silent comes
+ * back as it was. The first failure stops them all.
+ */
+export const voiceChangeTakes = async (
+  { bank, bankBlob, takes, voice }: { bank: SyncBank; bankBlob: Blob; takes: SyncTake[]; voice: Pick<ChangedVoice, 'voiceId' | 'name' | 'settings'> },
+  { apiKey, signal }: { apiKey?: string; signal?: AbortSignal } = {}
+): Promise<{ bank: SyncBank; bankBlob: Blob; takes: SyncTake[] }> => {
+  let resent = false;
+  const send = async (take: SyncTake) => {
+    try {
+      return await changeRegion(bank.bankId, take, voice.voiceId, voice.settings, { apiKey, signal });
+    } catch (err) {
+      // The server keeps a bank a few hours, and not across a restart: send it again, once.
+      if (resent || !(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
+      resent = true;
+      await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+      return changeRegion(bank.bankId, take, voice.voiceId, voice.settings, { apiKey, signal });
+    }
+  };
+  const changed: { take: SyncTake; wav: Blob; data: Changed }[] = [];
+  for (const take of takes) {
+    const data = await send(take);
+    if (data.silent) continue;
+    if (data.length !== take.length) throw new Error('A changed take came back at another length. Try again.');
+    changed.push({ take, wav: await apiGetAudio(`/sync/audio/${encodeURIComponent(data.audioId)}`, { signal }), data });
+  }
+  if (changed.length === 0) return { bank, bankBlob, takes };
+  const bytes = bank.float ? 4 : 2;
+  const baseLength = Math.round((bankBlob.size - 44) / bytes);
+  const blob = await appendManyToBank(bankBlob, changed.map((c) => c.wav), { sampleRate: bank.sampleRate, float: bank.float, baseLength });
+  let at = baseLength;
+  const byTake = new Map<SyncTake, SyncTake>();
+  for (const { take, data } of changed) {
+    const bankStart = at;
+    at += data.length;
+    byTake.set(take, { ...take, id: `voice-${bankStart.toString(36)}`, bankStart, gain: data.gain, hash: data.hash, voice: voice.name, voiceId: voice.voiceId });
+  }
+  const bankId = newBankId();
+  await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bankId)}`, blob, { signal });
+  return { bank: { ...bank, bankId }, bankBlob: blob, takes: takes.map((take) => byTake.get(take) ?? take) };
 };

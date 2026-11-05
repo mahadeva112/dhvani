@@ -78,6 +78,8 @@ export interface SyncTake {
   phrase?: string;
   /** The voice a voice-changed take was changed into (the voice changer, line by line). */
   voice?: string;
+  /** Its id: what tells a take already in a speaker's changed voice from one to change. */
+  voiceId?: string;
   /** What the line said when the take was voiced. */
   text: string;
   /** What the voice read, when that was new words, pause marks ([pause 0.4s]) or typed tags ([sighs]): `text` is the words without them. */

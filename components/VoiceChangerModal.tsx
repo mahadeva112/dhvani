@@ -116,6 +116,8 @@ interface VoiceChangerModalProps {
     speakers: { name: string; lines: number }[];
     clips: LaneClip[];
     duration: number;
+    /** The voice each line's take in the dub was changed into already, by line key. */
+    lineVoices?: Record<string, string>;
   } | null;
   onChangeLines?: (
     voices: SpeakerVoices,
@@ -337,15 +339,20 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
     }
     return out;
   }, [lineByLine, severalSpeakers, speakerVoices, targetVoiceId, allAvailableVoices]);
-  /** The lines the run changes: every line of a speaker given a voice, but none already changed into it. */
+  /** The lines the run changes: every line of a speaker given a voice, but none already changed into it (this run, or before: a retake changed since is run again). */
   const linesToRun = useMemo(
     () =>
       (lineByLine?.clips ?? [])
-        .filter((clip) => chosenVoices[clip.speaker])
+        .filter((clip) => chosenVoices[clip.speaker] && lineByLine?.lineVoices?.[clip.key] !== chosenVoices[clip.speaker].voiceId)
         .map((clip) => clip.key)
         .filter((key) => !['done', 'flag', 'silent'].includes(lineProgress[key]?.state ?? '')),
     [lineByLine, chosenVoices, lineProgress]
   );
+  // Opened again, the lines start from what they are in the dub now: one retaken since is changed again.
+  useEffect(() => {
+    if (isOpen && !linesRunning) setLineProgress({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
   const chosenKey = JSON.stringify(chosenVoices);
   const lastChosenKey = useRef(chosenKey);
   // Another voice for anyone starts the lines afresh.

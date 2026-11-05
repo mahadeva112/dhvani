@@ -146,16 +146,23 @@ import {
 } from './services/dubAudioQuality';
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { BASE_LABELS, backToFirstStep, recordReviewStep, redoReviewStep, startReviewHistory, undoReviewStep } from './services/reviewHistory';
-import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits } from './services/syncEditService';
-import { phraseLine, phraseOf, pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type TakeAsk } from './services/syncTakesService';
+import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits, type SyncBank, type SyncBankLine } from './services/syncEditService';
+import { phraseLine, phraseOf, pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
 import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
 import { stripTags, tagsOf } from './server/lib/lineTags.js';
 import {
   laneClips,
+  keptVoiceTakes,
+  lineVoiceIds,
+  linesOutOfVoice,
   linesToChange,
   putChangedLines,
   speakersOf,
+  takeIsIn,
   voiceChangeLines,
+  voiceChangeTakes,
+  type ChangedVoice,
+  type ChangedVoices,
   type LineProgress,
   type SpeakerVoices,
   type VoiceChangeSettings,
@@ -1195,6 +1202,7 @@ export default function App() {
               syncEdits: null,
               syncBaseReport: null,
               syncBeforeVoiceChange: null,
+              syncChangedVoices: null,
               dubStems: null,
               dubMix: null,
               syncedStems: null,
@@ -1284,6 +1292,7 @@ export default function App() {
           syncEdits: null,
           syncBaseReport: null,
           syncBeforeVoiceChange: null,
+          syncChangedVoices: null,
           dubStems: null,
           dubMix: null,
           syncedStems: null,
@@ -1490,6 +1499,7 @@ export default function App() {
           syncEdits: null,
           syncBaseReport: null,
           syncBeforeVoiceChange: null,
+          syncChangedVoices: null,
           dubStems: null,
           dubMix: null,
           syncedStems: null,
@@ -2400,6 +2410,7 @@ export default function App() {
         syncEdits: null,
         syncBaseReport: null,
         syncBeforeVoiceChange: null,
+        syncChangedVoices: null,
         dubStems: null,
         dubMix: null,
         syncedStems: null,
@@ -2824,6 +2835,9 @@ export default function App() {
       setLastStabilityAdjustment(report.stabilityAdjustment ?? null);
 
       const url = URL.createObjectURL(blob);
+      // Lines kept as a voice-changed take stay so; a speaker dubbed in another voice since is no longer changed.
+      const keptTakes = keptVoiceTakes(bank, report, activeJob.syncTakes);
+      const changedVoices = changedVoicesStill(activeJob, voice.voiceId);
       // A dub made before Dub and Sync were one step stays as it was, beside the synced dub.
       updateJob(activeJob.id, {
         syncedAudioUrl: url,
@@ -2833,8 +2847,9 @@ export default function App() {
         syncBank: bank,
         syncBankBlob: bankBlob,
         syncEdits: edited ? keptEdits : null,
-        // The takes were in the last bank; the picked ones are in this one now.
-        syncTakes: null,
+        // The takes were in the last bank; the picked ones are in this one now (a voice-changed one with its take).
+        syncTakes: keptTakes,
+        syncChangedVoices: changedVoices,
         // A new sync is the dub now: the one from before a voice change can't come back over it.
         syncBeforeVoiceChange: null,
         syncPendingLines: [],
@@ -2857,6 +2872,16 @@ export default function App() {
       // The speakers' levels are not in what the sync rendered either, so they are rendered over it too.
       const leveled = several && Object.keys(cleanSpeakerLevels(activeJob.syncSpeakerLevels)).length > 0;
       if (edited || leveled) scheduleSyncEditRender(activeJob.id, { bank, bankBlob, baseReport: report, edits: edited ? keptEdits : null, sourceDuration, source: activeJob.audioBuffer }, 0);
+      // Lines voiced again of a speaker changed into another voice are changed into it too.
+      const outOfVoice = changedVoices ? linesOutOfVoice(bank, report, keptTakes, changedVoices) : [];
+      if (changedVoices && outOfVoice.length > 0) {
+        const projectIdNow = activeJob.id;
+        window.setTimeout(() => {
+          void changeSyncLines(projectIdNow, bank, bankBlob, outOfVoice, voicesToChange(changedVoices), { busy: true }).then(({ error }) => {
+            if (error) reportError(new Error(error), { title: 'Lines voiced again are still in the dub voice', safe: 'Change voice on each line, or Voice changer, changes them.' });
+          });
+        }, 0);
+      }
       decodingSynthUrlRef.current = url;
       decodeAudioBlobUrl(url)
         .then((syncedBuffer) => {
@@ -3056,19 +3081,35 @@ export default function App() {
         },
         { apiKey: elApiKey, signal: controller.signal }
       );
+      // A speaker changed into another voice gets the takes in it too, each at its own length.
+      const changedVoice = changedVoiceOf(job, line.speaker);
+      let voicedTakes = result;
+      let voiceError: unknown = null;
+      if (changedVoice) {
+        try {
+          const changed = await voiceChangeTakes(
+            { bank: { ...bank, bankId: result.bankId }, bankBlob: result.bankBlob, takes: result.takes, voice: changedVoice },
+            { apiKey: elApiKey, signal: controller.signal }
+          );
+          voicedTakes = { bankId: changed.bank.bankId, bankBlob: changed.bankBlob, takes: changed.takes };
+        } catch (err: any) {
+          if (controller.signal.aborted || err?.code === 'cancelled') throw err;
+          voiceError = err;
+        }
+      }
       // A Sync that finished meanwhile made a new bank: these takes belong to the old one.
       const now = queueRef.current.find((j) => j.id === job.id);
       if (!now?.syncBank || now.syncBank.bankId !== bank.bankId) return;
       const nowLine = now.syncBank.lines.find((l) => l.key === unit.key) || line;
       const kept = takesOf(now.syncTakes, nowLine, base.units[n]);
       // A take keeps the words the script takes from it, and what the voice read, pauses and all.
-      const added = result.takes.map((take) =>
+      const added = voicedTakes.takes.map((take: SyncTake) =>
         spoken ? { ...take, text: words, spoken } : resaid ? { ...take, text: words, spoken: resaid } : paused ? { ...take, text: base.units[n].text, spoken: paused } : take
       );
       const voiced: BatchJob = {
         ...now,
-        syncBank: { ...now.syncBank, bankId: result.bankId },
-        syncBankBlob: result.bankBlob,
+        syncBank: { ...now.syncBank, bankId: voicedTakes.bankId },
+        syncBankBlob: voicedTakes.bankBlob,
         syncTakes: { ...(now.syncTakes || {}), [unit.key]: { takes: [...kept.takes, ...added], active: kept.active } },
       };
       const put = use && added[0] ? takeInDub(voiced, unit.key, added[0].id) : null;
@@ -3080,6 +3121,12 @@ export default function App() {
       });
       if (put) scheduleSyncEditRender(job.id, put.render, 0);
       refreshQuota();
+      if (voiceError && changedVoice) {
+        reportError(voiceError, {
+          title: `The new takes could not be changed into ${changedVoice.name}`,
+          safe: 'They are kept in the dub voice. Change voice on a take tries again.',
+        });
+      }
     } catch (err: any) {
       if (controller.signal.aborted || err?.code === 'cancelled') return;
       console.error('Takes error:', err);
@@ -3814,6 +3861,7 @@ export default function App() {
               syncedAudioUrl: masterUrl,
               syncedBlob: masterBlob,
               syncBeforeVoiceChange: before,
+              syncChangedVoices: null,
               // The bank is the dub before the voice changer: editing it now would undo the change.
               syncBank: null,
               syncBankBlob: null,
@@ -3856,41 +3904,81 @@ export default function App() {
     if (previousUrl) window.setTimeout(() => URL.revokeObjectURL(previousUrl), 5000);
   };
 
+  /** The voice a speaker's lines are voiced in now, as Sync and retakes voice them. */
+  const dubVoiceOf = (job: BatchJob, speaker: string, mainVoice: string = elVoiceId) =>
+    (isMultiSpeaker(job.segments) && job.cast?.[speaker]?.voiceId) || mainVoice;
+
+  /** The speakers whose changed voice still holds: their dub voice is still the one it was changed over. Null when none. */
+  const changedVoicesStill = (job: BatchJob, mainVoice: string = elVoiceId): ChangedVoices | null => {
+    const kept = Object.entries(job.syncChangedVoices || {}).filter(([speaker, voice]) => voice.over === dubVoiceOf(job, speaker, mainVoice));
+    return kept.length > 0 ? Object.fromEntries(kept) : null;
+  };
+
+  /** A speaker's changed voice, while it holds: what their retakes are changed into. */
+  const changedVoiceOf = (job: BatchJob, speaker: string): ChangedVoice | null => changedVoicesStill(job)?.[speaker] ?? null;
+
+  /** Changed voices as the voice changer takes them, each speaker with their own settings. */
+  const voicesToChange = (voices: ChangedVoices): SpeakerVoices =>
+    Object.fromEntries(Object.entries(voices).map(([speaker, v]) => [speaker, { voiceId: v.voiceId, name: v.name, settings: v.settings }]));
+
   /**
-   * Voice changer, line by line: each line of the synced dub changed on its
-   * own and fitted to its old length, then put in the bank as a take of that
-   * line, so every line keeps its place and its edits. The dub is rendered
-   * again with them; the old voice stays in each line's takes.
+   * Changes `lines` of the synced dub into `voices`, each fitted to its old
+   * length, and puts them in the bank as takes of their lines, so every line
+   * keeps its place and its edits; the dub is rendered again with them.
+   * `remember` keeps the voices as the speakers' changed voices, for their
+   * retakes; `busy` marks each line busy while it changes.
    */
-  const handleVoiceChangeLines = async (
+  const changeSyncLines = async (
+    jobId: string,
+    bank: SyncBank,
+    bankBlob: Blob,
+    lines: SyncBankLine[],
     voices: SpeakerVoices,
-    settings: VoiceChangeSettings,
-    { keys, onLine, signal }: { keys: string[]; onLine: (key: string, progress: LineProgress) => void; signal: AbortSignal }
+    {
+      settings,
+      remember = false,
+      busy = false,
+      onLine,
+      signal,
+    }: { settings?: VoiceChangeSettings; remember?: boolean; busy?: boolean; onLine?: (key: string, progress: LineProgress) => void; signal?: AbortSignal } = {}
   ): Promise<{ changed: number; error: string | null }> => {
-    const job = activeJob;
-    if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport) return { changed: 0, error: 'This dub has no synced lines to change.' };
-    const bank = job.syncBank;
-    // Only the lines asked for: one changed already isn't changed again.
-    const lines = linesToChange(bank, voices).filter((line) => keys.includes(line.key));
+    const fallback = settings ?? Object.values(voices).find((v) => v.settings)?.settings;
+    if (!fallback || lines.length === 0) return { changed: 0, error: null };
     const { changed, error } = await voiceChangeLines(
-      { bank, bankBlob: job.syncBankBlob, lines, voices, settings },
-      { apiKey: elApiKey, signal, onLine }
+      { bank, bankBlob, lines, voices, settings: fallback },
+      {
+        apiKey: elApiKey,
+        signal,
+        onLine: (key, progress) => {
+          if (busy && progress.state === 'changing') setSyncTakesBusy({ jobId, key });
+          onLine?.(key, progress);
+        },
+      }
     );
+    if (busy) setSyncTakesBusy((now) => (now?.jobId === jobId ? null : now));
     refreshQuota();
     // Lines finished before a stop are kept: they are paid for.
     if (changed.length === 0) return { changed: 0, error: error?.message ?? null };
     // A Sync or a take picked meanwhile made a new bank: these lines belong to the old one.
-    const now = queueRef.current.find((j) => j.id === job.id);
+    const now = queueRef.current.find((j) => j.id === jobId);
     if (!now?.syncBank || now.syncBank.bankId !== bank.bankId || !now.syncBankBlob || !now.syncBaseReport) {
       return { changed: 0, error: 'The dub changed while its voice was being changed. Try again.' };
     }
     const put = await putChangedLines(
       { bank: now.syncBank, bankBlob: now.syncBankBlob, takes: now.syncTakes, report: now.syncBaseReport, changed }
     );
+    const remembered: ChangedVoices | undefined = remember
+      ? {
+          ...(now.syncChangedVoices || {}),
+          ...Object.fromEntries(
+            Object.entries(voices).map(([speaker, v]) => [speaker, { voiceId: v.voiceId, name: v.name, settings: v.settings ?? fallback, over: dubVoiceOf(now, speaker) }])
+          ),
+        }
+      : undefined;
     // Edits stay exactly as they were: each line is as long as before, so they fit it.
-    updateJob(job.id, { syncBank: put.bank, syncBankBlob: put.bankBlob, syncTakes: put.takes });
+    updateJob(jobId, { syncBank: put.bank, syncBankBlob: put.bankBlob, syncTakes: put.takes, ...(remembered && { syncChangedVoices: remembered }) });
     scheduleSyncEditRender(
-      job.id,
+      jobId,
       {
         bank: put.bank,
         bankBlob: put.bankBlob,
@@ -3904,6 +3992,90 @@ export default function App() {
     return { changed: changed.length, error: error?.message ?? null };
   };
 
+  /**
+   * Voice changer, line by line: each line of the synced dub changed on its
+   * own and fitted to its old length, then put in the bank as a take of that
+   * line, so every line keeps its place and its edits. The dub is rendered
+   * again with them; the old voice stays in each line's takes. The speakers
+   * keep the voice: their retakes are changed into it too.
+   */
+  const handleVoiceChangeLines = async (
+    voices: SpeakerVoices,
+    settings: VoiceChangeSettings,
+    { keys, onLine, signal }: { keys: string[]; onLine: (key: string, progress: LineProgress) => void; signal: AbortSignal }
+  ): Promise<{ changed: number; error: string | null }> => {
+    const job = activeJob;
+    if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport) return { changed: 0, error: 'This dub has no synced lines to change.' };
+    // Only the lines asked for: one changed already isn't changed again.
+    const lines = linesToChange(job.syncBank, voices).filter((line) => keys.includes(line.key));
+    return changeSyncLines(job.id, job.syncBank, job.syncBankBlob, lines, voices, { settings, remember: true, onLine, signal });
+  };
+
+  /**
+   * Change voice, on one take of a line (TakesPanel): the take put through
+   * the voice changer into the speaker's changed voice, at its own length,
+   * as a new take. The take in the dub is replaced where it is, its edits
+   * kept; any other stays a take to use.
+   */
+  const handleChangeTakeVoice = async (key: string, takeId: string) => {
+    const job = activeJob;
+    if (!job?.syncBank || !job.syncBankBlob || !job.syncBaseReport || syncTakesBusy?.jobId === job.id) return;
+    const line = job.syncBank.lines.find((l) => l.key === key);
+    const unit = job.syncBaseReport.units.find((u) => u.key === key);
+    const voice = line ? changedVoiceOf(job, line.speaker) : null;
+    if (!line || !unit || !voice) return;
+    const take = takesOf(job.syncTakes, line, unit).takes.find((t) => t.id === takeId);
+    if (!take || takeIsIn(take, voice)) return;
+    setSyncTakesBusy({ jobId: job.id, key });
+    try {
+      const changed = await voiceChangeTakes({ bank: job.syncBank, bankBlob: job.syncBankBlob, takes: [take], voice }, { apiKey: elApiKey });
+      refreshQuota();
+      const next = changed.takes[0];
+      if (next === take) throw new Error('The voice changer gave this take back silent.');
+      const now = queueRef.current.find((j) => j.id === job.id);
+      if (!now?.syncBank || now.syncBank.bankId !== job.syncBank.bankId || !now.syncBaseReport) return;
+      const nowLine = now.syncBank.lines.find((l) => l.key === key) || line;
+      const kept = takesOf(now.syncTakes, nowLine, unit);
+      // The take in the dub, playing its own samples: the line plays the new ones in their place, every edit kept.
+      const inPlace = kept.active === takeId && nowLine.bankStart === take.bankStart && nowLine.length === take.length;
+      const bank = {
+        ...now.syncBank,
+        bankId: changed.bank.bankId,
+        lines: inPlace ? now.syncBank.lines.map((l) => (l.key === key ? { ...l, bankStart: next.bankStart, gain: next.gain, hash: next.hash } : l)) : now.syncBank.lines,
+      };
+      const voiced: BatchJob = {
+        ...now,
+        syncBank: bank,
+        syncBankBlob: changed.bankBlob,
+        syncTakes: { ...(now.syncTakes || {}), [key]: { takes: [...kept.takes, next], active: inPlace ? next.id : kept.active } },
+      };
+      // The take in the dub but moved since (another take's place): it goes in as a take is used.
+      const put = !inPlace && kept.active === takeId ? takeInDub(voiced, key, next.id) : null;
+      updateJob(job.id, { syncBank: voiced.syncBank, syncBankBlob: voiced.syncBankBlob, syncTakes: voiced.syncTakes, ...put?.updates });
+      if (put) scheduleSyncEditRender(job.id, put.render, 0);
+      else if (inPlace) {
+        scheduleSyncEditRender(
+          job.id,
+          { bank, bankBlob: changed.bankBlob, baseReport: now.syncBaseReport, edits: now.syncEdits || null, sourceDuration: sourceDurationOf(now), source: now.audioBuffer },
+          0
+        );
+      }
+    } catch (err: any) {
+      if (err?.code === 'cancelled') return;
+      reportError(err, { title: `This take could not be changed into ${voice.name}`, safe: 'The takes this line had are kept.' });
+    } finally {
+      setSyncTakesBusy((busy) => (busy?.jobId === job.id ? null : busy));
+    }
+  };
+
+  /** Stop changing a speaker's retakes into their changed voice: what was changed stays changed. */
+  const handleForgetChangedVoice = (speaker: string) => {
+    const job = activeJob;
+    if (!job?.syncChangedVoices?.[speaker]) return;
+    const { [speaker]: _gone, ...rest } = job.syncChangedVoices;
+    updateJob(job.id, { syncChangedVoices: Object.keys(rest).length > 0 ? rest : null });
+  };
+
   /** What the voice changer needs to change the synced dub line by line; null for a dub that isn't synced. */
   const voiceChangeLineByLine = useMemo(() => {
     if (!isVoiceChangerOpen || !activeJob?.syncBank || !activeJob.syncBankBlob || !activeJob.syncBaseReport) return null;
@@ -3912,8 +4084,9 @@ export default function App() {
       clips: laneClips(activeJob.syncBank, activeJob.syncEdits, sourceDurationOf(activeJob)),
       duration: sourceDurationOf(activeJob),
       cast: Object.fromEntries(Object.entries(activeJob.cast || {}).map(([speaker, voice]) => [speaker, voice.voiceId])),
+      lineVoices: lineVoiceIds(activeJob.syncBank, activeJob.syncTakes),
     };
-  }, [isVoiceChangerOpen, activeJob?.syncBank, activeJob?.syncBankBlob, activeJob?.syncBaseReport, activeJob?.syncEdits, activeJob?.cast]);
+  }, [isVoiceChangerOpen, activeJob?.syncBank, activeJob?.syncBankBlob, activeJob?.syncBaseReport, activeJob?.syncEdits, activeJob?.cast, activeJob?.syncTakes]);
 
   /** The finished dub (the synced one once there is one), which is what the voice changer works on (not the source speech). */
   const voiceChangerBuffer = (playsSynced ? activeJob?.syncedAudioBuffer : activeJob?.synthAudioBuffer) || null;
@@ -4256,6 +4429,9 @@ export default function App() {
           onVoiceSyncTakes={handleVoiceSyncTakes}
           onUseSyncTake={handleUseSyncTake}
           onClearSyncTakes={handleClearSyncTakes}
+          changedVoiceOf={activeJob ? (speaker: string) => changedVoiceOf(activeJob, speaker) : undefined}
+          onChangeSyncTakeVoice={handleChangeTakeVoice}
+          onForgetChangedVoice={handleForgetChangedVoice}
           syncTakesBusy={activeJob && syncTakesBusy?.jobId === activeJob.id ? syncTakesBusy.key : null}
           onUpdateSegment={handleUpdateSegment}
           onReplaceSegments={handleReplaceSegments}

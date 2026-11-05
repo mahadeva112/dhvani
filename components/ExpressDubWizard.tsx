@@ -454,6 +454,12 @@ interface ExpressDubWizardProps {
   onUseSyncTake?: (key: string, takeId: string) => void;
   /** Drops a line's takes but Sync's own and the one in the dub. */
   onClearSyncTakes?: (key: string) => void;
+  /** The voice a speaker was changed into by the voice changer, while their retakes are changed into it; null otherwise. */
+  changedVoiceOf?: (speaker: string) => { voiceId: string; name: string } | null;
+  /** Puts one take of a line through the voice changer into its speaker's changed voice. */
+  onChangeSyncTakeVoice?: (key: string, takeId: string) => void;
+  /** Stops changing a speaker's retakes into their changed voice. */
+  onForgetChangedVoice?: (speaker: string) => void;
   /** The line whose takes are being voiced. */
   syncTakesBusy?: string | null;
   onUpdateSegment: (id: string | number, updates: Partial<AudioSegment>) => void;
@@ -603,6 +609,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onVoiceSyncTakes,
   onUseSyncTake,
   onClearSyncTakes,
+  changedVoiceOf,
+  onChangeSyncTakeVoice,
+  onForgetChangedVoice,
   syncTakesBusy = null,
   onUpdateSegment,
   onReplaceSegments,
@@ -3719,6 +3728,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     voiceTags={takesVoiceTags}
                     pro={Boolean(inWindow?.pro)}
                     language={targetLanguage}
+                    changedVoice={changedVoiceOf?.(line.speaker) ?? null}
+                    onChangeVoice={onChangeSyncTakeVoice && ((takeId) => onChangeSyncTakeVoice(unit.key, takeId))}
+                    onForgetChangedVoice={onForgetChangedVoice && (() => onForgetChangedVoice(line.speaker))}
                     onAlignWords={
                       activeJob.syncBankBlob && !syncPendingLines.includes(unit.key)
                         ? () => alignTakeWords(takesBank, activeJob.syncBankBlob!, line, unit.text, { apiKey: elApiKey || undefined })

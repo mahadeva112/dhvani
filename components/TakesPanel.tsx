@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Headphones, Keyboard, Loader2, Lock, Mic, Pause, Pencil, Play, Plus, RotateCcw, Search, Tag, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, Headphones, Keyboard, Loader2, Lock, Mic, Pause, Pencil, Play, Plus, RotateCcw, Search, Tag, Trash2, X } from 'lucide-react';
 import type { LineSuggestion, SyncUnitReport } from '../services/syncService';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { reportError } from '../services/errorPopup';
@@ -10,6 +10,7 @@ import { TagTextarea, type TagTextareaHandle } from './TagTextarea';
 import { usePhoneticTyping } from './review/usePhoneticTyping';
 import { getIndicLanguageConfig } from '../services/indicTransliteration';
 import type { TakeWord } from '../services/takeRange';
+import { takeIsIn } from '../services/voiceChangeService';
 import {
   phraseLine,
   phraseOf,
@@ -171,6 +172,12 @@ export const TakesPanel: React.FC<{
   onDirtyChange?: (dirty: boolean) => void;
   /** Where each word is in the take in the dub, by forced alignment: asked only when the user drags across its wave. */
   onAlignWords?: () => Promise<TakeWord[]>;
+  /** The voice the voice changer changed this line's speaker into: new takes come back in it. */
+  changedVoice?: { voiceId: string; name: string } | null;
+  /** Puts a take through the voice changer into `changedVoice`, as a new take; the one in the dub is replaced where it is. */
+  onChangeVoice?: (takeId: string) => void;
+  /** Stops changing this speaker's takes into `changedVoice`. */
+  onForgetChangedVoice?: () => void;
 }> = ({
   unit,
   lineNumber,
@@ -198,6 +205,9 @@ export const TakesPanel: React.FC<{
   pro = false,
   language = '',
   onAlignWords,
+  changedVoice = null,
+  onChangeVoice,
+  onForgetChangedVoice,
 }) => {
   const words = useMemo(() => wordsOf(unit.text), [unit.text]);
   const [direction, setDirection] = useState<TakeDirection>('same');
@@ -1043,13 +1053,35 @@ export const TakesPanel: React.FC<{
           >
             {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
             {busy
-              ? 'Voicing takes…'
+              ? changedVoice
+                ? `Voicing, then into ${short(changedVoice.name, 18)}…`
+                : 'Voicing takes…'
               : `Retake line ${String(lineNumber).padStart(2, '0')}${reworded ? (said === unit.text.trim() ? ' with your tags' : ' in your words') : ''} · ${takeCount} take${takeCount === 1 ? '' : 's'} · ${((reworded ? billed : unit.text.length) * takeCount).toLocaleString()} chars`}
           </button>
         )}
         <span className="text-[11.5px] text-slate-500">Character counts are estimates. Retaking picked words also uses forced alignment.</span>
         {pending && <span className="text-[11.5px] text-amber-300">The words changed since Sync: Sync again first.</span>}
       </div>
+
+      {changedVoice && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 py-1.5 text-[11.5px] text-violet-100">
+          <ArrowLeftRight className="w-3.5 h-3.5 text-violet-300 shrink-0" />
+          <span className="min-w-0 flex-1">
+            New takes come back in <span className="font-semibold">{changedVoice.name}</span>: each is voiced, then put through the voice changer (one more voice change per take).
+          </span>
+          {onForgetChangedVoice && (
+            <button
+              type="button"
+              onClick={onForgetChangedVoice}
+              disabled={anyBusy}
+              title="New takes of this speaker stay in the dub voice. Lines already changed stay changed."
+              className="h-6 px-2 rounded-md border border-violet-400/40 text-[11px] text-violet-100 hover:bg-violet-500/20 cursor-default disabled:opacity-40"
+            >
+              Keep the dub voice
+            </button>
+          )}
+        </div>
+      )}
 
       {onClearTakes && clearable > 0 && (
         <div className="flex items-center gap-2 -mb-1.5">
@@ -1126,6 +1158,24 @@ export const TakesPanel: React.FC<{
                 )}
               </div>
               {fit && <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${TONE[fit.tone]}`}>{fit.label}</span>}
+              {changedVoice && onChangeVoice && !takeIsIn(take, changedVoice) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    stop();
+                    onChangeVoice(take.id);
+                  }}
+                  disabled={anyBusy || pending || !bankBlob}
+                  title={
+                    active
+                      ? `Puts this take through the voice changer into ${changedVoice.name}, at its own length: the dub plays it where it is, edits kept.`
+                      : `Puts this take through the voice changer into ${changedVoice.name}, at its own length, as a new take.`
+                  }
+                  className="h-7 px-2.5 flex items-center gap-1 rounded-lg border border-violet-500/40 text-xs text-violet-100 hover:bg-violet-500/15 cursor-default disabled:opacity-40"
+                >
+                  <ArrowLeftRight className="w-3 h-3" /> Change to {short(changedVoice.name, 18)}
+                </button>
+              )}
               {active ? (
                 <span className="flex items-center gap-1 text-[11.5px] text-indigo-200 font-medium px-1">
                   <Check className="w-3.5 h-3.5" /> In the dub

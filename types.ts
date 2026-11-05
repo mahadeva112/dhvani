@@ -2,6 +2,7 @@ import type { SyncReport } from './services/syncService';
 import type { SyncBank, SyncEdits } from './services/syncEditService';
 import type { SyncTakes } from './services/syncTakes';
 import type { ReviewHistory } from './services/reviewHistory';
+import type { ChangedVoices } from './services/voiceChangeService';
 
 /**
  * One word as measured by ElevenLabs. These are the authoritative timings for
@@ -358,6 +359,13 @@ export interface BatchJob {
     syncedStems: DubStem[] | null;
     syncMix: DubMixReport | null;
   } | null;
+
+  /**
+   * Speakers changed into another voice by the voice changer, line by line:
+   * their retakes, and lines a Sync voices again, are changed into it too
+   * (services/voiceChangeService.ts). Cleared with the dub.
+   */
+  syncChangedVoices?: ChangedVoices | null;
 
   /** The voice each speaker is dubbed with, by speaker name. A speaker not in it gets the main voice. */
   cast?: Record<string, SpeakerVoice>;
