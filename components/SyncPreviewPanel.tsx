@@ -22,7 +22,7 @@ import type { RateBasis } from '../services/voiceRate';
 import { timeLine } from '../services/speechTiming';
 import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
-import { LINE_GAP_SECONDS, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, roomEnd, type LinePart } from '../services/linePlaces';
+import { LINE_GAP_SECONDS, MAX_LINE_RATE, MIN_LINE_RATE, QUICK_RATE, RUSHED_RATE, SLOW_RATE, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, rateZone, roomEnd, type LinePart } from '../services/linePlaces';
 
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
@@ -78,6 +78,27 @@ const wobble = (i: number, j: number) => {
   return x - Math.floor(x);
 };
 
+/** A cut's colour on the dub lane: at the original's pause, at a mark the voice pauses at, or where it runs on. */
+const CUT_TONES = {
+  pause: { line: 'bg-cyan-300', top: 'border-t-cyan-300', bottom: 'border-b-cyan-300' },
+  stop: { line: 'bg-slate-200', top: 'border-t-slate-200', bottom: 'border-b-slate-200' },
+  runOn: { line: 'bg-amber-300', top: 'border-t-amber-300', bottom: 'border-b-amber-300' },
+};
+/** How a cut at the original's pause that isn't made shows on the dub lane, and what double-clicking it does. */
+const PAUSE_MARK_LOOK: Record<'maybe' | 'later' | 'skipped', { tick: string; title: (seconds: number) => string }> = {
+  maybe: {
+    tick: 'border-amber-300/80',
+    title: (s) => `The original pauses here (${s.toFixed(1)} s), but there is no comma or full stop: Sync cuts only if the voice pauses itself\nDouble-click to leave it out`,
+  },
+  later: {
+    tick: 'border-slate-400/80',
+    title: (s) => `The original pauses here (${s.toFixed(1)} s), but cut here the line would run later into the next one, so it stays whole\nDouble-click to leave it out`,
+  },
+  skipped: {
+    tick: 'border-slate-500',
+    title: (s) => `A cut at the original's pause (${s.toFixed(1)} s), turned off\nDouble-click to cut here again`,
+  },
+};
 /** Wave bars sit about this many pixels apart, like a recording's waveform. */
 const BAR_PX = 3.2;
 /**
@@ -101,7 +122,8 @@ const wavePath = (words: { start: number; end: number }[], length: number, step:
     const peak = 0.65 + 0.35 * wobble(i, 1);
     for (let k = 0; k < n; k++) {
       const p = (k + 0.5) / n;
-      const h = Math.max(2, 46 * peak * Math.sin(Math.PI * p) ** 0.55 * (0.55 + 0.45 * wobble(i * 31 + k, 7)));
+      // Up to the full height of the line, as the original's bars above fill theirs (ReviewWaveformPlayer).
+      const h = Math.max(2, 50 * peak * Math.sin(Math.PI * p) ** 0.55 * (0.55 + 0.45 * wobble(i * 31 + k, 7)));
       d += `M${x(w.start + span * p)},${(50 - h).toFixed(1)}V${(50 + h).toFixed(1)}`;
     }
   });
@@ -1120,10 +1142,10 @@ const LinePauseTicks: React.FC<{ unit: SyncPreviewUnit; pct: (t: number) => numb
   );
 };
 
-/** Zoomed out past this, a dub lane leaves out the lips' marks, which would crowd its lines. */
-const LIP_MARK_SECONDS = 20;
-/** Zoomed out past this, a pause row says to zoom in instead of crowding its ticks. */
-const PAUSE_ROW_SECONDS = 30;
+/** Zoomed out past this, a dub lane leaves out the lips' marks, which would crowd its lines. Review draws 2.5 views at once (ReviewWaveformPlayer's BUFFER_PAD), so this is 20 s on view there. */
+const LIP_MARK_SECONDS = 50;
+/** Zoomed out past this, a pause row says to zoom in instead of crowding its ticks (30 s on view in Review, which draws 2.5 views). */
+const PAUSE_ROW_SECONDS = 75;
 
 /**
  * The pause row of a track view, on the dub lane's clock: every line's pauses
@@ -1150,6 +1172,17 @@ export interface PlaceDrag {
   part: number;
   start: number | null;
 }
+
+/** A line being stretched on the dub lane: its speed now, and where its first word is heard when its left edge is dragged. */
+export interface StretchDraft {
+  key: string;
+  rate: number;
+  start?: number | null;
+}
+
+/** A stretch's colour by how it sounds: none when natural, amber when quick or dragged, red when rushed. */
+export const RATE_TONE = { natural: null, quick: '#fbbf24', rushed: '#fb7185', slow: '#fbbf24' } as const;
+const rateText = (rate: number) => `${rate.toFixed(2)}×`;
 
 /** A dragged start this close to a snap point, in pixels, lands on it. */
 const SNAP_PX = 8;
@@ -1197,11 +1230,30 @@ export const DubEstimateLane: React.FC<{
   onPlace?: (unit: SyncPreviewUnit, letters: number, start: number | null) => void;
   /** Cuts a line after `letters` letters, or joins it there again. */
   onCut?: (unit: SyncPreviewUnit, letters: number, on: boolean) => void;
+  /** Turns a cut at the original's pause (SyncPreviewUnit.pauseMarks) off, or back on, by its letters. */
+  onSkipPause?: (unit: SyncPreviewUnit, letters: number, skip: boolean) => void;
   /** A part being dragged, held by the caller so the fit follows it. */
   placeDrag?: PlaceDrag | null;
   setPlaceDrag?: (drag: PlaceDrag | null) => void;
   /** Where the original's words start: a dragged part snaps to them. */
   snapTimes?: number[];
+  /**
+   * Stretches a line by its edges: read at `rate` times as fast (pitch kept),
+   * its first word moved to `start` when its left edge was dragged. 1 takes
+   * the stretch off. Without it the edges don't stretch.
+   */
+  onStretch?: (unit: SyncPreviewUnit, rate: number, start?: number | null) => void;
+  /** A stretch being dragged, held by the caller so the fit follows it. */
+  stretchDraft?: StretchDraft | null;
+  setStretchDraft?: (draft: StretchDraft | null) => void;
+  /**
+   * What the lane shows besides the lines: every line's fit (else only the
+   * picked line's), line numbers, and its marks (cuts, pauses, flags, rings).
+   * With `pauses` off the lines are told apart by their colour alone.
+   */
+  layers?: { fit: boolean; numbers: boolean; pauses?: boolean };
+  /** Where a stretched line's speed shows: on the line always (On line), or only while it is dragged (Card, which has it below). */
+  rateMarks?: 'always' | 'drag';
 }> = ({
   units,
   windowStart,
@@ -1217,10 +1269,20 @@ export const DubEstimateLane: React.FC<{
   onDragStart,
   onPlace,
   onCut,
+  onSkipPause,
   placeDrag = null,
   setPlaceDrag,
   snapTimes = [],
+  onStretch,
+  stretchDraft = null,
+  setStretchDraft,
+  layers = { fit: true, numbers: true },
+  rateMarks = 'always',
 }) => {
+  /** Colour alone: no rings, cut notches, pause ticks, flags or read ranges, until the Pauses layer is on. */
+  const quiet = layers.pauses === false;
+  /** A line's speed is marked on it: stretched (On line), or being stretched now. */
+  const marksRate = (u: SyncPreviewUnit) => stretchDraft?.key === u.key || (rateMarks === 'always' && Math.abs((u.rate ?? 1) - 1) >= 0.005);
   const pct = (t: number) => ((t - windowStart) / WINDOW_SECONDS) * 100;
   // Blocks write a word in its box only where it fits, and Wave spaces its bars in pixels, so the lane's width is needed.
   const probe = useRef<HTMLSpanElement>(null);
@@ -1367,16 +1429,101 @@ export const DubEstimateLane: React.FC<{
     return () => window.removeEventListener('keydown', onKey, true);
   });
 
-  const lineNumber = (u: SyncPreviewUnit, width: number, dot?: string) =>
-    width > 3.2 ? (
+  const lineNumber = (u: SyncPreviewUnit, width: number, dot?: string) => {
+    const rate = u.rate ?? 1;
+    const stretched = marksRate(u);
+    if (width <= 3.2 || (!layers.numbers && !stretched)) return null;
+    const tone = RATE_TONE[rateZone(rate)];
+    return (
       <span
         className="absolute z-10 left-1 top-1 flex items-center gap-1 rounded bg-slate-950/85 px-1 font-mono text-[9.5px] font-semibold leading-[14px] pointer-events-none"
         style={{ color: hueOf(u.index) }}
       >
-        {dot && <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />}
-        {u.index + 1}
+        {layers.numbers && dot && <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />}
+        {layers.numbers && u.index + 1}
+        {stretched && <span className="tabular-nums" style={{ color: tone ?? '#e2e8f0' }}>{rateText(rate)}</span>}
       </span>
-    ) : null;
+    );
+  };
+
+  // ---- Stretching by the edges ----
+  /** A press on a line's edge: its side, and the line as it was when the drag began. */
+  const stretchPress = useRef<{ key: string; side: 'L' | 'R'; rate: number; speech: number; gaps: number; start: number; end: number; lo: number; moved: boolean; x0: number } | null>(null);
+  const stretchTo = (u: SyncPreviewUnit, clientX: number, lane: Element): StretchDraft | null => {
+    const held = stretchPress.current;
+    if (!held) return null;
+    const t = timeAt(clientX, lane);
+    // A left edge never jumps right on its own: it stops at the line before, or where it already is.
+    const start = held.side === 'L' ? Math.max(held.lo, Math.min(held.end - 0.1, t)) : held.start;
+    const end = held.side === 'R' ? Math.max(held.start + 0.1, t) : held.end;
+    // Only the words stretch: the gaps between a cut line's parts stay as they are.
+    const speech = Math.max(0.05, end - start - held.gaps);
+    const rate = Math.round(Math.min(MAX_LINE_RATE, Math.max(MIN_LINE_RATE, (held.rate * held.speech) / speech)) * 100) / 100;
+    return { key: u.key, rate, ...(held.side === 'L' && { start: Math.round(start * 1000) / 1000 }) };
+  };
+  const stretchEdge = (u: SyncPreviewUnit, parts: LinePart[], side: 'L' | 'R') => {
+    if (!onStretch || !setStretchDraft) return null;
+    const start = parts[0].start;
+    const end = partEnd(parts[parts.length - 1]);
+    const rate = u.rate ?? 1;
+    const live = stretchDraft?.key === u.key;
+    return (
+      <span
+        key={`edge-${side}`}
+        title={`Drag to stretch the line: faster or slower, the words and the pitch stay (now ${rateText(rate)})\nDouble-click: back to 1×`}
+        className="absolute z-20 top-1.5 bottom-1.5 w-2.5 -ml-[5px] cursor-ew-resize touch-none group/edge"
+        style={{ left: `${pct(side === 'L' ? start : end)}%` }}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          stretchPress.current = null;
+          setStretchDraft(null);
+          onStretch(u, 1);
+        }}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.stopPropagation();
+          const speech = parts.reduce((sum, p) => sum + (p.to - p.from), 0);
+          stretchPress.current = { key: u.key, side, rate, speech, gaps: Math.max(0, end - start - speech), start, end, lo: Math.min(rangeOf(u, parts[0]).lo, start), moved: false, x0: e.clientX };
+          try {
+            e.currentTarget.setPointerCapture(e.pointerId);
+          } catch {
+            // A pointer that is already gone: the press ends with it.
+          }
+        }}
+        onPointerMove={(e) => {
+          const held = stretchPress.current;
+          const lane = e.currentTarget.parentElement;
+          if (!held || held.key !== u.key || held.side !== side || !lane) return;
+          if (!held.moved && Math.abs(e.clientX - held.x0) < 3) return;
+          if (!held.moved) onDragStart?.();
+          held.moved = true;
+          const next = stretchTo(u, e.clientX, lane);
+          if (next) setStretchDraft(next);
+        }}
+        onPointerUp={(e) => {
+          const held = stretchPress.current;
+          const lane = e.currentTarget.parentElement;
+          // Worked out while the press is still held: stretchTo reads it.
+          const next = held?.moved && lane ? stretchTo(u, e.clientX, lane) : null;
+          stretchPress.current = null;
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+          setStretchDraft(null);
+          if (next) onStretch(u, next.rate, side === 'L' ? next.start : undefined);
+        }}
+        onPointerCancel={() => {
+          stretchPress.current = null;
+          setStretchDraft(null);
+        }}
+      >
+        <span
+          className={`absolute inset-y-[18%] left-1/2 -ml-[1.5px] w-[3px] rounded-full bg-slate-100 transition-opacity ${
+            live || u.key === selectedKey ? 'opacity-90' : 'opacity-0 group-hover/edge:opacity-90'
+          }`}
+        />
+      </span>
+    );
+  };
   return (
     <>
       {measured && <span ref={probe} aria-hidden="true" className="hidden" />}
@@ -1398,6 +1545,8 @@ export const DubEstimateLane: React.FC<{
         }${onSelect ? '\nClick to pick this line' : ''}${onPlace ? ' · drag to move it' : ''}${onCut ? ' · S cuts it between two words' : ''}`;
         const words = rythmo && !cut ? u.expert?.words : undefined;
         const shape = words ? undefined : shapes?.get(u.key);
+        // Its fit is drawn with the Fit layer on, and always on the line picked or being stretched.
+        const showFit = layers.fit || selected || stretchDraft?.key === u.key;
         const drawn = words ? 'rythmo' : !shape || (look === 'blocks' && pxPerSecond < BLOCKS_MIN_PX_PER_SECOND) ? 'bars' : look;
         return (
           <React.Fragment key={u.key}>
@@ -1421,7 +1570,8 @@ export const DubEstimateLane: React.FC<{
                 : undefined;
               return (
                 <React.Fragment key={`${u.key}-${p.index}`}>
-                  {(p.placed || dragging) && (
+                  {/* Where Sync would put a placed part: while dragging, on the picked line, or with the Fit layer */}
+                  {(dragging || (p.placed && (layers.fit || (selected && !quiet)))) && (
                     <span
                       aria-hidden="true"
                       className="absolute top-1.5 bottom-1.5 rounded border border-dashed pointer-events-none"
@@ -1494,7 +1644,7 @@ export const DubEstimateLane: React.FC<{
                       width: `${Math.max(0.3, width)}%`,
                       background: drawn === 'bars' || drawn === 'rythmo' ? withAlpha(hue, words ? 0.1 : 0.28) : 'transparent',
                       borderColor: drawn === 'bars' || drawn === 'rythmo' ? hue : 'transparent',
-                      boxShadow: selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
+                      boxShadow: quiet ? undefined : selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
                     }}
                   >
                     {/* Wave: thin bars, a group per estimated word, red past the line's room */}
@@ -1502,8 +1652,8 @@ export const DubEstimateLane: React.FC<{
                       <svg aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 100" preserveAspectRatio="none">
                         <defs>
                           <linearGradient id={`${gradientId}-${u.index}-${p.index}`} gradientUnits="userSpaceOnUse" x1="0" x2="1000" y1="0" y2="0">
-                            <stop offset={inSlot} stopColor={hue} />
-                            <stop offset={inSlot} stopColor="#fb7185" />
+                            <stop offset={showFit ? inSlot : 1} stopColor={hue} />
+                            <stop offset={showFit ? inSlot : 1} stopColor="#fb7185" />
                           </linearGradient>
                         </defs>
                         <line x1="0" x2="1000" y1="50" y2="50" stroke={hue} strokeOpacity={0.35} vectorEffect="non-scaling-stroke" />
@@ -1542,14 +1692,14 @@ export const DubEstimateLane: React.FC<{
                         );
                       })}
                     {!words && p.index === 0 && lineNumber(u, width, STATUS_DOT[u.status])}
-                    {!words && drawn !== 'blocks' && p.index === parts.length - 1 && width > 9 && (
+                    {!words && drawn !== 'blocks' && p.index === parts.length - 1 && width > 9 && (!quiet || layers.numbers) && (
                       <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
                         {u.expert ? '' : '≈'}
                         {u.estimate.toFixed(1)} s
                       </span>
                     )}
                     {/* Placed by hand: a flag at its start, and while dragged how far it is from Sync's place */}
-                    {p.placed && !dragging && (
+                    {p.placed && !dragging && !quiet && (
                       <span aria-hidden="true" className="absolute -top-px -left-px w-0 h-0 border-t-[7px] border-r-[7px] border-t-indigo-200 border-r-transparent pointer-events-none" />
                     )}
                     {dragging && (
@@ -1558,29 +1708,59 @@ export const DubEstimateLane: React.FC<{
                       </span>
                     )}
                   </span>
-                  {/* A cut: notches top and bottom, white at a pause, amber where the voice runs on */}
-                  {p.index > 0 && (
-                    <span
-                      title={`${
-                        p.atPause ? 'Cut at a pause' : "Cut where the voice doesn't pause: it may stop mid-sentence"
-                      }\nDouble-click to join the parts again`}
-                      className="absolute z-10 top-0 bottom-0 w-3 -ml-1.5 cursor-default"
-                      style={{ left: `${pct((partEnd(parts[p.index - 1]) + p.start) / 2)}%` }}
-                      onDoubleClick={(e) => {
-                        e.stopPropagation();
-                        onCut?.(u, p.letters, false);
-                      }}
-                    >
-                      {/* A clear split through the wave, like a razor cut, with a solid line in it */}
-                      <span className="absolute top-0 bottom-0 left-1/2 -ml-[2px] w-[4px] bg-slate-950" />
-                      <span className={`absolute top-0 bottom-0 left-1/2 -ml-px w-[2px] ${p.atPause ? 'bg-slate-200' : 'bg-amber-300'}`} />
-                      <span className={`absolute top-0 left-1/2 -ml-[5px] w-0 h-0 border-x-[5px] border-x-transparent border-t-[7px] ${p.atPause ? 'border-t-slate-200' : 'border-t-amber-300'}`} />
-                      <span className={`absolute bottom-0 left-1/2 -ml-[5px] w-0 h-0 border-x-[5px] border-x-transparent border-b-[7px] ${p.atPause ? 'border-b-slate-200' : 'border-b-amber-300'}`} />
-                    </span>
-                  )}
+                  {/* A cut: notches top and bottom, white at a pause, amber where the voice runs on, cyan at the original's pause */}
+                  {p.index > 0 &&
+                    !quiet &&
+                    (() => {
+                      const tone = p.byPause ? CUT_TONES.pause : p.atPause ? CUT_TONES.stop : CUT_TONES.runOn;
+                      const mark = p.byPause ? u.pauseMarks?.find((m) => m.letters === p.letters) : undefined;
+                      return (
+                        <span
+                          title={
+                            p.byPause
+                              ? `Cut at the original's pause${mark ? ` (${mark.seconds.toFixed(1)} s)` : ''}: this part starts where the speaker starts again\nDouble-click to leave the line uncut here · drag the part to place it yourself`
+                              : `${p.atPause ? 'Cut at a pause' : "Cut where the voice doesn't pause: it may stop mid-sentence"}\nDouble-click to join the parts again`
+                          }
+                          className="absolute z-10 top-0 bottom-0 w-3 -ml-1.5 cursor-default"
+                          style={{ left: `${pct((partEnd(parts[p.index - 1]) + p.start) / 2)}%` }}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            if (p.byPause) onSkipPause?.(u, p.letters, true);
+                            else onCut?.(u, p.letters, false);
+                          }}
+                        >
+                          {/* A clear split through the wave, like a razor cut, with a solid line in it */}
+                          <span className="absolute top-0 bottom-0 left-1/2 -ml-[2px] w-[4px] bg-slate-950" />
+                          <span className={`absolute top-0 bottom-0 left-1/2 -ml-px w-[2px] ${tone.line}`} />
+                          <span className={`absolute top-0 left-1/2 -ml-[5px] w-0 h-0 border-x-[5px] border-x-transparent border-t-[7px] ${tone.top}`} />
+                          <span className={`absolute bottom-0 left-1/2 -ml-[5px] w-0 h-0 border-x-[5px] border-x-transparent border-b-[7px] ${tone.bottom}`} />
+                        </span>
+                      );
+                    })()}
                 </React.Fragment>
               );
             })}
+            {/* The original's pauses the line isn't cut at: left to the voice, kept whole so it runs no later, or turned off */}
+            {!quiet &&
+              u.pauseMarks
+              ?.filter((m) => m.state !== 'cut')
+              .map((m) => {
+                const markLook = PAUSE_MARK_LOOK[m.state as keyof typeof PAUSE_MARK_LOOK];
+                return (
+                  <span
+                    key={`pause-${m.letters}`}
+                    title={markLook.title(m.seconds)}
+                    className="absolute z-10 top-0 bottom-0 w-3 -ml-1.5 cursor-default"
+                    style={{ left: `${pct(m.t)}%` }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      onSkipPause?.(u, m.letters, m.state !== 'skipped');
+                    }}
+                  >
+                    <span className={`absolute top-1 bottom-1 left-1/2 -ml-px w-0 border-l-2 border-dashed ${markLook.tick}`} />
+                  </span>
+                );
+              })}
             {/* Rythmo: each word where it is likely said, red once past the line's room */}
             {words?.map((w, n) => (
               <RythmoWord
@@ -1593,7 +1773,7 @@ export const DubEstimateLane: React.FC<{
               />
             ))}
             {/* Expert: a fast to a slow read, in the colour of how it fits */}
-            {u.expert && !words && !cut && (
+            {u.expert && !words && !cut && (!quiet || showFit) && (
               <span
                 aria-hidden="true"
                 className="absolute bottom-[7px] h-[2px] rounded-full pointer-events-none"
@@ -1604,24 +1784,44 @@ export const DubEstimateLane: React.FC<{
                 }}
               />
             )}
-            {WINDOW_SECONDS <= LIP_MARK_SECONDS && u.expert?.dubLips.map((t, n) => <LipMark key={`lip-${n}`} up left={`${pct(lineTimeAt(u, t))}%`} />)}
-            {over > 0 && (
+            {WINDOW_SECONDS <= LIP_MARK_SECONDS && (!quiet || showFit) && u.expert?.dubLips.map((t, n) => <LipMark key={`lip-${n}`} up left={`${pct(lineTimeAt(u, t))}%`} />)}
+            {over > 0 && showFit && (drawn === 'wave' || drawn === 'blocks') && (
+              // Wave and Blocks: the time past the room as a line under it, red when the line runs long.
               <span
                 title={title}
-                className={`absolute top-1.5 bottom-1.5 rounded-r pointer-events-none ${
-                  drawn === 'wave' || drawn === 'blocks' ? (u.status === 'long' ? OVER_LONG_SOFT : OVER_TIGHT_SOFT) : u.status === 'long' ? OVER_LONG : OVER_TIGHT
-                }`}
+                className={`absolute bottom-0.5 h-[3px] rounded-full pointer-events-none ${u.status === 'long' ? 'bg-rose-400' : 'bg-amber-300/80'}`}
                 style={{ left: `${pct(room)}%`, width: `${Math.max(0.3, pct(finish) - pct(room))}%` }}
               />
             )}
-            {u.status === 'short' && (
+            {over > 0 && showFit && drawn !== 'wave' && drawn !== 'blocks' && (
+              <span
+                title={title}
+                className={`absolute top-1.5 bottom-1.5 rounded-r pointer-events-none ${u.status === 'long' ? OVER_LONG : OVER_TIGHT}`}
+                style={{ left: `${pct(room)}%`, width: `${Math.max(0.3, pct(finish) - pct(room))}%` }}
+              />
+            )}
+            {/* Stretched: a line under it, in the colour of how the speed sounds */}
+            {marksRate(u) && (
+              <span
+                aria-hidden="true"
+                className="absolute bottom-0 h-[2px] rounded-full pointer-events-none"
+                style={{
+                  left: `${pct(start)}%`,
+                  width: `${Math.max(0.3, pct(finish) - pct(start))}%`,
+                  background: RATE_TONE[rateZone(u.rate ?? 1)] ?? withAlpha(hue, 0.55),
+                }}
+              />
+            )}
+            {stretchEdge(u, parts, 'L')}
+            {stretchEdge(u, parts, 'R')}
+            {u.status === 'short' && showFit && (
               <span
                 title={`${u.text}\nEnds about ${u.underflow.toFixed(1)} s before the original speaker stops`}
                 className={`absolute top-1.5 bottom-1.5 rounded-r ${QUIET_BOX}`}
                 style={{ left: `${pct(finish)}%`, width: `${Math.max(0.3, pct(Math.max(finish, u.srcEnd)) - pct(finish))}%` }}
               />
             )}
-            <span aria-hidden="true" className="absolute top-0.5 bottom-0.5 w-px bg-slate-600 pointer-events-none" style={{ left: `${pct(room)}%` }} />
+            {showFit && <span aria-hidden="true" className="absolute top-0.5 bottom-0.5 w-px bg-slate-600 pointer-events-none" style={{ left: `${pct(room)}%` }} />}
             {cutPreview?.key === u.key && !placeDrag && (
               <span
                 aria-hidden="true"
@@ -1685,6 +1885,193 @@ export const DubEstimateLane: React.FC<{
       {guide !== null && placeDrag && (
         <span aria-hidden="true" className="absolute z-20 top-0 bottom-0 w-px bg-amber-200 pointer-events-none" style={{ left: `${pct(guide)}%` }} />
       )}
+    </>
+  );
+};
+
+/** How a stretch sounds, in words. */
+const RATE_WORDS = { natural: 'Natural', quick: 'A little quick', rushed: 'Rushed', slow: 'Slow, it drags' } as const;
+/** The speed meter's bands, 0.5× to 2×: dragged, natural, quick, rushed. */
+const METER_BANDS: [number, number, string][] = [
+  [MIN_LINE_RATE, SLOW_RATE, 'bg-amber-900/70'],
+  [SLOW_RATE, QUICK_RATE, 'bg-slate-700'],
+  [QUICK_RATE, RUSHED_RATE, 'bg-amber-700/80'],
+  [RUSHED_RATE, MAX_LINE_RATE, 'bg-rose-800/80'],
+];
+const meterAt = (rate: number) => ((Math.min(MAX_LINE_RATE, Math.max(MIN_LINE_RATE, rate)) - MIN_LINE_RATE) / (MAX_LINE_RATE - MIN_LINE_RATE)) * 100;
+
+/**
+ * Card view of Review's stretch (the dub lane stays clear): the picked line's
+ * speed on a meter, its length against its room, Back to 1×, and once it is
+ * read faster than RUSHED_RATE or slower than SLOW_RATE, a button for another
+ * wording. Its wordings, once asked for, are worked on right here
+ * (LineFixControls), as they are in the line's row in the list.
+ */
+export const StretchCard: React.FC<{
+  unit: SyncPreviewUnit | null;
+  cps: number;
+  fix: Omit<LineFixControlsProps, 'unit' | 'cps'> | null;
+  onStretch: (unit: SyncPreviewUnit, rate: number) => void;
+}> = ({ unit, cps, fix, onStretch }) => {
+  if (!unit) {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 text-[12.5px] text-slate-400">
+        Pick a dub line, or drag its edge, to see its speed here. Faster than {RUSHED_RATE}× or slower than {SLOW_RATE}×, another wording is offered.
+      </div>
+    );
+  }
+  const rate = unit.rate ?? 1;
+  const zone = rateZone(rate);
+  const tone = RATE_TONE[zone];
+  const stretched = Math.abs(rate - 1) >= 0.005;
+  const over = unit.estimate - unit.slot;
+  const offer = zone === 'rushed' ? 'shorter' : zone === 'slow' ? 'longer' : null;
+  const started = fix && fix.state.kind !== 'idle';
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 flex flex-wrap gap-x-8 gap-y-3 items-start">
+      <div className="min-w-[220px] flex-1 max-w-[360px]">
+        <div className="text-[11.5px] text-slate-500">
+          <span className="font-mono font-semibold" style={{ color: hueOf(unit.index) }}>
+            Line {unit.index + 1}
+          </span>{' '}
+          · picked
+        </div>
+        <p className="text-[14px] text-slate-100 leading-snug mt-0.5 line-clamp-2" lang="und">
+          {unit.text}
+        </p>
+        <div className="mt-2 flex items-baseline gap-2.5">
+          <span className="font-mono text-xl font-semibold tabular-nums" style={{ color: tone ?? '#e2e8f0' }}>
+            {rate.toFixed(2)}×
+          </span>
+          <span className="text-[12px]" style={{ color: tone ?? '#4ade80' }}>
+            {RATE_WORDS[zone]}
+          </span>
+          {stretched && (
+            <button type="button" onClick={() => onStretch(unit, 1)} className="ml-auto h-6 px-2 rounded-md border border-slate-700 text-[11.5px] text-slate-300 hover:bg-slate-800 cursor-default">
+              Back to 1×
+            </button>
+          )}
+        </div>
+        <div className="relative mt-2" title="0.5× to 2×: natural up to 1.15×, a little quick to 1.3×, rushed past it; slower than 0.85× drags">
+          <div className="flex h-2 rounded-full overflow-hidden">
+            {METER_BANDS.map(([a, b, cls]) => (
+              <span key={a} className={cls} style={{ width: `${((b - a) / (MAX_LINE_RATE - MIN_LINE_RATE)) * 100}%` }} />
+            ))}
+          </div>
+          <span className="absolute -top-1 w-[3px] h-4 -ml-[1.5px] rounded-full bg-slate-100" style={{ left: `${meterAt(rate)}%` }} />
+          <div className="relative h-4 mt-0.5 font-mono text-[10px] text-slate-500">
+            {[0.5, 1, 1.5, 2].map((r) => (
+              <span key={r} className="absolute -translate-x-1/2" style={{ left: `${meterAt(r)}%` }}>
+                {r}×
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+      <dl className="grid grid-cols-[auto_auto] gap-x-4 gap-y-0.5 text-[12px] min-w-[170px]">
+        <dt className="text-slate-500">Length</dt>
+        <dd className="font-mono tabular-nums text-slate-200">≈ {unit.estimate.toFixed(1)} s</dd>
+        {stretched && (
+          <>
+            <dt className="text-slate-500">At 1×</dt>
+            <dd className="font-mono tabular-nums text-slate-400">≈ {(unit.estimate * rate).toFixed(1)} s</dd>
+          </>
+        )}
+        <dt className="text-slate-500">Room</dt>
+        <dd className="font-mono tabular-nums text-slate-200">{unit.slot.toFixed(1)} s</dd>
+        <dt className="text-slate-500">Fit</dt>
+        <dd className={over > 0 ? (unit.status === 'long' ? 'text-rose-300' : 'text-amber-300') : 'text-emerald-300'}>
+          {over > 0 ? `${unit.status === 'long' ? 'Too long' : 'Tight'}, +${over.toFixed(1)} s` : unit.status === 'short' ? 'Ends early' : 'Fits'}
+        </dd>
+      </dl>
+      <div className="flex-1 min-w-[260px]">
+        {fix && started ? (
+          <LineFixControls unit={unit} cps={cps} {...fix} />
+        ) : offer && fix ? (
+          <>
+            <button
+              type="button"
+              onClick={() => fix.onSuggest(offer)}
+              className={`h-7 px-3 rounded-full border text-[12px] cursor-default ${
+                offer === 'shorter' ? 'border-rose-500/60 bg-rose-950/70 text-rose-200 hover:bg-rose-900/60' : 'border-amber-500/60 bg-amber-950/70 text-amber-200 hover:bg-amber-900/60'
+              }`}
+            >
+              {offer === 'shorter' ? '↓ Shorter wording' : '↑ Longer wording'}
+            </button>
+            <p className="mt-1.5 text-[11.5px] text-slate-500 leading-snug">
+              {offer === 'shorter' ? `Read at ${rate.toFixed(2)}× it sounds rushed. Fewer words fit at an easier speed.` : `Read at ${rate.toFixed(2)}× it drags. A fuller wording fills the time at an easier speed.`}
+            </p>
+          </>
+        ) : (
+          <p className="text-[12px] text-slate-400 leading-snug">
+            {stretched ? 'The speed sounds natural: no other wording needed.' : 'Drag the line\'s edge on the dub lane to read it faster or slower.'}{' '}
+            <span className="text-slate-500">Past {RUSHED_RATE}× (or under {SLOW_RATE}×) another wording is offered here.</span>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/**
+ * The row under Review's dub lane: under each line stretched past what sounds
+ * natural, a button for another wording, Shorter when it is rushed (faster
+ * than RUSHED_RATE) and Longer when it drags (slower than SLOW_RATE). Nothing
+ * is asked for until the button is pressed. × hides it for the line at that
+ * speed; a new stretch or new words bring it back.
+ */
+export const WordingSuggestRow: React.FC<{
+  units: SyncPreviewUnit[];
+  windowStart: number;
+  windowSeconds: number;
+  busy: (unit: SyncPreviewUnit) => boolean;
+  onSuggest: (unit: SyncPreviewUnit, direction: 'shorter' | 'longer') => void;
+}> = ({ units, windowStart, windowSeconds, busy, onSuggest }) => {
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set());
+  const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
+  return (
+    <>
+      {units.map((u) => {
+        const zone = rateZone(u.rate ?? 1);
+        if (zone !== 'rushed' && zone !== 'slow') return null;
+        const id = `${u.key}|${u.text}|${(u.rate ?? 1).toFixed(2)}`;
+        if (hidden.has(id)) return null;
+        const at = lanePartsOf(u)[0].start;
+        if (at < windowStart - windowSeconds * 0.1 || at > windowStart + windowSeconds) return null;
+        const shorter = zone === 'rushed';
+        const working = busy(u);
+        return (
+          <span
+            key={u.key}
+            className={`absolute top-1 h-5 flex items-center rounded-full border text-[11px] leading-none whitespace-nowrap ${
+              shorter ? 'border-rose-500/60 bg-rose-950/80 text-rose-200' : 'border-amber-500/60 bg-amber-950/80 text-amber-200'
+            }`}
+            style={{ left: `max(0px, ${pct(at)}%)` }}
+          >
+            <button
+              type="button"
+              disabled={working}
+              onClick={() => onSuggest(u, shorter ? 'shorter' : 'longer')}
+              title={`Line ${u.index + 1} is read at ${(u.rate ?? 1).toFixed(2)}×: ${
+                shorter ? 'faster than sounds natural. Ask for a shorter wording' : 'slower than sounds natural. Ask for a longer wording'
+              } (it opens in the list below)`}
+              className="h-full pl-2 pr-1.5 flex items-center gap-1 cursor-default disabled:opacity-70"
+            >
+              {working ? <Loader2 className="w-3 h-3 animate-spin" /> : <span aria-hidden="true">{shorter ? '↓' : '↑'}</span>}
+              {working ? 'Asking…' : shorter ? 'Shorter wording' : 'Longer wording'}
+            </button>
+            <button
+              type="button"
+              aria-label="Keep this speed"
+              title="Keep this speed: hide the suggestion"
+              onClick={() => setHidden((was) => new Set(was).add(id))}
+              className="h-full pr-1.5 pl-0.5 flex items-center opacity-70 hover:opacity-100 cursor-default"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          </span>
+        );
+      })}
     </>
   );
 };

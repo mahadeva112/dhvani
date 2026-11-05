@@ -496,6 +496,7 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
     loudness?.value && (multiSpeaker ? 'speakers evened out' : 'loudness evened out'),
     join.chunkSync && 'chunk sync',
     join.matchSourcePauses && "pauses matched to the original's",
+    join.chunkSync && join.cutAtSourcePauses && "cut at the original's pauses",
     join.tightenSilences && 'silences tightened',
   ].filter(Boolean) as string[];
 
@@ -567,6 +568,9 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
                   <Cap>Pauses and long lines</Cap>
                   <Row name="Match source pauses" note="Pause only where the original speaker paused">
                     <Switch label="Match source pauses" on={join.matchSourcePauses} onChange={(on) => setJoin('matchSourcePauses', on)} disabled={disabled} />
+                  </Row>
+                  <Row name="Cut at the original's pauses" note="Where the voice read on, each part starts where the speaker starts again">
+                    <Switch label="Cut at the original's pauses" on={join.cutAtSourcePauses} onChange={(on) => setJoin('cutAtSourcePauses', on)} disabled={disabled || !join.chunkSync} />
                   </Row>
                   <Row name="Tighten silences" note="A long line loses room-tone silence; words are never cut">
                     <Switch label="Tighten silences" on={join.tightenSilences} onChange={(on) => setJoin('tightenSilences', on)} disabled={disabled} />

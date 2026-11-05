@@ -133,13 +133,14 @@ export const cutPoints = (words, cuts, sampleRate) => {
  * `chunks` (`[{ from, to }]` samples, in order) cut at each of `points`
  * (cutPoints): a chunk a point falls in is split there, and the chunk that
  * starts each part after a cut is marked `cut`, with `pin` where the user put
- * it, if anywhere.
+ * it, if anywhere, and `auto` (the point's) for a cut at the original's pause
+ * (sourceCuts.js).
  */
 export const splitAtPoints = (chunks, points) => {
   const out = chunks.map((chunk) => ({ ...chunk }));
-  for (const point of points) {
+  for (const point of [...points].sort((a, b) => a.at - b.at)) {
     const k = out.findIndex((chunk) => chunk.from < point.at && chunk.to > point.at);
-    const part = { cut: true, ...(finite(point.start) && { pin: point.start }) };
+    const part = { cut: true, ...(finite(point.start) && { pin: point.start }), ...(point.auto && { auto: point.auto }) };
     if (k >= 0) out.splice(k, 1, { ...out[k], to: point.at }, { from: point.at, to: out[k].to, ...part });
     else {
       const next = out.find((chunk) => chunk.from >= point.at);

@@ -441,7 +441,7 @@ const SECTION_KEYS: Record<SyncJoinSection, (keyof SyncJoinSettings)[]> = {
   long: ['bestTakes', 'speedFit', 'maxVoiceSpeed', 'maxRevoice'],
   chunks: ['chunkSync', 'gateOpenDb', 'gateHysteresisDb', 'minSliceLength', 'minSilenceLength', 'leadPad', 'trailPad', 'chunkGapShare', 'wordGap', 'commaGap', 'stopGap', 'maxChunkGap', 'punctuationPriority', 'joinSpokenChunks'],
   gaps: ['preserveLongPauses', 'protectedPause', 'minGap', 'speakerGap', 'gapShare', 'breathClear', 'removeBreaths', 'breathReduction'],
-  pauses: ['matchSourcePauses', 'unmatchedPause', 'shortenPauses', 'minInnerPause', 'maxPauseTake', 'tightenSilences', 'tightMinPause', 'tightMargin', 'checkCutWords', 'spliceCrossfade'],
+  pauses: ['matchSourcePauses', 'unmatchedPause', 'cutAtSourcePauses', 'sourceCutMinPause', 'sourceCutMaxInsert', 'shortenPauses', 'minInnerPause', 'maxPauseTake', 'tightenSilences', 'tightMinPause', 'tightMargin', 'checkCutWords', 'spliceCrossfade'],
   edges: ['tailFloorDb', 'tailHold', 'edgeFade'],
   fit: ['maxLateStart', 'anchorWeight', 'endByVideo', 'endSlack'],
   grouping: ['unitGap', 'maxUnit'],
@@ -465,6 +465,7 @@ export const joinSectionSummary = (section: SyncJoinSection, options: SyncOption
     case 'pauses':
       return [
         join.matchSourcePauses && `Only where the original pauses`,
+        join.chunkSync && join.cutAtSourcePauses && 'cut at its pauses',
         join.shortenPauses ? `${join.matchSourcePauses ? 's' : 'S'}hortened to ${ms(join.minInnerPause)} at least when long` : !join.matchSourcePauses && 'Never shortened',
         join.tightenSilences && 'silences tightened when still long',
       ].filter(Boolean).join(' · ');
@@ -956,6 +957,18 @@ export const SyncJoinSectionControls: React.FC<{
             />
             <Slider id="sync-unmatched-pause" label="Cut such a pause to" value={join.unmatchedPause} {...bounds('unmatchedPause')} step={0.01} format={ms}
               disabled={disabled || !join.matchSourcePauses} def={D.unmatchedPause} onChange={(v) => set('unmatchedPause', v)} />
+            <Toggle
+              label="Cut at the original's pauses"
+              hint="Where the original speaker paused but the voice read on, the line is cut there and the part after it starts where the speaker starts again. At the voice's own pause, else only after a comma or full stop where the sound dips. A line is never cut so it runs later. Chunk sync only."
+              checked={join.cutAtSourcePauses}
+              disabled={disabled || !join.chunkSync}
+              def={D.cutAtSourcePauses}
+              onChange={(v) => set('cutAtSourcePauses', v)}
+            />
+            <Slider id="sync-source-cut-min" label="Pauses of the original from" value={join.sourceCutMinPause} {...bounds('sourceCutMinPause')} step={0.05} format={ms}
+              disabled={disabled || !join.chunkSync || !join.cutAtSourcePauses} def={D.sourceCutMinPause} onChange={(v) => set('sourceCutMinPause', v)} />
+            <Slider id="sync-source-cut-insert" label="Most silence a cut adds" value={join.sourceCutMaxInsert} {...bounds('sourceCutMaxInsert')} step={0.05} format={ms}
+              disabled={disabled || !join.chunkSync || !join.cutAtSourcePauses} def={D.sourceCutMaxInsert} onChange={(v) => set('sourceCutMaxInsert', v)} />
           </SettingsCard>
           <SettingsCard title="When a line runs long">
             <Toggle

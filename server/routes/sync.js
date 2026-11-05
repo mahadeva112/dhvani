@@ -585,6 +585,9 @@ syncRouter.post(
             : undefined,
           pickedTakes: pickedBank ? pickedTakesWith(pickedTakes, pickedBank) : undefined,
           decode: (buffer) => decodeAudio(buffer, format),
+          // A line the user stretched on Review's dub lane, read at that speed with its pitch kept.
+          // Without ffmpeg the line is placed at the speed it was voiced, as Sync's report says.
+          stretch: hasFfmpeg ? (samples, rate) => timeStretch(samples, sampleRate, rate) : undefined,
           // One write at the end, lossless and at the clips' own rate: encoding to
           // MP3 again would be a second lossy generation of every line.
           encode: encodeWav(sampleRate),

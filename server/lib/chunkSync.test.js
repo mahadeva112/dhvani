@@ -557,3 +557,32 @@ test('a new take whose voice sits higher or lower is not used, and the line says
   assert.match(report.units[0].takeRejected, /higher than the take it would replace/);
   assert.ok(offers.some((offer) => offer.rejected && offer.key === report.units[0].key), 'the take turned down comes back to listen to anyway');
 });
+
+test('a line the user stretched on Review is read at that speed, and Read faster leaves it alone', async () => {
+  clearClipCache();
+  const asked = [];
+  // A stand-in for atempo: every other sample, so twice as fast.
+  const stretch = async (samples, rate) => {
+    asked.push(rate);
+    return samples.filter((_, k) => k % 2 === 0);
+  };
+  const plain = await runSync({ segments: SEGMENTS, sourceDuration: 6, sampleRate: RATE, voice }, deps(0.7, { align: alignOf() }));
+  clearClipCache();
+  const text = SEGMENTS[0].textTarget;
+  const segments = [{ ...SEGMENTS[0], dubPlace: { text, rate: 2 } }, SEGMENTS[1]];
+  const { report } = await runSync({ segments, sourceDuration: 6, sampleRate: RATE, voice, join: { speedFit: 'auto' } }, deps(0.7, { align: alignOf(), stretch }));
+  assert.deepEqual(asked, [2], 'only the stretched line, once');
+  assert.equal(report.units[0].stretched, 2);
+  assert.equal(report.units[0].speedFit, undefined);
+  assert.equal(report.units[1].stretched, undefined);
+  const voiced = (r) => r.units[0].speech;
+  assert.ok(voiced(report) < voiced(plain.report) * 0.75, `it came out shorter: ${voiced(report)} s against ${voiced(plain.report)} s`);
+
+  // Once its words change, the stretch no longer counts.
+  clearClipCache();
+  asked.length = 0;
+  const edited = [{ ...segments[0], textTarget: `${text} x` }, SEGMENTS[1]];
+  const after = await runSync({ segments: edited, sourceDuration: 6, sampleRate: RATE, voice }, deps(0.7, { align: alignOf(), stretch }));
+  assert.deepEqual(asked, []);
+  assert.equal(after.report.units[0].stretched, undefined);
+});

@@ -94,6 +94,18 @@ export const DEFAULT_JOIN_SETTINGS = Object.freeze({
   /** What a pause the original doesn't have is cut to. */
   unmatchedPause: 0.15,
   /**
+   * Chunk sync: a line is cut where the original speaker paused, so the part
+   * after the pause starts where the speaker starts again, even where the
+   * voice read on (see sourceCuts.js). Sound first: at the voice's own pause,
+   * else only after a comma or sentence end where the sound dips; never so a
+   * line runs later than it would uncut.
+   */
+  cutAtSourcePauses: true,
+  /** Pauses of the original shorter than this are left to the voice. */
+  sourceCutMinPause: 0.3,
+  /** The most silence a cut at a pause adds to what the voice left there. */
+  sourceCutMaxInsert: 0.4,
+  /**
    * A line still too long once its pauses are shortened loses silence measured
    * against its own room tone: its tail, then its pauses (see tightenSilences).
    * Words are never cut. Blends each cut inside a pause over 5 ms.
@@ -149,6 +161,8 @@ export const JOIN_SETTING_RANGES = {
   minInnerPause: [0.08, 0.6],
   maxPauseTake: [0.05, 1],
   unmatchedPause: [0.06, 0.6],
+  sourceCutMinPause: [0.3, 2],
+  sourceCutMaxInsert: [0, 1],
   gateOpenDb: [-70, -10],
   gateHysteresisDb: [-40, 0],
   minSliceLength: [0.02, 1],
@@ -192,7 +206,7 @@ export const resolveJoinSettings = (requested) => {
     const value = Number(requested[key]);
     if (requested[key] !== undefined && requested[key] !== null && Number.isFinite(value)) settings[key] = clamp(value, range);
   }
-  for (const key of ['chunkSync', 'punctuationPriority', 'joinSpokenChunks', 'endByVideo', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
+  for (const key of ['chunkSync', 'punctuationPriority', 'joinSpokenChunks', 'endByVideo', 'breathClear', 'removeBreaths', 'shortenPauses', 'matchSourcePauses', 'cutAtSourcePauses', 'tightenSilences', 'checkCutWords', 'preserveLongPauses']) {
     if (typeof requested[key] === 'boolean') settings[key] = requested[key];
   }
   // Off, ask or auto; a speedFit from before it had modes reads as it did: on is auto.

@@ -37,6 +37,14 @@ export interface DubPlace {
   /** The line's words when it was cut: once they change, the cuts are dropped. */
   text?: string;
   cuts?: DubCut[];
+  /** Cuts at the original's pauses (Cut at the original's pauses) the user turned off, by letters, while the line says `text`. */
+  skip?: number[];
+  /**
+   * The line stretched on Review's dub lane: read this many times as fast as
+   * it is voiced (pitch kept), while it says `text`. Sync voices the line,
+   * then stretches it to this (ffmpeg's atempo). Unset is 1.
+   */
+  rate?: number;
 }
 
 export interface AudioSegment {

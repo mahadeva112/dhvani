@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimatedWords, letterCount, linePartsOf, partEnd, withCut, withLinePlaces, withPartStart } from './linePlaces.ts';
+import { estimatedWords, letterCount, linePartsOf, partEnd, pauseCutsOf, rateOf, rateZone, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from './linePlaces.ts';
 import type { SyncPreview, SyncPreviewUnit } from './syncService.ts';
 import type { AudioSegment } from '../types';
 
@@ -85,4 +85,116 @@ test('a part being dragged stands in for its place, and a line split apart loses
   assert.equal(parts.length, 2);
   assert.ok(Math.abs(partEnd(parts[1]) - 4.8) < 1e-9, 'the last part ends 0.8 s later');
   assert.ok(Math.abs(dragged.slot - 4.2) < 1e-9, 'judged in the room left once the 0.8 s it opened up is taken out');
+});
+
+// ---- Cut at the original's pauses ----
+
+/** The speaker pauses 0.8 s after "one two,"; translation marked it. */
+const PAUSED_TEXT = 'one two, three four';
+const pausedCue = (text = PAUSED_TEXT, paused = 'one two, [pause 0.8s] three four') =>
+  cue(1, {
+    startTime: 0,
+    endTime: 4,
+    textTarget: text,
+    pausedTarget: paused,
+    words: [
+      { text: 'One', start: 0, end: 0.4 },
+      { text: 'two', start: 0.45, end: 0.9 },
+      { text: 'three', start: 1.7, end: 2.2 },
+      { text: 'four', start: 2.25, end: 2.7 },
+    ],
+  });
+const PAUSES = { minPause: 0.3, maxInsert: 0.4 };
+
+test("the original's pauses in a dub line are found as Sync finds them, by the letters before each", () => {
+  assert.deepEqual(pauseCutsOf([pausedCue()], PAUSED_TEXT), [{ letters: letterCount('one two'), seconds: 0.8, resume: 1.7 }]);
+  // Edited, the marks no longer say where the pauses are.
+  assert.deepEqual(pauseCutsOf([pausedCue('one two, three five')], 'one two, three five'), []);
+  assert.deepEqual(pauseCutsOf([pausedCue()], PAUSED_TEXT, 1), [], 'shorter than asked for');
+});
+
+test("a line is cut at the original's pause after a comma, its part starting where the speaker starts again, held to the most it may add", () => {
+  const u = unit(0, 0, 4, 2.2, PAUSED_TEXT);
+  const words = estimatedWords(u);
+  const cut = withLinePlaces(preview([u]), [pausedCue()], null, { minPause: 0.3, maxInsert: 5 })!.units[0];
+  const [a, b] = cut.parts!;
+  assert.equal(b.byPause, true);
+  assert.equal(b.start, 1.7, 'the second part where the speaker starts again');
+  assert.equal(cut.pauseMarks![0].state, 'cut');
+  // Held to the most silence a cut adds, on top of the pause the voice makes there.
+  const held = withLinePlaces(preview([u]), [pausedCue()], null, PAUSES)!.units[0].parts!;
+  const voicePause = words[2].start - words[1].end;
+  assert.ok(Math.abs(held[1].start - (partEnd(held[0]) + voicePause + 0.4)) < 1e-9, `starts at ${held[1].start}`);
+  assert.equal(a.placed, false);
+  // Off, the line is as it was.
+  assert.equal(withLinePlaces(preview([u]), [pausedCue()], null, null)!.units[0].parts, undefined);
+});
+
+test('no comma there, the cut is left to whether the voice pauses; one the user turned off stays off', () => {
+  const runOn = 'one two three four';
+  const u = unit(0, 0, 4, 2.2, runOn);
+  const maybe = withLinePlaces(preview([u]), [pausedCue(runOn, 'one two [pause 0.8s] three four')], null, PAUSES)!.units[0];
+  assert.equal(maybe.parts, undefined);
+  assert.equal(maybe.pauseMarks![0].state, 'maybe');
+
+  const v = unit(0, 0, 4, 2.2, PAUSED_TEXT);
+  const letters = letterCount('one two');
+  const place = withPauseSkip(null, v, letters, true);
+  assert.deepEqual(place, { text: PAUSED_TEXT, skip: [letters] });
+  const skipped = withLinePlaces(preview([v]), [{ ...pausedCue(), dubPlace: place! }], null, PAUSES)!.units[0];
+  assert.equal(skipped.parts, undefined);
+  assert.equal(skipped.pauseMarks![0].state, 'skipped');
+  assert.equal(withPauseSkip(place, v, letters, false), null, 'on again, nothing is left to keep');
+});
+
+test('a cut that would run the line later into the next one is not made', () => {
+  // The line only just fits: its second part where the speaker starts again would end past its room.
+  const u = unit(0, 0, 2.3, 2.2, PAUSED_TEXT);
+  const later = withLinePlaces(preview([u]), [pausedCue()], null, { minPause: 0.3, maxInsert: 5 })!.units[0];
+  assert.equal(later.parts, undefined);
+  assert.equal(later.pauseMarks![0].state, 'later');
+});
+
+test('a part cut at a pause, dragged, becomes a cut of the user with the part where they put it', () => {
+  const v = unit(0, 0, 4, 2.2, PAUSED_TEXT);
+  const letters = letterCount('one two');
+  assert.deepEqual(withPartStart(null, v, letters, 1.9), { text: PAUSED_TEXT, cuts: [{ letters, start: 1.9 }] });
+});
+
+test('a stretched line is read at its speed in the preview, and judged again against its slot', () => {
+  const u = unit(0, 0, 4, 5.2, 'a b c d');
+  const place = withLineRate(null, u, 1.3);
+  assert.deepEqual(place, { text: 'a b c d', rate: 1.3 });
+  const segments = [cue(1, { dubPlace: place! })];
+  const rated = withLineRates(preview([u]), segments)!;
+  const line = rated.units[0];
+  assert.equal(line.rate, 1.3);
+  assert.ok(Math.abs(line.estimate - 4) < 1e-9, `5.2 s read 1.3 times as fast is 4 s, got ${line.estimate}`);
+  assert.equal(line.status, 'tight', 'it now fills its slot');
+  assert.equal(rated.summary.long, 0);
+
+  // A drag in progress counts before it is let go, and 1 takes the stretch off.
+  assert.equal(withLineRates(preview([u]), [], { key: u.key, rate: 2 })!.units[0].estimate, 2.6);
+  assert.equal(withLineRate(place, u, 1), null);
+});
+
+test("a stretch is the line's while it says the same words, and is held to what atempo takes", () => {
+  const u = unit(0, 0, 4, 5, 'a b c');
+  assert.equal(rateOf(withLineRate(null, u, 3), u), 2);
+  assert.equal(rateOf(withLineRate(null, u, 0.2), u), 0.5);
+  const place = withLineRate(withPartStart(null, u, 0, 0.4), u, 1.2);
+  assert.deepEqual(place, { start: 0.4, text: 'a b c', rate: 1.2 });
+  // New words: the stretch no longer counts, and the next change drops it.
+  const reworded = { ...u, text: 'a b' };
+  assert.equal(rateOf(place, reworded), 1);
+  assert.equal(withCut(place, reworded, 1, true)?.rate, undefined);
+});
+
+test('how a speed sounds: natural to 1.15×, quick to 1.3×, then rushed; dragged under 0.85×', () => {
+  assert.equal(rateZone(1), 'natural');
+  assert.equal(rateZone(1.15), 'natural');
+  assert.equal(rateZone(1.2), 'quick');
+  assert.equal(rateZone(1.31), 'rushed');
+  assert.equal(rateZone(0.85), 'natural');
+  assert.equal(rateZone(0.8), 'slow');
 });

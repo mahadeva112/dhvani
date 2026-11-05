@@ -136,8 +136,8 @@ import {
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
-import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, type PlaceDrag } from './SyncPreviewPanel';
-import { placeOf, withCut, withLinePlaces, withPartStart } from '../services/linePlaces';
+import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, WordingSuggestRow, StretchCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
+import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
 import type { RateBasis, VoiceRateState } from '../services/voiceRate';
@@ -1429,13 +1429,41 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   );
   /** A part of a dub line being dragged on Review's dub lane: the fit follows it before it is let go. */
   const [placeDrag, setPlaceDrag] = useState<PlaceDrag | null>(null);
+  /** A line being stretched by an edge on Review's dub lane: the fit follows its speed before it is let go. */
+  const [stretchDraft, setStretchDraft] = useState<StretchDraft | null>(null);
+  /**
+   * Where a stretch shows: 'line', its speed on the line and a wording button
+   * under it (Mock A); 'card', a clear lane and the picked line's speed and
+   * wordings in a card under the player (Mock B). Remembered across sessions.
+   */
+  const [stretchView, setStretchView] = useState<'line' | 'card'>(() => {
+    try {
+      return localStorage.getItem('dhvani.stretchView') === 'card' ? 'card' : 'line';
+    } catch {
+      return 'line';
+    }
+  });
+  const changeStretchView = (view: 'line' | 'card') => {
+    setStretchView(view);
+    try {
+      localStorage.setItem('dhvani.stretchView', view);
+    } catch {
+      /* Storage off: the choice lasts until the app closes. */
+    }
+  };
   const linePreview = useMemo(() => {
     // The script as typed now, not as the server last saw it: the fit follows each key.
     const base = withLiveText(syncPreview.preview, segments);
     const targeted = withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond, syllableRateOf) : base, segments);
-    // Judged where the user placed each line, and the one being dragged where it is now.
-    return withLinePlaces(targeted, segments, placeDrag);
-  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond, syllableRateOf, placeDrag]);
+    // Judged where the user placed each line, and the one being dragged where it is now;
+    // with Cut at the original's pauses, each line cut there as Sync will cut it.
+    const { join } = syncOptions;
+    const pauseCuts = join.chunkSync && join.cutAtSourcePauses ? { minPause: join.sourceCutMinPause, maxInsert: join.sourceCutMaxInsert } : null;
+    // Each stretched line read at its speed first; a left edge being dragged moves the line's first word too.
+    const rated = withLineRates(targeted, segments, stretchDraft);
+    const draft = placeDrag ?? (stretchDraft && stretchDraft.start !== undefined ? { key: stretchDraft.key, part: 0, start: stretchDraft.start ?? null } : null);
+    return withLinePlaces(rated, segments, draft, pauseCuts);
+  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond, syllableRateOf, placeDrag, stretchDraft, syncOptions]);
   /** The dub bar picked on the Dub step's preview timeline, for trimming. */
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   /** A trim being dragged on Review's dub lane, and whether that lane shows bars or words. */
@@ -1497,6 +1525,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   };
   const placeLine = (unit: SyncPreviewUnit, letters: number, start: number | null) => setLinePlace(unit, (place) => withPartStart(place, unit, letters, start));
   const cutLine = (unit: SyncPreviewUnit, letters: number, on: boolean) => setLinePlace(unit, (place) => withCut(place, unit, letters, on));
+  /** Stretches a line to `rate` (1 takes the stretch off); a left edge dragged also puts its first word at `start`. */
+  const stretchLine = (unit: SyncPreviewUnit, rate: number, start?: number | null) => {
+    // The line stretched is the one picked, so the card shows it (without moving the page).
+    setSelectedLineKey(unit.key);
+    setLinePlace(unit, (place) => {
+      const rated = withLineRate(place, unit, rate);
+      return start === undefined ? rated : withPartStart(rated, unit, 0, start);
+    });
+  };
+  /** Another wording for a line stretched too far: the line is picked, and its wordings asked for in the list below. */
+  const suggestStretched = (unit: SyncPreviewUnit, direction: 'shorter' | 'longer') => {
+    pickReviewLine(unit);
+    lineFixes.controlsFor(unit).onSuggest(direction);
+  };
+  /** Turns a line's cut at the original's pause off, or back on. */
+  const skipPauseCut = (unit: SyncPreviewUnit, letters: number, skip: boolean) => setLinePlace(unit, (place) => withPauseSkip(place, unit, letters, skip));
   /** Where the original's words start, for a dragged dub line to snap to. */
   const sourceWordStarts = useMemo(
     () => segments.flatMap((seg) => (seg.words || []).filter((w) => /[\p{L}\p{N}]/u.test(String(w.text ?? '')) && Number.isFinite(w.start)).map((w) => w.start)),
@@ -2391,7 +2435,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             // Each line as Sync will place it, on the original's clock: picked here, it opens in the list below.
             belowWave={
               linePreview && !hearingDub && !awaitingScript
-                ? ({ start, span, time }) => (
+                ? ({ start, span, time, layers }) => (
                     <DubEstimateLane
                       units={linePreview.units}
                       windowStart={start}
@@ -2399,19 +2443,61 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       selectedKey={selectedLineKey}
                       currentKey={linePreview.units.find((u) => time >= u.srcStart && time < Math.max(u.nextStart ?? -Infinity, u.srcEnd))?.key}
                       onSelect={pickReviewLine}
-                      onTrim={trimLine}
                       rythmo={estimateMethod === 'expert' && laneView === 'rythmo'}
                       look={laneView === 'rythmo' ? 'wave' : laneView}
                       drag={laneDrag}
                       setDrag={setLaneDrag}
                       onPlace={placeLine}
                       onCut={cutLine}
+                      onSkipPause={skipPauseCut}
                       placeDrag={placeDrag}
                       setPlaceDrag={setPlaceDrag}
                       snapTimes={sourceWordStarts}
+                      onStretch={stretchLine}
+                      stretchDraft={stretchDraft}
+                      setStretchDraft={setStretchDraft}
+                      layers={layers}
+                      rateMarks={stretchView === 'card' ? 'drag' : 'always'}
                     />
                   )
                 : undefined
+            }
+            // Under the dub lane: another wording for a line stretched past what sounds natural.
+            belowLane={
+              linePreview && !hearingDub && !awaitingScript && stretchView === 'line'
+                ? ({ start, span }) => (
+                    <WordingSuggestRow
+                      units={linePreview.units}
+                      windowStart={start}
+                      windowSeconds={span}
+                      busy={(u) => lineFixes.stateOf(u).kind === 'working'}
+                      onSuggest={suggestStretched}
+                    />
+                  )
+                : undefined
+            }
+            toolbarExtra={
+              linePreview && !hearingDub && !awaitingScript ? (
+                <div role="group" aria-label="Line speed" className="ml-1 flex p-0.5 gap-0.5 rounded-full border border-slate-800">
+                  {(
+                    [
+                      ['line', 'On line', 'A stretched line shows its speed on it, and another wording under it when it sounds rushed or drags'],
+                      ['card', 'Card', 'The lane stays clear: the picked line\'s speed and wordings show in a card under the player'],
+                    ] as const
+                  ).map(([id, label, hint]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      title={hint}
+                      aria-pressed={stretchView === id}
+                      onClick={() => changeStretchView(id)}
+                      className={`h-5 px-2 rounded-full text-[11px] whitespace-nowrap cursor-default ${stretchView === id ? 'bg-slate-700 text-slate-100' : 'text-slate-400 hover:text-slate-200'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              ) : undefined
             }
             // The lines' pauses in a row of their own, so they never cover a line.
             cuePace={linePreview && !hearingDub ? (seg) => cuePace(seg) : undefined}
@@ -2423,6 +2509,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 : undefined
             }
           />
+
+          {/* Card view: the picked line's speed and wordings, under the player */}
+          {stretchView === 'card' && linePreview && !hearingDub && !awaitingScript && (
+            <StretchCard
+              unit={selectedLine}
+              cps={linePreview.charsPerSecond}
+              fix={selectedLine ? lineFixes.controlsFor(selectedLine) : null}
+              onStretch={(unit, rate) => stretchLine(unit, rate)}
+            />
+          )}
 
           {!awaitingScript && (
             <CueEditBar
@@ -3118,10 +3214,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           const pauses = pauseAdvice(unit);
                           // Placed or cut on the dub lane: how, and the way back to Sync's own place.
                           const moved = unit.parts?.filter((part) => part.placed) ?? [];
-                          const placedNote = unit.parts && (
+                          // Cuts at the original's pauses are Sync's: only the user's own cuts and moves are noted.
+                          const ownCuts = unit.parts?.filter((part) => part.index > 0 && !part.byPause).length ?? 0;
+                          const skippedPauses = unit.pauseMarks?.filter((mark) => mark.state === 'skipped').length ?? 0;
+                          const placedNote = unit.parts && (moved.length > 0 || ownCuts > 0 || skippedPauses > 0) && (
                             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-slate-400">
                               <span>
-                                {unit.parts.length > 1 ? `Cut in ${unit.parts.length} parts` : 'Placed by you'}
+                                {ownCuts > 0 ? `Cut by you in ${ownCuts + 1} parts` : moved.length > 0 ? 'Placed by you' : `${skippedPauses} cut at a pause turned off`}
                                 {moved.length > 0 &&
                                   `, ${moved
                                     .map((part) => `${unit.parts!.length > 1 ? `part ${part.index + 1} ` : ''}${part.start - part.auto > 0 ? '+' : '−'}${Math.abs(part.start - part.auto).toFixed(1)} s`)

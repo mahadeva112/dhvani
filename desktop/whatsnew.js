@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.35',
+    changes: [
+      "Review's timeline is cleaner: each line in its own colour on the original and on the dub below, both the same size, with no boxes or marks. Pauses, Fit and Line numbers at the top bring the details back.",
+      'Drag the edge of a dub line to read it faster or slower, and Sync voices it at that speed with the pitch kept. Faster than 1.3× or slower than 0.85×, a Shorter or Longer wording button appears. Pick On line or Card for where the speed shows.',
+      'Sync cuts a line where the original speaker pauses, so the next part starts when they speak again. The timeline scrolls smoothly, a click on the time ruler moves the playhead, and the scroll bar is easier to grab.',
+    ],
+  },
+  {
     version: '1.4.34',
     changes: [
       "In the Script view, click a dub line and the original line beside it lights up. Ctrl+Space plays from the line you are typing in, and a paragraph's play button carries on from the last lit line instead of starting over.",

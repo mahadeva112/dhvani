@@ -17,6 +17,7 @@ import {
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { computeWave, drawWave, WaveStyle } from '../services/waveform';
+import { LINE_HUES } from './lineColors';
 
 export interface ReviewWaveformPlayerProps {
   audioBuffer: AudioBuffer | null;
@@ -50,7 +51,11 @@ export interface ReviewWaveformPlayerProps {
    * A lane drawn under the waveform on the same clock (the Sync fit's dub
    * lane): given the window on screen and the time, in seconds.
    */
-  belowWave?: (view: { start: number; span: number; time: number }) => React.ReactNode;
+  belowWave?: (view: { start: number; span: number; time: number; layers: LaneLayers }) => React.ReactNode;
+  /** Extra controls in the top bar, after the layer chips (how a stretch is shown). */
+  toolbarExtra?: React.ReactNode;
+  /** A row under `belowWave` on the same clock (wording suggestions for stretched lines). */
+  belowLane?: (view: { start: number; span: number }) => React.ReactNode;
   /** The lane's name in the legend. */
   belowWaveLabel?: string;
   /**
@@ -75,6 +80,21 @@ export interface ReviewWaveformPlayerProps {
   lineSpans?: { from: number; to: number; color: string }[];
 }
 
+/** What the timeline shows besides the lines, toggled from its top bar: pause ticks, every line's fit, numbers. */
+export interface LaneLayers {
+  pauses: boolean;
+  fit: boolean;
+  numbers: boolean;
+}
+const LAYERS_KEY = 'dhvani.reviewLayers';
+/** Off until turned on: the lines' colours alone at first. */
+const NO_LAYERS: LaneLayers = { pauses: false, fit: false, numbers: false };
+const LAYER_CHIPS: { id: keyof LaneLayers; label: string; hint: string }[] = [
+  { id: 'pauses', label: 'Pauses', hint: "Pauses and cuts: the pauses row, the cuts in each dub line, Sync's place for a moved line, and the picked line's outline. Off, lines are told apart by colour alone" },
+  { id: 'fit', label: 'Fit', hint: 'How every dub line fits its room (the line you pick, or stretch, always shows it)' },
+  { id: 'numbers', label: 'Line numbers', hint: 'Cue numbers on the original, line numbers on the dub' },
+];
+
 /** Cues closer than this share a cut that can be dragged. */
 const CUT_GAP_SECONDS = 0.8;
 /** How near the pointer must be to a cut to grab it, in pixels. */
@@ -93,12 +113,28 @@ const zoomLevels = (total: number) => {
   for (let k = 1; k < 60 && total / 2 ** (k / 2) >= MIN_VIEW_SECONDS; k++) levels.push(2 ** (k / 2));
   return levels;
 };
-/** Each frame a glide covers this share of the way left, so a wheel or a page turn eases in, not jumps. */
+/** Each frame (at 60 a second) a glide covers this share of the way left, so a wheel or a page turn eases in, not jumps. */
 const GLIDE = 0.22;
+/** A trackpad's sideways swipe follows the fingers more closely. */
+const GLIDE_TRACKPAD = 0.5;
+/**
+ * The timeline is drawn this many views wider on each side than what shows,
+ * so a scroll or a glide only slides what is drawn (a transform, as REAPER
+ * scrolls) and redraws once it has slid most of that far.
+ */
+const BUFFER_PAD = 0.75;
+/** Slid this share of a view from where it was drawn, the timeline is drawn again around where it is now. */
+const REDRAW_AT = 0.6;
 /** The timeline opens showing about this much, so the wheel and its scroll bar move it from the start. */
 const OPEN_SECONDS = 30;
 /** Where the waveform's bars start below the top of its strip, under the cue numbers. */
 const WAVE_TOP = 15;
+/**
+ * In the coloured view the original's bars sit in the same box as a dub line's
+ * wave below (DubEstimateLane: a part is inset 6 px top and bottom), so the
+ * two lanes' waves are the same size; cue numbers, when shown, sit over them.
+ */
+const LANE_INSET = 6;
 /** Height of the mini player bar along the bottom of the window. */
 const MINI_BAR_PX = 40;
 
@@ -187,6 +223,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   selectedCutId = null,
   belowWave,
   belowWaveLabel,
+  belowLane,
+  toolbarExtra,
   pausesRow,
   cuePace,
   fastLabel = 'Too fast',
@@ -211,6 +249,27 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const fastIds = segments.filter((seg) => paceOf(seg).level === 'fast').map((seg) => String(seg.id)).join('|');
   const fastSet = useMemo(() => new Set(fastIds.split('|')), [fastIds]);
   const palette = PALETTE;
+  /** The timeline's layers, remembered across sessions. */
+  const [layers, setLayers] = useState<LaneLayers>(() => {
+    try {
+      return { ...NO_LAYERS, ...JSON.parse(localStorage.getItem(LAYERS_KEY) || '{}') };
+    } catch {
+      return NO_LAYERS;
+    }
+  });
+  const toggleLayer = (id: keyof LaneLayers) =>
+    setLayers((was) => {
+      const next = { ...was, [id]: !was[id] };
+      try {
+        localStorage.setItem(LAYERS_KEY, JSON.stringify(next));
+      } catch {
+        /* Storage off: the layers last until the app closes. */
+      }
+      return next;
+    });
+  // Layers belong to the coloured lines; without them the timeline shows everything, as before.
+  const layered = Boolean(lineSpans?.length && belowWave);
+  const showNumbers = !layered || layers.numbers;
 
   const [zoom, setZoom] = useState(1);
   const [viewStart, setViewStartState] = useState(0);
@@ -219,36 +278,53 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
    * the view there over a few frames. Anything that sets the view outright
    * (zoom, the scroll bar, a cue jump) stops a glide first.
    */
-  const glideRef = useRef<{ at: number; target: number; raf: number } | null>(null);
+  const glideRef = useRef<{ at: number; target: number; raf: number; ease: number; last: number } | null>(null);
   const viewStartRef = useRef(0);
   viewStartRef.current = viewStart;
+  /*
+   * How far the view has slid past `viewStart` without a re-render: the
+   * timeline's tracks (drawn BUFFER_PAD views wider each side) are moved by
+   * it with a transform, the playhead and scroll bar with it. viewStart is
+   * set, and the tracks drawn again around it, only when a glide ends or has
+   * slid REDRAW_AT of a view.
+   */
+  const shiftRef = useRef(0);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const thumbRef = useRef<HTMLSpanElement>(null);
+  const slideRef = useRef<() => void>(() => {});
   const stopGlide = () => {
     const g = glideRef.current;
-    if (g) cancelAnimationFrame(g.raf);
+    if (!g) return;
+    cancelAnimationFrame(g.raf);
     glideRef.current = null;
+    // Stopped where it is: that is the view now.
+    setViewStartState(g.at);
   };
   const setViewStart: typeof setViewStartState = (value) => {
     stopGlide();
     setViewStartState(value);
   };
-  const glideTo = (target: number, close: number) => {
+  const glideTo = (target: number, close: number, ease = GLIDE) => {
     const g = glideRef.current;
     if (g) {
       g.target = target;
+      g.ease = ease;
       return;
     }
-    const glide = { at: viewStartRef.current, target, raf: 0 };
+    const glide = { at: viewStartRef.current + shiftRef.current, target, raf: 0, ease, last: performance.now() };
     glideRef.current = glide;
-    const step = () => {
+    const step = (now: number) => {
+      // The same speed whatever the screen's frame rate.
+      const k = 1 - Math.pow(1 - glide.ease, Math.min(4, Math.max(0.25, (now - glide.last) / (1000 / 60))));
+      glide.last = now;
       const left = glide.target - glide.at;
-      if (Math.abs(left) <= close) {
-        glide.at = glide.target;
-        glideRef.current = null;
-      } else {
-        glide.at += left * GLIDE;
-        glide.raf = requestAnimationFrame(step);
-      }
-      setViewStartState(glide.at);
+      const done = Math.abs(left) <= close;
+      glide.at = done ? glide.target : glide.at + left * k;
+      if (done) glideRef.current = null;
+      else glide.raf = requestAnimationFrame(step);
+      shiftRef.current = glide.at - viewStartRef.current;
+      slideRef.current();
+      if (done || Math.abs(shiftRef.current) > spanRef.current * REDRAW_AT) setViewStartState(glide.at);
     };
     glide.raf = requestAnimationFrame(step);
   };
@@ -286,6 +362,18 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const [redrawTick, setRedrawTick] = useState(0);
 
   const span = total > 0 ? total / zoom : 1;
+  const spanRef = useRef(span);
+  spanRef.current = span;
+  /** What the tracks are drawn over for a view from `start`: BUFFER_PAD views more each side, inside the track. */
+  const bufferOf = (start: number) => {
+    const from0 = zoom === 1 ? 0 : start;
+    const pad = zoom === 1 ? 0 : span * BUFFER_PAD;
+    const from = Math.max(0, from0 - pad);
+    const to = Math.min(Math.max(total, from0 + span), from0 + span + pad);
+    return { from, span: Math.max(span, to - from), view: from0 };
+  };
+  /** Where the view starts this instant, glide included. */
+  const liveStart = () => (zoom === 1 ? 0 : viewStartRef.current + shiftRef.current);
   const ZOOMS = useMemo(() => zoomLevels(total), [total]);
   // A track longer than OPEN_SECONDS opens zoomed in on where playback is.
   const openedZoomRef = useRef(false);
@@ -369,18 +457,21 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
 
   const changeZoom = useCallback(
     (dir: 1 | -1, anchor?: number) => {
+      // The point zoomed at stays under the pointer, as in REAPER; zoomed by key, the playhead stays put.
+      const startNow = liveStart();
+      const focus = anchor ?? liveRef.current;
+      const share = zoom === 1 && anchor === undefined ? 0.35 : Math.max(0, Math.min(1, (focus - startNow) / span));
       stopGlide();
       setZoom((z) => {
         const i = ZOOMS.indexOf(z);
         const nz = ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? 0 : i) + dir))];
         const ns = total / nz;
-        const focus = anchor ?? liveRef.current;
-        setViewStartState(Math.max(0, Math.min(Math.max(0, total - ns), focus - ns * 0.35)));
+        setViewStartState(Math.max(0, Math.min(Math.max(0, total - ns), focus - ns * share)));
         return nz;
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [total, ZOOMS]
+    [total, ZOOMS, zoom, span]
   );
 
   /*
@@ -392,8 +483,10 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const applyFrame = (t: number) => {
     const prev = liveRef.current;
     liveRef.current = t;
-    const vs = zoom === 1 ? 0 : viewStart;
-    placePlayhead(waveHeadRef.current, wavePlayedRef.current, (t - vs) / span);
+    const vs = liveStart();
+    const drawn = bufferOf(viewStartRef.current);
+    placePlayhead(waveHeadRef.current, null, (t - vs) / span);
+    placePlayhead(null, wavePlayedRef.current, (t - drawn.from) / drawn.span);
     placePlayhead(miniHeadRef.current, miniPlayedRef.current, total > 0 ? t / total : 0);
 
     const looped = segments[activeIndexRef.current];
@@ -414,6 +507,18 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     }
   };
   useLiveFrame(reportedTime, isPlaying, getLiveTime, applyFrame);
+  /** Slides the tracks, the playhead and the scroll bar to where the view is this instant. */
+  slideRef.current = () => {
+    const w = waveBoxRef.current?.clientWidth || 0;
+    timelineRef.current?.style.setProperty('--track-shift', `${(-shiftRef.current / span) * w}px`);
+    if (thumbRef.current && total > 0) thumbRef.current.style.left = `${(liveStart() / total) * 100}%`;
+    applyFrame(liveRef.current);
+  };
+  // Drawn again around a new view start: what is left of a glide is the slide now.
+  useLayoutEffect(() => {
+    shiftRef.current = glideRef.current && zoom > 1 ? glideRef.current.at - viewStart : 0;
+    slideRef.current();
+  }, [viewStart, zoom, span]);
   // Zoom, scroll, resizes and new cues move what the position maps to.
   useLayoutEffect(() => {
     applyFrame(liveRef.current);
@@ -501,18 +606,24 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     const c = prepareCanvas(waveRef.current);
     if (!c) return;
     const { ctx, w, h } = c;
-    const vs = zoom === 1 ? 0 : viewStart;
-    const ve = vs + span;
-    const x = (t: number) => ((t - vs) / span) * w;
+    // The whole drawn stretch, wider than the view: a scroll slides it (see shiftRef).
+    const { from: vs, span: drawnSpan } = bufferOf(viewStart);
+    const ve = vs + drawnSpan;
+    const x = (t: number) => ((t - vs) / drawnSpan) * w;
 
-    // Pauses: hatching behind everything; cues paint over it.
-    ctx.strokeStyle = palette.hatch;
-    ctx.lineWidth = 1;
-    for (let p = -h; p < w; p += 6) {
-      ctx.beginPath();
-      ctx.moveTo(p, h);
-      ctx.lineTo(p + h, 0);
-      ctx.stroke();
+    // With the sync lines' colours, each line's speech is told apart by its colour alone, as its dub
+    // below is: no cue boxes, no pause hatching and no mark over the cue being heard (the playhead is
+    // there). Without them, the cues are boxes on hatched pauses, as before.
+    const coloured = Boolean(lineSpans?.length);
+    if (!coloured) {
+      ctx.strokeStyle = palette.hatch;
+      ctx.lineWidth = 1;
+      for (let p = -h; p < w; p += 6) {
+        ctx.beginPath();
+        ctx.moveTo(p, h);
+        ctx.lineTo(p + h, 0);
+        ctx.stroke();
+      }
     }
     segments.forEach((seg, i) => {
       if (seg.endTime < vs || seg.startTime > ve) return;
@@ -520,19 +631,22 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       const b = x(seg.endTime);
       const isCurrent = i === activeIndex;
       const fast = fastSet.has(String(seg.id));
-      ctx.fillStyle = isCurrent ? palette.current : fast ? palette.fast : palette.cue;
-      ctx.fillRect(a, 0, b - a, h);
-      ctx.fillStyle = isCurrent ? palette.currentEdge : fast ? palette.fastEdge : palette.cueEdge;
-      ctx.fillRect(a, 0, 1.5, h);
-      if (b - a > 20) {
+      if (!coloured) {
+        ctx.fillStyle = isCurrent ? palette.current : fast ? palette.fast : palette.cue;
+        ctx.fillRect(a, 0, b - a, h);
+        ctx.fillStyle = isCurrent ? palette.currentEdge : fast ? palette.fastEdge : palette.cueEdge;
+        ctx.fillRect(a, 0, 1.5, h);
+      }
+      if (b - a > 20 && showNumbers) {
         ctx.font = '600 10px "JetBrains Mono", monospace';
         ctx.fillStyle = isCurrent ? palette.currentEdge : palette.label;
-        ctx.fillText(String(i + 1).padStart(2, '0'), a + 5, 11);
+        ctx.fillText(String(i + 1).padStart(2, '0'), a + (coloured ? 1 : 5), 11);
       }
     });
-    drawBars(ctx, w, WAVE_TOP, h - WAVE_TOP - 3, vs, ve, lineBars(palette.wave, false));
+    const top = coloured ? LANE_INSET : WAVE_TOP;
+    drawBars(ctx, w, top, h - top - (coloured ? LANE_INSET : 3), vs, ve, lineBars(palette.wave, false));
     const cue = segments[activeIndex];
-    if (cue) {
+    if (cue && !coloured) {
       ctx.strokeStyle = palette.currentEdge;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x(cue.startTime), 0.75, x(cue.endTime) - x(cue.startTime), h - 1.5);
@@ -546,13 +660,15 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       ctx.fillRect(cx - 4, h / 2 - 10, 8.5, 20);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet, lineSpans]);
+  }, [peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet, lineSpans, showNumbers]);
 
   useEffect(() => {
     const c = prepareCanvas(wavePlayedRef.current);
     if (!c) return;
-    const vs = zoom === 1 ? 0 : viewStart;
-    drawBars(c.ctx, c.w, WAVE_TOP, c.h - WAVE_TOP - 3, vs, vs + span, lineBars(palette.played, true));
+    const { from: vs, span: drawnSpan } = bufferOf(viewStart);
+    const top = lineSpans?.length ? LANE_INSET : WAVE_TOP;
+    drawBars(c.ctx, c.w, top, c.h - top - (lineSpans?.length ? LANE_INSET : 3), vs, vs + drawnSpan, lineBars(palette.played, true));
+    applyFrame(liveRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peaks, zoom, viewStart, span, palette, redrawTick, lineSpans]);
 
@@ -570,14 +686,14 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const timeAt = (e: React.PointerEvent | React.MouseEvent, el: HTMLElement, whole: boolean) => {
     const r = el.getBoundingClientRect();
     const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-    return whole ? f * total : (zoom === 1 ? 0 : viewStart) + f * span;
+    return whole ? f * total : liveStart() + f * span;
   };
 
   /** The left cue of the cut under the pointer, when cuts can be dragged. */
   const cutUnder = (e: React.PointerEvent, el: HTMLElement): string | number | null => {
     if (!onDragCut) return null;
     const r = el.getBoundingClientRect();
-    const vs = zoom === 1 ? 0 : viewStart;
+    const vs = liveStart();
     for (let i = 0; i < segments.length - 1; i++) {
       const a = segments[i];
       const b = segments[i + 1];
@@ -624,11 +740,12 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const zoomToBox = (e: React.MouseEvent<HTMLDivElement>) => {
     const lane = e.currentTarget;
     let box = e.target as HTMLElement | null;
-    while (box && box.parentElement !== lane) box = box.parentElement;
-    if (!box || total <= 0) return;
+    // A line is a child of the lane's track (the drawn stretch that slides), not of the lane.
+    while (box && box !== lane && !box.parentElement?.hasAttribute('data-track')) box = box.parentElement;
+    if (!box || box === lane || total <= 0) return;
     const r = lane.getBoundingClientRect();
     const b = box.getBoundingClientRect();
-    const vs = zoom === 1 ? 0 : viewStart;
+    const vs = liveStart();
     const from = vs + ((b.left - r.left) / r.width) * span;
     const to = vs + ((b.right - r.left) / r.width) * span;
     const want = Math.max(0.5, (to - from) * 1.5);
@@ -647,7 +764,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     const t = ((e.clientX - r.left) / r.width) * total;
     if (kind === 'down') {
       e.currentTarget.setPointerCapture(e.pointerId);
-      const vs = zoom === 1 ? 0 : viewStart;
+      const vs = liveStart();
       // Grabbed on the thumb, it keeps the point grabbed under the pointer; on the track, it centres there.
       thumbGrabRef.current = t >= vs && t <= vs + span ? t - vs : span / 2;
     }
@@ -660,6 +777,32 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     setViewStart(clampStart(t - thumbGrabRef.current));
   };
 
+  /*
+   * The ruler over the timeline: a click moves the playhead there, and a drag
+   * scrubs it along, as DaVinci Resolve's timecode ruler does. It only moves
+   * the playhead: no cue is picked and the view stays where it is.
+   */
+  const rulerDragRef = useRef(false);
+  const onRulerPointer = (e: React.PointerEvent<HTMLDivElement>, kind: 'down' | 'move' | 'up') => {
+    if (kind === 'down') {
+      if (e.button !== 0) return;
+      rulerDragRef.current = true;
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {
+        // A pointer that is already gone: the click still moves the playhead.
+      }
+    }
+    if (!rulerDragRef.current) return;
+    if (kind === 'up') {
+      rulerDragRef.current = false;
+      return;
+    }
+    // Scrubbing by hand: the view doesn't run after the playhead meanwhile.
+    if (kind === 'down' && zoom > 1) setFollow(false);
+    seekTo(timeAt(e, e.currentTarget, false), false);
+  };
+
   // The page's own scroll is stopped by the native listeners below: React's wheel listener is passive and can't.
   const onWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -670,9 +813,12 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       setFollow(false);
       const sideways = Math.abs(e.deltaX) > Math.abs(e.deltaY);
       const lines = e.deltaMode === 1 ? 16 : 1;
-      const delta = ((sideways ? e.deltaX : e.deltaY) * lines) / 600;
+      const width = (e.currentTarget as HTMLElement).clientWidth || 600;
+      // A sideways swipe moves the timeline as far as the fingers went; a wheel's turn a sixth of the view.
+      const seconds = sideways ? ((e.deltaX * lines) / width) * span : ((e.deltaY * lines) / 600) * span;
       // Eased over a few frames from where the last turn of the wheel was headed, so quick turns add up smoothly.
-      glideTo(clampStart((glideRef.current?.target ?? viewStart) + delta * span), span * 0.0005);
+      const from = glideRef.current?.target ?? liveStart();
+      glideTo(clampStart(from + seconds), span * 0.0002, sideways && e.deltaMode === 0 ? GLIDE_TRACKPAD : GLIDE);
     }
   };
 
@@ -680,6 +826,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const waveBoxRef = useRef<HTMLDivElement>(null);
   const laneRef = useRef<HTMLDivElement>(null);
   const pausesRef = useRef<HTMLDivElement>(null);
+  const rulerRef = useRef<HTMLDivElement>(null);
+  const suggestRef = useRef<HTMLDivElement>(null);
   const scrollbarRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = waveBoxRef.current;
@@ -689,13 +837,13 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       if (e.ctrlKey || e.metaKey || zoom > 1) e.preventDefault();
     };
     el.addEventListener('wheel', stop, { passive: false });
-    const rows = [laneRef.current, pausesRef.current, scrollbarRef.current].filter((row): row is HTMLDivElement => Boolean(row));
+    const rows = [rulerRef.current, laneRef.current, pausesRef.current, suggestRef.current, scrollbarRef.current].filter((row): row is HTMLDivElement => Boolean(row));
     rows.forEach((row) => row.addEventListener('wheel', stop, { passive: false }));
     return () => {
       el.removeEventListener('wheel', stop);
       rows.forEach((row) => row.removeEventListener('wheel', stop));
     };
-  }, [zoom, Boolean(belowWave), Boolean(pausesRow)]);
+  }, [zoom, Boolean(belowWave), Boolean(pausesRow), Boolean(belowLane), layers.pauses]);
 
   // The hints close on a click outside them, or Esc.
   const helpRef = useRef<HTMLDivElement>(null);
@@ -717,9 +865,16 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
 
   // ---------- pieces ----------
   const vs = zoom === 1 ? 0 : viewStart;
+  // The drawn stretch: the view and BUFFER_PAD views each side, slid by --track-shift while scrolling.
+  const drawn = bufferOf(viewStart);
+  const trackStyle: React.CSSProperties = {
+    left: `${((drawn.from - vs) / span) * 100}%`,
+    width: `${(drawn.span / span) * 100}%`,
+    transform: 'translateX(var(--track-shift, 0px))',
+  };
   const rulerStep = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find((s) => span / s <= 10) || 600;
   const ticks: number[] = [];
-  for (let t = Math.ceil(vs / rulerStep) * rulerStep; t <= vs + span; t += rulerStep) ticks.push(t);
+  for (let t = Math.ceil(drawn.from / rulerStep) * rulerStep; t <= drawn.from + drawn.span; t += rulerStep) ticks.push(t);
 
   const onView = zoom === 1 ? 'whole' : `${span < 10 ? span.toFixed(1) : Math.round(span)} s`;
   const playheadOffView = zoom > 1 && (currentTime < vs || currentTime > vs + span);
@@ -768,7 +923,23 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     </button>
   );
 
-  const legend = (
+  const legend = lineSpans?.length ? (
+    <>
+      <span className="flex items-center gap-1.5">
+        <span className="flex gap-px">
+          {LINE_HUES.map((c) => (
+            <span key={c} className="w-1.5 h-2 rounded-[1px]" style={{ background: c }} />
+          ))}
+        </span>
+        Each line in its own colour, its dub below in the same
+      </span>
+      {belowWave && (
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-0.5 rounded-full bg-rose-400" /> {fastLabel}
+        </span>
+      )}
+    </>
+  ) : (
     <>
       <span className="flex items-center gap-1.5">
         <span className="w-3 h-2 rounded-sm bg-cyan-400/20 border border-cyan-400/50" /> Cue
@@ -800,7 +971,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       <section ref={sectionRef} aria-label="Playback" className="bg-slate-900/90 border border-slate-800 rounded-2xl">
         {/* Top bar: the current cue, then how you listen and look */}
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-3.5 py-2 border-b border-slate-800">
-          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
             <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 whitespace-nowrap">
               {activeCue ? `Cue ${String(activeIndex + 1).padStart(2, '0')} of ${segments.length}` : `${segments.length} cues`}
             </span>
@@ -814,6 +985,26 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             )}
             <span className="hidden xl:flex items-center gap-x-3 ml-1 text-[11px] text-slate-500 whitespace-nowrap">{legend}</span>
           </div>
+
+          {layered && (
+            <div role="group" aria-label="Show on the timeline" className="flex items-center gap-1">
+              {LAYER_CHIPS.map((chip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  aria-pressed={layers[chip.id]}
+                  title={chip.hint}
+                  onClick={() => toggleLayer(chip.id)}
+                  className={`h-6 px-2.5 rounded-full border text-[11px] whitespace-nowrap cursor-default transition-colors ${
+                    layers[chip.id] ? 'border-slate-500 bg-slate-800 text-slate-100' : 'border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+              {toolbarExtra}
+            </div>
+          )}
 
           {onPlaybackRateChange && (
             <div role="group" aria-label="Speed" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950/60 border border-slate-800">
@@ -930,13 +1121,24 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
           on top, its pauses on the line between, the dub as Sync will place it
           below; then a plain scroll bar for the whole track.
         */}
-        <div className="px-3.5">
-          <div className="relative h-4 font-mono text-[10px] text-slate-500" aria-hidden="true">
-            {ticks.map((t) => (
-              <span key={t} className="absolute top-0.5 -translate-x-1/2 tabular-nums" style={{ left: `${((t - vs) / span) * 100}%` }}>
-                {formatTime(t, false)}
-              </span>
-            ))}
+        <div ref={timelineRef} className="px-3.5">
+          <div
+            ref={rulerRef}
+            className="relative h-5 overflow-hidden font-mono text-[10px] text-slate-500 cursor-pointer touch-none select-none hover:bg-slate-800/40 rounded-md"
+            title="Click or drag to move the playhead"
+            onPointerDown={(e) => onRulerPointer(e, 'down')}
+            onPointerMove={(e) => onRulerPointer(e, 'move')}
+            onPointerUp={(e) => onRulerPointer(e, 'up')}
+            onPointerCancel={(e) => onRulerPointer(e, 'up')}
+            onWheel={onWheel}
+          >
+            <div className="absolute inset-y-0 will-change-transform" style={trackStyle}>
+              {ticks.map((t) => (
+                <span key={t} className="absolute top-1 -translate-x-1/2 tabular-nums pointer-events-none" style={{ left: `${((t - drawn.from) / drawn.span) * 100}%` }}>
+                  {formatTime(t, false)}
+                </span>
+              ))}
+            </div>
           </div>
           <div className="relative rounded-[10px] bg-slate-950/60 overflow-hidden">
             <div
@@ -956,23 +1158,27 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               onPointerLeave={() => setHoverTime(null)}
               onWheel={onWheel}
             >
-              <canvas ref={waveRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
-              <canvas ref={wavePlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+              <div className="absolute inset-y-0 will-change-transform pointer-events-none" style={trackStyle}>
+                <canvas ref={waveRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+                <canvas ref={wavePlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
+              </div>
               {!audioBuffer && (
                 <span className="absolute inset-0 flex items-center justify-center text-xs text-slate-500">Reading the audio…</span>
               )}
               {hoverTime !== null && (
                 <span
                   className="absolute z-30 top-1 -translate-x-1/2 px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-950 font-mono text-[10.5px] pointer-events-none whitespace-nowrap"
-                  style={{ left: `${((hoverTime - vs) / span) * 100}%` }}
+                  style={{ left: `${((hoverTime - liveStart()) / span) * 100}%` }}
                 >
                   {formatTime(hoverTime)}
                 </span>
               )}
             </div>
-            {belowWave && pausesRow && (
+            {belowWave && pausesRow && (!layered || layers.pauses) && (
               <div ref={pausesRef} className="relative h-3.5 border-t border-slate-800 overflow-hidden cursor-default" onWheel={onWheel}>
-                {pausesRow({ start: vs, span })}
+                <div data-track="" className="absolute inset-y-0 will-change-transform" style={trackStyle}>
+                  {pausesRow({ start: drawn.from, span: drawn.span })}
+                </div>
               </div>
             )}
             {belowWave && (
@@ -982,7 +1188,16 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 onWheel={onWheel}
                 onDoubleClick={zoomToBox}
               >
-                {belowWave({ start: vs, span, time: currentTime })}
+                <div data-track="" className="absolute inset-y-0 will-change-transform" style={trackStyle}>
+                  {belowWave({ start: drawn.from, span: drawn.span, time: currentTime, layers })}
+                </div>
+              </div>
+            )}
+            {belowWave && belowLane && (
+              <div ref={suggestRef} className="relative h-7 overflow-hidden cursor-default" onWheel={onWheel}>
+                <div data-track="" className="absolute inset-y-0 will-change-transform" style={trackStyle}>
+                  {belowLane({ start: drawn.from, span: drawn.span })}
+                </div>
               </div>
             )}
             <div ref={waveHeadRef} className="absolute z-20 top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }}>
@@ -1012,7 +1227,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             aria-valuemax={Math.round(total)}
             aria-valuenow={Math.round(vs)}
             aria-label="Move along the track"
-            className="group relative mt-1.5 h-2.5 rounded-full bg-slate-950/60 border border-slate-800/80 cursor-default touch-none"
+            className="group relative mt-1.5 h-4 rounded-full bg-slate-950/60 border border-slate-800/80 cursor-default touch-none"
             title={zoom === 1 ? 'The whole track is on view' : 'Drag to move along the track (or scroll over the timeline)'}
             onPointerDown={(e) => onScrollbarPointer(e, 'down')}
             onPointerMove={(e) => onScrollbarPointer(e, 'move')}
@@ -1022,7 +1237,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             {total > 0 && (
               <>
                 <span
-                  className="absolute top-px bottom-px rounded-full bg-slate-600 group-hover:bg-slate-500 pointer-events-none"
+                  ref={thumbRef}
+                  className="absolute top-0.5 bottom-0.5 rounded-full bg-slate-600 group-hover:bg-slate-500 pointer-events-none"
                   style={{ left: `${(vs / total) * 100}%`, width: `${Math.max(2, (span / total) * 100)}%` }}
                 />
                 <span

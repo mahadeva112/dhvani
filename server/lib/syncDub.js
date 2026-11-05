@@ -32,6 +32,7 @@ import { mixSpeakers, speakerGains } from './speakerMix.js';
 import { tooDeepCut } from './syncRewrite.js';
 import { validateAlignedWords, measureWordTiming } from './syncWordTiming.js';
 import { sourcePausesOf } from './sourcePauses.js';
+import { levelDb, nearestResume, soundFirstCut, sourcePauseCuts } from './sourceCuts.js';
 import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, linePauses, joinSpokenBlocks, cutPoints, splitAtPoints, RIGID_GAP_SECONDS } from './chunkSync.js';
 import { takeDiffers } from './takeChecks.js';
 import { readStoredClip, storeClip } from './clipStore.js';
@@ -73,6 +74,11 @@ export const isShortLine = (speech, spoken) => speech < spoken * SHORT_SHARE && 
 /** A line the user locked in Edit timing pulls so hard that the solve leaves it where it is. */
 const LOCK_WEIGHT = 1e6;
 
+/** Cuts at the original's pauses are settled in at most this many solves (see settleSourceCuts). */
+const SOURCE_CUT_ROUNDS = 4;
+/** A line comes out worse with its cuts at pauses when its end runs this much further into the next line, or its first word twice this further off. */
+const SOURCE_CUT_SLACK = 0.05;
+
 /** Names a clip by its samples, so a line can be recognised as the same take in a later sync. */
 export const clipHash = (samples) => createHash('sha1').update(Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)).digest('hex');
 
@@ -97,6 +103,9 @@ const SPEED_FIT_MIN_OVER = 0.05;
 const SPEED_FIT_MARGIN = 1.03;
 /** ...and not for less than this: a read barely faster is not worth a new take. */
 const SPEED_FIT_MIN = 1.02;
+/** How far a line may be stretched on Review's dub lane (services/linePlaces.ts): atempo takes these in one pass. */
+const MIN_STRETCH = 0.5;
+const MAX_STRETCH = 2;
 
 /**
  * Whether `voice` reads faster when its speed is raised. Measured 2026-10-15
@@ -387,6 +396,22 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         ? fromDub[i]
         : null
   );
+  /*
+   * The speed the user stretched each line to on Review's dub lane
+   * (DubPlace.rate, on its first cue), kept only while the line says what it
+   * said then; 1 when it isn't stretched, or when nothing here can stretch.
+   * A freshly voiced line is stretched to it, pitch kept (deps.stretch,
+   * ffmpeg's atempo), before it is placed: the user asked for that speed, so
+   * Read faster leaves the line alone. A take used as it is (from the dub, or
+   * picked from the takes panel) is not stretched again.
+   */
+  const firstCueOf = new Map(segments.map((cue) => [cue?.id, cue]));
+  const stretchOf = units.map((unit) => {
+    const place = firstCueOf.get(unit.cueIds[0])?.dubPlace;
+    const rate = Number(place?.rate);
+    if (!deps.stretch || !place || place.text !== unit.text || !Number.isFinite(rate) || Math.abs(rate - 1) < 0.005) return 1;
+    return Math.min(MAX_STRETCH, Math.max(MIN_STRETCH, rate));
+  });
   // What each line is voiced from: its text with any delivery tags, ending a
   // sentence so the voice finishes the last word.
   const voiceTexts = units.map((unit) => unit.voiceText || unit.text);
@@ -424,8 +449,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     }
     const decoded = taken[i] || (await deps.decode(buffers[i]));
     voicedLength[i] = decoded.length;
-    const { samples, removed } = join.removeBreaths ? removeBreaths(decoded, sampleRate, { reduction: join.breathReduction }) : { samples: decoded, removed: 0 };
+    const { samples: kept, removed } = join.removeBreaths ? removeBreaths(decoded, sampleRate, { reduction: join.breathReduction }) : { samples: decoded, removed: 0 };
     breathsRemoved[i] = removed;
+    const samples = !taken[i] && stretchOf[i] !== 1 ? await deps.stretch(kept, stretchOf[i]) : kept;
     clips[i] = prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold });
   };
 
@@ -614,6 +640,27 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   const placedStart = (i) => places[i]?.start ?? units[i].srcStart;
   /** True when the user put line `i`'s first word somewhere. */
   const isPlaced = (i) => places[i] !== null && places[i].start !== null;
+  /*
+   * Cuts at the original's pauses (cutAtSourcePauses, Chunk sync only): by
+   * line, where the speaker paused (sourceCuts.js), less those the user
+   * turned off on Review's dub lane (DubPlace.skip). Whether each is made is
+   * settled as the line is split (chunkLineOf, sound first) and placed
+   * (settleSourceCuts): a line in autoOff is placed uncut, and a part in
+   * autoCaps starts no later than that.
+   */
+  const skipsOf = (i) => {
+    const place = segmentById.get(units[i].cueIds[0])?.dubPlace;
+    return place && place.text === units[i].text && Array.isArray(place.skip) ? place.skip : [];
+  };
+  const autoCuts = units.map((unit, i) =>
+    chunked && join.cutAtSourcePauses && !lockOf[i] && clips[i]
+      ? sourcePauseCuts(unit.cueIds.map((id) => segmentById.get(id)), unit.text, { minPause: join.sourceCutMinPause, skip: skipsOf(i) })
+      : []
+  );
+  const autoOff = new Set();
+  const autoCaps = new Map();
+  /** By line: the cuts at pauses made, `{ letters, how }`, and those not, `{ letters, why }`. */
+  const sourceCutsMade = new Map();
   const sourcePauses = units.map((unit) => (join.matchSourcePauses ? sourcePausesOf(unit.cueIds.map((id) => segmentById.get(id))) : null));
   const sourcePauseTrimmed = new Map();
   const pauseTrimmed = new Map();
@@ -717,8 +764,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     return checked;
   };
   const chunkWords = new Map();
-  // A line the user cut is timed word by word all the same: its cuts go between its words.
-  const isCut = (i) => Boolean(places[i]?.cuts.length);
+  // A line the user cut, or one to cut at the original's pauses, is timed word by word all the same: its cuts go between its words.
+  const isCut = (i) => Boolean(places[i]?.cuts.length) || autoCuts[i].length > 0;
   if (chunked && (join.checkCutWords || units.some((_, i) => isCut(i)))) {
     const toAlign = units.map((_, i) => i).filter((i) => clips[i] && !lockOf[i] && (join.checkCutWords || isCut(i)));
     let aligned = 0;
@@ -750,7 +797,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
    * from its block's start; with joinSpokenChunks, blocks the original says
    * in one go are one block (see joinSpokenBlocks).
    */
-  const chunkLineOf = (i) => {
+  const chunkLineOf = (i, off = autoOff) => {
     const unit = units[i];
     const clip = clips[i];
     if (lockOf[i]) return { i, locked: true, blocks: [{ from: 0, to: clip.samples.length, length: clip.samples.length / sampleRate, chunks: [{ from: 0, to: clip.samples.length, at: 0 }] }] };
@@ -772,7 +819,31 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     const place = places[i];
     const points = place?.cuts.length && words ? cutPoints(words, place.cuts, sampleRate) : [];
     if (place?.cuts.length && points.length < place.cuts.length) cutNotMade.add(i);
-    const chunks = splitAtPoints(whole ? [{ from: split[0].from, to: split.at(-1).to }] : split, points);
+    const kinds = words ? wordKinds(unit.text, words) : null;
+    // Cuts at the original's pauses, sound first (sourceCuts.js); a cut of the user's at the same word is theirs.
+    const autoPoints = [];
+    if (autoCuts[i].length) {
+      const own = new Set((place?.cuts || []).map((cut) => cut.letters));
+      const made = [];
+      const skipped = [];
+      const speechDb = levelDb(clip.samples, clip.lead * sampleRate, (clip.lead + clip.speech) * sampleRate);
+      for (const cut of autoCuts[i]) {
+        if (own.has(cut.letters)) continue;
+        const found = off.has(i)
+          ? { why: 'later' }
+          : !words || whole
+            ? { why: 'words' }
+            : soundFirstCut({ samples: clip.samples, sampleRate, words, kinds, chunks: split, letters: cut.letters, speechDb });
+        if (found.why) {
+          skipped.push({ letters: cut.letters, why: found.why });
+          continue;
+        }
+        made.push({ letters: cut.letters, how: found.how });
+        autoPoints.push({ at: found.at, auto: { letters: cut.letters, resume: cut.resume } });
+      }
+      sourceCutsMade.set(i, { made, skipped });
+    }
+    const chunks = splitAtPoints(whole ? [{ from: split[0].from, to: split.at(-1).to }] : split, [...points, ...autoPoints]);
     if (isPlaced(i) && chunks[0]) chunks[0].pin = place.start;
     // Where each chunk's first sound is, in seconds into the line: its first word, or past its leading pad.
     const onsets = chunks.map((chunk, k) => {
@@ -782,7 +853,13 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     });
     const cues = unit.cueIds.map((id) => segmentById.get(id)).filter(Boolean).sort((a, b) => a.startTime - b.startTime);
     const targets = chunkTargets({ onsets, words, cues, lead: clip.lead, speech: clip.speech });
-    const kinds = words ? wordKinds(unit.text, words) : null;
+    // A part cut at the original's pause starts where the speaker starts again.
+    const pausesHere = autoPoints.length ? linePauses(cues) : [];
+    chunks.forEach((chunk, k) => {
+      if (!chunk.auto) return;
+      const resume = Number.isFinite(chunk.auto.resume) ? chunk.auto.resume : nearestResume(pausesHere, targets[k]);
+      if (resume !== null) targets[k] = resume;
+    });
     // How the script reads at the pause before the chunk starting at `from`: after the last word before it.
     const kindBefore = (from) => {
       if (!words) return 'word';
@@ -812,6 +889,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           kindBefore: last ? kindBefore(chunk.from) : null,
           pauseBefore: last ? (chunk.from - last.to) / sampleRate : 0,
           ...(chunk.cut && { cut: true }),
+          ...(chunk.auto && { auto: chunk.auto.letters }),
           ...(pinned && { pin: chunk.pin }),
         });
       }
@@ -876,7 +954,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   if (chunked && (join.speedFit !== 'off' || join.bestTakes !== 'off')) {
     const tooLong = units
       .map((_, i) => i)
-      .filter((i) => clips[i] && !lockOf[i] && !taken[i] && !choiceOf(units[i]) && !declined.has(lineKey(units[i])) && !(join.checkCutWords && !chunkWords.has(i)))
+      .filter((i) => clips[i] && !lockOf[i] && !taken[i] && stretchOf[i] === 1 && !choiceOf(units[i]) && !declined.has(lineKey(units[i])) && !(join.checkCutWords && !chunkWords.has(i)))
       .map((i) => ({ i, ...chunkLineOverflow(chunkLineOf(i)) }))
       .filter(({ over }) => over > SPEED_FIT_MIN_OVER)
       .sort((a, b) => b.over - a.over)
@@ -1023,10 +1101,11 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // How far each line runs past its slot with every pause it has shrunk as far as it may.
   const chunkOverflow = new Map();
   const placeChunks = () => {
-    const lines = placedIndex.map((i, n) => ({ ...chunkLineOf(i), n }));
     const gapAfter = chunkGapAfter;
+    /** Every placed line as Chunk sync splits it; the lines in `off` without their cuts at pauses. */
+    const buildLines = (off = autoOff) => placedIndex.map((i, n) => ({ ...chunkLineOf(i, off), n }));
 
-    const solve = (tier) => {
+    const solve = (lines, tier) => {
       const items = [];
       for (const line of lines) {
         const unit = units[line.i];
@@ -1064,7 +1143,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
           const strict = b === 0 && timingProtection === 'strict' ? want + join.maxLateStart : Infinity;
           // Must end by: the dub's last chunk ends by the original's end, give or take endSlack.
           const last = line.n === placedIndex.length - 1 && b === line.blocks.length - 1;
-          const latest = Math.min(strict, preserveAfter ? unit.srcEnd - length : Infinity, last ? endLimit - length : Infinity);
+          // A part cut at the original's pause opens no more new silence before it than sourceCutMaxInsert (settleSourceCuts).
+          const capped = block.auto ? autoCaps.get(`${line.i}:${block.auto}`) ?? Infinity : Infinity;
+          const latest = Math.min(strict, preserveAfter ? unit.srcEnd - length : Infinity, last ? endLimit - length : Infinity, capped);
           items.push({
             line,
             block,
@@ -1090,19 +1171,92 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       return { items, at, conflicts, worst };
     };
     // Pauses between words shrink first, then those at a comma, a sentence end's last, while any chunk is still out.
-    let solved = solve(2);
-    if (join.punctuationPriority) {
-      for (const tier of [0, 1]) {
-        const tried = solve(tier);
-        if (tried.worst <= tolerance) {
-          solved = tried;
-          break;
+    const solveAll = (lines) => {
+      let solved = solve(lines, 2);
+      if (join.punctuationPriority) {
+        for (const tier of [0, 1]) {
+          const tried = solve(lines, tier);
+          if (tried.worst <= tolerance) {
+            solved = tried;
+            break;
+          }
         }
       }
-    }
+      return solved;
+    };
+
+    /** By line, as `solved` places it: how far its first word is from where it should be, and how far its end runs into the next line. */
+    const fitOf = ({ items, at }) => {
+      const fit = new Map();
+      items.forEach((item, k) => {
+        if (item.line.locked) return;
+        const i = item.line.i;
+        const end = at[k] + item.length;
+        const over = i + 1 < units.length && units[i].nextStart !== null ? Math.max(0, end - placedStart(i + 1)) : 0;
+        const was = fit.get(i);
+        if (was) {
+          was.over = over;
+          return;
+        }
+        const first = item.block.chunks[0];
+        fit.set(i, { start: Math.abs(at[k] + first.at + first.onset - first.from / sampleRate - placedStart(i)), over });
+      });
+      return fit;
+    };
+    /** The line with cuts at pauses still made nearest line `i` in `lines`, the one before it first; null when there is none. */
+    const nearestCutLine = (lines, i) => {
+      const n = placedIndex.indexOf(i);
+      let best = null;
+      for (const line of lines) {
+        if (autoOff.has(line.i) || !line.blocks.some((block) => block.auto)) continue;
+        const d = line.n <= n ? n - line.n : line.n - n + 0.5;
+        if (best === null || d < best.d) best = { d, i: line.i };
+      }
+      return best ? best.i : null;
+    };
+    /*
+     * Cuts at the original's pauses are kept only where no line comes out
+     * worse than it does with none: its first word no further off, its end no
+     * further into the next line. A part that would open more new silence
+     * before it than sourceCutMaxInsert is held back to that (autoCaps); a
+     * line that still comes out worse costs the nearest line with such cuts,
+     * itself or the one before it, its cuts (autoOff).
+     */
+    const settleSourceCuts = (lines, solved, base) => {
+      for (let round = 0; round < SOURCE_CUT_ROUNDS; round++) {
+        let changed = false;
+        solved.items.forEach((item, k) => {
+          if (!item.block.auto || k === 0 || solved.items[k - 1].line !== item.line) return;
+          const before = solved.at[k - 1] + solved.items[k - 1].length + item.block.pauseBefore;
+          if (solved.at[k] - before <= join.sourceCutMaxInsert + 1e-3) return;
+          autoCaps.set(`${item.line.i}:${item.block.auto}`, before + join.sourceCutMaxInsert);
+          changed = true;
+        });
+        for (const [i, fit] of fitOf(solved)) {
+          const was = base.get(i);
+          if (!was || (fit.over <= was.over + SOURCE_CUT_SLACK && fit.start <= was.start + 2 * SOURCE_CUT_SLACK)) continue;
+          const blamed = nearestCutLine(lines, i);
+          if (blamed === null) continue;
+          autoOff.add(blamed);
+          changed = true;
+        }
+        if (!changed) return { lines, solved };
+        lines = buildLines();
+        solved = solveAll(lines);
+      }
+      return { lines, solved };
+    };
+
+    // The dub with no cuts at pauses comes first, what they are measured against; the lines as they go out are split last.
+    const base = autoCuts.some((cuts) => cuts.length > 0) ? fitOf(solveAll(buildLines(new Set(placedIndex)))) : null;
+    let lines = buildLines();
+    let solved = solveAll(lines);
+    if (base && lines.some((line) => line.blocks.some((block) => block.auto))) ({ lines, solved } = settleSourceCuts(lines, solved, base));
     const { items, at, conflicts } = solved;
     for (const k of conflicts) {
       const { line, block } = items[k];
+      // A part held back by its cap at a pause missed no limit of the user's: nothing to flag.
+      if (block.auto && items[k].latest === autoCaps.get(`${line.i}:${block.auto}`)) continue;
       if (!placeConflicts.includes(line.n)) placeConflicts.push(line.n);
       if (Number.isFinite(block.pin)) {
         const first = block.chunks[0];
@@ -1516,7 +1670,11 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       silenceTightened: silenceTightened.get(i) || 0,
       // Chunk sync: the chunks the line was placed as, and how much faster it was read to fit (Fit by voice speed).
       ...(chunkPlan.has(i) && { chunks: chunkPlan.get(i).length }),
+      // Cut at the original's pauses: where it was, how (at the voice's own pause or a quiet point), and where not, why.
+      ...(sourceCutsMade.has(i) && { sourceCuts: sourceCutsMade.get(i) }),
       ...(speedFits.has(i) && { speedFit: speedFits.get(i) }),
+      // Stretched by the user on Review's dub lane: the speed it was read at, pitch kept.
+      ...(stretchOf[i] !== 1 && !taken[i] && { stretched: stretchOf[i] }),
       // A new take of a line too long: used, or offered for the user to choose; or why none was.
       ...(takeFits.has(i) && { takeFit: takeFits.get(i) }),
       ...(takeRejects.has(i) && { takeRejected: takeRejects.get(i) }),
@@ -1583,6 +1741,9 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         // Seconds the dub runs past the original's end (0 when it ends in time).
         endsPastVideo,
         ...(chunked && { chunkSync: true, chunks: [...chunkPlan.values()].reduce((sum, chunks) => sum + chunks.length, 0), speedFitted: speedFits.size, speedFitUnsupported: speedUnfollowed.size,
+          // Cuts at the original's pauses made, and those that weren't.
+          sourceCuts: [...sourceCutsMade.values()].reduce((sum, cuts) => sum + cuts.made.length, 0),
+          sourceCutsSkipped: [...sourceCutsMade.values()].reduce((sum, cuts) => sum + cuts.skipped.length, 0),
           takesUsed: [...takeFits.values()].filter((fitted) => fitted.used).length,
           takesOffered: [...takeFits.values()].filter((fitted) => !fitted.used).length }),
         // Lines Match source pauses could not check, their original having no word timestamps.

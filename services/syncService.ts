@@ -5,7 +5,7 @@ import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './ca
 import { castPayload, fetchMixed } from './castService';
 import { keepTermsFor } from './glossaryService';
 import type { lockedLines, SyncBank } from './syncEditService';
-import type { LinePart } from './linePlaces';
+import type { LinePart, PauseMark } from './linePlaces';
 import { ALLOWED_OVERFLOW, isShortSpeech, LENGTHEN_FILL, SUGGESTION_MARGIN, TIGHT_SHARE } from './fitThresholds';
 import { matchedLips, READ_SPREAD, sourceLipTimes, syllablesHeld, timeLine, type LineTiming, type TimedWord } from './speechTiming';
 
@@ -90,6 +90,15 @@ export interface SyncJoinSettings {
   /** Pause only where the original speaker did: other pauses inside a line are cut to `unmatchedPause`, even when it fits. */
   matchSourcePauses: boolean;
   unmatchedPause: number;
+  /**
+   * Chunk sync: cut a line where the original speaker paused, so the part after the pause starts where the
+   * speaker starts again. At the voice's own pause, else only after a comma or sentence end where the sound dips.
+   */
+  cutAtSourcePauses: boolean;
+  /** Pauses of the original shorter than this are left to the voice. */
+  sourceCutMinPause: number;
+  /** The most silence such a cut adds to what the voice left there. */
+  sourceCutMaxInsert: number;
   /** A line still too long once its pauses are shortened loses silence measured against its own room tone. Words are never cut. */
   tightenSilences: boolean;
   /** A pause Tighten silences shortens keeps at least this. */
@@ -281,6 +290,8 @@ export interface SyncUnitReport {
   takeChosen?: boolean;
   /** Fit by voice speed: how much faster than its voice's own speed the line was read to fit. */
   speedFit?: number;
+  /** Stretched by the user on Review's dub lane: the speed it was read at, pitch kept. */
+  stretched?: number;
   /** Too long, but its voice's model ignores speed (Eleven v3 and v4), so it was not voiced again. */
   speedFitUnsupported?: boolean;
   /** Of `pauseTrimmed`, what Tighten silences took from the line's tail and pauses (absent in older reports). */
@@ -673,6 +684,10 @@ export interface SyncPreviewUnit {
   /** Where the user placed the line's first word, and its parts once cut; set only client-side, by withLinePlaces. */
   dubStart?: number;
   parts?: LinePart[];
+  /** The speed the user stretched the line to on Review's dub lane, its estimate already read at it; set only client-side, by withLineRates. */
+  rate?: number;
+  /** Its cuts at the original's pauses, as Review's dub lane shows them; set only client-side, by withLinePlaces. */
+  pauseMarks?: PauseMark[];
   /** Set by the Expert estimate (expertPreview): the line timed in syllables, and its lip closures. */
   expert?: ExpertLine;
   /** Marks in the line the voice may pause at where the original speaker talks straight through; `after` is the word before. */
