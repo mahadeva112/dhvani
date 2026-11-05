@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.36',
+    changes: [
+      'After you change a speaker into another voice with the voice changer (Line by line), retakes come back in that voice too: each new take is voiced, then changed on its own. Lines a Sync voices again are changed after it, and lines already changed stay changed.',
+      'In Takes, "Change to …" changes just that take into the new voice, edits kept. "Keep the dub voice" stops it. Running the voice changer again changes only the lines not in the new voice yet.',
+    ],
+  },
+  {
     version: '1.4.35',
     changes: [
       "Review's timeline is cleaner: each line in its own colour on the original and on the dub below, both the same size, with no boxes or marks. Pauses, Fit and Line numbers at the top bring the details back.",
