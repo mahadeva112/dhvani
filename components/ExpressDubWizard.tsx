@@ -411,6 +411,8 @@ interface ExpressDubWizardProps {
   onElVoiceSettingsChange?: (settings: ElevenLabsVoiceSettings | null) => void;
   /** Dub & sync: the dub, voiced line by line and placed on the original's phrases. */
   onSyncDub?: (options: SyncOptions) => void;
+  /** Sync from scratch: every line voiced anew, nothing kept from the dub before (asks first). */
+  onSyncFromScratch?: (options: SyncOptions) => void;
   /** The Dub step's sync settings changed, for the project they belong to. */
   onSyncOptionsChange?: (projectId: string, options: SyncOptions) => void;
   /** Raised by Sync settings in the header's menu: each new value opens the Sync settings window. */
@@ -583,6 +585,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   elVoiceSettings = null,
   onElVoiceSettingsChange,
   onSyncDub,
+  onSyncFromScratch,
   onSyncOptionsChange,
   syncSettingsRequest = 0,
   onSyncEditsChange,
@@ -3657,6 +3660,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const blockedReason = !onSyncDub ? 'Dubbing is not available.' : segments.length === 0 ? 'There are no cues to dub yet.' : null;
         // One Even out loudness, on the voice panel, for every dub.
         const runSync = () => onSyncDub?.({ ...syncOptions, matchLoudness: dubMatchLoudness });
+        const runSyncFromScratch = onSyncFromScratch ? () => onSyncFromScratch({ ...syncOptions, matchLoudness: dubMatchLoudness }) : undefined;
         // The length preset this dub's lines suit, from the last sync; picking it syncs again with it.
         const lengthSuggestion = presetSuggestion(report?.units);
         const syncWithPreset = (preset: Exclude<SyncJoinPreset, 'custom'>) => {
@@ -4741,6 +4745,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 lineCount={report ? report.units.length : syncPreview.preview?.summary.lines}
                 presetSuggestion={lengthSuggestion}
                 onSync={runSync}
+                onSyncFromScratch={runSyncFromScratch}
                 onCancel={() => onCancelSync?.()}
                 onBack={() => {
                   setStepOverride(2);

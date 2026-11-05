@@ -146,7 +146,7 @@ import {
 } from './services/dubAudioQuality';
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
 import { BASE_LABELS, backToFirstStep, recordReviewStep, redoReviewStep, startReviewHistory, undoReviewStep } from './services/reviewHistory';
-import { hasEdits, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits, type SyncBank, type SyncBankLine } from './services/syncEditService';
+import { hasEdits, isOriginalClip, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits, type SyncBank, type SyncBankLine } from './services/syncEditService';
 import { phraseLine, phraseOf, pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
 import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
 import { stripTags, tagsOf } from './server/lib/lineTags.js';
@@ -190,6 +190,7 @@ import {
 import { looksTranscribedAgain, mergeScriptUpdate } from './services/scriptUpdate';
 import { UpdateScriptPanel, type ScriptUpdatePreview } from './components/UpdateScriptPanel';
 import { SyncAgainGuard, type SyncAgainGuardState } from './components/SyncAgainGuard';
+import { SyncFromScratchConfirm, type SyncFromScratchState } from './components/SyncFromScratchConfirm';
 import { lockLines, pickedTakeName, unlockedEdits } from './services/syncAgainGuard';
 import { transcriptFileName, transcriptParagraphs, transcriptSrt } from './services/transcriptExport';
 import { sameCuts } from './services/transcriptSegments';
@@ -281,6 +282,8 @@ interface QueuedDub {
   jobId: string;
   options: SyncOptions;
   voice: DubVoice;
+  /** Sync from scratch: every line voiced anew, nothing kept from the dub before. */
+  fresh?: boolean;
 }
 
 /** Hands a file to the browser's save. */
@@ -657,6 +660,8 @@ export default function App() {
   const [syncTakesBusy, setSyncTakesBusy] = useState<{ jobId: string; key: string } | null>(null);
   // Sync again asked for on a dub with unlocked hand edits: waits for the user to lock them or let them go.
   const [syncGuard, setSyncGuard] = useState<(SyncAgainGuardState & { jobId: string; options: SyncOptions }) | null>(null);
+  // Sync from scratch asked for: waits for the user to confirm what it drops.
+  const [scratchConfirm, setScratchConfirm] = useState<(SyncFromScratchState & { jobId: string; options: SyncOptions }) | null>(null);
   // `readJobId`: the continuous read in flight before the lines are placed, if the dub is voiced that way.
   const syncRunRef = useRef<{ jobId: string; projectId: string; controller: AbortController; readJobId?: string } | null>(null);
   /** The continuous read's progress, while the script is voiced in one take; null otherwise. */
@@ -2685,6 +2690,38 @@ export default function App() {
     runSyncDub(job.id, options, currentDubVoice());
   };
 
+  /**
+   * Sync from scratch, as pressed: first says what it drops (hand edits and
+   * locks, picked takes, lines moved on Review's dub lane, retakes) and what
+   * it costs, as every line is voiced again.
+   */
+  const handleSyncFromScratch = (options: SyncOptions) => {
+    const job = activeJob;
+    if (!job || job.segments.length === 0 || job.targetSource === 'pending') return;
+    if (syncRunRef.current?.projectId === job.id || dubQueue.some((dub) => dub.jobId === job.id)) return;
+    setScratchConfirm({
+      jobId: job.id,
+      options,
+      lines: job.segments.length,
+      characters: job.segments.reduce((sum, seg) => sum + (seg.textTarget || seg.targetText || '').length, 0),
+      edited: Object.keys(job.syncEdits || {}).filter((key) => !isOriginalClip(key)).length,
+      picked: Object.keys(job.syncTakes || {}).filter((key) => pickedTakeName(job.syncTakes, key)).length,
+      placed: job.segments.filter((seg) => seg.dubPlace).length,
+      retakes: new Set([...Object.keys(job.syncLineSeeds || {}), ...Object.keys(job.syncTakeChoices || {})]).size,
+    });
+  };
+
+  const answerScratchConfirm = () => {
+    const confirm = scratchConfirm;
+    setScratchConfirm(null);
+    if (!confirm || confirm.jobId !== activeJob?.id) return;
+    if (syncRunRef.current) {
+      setDubQueue((waiting) => [...waiting, { jobId: confirm.jobId, options: confirm.options, voice: currentDubVoice(), fresh: true }]);
+      return;
+    }
+    runSyncDub(confirm.jobId, confirm.options, currentDubVoice(), { fresh: true });
+  };
+
   /** Sync again's question answered: lock the listed lines first, or let their edits go. */
   const answerSyncGuard = (lock: boolean) => {
     const guard = syncGuard;
@@ -2701,7 +2738,8 @@ export default function App() {
   const runSyncDub = async (
     projectId: string,
     { voicing, precision, join, suggest, suggestLonger, matchLoudness, verifyWords, timingProtection }: SyncOptions,
-    voice: DubVoice
+    voice: DubVoice,
+    { fresh = false }: { fresh?: boolean } = {}
   ) => {
     // The project as it is now: a dub that waited its turn takes the edits made meanwhile.
     const activeJob = queueRef.current.find((job) => job.id === projectId);
@@ -2709,7 +2747,10 @@ export default function App() {
 
     const hadDub = Boolean(activeJob.synthesizedAudioUrl || activeJob.syncedAudioUrl);
     // Kept with the project, so a dub run again after a restart asks for the same reads and finds the lines it already voiced.
-    const seed = (syncSeedRef.current[activeJob.id] ??= activeJob.syncSeed ?? Math.floor(Math.random() * 2 ** 31));
+    // From scratch, a new seed: no line is found already voiced, so every one is voiced anew.
+    const seed = fresh
+      ? (syncSeedRef.current[activeJob.id] = Math.floor(Math.random() * 2 ** 31))
+      : (syncSeedRef.current[activeJob.id] ??= activeJob.syncSeed ?? Math.floor(Math.random() * 2 ** 31));
     setSyncingJobId(projectId);
     updateJob(activeJob.id, { status: ProcessingStatus.SYNTHESIZING_AUDIO, errorMsg: null, syncSeed: seed, syncInterrupted: false });
 
@@ -2732,11 +2773,15 @@ export default function App() {
     const sourceDuration = sourceDurationOf(activeJob);
 
     // Locked lines in Edit timing stay where the user put them.
+    // From scratch, only clips of the original stay: no lock, hand edit, picked take or place on Review's dub lane.
     const priorBank = activeJob.syncBank || null;
-    const priorEdits = activeJob.syncEdits || null;
-    const locked = lockedLines(priorBank, priorEdits);
+    const priorEdits = fresh
+      ? Object.fromEntries(Object.entries(activeJob.syncEdits || {}).filter(([key]) => isOriginalClip(key)))
+      : activeJob.syncEdits || null;
+    const locked = fresh ? {} : lockedLines(priorBank, priorEdits);
     // Takes picked in the takes panel are kept as they are, unless their words changed since.
-    const picked = pickedTakes(priorBank, activeJob.syncTakes, activeJob.syncPendingLines || []);
+    const picked = fresh ? undefined : pickedTakes(priorBank, activeJob.syncTakes, activeJob.syncPendingLines || []);
+    const syncSegments = fresh ? activeJob.segments.map(({ dubPlace: _place, ...seg }) => seg) : activeJob.segments;
     // An edit render in flight belongs to the dub this sync replaces.
     cancelSyncEditRender(activeJob.id);
 
@@ -2771,6 +2816,7 @@ export default function App() {
           const readKey = JSON.stringify([voice.voiceId, voice.modelId, voice.voiceSettings ?? null, expression, matchLoudness, cartesiaDub, outputFormat]);
           const last = activeJob.dubLines;
           const lastFits =
+            !fresh &&
             activeJob.synthesizedBlob && last && last.voiceId === voice.voiceId && last.modelId === voice.modelId && (last.readKey ?? readKey) === readKey;
           dub =
             lastFits && activeJob.synthesizedBlob && last
@@ -2779,7 +2825,7 @@ export default function App() {
         }
         return syncDub(
           {
-            segments: activeJob.segments,
+            segments: syncSegments,
             sourceDuration,
             voiceId: voice.voiceId,
             modelId: voice.modelId,
@@ -2794,10 +2840,12 @@ export default function App() {
             matchLoudness,
             verifyWords,
             timingProtection,
-            lineSeeds: activeJob.syncLineSeeds || undefined,
-            lineTakes: activeJob.syncLineTakes || undefined,
-            ...(activeJob.syncTakeChoices && { takeChoices: activeJob.syncTakeChoices }),
-            ...(activeJob.syncDeclinedTakes?.length && { declinedTakes: activeJob.syncDeclinedTakes }),
+            ...(!fresh && {
+              lineSeeds: activeJob.syncLineSeeds || undefined,
+              lineTakes: activeJob.syncLineTakes || undefined,
+              ...(activeJob.syncTakeChoices && { takeChoices: activeJob.syncTakeChoices }),
+              ...(activeJob.syncDeclinedTakes?.length && { declinedTakes: activeJob.syncDeclinedTakes }),
+            }),
             debug: audioDebugEnabled(),
             cartesia: cartesiaDub,
             ...(voiceTexts && { voiceTexts }),
@@ -2836,7 +2884,18 @@ export default function App() {
 
       const url = URL.createObjectURL(blob);
       // Lines kept as a voice-changed take stay so; a speaker dubbed in another voice since is no longer changed.
-      const keptTakes = keptVoiceTakes(bank, report, activeJob.syncTakes);
+      const keptTakes = fresh ? null : keptVoiceTakes(bank, report, activeJob.syncTakes);
+      // From scratch, what was kept for the dub before goes: retakes, take choices, places on the dub lane.
+      const projectNow = queueRef.current.find((job) => job.id === activeJob.id) || activeJob;
+      const scratch: Partial<BatchJob> = fresh
+        ? {
+            syncLineSeeds: null,
+            syncLineTakes: null,
+            syncTakeChoices: null,
+            syncDeclinedTakes: null,
+            segments: projectNow.segments.map(({ dubPlace: _place, ...seg }) => seg),
+          }
+        : {};
       const changedVoices = changedVoicesStill(activeJob, voice.voiceId);
       // A dub made before Dub and Sync were one step stays as it was, beside the synced dub.
       updateJob(activeJob.id, {
@@ -2858,6 +2917,7 @@ export default function App() {
         // Until the synced dub decodes, no waveform rather than the previous sync's.
         syncedAudioBuffer: null,
         status: ProcessingStatus.COMPLETED,
+        ...scratch,
       });
       setSyncEditStatus(
         activeJob.id,
@@ -3223,7 +3283,7 @@ export default function App() {
     if (syncingJobId || syncRunRef.current || dubQueue.length === 0) return;
     const [next, ...rest] = dubQueue;
     setDubQueue(rest);
-    runSyncDub(next.jobId, next.options, next.voice);
+    runSyncDub(next.jobId, next.options, next.voice, { fresh: next.fresh });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [syncingJobId, dubQueue]);
 
@@ -4163,6 +4223,7 @@ export default function App() {
         }}
       />
       <SyncAgainGuard guard={syncGuard} onLockAndSync={() => answerSyncGuard(true)} onSyncAnyway={() => answerSyncGuard(false)} onCancel={() => setSyncGuard(null)} />
+      <SyncFromScratchConfirm confirm={scratchConfirm} onSync={answerScratchConfirm} onCancel={() => setScratchConfirm(null)} />
       <UpdateScriptPanel
         preview={scriptUpdatePreview}
         onUpdate={applyScriptUpdate}
@@ -4405,6 +4466,7 @@ export default function App() {
           elVoiceSettings={elVoiceSettings}
           onElVoiceSettingsChange={handleElVoiceSettingsChange}
           onSyncDub={handleSyncDub}
+          onSyncFromScratch={handleSyncFromScratch}
           onSyncEditsChange={handleSyncEditsChange}
           onUndoVoiceChange={handleUndoVoiceChange}
           syncEditStatus={syncEditStatus}

@@ -466,6 +466,8 @@ export interface SyncSettingsPanelProps {
   previewLongCount?: number;
   previewShortCount?: number;
   onSync: () => void;
+  /** Sync from scratch, once synced: every line voiced anew, nothing kept from the dub before (asks first). */
+  onSyncFromScratch?: () => void;
   onCancel: () => void;
   /** Back to Review. */
   onBack: () => void;
@@ -1143,6 +1145,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   previewLongCount = 0,
   previewShortCount = 0,
   onSync,
+  onSyncFromScratch,
   onCancel,
   onBack,
   costNote,
@@ -1355,6 +1358,16 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
                     .filter(Boolean)
                     .join(' ')}
         </p>
+      )}
+      {synced && !isSyncing && !interrupted && !blockedReason && onSyncFromScratch && (
+        <button
+          type="button"
+          onClick={onSyncFromScratch}
+          title="Voices every line again and places it afresh: hand edits, locks, picked takes and places on the dub lane go. Asks first."
+          className="self-center h-7 px-2.5 flex items-center gap-1.5 rounded-lg text-[12px] text-slate-400 hover:text-rose-200 hover:bg-rose-500/10 cursor-default"
+        >
+          <RotateCcw className="w-3.5 h-3.5" /> Sync from scratch…
+        </button>
       )}
       {ready && extras && <ReadyTools>{extras}</ReadyTools>}
     </div>

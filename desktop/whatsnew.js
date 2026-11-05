@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.37',
+    changes: [
+      'New "Sync from scratch…" under Sync again: every line is voiced again with new takes and placed afresh, in the voice picked now. Hand edits, locks, picked takes, places on the dub lane and retakes go; the script and settings stay. It asks first and shows what it costs.',
+    ],
+  },
+  {
     version: '1.4.36',
     changes: [
       'After you change a speaker into another voice with the voice changer (Line by line), retakes come back in that voice too: each new take is voiced, then changed on its own. Lines a Sync voices again are changed after it, and lines already changed stay changed.',
