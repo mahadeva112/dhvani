@@ -5,23 +5,18 @@
  */
 window.WHATS_NEW = [
   {
-    version: '1.4.38',
+    version: '1.4.39',
     changes: [
-      "Review's timeline has Wave, Blocks and Bars for both lanes: Blocks shows each word of the original where it is said and each dub word below it; Bars shows the whole English line above and the whole dub line below, inside the bar. Rythmo is gone.",
-      'In Bars, double-click a dub line to type its words right in the bar, with phonetic typing. Its length changes as you type; Enter saves, Esc puts it back. The timeline shows a plain arrow instead of the + cursor.',
-tsnew.html). One or two short, plain lines per
- * version, newest first. Add the next version's lines here before releasing;
- * versions newer than the running app are not shown.
- */
-window.WHATS_NEW = [
+      'One undo history for the whole project, from your first change to your last, and it stays with the project after Done or closing the app. Undo or Redo (Ctrl + Z / Ctrl + Shift + Z) or pick any step in History to go back to it: script edits, takes put in the dub, retakes, voice changes, Edit timing, moves on the dub lane and Sync itself. Nothing is voiced again.',
+      'Undo goes back past the last 3 Syncs with their audio. Before that, only the script comes back. A full .dhvani file carries the history and those Syncs too.',
+      'Sync again keeps every take in the Takes (T) window. Before, it kept only the take each line was playing and the other takes disappeared. Takes whose words no longer match the line are still let go, and Sync from scratch still starts over.',
+    ],
+  },
   {
     version: '1.4.38',
     changes: [
       "Review's timeline has Wave, Blocks and Bars for both lanes: Blocks shows each word of the original where it is said and each dub word below it; Bars shows the whole English line above and the whole dub line below, inside the bar. Rythmo is gone.",
       'In Bars, double-click a dub line to type its words right in the bar, with phonetic typing. Its length changes as you type; Enter saves, Esc puts it back. The timeline shows a plain arrow instead of the + cursor.',
-      'One undo history for the whole project, from your first change to your last, and it stays with the project after Done or closing the app. Undo or Redo (Ctrl + Z / Ctrl + Shift + Z) or pick any step in History to go back to it: script edits, takes put in the dub, retakes, voice changes, Edit timing, moves on the dub lane and Sync itself. Nothing is voiced again.',
-      'Undo goes back past the last 3 Syncs with their audio. Before that, only the script comes back. A full .dhvani file carries the history and those Syncs too.',
-      'Sync again keeps every take in the Takes (T) window. Before, it kept only the take each line was playing and the other takes disappeared. Takes whose words no longer match the line are still let go, and Sync from scratch still starts over.',
     ],
   },
   {
