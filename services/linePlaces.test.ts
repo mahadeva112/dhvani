@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimatedWords, letterCount, linePartsOf, partEnd, pauseCutsOf, rateOf, rateZone, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from './linePlaces.ts';
+import { estimatedWords, letterCount, linePartsOf, partEnd, pauseCutsOf, rateOf, rateZone, sourceChunksOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from './linePlaces.ts';
 import type { SyncPreview, SyncPreviewUnit } from './syncService.ts';
 import type { AudioSegment } from '../types';
 
@@ -197,4 +197,19 @@ test('how a speed sounds: natural to 1.15×, quick to 1.3×, then rushed; dragge
   assert.equal(rateZone(1.31), 'rushed');
   assert.equal(rateZone(0.85), 'natural');
   assert.equal(rateZone(0.8), 'slow');
+});
+
+test("the original is cut into chunks where Sync cuts the dub, each as long as its words", () => {
+  const u = unit(0, 0, 4, 2.2, PAUSED_TEXT);
+  const cut = withLinePlaces(preview([u]), [pausedCue()], null, { minPause: 0.3, maxInsert: 5 })!.units[0];
+  assert.deepEqual(sourceChunksOf(cut, [pausedCue()]), [
+    { from: 0, to: 0.9, text: 'One two' },
+    { from: 1.7, to: 2.7, text: 'three four' },
+  ]);
+  // Not cut there (the setting off, or the user turned it off): one chunk, first word to last.
+  assert.deepEqual(sourceChunksOf(u, [pausedCue()]), [{ from: 0, to: 2.7, text: 'One two three four' }]);
+  const skipped = { ...cut, pauseMarks: cut.pauseMarks!.map((m) => ({ ...m, state: 'skipped' as const })) };
+  assert.equal(sourceChunksOf(skipped, [pausedCue()]).length, 1);
+  // Without word timings, the line as its cues are timed.
+  assert.deepEqual(sourceChunksOf({ ...u, srcEnd: 3.2 }, [cue(1, { textSource: 'hello there' })]), [{ from: 0, to: 3.2, text: 'hello there' }]);
 });

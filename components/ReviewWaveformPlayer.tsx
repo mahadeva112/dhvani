@@ -83,6 +83,8 @@ export interface ReviewWaveformPlayerProps {
    * lines in Blocks and Bars). Clicks and drags there still seek and move cuts.
    */
   sourceLane?: (view: { start: number; span: number; layers: LaneLayers }) => React.ReactNode;
+  /** A row right under the waveform on the same clock (the original in chunks, in Bars). */
+  sourceRow?: (view: { start: number; span: number; layers: LaneLayers }) => React.ReactNode;
 }
 
 /** What the timeline shows besides the lines, toggled from its top bar: pause ticks, every line's fit, numbers. */
@@ -235,6 +237,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   fastLabel = 'Too fast',
   lineSpans,
   sourceLane,
+  sourceRow,
 }) => {
   /*
    * Two clocks for two jobs. Playheads and the played colour move every frame
@@ -1185,6 +1188,13 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 </span>
               )}
             </div>
+            {sourceRow && (
+              <div className="relative h-14 border-t border-slate-800 overflow-hidden cursor-default" onWheel={onWheel}>
+                <div data-track="" className="absolute inset-y-0 will-change-transform pointer-events-none" style={trackStyle}>
+                  {sourceRow({ start: drawn.from, span: drawn.span, layers })}
+                </div>
+              </div>
+            )}
             {belowWave && pausesRow && (!layered || layers.pauses) && (
               <div ref={pausesRef} className="relative h-3.5 border-t border-slate-800 overflow-hidden cursor-default" onWheel={onWheel}>
                 <div data-track="" className="absolute inset-y-0 will-change-transform" style={trackStyle}>

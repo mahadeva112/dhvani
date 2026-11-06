@@ -2529,11 +2529,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 ? ({ start, span }) => <PauseTicksLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} />
                 : undefined
             }
-            // Blocks and Bars: the original's words or lines in the waveform's place, coloured like their dub below.
+            // Blocks: the original's words in the waveform's place, coloured like their dub below.
             sourceLane={
-              linePreview && !hearingDub && !awaitingScript && laneView !== 'wave'
+              linePreview && !hearingDub && !awaitingScript && laneView === 'blocks'
                 ? ({ start, span, layers }) => (
-                    <SourceLineLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} look={laneView} numbers={layers.numbers} />
+                    <SourceLineLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} look="blocks" numbers={layers.numbers} />
+                  )
+                : undefined
+            }
+            // Bars: under the waveform, the original in chunks cut where Sync cuts the dub, each as long as its words.
+            sourceRow={
+              linePreview && !hearingDub && !awaitingScript && laneView === 'bars'
+                ? ({ start, span, layers }) => (
+                    <SourceLineLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} look="bars" numbers={layers.numbers} />
                   )
                 : undefined
             }

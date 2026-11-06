@@ -162,6 +162,46 @@ export const pauseCutsOf = (cues: AudioSegment[], text: string, minPause = TRANS
   });
 };
 
+/** A stretch of the original said in one go: between two of the pauses Sync cuts the line at. */
+export interface SourceChunk {
+  /** Where its first word starts and its last ends, on the original's clock. */
+  from: number;
+  to: number;
+  text: string;
+}
+
+/**
+ * The original of a line in chunks, cut where Sync cuts its dub (the line's
+ * pause marks in state 'cut', where the speaker starts again): each chunk from
+ * its first word's start to its last word's end, by the measured word timings.
+ * One chunk, the whole line, where it isn't cut; without word timings, the
+ * line's cues as they are timed.
+ */
+export const sourceChunksOf = (
+  unit: Pick<SyncPreviewUnit, 'text' | 'sourceText' | 'srcStart' | 'srcEnd' | 'pauseMarks'>,
+  cues: AudioSegment[]
+): SourceChunk[] => {
+  const words = cues.flatMap(timedWords).sort((a, b) => a.start - b.start);
+  const sourceText = unit.sourceText?.trim() || cues.map((c) => String(c.textSource ?? c.originalText ?? c.text ?? '').trim()).filter(Boolean).join(' ');
+  if (!words.length) return [{ from: unit.srcStart, to: unit.srcEnd, text: sourceText }];
+  const cutAt = new Set((unit.pauseMarks ?? []).filter((m) => m.state === 'cut').map((m) => m.letters));
+  const resumes = pauseCutsOf(cues, unit.text, 0)
+    .filter((cut) => cutAt.has(cut.letters) && cut.resume !== null)
+    .map((cut) => cut.resume as number);
+  const chunks: { from: number; to: number; words: string[] }[] = [];
+  for (const w of words) {
+    const last = chunks[chunks.length - 1];
+    // A word starting where the speaker starts again after a cut opens the next chunk.
+    const opens = !last || resumes.some((r) => Math.abs(w.start - r) < 1e-3 && r > last.from + 1e-3);
+    if (opens) chunks.push({ from: w.start, to: w.end, words: [String(w.text).trim()] });
+    else {
+      last.to = Math.max(last.to, w.end);
+      last.words.push(String(w.text).trim());
+    }
+  }
+  return chunks.map((c) => ({ from: c.from, to: c.to, text: c.words.join(' ') }));
+};
+
 /** The line's place, from its first cue. */
 export const placeOf = (segments: AudioSegment[], unit: Pick<SyncPreviewUnit, 'cueIds'>): DubPlace | null =>
   segments.find((seg) => String(seg.id) === String(unit.cueIds[0]))?.dubPlace ?? null;

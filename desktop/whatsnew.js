@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.40',
+    changes: [
+      "In Review's Bars view the original's audio stays on top, and under it the original is cut into chunks exactly where Sync will cut the dub: each chunk as long as its words, with the pause between two and how long it is. Each dub chunk below starts with its original chunk and shows its own length.",
+    ],
+  },
+  {
     version: '1.4.39',
     changes: [
       'One undo history for the whole project, from your first change to your last, and it stays with the project after Done or closing the app. Undo or Redo (Ctrl + Z / Ctrl + Shift + Z) or pick any step in History to go back to it: script edits, takes put in the dub, retakes, voice changes, Edit timing, moves on the dub lane and Sync itself. Nothing is voiced again.',

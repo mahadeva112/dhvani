@@ -23,7 +23,7 @@ import type { RateBasis } from '../services/voiceRate';
 import { timeLine } from '../services/speechTiming';
 import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
-import { LINE_GAP_SECONDS, MAX_LINE_RATE, MIN_LINE_RATE, QUICK_RATE, RUSHED_RATE, SLOW_RATE, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, rateZone, roomEnd, type LinePart } from '../services/linePlaces';
+import { LINE_GAP_SECONDS, MAX_LINE_RATE, MIN_LINE_RATE, QUICK_RATE, RUSHED_RATE, SLOW_RATE, PART_GAP_SECONDS, PAUSE_MARK, estimatedWords, lanePartsOf, letterCount, lineTimeAt, partEnd, rateZone, roomEnd, sourceChunksOf, type LinePart, type SourceChunk } from '../services/linePlaces';
 
 /**
  * Sync preview: before anything is voiced, which lines are likely to fit the
@@ -1158,11 +1158,13 @@ const SPOKEN = /[\p{L}\p{N}]/u;
 /**
  * The original's lane in Blocks and Bars (Review's Wave shows its audio
  * instead): what the original says, on its own clock, each line in the colour
- * its dub has below. Blocks: a box per word where it is said (its measured
- * word timings), the word squeezed inside. Bars: a bar per line with the whole
- * line in it, broken between words, smaller only when it must be. A line
- * without word timings is drawn as its bar in Blocks too; a cue in no line is a
- * grey bar.
+ * its dub has below. Blocks (in the waveform's place): a box per word where it
+ * is said (its measured word timings), the word squeezed inside. Bars (a row
+ * under the waveform): a bar per chunk, cut where Sync cuts the dub
+ * (sourceChunksOf), exactly as long as its words, the pause between two
+ * marked with its length; its words inside, broken between words, smaller
+ * only when they must be. A line without word timings is one bar; a cue in no
+ * line is a grey bar.
  */
 export const SourceLineLane: React.FC<{
   units: SyncPreviewUnit[];
@@ -1198,13 +1200,23 @@ export const SourceLineLane: React.FC<{
         .filter((w) => SPOKEN.test(String(w.text ?? '')) && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start)
         .map((w) => ({ text: String(w.text).trim(), start: w.start, end: w.end }));
       const text = u.sourceText?.trim() || cues.map(sourceTextOf).filter(Boolean).join(' ');
-      return { key: u.key, index: u.index as number | null, from: u.srcStart, to: u.srcEnd, text, words };
+      // Bars: in chunks, cut where Sync cuts the dub, each as long as its words.
+      const chunks: SourceChunk[] = look === 'bars' ? sourceChunksOf(u, cues) : [{ from: u.srcStart, to: u.srcEnd, text }];
+      return { key: u.key, index: u.index as number | null, from: Math.min(u.srcStart, chunks[0].from), to: Math.max(u.srcEnd, chunks[chunks.length - 1].to), text, words, chunks };
     });
     const loose = segments
       .filter((seg) => !held.has(String(seg.id)) && sourceTextOf(seg))
-      .map((seg) => ({ key: `cue-${seg.id}`, index: null, from: seg.startTime, to: seg.endTime, text: sourceTextOf(seg), words: [] as { text: string; start: number; end: number }[] }));
+      .map((seg) => ({
+        key: `cue-${seg.id}`,
+        index: null,
+        from: seg.startTime,
+        to: seg.endTime,
+        text: sourceTextOf(seg),
+        words: [] as { text: string; start: number; end: number }[],
+        chunks: [{ from: seg.startTime, to: seg.endTime, text: sourceTextOf(seg) }],
+      }));
     return [...drawn, ...loose];
-  }, [units, segments]);
+  }, [units, segments, look]);
   const end = windowStart + windowSeconds;
   return (
     <>
@@ -1233,27 +1245,48 @@ export const SourceLineLane: React.FC<{
                 ))}
               </React.Fragment>
             );
+          // A bar per chunk, as long as its words; between two, the pause Sync cuts at and how long it is.
           return (
-            <span
-              key={l.key}
-              aria-hidden="true"
-              className="absolute top-1.5 bottom-1.5 rounded border pointer-events-none"
-              style={{ left: `${pct(l.from)}%`, width: `${Math.max(0.3, pct(l.to) - pct(l.from))}%`, background: withAlpha(hue, 0.22), borderColor: hue }}
-            >
-              <FitText fitKey={`${l.text}|${numbers}`}>
-                <span className="text-slate-50">
-                  {numbers && l.index !== null && (
-                    <span className="font-mono font-semibold" style={{ color: hue }}>
-                      {l.index + 1}{' '}
+            <React.Fragment key={l.key}>
+              {l.chunks.map((c, n) => {
+                const next = l.chunks[n + 1];
+                return (
+                  <React.Fragment key={n}>
+                    <span
+                      aria-hidden="true"
+                      className="absolute top-1.5 bottom-1.5 rounded border pointer-events-none"
+                      style={{ left: `${pct(c.from)}%`, width: `${Math.max(0.3, pct(c.to) - pct(c.from))}%`, background: withAlpha(hue, 0.22), borderColor: hue }}
+                    >
+                      <FitText fitKey={`${c.text}|${numbers}|${n}`}>
+                        <span className="text-slate-50">
+                          {numbers && l.index !== null && n === 0 && (
+                            <span className="font-mono font-semibold" style={{ color: hue }}>
+                              {l.index + 1}{' '}
+                            </span>
+                          )}
+                          {c.text}
+                        </span>
+                        <span className="block font-mono text-[0.85em] tabular-nums whitespace-nowrap" style={{ color: hue }}>
+                          {(c.to - c.from).toFixed(2)} s
+                        </span>
+                      </FitText>
                     </span>
-                  )}
-                  {l.text}
-                </span>
-                <span className="block font-mono text-[0.85em] tabular-nums whitespace-nowrap" style={{ color: hue }}>
-                  {(l.to - l.from).toFixed(1)} s
-                </span>
-              </FitText>
-            </span>
+                    {next && (
+                      <span
+                        title={`The original pauses ${(next.from - c.to).toFixed(2)} s here; Sync cuts the dub line here`}
+                        className="absolute inset-y-0 flex items-center justify-center pointer-events-none"
+                        style={{ left: `${pct(c.to)}%`, width: `${Math.max(0.1, pct(next.from) - pct(c.to))}%` }}
+                      >
+                        <span className="absolute inset-y-1 left-1/2 border-l border-dashed border-cyan-400/60" />
+                        {(next.from - c.to) * pxPerSecond >= 18 && (
+                          <span className="relative bg-slate-950 px-px font-mono text-[9.5px] leading-none tabular-nums text-cyan-300">{(next.from - c.to).toFixed(1)}</span>
+                        )}
+                      </span>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </React.Fragment>
           );
         })}
     </>
@@ -1972,12 +2005,13 @@ export const DubEstimateLane: React.FC<{
                           )}
                           {partText(u, p, parts.length)}
                         </span>
-                        {p.index === parts.length - 1 && (
-                          <span className="block font-mono text-[0.85em] tabular-nums whitespace-nowrap" style={{ color: over > 0 && showFit ? '#fda4af' : hue }}>
-                            {u.expert ? '' : '≈'}
-                            {u.estimate.toFixed(1)} s{over > 0 && showFit ? ` · +${over.toFixed(1)} s` : ''}
-                          </span>
-                        )}
+                        {/* Each chunk its own length; the last says too how far the line runs past its room */}
+                        <span
+                          className="block font-mono text-[0.85em] tabular-nums whitespace-nowrap"
+                          style={{ color: over > 0 && showFit && p.index === parts.length - 1 ? '#fda4af' : hue }}
+                        >
+                          ≈{(parts.length > 1 ? length : u.estimate).toFixed(1)} s{over > 0 && showFit && p.index === parts.length - 1 ? ` · +${over.toFixed(1)} s` : ''}
+                        </span>
                       </FitText>
                     )}
                     {!words && p.index === 0 && (drawn !== 'bars' || marksRate(u)) && lineNumber(u, width, drawn === 'bars' ? undefined : STATUS_DOT[u.status])}
