@@ -43,7 +43,24 @@ import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
 import { wordsInTakeRange, type TakeWord } from '../services/takeRange';
-import { tightenPart, tightenLevelDb, quietSpans, closeUpParts, DEFAULT_TIGHTEN, DEFAULT_SPLIT, type TightenSettings } from '../services/tightenEdit';
+import { tightenPart, tightenLevelDb, quietSpans, closeUpParts, markExtraCuts, DEFAULT_TIGHTEN, DEFAULT_SPLIT, type MorePauses, type TightenSettings } from '../services/tightenEdit';
+
+const MORE_PAUSES_KEY = 'dhvani_more_pauses';
+/** The More pauses choice last made in the Split at pauses panel; Normal with breaths until one is made. */
+const readMorePauses = (): Pick<TightenSettings, 'more' | 'breaths'> => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(MORE_PAUSES_KEY) || 'null') as { more?: unknown; breaths?: unknown } | null;
+    const more: MorePauses = saved?.more === 'off' || saved?.more === 'strong' ? saved.more : 'normal';
+    return { more, breaths: saved?.breaths !== false };
+  } catch {
+    return { more: 'normal', breaths: true };
+  }
+};
+const rememberMorePauses = (value: { more: MorePauses; breaths: boolean }) => {
+  try {
+    localStorage.setItem(MORE_PAUSES_KEY, JSON.stringify(value));
+  } catch {}
+};
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import {
   syncedParts,
@@ -371,7 +388,8 @@ type ClipBoxProps = {
   silenced: boolean;
   locked: boolean;
   edited: boolean;
-  cuts: { from: number; to: number }[] | undefined;
+  /** What Split at pauses would cut; `extra` ones only More pauses found. */
+  cuts: { from: number; to: number; extra?: boolean }[] | undefined;
   /** What a drag here does, lit on the part under the pointer or being dragged. */
   zone: string | null;
   /** Blade or range is on: no trim or fade handles. */
@@ -448,7 +466,11 @@ const ClipBox = React.memo<ClipBoxProps>(
           <span
             key={cut.from}
             aria-hidden="true"
-            className={`absolute top-0 bottom-0 pointer-events-none ${cut.to > cut.from ? 'bg-rose-500/45 border-x border-rose-300/70' : 'w-0.5 -ml-px bg-rose-400'}`}
+            className={`absolute top-0 bottom-0 pointer-events-none ${
+              cut.extra
+                ? cut.to > cut.from ? 'bg-violet-500/45 border-x border-violet-300/70' : 'w-0.5 -ml-px bg-violet-400'
+                : cut.to > cut.from ? 'bg-rose-500/45 border-x border-rose-300/70' : 'w-0.5 -ml-px bg-rose-400'
+            }`}
             style={{ left: `${(((cut.from - part.from) / part.rate) / length) * 100}%`, ...(cut.to > cut.from && { width: `${(((cut.to - cut.from) / part.rate) / length) * 100}%` }) }}
           />
         ))}
@@ -1990,9 +2012,18 @@ export const SyncEditTimeline: React.FC<{
       if (tighten.checkWords && !Array.isArray(words)) { waiting++; continue; }
       const audio = lineSamples(chunk);
       if (!audio) continue;
-      const result = tightenPart(audio.samples, audio.sr, chunk.part, tighten.settings, Array.isArray(words) ? words : [], { inPlace: tighten.closeUp === 'off' });
+      const protect = Array.isArray(words) ? words : [];
+      const result = tightenPart(audio.samples, audio.sr, chunk.part, tighten.settings, protect, { inPlace: tighten.closeUp === 'off' });
       if (result.cuts.length === 0) continue;
-      cutsByPart.set(chunk.part.id, result.cuts);
+      // Shown in violet: the cuts only More pauses found (Off reads every other one too).
+      const plain =
+        tighten.settings.more && tighten.settings.more !== 'off'
+          ? tightenPart(audio.samples, audio.sr, chunk.part, { ...tighten.settings, more: 'off' }, protect, { inPlace: true }).cuts
+          : null;
+      cutsByPart.set(
+        chunk.part.id,
+        plain ? markExtraCuts(result.cuts, plain) : result.cuts
+      );
       cuts += result.cuts.length;
       removed += result.removed;
       const line = lineOf(chunk);
@@ -2038,7 +2069,7 @@ export const SyncEditTimeline: React.FC<{
     const picked = group.filter((c) => !c.original);
     const targets = picked.length > 0 ? picked : chunks.filter((c) => !c.original);
     if (targets.length === 0) return say(`Pick a dub line to ${silence === 'keep' ? 'split' : 'tighten'}: clips of the original are left as they are.`);
-    const settings = silence === 'keep' ? DEFAULT_SPLIT : DEFAULT_TIGHTEN;
+    const settings = { ...(silence === 'keep' ? DEFAULT_SPLIT : DEFAULT_TIGHTEN), ...readMorePauses() };
     const first = lineSamples(targets[0]);
     const manualDb = first ? Math.round(tightenLevelDb(first.samples, first.sr, settings)) : -50;
     const closeUp = silence === 'keep' ? 'off' : picked.length > 0 ? 'picked' : 'all';
@@ -2047,6 +2078,14 @@ export const SyncEditTimeline: React.FC<{
   };
   const openSplit = () => openPauses('keep');
   const openTighten = () => openPauses('remove');
+
+  /** More pauses and its breath switch, kept for the next time the panel opens. */
+  const setMorePauses = (patch: Pick<TightenSettings, 'more'> | Pick<TightenSettings, 'breaths'>) => {
+    if (!tighten) return;
+    const settings = { ...tighten.settings, ...patch };
+    setTighten({ ...tighten, settings });
+    rememberMorePauses({ more: settings.more ?? 'off', breaths: settings.breaths !== false });
+  };
 
   const closeUpTighten = (closeUp: 'off' | 'picked' | 'all') => {
     if (!tighten) return;
@@ -3466,6 +3505,46 @@ export const SyncEditTimeline: React.FC<{
             />
             Check words first: forced alignment, one request per line, so nothing said is cut
           </label>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[12.5px] text-slate-300">
+            <span className="w-[8.5rem] shrink-0 whitespace-nowrap" title="Pauses the plain reading misses: on room tone, with a breath in them, or after a comma or a danda">
+              More pauses
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {(['off', 'normal', 'strong'] as const).map((more) => (
+                <button
+                  key={more}
+                  type="button"
+                  onClick={() => setMorePauses({ more })}
+                  aria-pressed={(tighten.settings.more ?? 'off') === more}
+                  className={panelChip((tighten.settings.more ?? 'off') === more)}
+                  title={
+                    more === 'off'
+                      ? 'Silence read as before: below the line’s room tone, never above -45 dB'
+                      : more === 'normal'
+                        ? 'Also pauses on room tone up to -30 dB, a pause that a little hiss would break, and gaps after a comma or a danda (with Check words first)'
+                        : 'As Normal, and softer pauses too: closer to the speech level. Listen before you apply'
+                  }
+                >
+                  {more === 'off' ? 'Off' : more === 'normal' ? 'Normal' : 'Strong'}
+                </button>
+              ))}
+            </div>
+            <label className={`flex items-center gap-1.5 whitespace-nowrap cursor-default ${tighten.settings.more && tighten.settings.more !== 'off' ? '' : 'opacity-40'}`}>
+              <input
+                type="checkbox"
+                checked={tighten.settings.breaths !== false}
+                disabled={!tighten.settings.more || tighten.settings.more === 'off'}
+                onChange={(e) => setMorePauses({ breaths: e.target.checked })}
+                className="shrink-0 accent-indigo-500"
+              />
+              A breath is silence
+            </label>
+            {tighten.settings.more && tighten.settings.more !== 'off' && (
+              <span className="flex items-center gap-1.5 text-[11.5px] text-slate-500 whitespace-nowrap">
+                <span className="w-2.5 h-2.5 rounded-[3px] bg-violet-500/60" aria-hidden="true" /> found by More pauses
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <span aria-live="polite" className="text-[12.5px] text-slate-200">
               {!tightenPreview

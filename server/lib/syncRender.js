@@ -133,8 +133,39 @@ export const removeBreaths = (samples, sampleRate, { reduction = 1 } = {}) => {
   const amount = Number.isFinite(reduction) ? Math.max(0, Math.min(1, reduction)) : 1;
   if (amount === 0) return { samples, removed: 0 };
   const frame = Math.max(1, Math.round(BREATH_FRAME_SECONDS * sampleRate));
+  const breaths = breathFrames(samples, sampleRate);
+  if (breaths.length === 0) return { samples, removed: 0 };
+
+  const out = Float32Array.from(samples);
+  const fade = Math.max(1, Math.round(MICRO_FADE_SECONDS * sampleRate));
+  for (const { start, end } of breaths) {
+    const from = start * frame;
+    const to = Math.min(samples.length, end * frame);
+    const ramp = Math.min(fade, Math.floor((to - from) / 2));
+    for (let i = from; i < to; i++) {
+      const weight = i - from < ramp ? 1 - fadeWeight(i - from, ramp) : to - 1 - i < ramp ? 1 - fadeWeight(to - 1 - i, ramp) : 0;
+      // Fully removed is exactly the fade weight, as before breath reduction existed, so earlier takes keep their hashes.
+      out[i] = samples[i] * (amount === 1 ? weight : 1 - amount * (1 - weight));
+    }
+  }
+  return { samples: out, removed: breaths.length };
+};
+
+/**
+ * The breaths in `samples`, as `{ start, end }` sample ranges, by the same
+ * rule removeBreaths silences them with: a sound of its own with no voiced
+ * frame, well below speech level, so an "s" or "sh" is never one.
+ */
+export const breathSpans = (samples, sampleRate) => {
+  const frame = Math.max(1, Math.round(BREATH_FRAME_SECONDS * sampleRate));
+  return breathFrames(samples, sampleRate).map(({ start, end }) => ({ start: start * frame, end: Math.min(samples.length, end * frame) }));
+};
+
+/** The breath frames removeBreaths and breathSpans share. */
+const breathFrames = (samples, sampleRate) => {
+  const frame = Math.max(1, Math.round(BREATH_FRAME_SECONDS * sampleRate));
   const count = Math.floor(samples.length / frame);
-  if (count === 0) return { samples, removed: 0 };
+  if (count === 0) return [];
   const rms = new Float64Array(count);
   const crossings = new Float64Array(count);
   for (let f = 0; f < count; f++) {
@@ -148,7 +179,7 @@ export const removeBreaths = (samples, sampleRate, { reduction = 1 } = {}) => {
     crossings[f] = (crossed * sampleRate) / frame;
   }
   const audible = Array.from(rms).filter((level) => level > QUIET).sort((a, b) => a - b);
-  if (audible.length === 0) return { samples, removed: 0 };
+  if (audible.length === 0) return [];
   const speechLevel = audible[Math.floor(audible.length * 0.95)];
   const level = (db) => speechLevel * 10 ** (db / 20);
   const roomNoise = Array.from(rms).sort((a, b) => a - b)[Math.floor(count * 0.1)];
@@ -165,7 +196,7 @@ export const removeBreaths = (samples, sampleRate, { reduction = 1 } = {}) => {
   }
 
   const voicedNeeded = Math.round(BREATH_MIN_VOICED_SECONDS / BREATH_FRAME_SECONDS);
-  const breaths = sounds.filter(({ start, end }) => {
+  return sounds.filter(({ start, end }) => {
     if ((end - start) * BREATH_FRAME_SECONDS < BREATH_MIN_SECONDS) return false;
     let voiced = 0;
     let peak = 0;
@@ -175,21 +206,6 @@ export const removeBreaths = (samples, sampleRate, { reduction = 1 } = {}) => {
     }
     return voiced < voicedNeeded && peak <= level(BREATH_MAX_DB);
   });
-  if (breaths.length === 0) return { samples, removed: 0 };
-
-  const out = Float32Array.from(samples);
-  const fade = Math.max(1, Math.round(MICRO_FADE_SECONDS * sampleRate));
-  for (const { start, end } of breaths) {
-    const from = start * frame;
-    const to = Math.min(samples.length, end * frame);
-    const ramp = Math.min(fade, Math.floor((to - from) / 2));
-    for (let i = from; i < to; i++) {
-      const weight = i - from < ramp ? 1 - fadeWeight(i - from, ramp) : to - 1 - i < ramp ? 1 - fadeWeight(to - 1 - i, ramp) : 0;
-      // Fully removed is exactly the fade weight, as before breath reduction existed, so earlier takes keep their hashes.
-      out[i] = samples[i] * (amount === 1 ? weight : 1 - amount * (1 - weight));
-    }
-  }
-  return { samples: out, removed: breaths.length };
 };
 
 /**
@@ -247,8 +263,13 @@ const QUIET_HOP_SECONDS = 0.005;
  * not a string of slivers too short to count. A window reaching into a word
  * is loud, so a stretch ends a little before the word, never inside it. A
  * stretch running to `to` ends exactly there; one from `from` starts there.
+ *
+ * `close` (linear, above `level`) reads the edges as REAPER's gate does with
+ * hysteresis: a stretch starts where the audio drops below `level`, and once
+ * started it lasts while the audio stays below `close`, so a little hiss or
+ * a soft bump in a pause doesn't break it in two. Without it, one level.
  */
-export const quietStretches = (samples, sampleRate, level, { from = 0, to = samples.length } = {}) => {
+export const quietStretches = (samples, sampleRate, level, { from = 0, to = samples.length, close } = {}) => {
   const start = Math.max(0, Math.min(samples.length, Math.round(from)));
   const end = Math.max(start, Math.min(samples.length, Math.round(to)));
   const hop = Math.max(1, Math.round(QUIET_HOP_SECONDS * sampleRate));
@@ -257,11 +278,12 @@ export const quietStretches = (samples, sampleRate, level, { from = 0, to = samp
   const energy = new Float64Array(end - start + 1);
   for (let i = start; i < end; i++) energy[i - start + 1] = energy[i - start] + samples[i] * samples[i];
   const limit = level * level;
-  const quietAt = (a, b) => {
+  const holdLimit = Number.isFinite(close) && close > level ? close * close : limit;
+  const quietAt = (a, b, held) => {
     const mid = Math.floor((a + b) / 2);
     const lo = Math.max(start, mid - half);
     const hi = Math.min(end, mid + half);
-    return hi > lo && (energy[hi - start] - energy[lo - start]) / (hi - lo) < limit;
+    return hi > lo && (energy[hi - start] - energy[lo - start]) / (hi - lo) < (held ? holdLimit : limit);
   };
   const stretches = [];
   // Each edge then moves out sample by sample to the last quiet one, so a pause is as long as it really is.
@@ -272,7 +294,7 @@ export const quietStretches = (samples, sampleRate, level, { from = 0, to = samp
   };
   let runStart = -1;
   for (let a = start; a < end; a += hop) {
-    const quiet = quietAt(a, Math.min(end, a + hop));
+    const quiet = quietAt(a, Math.min(end, a + hop), runStart !== -1);
     if (quiet && runStart === -1) runStart = a;
     if (!quiet && runStart !== -1) {
       push(runStart, a);
@@ -402,6 +424,17 @@ export const TIGHT_BLEND_SECONDS = 0.005;
  * as silence.
  */
 export const silenceLevel = (samples, sampleRate) => {
+  const levels = lineLevelsDb(samples, sampleRate);
+  if (!levels || levels.speech - levels.floor < TIGHT_MIN_RANGE_DB) return QUIET;
+  return Math.max(QUIET, 10 ** (Math.min(levels.floor + TIGHT_FLOOR_MARGIN_DB, TIGHT_MAX_THRESHOLD_DB) / 20));
+};
+
+/**
+ * A clip's noise floor and speech level in dBFS, from the peaks of its
+ * TIGHT_FRAME_SECONDS frames: the quietest tenth (digital silence and
+ * silenced breaths left out) and the loudest tenth. Null with too few frames.
+ */
+export const lineLevelsDb = (samples, sampleRate) => {
   const hop = Math.max(1, Math.round(TIGHT_FRAME_SECONDS * sampleRate));
   const levels = [];
   for (let i = 0; i + hop <= samples.length; i += hop) {
@@ -410,12 +443,9 @@ export const silenceLevel = (samples, sampleRate) => {
     const db = peak > 0 ? 20 * Math.log10(peak) : -Infinity;
     if (db > TIGHT_DIGITAL_SILENCE_DB) levels.push(db);
   }
-  if (levels.length < 10) return QUIET;
+  if (levels.length < 10) return null;
   levels.sort((a, b) => a - b);
-  const floor = levels[Math.floor(levels.length * 0.1)];
-  const speech = levels[Math.floor(levels.length * 0.9)];
-  if (speech - floor < TIGHT_MIN_RANGE_DB) return QUIET;
-  return Math.max(QUIET, 10 ** (Math.min(floor + TIGHT_FLOOR_MARGIN_DB, TIGHT_MAX_THRESHOLD_DB) / 20));
+  return { floor: levels[Math.floor(levels.length * 0.1)], speech: levels[Math.floor(levels.length * 0.9)] };
 };
 
 /**
