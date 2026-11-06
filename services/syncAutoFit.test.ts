@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { autoFitForSync, canUndoAutoFit, GROUPING_KEYS, isOwnCustom, regroupCost, REVOICE_KEYS, undoAutoFit, type AutoFitRequest } from './syncAutoFit.ts';
+import { autoFitForSync, canUndoAutoFit, GROUPING_KEYS, isOwnCustom, refitRequestFor, refittedOptions, regroupCost, REVOICE_KEYS, undoAutoFit, withRefit, type AutoFitRequest } from './syncAutoFit.ts';
 import { presetForRatio, syncJoinPreset } from './syncPresets.ts';
 import { LENGTH_BANDS, lengthBandFor } from '../server/lib/lengthBands.js';
 import { fitJoinSettings as serverFit } from '../server/lib/syncFit.js';
@@ -208,4 +208,47 @@ test('a failed measurement never stops the sync', async () => {
   const result = (await autoFitForSync(req))!;
   assert.equal(result.outcome.status, 'error');
   assert.equal(result.options, req.options);
+});
+
+test('a sample read alone never makes a dub Short before it is voiced; a rate from a sync may', async () => {
+  // 7 characters at 10 a second over 0.9 s said: about 22% shorter.
+  const sampled = (await autoFitForSync(request(cues(12, 7), { source: { charsPerSecond: 10, rateMeasured: true, rateSample: true } })))!;
+  assert.equal(sampled.outcome.presetTo, 'natural');
+  assert.notEqual(sampled.options.join.chunkGapShare, syncJoinPreset('short').chunkGapShare);
+  const synced = (await autoFitForSync(request(cues(12, 7), { source: { charsPerSecond: 10, rateMeasured: true } })))!;
+  assert.equal(synced.outcome.presetTo, 'short');
+});
+
+test("Sync sends each band its settings for after voicing, never for the user's own Custom", async () => {
+  const segments = cues(12, 11);
+  const req = request(segments);
+  const refit = (await refitRequestFor(options(), req))!;
+  assert.equal(refit.from, 'natural');
+  assert.deepEqual(Object.keys(refit.candidates).sort(), ['long', 'natural', 'short', 'vlong']);
+  assert.equal(refit.candidates.short!.chunkGapShare, syncJoinPreset('short').chunkGapShare);
+  assert.equal(await refitRequestFor(options({ preset: 'custom', join: { ...syncJoinPreset('natural'), minGap: 0.22 } }), req), null);
+  assert.equal(await refitRequestFor(options({ fitOnSync: false }), req), null);
+});
+
+test('settings swapped after voicing are kept for the next Sync, shown in the panel, and undone together', async () => {
+  const segments = cues(12, 9);
+  const pressed = (await autoFitForSync(request(segments, { options: options({ preset: 'short', join: syncJoinPreset('short') }) })))!;
+  const natural = { ...syncJoinPreset('natural'), minGap: 0.3 };
+  const report = { join: natural, refit: { status: 'applied' as const, from: 'short', to: 'natural', ratio: 0.99, inSync: { before: 5, after: 9 } } };
+
+  const kept = refittedOptions(pressed.options, report)!;
+  assert.equal(kept.join, natural);
+  assert.equal(kept.fitted?.preset, 'natural');
+  assert.equal(isOwnCustom(kept), false);
+  assert.equal(refittedOptions(pressed.options, { join: natural, refit: { ...report.refit, status: 'same' } }), null);
+
+  const outcome = withRefit(pressed.outcome, report);
+  assert.equal(outcome.status, 'applied');
+  assert.deepEqual(outcome.afterVoicing, { from: 'short', to: 'natural', ratio: 0.99 });
+  assert.deepEqual(outcome.changes.find((c) => c.key === 'preset'), { key: 'preset', from: 'short', to: 'natural', reason: outcome.changes[0].reason, by: 'preset' });
+  assert.match(outcome.changes[0].reason, /once voiced/);
+  assert.ok(canUndoAutoFit(kept, outcome));
+  const undone = undoAutoFit(kept, outcome);
+  assert.equal(undone.preset, 'short');
+  assert.deepEqual(undone.join, syncJoinPreset('short'));
 });

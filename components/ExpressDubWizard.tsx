@@ -135,7 +135,7 @@ import {
   previewSync,
   type LineSuggestion,
 } from '../services/syncService';
-import { autoFitForSync, canUndoAutoFit, undoAutoFit, type AutoFitOutcome } from '../services/syncAutoFit';
+import { autoFitForSync, canUndoAutoFit, refitRequestFor, undoAutoFit, withRefit, type AutoFitOutcome } from '../services/syncAutoFit';
 import { AutoFitPanel } from './AutoFitPanel';
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
@@ -957,7 +957,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // The Dub step's sync settings, shared by its rail and the "Sync again" in its results.
   const [syncOptions, setSyncOptions] = useSyncOptions(activeJob?.id, activeJob?.syncOptions, onSyncOptionsChange);
   // What Sync's own Fit to this video did on the last press, for this project only (AutoFitPanel).
-  const [autoFit, setAutoFit] = useState<{ jobId: string; outcome: AutoFitOutcome; undone?: boolean; groupingUsed?: boolean; hidden?: boolean } | null>(null);
+  const [autoFit, setAutoFit] = useState<{
+    jobId: string;
+    outcome: AutoFitOutcome;
+    undone?: boolean;
+    groupingUsed?: boolean;
+    hidden?: boolean;
+    /** The report from before the press, so the sync's own report is told from it. */
+    reportBefore?: unknown;
+    /** The sync's report has been read for what it changed after voicing. */
+    merged?: boolean;
+  } | null>(null);
   const [autoFitting, setAutoFitting] = useState(false);
   const hasSegments = Boolean(activeJob && activeJob.segments.length > 0);
 
@@ -1167,6 +1177,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     }
     setAutoFitting(true);
     let result: Awaited<ReturnType<typeof autoFitForSync>> = null;
+    let refit: SyncOptions['refit'] = null;
     try {
       const { segments: _cues, ...source } = fitSource;
       result = await autoFitForSync({
@@ -1188,15 +1199,24 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             sourceDuration: job.audioBuffer?.duration || 0,
           }),
       });
+      // Once the lines are voiced, Sync measures how long they really run and may swap these settings (syncRefit.js).
+      if (result) refit = await refitRequestFor(result.options, { segments, source, fit: (body) => fitJoinSettings(body) });
     } finally {
       setAutoFitting(false);
     }
     if (!result) return go(base);
-    setAutoFit({ jobId: job.id, outcome: result.outcome });
+    setAutoFit({ jobId: job.id, outcome: result.outcome, reportBefore: job.syncReport ?? null });
     const next = result.options;
     if (next !== base) setSyncOptions((o) => ({ ...o, preset: next.preset, join: next.join, fitted: next.fitted, fitUndone: next.fitUndone }));
-    go(next);
+    // Sent with this Sync only, never kept with the settings.
+    go(refit ? { ...next, refit } : next);
   };
+  // The sync's report: what Sync changed once the lines were voiced joins the What changed panel, once.
+  useEffect(() => {
+    const report = activeJob?.syncReport;
+    if (!autoFit || autoFit.merged || autoFit.jobId !== activeJob?.id || isSyncing || !report || report === autoFit.reportBefore) return;
+    setAutoFit({ ...autoFit, outcome: withRefit(autoFit.outcome, report), merged: true });
+  }, [autoFit, activeJob?.id, activeJob?.syncReport, isSyncing]);
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   // Dub & sync on the Dub step: the progress page while it runs, then its result until Open the dub.
   const syncRun = useSyncRun(isSyncing, syncProgress, syncWaitingFor ?? null);

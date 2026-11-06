@@ -19,7 +19,7 @@
  * sync after lines were voiced grouping is left as it is and only offered,
  * with what it would voice again. Sync never changes the words; only settings.
  */
-import type { SyncFit, SyncJoinSettings, SyncOptions, SyncPreview, SpeakerFitRates } from './syncService';
+import type { SyncFit, SyncJoinSettings, SyncOptions, SyncPreview, SyncReport, SpeakerFitRates } from './syncService';
 import type { AudioSegment } from '../types';
 import { syncJoinPreset, type SyncJoinPreset } from './syncPresets.ts';
 import { lengthBandFor } from '../server/lib/lengthBands.js';
@@ -78,6 +78,14 @@ export interface AutoFitOutcome {
   applied: SyncJoinSettings | null;
   /** The proposal, as a string, so an undone one isn't applied again by the next Sync. */
   signature: string;
+  /** Once the lines were voiced: the band the voice really read in, when Sync swapped the settings for it (syncRefit.js). */
+  afterVoicing?: { from: LengthPreset; to: LengthPreset; ratio: number } | null;
+}
+
+/** What Sync sends to fit the settings again once the lines are voiced: the band they were made for, and each band's settings. */
+export interface SyncRefitRequest {
+  from: LengthPreset;
+  candidates: Partial<Record<LengthPreset, SyncJoinSettings>>;
 }
 
 const joinKeys = (join: SyncJoinSettings) => Object.keys(join) as (keyof SyncJoinSettings)[];
@@ -165,7 +173,14 @@ export const autoFitForSync = async (request: AutoFitRequest): Promise<{ options
     const measured = await fit({ segments, ...source, join: options.join });
     const ratio = measured.measured.lengthRatio;
     const trusted = ratio !== null && Number.isFinite(ratio) && measured.measured.rateBasis !== 'estimated';
-    const preset: LengthPreset = trusted ? (lengthBandFor(ratio) as LengthPreset) : fromPreset;
+    const band = trusted ? (lengthBandFor(ratio) as LengthPreset) : fromPreset;
+    // A short sample read says too little to make a dub Short before it is voiced: a wrong Short keeps every pause and
+    // runs lines long. After voicing, Sync measures the real length and may still pick Short (syncRefit.js).
+    const fromSync =
+      (source.rateMeasured && source.rateSample !== true) ||
+      Object.values(source.speakerRates ?? {}).some((rate) => rate && rate.sample !== true && rate.lines >= 5);
+    const heldFromShort = trusted && band === 'short' && !fromSync;
+    const preset: LengthPreset = heldFromShort ? 'natural' : band;
 
     // 2. That preset, with Fit's gaps and pauses measured on top of it.
     const start = syncJoinPreset(preset, screen);
@@ -173,9 +188,11 @@ export const autoFitForSync = async (request: AutoFitRequest): Promise<{ options
     const join: SyncJoinSettings = { ...fitted.join };
     REVOICE_KEYS.forEach((key) => ((join as unknown as Record<string, unknown>)[key] = options.join[key]));
     const reasons = new Map(fitted.changes.map((change) => [change.key, change.reason]));
-    const presetReason = trusted
-      ? `The dub runs ${lengthWords(ratio!)}, which is ${presetLabel[preset]}.`
-      : `Part of ${presetLabel[preset]}.`;
+    const presetReason = heldFromShort
+      ? `At the voice's sample read the dub runs ${lengthWords(ratio!)}; Short waits until Sync has measured the voiced lines.`
+      : trusted
+        ? `The dub runs ${lengthWords(ratio!)}, which is ${presetLabel[preset]}.`
+        : `Part of ${presetLabel[preset]}.`;
 
     // 3. Grouping stays as it is once lines were voiced; it is offered with what it would voice again.
     // New grouping values that still make the very same lines voice nothing anew, so they go in like any other.
@@ -191,7 +208,7 @@ export const autoFitForSync = async (request: AutoFitRequest): Promise<{ options
       by: reasons.has(key) ? 'fit' : 'preset',
     });
     const presetChange: AutoFitChange[] =
-      preset !== fromPreset ? [{ key: 'preset', from: fromPreset, to: preset, reason: `The dub runs ${lengthWords(ratio!)}.`, by: 'preset' }] : [];
+      preset !== fromPreset ? [{ key: 'preset', from: fromPreset, to: preset, reason: heldFromShort ? presetReason : `The dub runs ${lengthWords(ratio!)}.`, by: 'preset' }] : [];
     const changes = [...presetChange, ...joinKeys(join).filter((key) => join[key] !== options.join[key]).map((key) => changeOf(key, join))];
     const groupingChanges = freezeGrouping
       ? GROUPING_KEYS.filter((key) => groupingWanted[key] !== options.join[key]).map((key) => changeOf(key, groupingWanted))
@@ -268,3 +285,68 @@ export const undoAutoFit = (options: SyncOptions, outcome: AutoFitOutcome): Sync
 /** True while the settings are still the ones the fit applied, so Undo still means something. */
 export const canUndoAutoFit = (options: Pick<SyncOptions, 'join'>, outcome: AutoFitOutcome | null) =>
   Boolean(outcome && outcome.status === 'applied' && outcome.applied && sameJoin(options.join, outcome.applied));
+
+/**
+ * For Sync to fit the settings again once the lines are voiced: each band's
+ * preset with Fit's measured gaps on it (the server adds the band's pause
+ * moves, and keeps grouping and the settings that voice lines again). None
+ * for the user's own Custom settings, or with Fit on Sync turned off.
+ */
+export const refitRequestFor = async (
+  options: SyncOptions,
+  { segments, source, fit }: Pick<AutoFitRequest, 'segments' | 'source' | 'fit'>
+): Promise<SyncRefitRequest | null> => {
+  if (options.fitOnSync === false || isOwnCustom(options)) return null;
+  try {
+    const screen = options.screen ?? 'any';
+    const bands: LengthPreset[] = ['short', 'natural', 'long', 'vlong'];
+    const fitted = await Promise.all(bands.map((band) => fit({ segments, ...source, charsPerSecond: 0, join: syncJoinPreset(band, screen) })));
+    return { from: lengthPresetOf(options), candidates: Object.fromEntries(bands.map((band, n) => [band, fitted[n].join])) };
+  } catch {
+    return null;
+  }
+};
+
+/** The settings once Sync swapped them after voicing (`report.refit`), as they are kept for the next Sync; null when it didn't. */
+export const refittedOptions = (options: SyncOptions, report: Pick<SyncReport, 'join' | 'refit'>): SyncOptions | null => {
+  const refit = report.refit;
+  if (!refit || refit.status !== 'applied' || !refit.to) return null;
+  const to = refit.to as LengthPreset;
+  return {
+    ...options,
+    preset: sameJoin(report.join, syncJoinPreset(to, options.screen ?? 'any')) ? to : 'custom',
+    join: report.join,
+    fitted: { preset: to, join: report.join },
+    fitUndone: undefined,
+  };
+};
+
+/** The What changed panel once Sync swapped the settings after voicing: every change from before the press, and Undo of all of it. */
+export const withRefit = (outcome: AutoFitOutcome, report: Pick<SyncReport, 'join' | 'refit'>): AutoFitOutcome => {
+  const refit = report.refit;
+  if (!refit || refit.status !== 'applied' || !refit.to || !refit.from || !(refit.ratio! > 0)) return outcome;
+  const from = refit.from as LengthPreset;
+  const to = refit.to as LengthPreset;
+  const before = outcome.before.join;
+  const after = report.join;
+  const reasons = new Map(outcome.changes.filter((c) => c.by === 'fit').map((c) => [c.key, c.reason]));
+  const why = `Measured once voiced: the voice ran ${lengthWords(refit.ratio!)}, which is ${presetLabel[to]}.`;
+  const presetFrom = outcome.changes.find((c) => c.key === 'preset')?.from ?? lengthPresetOf({ preset: outcome.before.preset, join: before, fitted: outcome.before.fitted });
+  const changes: AutoFitChange[] = [
+    ...(presetFrom !== to ? [{ key: 'preset' as const, from: presetFrom, to, reason: why, by: 'preset' as const }] : []),
+    ...joinKeys(after)
+      .filter((key) => after[key] !== before[key])
+      .map((key) => ({ key, from: before[key], to: after[key], reason: reasons.get(key) ?? why, by: reasons.has(key) ? ('fit' as const) : ('preset' as const) })),
+  ];
+  return {
+    ...outcome,
+    status: 'applied',
+    keptBecause: null,
+    changes,
+    presetTo: to,
+    ratio: refit.ratio!,
+    applied: after,
+    signature: signatureOf(to, after),
+    afterVoicing: { from, to, ratio: refit.ratio! },
+  };
+};

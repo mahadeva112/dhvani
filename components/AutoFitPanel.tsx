@@ -144,7 +144,9 @@ const WhatChangedWindow: React.FC<AutoFitPanelProps & { onClose: () => void }> =
               {applied ? 'What changed' : 'What Fit proposed'}
             </h2>
             <p className="text-[12.5px] text-slate-400 mt-0.5">
-              {applied
+              {applied && outcome.afterVoicing
+                ? 'Sync measured this video first, and again once the lines were voiced, and changed these settings. The words are never changed.'
+                : applied
                 ? 'Sync measured this video first and changed these settings. The words are never changed.'
                 : outcome.keptBecause ?? 'Nothing was changed.'}
             </p>
@@ -160,7 +162,13 @@ const WhatChangedWindow: React.FC<AutoFitPanelProps & { onClose: () => void }> =
         </div>
 
         <div className="px-5 sm:px-6 py-4 flex flex-col gap-3 max-h-[60vh] overflow-y-auto">
-          {outcome.inSync && (
+          {outcome.afterVoicing && (
+            <p className="text-[12.5px] text-slate-300">
+              Once voiced, the lines ran {Math.abs(outcome.afterVoicing.ratio - 1) < 0.01 ? 'about as long as' : `${Math.round(Math.abs(outcome.afterVoicing.ratio - 1) * 100)}% ${outcome.afterVoicing.ratio > 1 ? 'longer than' : 'shorter than'}`}{' '}
+              the original, so the settings were set for {presetName(outcome.afterVoicing.to)} before the lines were placed. Nothing was voiced again.
+            </p>
+          )}
+          {outcome.inSync && !outcome.afterVoicing && (
             <p className="text-[12.5px] text-slate-300">
               Sync preview: <b className="tabular-nums">{outcome.inSync.before}</b> → <b className="tabular-nums">{outcome.inSync.after}</b> of{' '}
               {plural(outcome.inSync.cues, 'cue')} in sync (an estimate from the text, before voicing).
@@ -245,7 +253,9 @@ export const AutoFitPanel: React.FC<AutoFitPanelProps> = (props) => {
           ? 'Your Custom settings were kept: Fit to this video leaves them alone.'
           : outcome.keptBecause ?? 'Settings kept as they are.';
   const detail =
-    applied && !undone && outcome.inSync
+    applied && !undone && outcome.afterVoicing
+      ? 'Measured again once the lines were voiced.'
+      : applied && !undone && outcome.inSync
       ? `Preview: ${outcome.inSync.before} → ${outcome.inSync.after} of ${outcome.inSync.cues} cues in sync.`
       : outcome.status === 'kept' && outcome.changes.length > 0 && !outcome.keptBecause?.includes('undid')
         ? 'Nothing was changed.'

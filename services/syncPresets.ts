@@ -162,10 +162,12 @@ export const SYNC_SCREEN_OPTIONS: { id: SyncScreen; label: string; sub: string; 
  * the seconds each line takes as voiced, from its first word to its last,
  * over the seconds the original speaker took for it. Null with nothing voiced.
  */
-export const dubLengthRatio = (units: { silent?: boolean; speech: number; srcStart: number; srcEnd: number }[]) => {
-  const voiced = units.filter((unit) => !unit.silent && unit.speech > 0 && unit.srcEnd > unit.srcStart);
+export const dubLengthRatio = (units: { silent?: boolean; speech: number; read?: number; srcStart: number; srcEnd: number }[]) => {
+  // As the voice read it (`read`), as Sync measures it after voicing (server/lib/syncRefit.js); older reports have only `speech`.
+  const lengthOf = (unit: { speech: number; read?: number }) => (typeof unit.read === 'number' && unit.read > 0 ? unit.read : unit.speech);
+  const voiced = units.filter((unit) => !unit.silent && lengthOf(unit) > 0 && unit.srcEnd > unit.srcStart);
   const original = voiced.reduce((sum, unit) => sum + unit.srcEnd - unit.srcStart, 0);
-  return original > 0 ? voiced.reduce((sum, unit) => sum + unit.speech, 0) / original : null;
+  return original > 0 ? voiced.reduce((sum, unit) => sum + lengthOf(unit), 0) / original : null;
 };
 
 /** The length preset for a dub that runs `ratio` times as long as the original (server/lib/lengthBands.js). */

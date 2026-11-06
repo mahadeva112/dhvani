@@ -21,7 +21,7 @@ type PresetSuggestion = NonNullable<ReturnType<typeof presetSuggestion>>;
 import { AudioSegment } from '../types';
 import { JOIN_SETTING_RANGES } from '../server/lib/syncSettings.js';
 import { reportError } from '../services/errorPopup';
-import { isOwnCustom } from '../services/syncAutoFit';
+import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
 
 /**
  * How Sync joins its lines: a preset, and the settings it fills in, one
@@ -689,10 +689,17 @@ export const JoinPresetPicker: React.FC<{
   suggestion?: PresetSuggestion | null;
 }> = ({ options, onOptionsChange, disabled, onShowChanged, suggestion }) => {
   const screen = options.screen ?? 'any';
+  // Settings Fit to this video left show as the length they started from, fitted; Custom is only the user's own.
+  const fittedFrom = options.preset === 'custom' && !isOwnCustom(options) ? lengthPresetOf(options) : null;
+  const lengthNow: SyncJoinPreset = fittedFrom ?? options.preset;
   const pickLength = (preset: string) => onOptionsChange((o) => applyJoinPreset(o, preset as SyncJoinPreset, o.screen ?? 'any'));
   const pickScreen = (next: string) =>
-    onOptionsChange((o) => (o.preset === 'custom' ? { ...o, screen: next as SyncScreen } : applyJoinPreset(o, o.preset, next as SyncScreen)));
-  const hint = [SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint, SYNC_SCREEN_OPTIONS.find((s) => s.id === screen)?.hint].filter(Boolean).join(' ');
+    onOptionsChange((o) =>
+      o.preset === 'custom' && isOwnCustom(o) ? { ...o, screen: next as SyncScreen } : applyJoinPreset(o, lengthPresetOf(o), next as SyncScreen)
+    );
+  const hint = fittedFrom
+    ? `${presetName(fittedFrom)}, with Fit to this video's changes on it. Picking a length puts the preset back as it is.`
+    : [SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint, SYNC_SCREEN_OPTIONS.find((s) => s.id === screen)?.hint].filter(Boolean).join(' ');
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex flex-col gap-1.5">
@@ -700,13 +707,13 @@ export const JoinPresetPicker: React.FC<{
         <ChoiceRow
           label="Line joins by the dub's length"
           choices={SYNC_JOIN_PRESET_OPTIONS}
-          value={options.preset}
+          value={lengthNow}
           suggested={suggestion?.preset}
           disabled={disabled}
           onPick={pickLength}
         />
       </div>
-      {suggestion && suggestion.preset !== options.preset && (
+      {suggestion && suggestion.preset !== lengthNow && (
         <div className="flex flex-wrap items-center gap-2.5 rounded-lg border border-amber-400/35 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-100">
           <Ruler className="w-3.5 h-3.5 text-amber-300 shrink-0" />
           <span>
