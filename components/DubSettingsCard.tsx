@@ -3,6 +3,7 @@ import { Pause, Play, SlidersHorizontal } from 'lucide-react';
 import { SelectedVoiceSummary } from './VoiceSelectorCard';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { applyJoinPreset, describeChange, joinPresetOf, presetName } from './SyncJoinSettings';
+import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
 import { SYNC_JOIN_PRESET_OPTIONS, SYNC_SCREEN_OPTIONS, type SyncFitMode, type SyncJoinPreset, type SyncJoinSettings, type SyncOptions, type SyncPrecision, type SyncScreen } from '../services/syncService';
 import { DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { ElevenLabsModel, ElevenLabsVoiceSettings, Voice, VoiceExpression } from '../services/elevenLabsService';
@@ -282,9 +283,14 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
   const pickScreen = (screen: SyncScreen) =>
     onOptionsChange((o) => (o.preset === 'custom' ? { ...o, screen } : applyJoinPreset(o, o.preset, screen)));
 
-  const suggested = suggestion && suggestion.preset !== options.preset ? suggestion.preset : null;
+  // Settings Fit to this video left count as the length they started from, fitted.
+  const fittedFrom = options.preset === 'custom' && !isOwnCustom(options) ? lengthPresetOf(options) : null;
+  const lengthNow = fittedFrom ?? options.preset;
+  const suggested = suggestion && suggestion.preset !== lengthNow ? suggestion.preset : null;
   const lengthNote =
-    options.preset === 'custom'
+    fittedFrom
+      ? `${presetName(fittedFrom)}, fitted to this video. Picking a length replaces the fit.`
+      : options.preset === 'custom'
       ? 'Custom: your own settings. Picking a length replaces them.'
       : suggestion
         ? `The dub reads ${describeChange(suggestion.change)} than the original${suggestionEstimated ? ', est.' : '.'}`
@@ -297,7 +303,7 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
     >
       <Seg
         label="Dub length"
-        value={options.preset === 'custom' ? null : options.preset}
+        value={lengthNow === 'custom' ? null : lengthNow}
         choices={LENGTH_CHOICES}
         onPick={pickLength}
         disabled={disabled}

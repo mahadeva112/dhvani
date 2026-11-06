@@ -159,6 +159,16 @@ export interface SyncOptions {
   suggestLonger: boolean;
   /** Bring every line to the same loudness. Off: each line keeps the level it was voiced at. */
   matchLoudness: boolean;
+  /** Fit to this video when Sync is pressed (services/syncAutoFit.ts). On unless turned off. */
+  fitOnSync?: boolean;
+  /**
+   * The join settings Fit to this video left, and the length preset it
+   * started from. While `join` still equals them, a Custom preset is Fit's,
+   * not the user's own, and the next Sync may fit it again.
+   */
+  fitted?: { preset: Exclude<SyncJoinPreset, 'custom'>; join: SyncJoinSettings };
+  /** The changes a Fit the user undid would make again, so the next Sync doesn't put them straight back. */
+  fitUndone?: string;
 }
 
 /**
