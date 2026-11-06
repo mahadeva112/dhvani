@@ -136,7 +136,7 @@ import {
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
-import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, WordingSuggestRow, StretchCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, WordingSuggestRow, StretchCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
@@ -2455,12 +2455,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       selectedKey={selectedLineKey}
                       currentKey={linePreview.units.find((u) => time >= u.srcStart && time < Math.max(u.nextStart ?? -Infinity, u.srcEnd))?.key}
                       onSelect={pickReviewLine}
-                      rythmo={estimateMethod === 'expert' && laneView === 'rythmo'}
-                      look={laneView === 'rythmo' ? 'wave' : laneView}
+                      look={laneView}
                       drag={laneDrag}
                       setDrag={setLaneDrag}
                       onPlace={placeLine}
                       onCut={cutLine}
+                      // Bars: words typed in a line's bar go into the script, spread over its cues as a wording is.
+                      onEditLine={(u, text) => applyPreviewLine(u, text)}
                       onSkipPause={skipPauseCut}
                       placeDrag={placeDrag}
                       setPlaceDrag={setPlaceDrag}
@@ -2518,6 +2519,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             pausesRow={
               linePreview && !hearingDub && !awaitingScript
                 ? ({ start, span }) => <PauseTicksLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} />
+                : undefined
+            }
+            // Blocks and Bars: the original's words or lines in the waveform's place, coloured like their dub below.
+            sourceLane={
+              linePreview && !hearingDub && !awaitingScript && laneView !== 'wave'
+                ? ({ start, span, layers }) => (
+                    <SourceLineLane units={linePreview.units} segments={segments} windowStart={start} windowSeconds={span} look={laneView} numbers={layers.numbers} />
+                  )
                 : undefined
             }
           />
@@ -2800,7 +2809,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   estimate={
                     <span className="flex flex-wrap items-center gap-2">
                       <EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />
-                      <LaneViewSwitch view={laneView} onChange={setLaneView} rythmo={estimateMethod === 'expert'} />
+                      <LaneViewSwitch view={laneView} onChange={setLaneView} />
                       <label
                         className="flex items-center gap-1.5 text-[11.5px] text-slate-400 cursor-default"
                         title="As soon as a line is likely to run long, two shorter wordings are asked for in the background, ready when you look. Uses your text model. Alt + 1 or 2 puts one in; Alt + ↓ or ↑ goes to the next line to fix."

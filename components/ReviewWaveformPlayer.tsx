@@ -78,6 +78,11 @@ export interface ReviewWaveformPlayerProps {
    * below share one colour. Keep the array stable; a new one redraws.
    */
   lineSpans?: { from: number; to: number; color: string }[];
+  /**
+   * Drawn in the waveform's place, on the same clock (the original's words or
+   * lines in Blocks and Bars). Clicks and drags there still seek and move cuts.
+   */
+  sourceLane?: (view: { start: number; span: number; layers: LaneLayers }) => React.ReactNode;
 }
 
 /** What the timeline shows besides the lines, toggled from its top bar: pause ticks, every line's fit, numbers. */
@@ -229,6 +234,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   cuePace,
   fastLabel = 'Too fast',
   lineSpans,
+  sourceLane,
 }) => {
   /*
    * Two clocks for two jobs. Playheads and the played colour move every frame
@@ -1093,7 +1099,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                     <span>Click to jump · drag to scrub</span>
                     {onDragCut && <span>Drag a cut between cues to move it</span>}
                     <span>Ctrl + scroll to zoom · scroll to move once zoomed in</span>
-                    {belowWave && <span>Double-click a dub line to zoom to it</span>}
+                    {belowWave && <span>Double-click a dub line to zoom to it · in Bars, to type its words in the bar (Enter saves, Esc puts it back)</span>}
                     {belowWave && <span>Drag a dub line to where it should be heard · S over it cuts it between two words · double-click a cut to join · Backspace puts it back</span>}
                     <span>Drag the bar under the timeline to move along the track</span>
                   </div>
@@ -1151,18 +1157,23 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               aria-valuemax={Math.round(total)}
               aria-valuenow={Math.round(currentTime)}
               aria-valuetext={formatTime(currentTime)}
-              className={`relative ${belowWave ? 'h-14' : 'h-[72px]'} cursor-crosshair touch-none`}
+              className={`relative ${belowWave ? 'h-14' : 'h-[72px]'} cursor-default touch-none`}
               onPointerDown={(e) => onWavePointer(e, 'down')}
               onPointerMove={(e) => onWavePointer(e, 'move')}
               onPointerUp={(e) => onWavePointer(e, 'up')}
               onPointerLeave={() => setHoverTime(null)}
               onWheel={onWheel}
             >
-              <div className="absolute inset-y-0 will-change-transform pointer-events-none" style={trackStyle}>
+              <div className={`absolute inset-y-0 will-change-transform pointer-events-none ${sourceLane ? 'invisible' : ''}`} style={trackStyle}>
                 <canvas ref={waveRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
                 <canvas ref={wavePlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
               </div>
-              {!audioBuffer && (
+              {sourceLane && (
+                <div className="absolute inset-y-0 will-change-transform pointer-events-none" style={trackStyle}>
+                  {sourceLane({ start: drawn.from, span: drawn.span, layers })}
+                </div>
+              )}
+              {!audioBuffer && !sourceLane && (
                 <span className="absolute inset-0 flex items-center justify-center text-xs text-slate-500">Reading the audio…</span>
               )}
               {hoverTime !== null && (

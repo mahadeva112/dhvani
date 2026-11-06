@@ -3,6 +3,7 @@ import { Check, Loader2, Pencil, RotateCcw, X } from 'lucide-react';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { hueOf, withAlpha } from './lineColors';
+import { FitText, SqueezedWord } from './FitText';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
 import { AudioSegment } from '../types';
 import {
@@ -63,14 +64,23 @@ const SELECTED_RING = '0 0 0 2px rgba(165,180,252,0.95)';
 const NOW_RING = '0 0 0 2px rgba(255,255,255,0.8)';
 /** How a line is likely to fit, as the colour of its Expert range. */
 const STATUS_HEX: Record<SyncPreviewUnit['status'], string> = { fits: '#34d399', tight: '#fcd34d', long: '#fbbf24', short: '#38bdf8' };
-/** How the dub lane draws its lines: Wave, Blocks, Bars, or (Expert only) Rythmo. */
+/** How Review's lanes draw the lines: Wave, Blocks or Bars (a saved Rythmo, since dropped, opens as Wave). */
 const PREVIEW_VIEW_KEY = 'dhvani_preview_view';
-export type LaneView = 'wave' | 'blocks' | 'bars' | 'rythmo';
-const LANE_VIEWS: LaneView[] = ['wave', 'blocks', 'bars', 'rythmo'];
+export type LaneView = 'wave' | 'blocks' | 'bars';
+const LANE_VIEWS: LaneView[] = ['wave', 'blocks', 'bars'];
 /** Zoomed out past this many pixels a second, Blocks draws each line as one bar: its words would be slivers. */
 const BLOCKS_MIN_PX_PER_SECOND = 6;
 
 export { estimatedWords };
+
+/** What a dub line's part says: the whole line, or a cut line's own words. */
+const partText = (u: SyncPreviewUnit, p: LinePart, parts: number) =>
+  parts > 1
+    ? estimatedWords(u)
+        .slice(p.first, p.last + 1)
+        .map((w) => w.text)
+        .join(' ')
+    : u.text;
 
 /** A steady pseudo-random 0..1, so a line's wave keeps its shape from one render to the next. */
 const wobble = (i: number, j: number) => {
@@ -1076,16 +1086,15 @@ export const useLaneView = () => {
   return [view, change] as const;
 };
 
-/** How the dub lane draws its lines. Rythmo needs the Expert estimate's timed words; without them it shows as Wave. */
-export const LaneViewSwitch: React.FC<{ view: LaneView; onChange: (view: LaneView) => void; rythmo?: boolean }> = ({ view, onChange, rythmo = false }) => {
-  const shown = view === 'rythmo' && !rythmo ? 'wave' : view;
+/** How Review's lanes draw the lines, the original's above and the dub's below. */
+export const LaneViewSwitch: React.FC<{ view: LaneView; onChange: (view: LaneView) => void }> = ({ view, onChange }) => {
+  const shown = view;
   return (
-  <div role="group" aria-label="Dub lane" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+  <div role="group" aria-label="Lane view" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
     {[
-      { id: 'wave' as const, label: 'Wave', hint: 'Each line as a wave: a swell for each word, flat where the voice is likely to pause. A guess from the text; nothing is voiced yet.' },
-      { id: 'blocks' as const, label: 'Blocks', hint: 'Each word as a box as wide as the time it is likely to take, red past the line\'s slot. Zoom in to read the words.' },
-      { id: 'bars' as const, label: 'Bars', hint: 'Each line as a bar' },
-      ...(rythmo ? [{ id: 'rythmo' as const, label: 'Rythmo', hint: 'The dub text on the timeline, each word as wide as the time it takes. Zoom in to read short lines.' }] : []),
+      { id: 'wave' as const, label: 'Wave', hint: "The original's audio above; below, each dub line as a wave: a swell for each word, flat where the voice is likely to pause. A guess from the text; nothing is voiced yet." },
+      { id: 'blocks' as const, label: 'Blocks', hint: "Each word as a box: the original's where it is said, the dub's as wide as it is likely to take, red past the line's slot." },
+      { id: 'bars' as const, label: 'Bars', hint: 'Each line as a bar with its words in it: the original line above, the dub script below.' },
     ].map((v) => (
       <button
         key={v.id}
@@ -1138,6 +1147,229 @@ const LinePauseTicks: React.FC<{ unit: SyncPreviewUnit; pct: (t: number) => numb
       {dub.map((t, n) => (
         <span key={`d${n}`} aria-hidden="true" title="The dub may pause here, where the original runs straight on; Sync cuts it" className="absolute bottom-0 w-0 h-0 -ml-[4px] border-x-[4px] border-x-transparent border-b-[7px] border-b-amber-400 pointer-events-none" style={{ left: `${pct(t)}%` }} />
       ))}
+    </>
+  );
+};
+
+/** What a cue says in the original language. */
+const sourceTextOf = (seg: AudioSegment) => (seg.textSource ?? seg.originalText ?? seg.text ?? '').trim();
+const SPOKEN = /[\p{L}\p{N}]/u;
+
+/**
+ * The original's lane in Blocks and Bars (Review's Wave shows its audio
+ * instead): what the original says, on its own clock, each line in the colour
+ * its dub has below. Blocks: a box per word where it is said (its measured
+ * word timings), the word squeezed inside. Bars: a bar per line with the whole
+ * line in it, broken between words, smaller only when it must be. A line
+ * without word timings is drawn as its bar in Blocks too; a cue in no line is a
+ * grey bar.
+ */
+export const SourceLineLane: React.FC<{
+  units: SyncPreviewUnit[];
+  segments: AudioSegment[];
+  windowStart: number;
+  windowSeconds: number;
+  look: 'blocks' | 'bars';
+  /** Line numbers in the bars (the Line numbers layer). */
+  numbers?: boolean;
+}> = ({ units, segments, windowStart, windowSeconds, look, numbers = false }) => {
+  const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
+  const probe = useRef<HTMLSpanElement>(null);
+  const [laneWidth, setLaneWidth] = useState(0);
+  useLayoutEffect(() => {
+    const lane = probe.current?.parentElement;
+    if (!lane) return;
+    setLaneWidth(lane.clientWidth);
+    const observer = new ResizeObserver(() => setLaneWidth(lane.clientWidth));
+    observer.observe(lane);
+    return () => observer.disconnect();
+  }, []);
+  const pxPerSecond = windowSeconds > 0 ? laneWidth / windowSeconds : 0;
+  const blocks = look === 'blocks' && pxPerSecond >= BLOCKS_MIN_PX_PER_SECOND;
+  // Each line's text and words, and the cues no line holds, worked out once per set of lines.
+  const lines = useMemo(() => {
+    const byId = new Map(segments.map((seg) => [String(seg.id), seg]));
+    const held = new Set<string>();
+    const drawn = units.map((u) => {
+      const cues = u.cueIds.map((id) => byId.get(String(id))).filter((seg): seg is AudioSegment => Boolean(seg));
+      cues.forEach((seg) => held.add(String(seg.id)));
+      const words = cues
+        .flatMap((seg) => seg.words || [])
+        .filter((w) => SPOKEN.test(String(w.text ?? '')) && Number.isFinite(w.start) && Number.isFinite(w.end) && w.end > w.start)
+        .map((w) => ({ text: String(w.text).trim(), start: w.start, end: w.end }));
+      const text = u.sourceText?.trim() || cues.map(sourceTextOf).filter(Boolean).join(' ');
+      return { key: u.key, index: u.index as number | null, from: u.srcStart, to: u.srcEnd, text, words };
+    });
+    const loose = segments
+      .filter((seg) => !held.has(String(seg.id)) && sourceTextOf(seg))
+      .map((seg) => ({ key: `cue-${seg.id}`, index: null, from: seg.startTime, to: seg.endTime, text: sourceTextOf(seg), words: [] as { text: string; start: number; end: number }[] }));
+    return [...drawn, ...loose];
+  }, [units, segments]);
+  const end = windowStart + windowSeconds;
+  return (
+    <>
+      <span ref={probe} aria-hidden="true" className="hidden" />
+      {lines
+        .filter((l) => l.to >= windowStart && l.from <= end && l.to > l.from)
+        .map((l) => {
+          const hue = l.index === null ? '#64748b' : hueOf(l.index);
+          if (blocks && l.words.length)
+            return (
+              <React.Fragment key={l.key}>
+                {l.words.map((w, n) => (
+                  <span
+                    key={n}
+                    aria-hidden="true"
+                    className="absolute top-1.5 bottom-1.5 flex items-center justify-center overflow-hidden rounded-[3px] border leading-none text-slate-50 pointer-events-none"
+                    style={{
+                      left: `${pct(w.start)}%`,
+                      width: `calc(${Math.max(0.1, pct(w.end) - pct(w.start))}% - 1px)`,
+                      background: withAlpha(hue, 0.24),
+                      borderColor: withAlpha(hue, 0.85),
+                    }}
+                  >
+                    <SqueezedWord text={w.text} boxPx={(w.end - w.start) * pxPerSecond - 1} />
+                  </span>
+                ))}
+              </React.Fragment>
+            );
+          return (
+            <span
+              key={l.key}
+              aria-hidden="true"
+              className="absolute top-1.5 bottom-1.5 rounded border pointer-events-none"
+              style={{ left: `${pct(l.from)}%`, width: `${Math.max(0.3, pct(l.to) - pct(l.from))}%`, background: withAlpha(hue, 0.22), borderColor: hue }}
+            >
+              <FitText fitKey={`${l.text}|${numbers}`}>
+                <span className="text-slate-50">
+                  {numbers && l.index !== null && (
+                    <span className="font-mono font-semibold" style={{ color: hue }}>
+                      {l.index + 1}{' '}
+                    </span>
+                  )}
+                  {l.text}
+                </span>
+                <span className="block font-mono text-[0.85em] tabular-nums whitespace-nowrap" style={{ color: hue }}>
+                  {(l.to - l.from).toFixed(1)} s
+                </span>
+              </FitText>
+            </span>
+          );
+        })}
+    </>
+  );
+};
+
+/** A line being edited is never narrower than this on the lane, in pixels, so there is room to type. */
+const EDITOR_MIN_PX = 160;
+/** The smallest the words being typed get while they fit the bar; past it the box scrolls. */
+const EDITOR_MIN_FONT_PX = 9;
+
+/**
+ * A dub line's words typed in its bar (Bars), with phonetic typing: Roman
+ * letters become the dub language's script as each word ends. Its length is
+ * guessed again on every key, from its letters against the line's estimate,
+ * and drawn behind it against the line's room (red past it); the real
+ * estimate comes once it is saved. Enter or leaving the box saves, Esc
+ * puts the line back.
+ */
+const BarLineEditor: React.FC<{
+  unit: SyncPreviewUnit;
+  text: string;
+  onChange: (text: string) => void;
+  onDone: (save: boolean) => void;
+  start: number;
+  room: number;
+  pct: (t: number) => number;
+}> = ({ unit, text, onChange, onDone, start, room, pct }) => {
+  const area = useRef<HTMLTextAreaElement>(null);
+  const done = useRef(false);
+  const finish = (save: boolean) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(save);
+  };
+  const hue = hueOf(unit.index);
+  const was = letterCount(unit.text);
+  const now = letterCount(text);
+  // The line's own estimate, scaled by its letters: a guess until it is saved and worked out again.
+  const seconds = was > 0 ? (unit.estimate * now) / was : now * 0.08;
+  const end = start + seconds;
+  const slot = room - start;
+  const over = end - room;
+  useEffect(() => {
+    // Two frames on: the click that picked the line moves focus to its cue in the list a frame later (pickReviewLine).
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const el = area.current;
+        if (!el) return;
+        el.focus({ preventScroll: true });
+        el.setSelectionRange(el.value.length, el.value.length);
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, []);
+  // The words fit the bar as they are typed: smaller only when they must be.
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    let size = 13;
+    el.style.fontSize = `${size}px`;
+    while (size > EDITOR_MIN_FONT_PX && el.scrollHeight > el.clientHeight + 1) {
+      size -= 0.5;
+      el.style.fontSize = `${size}px`;
+    }
+  }, [text]);
+  return (
+    <>
+      {/* The line's guessed length behind the box: its colour inside its room, red past it */}
+      <span
+        aria-hidden="true"
+        className="absolute top-1.5 bottom-1.5 rounded-l pointer-events-none"
+        style={{ left: `${pct(start)}%`, width: `${Math.max(0, pct(Math.min(end, room)) - pct(start))}%`, background: withAlpha(hue, 0.3) }}
+      />
+      {over > 0 && (
+        <span
+          aria-hidden="true"
+          className="absolute top-1.5 bottom-1.5 rounded-r pointer-events-none bg-rose-500/35"
+          style={{ left: `${pct(room)}%`, width: `${pct(end) - pct(room)}%` }}
+        />
+      )}
+      <span
+        className="absolute z-30 top-1 bottom-1 flex flex-col rounded border-2 border-indigo-300 bg-slate-950/40"
+        style={{ left: `${pct(start)}%`, width: `${Math.max(pct(end), pct(room)) - pct(start)}%`, minWidth: EDITOR_MIN_PX }}
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
+        <PhoneticTextarea
+          ref={area}
+          aria-label={`Line ${unit.index + 1}: the dub's words`}
+          value={text}
+          onChange={onChange}
+          spellCheck={false}
+          className="flex-1 min-h-0 w-full resize-none overflow-y-auto bg-transparent px-1.5 pt-0.5 leading-[1.15] text-slate-50 focus:outline-none"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              e.stopPropagation();
+              finish(true);
+            } else if (e.key === 'Escape') {
+              e.preventDefault();
+              e.stopPropagation();
+              finish(false);
+            }
+          }}
+          onBlur={(e) => {
+            // Focus going to the spellings list stays in the edit; anywhere else saves.
+            if (e.relatedTarget instanceof Node && e.currentTarget.parentElement?.contains(e.relatedTarget)) return;
+            finish(true);
+          }}
+        />
+        <span className="shrink-0 overflow-hidden whitespace-nowrap px-1.5 pb-px font-mono text-[9.5px] leading-[12px] tabular-nums" style={{ color: over > 0 ? '#fda4af' : hue }}>
+          ≈{seconds.toFixed(1)} s{over > 0 ? ` · +${over.toFixed(1)} s` : ''} / {slot.toFixed(1)} s · Enter saves · Esc puts it back
+        </span>
+      </span>
     </>
   );
 };
@@ -1254,6 +1486,12 @@ export const DubEstimateLane: React.FC<{
   layers?: { fit: boolean; numbers: boolean; pauses?: boolean };
   /** Where a stretched line's speed shows: on the line always (On line), or only while it is dragged (Card, which has it below). */
   rateMarks?: 'always' | 'drag';
+  /**
+   * Bars: a double-click on a line types its words in the bar (phonetic
+   * typing), called with the new words once saved. Without it a double-click
+   * zooms to the line, as in the other views.
+   */
+  onEditLine?: (unit: SyncPreviewUnit, text: string) => void;
 }> = ({
   units,
   windowStart,
@@ -1278,7 +1516,11 @@ export const DubEstimateLane: React.FC<{
   setStretchDraft,
   layers = { fit: true, numbers: true },
   rateMarks = 'always',
+  onEditLine,
 }) => {
+  /** The line whose words are being typed in its bar, and what they are so far. */
+  const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
+  const editable = Boolean(onEditLine) && look === 'bars';
   /** Colour alone: no rings, cut notches, pause ticks, flags or read ranges, until the Pauses layer is on. */
   const quiet = layers.pauses === false;
   /** A line's speed is marked on it: stretched (On line), or being stretched now. */
@@ -1299,16 +1541,15 @@ export const DubEstimateLane: React.FC<{
   const pxPerSecond = WINDOW_SECONDS > 0 ? laneWidth / WINDOW_SECONDS : 0;
   const barStep = barStepAt(pxPerSecond);
   // Each line's estimated words, and its wave, worked out once per set of lines (and per bar spacing).
+  // Bars need the words too: a cut line's part writes only its own in its bar.
   const shapes = useMemo(
     () =>
-      look === 'bars'
-        ? null
-        : new Map(
-            units.map((u) => {
-              const words = estimatedWords(u);
-              return [u.key, { words, path: look === 'wave' ? wavePath(words, u.estimate, barStep) : '' }] as const;
-            })
-          ),
+      new Map(
+        units.map((u) => {
+          const words = estimatedWords(u);
+          return [u.key, { words, path: look === 'wave' ? wavePath(words, u.estimate, barStep) : '' }] as const;
+        })
+      ),
     [units, look, barStep]
   );
   const gradientId = useId().replace(/[^\w-]/g, '');
@@ -1547,7 +1788,24 @@ export const DubEstimateLane: React.FC<{
         const shape = words ? undefined : shapes?.get(u.key);
         // Its fit is drawn with the Fit layer on, and always on the line picked or being stretched.
         const showFit = layers.fit || selected || stretchDraft?.key === u.key;
-        const drawn = words ? 'rythmo' : !shape || (look === 'blocks' && pxPerSecond < BLOCKS_MIN_PX_PER_SECOND) ? 'bars' : look;
+        const drawn = words ? 'rythmo' : !shape || look === 'bars' || (look === 'blocks' && pxPerSecond < BLOCKS_MIN_PX_PER_SECOND) ? 'bars' : look;
+        if (editable && editing?.key === u.key)
+          return (
+            <BarLineEditor
+              key={u.key}
+              unit={u}
+              text={editing.text}
+              onChange={(text) => setEditing({ key: u.key, text })}
+              onDone={(save) => {
+                const text = editing.text.replace(/\s+/g, ' ').trim();
+                setEditing(null);
+                if (save && text && text !== u.text.trim()) onEditLine?.(u, text);
+              }}
+              start={start}
+              room={room}
+              pct={pct}
+            />
+          );
         return (
           <React.Fragment key={u.key}>
             {parts.map((p) => {
@@ -1579,8 +1837,21 @@ export const DubEstimateLane: React.FC<{
                     />
                   )}
                   <span
-                    title={`${title}${p.placed ? `\nPlaced by you, ${signedSeconds(p.start - p.auto)} from where Sync puts it · Backspace puts it back` : ''}`}
+                    title={`${title}${p.placed ? `\nPlaced by you, ${signedSeconds(p.start - p.auto)} from where Sync puts it · Backspace puts it back` : ''}${
+                      editable ? '\nDouble-click to edit its words' : ''
+                    }`}
                     onClick={pick}
+                    onDoubleClick={
+                      editable
+                        ? (e) => {
+                            // Here a double-click types in the bar instead of zooming to the line.
+                            e.stopPropagation();
+                            press.current = null;
+                            setPlaceDrag?.(null);
+                            setEditing({ key: u.key, text: u.text });
+                          }
+                        : undefined
+                    }
                     onPointerDown={
                       onPlace && setPlaceDrag
                         ? (e) => {
@@ -1668,12 +1939,11 @@ export const DubEstimateLane: React.FC<{
                         />
                       </svg>
                     )}
-                    {/* Blocks: a box per estimated word, its text inside where it fits */}
+                    {/* Blocks: a box per estimated word, its text squeezed inside */}
                     {drawn === 'blocks' &&
                       length > 0 &&
                       partWords.map((w, n) => {
                         const late = p.start + w.end > room + 0.02;
-                        const fits = (w.end - w.start) * pxPerSecond >= w.text.length * 5 + 6;
                         return (
                           <span
                             key={n}
@@ -1687,12 +1957,31 @@ export const DubEstimateLane: React.FC<{
                               color: late ? '#fecdd3' : '#f1f5f9',
                             }}
                           >
-                            {fits ? w.text : null}
+                            <SqueezedWord text={w.text} boxPx={(w.end - w.start) * pxPerSecond - 1} />
                           </span>
                         );
                       })}
-                    {!words && p.index === 0 && lineNumber(u, width, STATUS_DOT[u.status])}
-                    {!words && drawn !== 'blocks' && p.index === parts.length - 1 && width > 9 && (!quiet || layers.numbers) && (
+                    {/* Bars: the dub script inside the bar, broken between words, smaller only when it must */}
+                    {drawn === 'bars' && (
+                      <FitText className="z-[5]" fitKey={`${partText(u, p, parts.length)}|${u.index}|${layers.numbers}|${over > 0 && showFit}`}>
+                        <span className="text-slate-50">
+                          {layers.numbers && p.index === 0 && !marksRate(u) && (
+                            <span className="font-mono font-semibold" style={{ color: hue }}>
+                              {u.index + 1}{' '}
+                            </span>
+                          )}
+                          {partText(u, p, parts.length)}
+                        </span>
+                        {p.index === parts.length - 1 && (
+                          <span className="block font-mono text-[0.85em] tabular-nums whitespace-nowrap" style={{ color: over > 0 && showFit ? '#fda4af' : hue }}>
+                            {u.expert ? '' : '≈'}
+                            {u.estimate.toFixed(1)} s{over > 0 && showFit ? ` · +${over.toFixed(1)} s` : ''}
+                          </span>
+                        )}
+                      </FitText>
+                    )}
+                    {!words && p.index === 0 && (drawn !== 'bars' || marksRate(u)) && lineNumber(u, width, drawn === 'bars' ? undefined : STATUS_DOT[u.status])}
+                    {!words && drawn === 'wave' && p.index === parts.length - 1 && width > 9 && (!quiet || layers.numbers) && (
                       <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
                         {u.expert ? '' : '≈'}
                         {u.estimate.toFixed(1)} s

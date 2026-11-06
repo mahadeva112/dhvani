@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.38',
+    changes: [
+      "Review's timeline has Wave, Blocks and Bars for both lanes: Blocks shows each word of the original where it is said and each dub word below it; Bars shows the whole English line above and the whole dub line below, inside the bar. Rythmo is gone.",
+      'In Bars, double-click a dub line to type its words right in the bar, with phonetic typing. Its length changes as you type; Enter saves, Esc puts it back. The timeline shows a plain arrow instead of the + cursor.',
+    ],
+  },
+  {
     version: '1.4.37',
     changes: [
       'New "Sync from scratch…" under Sync again: every line is voiced again with new takes and placed afresh, in the voice picked now. Hand edits, locks, picked takes, places on the dub lane and retakes go; the script and settings stay. It asks first and shows what it costs.',
