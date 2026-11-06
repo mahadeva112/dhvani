@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendManyToBank, appendToBank, compactBank, phraseLine, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
+import { appendManyToBank, appendToBank, carryTakes, compactBank, phraseLine, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
 import { measureEdits, partEnd, partsOf } from './syncEditModel.ts';
@@ -229,4 +229,85 @@ test('a compacted bank keeps only the playing samples, bit for bit, and points e
   });
   const head = new DataView(await out.bankBlob.slice(0, 44).arrayBuffer());
   assert.equal(head.getUint32(40, true), 40, 'the header counts the kept samples');
+});
+
+test('after a Sync every line keeps its takes: copied bit for bit to the end of the new bank, the picked one still playing', async () => {
+  // The last bank: line a's Sync take at 0, its retakes at 20 and 30; line b's Sync take at 10, a retake at 40.
+  const priorBlob = wav(Array.from({ length: 50 }, (_, i) => 100 + i));
+  const priorBank: SyncBank = {
+    bankId: 'old',
+    sampleRate: RATE,
+    float: false,
+    lines: [line('a', { bankStart: 30, length: 10 }), line('b', { bankStart: 10, length: 10, hash: 'hb' })],
+    speakerGains: {},
+  };
+  const priorTakes = {
+    a: {
+      takes: [
+        take({ id: 'sync', kind: 'sync', bankStart: 0, length: 10, hash: 'ha' }),
+        take({ id: '5-k', bankStart: 20, length: 10, hash: 'r1' }),
+        take({ id: 'voice-u', bankStart: 30, length: 10, hash: 'r2', voice: 'Asha', voiceId: 'new' }),
+        take({ id: '6-z', bankStart: 45, length: 5, hash: 'r3', text: 'other words' }),
+      ],
+      active: 'voice-u',
+    },
+    b: { takes: [take({ id: 'sync', kind: 'sync', bankStart: 10, length: 10, hash: 'hb' }), take({ id: '7-14', bankStart: 40, length: 5, hash: 'r4' })], active: 'sync' },
+  };
+  // The new bank: a kept as picked (same samples, at 0), b voiced again by Sync just as it was (at 10), and a clip of the original.
+  const newBlob = wav(Array.from({ length: 20 }, (_, i) => i));
+  const bank: SyncBank = {
+    bankId: 'synced',
+    sampleRate: RATE,
+    float: false,
+    lines: [line('a', { bankStart: 0, length: 10, hash: 'r2' }), line('b', { bankStart: 10, length: 10, hash: 'hb' }), line('o', { bankStart: 0, length: 999, original: true })],
+    speakerGains: {},
+  };
+  const report = { units: [unit('a', 0, 1, { picked: true }), unit('b', 2, 3)] } as unknown as SyncReport;
+  const out = (await carryTakes({ priorBank, priorBankBlob: priorBlob, priorTakes, bank, bankBlob: newBlob, report, bankId: 'grown' }))!;
+
+  assert.equal(out.bank.bankId, 'grown', 'a grown bank goes under a new id');
+  assert.deepEqual(out.bank.lines, bank.lines, 'the lines play exactly what Sync placed');
+  // New bank, then a's old Sync take and its first retake, then b's retake; the take in other words is let go.
+  assert.deepEqual(await samplesOf(out.bankBlob), [
+    ...Array.from({ length: 20 }, (_, i) => i),
+    ...Array.from({ length: 10 }, (_, i) => 100 + i),
+    ...Array.from({ length: 10 }, (_, i) => 120 + i),
+    ...Array.from({ length: 5 }, (_, i) => 140 + i),
+  ]);
+  const a = out.takes!.a;
+  assert.deepEqual(a.takes.map((t) => [t.id, t.kind, t.bankStart]), [['sync', 'sync', 20], ['5-u', 'line', 30], ['voice-0', 'line', 0]]);
+  assert.equal(a.active, 'voice-0', 'the picked take still plays, at the line');
+  const playing = a.takes.find((t) => t.id === a.active)!;
+  assert.equal(playing.voiceId, 'new', 'a voice-changed take stays in its voice');
+  assert.equal(playing.hash, 'r2');
+  const b = out.takes!.b;
+  assert.deepEqual(b.takes.map((t) => [t.id, t.bankStart]), [['sync', 10], ['7-14', 40]], "Sync's take again is not kept twice");
+  assert.equal(b.active, 'sync');
+  assert.equal(out.takes!.o, undefined);
+});
+
+test('after a Sync, a line voiced anew keeps its old Sync take only when it sounds different, as a take of its own', async () => {
+  const priorBlob = wav(Array.from({ length: 10 }, (_, i) => 50 + i));
+  const priorBank: SyncBank = { bankId: 'old', sampleRate: RATE, float: false, lines: [line('a', { bankStart: 0, length: 10, hash: 'old' })], speakerGains: {} };
+  const priorTakes = {
+    a: { takes: [take({ id: 'sync', kind: 'sync', bankStart: 0, length: 10, hash: 'old', chunks: [{ from: 0, to: 10, startSample: 5 }], maxStartShift: 3 })], active: 'sync' },
+  };
+  const bank: SyncBank = { bankId: 'synced', sampleRate: RATE, float: false, lines: [line('a', { bankStart: 0, length: 4, hash: 'fresh' })], speakerGains: {} };
+  const report = { units: [unit('a', 0, 1)] } as unknown as SyncReport;
+  const out = (await carryTakes({ priorBank, priorBankBlob: priorBlob, priorTakes, bank, bankBlob: wav([1, 2, 3, 4]), report, bankId: 'grown' }))!;
+  const kept = out.takes!.a;
+  assert.equal(kept.active, 'sync');
+  assert.deepEqual(kept.takes.map((t) => [t.id, t.kind, t.bankStart]), [['sync', 'sync', 0], ['was-sync-4', 'line', 4]]);
+  assert.equal(kept.takes[1].chunks, undefined, 'played whole, as any take');
+  assert.equal(kept.takes[1].maxStartShift, undefined);
+  assert.deepEqual(await samplesOf(out.bankBlob), [1, 2, 3, 4, ...Array.from({ length: 10 }, (_, i) => 50 + i)]);
+});
+
+test('after a Sync nothing is carried across formats, and a line with only Sync take needs no list', async () => {
+  const priorBank: SyncBank = { bankId: 'old', sampleRate: 2000, float: false, lines: [line('a')], speakerGains: {} };
+  const bank: SyncBank = { bankId: 'synced', sampleRate: RATE, float: false, lines: [line('a', { hash: 'x' })], speakerGains: {} };
+  const report = { units: [unit('a', 0, 1)] } as unknown as SyncReport;
+  const priorTakes = { a: { takes: [take({ id: 'sync', kind: 'sync', bankStart: 0, length: 4, hash: 'x' })], active: 'sync' } };
+  assert.equal(await carryTakes({ priorBank, priorBankBlob: wav([1, 2, 3, 4]), priorTakes, bank, bankBlob: wav([1]), report, bankId: 'g' }), null);
+  assert.equal(await carryTakes({ priorBank: { ...priorBank, sampleRate: RATE }, priorBankBlob: wav([1, 2, 3, 4]), priorTakes, bank, bankBlob: wav([1]), report, bankId: 'g' }), null);
 });

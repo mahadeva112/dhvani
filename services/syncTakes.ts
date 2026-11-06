@@ -12,7 +12,8 @@ import type { SyncReport, SyncUnitReport } from './syncService';
  * unchanged), and picking one points the line at its samples. The dub is then
  * rendered as Edit timing renders it, so a picked take is heard within
  * seconds, not after another Sync. The next Sync keeps each picked take as it
- * is (pickedTakes below), and starts the takes afresh.
+ * is (pickedTakes below), and every take of every line comes along to the
+ * new bank (carryTakes below), so the T window lists them all again.
  */
 
 /** How a take is read, besides as Sync read the line. Words never change, only the reading. */
@@ -251,6 +252,103 @@ export const compactBank = async (
     bankBlob: blob,
     takes: Object.keys(kept).length ? kept : null,
   };
+};
+
+/** A take's id at its new place in the bank: ids end in the take's bankStart, so they stay unique there. */
+const idAt = (id: string, bankStart: number) => `${id.includes('-') ? id.slice(0, id.lastIndexOf('-')) : id}-${bankStart.toString(36)}`;
+
+/**
+ * After a Sync: every line's takes, kept. The new bank has only the lines
+ * Sync placed, so each take still in the line's words is copied from the
+ * last bank (`priorBank`) to the end of the new one, as it is, and joins the
+ * line's takes there; the new bank then goes under `bankId`. A line playing a
+ * take picked in the T window (the report says `picked`) keeps it as its
+ * take, now the line's own samples; a line Sync voiced again plays Sync's new
+ * take, and its old ones stay to go back to (the old Sync take only when it
+ * sounds different from the new one). Takes in other words than the line has
+ * now are let go. Null when the banks can't be joined (another format) or
+ * nothing was kept, for the caller's own fallback.
+ */
+export const carryTakes = async ({
+  priorBank,
+  priorBankBlob,
+  priorTakes,
+  bank,
+  bankBlob,
+  report,
+  bankId,
+}: {
+  priorBank: SyncBank | null | undefined;
+  priorBankBlob: Blob | null | undefined;
+  priorTakes: SyncTakes | null | undefined;
+  bank: SyncBank;
+  bankBlob: Blob;
+  report: SyncReport;
+  bankId: string;
+}): Promise<{ bank: SyncBank; bankBlob: Blob; takes: SyncTakes | null } | null> => {
+  if (!priorBank || !priorBankBlob || !priorTakes || priorBank.sampleRate !== bank.sampleRate || priorBank.float !== bank.float) return null;
+  const priorLength = await samplesIn(priorBankBlob, priorBank.float);
+  const baseLength = await samplesIn(bankBlob, bank.float);
+  const units = new Map(report.units.map((unit) => [unit.key, unit]));
+  const copies: { from: number; length: number }[] = [];
+  let at = baseLength;
+  const out: SyncTakes = {};
+  for (const line of bank.lines) {
+    if (line.original) continue;
+    const prior = priorTakes[line.key];
+    const unit = units.get(line.key);
+    if (!prior || !unit) continue;
+    const active = prior.takes.find((take) => take.id === prior.active);
+    const pickedNow = Boolean(unit.picked && active && active.kind !== 'sync');
+    // What the line plays now: the picked take, at the line's samples, or Sync's new take.
+    const playing: SyncTake = pickedNow && active
+      ? {
+          ...syncTakeOf(line, unit.text),
+          ...(active.seed !== undefined && { seed: active.seed }),
+          ...(active.direction && { direction: active.direction }),
+          ...(active.phrase && { phrase: active.phrase }),
+          ...(active.voice && { voice: active.voice }),
+          ...(active.voiceId && { voiceId: active.voiceId }),
+          ...(active.spoken && { spoken: active.spoken }),
+          id: idAt(active.id, line.bankStart),
+          kind: active.kind,
+        }
+      : { ...syncTakeOf(line, unit.text), cutOff: Boolean(unit.cutOff) };
+    const takes: SyncTake[] = pickedNow ? [] : [playing];
+    for (const take of prior.takes) {
+      if (pickedNow && take === active) {
+        takes.push(playing);
+        continue;
+      }
+      if (take.text !== unit.text || !(take.length > 0) || take.bankStart < 0 || take.bankStart + take.length > priorLength) continue;
+      // Sync voiced the line again just as it was: its old take is the one playing.
+      if (!pickedNow && take.hash === line.hash) continue;
+      const bankStart = at;
+      copies.push({ from: take.bankStart, length: take.length });
+      at += take.length;
+      if (take.kind === 'sync' && !pickedNow) {
+        // The last Sync's take beside this Sync's own: a take like any other, played whole.
+        const { chunks: _chunks, maxStartShift: _shift, ...rest } = take;
+        takes.push({ ...rest, id: `was-sync-${bankStart.toString(36)}`, kind: 'line', bankStart });
+      } else {
+        takes.push({ ...take, id: take.id === SYNC_TAKE_ID ? SYNC_TAKE_ID : idAt(take.id, bankStart), bankStart });
+      }
+    }
+    // Only Sync's own take: nothing to keep that the line doesn't have anyway.
+    if (pickedNow || takes.length > 1) out[line.key] = { takes, active: playing.id };
+  }
+  const takes = Object.keys(out).length > 0 ? out : null;
+  if (copies.length === 0) return takes ? { bank, bankBlob, takes } : null;
+  const bytes = bank.float ? 4 : 2;
+  const blob = new Blob(
+    [
+      wavHeader(at * bytes, bank.sampleRate, bank.float),
+      bankBlob.slice(HEADER_BYTES),
+      ...copies.map((c) => priorBankBlob.slice(HEADER_BYTES + c.from * bytes, HEADER_BYTES + (c.from + c.length) * bytes)),
+    ],
+    { type: 'audio/wav' }
+  );
+  return { bank: { ...bank, bankId }, bankBlob: blob, takes };
 };
 
 /** One take on its own, as a WAV, for listening to it: its samples copied out of the bank. */

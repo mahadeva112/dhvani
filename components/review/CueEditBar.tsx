@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Combine, Headphones, Languages, Loader2, Redo2, RotateCcw, Scissors, Undo2, X } from 'lucide-react';
 import { AudioSegment } from '../../types';
+import { HistoryMenu, type ProjectHistoryView } from '../HistoryMenu';
 import {
   PAUSE_SECONDS,
   cueTokens,
@@ -313,6 +314,8 @@ export interface ReviewUndo {
   undo: () => void;
   redo: () => void;
   backToBase: () => void;
+  /** The project's whole history, for the History list. */
+  history?: ProjectHistoryView;
 }
 
 /**
@@ -402,6 +405,7 @@ export function CueEditBar({
         >
           <Redo2 className="w-3.5 h-3.5" />
         </button>
+        {history.history && history.history.entries.length > 1 && <HistoryMenu history={history.history} compact />}
         {history.baseLabel && (
           <button
             type="button"

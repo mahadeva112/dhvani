@@ -105,6 +105,70 @@ const OPEN_PROJECT_STORAGE_KEY = 'dhvani_open_project';
  */
 // Sync settings too: opening an older project saves them for the first time, and that isn't working on it.
 const VIEW_FIELDS = new Set<string>(['audioBuffer', 'synthAudioBuffer', 'syncedAudioBuffer', 'lastStep', 'syncOptions']);
+
+/** A new id for a Sync's bank (syncEpoch), or a bank the server is to be sent. */
+const newSyncId = () =>
+  typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `id-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+
+/** A project saved before Syncs had ids: its bank is the first one. */
+const FIRST_SYNC = 'first';
+
+/** While one of these runs (a transcription, translation, Sync), its own updates are not steps: what it ends with is. */
+const WORKING = new Set<ProcessingStatus>([
+  ProcessingStatus.QUEUED,
+  ProcessingStatus.UPLOADING,
+  ProcessingStatus.ANALYZING_AUDIO,
+  ProcessingStatus.GENERATING_XML,
+  ProcessingStatus.VALIDATING_XML,
+  ProcessingStatus.SYNTHESIZING_AUDIO,
+]);
+
+const historyStateOf = (job: BatchJob): HistoryState =>
+  Object.fromEntries(HISTORY_FIELDS.map((field) => [field, job[field] ?? null])) as HistoryState;
+
+/** The project's history, or one made from Review's when it has only that, or null. */
+const projectHistoryOf = (job: BatchJob): ProjectHistory | null =>
+  job.projectHistory ?? (job.reviewHistory && job.reviewHistory.steps.length > 1 ? fromReviewHistory(job.reviewHistory, historyStateOf(job)) : null);
+
+/** The Sync a project's bank belongs to: an old project's dub is the first one; no dub, none. */
+const syncIdOf = (job: Pick<BatchJob, 'syncEpoch' | 'syncBank' | 'syncedBlob'>) =>
+  job.syncBank || job.syncedBlob ? job.syncEpoch || FIRST_SYNC : null;
+
+/** What a project's Sync leaves to keep when another takes its place: its bank, or the dub file the voice changer made. */
+const syncKeepOf = (job: BatchJob) =>
+  job.syncBank && job.syncBankBlob
+    ? { blob: job.syncBankBlob, kind: 'bank' as const }
+    : !job.syncBank && job.syncedBlob
+      ? { blob: job.syncedBlob, kind: 'file' as const }
+      : null;
+
+/**
+ * The project after a change, with the change as a step in its history: what
+ * it did, named, after the step it was at. A change that sets the history
+ * itself (undo, redo) or is made while the project is being worked on is
+ * not one; nor is one that changes nothing a step puts back.
+ */
+const withHistoryStep = (
+  job: BatchJob,
+  next: BatchJob,
+  updates: Partial<BatchJob>,
+  { label, key }: { label?: string; key?: string } = {}
+): { job: BatchJob; dropped: string[] } => {
+  // The Sync the dub is from goes with it: none once there is no dub.
+  const epoch = syncIdOf(next);
+  const withEpoch = (next.syncEpoch ?? null) === epoch ? next : { ...next, syncEpoch: epoch };
+  // Before there is a script there is nothing to undo to: the history starts at the first script.
+  if ('projectHistory' in updates || WORKING.has(withEpoch.status) || !job.segments?.length || !HISTORY_FIELDS.some((field) => field in updates)) {
+    return { job: withEpoch, dropped: [] };
+  }
+  const before = { ...historyStateOf(job), syncEpoch: syncIdOf(job) };
+  const after = historyStateOf(withEpoch);
+  const change = describeProjectChange(before, after);
+  if (!change) return { job: withEpoch, dropped: [] };
+  const recorded = recordProjectStep(projectHistoryOf(job), before, after, { label: label ?? change.label, key: label ? key : (key ?? change.key) });
+  const { history, dropped } = keepRecentSyncs(recorded, epoch);
+  return { job: { ...withEpoch, projectHistory: history }, dropped };
+};
 const DEFAULT_ELEVENLABS_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel
 
 const engineOfVoice = (voiceId?: string | null): VoiceEngine =>
@@ -145,9 +209,23 @@ import {
   type DubAudioQuality,
 } from './services/dubAudioQuality';
 import { syncPendingAfter, withPendingLines } from './services/syncPending';
-import { BASE_LABELS, backToFirstStep, recordReviewStep, redoReviewStep, startReviewHistory, undoReviewStep } from './services/reviewHistory';
+import { BASE_LABELS, backToFirstStep, recordReviewStep, reviewHistoryLabels, startReviewHistory } from './services/reviewHistory';
+import {
+  catchUpProject,
+  describeProjectChange,
+  fromReviewHistory,
+  HISTORY_FIELDS,
+  historyEntries,
+  historyLabels,
+  keepRecentSyncs,
+  moveTo,
+  recordProjectStep,
+  stateAt,
+  type HistoryState,
+  type ProjectHistory,
+} from './services/projectHistory';
 import { hasEdits, isOriginalClip, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits, type SyncBank, type SyncBankLine } from './services/syncEditService';
-import { phraseLine, phraseOf, pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
+import { carryTakes, phraseLine, phraseOf, pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
 import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
 import { stripTags, tagsOf } from './server/lib/lineTags.js';
 import {
@@ -174,6 +252,10 @@ import {
   getAllJobsFromStorage,
   saveJobToStorage,
   deleteJobFromStorage,
+  deleteHistoryBanks,
+  getHistoryBank,
+  getHistoryBanks,
+  saveHistoryBank,
   clearAllJobsFromStorage,
 } from './services/storageService';
 import { byNewest, projectFileStem, projectName } from './services/projects';
@@ -1086,7 +1168,7 @@ export default function App() {
 
   // Update storage & state helper
   /** Changes a project, worked out from the project as it is now rather than as the last render saw it. */
-  const updateJobWith = useCallback((id: string, change: (job: BatchJob) => Partial<BatchJob>) => {
+  const updateJobWith = useCallback((id: string, change: (job: BatchJob) => Partial<BatchJob>, step: { label?: string; key?: string } = {}) => {
     setQueue((prev) =>
       prev.map((job) => {
         if (job.id === id) {
@@ -1094,7 +1176,15 @@ export default function App() {
           if (Object.keys(updates).length === 0) return job;
           // Opening a project or moving between its steps isn't working on it.
           const worksOnIt = Object.keys(updates).some((k) => !VIEW_FIELDS.has(k));
-          const updatedJob = { ...job, ...updates, ...(worksOnIt ? { updatedAt: Date.now() } : {}) };
+          const recorded = withHistoryStep(job, { ...job, ...updates, ...(worksOnIt ? { updatedAt: Date.now() } : {}) }, updates, step);
+          const updatedJob = recorded.job;
+          // Another Sync's bank takes the place of this one: it is kept apart, for undo to come back to.
+          const leaving = syncIdOf(job);
+          const kept = leaving && leaving !== updatedJob.syncEpoch ? syncKeepOf(job) : null;
+          if (leaving && kept) {
+            saveHistoryBank(id, { epoch: leaving, ...kept }).catch((err) => console.warn('The bank before this Sync could not be kept for undo:', err));
+          }
+          if (recorded.dropped.length > 0) deleteHistoryBanks(id, recorded.dropped).catch(console.warn);
           saveJobToStorage(updatedJob).then(
             () => setSaveFailure((failure) => (failure?.jobId === id ? null : failure)),
             (err) => {
@@ -1109,7 +1199,10 @@ export default function App() {
     );
   }, []);
 
-  const updateJob = useCallback((id: string, updates: Partial<BatchJob>) => updateJobWith(id, () => updates), [updateJobWith]);
+  const updateJob = useCallback(
+    (id: string, updates: Partial<BatchJob>, step?: { label?: string; key?: string }) => updateJobWith(id, () => updates, step),
+    [updateJobWith]
+  );
 
   /** Saves the project whose save failed again, as it is now. */
   const retrySave = useCallback(() => {
@@ -2526,10 +2619,14 @@ export default function App() {
   };
 
   /** Edit timing changed a line: the report follows at once, the audio once the user pauses. */
-  const handleSyncEditsChange = (edits: SyncEdits) => {
+  const handleSyncEditsChange = (edits: SyncEdits, label?: string) => {
     if (!activeJob?.syncBank || !activeJob.syncBaseReport) return;
     const clean = hasEdits(edits) ? edits : null;
-    updateJob(activeJob.id, { syncEdits: clean, syncReport: measureEdits(activeJob.syncBaseReport, activeJob.syncBank, clean) });
+    updateJob(
+      activeJob.id,
+      { syncEdits: clean, syncReport: measureEdits(activeJob.syncBaseReport, activeJob.syncBank, clean) },
+      label ? { label: `Edit timing: ${label}` } : undefined
+    );
     scheduleSyncEditRender(activeJob.id, {
       bank: activeJob.syncBank,
       bankBlob: activeJob.syncBankBlob,
@@ -2863,9 +2960,9 @@ export default function App() {
       const { result: voiced, format: voicedFormat } = keptFormat
         ? { result: await voiceDub(keptFormat), format: keptFormat }
         : await voiceInAllowedQuality(voice.quality, refused, voiceDub, refuseQuality);
-      const { blob, stems, report, bank: syncedBank, bankBlob } = voiced;
+      const { blob, stems, report, bank: syncedBank, bankBlob: placedBankBlob } = voiced;
       // The bank remembers its format, so takes voiced for it later come back at its rate.
-      const bank = { ...syncedBank, outputFormat: voicedFormat };
+      const placedBank = { ...syncedBank, outputFormat: voicedFormat };
       setDubQualityNotices((all) => ({
         ...all,
         [activeJob.id]:
@@ -2873,7 +2970,7 @@ export default function App() {
             ? `This dub stays in ${dubAudioQualityLabel(keptFormat)}, the format its picked takes were voiced in. Take them out and Sync again for ${dubAudioQualityLabel(voice.quality)}.`
             : fallbackNotice(voice.quality, voicedFormat),
       }));
-      const { edits: keptEdits, dropped } = rebaseEdits(priorEdits, priorBank, bank);
+      const { edits: keptEdits, dropped } = rebaseEdits(priorEdits, priorBank, placedBank);
       const edited = hasEdits(keptEdits);
       if (report.audioDebug) {
         const { lines, ...format } = report.audioDebug;
@@ -2883,8 +2980,29 @@ export default function App() {
       setLastStabilityAdjustment(report.stabilityAdjustment ?? null);
 
       const url = URL.createObjectURL(blob);
+      // Every line keeps its takes: copied from the last bank to the end of this one, the picked one still playing.
+      // From scratch, none are kept. Banks that can't be joined keep only the voice-changed takes playing.
+      const carried = fresh
+        ? null
+        : await carryTakes({
+            priorBank,
+            priorBankBlob: activeJob.syncBankBlob,
+            priorTakes: activeJob.syncTakes,
+            bank: placedBank,
+            bankBlob: placedBankBlob,
+            report,
+            bankId:
+              typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                ? crypto.randomUUID()
+                : `bank-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`,
+          }).catch((err) => {
+            console.warn('The takes could not be kept with the new sync:', err);
+            return null;
+          });
+      const bank = carried?.bank ?? placedBank;
+      const bankBlob = carried?.bankBlob ?? placedBankBlob;
       // Lines kept as a voice-changed take stay so; a speaker dubbed in another voice since is no longer changed.
-      const keptTakes = fresh ? null : keptVoiceTakes(bank, report, activeJob.syncTakes);
+      const keptTakes = fresh ? null : carried ? carried.takes : keptVoiceTakes(bank, report, activeJob.syncTakes);
       // From scratch, what was kept for the dub before goes: retakes, take choices, places on the dub lane.
       const projectNow = queueRef.current.find((job) => job.id === activeJob.id) || activeJob;
       const scratch: Partial<BatchJob> = fresh
@@ -2905,6 +3023,8 @@ export default function App() {
         syncBaseReport: report,
         syncBank: bank,
         syncBankBlob: bankBlob,
+        // A new bank: the one before is kept apart, for Undo to go back past this Sync.
+        syncEpoch: newSyncId(),
         syncEdits: edited ? keptEdits : null,
         // The takes were in the last bank; the picked ones are in this one now (a voice-changed one with its take).
         syncTakes: keptTakes,
@@ -2918,7 +3038,7 @@ export default function App() {
         syncedAudioBuffer: null,
         status: ProcessingStatus.COMPLETED,
         ...scratch,
-      });
+      }, fresh ? { label: 'Sync from scratch' } : undefined);
       setSyncEditStatus(
         activeJob.id,
         dropped.length > 0
@@ -3326,22 +3446,124 @@ export default function App() {
     [activeJob, updateJobWith]
   );
 
-  /** Undo, Redo, or the script back where undo stops, as one step that can be undone too. */
+  /**
+   * The project as it was at step `index` of its history: the script, and the
+   * dub with its lines, takes, edits and voice changes, rendered again from
+   * its bank (nothing is voiced again). A step of another Sync takes that
+   * Sync's kept bank; a step whose Sync was let go puts back only the script.
+   */
+  const goToHistoryStep = async (jobId: string, index: number) => {
+    const job = queueRef.current.find((j) => j.id === jobId);
+    if (!job) return;
+    if (syncRunRef.current?.projectId === jobId || dubQueue.some((dub) => dub.jobId === jobId) || syncTakesBusy?.jobId === jobId || WORKING.has(job.status)) {
+      reportError(new Error('Wait for the dub to finish, then undo.'), { title: 'Undo waits for the dub', safe: 'Nothing was changed.' });
+      return;
+    }
+    const current = historyStateOf(job);
+    const start = projectHistoryOf(job);
+    if (!start) return;
+    const history = catchUpProject(start, { ...current, syncEpoch: syncIdOf(job) });
+    const target = moveTo(history, index === -1 ? history.at - 1 : index === -2 ? history.at + 1 : index);
+    if (!target) return;
+    const { state, scriptOnly } = stateAt(target);
+    const scriptBack = (notice?: string) => {
+      const segments = (state.segments || []) as AudioSegment[];
+      updateJob(jobId, { projectHistory: target, segments, ...syncPendingAfter(job, segments) });
+      if (notice) reportError(new Error(notice), { title: 'Only the script came back', safe: 'The dub stays as it is now.' });
+    };
+    if (scriptOnly) return scriptBack();
+
+    // The bank the step's lines play from: this Sync's, or one kept for an earlier one.
+    const epoch = state.syncEpoch ?? null;
+    const sameSync = epoch === syncIdOf(job);
+    let bankBlob = job.syncBankBlob ?? null;
+    let bankId = job.syncBank?.bankId ?? newSyncId();
+    let file: Blob | null = sameSync && !job.syncBank ? job.syncedBlob ?? null : null;
+    if (!sameSync && epoch) {
+      const kept = await getHistoryBank(jobId, epoch).catch(() => null);
+      if (!kept) return scriptBack('The audio of that Sync is no longer kept, so only the script went back.');
+      if (kept.kind === 'bank') {
+        bankBlob = kept.blob;
+        // The server has another bank under the id now: this one is sent under a new id when it is needed.
+        bankId = newSyncId();
+      } else file = kept.blob;
+    }
+    // A change made while the bank was read wins: undo again from there.
+    const now = queueRef.current.find((j) => j.id === jobId);
+    if (!now || now.projectHistory !== job.projectHistory || now.segments !== job.segments || now.syncBank !== job.syncBank) return;
+
+    cancelSyncEditRender(jobId);
+    const bank = state.syncBank ? { ...state.syncBank, bankId } : null;
+    const base = state.syncBaseReport ?? null;
+    const edits = state.syncEdits && hasEdits(state.syncEdits) ? state.syncEdits : null;
+    const previousUrl = now.syncedAudioUrl;
+    const fileUrl = !bank && file ? URL.createObjectURL(file) : null;
+    updateJob(jobId, {
+      ...state,
+      projectHistory: target,
+      syncBank: bank,
+      syncBankBlob: bank ? bankBlob : null,
+      syncReport: bank && base ? (edits ? measureEdits(base, bank, edits) : base) : sameSync ? now.syncReport ?? null : null,
+      ...(!bank && {
+        // No bank: the dub is the voice changer's file, or there is no dub yet at that step.
+        syncedBlob: file,
+        syncedAudioUrl: fileUrl,
+        syncedAudioBuffer: null,
+        ...(!file && { syncedStems: null, syncMix: null }),
+      }),
+    });
+    if (bank && base) {
+      scheduleSyncEditRender(jobId, { bank, bankBlob, baseReport: base, edits, sourceDuration: sourceDurationOf(now), source: now.audioBuffer }, 0);
+    } else {
+      setSyncEditStatus(jobId, { state: 'ready' });
+      if (fileUrl && file) {
+        decodeAudioBlobUrl(fileUrl)
+          .then((buffer) => {
+            if (syncedUrlOf(jobId) === fileUrl) updateJob(jobId, { syncedAudioBuffer: buffer });
+          })
+          .catch(console.warn);
+      }
+      if (previousUrl && previousUrl !== fileUrl) window.setTimeout(() => URL.revokeObjectURL(previousUrl), 5000);
+    }
+  };
+
+  /** The open project's history as the Undo buttons and History lists show it. */
+  const activeHistory = useMemo(
+    () => (activeJob ? projectHistoryOf(activeJob) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeJob?.projectHistory, activeJob?.reviewHistory]
+  );
+  const activeJobIdForHistory = activeJob?.id;
+  const projectHistoryView = useMemo(
+    () =>
+      activeHistory && activeJobIdForHistory
+        ? { entries: historyEntries(activeHistory), at: activeHistory.at, labels: historyLabels(activeHistory), goTo: (index: number) => void goToHistoryStepRef.current(activeJobIdForHistory, index) }
+        : undefined,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeHistory, activeJobIdForHistory]
+  );
+
+  // Undo from a callback made earlier still runs with what the app has now.
+  const goToHistoryStepRef = useRef(goToHistoryStep);
+  goToHistoryStepRef.current = goToHistoryStep;
+
+  /** Undo, Redo, or the script back where Review's undo stops, as one step that can be undone too. */
   const handleReviewHistory = useCallback(
     (action: 'undo' | 'redo' | 'base') => {
       if (!activeJob) return;
-      updateJobWith(activeJob.id, (job) => {
-        const history = job.reviewHistory;
-        if (!history) return {};
-        const result =
-          action === 'undo'
-            ? undoReviewStep(history, job.segments)
-            : action === 'redo'
-              ? redoReviewStep(history, job.segments)
-              : backToFirstStep(history, job.segments);
-        if (!result) return {};
-        return { segments: result.segments, reviewHistory: result.history, ...syncPendingAfter(job, result.segments) };
-      });
+      if (action === 'undo') return void goToHistoryStepRef.current(activeJob.id, -1);
+      if (action === 'redo') return void goToHistoryStepRef.current(activeJob.id, -2);
+      const history = activeJob.reviewHistory;
+      const label = reviewHistoryLabels(history).base;
+      updateJobWith(
+        activeJob.id,
+        (job) => {
+          const result = job.reviewHistory ? backToFirstStep(job.reviewHistory, job.segments) : null;
+          if (!result) return {};
+          return { segments: result.segments, reviewHistory: result.history, ...syncPendingAfter(job, result.segments) };
+        },
+        label ? { label: `Back to ${label}` } : {}
+      );
     },
     [activeJob, updateJobWith]
   );
@@ -3553,7 +3775,9 @@ export default function App() {
     const job = queueRef.current.find((j) => j.id === id);
     if (!job) return;
     try {
-      const blob = await exportProject(job, signoffsForJob(id), { light });
+      // The banks of earlier Syncs, so Undo can go back past them in the opened project too.
+      const historyBanks = light ? [] : await getHistoryBanks(id).catch(() => []);
+      const blob = await exportProject(job, signoffsForJob(id), { light, historyBanks });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -3646,7 +3870,8 @@ export default function App() {
           else setPendingProjectJson(read);
           return;
         }
-        const { job: imported, signoffs, needsMedia } = await importProject(file, id);
+        const { job: imported, signoffs, needsMedia, historyBanks } = await importProject(file, id);
+        for (const bank of historyBanks) await saveHistoryBank(id, bank).catch(console.warn);
         if (needsMedia) {
           // Light export: the user picks the original before the project is made.
           setPendingProjectJson({ id, fileName: file.name, project: imported, job: imported, signoffs, sourceMedia: needsMedia, projectId: '' });
@@ -3921,6 +4146,8 @@ export default function App() {
               syncedAudioUrl: masterUrl,
               syncedBlob: masterBlob,
               syncBeforeVoiceChange: before,
+              // The dub is a file now, not lines in a bank: a Sync of its own for Undo.
+              syncEpoch: newSyncId(),
               syncChangedVoices: null,
               // The bank is the dub before the voice changer: editing it now would undo the change.
               syncBank: null,
@@ -3946,6 +4173,7 @@ export default function App() {
     const previousUrl = activeJob.syncedAudioUrl;
     updateJob(activeJob.id, {
       ...before,
+      syncEpoch: newSyncId(),
       syncedAudioUrl: url,
       syncedAudioBuffer: null,
       syncBeforeVoiceChange: null,
@@ -4548,6 +4776,7 @@ export default function App() {
           onFitTranslationToVoiceChange={handleFitTranslationToVoiceChange}
           onTargetSourceChange={handleTargetSourceChange}
           onReviewHistory={handleReviewHistory}
+          projectHistory={projectHistoryView}
           translationSummary={translationSummary}
           translationReady={Boolean(backendHealth?.geminiConfigured)}
           translationProgress={translationProgress}

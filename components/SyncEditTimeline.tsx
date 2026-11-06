@@ -67,6 +67,7 @@ import {
   SyncEdits,
 } from '../services/syncEditService';
 import { MAX_SPEAKER_DB, MIN_SPEAKER_DB, type SpeakerMonitor } from '../services/speakerLevels';
+import { HistoryMenu, type ProjectHistoryView } from './HistoryMenu';
 
 /**
  * Edit timing: the synced dub's lines on a timeline under the original, to
@@ -964,6 +965,12 @@ export const SyncEditTimeline: React.FC<{
   baseReport: SyncReport;
   edits: SyncEdits | null | undefined;
   onChange: (edits: SyncEdits, label: string) => void;
+  /**
+   * The project's one history: when given, Undo, Redo and History here step
+   * through every change to the project (takes, voice changes, Sync, the
+   * script), kept with it, instead of this editor's own edits while it is open.
+   */
+  projectHistory?: ProjectHistoryView;
   status: SyncEditStatus;
   /** The dub plays live from its lines: edits are heard at once while the file renders behind. */
   live?: boolean;
@@ -1003,6 +1010,7 @@ export const SyncEditTimeline: React.FC<{
   baseReport,
   edits,
   onChange,
+  projectHistory,
   status,
   live = false,
   onBankAudio,
@@ -1036,6 +1044,9 @@ export const SyncEditTimeline: React.FC<{
     entries: [{ label: hasEdits(committed) ? 'Your edits so far' : 'As Sync placed it', edits: committed }],
     at: 0,
   }));
+  // What the Undo and Redo buttons step through: the project's history when given.
+  const undoAt = projectHistory ? projectHistory.at : history.at;
+  const undoCount = projectHistory ? projectHistory.entries.length : history.entries.length;
   const lastSent = useRef<SyncEdits | null | undefined>(edits);
   useEffect(() => {
     // Edits that changed from outside (a new sync) start the history again.
@@ -2202,8 +2213,8 @@ export const SyncEditTimeline: React.FC<{
       }
       commit(result.edits, `Nudge ${groupName(group)} ${formatShift(result.moved)}`);
     },
-    undo: () => goTo(history.at - 1),
-    redo: () => goTo(history.at + 1),
+    undo: () => (projectHistory ? projectHistory.goTo(projectHistory.at - 1) : goTo(history.at - 1)),
+    redo: () => (projectHistory ? projectHistory.goTo(projectHistory.at + 1) : goTo(history.at + 1)),
   };
 
   /** Where line `key`'s first word lands now. */
@@ -2779,12 +2790,15 @@ export const SyncEditTimeline: React.FC<{
           )}
         </div>
         <div className="flex items-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5" role="group" aria-label="Undo and history">
-          <button type="button" onClick={act.undo} disabled={history.at === 0} title="Undo (Ctrl + Z)" aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+          <button type="button" onClick={act.undo} disabled={undoAt === 0} title={projectHistory?.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Undo (Ctrl + Z)'} aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <Undo2 className="w-4 h-4" />
           </button>
-          <button type="button" onClick={act.redo} disabled={history.at >= history.entries.length - 1} title="Redo (Ctrl + Shift + Z)" aria-label="Redo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+          <button type="button" onClick={act.redo} disabled={undoAt >= undoCount - 1} title={projectHistory?.labels.redo ? `Redo: ${projectHistory.labels.redo} (Ctrl + Shift + Z)` : 'Redo (Ctrl + Shift + Z)'} aria-label="Redo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <Redo2 className="w-4 h-4" />
           </button>
+          {projectHistory ? (
+            <HistoryMenu history={projectHistory} className="[&>button]:border-transparent" />
+          ) : (
           <div ref={historyRef} className="relative">
             <button
               type="button"
@@ -2833,6 +2847,7 @@ export const SyncEditTimeline: React.FC<{
               </div>
             )}
           </div>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5" role="group" aria-label="Zoom">
           <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">

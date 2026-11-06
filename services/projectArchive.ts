@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import type { BatchJob } from '../types';
 import type { JobSignoff } from './signoffService';
 import { compactBank } from './syncTakes.ts';
+import type { HistoryBank } from './storageService';
 
 /**
  * A whole project in one file, to open again later or on another computer:
@@ -158,6 +159,8 @@ export const lightJob = async (job: BatchJob, bankId = newBankId()): Promise<Bat
     file: null as unknown as File,
     history: { past: [], future: [] },
     reviewHistory: null,
+    // Its steps point at takes and Syncs a light file doesn't carry.
+    projectHistory: null,
     syncBeforeVoiceChange: null,
     ...(compact && { syncBank: compact.bank, syncBankBlob: compact.bankBlob, syncTakes: compact.takes }),
   };
@@ -167,8 +170,13 @@ export const lightJob = async (job: BatchJob, bankId = newBankId()): Promise<Bat
  * The project and its sign-offs as one `.dhvani` file. `light` leaves out
  * what Light export does (see lightJob); opening it asks for the original.
  */
-export const exportProject = async (job: BatchJob, signoffs: JobSignoff[] = [], { light = false }: { light?: boolean } = {}): Promise<Blob> => {
-  const { data, media } = packJob(light ? await lightJob(job) : job);
+export const exportProject = async (
+  job: BatchJob,
+  signoffs: JobSignoff[] = [],
+  { light = false, historyBanks = [] }: { light?: boolean; historyBanks?: HistoryBank[] } = {}
+): Promise<Blob> => {
+  // The banks of earlier Syncs go with the undo history, so it can go back past them on the other computer too.
+  const { data, media } = packJob(light ? await lightJob(job) : ({ ...job, ...(historyBanks.length > 0 && { [HISTORY_BANKS]: historyBanks }) } as BatchJob));
   const manifest: ProjectManifest = {
     kind: PROJECT_FILE_KIND,
     version: PROJECT_FILE_VERSION,
@@ -186,6 +194,12 @@ export const exportProject = async (job: BatchJob, signoffs: JobSignoff[] = [], 
 
 const notAProject = () => new Error("This isn't a Dhvani project file.");
 
+/** Where a project file keeps the banks of earlier Syncs, beside the project. */
+const HISTORY_BANKS = '__historyBanks';
+
+const isHistoryBank = (value: unknown): value is HistoryBank =>
+  Boolean(value) && typeof (value as HistoryBank).epoch === 'string' && (value as HistoryBank).blob instanceof Blob && ['bank', 'file'].includes((value as HistoryBank).kind);
+
 /**
  * The project in a `.dhvani` file, given `newId` so it never replaces a project
  * already here, with its sign-offs moved to that id.
@@ -193,7 +207,7 @@ const notAProject = () => new Error("This isn't a Dhvani project file.");
 export const importProject = async (
   file: Blob,
   newId: string
-): Promise<{ job: BatchJob; signoffs: JobSignoff[]; needsMedia: SourceMedia | null }> => {
+): Promise<{ job: BatchJob; signoffs: JobSignoff[]; needsMedia: SourceMedia | null; historyBanks: HistoryBank[] }> => {
   let zip: JSZip;
   try {
     zip = await JSZip.loadAsync(file);
@@ -219,7 +233,9 @@ export const importProject = async (
       .filter((f) => !f.dir && f.name.startsWith('media/'))
       .map(async (f) => files.set(f.name, await f.async('blob')))
   );
-  const job = unpackJob(manifest.job, (path) => files.get(path));
+  const { [HISTORY_BANKS]: banks, ...rest } = unpackJob(manifest.job, (path) => files.get(path)) as BatchJob & { [HISTORY_BANKS]?: unknown };
+  const job = rest as BatchJob;
+  const historyBanks = Array.isArray(banks) ? banks.filter(isHistoryBank) : [];
   const needsMedia = manifest.light && typeof manifest.light === 'object' ? manifest.light : null;
   if ((!needsMedia && !(job.file instanceof Blob)) || !Array.isArray(job.segments)) throw notAProject();
 
@@ -227,7 +243,7 @@ export const importProject = async (
   const signoffs = (Array.isArray(manifest.signoffs) ? manifest.signoffs : [])
     .filter((s) => s && s.jobId === oldId)
     .map((s) => ({ ...s, jobId: newId, key: `${newId}::${s.key.split('::').pop()}` }));
-  return { job: { ...job, id: newId }, signoffs, needsMedia };
+  return { job: { ...job, id: newId }, signoffs, needsMedia, historyBanks };
 };
 
 /** The name a project's file is saved under. */

@@ -139,3 +139,18 @@ test('a full project still needs no media', async () => {
   const { needsMedia } = await importProject(await exportProject(sampleJob()), 'n');
   assert.equal(needsMedia, null);
 });
+
+test('a full project carries the banks of earlier Syncs for its undo history; a light one leaves them out', async () => {
+  const job = sampleJob();
+  const banks = [
+    { epoch: 'e1', blob: new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' }), kind: 'bank' as const },
+    { epoch: 'e2', blob: new Blob([new Uint8Array([9])], { type: 'audio/wav' }), kind: 'file' as const },
+  ];
+  const { job: back, historyBanks } = await importProject(await exportProject(job, [], { historyBanks: banks }), 'new-id');
+  assert.deepEqual(historyBanks.map((b) => [b.epoch, b.kind]), [['e1', 'bank'], ['e2', 'file']]);
+  assert.deepEqual([...(await bytes(historyBanks[0].blob))], [1, 2, 3]);
+  assert.equal('__historyBanks' in back, false, 'the banks are not part of the project');
+  const light = await importProject(await exportProject(job, [], { light: true, historyBanks: banks }), 'n2');
+  assert.deepEqual(light.historyBanks, []);
+  assert.equal(light.job.projectHistory, null);
+});

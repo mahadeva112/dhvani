@@ -43,6 +43,8 @@ import {
   Scissors,
   X,
   Pencil,
+  Redo2,
+  Undo2,
   Minus,
   Combine,
   SeparatorVertical,
@@ -159,6 +161,7 @@ import { ScriptTableView, type LinePacing } from './review/ScriptTableView';
 import { PASSAGE_PAUSES, buildPassages, loadPassagePause, savePassagePause } from './review/passages';
 import { CueEditBar, PickableWords, useCueEditing, useReviewUndoKeys, type ReviewUndo } from './review/CueEditBar';
 import { reviewHistoryLabels } from '../services/reviewHistory';
+import { HistoryMenu, type ProjectHistoryView } from './HistoryMenu';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
 import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
 import { alignTakeWords, firstWordAt, takesOf, type TakeAsk } from '../services/syncTakesService';
@@ -517,6 +520,8 @@ interface ExpressDubWizardProps {
   onTargetSourceChange?: (source: TargetSource) => void;
   /** Steps the script's history: back, forward, or back to where it starts. */
   onReviewHistory?: (action: 'undo' | 'redo' | 'base') => void;
+  /** The project's one history (script and dub): Undo, Redo and the History lists in Review and Edit timing. */
+  projectHistory?: ProjectHistoryView;
   /** Where translation runs, for the choice panel. */
   translationSummary?: string | null;
   /** False when no translation engine is set up. */
@@ -651,6 +656,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onFitTranslationToVoiceChange,
   onTargetSourceChange,
   onReviewHistory,
+  projectHistory,
   onExportTranscript,
   onApplyTranscriptSegments,
   translationSummary = null,
@@ -1241,14 +1247,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const reviewEditing = activeStep === 2 && Boolean(activeJob) && !awaitingScript;
   const historyLabels = reviewHistoryLabels(activeJob?.reviewHistory);
   const reviewUndo: ReviewUndo = {
-    undoLabel: onReviewHistory ? historyLabels.undo : null,
-    redoLabel: onReviewHistory ? historyLabels.redo : null,
+    undoLabel: onReviewHistory ? (projectHistory?.labels.undo ?? null) : null,
+    redoLabel: onReviewHistory ? (projectHistory?.labels.redo ?? null) : null,
     baseLabel: onReviewHistory ? historyLabels.base : null,
+    history: projectHistory,
     undo: () => onReviewHistory?.('undo'),
     redo: () => onReviewHistory?.('redo'),
     backToBase: () => onReviewHistory?.('base'),
   };
-  useReviewUndoKeys(reviewEditing, reviewUndo);
+  // Ctrl+Z on the Dub step too; Edit timing, while open, has its own keys for the same history.
+  useReviewUndoKeys(reviewEditing || (activeStep === 3 && Boolean(activeJob) && !editingTiming && Boolean(projectHistory)), reviewUndo);
   const cueEditing = useCueEditing({
     enabled: reviewEditing,
     segments,
@@ -4103,6 +4111,35 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <RotateCcw className="w-3.5 h-3.5" /> Undo voice change
                     </button>
                   )}
+                  {projectHistory && (
+                    <div
+                      className={`${!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange ? '' : 'ml-auto '}flex items-center gap-1`}
+                      role="group"
+                      aria-label="Undo and history"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => projectHistory.goTo(projectHistory.at - 1)}
+                        disabled={!projectHistory.labels.undo}
+                        title={projectHistory.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Nothing to undo'}
+                        aria-label="Undo"
+                        className="h-8 w-8 rounded-lg border border-slate-800 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
+                      >
+                        <Undo2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => projectHistory.goTo(projectHistory.at + 1)}
+                        disabled={!projectHistory.labels.redo}
+                        title={projectHistory.labels.redo ? `Redo: ${projectHistory.labels.redo} (Ctrl + Shift + Z)` : 'Nothing to redo'}
+                        aria-label="Redo"
+                        className="h-8 w-8 rounded-lg border border-slate-800 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
+                      >
+                        <Redo2 className="w-4 h-4" />
+                      </button>
+                      {projectHistory.entries.length > 1 && <HistoryMenu history={projectHistory} />}
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingTiming(true)}
@@ -4114,7 +4151,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           ? 'The voice change replaced the whole file: undo it, or Sync again, to edit the timing'
                           : 'Sync again to edit the timing of this dub'
                     }
-                    className={`${!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange ? '' : 'ml-auto '}h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5`}
+                    className={`${projectHistory || (!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange) ? '' : 'ml-auto '}h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5`}
                   >
                     <Pencil className="w-3.5 h-3.5" /> Edit timing
                   </button>
@@ -4127,6 +4164,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   baseReport={activeJob.syncBaseReport}
                   edits={activeJob.syncEdits}
                   onChange={onSyncEditsChange}
+                  projectHistory={projectHistory}
                   status={syncEditStatus}
                   live={syncEditLive}
                   onBankAudio={onEditTimingAudio}

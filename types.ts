@@ -2,6 +2,7 @@ import type { SyncReport } from './services/syncService';
 import type { SyncBank, SyncEdits } from './services/syncEditService';
 import type { SyncTakes } from './services/syncTakes';
 import type { ReviewHistory } from './services/reviewHistory';
+import type { ProjectHistory } from './services/projectHistory';
 import type { ChangedVoices } from './services/voiceChangeService';
 
 /**
@@ -295,6 +296,13 @@ export interface BatchJob {
   transcriptCuts?: AudioSegment[] | null;
   /** Undo and Redo for the script, back to the AI translation or a pasted script. */
   reviewHistory?: ReviewHistory | null;
+  /** The project's one undo history: the script and the dub, every change (services/projectHistory.ts). */
+  projectHistory?: ProjectHistory | null;
+  /**
+   * Which Sync the bank is from: a new one with every Sync (and when the voice
+   * changer makes the whole dub one file). Between two, the bank only grows.
+   */
+  syncEpoch?: string | null;
 
   /**
    * The synced dub: Sync's own file, kept beside the dub above (a dub made
