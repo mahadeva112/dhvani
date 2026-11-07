@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.46',
+    changes: [
+      "The DHVANI icon in the taskbar and Start menu is now the same size as the other apps' icons. If a pinned taskbar icon still shows the small one, unpin it and pin it again.",
+    ],
+  },
+  {
     version: '1.4.45',
     changes: [
       "In Edit timing, Alt + drag a line or chunk to copy it: the line stays where it is and the copy goes where you drop it, with its gain, fades and speed. The line is still checked for sync where it was. Slipping the audio inside a line is now Alt + Shift + drag.",
