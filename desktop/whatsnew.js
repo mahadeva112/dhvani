@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.41',
+    changes: [
+      "In Review's Bars view, scrolling over the original's chunks moves the timeline, as on the other rows, instead of scrolling the whole page.",
+    ],
+  },
+  {
     version: '1.4.40',
     changes: [
       "In Review's Bars view the original's audio stays on top, and under it the original is cut into chunks exactly where Sync will cut the dub: each chunk as long as its words, with the pause between two and how long it is. Each dub chunk below starts with its original chunk and shows its own length.",

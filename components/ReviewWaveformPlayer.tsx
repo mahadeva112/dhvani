@@ -835,6 +835,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const waveBoxRef = useRef<HTMLDivElement>(null);
   const laneRef = useRef<HTMLDivElement>(null);
   const pausesRef = useRef<HTMLDivElement>(null);
+  const sourceRowRef = useRef<HTMLDivElement>(null);
   const rulerRef = useRef<HTMLDivElement>(null);
   const suggestRef = useRef<HTMLDivElement>(null);
   const scrollbarRef = useRef<HTMLDivElement>(null);
@@ -846,13 +847,13 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       if (e.ctrlKey || e.metaKey || zoom > 1) e.preventDefault();
     };
     el.addEventListener('wheel', stop, { passive: false });
-    const rows = [rulerRef.current, laneRef.current, pausesRef.current, suggestRef.current, scrollbarRef.current].filter((row): row is HTMLDivElement => Boolean(row));
+    const rows = [rulerRef.current, sourceRowRef.current, laneRef.current, pausesRef.current, suggestRef.current, scrollbarRef.current].filter((row): row is HTMLDivElement => Boolean(row));
     rows.forEach((row) => row.addEventListener('wheel', stop, { passive: false }));
     return () => {
       el.removeEventListener('wheel', stop);
       rows.forEach((row) => row.removeEventListener('wheel', stop));
     };
-  }, [zoom, Boolean(belowWave), Boolean(pausesRow), Boolean(belowLane), layers.pauses]);
+  }, [zoom, Boolean(sourceRow), Boolean(belowWave), Boolean(pausesRow), Boolean(belowLane), layers.pauses]);
 
   // The hints close on a click outside them, or Esc.
   const helpRef = useRef<HTMLDivElement>(null);
@@ -1189,7 +1190,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               )}
             </div>
             {sourceRow && (
-              <div className="relative h-14 border-t border-slate-800 overflow-hidden cursor-default" onWheel={onWheel}>
+              <div ref={sourceRowRef} className="relative h-14 border-t border-slate-800 overflow-hidden cursor-default" onWheel={onWheel}>
                 <div data-track="" className="absolute inset-y-0 will-change-transform pointer-events-none" style={trackStyle}>
                   {sourceRow({ start: drawn.from, span: drawn.span, layers })}
                 </div>
