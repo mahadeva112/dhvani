@@ -74,6 +74,8 @@ export interface SyncEditPart {
   fadeIn: number;
   fadeOut: number;
   muted: boolean;
+  /** An Alt + drag copy in Edit timing: it plays, but the line is measured where its own parts are. */
+  copy?: boolean;
 }
 
 /** What the user did to one line. `parts` empty: the line was removed. */
@@ -180,6 +182,15 @@ export const isEdited = (edits: SyncEdits | null | undefined, key: string) => Bo
  * over the parts that still play some of them. Null when none does.
  */
 export const spokenSpan = (line: SyncBankLine, parts: SyncEditPart[]): { start: number; end: number } | null => {
+  // Copies (Alt + drag) play again somewhere else: the line is where its own parts speak, unless only copies speak it.
+  if (parts.some((part) => part.copy)) {
+    const own = wordSpan(line, parts.filter((part) => !part.copy));
+    if (own) return own;
+  }
+  return wordSpan(line, parts);
+};
+
+const wordSpan = (line: SyncBankLine, parts: SyncEditPart[]): { start: number; end: number } | null => {
   const first = line.lead;
   const last = line.lead + line.speech;
   let start = Infinity;

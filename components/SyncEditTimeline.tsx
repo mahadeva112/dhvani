@@ -1458,14 +1458,14 @@ export const SyncEditTimeline: React.FC<{
    * What a drag does depends only on where on a line it starts, as in REAPER
    * and DaVinci Resolve: no tool has to be picked first.
    *
-   *   the middle             move (Shift: ripple)        Alt: slip
+   *   the middle             move (Shift: ripple)        Alt: copy, Alt + Shift: slip
    *   either edge            trim                        Alt: stretch
    *   a cut between parts    its middle rolls: both edges move, either side trims its own part
    *                          (Shift: trim in the middle too)
    *   a top corner           fade in / fade out
    *   the top edge between   gain (drag up or down)
    */
-  type Zone = 'move' | 'slip' | 'trimLeft' | 'trimRight' | 'stretchLeft' | 'stretchRight' | 'rollLeft' | 'rollRight' | 'fadeIn' | 'fadeOut' | 'gain';
+  type Zone = 'move' | 'copy' | 'slip' | 'trimLeft' | 'trimRight' | 'stretchLeft' | 'stretchRight' | 'rollLeft' | 'rollRight' | 'fadeIn' | 'fadeOut' | 'gain';
 
   /**
    * The part of the same line that meets `chunk` at a cut on its `side`: it
@@ -1501,11 +1501,13 @@ export const SyncEditTimeline: React.FC<{
     if (!alt && seamPartner(chunk, 'right') && x >= box.width - cutEdge) return !shift && x >= box.width - ROLL_PX ? 'rollRight' : 'trimRight';
     if (x <= edge) return alt ? 'stretchLeft' : 'trimLeft';
     if (x >= box.width - edge) return alt ? 'stretchRight' : 'trimRight';
-    return alt ? 'slip' : 'move';
+    // Alt copies, as DaVinci Resolve and Premiere duplicate a clip; Alt + Shift slips.
+    return alt ? (shift ? 'slip' : 'copy') : 'move';
   };
 
   const ZONE_CURSOR: Record<Zone, string> = {
     move: 'default',
+    copy: 'copy',
     slip: 'ew-resize',
     trimLeft: TRIM_START_CURSOR,
     trimRight: TRIM_END_CURSOR,
@@ -1521,8 +1523,9 @@ export const SyncEditTimeline: React.FC<{
   type Hint = { text: string; keys?: [string, string][] };
   const ZONE_HINT: Record<Zone, Hint> = {
     move: snap
-      ? { text: 'Drag to move: it stops at the next line', keys: [['N', 'Snap off to go over it'], ['Shift', 'push the rest'], ['Alt', 'slip'], ['Esc', 'put back']] }
-      : { text: 'Drag anywhere, over other lines too', keys: [['Shift', 'push the rest'], ['Alt', 'slip'], ['Esc', 'put back']] },
+      ? { text: 'Drag to move: it stops at the next line', keys: [['N', 'Snap off to go over it'], ['Shift', 'push the rest'], ['Alt', 'copy'], ['Esc', 'put back']] }
+      : { text: 'Drag anywhere, over other lines too', keys: [['Shift', 'push the rest'], ['Alt', 'copy'], ['Esc', 'put back']] },
+    copy: { text: 'Drag to copy: the line stays, a copy goes where you drop it', keys: [['Alt + Shift', 'slip instead'], ['Esc', 'put back']] },
     slip: { text: 'Drag to slip the audio inside' },
     trimLeft: { text: 'Drag to trim the start', keys: [['Alt', 'stretch']] },
     trimRight: { text: 'Drag to trim the end', keys: [['Alt', 'stretch']] },
@@ -1551,6 +1554,23 @@ export const SyncEditTimeline: React.FC<{
     next: SyncEdits | null;
     /** A roll: the parts either side of the cut, and the pauses (seconds into the line) the cut snaps to. */
     seam?: { left: Chunk; right: Chunk; pauses: { from: number; to: number }[] };
+  };
+
+  /**
+   * Alt + drag: a copy of each part the drag takes along, laid over it with an
+   * id of its own, and the edits with the copies in. The copies are what then
+   * moves; the parts they came from stay where they are. A copy plays the same
+   * stretch of the same line, so its waveform, gain, fades and speed come with
+   * it, and it is marked `copy` so the line is still measured where it was.
+   */
+  const withCopies = (base: SyncEdits, list: Chunk[]) => {
+    let next = base;
+    const copies = list.map((c) => {
+      const part: SyncEditPart = { ...c.part, id: newPartId(c.key), copy: true };
+      next = withParts(next, c.key, [...partsOf(next, lineOf(c), rate), part]);
+      return { ...c, part };
+    });
+    return { edits: next, copies };
   };
   const drag = useRef<Drag | null>(null);
   /** A drag across empty lane: the parts it touches are picked. `keep` is what was picked before, with Ctrl. */
@@ -1649,16 +1669,20 @@ export const SyncEditTimeline: React.FC<{
       const audio = chunk.original ? null : lineSamples(left);
       seam = { left, right, pauses: audio ? quietSpans(audio.samples, audio.sr, left.part.from, right.part.to) : [] };
     }
+    const takes = keepGroup ? group : [chunk];
+    const copied = zone === 'copy' ? withCopies(committed, takes) : null;
+    const copyOfChunk = copied?.copies[takes.indexOf(chunk)];
     drag.current = {
       seam,
       zone,
-      chunk,
-      among: chunks,
-      base: committed,
+      chunk: copyOfChunk ?? chunk,
+      among: copied ? [...chunks, ...copied.copies] : chunks,
+      base: copied?.edits ?? committed,
       t0: t,
       y0: e.clientY,
-      rippled: ripple || e.shiftKey,
-      group: keepGroup ? group : [chunk],
+      // A copy goes where it is dropped: nothing else makes room for it.
+      rippled: !copied && (ripple || e.shiftKey),
+      group: copied?.copies ?? takes,
       moved: false,
       label: '',
       next: null,
@@ -1753,7 +1777,7 @@ export const SyncEditTimeline: React.FC<{
       next = changeAll(base, d.group, (p) => ({ ...p, gainDb: clamp(p.gainDb + change, MIN_GAIN_DB, MAX_GAIN_DB) }));
       d.label = `Set the gain of ${groupName(d.group)}`;
       text = d.group.length > 1 ? `gain ${change > 0 ? '+' : ''}${change.toFixed(1)} dB${several}` : `gain ${gainDb > 0 ? '+' : ''}${gainDb.toFixed(1)} dB`;
-    } else if (zone === 'move') {
+    } else if (zone === 'move' || zone === 'copy') {
       const onset = line.lead > part.from && line.lead < part.to ? partTime(part, line.lead) - part.start : 0;
       const hit = snapNear(
         [
@@ -1776,8 +1800,8 @@ export const SyncEditTimeline: React.FC<{
         ? d.among.find((o) => !groupIds.has(o.part.id) && !o.part.muted && o.lane === chunk.lane &&
             (Math.abs(partEnd(o.part) - newPart.start) < 1e-6 || Math.abs(o.part.start - partEnd(newPart)) < 1e-6))
         : undefined;
-      d.label = `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}`;
-      text = `Δ ${formatShift(result.moved)}${several}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${
+      d.label = zone === 'copy' ? `Copy ${groupName(d.group)}` : `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}`;
+      text = `${zone === 'copy' ? 'copy ' : ''}Δ ${formatShift(result.moved)}${several}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${
         against ? ` · against ${against.original ? 'clip' : 'line'} ${against.label}` : snapped ? ` · snap: ${snapped.label}` : ''
       }`;
     } else if (zone === 'slip') {
@@ -1852,7 +1876,7 @@ export const SyncEditTimeline: React.FC<{
     d.next = next;
     setDraft(next);
     lastMove.current = e;
-    if (zone === 'move' && edgeFrame.current === null) edgeFrame.current = requestAnimationFrame(() => edgeStepRef.current());
+    if ((zone === 'move' || zone === 'copy') && edgeFrame.current === null) edgeFrame.current = requestAnimationFrame(() => edgeStepRef.current());
     // A stretch is heard once dropped: working out a new speed on every move would hold up the drag.
     if (zone !== 'stretchLeft' && zone !== 'stretchRight') sendDraft(next);
     setSnapLine(snapped ? snapped.at : null);
@@ -1879,7 +1903,7 @@ export const SyncEditTimeline: React.FC<{
     const r = laneRef.current?.getBoundingClientRect();
     const reach = r ? Math.min(48, r.width / 6) : 0;
     const push = !r || !m ? 0 : m.clientX < r.left + reach ? (m.clientX - r.left - reach) / reach : m.clientX > r.right - reach ? (m.clientX - r.right + reach) / reach : 0;
-    if (!d || d.zone !== 'move' || !m || push === 0) {
+    if (!d || (d.zone !== 'move' && d.zone !== 'copy') || !m || push === 0) {
       edgeFrame.current = null;
       return;
     }
@@ -3007,7 +3031,7 @@ export const SyncEditTimeline: React.FC<{
               </span>
             )}
             {current.original ? (
-              <span className="flex-1 min-w-[8rem] truncate text-[12px] text-slate-300" title="Its edges trim it into more of the original; Alt + drag slips which stretch it plays.">
+              <span className="flex-1 min-w-[8rem] truncate text-[12px] text-slate-300" title="Its edges trim it into more of the original; Alt + Shift + drag slips which stretch it plays; Alt + drag copies it.">
                 The original from <span className="font-mono">{formatTime(current.part.from)}</span> to <span className="font-mono">{formatTime(current.part.to)}</span>
               </span>
             ) : (
@@ -3795,7 +3819,7 @@ export const SyncEditTimeline: React.FC<{
               </div>
               <p className="mt-2 text-[12.5px] leading-relaxed text-slate-400">
                 Click a line on the dub lane to pick it. Drag its middle to move it (past other lines, into any gap it fits), an edge to trim it (Alt: stretch), a top corner to fade it, its top edge up or down for gain; Alt + drag the
-                middle slips the audio inside. With several lines picked, dragging one moves, fades or sets the gain of them all. To fill a gap with the original's own voice, drag across the Original lane to pick a stretch and drag it down onto the dub.
+                middle copies it (the line stays where it is, the copy goes where you drop it); Alt + Shift + drag slips the audio inside. With several lines picked, dragging one moves, fades or sets the gain of them all. To fill a gap with the original's own voice, drag across the Original lane to pick a stretch and drag it down onto the dub.
               </p>
               <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
                 {SHORTCUTS.map((section) => (

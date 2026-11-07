@@ -3,9 +3,17 @@ import assert from 'node:assert/strict';
 import { appendManyToBank, appendToBank, carryTakes, compactBank, phraseLine, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
-import { measureEdits, partEnd, partsOf } from './syncEditModel.ts';
+import { measureEdits, partEnd, partsOf, spokenSpan, type SyncEditPart } from './syncEditModel.ts';
 
 const RATE = 1000;
+
+test('an Alt + drag copy plays but the line is still measured where its own part speaks', () => {
+  const own: SyncEditPart = { id: '1#0', start: 2, from: 0, to: 1, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false };
+  const copy: SyncEditPart = { ...own, id: '1#copy', start: 9, copy: true };
+  assert.deepEqual(spokenSpan(line('1'), [own, copy]), { start: 2.1, end: 2.9 });
+  // Only the copy speaks (its own part muted): the line is where the copy is.
+  assert.deepEqual(spokenSpan(line('1'), [{ ...own, muted: true }, copy]), { start: 9.1, end: 9.9 });
+});
 
 test('a changed take invalidates previous word verification instead of retaining stale measurements', () => {
   const bank: SyncBank = { bankId: 'b', sampleRate: RATE, float: false, lines: [line('1')], speakerGains: {} };
