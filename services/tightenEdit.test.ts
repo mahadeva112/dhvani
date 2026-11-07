@@ -231,3 +231,19 @@ test('with the words checked, a quiet gap after a comma or a danda is a pause; o
   assert.equal(inner(splits, 1.9, 2.0).length, 0, 'no split between words with no mark');
   assert.equal(inner(tightenPart(samples, RATE, part(), { ...settings, more: 'off' }, words).cuts, 1.0, 1.1).length, 0);
 });
+
+test('split only needs no margin: a short gap between checked words is split, and the split never falls in a word', () => {
+  // Words 0.1 s apart: too close for 60 ms either side of each word, but a pause of its own.
+  const samples = line(3, [[0.3, 1.0], [1.15, 1.9], [2.05, 2.8]]);
+  const words = [{ start: 0.3, end: 1.0 }, { start: 1.15, end: 1.9 }, { start: 2.05, end: 2.8 }];
+  for (const more of ['off', 'normal'] as const) {
+    const settings = { ...DEFAULT_SPLIT, more, minPause: 0.08 };
+    const splits = tightenPart(samples, RATE, part(), settings, words).cuts.filter((c) => c.from > 0.3 && c.to < 2.8);
+    assert.equal(splits.length, 2, `${more}: a split in each gap`);
+    for (const split of splits) for (const w of words) assert.ok(split.from <= w.start || split.from >= w.end, `${more}: split ${split.from} in a word`);
+  }
+  // Remove still keeps the margin either side of every word.
+  for (const cut of tightenPart(samples, RATE, part(), { ...DEFAULT_TIGHTEN, minPause: 0.04 }, words).cuts) {
+    for (const w of words) assert.ok(cut.to <= w.start - DEFAULT_TIGHTEN.margin + 1e-9 || cut.from >= w.end + DEFAULT_TIGHTEN.margin - 1e-9, `cut ${cut.from}-${cut.to}`);
+  }
+});

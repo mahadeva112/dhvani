@@ -14,7 +14,8 @@ import { partEnd, type SyncEditPart } from './syncEditModel.ts';
  * is still one pause.
  *
  * Split at pauses (D) uses the same reading but takes nothing out: the part is
- * cut in the middle of every pause longer than `minPause`, and each piece
+ * cut in the middle of every pause longer than `minPause` (between words
+ * when they are checked; with nothing cut, no margin is kept), and each piece
  * stays where it was, as REAPER's Dynamic split does without "Remove silent
  * areas".
  *
@@ -188,7 +189,9 @@ export const tightenPart = (
   const keep = Math.max(settings.minPause, 2 * margin);
   const from = Math.max(0, Math.round(part.from * sampleRate));
   const to = Math.min(samples.length, Math.round(part.to * sampleRate));
-  const guards = protect.map((word) => ({ start: word.start - margin, end: word.end + margin }));
+  // A split takes nothing out, so it only has to fall outside every word; the margin is for what Remove cuts.
+  const guard = splitOnly ? 0 : margin;
+  const guards = protect.map((word) => ({ start: word.start - guard, end: word.end + guard }));
 
   // Quiet stretches inside the part, in seconds into the line, with what More pauses adds; less any word.
   const read = (quietStretches(samples, sampleRate, level, { from, to, ...(holdDb !== null && { close: 10 ** (holdDb / 20) }) }) as { start: number; end: number }[]).map(
