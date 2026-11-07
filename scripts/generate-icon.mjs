@@ -22,8 +22,10 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = path.join(ROOT, 'desktop', 'icon-source.png');
 
-/** How much of the icon square the logo's visible tile should fill. */
-const FILL = 0.9;
+/** How much of the icon square the logo's visible tile should fill. The
+ * whole square, like the other taskbar icons: any margin left here shows up
+ * as a smaller icon next to them. */
+const FILL = 1;
 
 /** PNG outputs and the size each is rendered at. */
 const PNG_TARGETS = [
