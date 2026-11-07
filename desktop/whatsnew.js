@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.45',
+    changes: [
+      "In Edit timing, Alt + drag a line or chunk to copy it: the line stays where it is and the copy goes where you drop it, with its gain, fades and speed. The line is still checked for sync where it was. Slipping the audio inside a line is now Alt + Shift + drag.",
+    ],
+  },
+  {
     version: '1.4.44',
     changes: [
       "Sync fits its settings to the video by itself: it measures how the original speaker pauses and how much longer the dub runs, picks the length preset (Short, Natural, Long, Very long) and the gaps, and once the lines are voiced measures them again before placing them, so the first Sync places the dub as a second one would. It changes them only when the preview has no fewer lines in sync, shows what changed with one-click Undo, never touches your own Custom settings, and voices nothing again. Turn it off in Sync settings → Basics (Fit to this video when I Sync).",
