@@ -761,11 +761,14 @@ const createWindow = () => {
   mainWindow.webContents.setWindowOpenHandler(({ url, frameName }) => {
     // The review video in a window of its own: a blank page the app fills
     // itself. It stays over DHVANI (not over other apps) and closes with it.
+    // No system frame: it draws the same title bar as the box inside the app,
+    // so it looks and works the same over the app or anywhere outside it.
     if (url === 'about:blank' && frameName.startsWith('dhvani-review-video')) {
       return {
         action: 'allow',
         overrideBrowserWindowOptions: {
           parent: mainWindow,
+          frame: false,
           backgroundColor: '#020617',
           autoHideMenuBar: true,
           minWidth: 200,

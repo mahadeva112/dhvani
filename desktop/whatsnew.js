@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.42',
+    changes: [
+      "The review video's window has no Windows frame now: it has the same title bar as the player inside the app (name, ⋯ menu, ✕), so it looks and works the same over DHVANI or anywhere outside it. Drag it by that bar; resize it from any edge.",
+      'The video always opens with its controls. Before, a double-click left it on Video only every time after; in Video only, "Show the controls" now appears when the pointer is over it.',
+    ],
+  },
+  {
     version: '1.4.41',
     changes: [
       "In Review's Bars view, scrolling over the original's chunks moves the timeline, as on the other rows, instead of scrolling the whole page.",

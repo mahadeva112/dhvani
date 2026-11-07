@@ -29,6 +29,9 @@ const START: Box = { x: 0, y: 96, w: 320, h: 380 };
 /** The in-app box's title bar; in a window of its own the system's title bar takes its place. */
 const HEADER = 36;
 const BAR = 40;
+/** A frameless window is moved by its title bar; its buttons stay clickable. */
+const DRAG = { WebkitAppRegion: 'drag' } as React.CSSProperties;
+const NO_DRAG = { WebkitAppRegion: 'no-drag' } as React.CSSProperties;
 /** Desktop builds let only windows with this name open blank and stay inside the app. */
 const WINDOW_NAME = 'dhvani-review-video';
 type Edge = 'n' | 's' | 'e' | 'w' | 'nw' | 'ne' | 'sw' | 'se';
@@ -61,22 +64,34 @@ const clampBox = (b: Box): Box => {
   };
 };
 
+/**
+ * Where it was left, and its size. "Video only" is never carried over: it
+ * always opens with its controls, so a stray double-click can't leave it
+ * without them every time after.
+ */
 const readSaved = (): Saved => {
   const fallback = { ...START, x: window.innerWidth - START.w - 24, compact: false };
   try {
     const s = JSON.parse(localStorage.getItem(KEY) || 'null');
-    return s && [s.x, s.y, s.w, s.h].every(Number.isFinite) ? { ...fallback, ...s, ...clampBox(s) } : fallback;
+    return s && [s.x, s.y, s.w, s.h].every(Number.isFinite) ? { ...fallback, ...s, ...clampBox(s), compact: false } : fallback;
   } catch {
     return fallback;
   }
 };
+
+/**
+ * The desktop app opens its window with no system frame: it draws the in-app
+ * box's own title bar, so it is the same player over the app or outside it.
+ * A browser's pop-up always has its own title bar, so there it has none.
+ */
+const FRAMELESS = navigator.userAgent.includes('Electron');
 
 /** Where the in-app box is on the screen, near enough: its own window opens there. */
 const onScreen = (b: Box): Box => ({
   x: Math.round(window.screenX + (window.outerWidth - window.innerWidth) / 2 + b.x),
   y: Math.round(window.screenY + window.outerHeight - window.innerHeight + b.y),
   w: b.w,
-  h: b.h - HEADER,
+  h: FRAMELESS ? b.h : b.h - HEADER,
 });
 
 /**
@@ -110,7 +125,7 @@ const openOwnWindow = (box: Box, title: string): OwnWindow | null => {
 };
 
 /** The desktop app opens a window whenever asked; a browser only straight from a click. */
-const IN_BROWSER = !navigator.userAgent.includes('Electron');
+const IN_BROWSER = !FRAMELESS;
 let reserved: OwnWindow | null = null;
 
 /**
@@ -366,8 +381,9 @@ export const ReviewVideoFloat: React.FC<
     const screen = win.screen as Screen & { availLeft?: number; availTop?: number };
     const left = screen.availLeft ?? 0;
     const top = screen.availTop ?? 0;
-    const h = Math.min(win.innerWidth / aspect + bar, screen.availHeight - frameH);
-    const w = Math.round(Math.min(win.innerWidth, (h - bar) * aspect));
+    const chrome = bar + (FRAMELESS ? HEADER : 0);
+    const h = Math.min(win.innerWidth / aspect + chrome, screen.availHeight - frameH);
+    const w = Math.round(Math.min(win.innerWidth, (h - chrome) * aspect));
     win.resizeTo(w + frameW, Math.round(h) + frameH);
     // Moved up or left if the new size would run off the screen.
     const x = Math.min(win.screenX, left + screen.availWidth - w - frameW);
@@ -384,9 +400,10 @@ export const ReviewVideoFloat: React.FC<
 
   const iconButton = 'w-7 h-7 shrink-0 rounded-lg flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default';
 
-  /** Opens below the in-app title bar, or above the controls in its own window. */
+  /** Opens below the title bar, or above the controls in a browser's pop-up (which has no title bar of ours). */
+  const menuUp = !!own && !FRAMELESS;
   const menu = (
-    <div ref={menuRef} className="relative shrink-0">
+    <div ref={menuRef} className="relative shrink-0" style={NO_DRAG}>
       <button
         type="button"
         onClick={press(() => setMenuOpen((o) => !o))}
@@ -401,7 +418,11 @@ export const ReviewVideoFloat: React.FC<
         <div
           role="menu"
           className={`${
-            own ? 'fixed right-1 bottom-11 max-w-[calc(100vw-8px)] max-h-[calc(100vh-52px)] overflow-y-auto' : 'absolute right-0 top-8'
+            menuUp
+              ? 'fixed right-1 bottom-11 max-w-[calc(100vw-8px)] max-h-[calc(100vh-52px)] overflow-y-auto'
+              : own
+                ? 'fixed right-1 top-9 max-w-[calc(100vw-8px)] max-h-[calc(100vh-40px)] overflow-y-auto'
+                : 'absolute right-0 top-8'
           } z-10 w-52 rounded-lg border border-slate-700 bg-slate-900 p-1 text-[12px] shadow-xl shadow-black/50`}
         >
           <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); onReplace(own?.win.document ?? document); }}>
@@ -474,9 +495,44 @@ export const ReviewVideoFloat: React.FC<
     </div>
   );
 
+  /**
+   * The same title bar in the app's box and in the desktop app's window: the
+   * box is dragged by our own pointer code, the window by the system.
+   */
+  const titleBar = (inWindow: boolean) => (
+    <div
+      onPointerDown={inWindow ? undefined : drag}
+      onDoubleClick={inWindow ? undefined : (e) => !(e.target as HTMLElement).closest('button') && update({ compact: !saved.compact })}
+      title={inWindow ? 'Drag to move' : 'Drag to move · double-click for the video only'}
+      style={inWindow ? DRAG : undefined}
+      className={`flex items-center gap-1.5 pl-2.5 pr-1.5 h-9 shrink-0 border-b border-slate-800 bg-slate-900 cursor-default touch-none ${inWindow ? '' : 'rounded-t-xl'}`}
+    >
+      <GripHorizontal className="w-4 h-4 shrink-0 text-slate-500" aria-hidden="true" />
+      <Video className="w-3.5 h-3.5 shrink-0 text-slate-400" aria-hidden="true" />
+      <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-slate-100" title={video.name}>
+        {video.name}
+      </span>
+      <span title="The video is always silent; you hear what Listen to picks">
+        <VolumeX className="w-3.5 h-3.5 shrink-0 text-slate-500" aria-label="Muted" />
+      </span>
+      {menu}
+      <button
+        type="button"
+        onClick={onHide}
+        title="Hide (Show video brings it back)"
+        aria-label="Hide the video"
+        style={NO_DRAG}
+        className={iconButton}
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  );
+
   if (own) {
     return createPortal(
-      <section aria-label="Review video" className="h-screen flex flex-col bg-slate-950 select-none">
+      <section aria-label="Review video" className="group h-screen flex flex-col bg-slate-950 select-none">
+        {FRAMELESS && titleBar(true)}
         {/* The picture takes the room left over, so a reel fits whole and never covers the bar. */}
         <div
           className="flex-1 min-h-0 flex flex-col"
@@ -485,7 +541,17 @@ export const ReviewVideoFloat: React.FC<
         >
           <ReviewPicture video={video} {...clock} onAspect={setAspect} view={own.win} className="flex-1 min-h-0" />
         </div>
-        {!saved.compact && controls(menu)}
+        {saved.compact && (
+          // Video only: the way back shows wherever the pointer is over the window.
+          <button
+            type="button"
+            onClick={press(() => update({ compact: false }))}
+            className="fixed bottom-3 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-900/90 text-[12px] font-medium text-slate-100 shadow-lg shadow-black/50 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity cursor-default"
+          >
+            Show the controls
+          </button>
+        )}
+        {!saved.compact && controls(FRAMELESS ? undefined : menu)}
       </section>,
       own.host
     );
@@ -506,31 +572,7 @@ export const ReviewVideoFloat: React.FC<
         className="fixed z-50 flex flex-col rounded-xl border border-slate-600 bg-slate-950 shadow-2xl shadow-black/60 select-none"
         style={{ left: saved.x, top: saved.y, width: saved.w, height: saved.h }}
       >
-        <div
-          onPointerDown={drag}
-          onDoubleClick={(e) => !(e.target as HTMLElement).closest('button') && update({ compact: !saved.compact })}
-          title="Drag to move · double-click for the video only"
-          className="flex items-center gap-1.5 pl-2.5 pr-1.5 h-9 shrink-0 rounded-t-xl border-b border-slate-800 bg-slate-900 cursor-default touch-none"
-        >
-          <GripHorizontal className="w-4 h-4 shrink-0 text-slate-500" aria-hidden="true" />
-          <Video className="w-3.5 h-3.5 shrink-0 text-slate-400" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate text-[12px] font-semibold text-slate-100" title={video.name}>
-            {video.name}
-          </span>
-          <span title="The video is always silent; you hear what Listen to picks">
-            <VolumeX className="w-3.5 h-3.5 shrink-0 text-slate-500" aria-label="Muted" />
-          </span>
-          {menu}
-          <button
-            type="button"
-            onClick={onHide}
-            title="Hide (Show video brings it back)"
-            aria-label="Hide the video"
-            className={iconButton}
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        {titleBar(false)}
         <ReviewPicture
           video={video}
           {...clock}
