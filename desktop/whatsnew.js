@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.43',
+    changes: [
+      "Cutting a dub line in Review is easier: point between two words and a light line shows where it cuts, with the two words and how far into the line. A click cuts there (S still works). Dots under the line mark every place it can be cut, cyan where the original speaker pauses, and an outline shows where the rest will go.",
+      "The Expert estimate learns each voice's real pace and pauses from every Sync it voices, free, so later lines' lengths come closer to the real reads.",
+      "In Bars view a stretched line's speed sits beside its length, so it no longer covers the words.",
+    ],
+  },
+  {
     version: '1.4.42',
     changes: [
       "The review video's window has no Windows frame now: it has the same title bar as the player inside the app (name, ⋯ menu, ✕), so it looks and works the same over DHVANI or anywhere outside it. Drag it by that bar; resize it from any edge.",

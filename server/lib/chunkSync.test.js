@@ -161,6 +161,9 @@ test('Chunk sync places each chunk on the original where a whole line would run 
   assert.deepEqual(asked, ['aaaaaaa bbbbbbb ccccccc', 'ddddddd'], "every line's words are timed once");
   assert.equal(report.units[0].chunks, 3);
   assert.equal(bank.lines[0].chunks.length, 3);
+  // Each line's words as the voice read them go into the report, for the app to learn the voice's pace from.
+  assert.deepEqual(report.units[0].readWords.map(([text]) => text), ['aaaaaaa', 'bbbbbbb', 'ccccccc']);
+  for (const [, start, end] of report.units[0].readWords) assert.ok(end > start && start >= 0, `a word from ${start} to ${end} s`);
   // A pause may shrink to half what the voice left (0.44 s, where the original pauses 0.36 s): the little left over is shared out.
   for (const unit of report.units) assert.ok(Math.abs(unit.offset) <= report.tolerance, `line ${unit.key} off by ${unit.offset}`);
   assert.equal(report.summary.inSync, 2);

@@ -132,11 +132,22 @@ export const lipClosuresIn = (word: string): number[] => {
   return out;
 };
 
-const trailingPause = (word: string) => (/[,;:—–]$/.test(word) ? COMMA_PAUSE : /[.!?।॥]$/.test(word) ? STOP_PAUSE : WORD_GAP);
+/** The pauses a voice makes between words inside a line, in seconds: after a comma, after a full stop, and between two words said in one breath. */
+export interface LinePauses {
+  comma: number;
+  stop: number;
+  gap: number;
+}
+/** Until a voice's own pauses are learned (voicePace.ts). */
+export const DEFAULT_PAUSES: LinePauses = { comma: COMMA_PAUSE, stop: STOP_PAUSE, gap: WORD_GAP };
+
+/** Which pause follows a word, by the mark it ends with. */
+export const pauseKindAfter = (word: string): keyof LinePauses => (/[,;:—–]$/.test(word) ? 'comma' : /[.!?।॥]$/.test(word) ? 'stop' : 'gap');
+const trailingPause = (word: string, pauses: LinePauses = DEFAULT_PAUSES) => pauses[pauseKindAfter(word)];
 const bare = (word: string) => word.replace(/[,;:.!?।॥—–"'“”‘’()]+/g, '');
 
-/** A line timed word by word at `rate` syllables a second. */
-export const timeLine = (text: string, rate: number): LineTiming => {
+/** A line timed word by word at `rate` syllables a second, with `pauses` between its words. */
+export const timeLine = (text: string, rate: number, pauses: LinePauses = DEFAULT_PAUSES): LineTiming => {
   const parts = text.trim().split(/\s+/).filter((p) => bare(p));
   const words: TimedWord[] = [];
   const lips: number[] = [];
@@ -151,7 +162,7 @@ export const timeLine = (text: string, rate: number): LineTiming => {
     lipClosuresIn(bare(part)).forEach((f) => lips.push(t + f * seconds));
     words.push({ text: part, start: t, end: t + seconds, syllables });
     t += seconds;
-    if (k < parts.length - 1) t += trailingPause(part);
+    if (k < parts.length - 1) t += trailingPause(part, pauses);
   });
   return { seconds: t, syllables: words.reduce((sum, w) => sum + w.syllables, 0), words, lips };
 };

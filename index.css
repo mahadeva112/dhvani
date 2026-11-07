@@ -169,3 +169,10 @@
 @media (prefers-reduced-motion: reduce) {
   .api-flow-dot, .api-live-dot { animation: none; }
 }
+
+/* Review's dub lane: the cut points and the knife's outline fade in where the pointer is; the original's pauses breathe. */
+@keyframes cut-dot-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+@keyframes cut-dot-pause { 0%, 100% { box-shadow: 0 0 0 1.5px rgb(2 6 23 / 0.85), 0 0 0 0 rgb(103 232 249 / 0.55); } 50% { box-shadow: 0 0 0 1.5px rgb(2 6 23 / 0.85), 0 0 0 4px rgb(103 232 249 / 0); } }
+.cut-dot { animation: cut-dot-in 160ms ease-out both; }
+.cut-dot.cut-dot-pause { animation: cut-dot-in 160ms ease-out both, cut-dot-pause 1.6s ease-in-out 160ms infinite; }
+@media (prefers-reduced-motion: reduce) { .cut-dot, .cut-dot.cut-dot-pause { animation: none; } }

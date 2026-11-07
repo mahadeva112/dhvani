@@ -116,12 +116,14 @@ export const FitMeter: React.FC<{ unit: SyncPreviewUnit; className?: string }> =
 export type ScriptFitFilter = 'all' | 'fix';
 
 const RATE_BASIS_LABELS: Record<RateBasis, string> = {
+  learned: "learned from your voice's Syncs",
   sync: 'from your last sync',
   sample: "from your voice's sample read",
   typical: 'typical rate, rough',
 };
 
 const RATE_BASIS_TITLES: Record<RateBasis, string> = {
+  learned: "Estimated at your voice's pace and pauses, learned free from the words of every Sync it voiced in this language.",
   sync: 'Estimated at the speaking rate measured from your last sync. Sync measures the real clips.',
   sample: 'Estimated at the speaking rate your voice read its sample at in this language. Sync measures the real clips.',
   typical: "A typical rate. Once your voice has read its sample, or after the first sync, the estimate uses your own voice.",

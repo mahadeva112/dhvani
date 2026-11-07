@@ -7,7 +7,7 @@ import { keepTermsFor } from './glossaryService';
 import type { lockedLines, SyncBank } from './syncEditService';
 import type { LinePart, PauseMark } from './linePlaces';
 import { ALLOWED_OVERFLOW, isShortSpeech, LENGTHEN_FILL, SUGGESTION_MARGIN, TIGHT_SHARE } from './fitThresholds';
-import { matchedLips, READ_SPREAD, sourceLipTimes, syllablesHeld, timeLine, type LineTiming, type TimedWord } from './speechTiming';
+import { matchedLips, READ_SPREAD, sourceLipTimes, syllablesHeld, timeLine, type LinePauses, type LineTiming, type TimedWord } from './speechTiming';
 
 /**
  * Sync: a dub voiced line by line and placed on the source's phrases, so it
@@ -316,6 +316,8 @@ export interface SyncUnitReport {
   cutOff?: boolean;
   /** Breaths silenced in the line (absent in older reports). */
   breathsRemoved?: number;
+  /** Its words as the voice read them, `[text, start, end]` seconds into its take before placing; absent when it wasn't timed. */
+  readWords?: [string, number, number][];
 }
 
 export interface SyncReport {
@@ -698,6 +700,8 @@ export interface SyncPreviewUnit {
 export interface ExpertLine {
   /** Syllables a second the line was timed at. */
   rate: number;
+  /** The pauses between its words it was timed with: the voice's learned ones, when known (voicePace.ts). */
+  pauses?: LinePauses;
   syllables: number;
   /** A fast and a slow read of the line, in seconds. */
   low: number;
@@ -840,7 +844,9 @@ export const expertPreview = (
   preview: SyncPreview,
   segments: AudioSegment[],
   syllablesPerSecond: number,
-  rateOf: (speaker?: string | null) => number = () => syllablesPerSecond
+  rateOf: (speaker?: string | null) => number = () => syllablesPerSecond,
+  /** The pauses whoever says a line makes between words, once learned; the defaults otherwise. */
+  pausesOf: (speaker?: string | null) => LinePauses | undefined = () => undefined
 ): SyncPreview => {
   const cueById = new Map(segments.map((seg) => [String(seg.id), seg]));
   const allowed = ALLOWED_OVERFLOW[preview.precision] ?? ALLOWED_OVERFLOW.phrase;
@@ -848,7 +854,8 @@ export const expertPreview = (
   const share = preview.placedShare > 0 ? preview.placedShare : 1;
   const units = preview.units.map((unit): SyncPreviewUnit => {
     const rate = rateOf(unit.speaker);
-    const read = timeLine(unit.text, rate);
+    const pauses = pausesOf(unit.speaker);
+    const read = timeLine(unit.text, rate, pauses);
     const timing = share === 1 ? read : closeUp(read, share);
     const estimate = timing.seconds;
     const overflow = estimate - unit.slot;
@@ -874,6 +881,7 @@ export const expertPreview = (
       targetChars,
       expert: {
         rate,
+        ...(pauses && { pauses }),
         syllables: timing.syllables,
         low: estimate * (1 - READ_SPREAD),
         high: estimate * (1 + READ_SPREAD),

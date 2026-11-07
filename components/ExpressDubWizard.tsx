@@ -138,6 +138,7 @@ import {
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
+import { learnedPace, learnPaceFromSync, voicePaceKey, type LearnedPace } from '../services/voicePace';
 import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, WordingSuggestRow, StretchCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
@@ -1439,14 +1440,57 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       /* Storage off: the pick lasts until the app closes. */
     }
   };
-  // The voice's rate in syllables: as the sample read measured it, else from the same rate in characters.
+  /*
+   * Each voice's pace as learned from every Sync of it (services/voicePace.ts):
+   * syllables a second while it speaks, and its pauses at a comma, a full stop
+   * and between words. A Sync report teaches it as soon as it is here; the
+   * Expert estimate then reads lines at it. Free: Sync already timed the words.
+   */
+  const paceModel = voiceEngine === 'cartesia' ? cartesiaModelId : elModelId;
+  const [paceVersion, setPaceVersion] = useState(0);
+  useEffect(() => {
+    const report = activeJob?.syncReport;
+    if (!activeJob?.id || !report || (report.language && report.language !== targetLanguage)) return;
+    if (learnPaceFromSync(activeJob.id, report, (voiceId) => voicePaceKey(voiceId, paceModel, targetLanguage))) setPaceVersion((v) => v + 1);
+    // Learned once per report: a model or language picked later doesn't make an old report teach again.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeJob?.id, activeJob?.syncReport]);
+  const mainPace = useMemo(
+    () => (elVoiceId ? learnedPace(voicePaceKey(elVoiceId, paceModel, targetLanguage)) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [elVoiceId, paceModel, targetLanguage, paceVersion]
+  );
+  /** With several speakers, the learned pace of each speaker with a voice of their own; null while it has said too little. */
+  const speakerPaces = useMemo(() => {
+    const out: Record<string, LearnedPace | null> = {};
+    for (const [name, voice] of Object.entries(activeJob?.cast || {})) {
+      if (multiSpeaker && voice?.voiceId && voice.voiceId !== elVoiceId) out[name] = learnedPace(voicePaceKey(voice.voiceId, paceModel, targetLanguage));
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeJob?.cast, multiSpeaker, elVoiceId, paceModel, targetLanguage, paceVersion]);
+  // The voice's rate in syllables: learned from its Syncs, else as the sample read measured it, else from the same rate in characters.
   const scriptSyllableRate = useMemo(() => syllableRate(segments.map(getTargetText), previewRate), [segments, previewRate]);
-  const syllablesPerSecond = rateBasis === 'sample' && sampleRate ? sampleRate.syllablesPerSecond : scriptSyllableRate;
+  const syllablesPerSecond = mainPace?.syllablesPerSecond ?? (rateBasis === 'sample' && sampleRate ? sampleRate.syllablesPerSecond : scriptSyllableRate);
   /** The syllables a second of whoever says a line: their own voice's, else the main voice's. */
   const syllableRateOf = useCallback(
-    (speaker?: string | null) => speakerRateTable[speaker || 'Speaker']?.syllablesPerSecond ?? syllablesPerSecond,
-    [speakerRateTable, syllablesPerSecond]
+    (speaker?: string | null) => {
+      const name = speaker || 'Speaker';
+      if (name in speakerPaces) return speakerPaces[name]?.syllablesPerSecond ?? speakerRateTable[name]?.syllablesPerSecond ?? syllablesPerSecond;
+      return speakerRateTable[name]?.syllablesPerSecond ?? syllablesPerSecond;
+    },
+    [speakerPaces, speakerRateTable, syllablesPerSecond]
   );
+  /** The pauses whoever says a line makes, once learned: their own voice's, else the main voice's. */
+  const pausesOf = useCallback(
+    (speaker?: string | null) => {
+      const name = speaker || 'Speaker';
+      return name in speakerPaces ? speakerPaces[name]?.pauses : mainPace?.pauses;
+    },
+    [speakerPaces, mainPace]
+  );
+  /** Where the Expert estimate's pace comes from, as Review says it. */
+  const expertBasis: RateBasis = mainPace ? 'learned' : rateBasis;
   /** A part of a dub line being dragged on Review's dub lane: the fit follows it before it is let go. */
   const [placeDrag, setPlaceDrag] = useState<PlaceDrag | null>(null);
   /** A line being stretched by an edge on Review's dub lane: the fit follows its speed before it is let go. */
@@ -1474,7 +1518,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const linePreview = useMemo(() => {
     // The script as typed now, not as the server last saw it: the fit follows each key.
     const base = withLiveText(syncPreview.preview, segments);
-    const targeted = withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond, syllableRateOf) : base, segments);
+    const targeted = withLineTargets(base && estimateMethod === 'expert' ? expertPreview(base, segments, syllablesPerSecond, syllableRateOf, pausesOf) : base, segments);
     // Judged where the user placed each line, and the one being dragged where it is now;
     // with Cut at the original's pauses, each line cut there as Sync will cut it.
     const { join } = syncOptions;
@@ -1483,7 +1527,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const rated = withLineRates(targeted, segments, stretchDraft);
     const draft = placeDrag ?? (stretchDraft && stretchDraft.start !== undefined ? { key: stretchDraft.key, part: 0, start: stretchDraft.start ?? null } : null);
     return withLinePlaces(rated, segments, draft, pauseCuts);
-  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond, syllableRateOf, placeDrag, stretchDraft, syncOptions]);
+  }, [syncPreview.preview, segments, estimateMethod, syllablesPerSecond, syllableRateOf, pausesOf, placeDrag, stretchDraft, syncOptions]);
   /** The dub bar picked on the Dub step's preview timeline, for trimming. */
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
   /** A trim being dragged on Review's dub lane, and whether that lane shows bars or words. */
@@ -1545,6 +1589,24 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   };
   const placeLine = (unit: SyncPreviewUnit, letters: number, start: number | null) => setLinePlace(unit, (place) => withPartStart(place, unit, letters, start));
   const cutLine = (unit: SyncPreviewUnit, letters: number, on: boolean) => setLinePlace(unit, (place) => withCut(place, unit, letters, on));
+  /** Where the rest of a line would go if cut after `letters` letters: placed as the preview places a cut line, nothing saved. */
+  const cutGhost = useCallback(
+    (unit: SyncPreviewUnit, letters: number) => {
+      if (!linePreview) return null;
+      const first = String(unit.cueIds[0]);
+      const cutSegments = segments.map((seg) => {
+        if (String(seg.id) !== first) return seg;
+        const { dubPlace, ...rest } = seg;
+        const next = withCut(dubPlace ?? null, unit, letters, true);
+        return next ? { ...rest, dubPlace: next } : rest;
+      });
+      const { join } = syncOptions;
+      const pauseCuts = join.chunkSync && join.cutAtSourcePauses ? { minPause: join.sourceCutMinPause, maxInsert: join.sourceCutMaxInsert } : null;
+      const part = withLinePlaces({ ...linePreview, units: [unit] }, cutSegments, null, pauseCuts)?.units[0]?.parts?.find((q) => q.letters === letters);
+      return part ? { start: part.start, end: part.start + (part.to - part.from) } : null;
+    },
+    [linePreview, segments, syncOptions]
+  );
   /** Stretches a line to `rate` (1 takes the stretch off); a left edge dragged also puts its first word at `start`. */
   const stretchLine = (unit: SyncPreviewUnit, rate: number, start?: number | null) => {
     // The line stretched is the one picked, so the card shows it (without moving the page).
@@ -2468,6 +2530,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       setDrag={setLaneDrag}
                       onPlace={placeLine}
                       onCut={cutLine}
+                      cutGhost={cutGhost}
                       // Bars: words typed in a line's bar go into the script, spread over its cues as a wording is.
                       onEditLine={(u, text) => applyPreviewLine(u, text)}
                       onSkipPause={skipPauseCut}
@@ -3418,7 +3481,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       {linePreview.summary.lips && linePreview.summary.lips.total > 0 && ` · lips ${linePreview.summary.lips.matched} / ${linePreview.summary.lips.total}`}
                     </p>
                     <p className="text-[11.5px] text-slate-500 leading-snug">
-                      {estimateBasis(linePreview, rateBasis)}
+                      {estimateBasis(linePreview, rateBasis, expertBasis, mainPace?.lines)}
                       {linePreview.placedShare < 1 && `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed`}.
                     </p>
                     {linesToFixCount > 0 && (
@@ -3852,7 +3915,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       </span>
                     ))}
                 </p>
-                <p className="mt-1.5 text-[11px] text-slate-500">Estimated in Review: {estimateBasis(linePreview!, rateBasis)}.</p>
+                <p className="mt-1.5 text-[11px] text-slate-500">Estimated in Review: {estimateBasis(linePreview!, rateBasis, expertBasis, mainPace?.lines)}.</p>
               </div>
             ) : (
               <p className="flex items-center gap-2 text-xs text-slate-400" role="status">

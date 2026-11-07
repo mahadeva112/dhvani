@@ -549,15 +549,23 @@ export const readNote = (unit: Pick<SyncPreviewUnit, 'read' | 'estimate'>) =>
 /** What the preview's figures are worked out from, in a few words. */
 /** Where an estimate's rate came from, after its value. */
 export const RATE_BASIS_NOTE: Record<RateBasis, string> = {
+  learned: "learned from this voice's Syncs",
   sync: 'from this dub',
   sample: "from your voice's sample read",
   typical: '(a typical rate)',
 };
 
-export const estimateBasis = (preview: SyncPreview, basis: RateBasis) =>
+/**
+ * What the preview's rate is and where it came from. `expertBasis` stands for
+ * the Expert estimate, which may read at a pace learned from the voice's Syncs
+ * (`learnedLines` lines of it) while the Quick one still reads at `basis`.
+ */
+export const estimateBasis = (preview: SyncPreview, basis: RateBasis, expertBasis: RateBasis = basis, learnedLines?: number) =>
   preview.method === 'expert' && preview.syllablesPerSecond
-    ? `${preview.syllablesPerSecond.toFixed(1)} syllables/s ${RATE_BASIS_NOTE[basis]}`
-    : `${preview.charsPerSecond.toFixed(1)} chars/s ${RATE_BASIS_NOTE[basis]}`;
+    ? `${preview.syllablesPerSecond.toFixed(1)} syllables/s ${
+        expertBasis === 'learned' && learnedLines ? `and its pauses, learned from ${learnedLines} lines this voice said` : RATE_BASIS_NOTE[expertBasis]
+      }`
+    : `${preview.charsPerSecond.toFixed(1)} chars/s ${RATE_BASIS_NOTE[basis === 'learned' ? 'sync' : basis]}`;
 
 /**
  * An Expert line up close: its words with their syllables, what to cut or
@@ -641,7 +649,7 @@ export const fitOf = (text: string, unit: SyncPreviewUnit, cps: number) => {
   // to say: one syllable can be three or four characters in an Indian script (प्र, क्ष्म).
   const lineSyllables = timeLine(unit.text, 1).syllables;
   const seconds = unit.expert
-    ? timeLine(text, unit.expert.rate).seconds
+    ? timeLine(text, unit.expert.rate, unit.expert.pauses).seconds
     : lineSyllables > 0 && unit.estimate > 0
       ? (unit.estimate * timeLine(text, 1).syllables) / lineSyllables
       : text.trim().length / cps;
@@ -1453,6 +1461,45 @@ const rateText = (rate: number) => `${rate.toFixed(2)}×`;
 const SNAP_PX = 8;
 /** Pointed this close to a pause in the dub, in pixels, a cut goes there. */
 const PAUSE_CUT_PX = 16;
+/** Pointed this close to the gap between two words, in pixels, the knife is out: a click cuts there. */
+const KNIFE_PX = 9;
+/** The knife's colour: cyan where the original speaker pauses, else amber. */
+const KNIFE_TONE = { pause: '#67e8f9', word: '#fcd34d' } as const;
+
+/** A gap between two words of a part, where it can be cut. */
+interface CutGap {
+  /** The word before it, by index into the line's estimated words. */
+  k: number;
+  /** Where it falls on the timeline, and how far into the line. */
+  t: number;
+  into: number;
+  /** Letters of the line said before it (as DubPlace cuts count them). */
+  letters: number;
+  /** The word before it ends with a comma or full stop. */
+  punct: boolean;
+  /** How long the original speaker pauses there, when they do (a pause Sync doesn't cut at now). */
+  srcPause: number | null;
+}
+/** Where the pointer would cut a line: the gap, its part, and whether a click cuts there (the knife is out). */
+interface CutPick extends CutGap {
+  key: string;
+  part: number;
+  armed: boolean;
+}
+
+/** Every gap between two words of part `p`, where it could be cut. */
+const gapsOf = (u: SyncPreviewUnit, p: LinePart): CutGap[] => {
+  const words = estimatedWords(u);
+  const gaps: CutGap[] = [];
+  let letters = words.slice(0, p.first).reduce((sum, w) => sum + letterCount(w.text), 0);
+  for (let k = p.first; k < p.last && k + 1 < words.length; k++) {
+    letters += letterCount(words[k].text);
+    const into = (words[k].end + words[k + 1].start) / 2;
+    const mark = u.pauseMarks?.find((m) => m.letters === letters && m.state !== 'cut');
+    gaps.push({ k, t: p.start + into - p.from, into, letters, punct: PAUSE_MARK.test(words[k].text), srcPause: mark ? mark.seconds : null });
+  }
+  return gaps;
+};
 
 const isTyping = (target: EventTarget | null) => {
   const el = target as HTMLElement | null;
@@ -1525,6 +1572,12 @@ export const DubEstimateLane: React.FC<{
    * zooms to the line, as in the other views.
    */
   onEditLine?: (unit: SyncPreviewUnit, text: string) => void;
+  /**
+   * Where the rest of a line would go if it were cut after `letters` letters:
+   * the new part's first and last word on the timeline, drawn as an outline
+   * while the knife is out.
+   */
+  cutGhost?: (unit: SyncPreviewUnit, letters: number) => { start: number; end: number } | null;
 }> = ({
   units,
   windowStart,
@@ -1550,6 +1603,7 @@ export const DubEstimateLane: React.FC<{
   layers = { fit: true, numbers: true },
   rateMarks = 'always',
   onEditLine,
+  cutGhost,
 }) => {
   /** The line whose words are being typed in its bar, and what they are so far. */
   const [editing, setEditing] = useState<{ key: string; text: string } | null>(null);
@@ -1643,25 +1697,26 @@ export const DubEstimateLane: React.FC<{
     if (held !== t) snapped = null;
     return { start: Math.abs(held - p.auto) < 0.01 ? null : Math.round(held * 1000) / 1000, snapped };
   };
-  /** Where S would cut part `p` with the pointer at `clientX`: between the two words nearest it, at a pause when one is close. */
-  const cutAt = (u: SyncPreviewUnit, p: LinePart, clientX: number, lane: Element) => {
+  /**
+   * Where part `p` would be cut with the pointer at `clientX`: between the two
+   * words nearest it, or at a pause close by unless the pointer is right on a
+   * gap. Armed (the knife is out, a click cuts) only that close to the gap.
+   */
+  const cutAt = (u: SyncPreviewUnit, p: LinePart, clientX: number, lane: Element): CutPick | null => {
     if (p.last <= p.first) return null;
-    const words = estimatedWords(u);
     const r = lane.getBoundingClientRect();
     const pxs = r.width / Math.max(0.001, WINDOW_SECONDS);
     const x = clientX - r.left;
-    let best: { k: number; t: number; d: number } | null = null;
-    let pause: { k: number; t: number; d: number } | null = null;
-    for (let k = p.first; k < p.last && k + 1 < words.length; k++) {
-      const t = p.start + (words[k].end + words[k + 1].start) / 2 - p.from;
-      const d = Math.abs((t - windowStart) * pxs - x);
-      if (!best || d < best.d) best = { k, t, d };
-      if (PAUSE_MARK.test(words[k].text) && d < PAUSE_CUT_PX && (!pause || d < pause.d)) pause = { k, t, d };
+    let best: { gap: CutGap; d: number } | null = null;
+    let pause: { gap: CutGap; d: number } | null = null;
+    for (const gap of gapsOf(u, p)) {
+      const d = Math.abs((gap.t - windowStart) * pxs - x);
+      if (!best || d < best.d) best = { gap, d };
+      if ((gap.punct || gap.srcPause !== null) && d < PAUSE_CUT_PX && (!pause || d < pause.d)) pause = { gap, d };
     }
-    const pick = pause ?? best;
+    const pick = pause && best && best.d > KNIFE_PX / 2 ? pause : best;
     if (!pick) return null;
-    const letters = words.slice(0, pick.k + 1).reduce((sum, w) => sum + letterCount(w.text), 0);
-    return { key: u.key, t: pick.t, letters, atPause: PAUSE_MARK.test(words[pick.k].text) };
+    return { ...pick.gap, key: u.key, part: p.index, armed: pick.d <= KNIFE_PX };
   };
 
   /** A press on a part: dragged past a few pixels it moves; let go where it was, it was a click. */
@@ -1670,7 +1725,18 @@ export const DubEstimateLane: React.FC<{
   const [guide, setGuide] = useState<number | null>(null);
   /** The part under the pointer, for S and Backspace, and where S would cut it. */
   const hover = useRef<{ key: string; part: number; clientX: number; lane: Element } | null>(null);
-  const [cutPreview, setCutPreview] = useState<{ key: string; t: number; atPause: boolean } | null>(null);
+  const [cutPreview, setCutPreview] = useState<CutPick | null>(null);
+  /** When the last click cut a line: the double-click it makes doesn't zoom or edit too. */
+  const lastCut = useRef(0);
+  const knifeOut = cutPreview?.armed && !placeDrag && !stretchDraft ? cutPreview : null;
+  const knifeTone = knifeOut ? (knifeOut.srcPause !== null ? KNIFE_TONE.pause : KNIFE_TONE.word) : KNIFE_TONE.word;
+  // Where the rest of the line goes if cut where the knife is: worked out once per gap.
+  const ghostUnit = knifeOut ? units.find((x) => x.key === knifeOut.key) : undefined;
+  const ghost = useMemo(
+    () => (knifeOut && ghostUnit && cutGhost ? cutGhost(ghostUnit, knifeOut.letters) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [knifeOut?.key, knifeOut?.letters, ghostUnit, cutGhost]
+  );
   const hovered = () => {
     const h = hover.current;
     if (!h) return null;
@@ -1692,6 +1758,7 @@ export const DubEstimateLane: React.FC<{
         e.preventDefault();
         e.stopImmediatePropagation();
         onCut(at.u, cut.letters, true);
+        lastCut.current = Date.now();
         setCutPreview(null);
       } else if (onPlace && (e.key === 'Backspace' || e.key === 'Delete') && at.p.placed) {
         e.preventDefault();
@@ -1816,7 +1883,7 @@ export const DubEstimateLane: React.FC<{
           u.expert ? ` (${u.expert.low.toFixed(1)} to ${u.expert.high.toFixed(1)} s, ${u.expert.syllables} syllables)` : ''
         } · slot ${u.slot.toFixed(1)} s${over > 0 ? ` · +${over.toFixed(1)} s` : ''}${
           u.wantSeconds !== undefined ? ` · your trim ${u.wantSeconds.toFixed(1)} s` : ''
-        }${onSelect ? '\nClick to pick this line' : ''}${onPlace ? ' · drag to move it' : ''}${onCut ? ' · S cuts it between two words' : ''}`;
+        }${onSelect ? '\nClick to pick this line' : ''}${onPlace ? ' · drag to move it' : ''}${onCut ? '\nPoint between two words: where the knife shows, a click (or S) cuts it there' : ''}`;
         const words = rythmo && !cut ? u.expert?.words : undefined;
         const shape = words ? undefined : shapes?.get(u.key);
         // Its fit is drawn with the Fit layer on, and always on the line picked or being stretched.
@@ -1849,16 +1916,25 @@ export const DubEstimateLane: React.FC<{
               const path = drawn === 'wave' ? (cut ? wavePath(partWords, length, barStep) : shape?.path ?? '') : '';
               // Past this share of the part it runs over the line's room, and turns red.
               const inSlot = length > 0 ? Math.min(1, Math.max(0, (room - p.start) / length)) : 1;
-              const pick = onSelect
-                ? (e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    if (clickHandled.current) {
-                      clickHandled.current = false;
-                      return;
+              /** The knife is out over this part: a click cuts where it shows. */
+              const knifeHere = knifeOut?.key === u.key && knifeOut.part === p.index ? knifeOut : null;
+              const pick =
+                onSelect || onCut
+                  ? (e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      if (clickHandled.current) {
+                        clickHandled.current = false;
+                        return;
+                      }
+                      if (knifeHere && onCut) {
+                        onCut(u, knifeHere.letters, true);
+                        lastCut.current = Date.now();
+                        setCutPreview(null);
+                        return;
+                      }
+                      onSelect?.(u);
                     }
-                    onSelect(u);
-                  }
-                : undefined;
+                  : undefined;
               return (
                 <React.Fragment key={`${u.key}-${p.index}`}>
                   {/* Where Sync would put a placed part: while dragging, on the picked line, or with the Fit layer */}
@@ -1874,17 +1950,19 @@ export const DubEstimateLane: React.FC<{
                       editable ? '\nDouble-click to edit its words' : ''
                     }`}
                     onClick={pick}
-                    onDoubleClick={
-                      editable
-                        ? (e) => {
-                            // Here a double-click types in the bar instead of zooming to the line.
-                            e.stopPropagation();
-                            press.current = null;
-                            setPlaceDrag?.(null);
-                            setEditing({ key: u.key, text: u.text });
-                          }
-                        : undefined
-                    }
+                    onDoubleClick={(e) => {
+                      // The double-click of a quick cut is only that cut: it doesn't zoom or open the words too.
+                      if (Date.now() - lastCut.current < 600) {
+                        e.stopPropagation();
+                        return;
+                      }
+                      if (!editable) return;
+                      // Here a double-click types in the bar instead of zooming to the line.
+                      e.stopPropagation();
+                      press.current = null;
+                      setPlaceDrag?.(null);
+                      setEditing({ key: u.key, text: u.text });
+                    }}
                     onPointerDown={
                       onPlace && setPlaceDrag
                         ? (e) => {
@@ -1917,7 +1995,9 @@ export const DubEstimateLane: React.FC<{
                       hover.current = { key: u.key, part: p.index, clientX: e.clientX, lane };
                       if (!onCut) return;
                       const next = cutAt(u, p, e.clientX, lane);
-                      setCutPreview((was) => (was?.key === next?.key && was?.t === next?.t ? was : next));
+                      setCutPreview((was) =>
+                        was && next && was.key === next.key && was.part === next.part && was.k === next.k && was.armed === next.armed && was.t === next.t ? was : next
+                      );
                     }}
                     onPointerUp={(e) => {
                       const held = press.current;
@@ -1977,17 +2057,22 @@ export const DubEstimateLane: React.FC<{
                       length > 0 &&
                       partWords.map((w, n) => {
                         const late = p.start + w.end > room + 0.02;
+                        const k = p.first + n;
+                        const beside = knifeHere && (k === knifeHere.k || k === knifeHere.k + 1);
                         return (
                           <span
                             key={n}
                             aria-hidden="true"
-                            className="absolute top-0 bottom-0 flex items-center justify-center overflow-hidden rounded-[3px] border text-[11px] leading-none whitespace-nowrap pointer-events-none"
+                            className="absolute top-0 bottom-0 flex items-center justify-center overflow-hidden rounded-[3px] border text-[11px] leading-none whitespace-nowrap pointer-events-none transition-transform duration-150"
                             style={{
                               left: `${(w.start / length) * 100}%`,
                               width: `calc(${((w.end - w.start) / length) * 100}% - 1px)`,
                               background: late ? 'rgba(244,63,94,0.25)' : withAlpha(hue, 0.24),
                               borderColor: late ? '#fb7185' : withAlpha(hue, 0.85),
                               color: late ? '#fecdd3' : '#f1f5f9',
+                              // Where the knife is out, the words either side part a little and are underlined in its colour.
+                              ...(knifeHere && { transform: `translateX(${k <= knifeHere.k ? -2 : 2}px)` }),
+                              ...(beside && { boxShadow: `inset 0 -2px 0 ${knifeTone}` }),
                             }}
                           >
                             <SqueezedWord text={w.text} boxPx={(w.end - w.start) * pxPerSecond - 1} />
@@ -1996,14 +2081,43 @@ export const DubEstimateLane: React.FC<{
                       })}
                     {/* Bars: the dub script inside the bar, broken between words, smaller only when it must */}
                     {drawn === 'bars' && (
-                      <FitText className="z-[5]" fitKey={`${partText(u, p, parts.length)}|${u.index}|${layers.numbers}|${over > 0 && showFit}`}>
+                      <FitText
+                        className="z-[5]"
+                        fitKey={`${partText(u, p, parts.length)}|${u.index}|${layers.numbers}|${over > 0 && showFit}|${marksRate(u) ? u.rate : 1}|${knifeHere?.k ?? ''}`}
+                      >
                         <span className="text-slate-50">
-                          {layers.numbers && p.index === 0 && !marksRate(u) && (
+                          {layers.numbers && p.index === 0 && (
                             <span className="font-mono font-semibold" style={{ color: hue }}>
                               {u.index + 1}{' '}
                             </span>
                           )}
-                          {partText(u, p, parts.length)}
+                          {knifeHere
+                            ? // The knife is out: the bar's words show where it cuts, the two either side underlined.
+                              (shape?.words ?? []).slice(p.first, p.last + 1).map((w, n) => {
+                                const k = p.first + n;
+                                return (
+                                  <React.Fragment key={n}>
+                                    {n > 0 &&
+                                      (k - 1 === knifeHere.k ? (
+                                        <span className="font-semibold" style={{ color: knifeTone }}>
+                                          {' '}┊{' '}
+                                        </span>
+                                      ) : (
+                                        ' '
+                                      ))}
+                                    <span
+                                      style={
+                                        k === knifeHere.k || k === knifeHere.k + 1
+                                          ? { textDecoration: `underline 2px ${knifeTone}`, textUnderlineOffset: '3px' }
+                                          : undefined
+                                      }
+                                    >
+                                      {w.text}
+                                    </span>
+                                  </React.Fragment>
+                                );
+                              })
+                            : partText(u, p, parts.length)}
                         </span>
                         {/* Each chunk its own length; the last says too how far the line runs past its room */}
                         <span
@@ -2011,10 +2125,14 @@ export const DubEstimateLane: React.FC<{
                           style={{ color: over > 0 && showFit && p.index === parts.length - 1 ? '#fda4af' : hue }}
                         >
                           ≈{(parts.length > 1 ? length : u.estimate).toFixed(1)} s{over > 0 && showFit && p.index === parts.length - 1 ? ` · +${over.toFixed(1)} s` : ''}
+                          {/* Its speed beside its length, never over its words */}
+                          {p.index === 0 && marksRate(u) && (
+                            <span style={{ color: RATE_TONE[rateZone(u.rate ?? 1)] ?? '#e2e8f0' }}> · {rateText(u.rate ?? 1)}</span>
+                          )}
                         </span>
                       </FitText>
                     )}
-                    {!words && p.index === 0 && (drawn !== 'bars' || marksRate(u)) && lineNumber(u, width, drawn === 'bars' ? undefined : STATUS_DOT[u.status])}
+                    {!words && p.index === 0 && drawn !== 'bars' && lineNumber(u, width, STATUS_DOT[u.status])}
                     {!words && drawn === 'wave' && p.index === parts.length - 1 && width > 9 && (!quiet || layers.numbers) && (
                       <span className="absolute right-1.5 bottom-1 font-mono text-[9.5px] tabular-nums pointer-events-none" style={{ color: hue }}>
                         {u.expert ? '' : '≈'}
@@ -2145,13 +2263,78 @@ export const DubEstimateLane: React.FC<{
               />
             )}
             {showFit && <span aria-hidden="true" className="absolute top-0.5 bottom-0.5 w-px bg-slate-600 pointer-events-none" style={{ left: `${pct(room)}%` }} />}
-            {cutPreview?.key === u.key && !placeDrag && (
+            {/* Pointed at: a dot at every gap the line can be cut at, cyan where the original speaker pauses */}
+            {cutPreview?.key === u.key &&
+              !placeDrag &&
+              !stretchDraft &&
+              (() => {
+                const p = parts.find((q) => q.index === cutPreview.part);
+                if (!p) return null;
+                return gapsOf(u, p).map((g) => {
+                  const on = knifeOut?.key === u.key && knifeOut.k === g.k;
+                  const size = on ? 8 : g.srcPause !== null ? 6 : g.punct ? 5 : 4;
+                  return (
+                    <span
+                      key={`gap-${g.k}`}
+                      aria-hidden="true"
+                      className={`absolute z-20 bottom-[3px] rounded-full pointer-events-none cut-dot ${g.srcPause !== null && !on ? 'cut-dot-pause' : ''}`}
+                      style={{
+                        left: `calc(${pct(g.t)}% - ${size / 2}px)`,
+                        width: size,
+                        height: size,
+                        background: on ? knifeTone : g.srcPause !== null ? KNIFE_TONE.pause : g.punct ? '#cbd5e1' : '#64748b',
+                        boxShadow: on ? `0 0 0 1.5px rgb(2 6 23 / 0.9), 0 0 8px ${knifeTone}` : '0 0 0 1.5px rgb(2 6 23 / 0.85)',
+                      }}
+                    />
+                  );
+                });
+              })()}
+            {/* Near a gap but not on it: a faint line where S would cut */}
+            {cutPreview?.key === u.key && !cutPreview.armed && !placeDrag && !stretchDraft && (
               <span
                 aria-hidden="true"
-                className={`absolute z-10 top-0.5 bottom-0.5 w-0 border-l border-dashed pointer-events-none ${cutPreview.atPause ? 'border-slate-100' : 'border-amber-300'}`}
+                className={`absolute z-10 top-0.5 bottom-0.5 w-0 border-l border-dashed pointer-events-none ${cutPreview.punct || cutPreview.srcPause !== null ? 'border-slate-300/70' : 'border-amber-300/60'}`}
                 style={{ left: `${pct(cutPreview.t)}%` }}
               />
             )}
+            {/* The knife is out: where the rest of the line would go, the cut itself, and what it cuts between */}
+            {knifeOut?.key === u.key && ghost && (
+              <span
+                aria-hidden="true"
+                className="absolute z-10 top-1 bottom-1 rounded border border-dashed pointer-events-none cut-dot"
+                style={{
+                  left: `${pct(ghost.start)}%`,
+                  width: `${Math.max(0.3, pct(ghost.end) - pct(ghost.start))}%`,
+                  borderColor: withAlpha(knifeTone, 0.85),
+                  background: withAlpha(knifeTone, 0.07),
+                }}
+              />
+            )}
+            {knifeOut?.key === u.key &&
+              (() => {
+                const words = shapes.get(u.key)?.words ?? estimatedWords(u);
+                const at = pct(knifeOut.t);
+                return (
+                  <>
+                    {/* Just a light line where it cuts */}
+                    <span
+                      aria-hidden="true"
+                      className="absolute z-20 top-0.5 bottom-0.5 w-px -ml-px rounded-full pointer-events-none"
+                      style={{ left: `${at}%`, background: withAlpha(knifeTone, 0.8), boxShadow: `0 0 3px ${withAlpha(knifeTone, 0.35)}` }}
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="absolute z-30 top-0.5 rounded-md bg-slate-100 px-1.5 text-[10.5px] leading-[15px] text-slate-950 whitespace-nowrap pointer-events-none shadow-lg"
+                      style={{ left: `${at}%`, transform: at > 62 ? 'translateX(calc(-100% - 11px))' : 'translateX(11px)' }}
+                    >
+                      {words[knifeOut.k]?.text} <span className="font-semibold" style={{ color: knifeOut.srcPause !== null ? '#0891b2' : '#b45309' }}>┊</span> {words[knifeOut.k + 1]?.text}
+                      <span className="font-mono text-slate-500"> · {knifeOut.into.toFixed(1)} s in</span>
+                      {knifeOut.srcPause !== null && <span className="font-mono text-cyan-700"> · original pauses {knifeOut.srcPause.toFixed(1)} s</span>}
+                      <span className="text-slate-500"> · click to cut</span>
+                    </span>
+                  </>
+                );
+              })()}
             {trim !== undefined && (
               <span
                 aria-hidden="true"

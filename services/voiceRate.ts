@@ -213,5 +213,5 @@ export const speakerSyllableRates = (states: Record<string, VoiceRateState>): Re
     Object.entries(states).flatMap(([speaker, state]) => (state.rate ? [[speaker, state.rate.syllablesPerSecond] as const] : []))
   );
 
-/** Where an estimate's speaking rate came from: the last sync or dub, a sample read of the voice, or a typical rate. */
-export type RateBasis = 'sync' | 'sample' | 'typical';
+/** Where an estimate's speaking rate came from: the voice's pace learned from its Syncs (Expert only), the last sync or dub, a sample read of the voice, or a typical rate. */
+export type RateBasis = 'learned' | 'sync' | 'sample' | 'typical';

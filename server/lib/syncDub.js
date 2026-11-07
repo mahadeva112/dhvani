@@ -1696,6 +1696,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       breathsRemoved: breathsRemoved[i],
       // Why the line could not meet its timing limits (Strict, a protected pause or a lock), or null.
       timingConflict: timingConflicts.get(i) || null,
+      // Its words as the voice read them, seconds into its take before any placing: the app learns the voice's pace from them.
+      ...(wordTimings.has(i) && {
+        readWords: wordTimings.get(i).map((word) => [String(word.text ?? ''), Math.round(word.start * 1000) / 1000, Math.round(word.end * 1000) / 1000]),
+      }),
       ...(verifyWords && { wordTiming: verifiedTiming.has(i)
         ? verifiedTiming.get(i)
         : { status: 'unavailable', reason: wordErrors.get(i) || 'This line contains no audible speech.' } }),
