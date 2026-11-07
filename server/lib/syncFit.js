@@ -12,10 +12,12 @@
  * timing says nothing about how the dub's voice ends a line.
  *
  * Nothing is applied here: the app shows each change with its reason and the
- * user applies them or not.
+ * user applies them, or Sync applies them itself when the preview says they
+ * leave no fewer lines in sync (services/syncAutoFit.ts).
  */
 import { buildSyncUnits } from './syncUnits.js';
 import { resolveJoinSettings } from './syncSettings.js';
+import { BAND_PAUSE_MOVES, lengthBandFor } from './lengthBands.js';
 
 /** Fewer measured pauses than this say too little to go on; that setting is left as it is. */
 export const MIN_SAMPLES = 5;
@@ -142,13 +144,15 @@ export const fitJoinSettings = ({ segments = [], join: current, charsPerSecond, 
           : ', using rates from the previous dub';
     const basis = estimatedLines === 0 ? measuredBasis : measuredLines > 0 ? ', using a mix of measured and typical rates' : ', at a typical speaking rate';
     const longer = `The dub runs about ${percent}% longer than the original${basis}.`;
-    if (ratio >= 1.08) {
-      if (!from.shortenPauses) propose('shortenPauses', true, longer);
-      const take = ratio >= 1.2 ? 0.6 : 0.5;
-      if (take > from.maxPauseTake) propose('maxPauseTake', take, longer);
-      if (ratio >= 1.15 && from.gapShare > 0.25) propose('gapShare', 0.25, `${longer} A long pause lends more of its time to the line before.`);
-    } else if (ratio <= 0.9 && from.gapShare < 0.4) {
-      propose('gapShare', 0.4, `The dub runs about ${percent}% shorter than the original${basis}, so more of each pause can be kept.`);
+    // The same bands the length presets use (lengthBands.js).
+    const moves = BAND_PAUSE_MOVES[lengthBandFor(ratio)];
+    if (moves.shortenPauses && !from.shortenPauses) propose('shortenPauses', true, longer);
+    if (moves.maxPauseTakeAtLeast > from.maxPauseTake) propose('maxPauseTake', moves.maxPauseTakeAtLeast, longer);
+    if (moves.gapShareAtMost !== undefined && from.gapShare > moves.gapShareAtMost) {
+      propose('gapShare', moves.gapShareAtMost, `${longer} A long pause lends more of its time to the line before.`);
+    }
+    if (moves.gapShareAtLeast !== undefined && from.gapShare < moves.gapShareAtLeast) {
+      propose('gapShare', moves.gapShareAtLeast, `The dub runs about ${percent}% shorter than the original${basis}, so more of each pause can be kept.`);
     }
   }
 

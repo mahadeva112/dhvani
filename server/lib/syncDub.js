@@ -36,6 +36,7 @@ import { levelDb, nearestResume, soundFirstCut, sourcePauseCuts } from './source
 import { splitChunks, chunkTargets, wordKinds, kindOf, pauseFloor, linePauses, joinSpokenBlocks, cutPoints, splitAtPoints, RIGID_GAP_SECONDS } from './chunkSync.js';
 import { takeDiffers } from './takeChecks.js';
 import { readStoredClip, storeClip } from './clipStore.js';
+import { refitAfterVoicing } from './syncRefit.js';
 
 /**
  * How tight the sync must be. `tolerance` is how far a line's first word may
@@ -328,9 +329,10 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   } = params;
   const precision = SYNC_PRECISION[params.precision] ? params.precision : 'phrase';
   const { tolerance, allowedOverflow } = SYNC_PRECISION[precision];
-  const join = resolveJoinSettings(params.join);
+  // Fit to this video may swap the placement settings once the lines are voiced (syncRefit.js).
+  let join = resolveJoinSettings(params.join);
   // Chunk sync: each line placed as the chunks of speech between its pauses (see chunkSync.js).
-  const chunked = join.chunkSync;
+  let chunked = join.chunkSync;
   const checkCancelled = () => {
     if (signal?.aborted) throw cancelledError('Sync');
   };
@@ -567,6 +569,23 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
 
   // How long the original speaker took over each line.
   const spokenOf = (i) => Math.max(0, units[i].srcEnd - units[i].srcStart);
+
+  /*
+   * Fit to this video, after voicing: how long the voice really took picks
+   * the length band, and its placement settings go in before anything is
+   * placed (syncRefit.js). Grouping and the settings that voice lines again
+   * stay, so nothing is voiced anew. `reads` is each line as voiced, first
+   * word to last, before any pause is cut.
+   */
+  const reads = clips.map((clip) => (clip ? clip.speech : 0));
+  const refitted = refitAfterVoicing({ refit: params.refit, join, units, reads, segments, precision, sourceDuration });
+  if (refitted?.status === 'applied') {
+    join = refitted.join;
+    chunked = join.chunkSync;
+    // The tail and breath settings shape each clip: prepared again with the new ones.
+    if (refitted.clipsChanged) for (let i = 0; i < units.length; i++) if (clips[i]) await fit(i);
+    checkCancelled();
+  }
 
   // 3. Fitting
   report({ phase: 'fitting', step: 3 });
@@ -1659,6 +1678,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       short: shortBy[i] > 0,
       shortBy: shortBy[i],
       speech: clips[i] ? clips[i].speech : 0,
+      // As voiced, first word to last, before any pause was cut: how long the voice took.
+      read: reads[i],
       targetChars: targetChars[i],
       suggestion: suggestions.get(i) || null,
       suggestionOver: suggestionOver.get(i) || null,
@@ -1723,6 +1744,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
       language,
       tolerance,
       join,
+      // Fit to this video after voicing: the band the voice really read in, and whether the settings were swapped.
+      ...(refitted && { refit: { status: refitted.status, from: refitted.from, to: refitted.to, ratio: refitted.ratio, inSync: refitted.inSync } }),
       timingProtection: timingProtection === 'strict' ? 'strict' : 'warn',
       duration: track.length / sampleRate,
       summary: {

@@ -200,6 +200,7 @@ import {
   SyncProgress,
   SyncUnitReport,
 } from './services/syncService';
+import { refittedOptions } from './services/syncAutoFit';
 import {
   DEFAULT_DUB_AUDIO_QUALITY,
   dubAudioQualityLabel,
@@ -2834,7 +2835,7 @@ export default function App() {
 
   const runSyncDub = async (
     projectId: string,
-    { voicing, precision, join, suggest, suggestLonger, matchLoudness, verifyWords, timingProtection }: SyncOptions,
+    { voicing, precision, join, refit, suggest, suggestLonger, matchLoudness, verifyWords, timingProtection }: SyncOptions,
     voice: DubVoice,
     { fresh = false }: { fresh?: boolean } = {}
   ) => {
@@ -2932,6 +2933,7 @@ export default function App() {
             seed,
             precision,
             join,
+            ...(refit && { refit }),
             suggest,
             suggestLonger,
             matchLoudness,
@@ -3015,8 +3017,11 @@ export default function App() {
           }
         : {};
       const changedVoices = changedVoicesStill(activeJob, voice.voiceId);
+      // Fit to this video after voicing swapped the settings: they are the project's settings for the next Sync too.
+      const refitted = projectNow.syncOptions ? refittedOptions(projectNow.syncOptions, report) : null;
       // A dub made before Dub and Sync were one step stays as it was, beside the synced dub.
       updateJob(activeJob.id, {
+        ...(refitted && { syncOptions: refitted }),
         syncedAudioUrl: url,
         syncedBlob: blob,
         syncReport: edited ? measureEdits(report, bank, keptEdits) : report,

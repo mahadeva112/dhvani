@@ -133,8 +133,12 @@ import {
   syncedSegments,
   TYPICAL_CHARS_PER_SECOND,
   withLineTargets,
+  fitJoinSettings,
+  previewSync,
   type LineSuggestion,
 } from '../services/syncService';
+import { autoFitForSync, canUndoAutoFit, refitRequestFor, undoAutoFit, withRefit, type AutoFitOutcome } from '../services/syncAutoFit';
+import { AutoFitPanel } from './AutoFitPanel';
 import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } from '../services/dubAudioQuality';
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
@@ -959,6 +963,19 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const setStepOverride = onStepChange;
   // The Dub step's sync settings, shared by its rail and the "Sync again" in its results.
   const [syncOptions, setSyncOptions] = useSyncOptions(activeJob?.id, activeJob?.syncOptions, onSyncOptionsChange);
+  // What Sync's own Fit to this video did on the last press, for this project only (AutoFitPanel).
+  const [autoFit, setAutoFit] = useState<{
+    jobId: string;
+    outcome: AutoFitOutcome;
+    undone?: boolean;
+    groupingUsed?: boolean;
+    hidden?: boolean;
+    /** The report from before the press, so the sync's own report is told from it. */
+    reportBefore?: unknown;
+    /** The sync's report has been read for what it changed after voicing. */
+    merged?: boolean;
+  } | null>(null);
+  const [autoFitting, setAutoFitting] = useState(false);
   const hasSegments = Boolean(activeJob && activeJob.segments.length > 0);
 
   const getSourceText = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
@@ -1142,6 +1159,71 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     () => Object.fromEntries(Object.entries(speakerRateTable).map(([name, rate]) => [name, Math.round(rate.charsPerSecond * 10) / 10])),
     [speakerRateTable]
   );
+  // What Fit to this video measures from: the Fit card in Sync settings and Sync's own fit read the same.
+  const fitSource = useMemo(
+    () => ({
+      segments,
+      charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate,
+      rateMeasured: !multiSpeaker && rateBasis !== 'typical',
+      rateSample: !multiSpeaker && rateBasis === 'sample',
+      speakerRates: fitRates,
+    }),
+    [segments, multiSpeaker, previewRate, rateBasis, fitRates]
+  );
+  /**
+   * Sync, as pressed: Fit to this video first (unless turned off), then the
+   * sync with what it settled on. The fit is arithmetic on the cues on the
+   * local backend: no voice and no credit (services/syncAutoFit.ts).
+   */
+  const syncWithFit = async (base: SyncOptions, go: (options: SyncOptions) => void, { fresh = false } = {}) => {
+    const job = activeJob;
+    if (!job || autoFitting) return;
+    if (base.fitOnSync === false) {
+      setAutoFit(null);
+      return go(base);
+    }
+    setAutoFitting(true);
+    let result: Awaited<ReturnType<typeof autoFitForSync>> = null;
+    let refit: SyncOptions['refit'] = null;
+    try {
+      const { segments: _cues, ...source } = fitSource;
+      result = await autoFitForSync({
+        options: base,
+        segments,
+        source,
+        // Lines voiced by a sync before: their grouping stays, or a sync would voice them again.
+        voicedBefore: Boolean(job.syncReport || job.syncBank || job.syncedAudioUrl),
+        fresh,
+        fit: (body) => fitJoinSettings(body),
+        preview: (join) =>
+          previewSync({
+            segments,
+            precision: base.precision,
+            join,
+            charsPerSecond: previewRate,
+            speakerRates: previewSpeakerRates,
+            placedShare,
+            sourceDuration: job.audioBuffer?.duration || 0,
+          }),
+      });
+      // Once the lines are voiced, Sync measures how long they really run and may swap these settings (syncRefit.js).
+      if (result) refit = await refitRequestFor(result.options, { segments, source, fit: (body) => fitJoinSettings(body) });
+    } finally {
+      setAutoFitting(false);
+    }
+    if (!result) return go(base);
+    setAutoFit({ jobId: job.id, outcome: result.outcome, reportBefore: job.syncReport ?? null });
+    const next = result.options;
+    if (next !== base) setSyncOptions((o) => ({ ...o, preset: next.preset, join: next.join, fitted: next.fitted, fitUndone: next.fitUndone }));
+    // Sent with this Sync only, never kept with the settings.
+    go(refit ? { ...next, refit } : next);
+  };
+  // The sync's report: what Sync changed once the lines were voiced joins the What changed panel, once.
+  useEffect(() => {
+    const report = activeJob?.syncReport;
+    if (!autoFit || autoFit.merged || autoFit.jobId !== activeJob?.id || isSyncing || !report || report === autoFit.reportBefore) return;
+    setAutoFit({ ...autoFit, outcome: withRefit(autoFit.outcome, report), merged: true });
+  }, [autoFit, activeJob?.id, activeJob?.syncReport, isSyncing]);
   const hasSyncReport = Boolean(activeJob?.syncedAudioUrl && activeJob?.syncReport);
   // Dub & sync on the Dub step: the progress page while it runs, then its result until Open the dub.
   const syncRun = useSyncRun(isSyncing, syncProgress, syncWaitingFor ?? null);
@@ -3747,12 +3829,43 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const openIssues = openFindings.length;
         const blockedReason = !onSyncDub ? 'Dubbing is not available.' : segments.length === 0 ? 'There are no cues to dub yet.' : null;
         // One Even out loudness, on the voice panel, for every dub.
-        const runSync = () => onSyncDub?.({ ...syncOptions, matchLoudness: dubMatchLoudness });
-        const runSyncFromScratch = onSyncFromScratch ? () => onSyncFromScratch({ ...syncOptions, matchLoudness: dubMatchLoudness }) : undefined;
+        const runSync = () => {
+          if (onSyncDub) void syncWithFit({ ...syncOptions, matchLoudness: dubMatchLoudness }, onSyncDub);
+        };
+        const runSyncFromScratch = onSyncFromScratch
+          ? () => void syncWithFit({ ...syncOptions, matchLoudness: dubMatchLoudness }, onSyncFromScratch, { fresh: true })
+          : undefined;
+        // What Sync's own Fit to this video did on the last press, with Undo.
+        const fitShown = autoFit && autoFit.jobId === activeJob.id && !autoFit.hidden ? autoFit : null;
+        const autoFitPanel = fitShown && (
+          <AutoFitPanel
+            outcome={fitShown.outcome}
+            canUndo={canUndoAutoFit(syncOptions, fitShown.outcome)}
+            undone={fitShown.undone}
+            onUndo={() => {
+              setSyncOptions((o) => undoAutoFit(o, fitShown.outcome));
+              setAutoFit({ ...fitShown, undone: true });
+            }}
+            onUseGrouping={
+              fitShown.outcome.grouping
+                ? () => {
+                    const grouped = fitShown.outcome.grouping!.options;
+                    setSyncOptions((o) => ({ ...o, preset: grouped.preset, join: grouped.join, fitted: grouped.fitted, fitUndone: undefined }));
+                    setAutoFit({ ...fitShown, groupingUsed: true });
+                  }
+                : undefined
+            }
+            groupingUsed={fitShown.groupingUsed}
+            onTurnOff={syncOptions.fitOnSync !== false ? () => setSyncOptions((o) => ({ ...o, fitOnSync: false })) : undefined}
+            onDismiss={() => setAutoFit({ ...fitShown, hidden: true })}
+          />
+        );
         // The length preset this dub's lines suit, from the last sync; picking it syncs again with it.
         const lengthSuggestion = presetSuggestion(report?.units);
         const syncWithPreset = (preset: Exclude<SyncJoinPreset, 'custom'>) => {
+          // A preset picked by hand is the user's choice: Sync runs with it as it is, no fit on top.
           const next = applyJoinPreset(syncOptions, preset, syncOptions.screen ?? 'any');
+          setAutoFit(null);
           setSyncOptions(next);
           onSyncDub?.({ ...next, matchLoudness: dubMatchLoudness });
         };
@@ -4146,6 +4259,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 .filter(Boolean)
                 .join(' · ')}
               suggesting={syncOptions.suggest || syncOptions.suggestLonger}
+              fitNote={autoFitPanel}
             />
           );
         }
@@ -4161,6 +4275,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onUsePreset={syncWithPreset}
             />
           )}
+          {report && !isSyncing && autoFitPanel}
           {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
           {hasDub && (
             <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
@@ -4875,7 +4990,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 onDownloadMp3={report ? onDownloadMp3 : undefined}
                 onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
                 openRequest={syncSettingsRequest + cardSettingsRequest}
-                fitSource={{ segments, charsPerSecond: multiSpeaker ? TYPICAL_CHARS_PER_SECOND : previewRate, rateMeasured: !multiSpeaker && rateBasis !== 'typical', rateSample: !multiSpeaker && rateBasis === 'sample', speakerRates: fitRates }}
+                fitSource={fitSource}
                 subtitles={
                   report && syncedCues && syncedCues.length > 0 && (
                     <button

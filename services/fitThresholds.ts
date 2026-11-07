@@ -13,3 +13,6 @@ const SHORT_SHARE = 0.6;
 const MIN_SHORT_GAP = 1;
 /** True when `seconds` of dub leave too much of `spoken` seconds of original unsaid. */
 export const isShortSpeech = (seconds: number, spoken: number) => seconds < spoken * SHORT_SHARE && spoken - seconds >= MIN_SHORT_GAP;
+
+/** The length bands (Short / Natural / Long / Very long) Fit and the presets share; see server/lib/lengthBands.js. */
+export { LENGTH_BANDS, BAND_PAUSE_MOVES, lengthBandFor } from '../server/lib/lengthBands.js';

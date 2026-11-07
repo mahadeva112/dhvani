@@ -21,6 +21,7 @@ type PresetSuggestion = NonNullable<ReturnType<typeof presetSuggestion>>;
 import { AudioSegment } from '../types';
 import { JOIN_SETTING_RANGES } from '../server/lib/syncSettings.js';
 import { reportError } from '../services/errorPopup';
+import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
 
 /**
  * How Sync joins its lines: a preset, and the settings it fills in, one
@@ -306,7 +307,9 @@ export const FitCard: React.FC<{
   onApply: (changes: Partial<SyncJoinSettings>) => void;
   /** What the last sync measured: how much longer the dub's lines ran, and the length preset that suits it. */
   suggestion?: PresetSuggestion | null;
-}> = ({ source, join, disabled, onApply, suggestion }) => {
+  /** Fit to this video when I Sync: on unless turned off. */
+  fitOnSync?: boolean;
+}> = ({ source, join, disabled, onApply, suggestion, fitOnSync = false }) => {
   const [fit, setFit] = useState<SyncFit | null>(null);
   const [measuring, setMeasuring] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -341,8 +344,8 @@ export const FitCard: React.FC<{
           <span>
             <span className="block text-[13px] font-medium text-slate-200">Fit to this video</span>
             <span className="block text-[11.5px] text-slate-400 mt-0.5">
-              Measures the original speaker's pauses and how much longer the dub runs, and sets the gaps, grouping and pauses to match. Nothing changes
-              until you apply.
+              Measures the original speaker's pauses and how much longer the dub runs, and sets the gaps, grouping and pauses to match.
+              {fitOnSync ? ' Sync also does this by itself when you press it.' : ' Nothing changes until you apply.'}
             </span>
           </span>
         </div>
@@ -421,6 +424,21 @@ export const FitCard: React.FC<{
     </div>
   );
 };
+
+/** Fit to this video when I Sync: on unless turned off (services/syncAutoFit.ts). */
+export const FitOnSyncToggle: React.FC<{ on: boolean; disabled?: boolean; onChange: (on: boolean) => void }> = ({ on, disabled, onChange }) => (
+  <label className="flex items-start gap-2.5 rounded-lg border border-slate-800 bg-slate-800/20 px-3 py-2.5 text-[13px] text-slate-200 cursor-default">
+    <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 accent-indigo-500" />
+    <span>
+      Fit to this video when I Sync
+      <span className="block text-[11.5px] text-slate-400 mt-0.5">
+        {on
+          ? 'Sync measures the original first (no credit) and applies the changes only when the preview has no fewer lines in sync, then shows what changed, with Undo. A Custom preset you set yourself is left alone.'
+          : 'Off: Sync uses the settings as they are. Fit to this video still measures and applies when you ask.'}
+      </span>
+    </span>
+  </label>
+);
 
 /** The groups of join settings, each a section of the Sync settings window. */
 export type SyncJoinSection = 'chunks' | 'long' | 'gaps' | 'pauses' | 'edges' | 'fit' | 'grouping' | 'review';
@@ -554,9 +572,12 @@ export const describeChange = (change: number) =>
   Math.abs(change) < 0.01 ? 'about as long' : `${Math.round(Math.abs(change) * 100)}% ${change > 0 ? 'longer' : 'shorter'}`;
 
 /** A preset's name with what is on screen: "Long dub · Narration". */
-export const joinPresetLabel = (options: Pick<SyncOptions, 'preset' | 'screen'>) =>
+export const joinPresetLabel = (options: Pick<SyncOptions, 'preset' | 'screen'> & Partial<Pick<SyncOptions, 'join' | 'fitted'>>) =>
   [
-    (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.label ?? 'Custom').replace(' (recommended)', ''),
+    // Settings Fit to this video left read as the preset it started from, fitted: "Long dub, fitted".
+    options.preset === 'custom' && options.join && options.fitted && !isOwnCustom({ preset: options.preset, join: options.join, fitted: options.fitted })
+      ? `${presetName(options.fitted.preset)}, fitted`
+      : (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.label ?? 'Custom').replace(' (recommended)', ''),
     options.screen && options.screen !== 'any' && SYNC_SCREEN_OPTIONS.find((s) => s.id === options.screen)?.label,
   ]
     .filter(Boolean)
@@ -645,7 +666,7 @@ const ChoiceRow: React.FC<{
           {choice.id === suggested ? (
             <span className="block text-[11px] text-emerald-300 truncate">suits this dub</span>
           ) : (
-            <span className="block text-[11px] text-slate-500 truncate">{choice.id === 'natural' ? 'about even · recommended' : choice.sub}</span>
+            <span className="block text-[11px] text-slate-500 truncate">{choice.id === 'natural' ? 'within 5% · recommended' : choice.sub}</span>
           )}
         </button>
       );
@@ -668,10 +689,17 @@ export const JoinPresetPicker: React.FC<{
   suggestion?: PresetSuggestion | null;
 }> = ({ options, onOptionsChange, disabled, onShowChanged, suggestion }) => {
   const screen = options.screen ?? 'any';
+  // Settings Fit to this video left show as the length they started from, fitted; Custom is only the user's own.
+  const fittedFrom = options.preset === 'custom' && !isOwnCustom(options) ? lengthPresetOf(options) : null;
+  const lengthNow: SyncJoinPreset = fittedFrom ?? options.preset;
   const pickLength = (preset: string) => onOptionsChange((o) => applyJoinPreset(o, preset as SyncJoinPreset, o.screen ?? 'any'));
   const pickScreen = (next: string) =>
-    onOptionsChange((o) => (o.preset === 'custom' ? { ...o, screen: next as SyncScreen } : applyJoinPreset(o, o.preset, next as SyncScreen)));
-  const hint = [SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint, SYNC_SCREEN_OPTIONS.find((s) => s.id === screen)?.hint].filter(Boolean).join(' ');
+    onOptionsChange((o) =>
+      o.preset === 'custom' && isOwnCustom(o) ? { ...o, screen: next as SyncScreen } : applyJoinPreset(o, lengthPresetOf(o), next as SyncScreen)
+    );
+  const hint = fittedFrom
+    ? `${presetName(fittedFrom)}, with Fit to this video's changes on it. Picking a length puts the preset back as it is.`
+    : [SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint, SYNC_SCREEN_OPTIONS.find((s) => s.id === screen)?.hint].filter(Boolean).join(' ');
   return (
     <div className="flex flex-col gap-2.5">
       <div className="flex flex-col gap-1.5">
@@ -679,13 +707,13 @@ export const JoinPresetPicker: React.FC<{
         <ChoiceRow
           label="Line joins by the dub's length"
           choices={SYNC_JOIN_PRESET_OPTIONS}
-          value={options.preset}
+          value={lengthNow}
           suggested={suggestion?.preset}
           disabled={disabled}
           onPick={pickLength}
         />
       </div>
-      {suggestion && suggestion.preset !== options.preset && (
+      {suggestion && suggestion.preset !== lengthNow && (
         <div className="flex flex-wrap items-center gap-2.5 rounded-lg border border-amber-400/35 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-100">
           <Ruler className="w-3.5 h-3.5 text-amber-300 shrink-0" />
           <span>

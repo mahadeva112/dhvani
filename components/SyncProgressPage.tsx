@@ -183,6 +183,8 @@ export interface SyncProgressPageProps {
   about: string;
   /** Suggestions are asked for, so the last step runs. */
   suggesting?: boolean;
+  /** What Sync's own Fit to this video changed before it started (AutoFitPanel). */
+  fitNote?: React.ReactNode;
 }
 
 export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
@@ -197,6 +199,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
   characters,
   about,
   suggesting = false,
+  fitNote = null,
 }) => {
   // Once it has ended, the counts are the last ones Sync reported.
   if (!progress && done) progress = run?.last ?? null;
@@ -371,6 +374,8 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
           <span>{about}</span>
         </p>
       </section>
+
+      {fitNote}
 
       {/* The long bar, in the steps' own segments */}
       <div className="flex gap-[3px] h-2.5" aria-hidden>

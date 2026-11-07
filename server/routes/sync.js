@@ -59,6 +59,20 @@ const cleanTakeChoices = (value) =>
       ])
   );
 
+/**
+ * Fit to this video after voicing (syncRefit.js): the band the settings were
+ * made for, and for each band the join settings to use. Each is resolved to
+ * the server's own ranges when it is used; anything else is dropped.
+ */
+const REFIT_BANDS = ['short', 'natural', 'long', 'vlong'];
+const cleanRefit = (value) => {
+  if (!value || typeof value !== 'object' || !REFIT_BANDS.includes(value.from)) return null;
+  const candidates = Object.fromEntries(
+    REFIT_BANDS.filter((band) => value.candidates?.[band] && typeof value.candidates[band] === 'object').map((band) => [band, value.candidates[band]])
+  );
+  return Object.keys(candidates).length > 0 ? { from: value.from, candidates } : null;
+};
+
 /** Takes asked of each retaken line, by key: whole numbers, clamped in runSync. */
 const cleanLineTakes = (value) =>
   Object.fromEntries(
@@ -454,6 +468,7 @@ syncRouter.post(
       lineTakes,
       precision,
       join,
+      refit,
       verifyWords,
       timingProtection,
       suggest,
@@ -559,6 +574,7 @@ syncRouter.post(
           sampleRate,
           precision,
           join,
+          refit: cleanRefit(refit),
           verifyWords: verifyWords === true,
           timingProtection: timingProtection === 'strict' ? 'strict' : 'warn',
           suggest: suggest === true,

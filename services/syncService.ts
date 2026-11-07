@@ -159,6 +159,18 @@ export interface SyncOptions {
   suggestLonger: boolean;
   /** Bring every line to the same loudness. Off: each line keeps the level it was voiced at. */
   matchLoudness: boolean;
+  /** Fit to this video when Sync is pressed (services/syncAutoFit.ts). On unless turned off. */
+  fitOnSync?: boolean;
+  /**
+   * The join settings Fit to this video left, and the length preset it
+   * started from. While `join` still equals them, a Custom preset is Fit's,
+   * not the user's own, and the next Sync may fit it again.
+   */
+  fitted?: { preset: Exclude<SyncJoinPreset, 'custom'>; join: SyncJoinSettings };
+  /** The changes a Fit the user undid would make again, so the next Sync doesn't put them straight back. */
+  fitUndone?: string;
+  /** Sent with one Sync only, never kept: each band's settings for the server to fit again once the lines are voiced. */
+  refit?: { from: Exclude<SyncJoinPreset, 'custom'>; candidates: Partial<Record<Exclude<SyncJoinPreset, 'custom'>, SyncJoinSettings>> } | null;
 }
 
 /**
@@ -253,6 +265,8 @@ export interface SyncUnitReport {
   shortBy: number;
   /** Seconds the dub line's words take, as voiced. */
   speech: number;
+  /** Seconds from its first word to its last as the voice read it, before Sync cut any pause (absent in older reports). */
+  read?: number;
   /** Length a new wording should aim for: shorter when `exceeded`, longer when `short`, otherwise null. */
   targetChars: number | null;
   /** A shorter (or, for a short line, fuller) wording to use instead, or null. Never applied automatically. */
@@ -326,6 +340,13 @@ export interface SyncReport {
   precision: SyncPrecision;
   /** The join settings the sync ran with, as the server kept them. */
   join: SyncJoinSettings;
+  /**
+   * Fit to this video after voicing (server/lib/syncRefit.js): the band the
+   * settings were made for (`from`), the one the voice really read in (`to`),
+   * and whether Sync swapped the settings for it ('applied', so `join` is the
+   * swapped settings), or not ('same', 'worse', 'unmeasured').
+   */
+  refit?: { status: 'applied' | 'same' | 'worse' | 'unmeasured'; from: string | null; to: string | null; ratio: number | null; inSync: { before: number; after: number } | null };
   /** What the backend changed about the voice's saved stability, or null when nothing was. */
   stabilityAdjustment?: StabilityAdjustment | null;
   tolerance: number;
@@ -423,6 +444,8 @@ export interface SyncProgress {
 }
 
 export interface SyncRequest {
+  /** Fit to this video once the lines are voiced (SyncOptions.refit). */
+  refit?: SyncOptions['refit'];
   verifyWords?: boolean;
   timingProtection?: 'warn' | 'strict';
   segments: AudioSegment[];

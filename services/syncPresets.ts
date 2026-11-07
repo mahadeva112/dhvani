@@ -1,4 +1,6 @@
 import type { SyncJoinSettings } from './syncService';
+// One table of length bands for the presets, the suggestion after a sync and Fit to this video.
+import { lengthBandFor } from '../server/lib/lengthBands.js';
 
 /**
  * Line-join presets, by how long the dub runs against the original: Short
@@ -142,8 +144,8 @@ export const presetExtras = (screen: SyncScreen) => ({
 });
 
 export const SYNC_JOIN_PRESET_OPTIONS: { id: SyncJoinPreset; label: string; sub: string; hint: string }[] = [
-  { id: 'short', label: 'Short dub', sub: 'dub shorter', hint: 'The dub runs shorter than the original. Pauses keep all they have and may grow.' },
-  { id: 'natural', label: 'Natural (recommended)', sub: 'about even', hint: 'The dub runs about as long as the original. Room to breathe between lines.' },
+  { id: 'short', label: 'Short dub', sub: 'over 5% shorter', hint: 'The dub runs over 5% shorter than the original. Pauses keep all they have and may grow.' },
+  { id: 'natural', label: 'Natural (recommended)', sub: 'within 5%', hint: 'The dub runs about as long as the original, within 5%. Room to breathe between lines.' },
   { id: 'long', label: 'Long dub', sub: '5-15% longer', hint: 'The dub runs 5-15% longer. Pauses shrink further, and the dub ends with the original.' },
   { id: 'vlong', label: 'Very long dub', sub: 'over 15% longer', hint: 'The dub runs over 15% longer. The tightest pauses, and a long line may be read up to 1.2x.' },
   { id: 'custom', label: 'Custom', sub: 'your settings', hint: 'Your own settings, in the sections of this window.' },
@@ -155,27 +157,21 @@ export const SYNC_SCREEN_OPTIONS: { id: SyncScreen; label: string; sub: string; 
   { id: 'camera', label: 'On-camera', sub: 'faces on screen', hint: 'Faces on screen: lines must start within 200 ms of the original (Strict), with tight joins. Visual lip-sync is not checked.' },
 ];
 
-/** The dub's lines can run this much longer (or shorter) than the original's before another preset suits it better. */
-const PRESET_RATIOS: [Exclude<SyncJoinPreset, 'custom'>, number][] = [
-  ['short', 0.97],
-  ['natural', 1.05],
-  ['long', 1.15],
-  ['vlong', Infinity],
-];
-
 /**
  * How long the dub's lines run against the original's, from a sync report:
  * the seconds each line takes as voiced, from its first word to its last,
  * over the seconds the original speaker took for it. Null with nothing voiced.
  */
-export const dubLengthRatio = (units: { silent?: boolean; speech: number; srcStart: number; srcEnd: number }[]) => {
-  const voiced = units.filter((unit) => !unit.silent && unit.speech > 0 && unit.srcEnd > unit.srcStart);
+export const dubLengthRatio = (units: { silent?: boolean; speech: number; read?: number; srcStart: number; srcEnd: number }[]) => {
+  // As the voice read it (`read`), as Sync measures it after voicing (server/lib/syncRefit.js); older reports have only `speech`.
+  const lengthOf = (unit: { speech: number; read?: number }) => (typeof unit.read === 'number' && unit.read > 0 ? unit.read : unit.speech);
+  const voiced = units.filter((unit) => !unit.silent && lengthOf(unit) > 0 && unit.srcEnd > unit.srcStart);
   const original = voiced.reduce((sum, unit) => sum + unit.srcEnd - unit.srcStart, 0);
-  return original > 0 ? voiced.reduce((sum, unit) => sum + unit.speech, 0) / original : null;
+  return original > 0 ? voiced.reduce((sum, unit) => sum + lengthOf(unit), 0) / original : null;
 };
 
-/** The length preset for a dub that runs `ratio` times as long as the original. */
-export const presetForRatio = (ratio: number): Exclude<SyncJoinPreset, 'custom'> => PRESET_RATIOS.find(([, below]) => ratio < below)![0];
+/** The length preset for a dub that runs `ratio` times as long as the original (server/lib/lengthBands.js). */
+export const presetForRatio = (ratio: number): Exclude<SyncJoinPreset, 'custom'> => lengthBandFor(ratio) as Exclude<SyncJoinPreset, 'custom'>;
 
 /** The preset a synced dub suits, and how much longer or shorter it runs (+0.25 for 25% longer); null before a sync. */
 export const presetSuggestion = (units: Parameters<typeof dubLengthRatio>[0] | null | undefined) => {

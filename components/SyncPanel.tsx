@@ -56,6 +56,7 @@ import { isShort, LINE_OPTIONS, MAX_TRIED, MeaningWarning } from './SyncPreviewP
 import { timeLine } from '../services/speechTiming';
 import {
   FitCard,
+  FitOnSyncToggle,
   JOIN_SECTION_INFO,
   JOIN_SECTIONS,
   joinPresetOf,
@@ -77,6 +78,7 @@ import {
 import { SyncSettingsDiagram } from './SyncSettingsDiagram';
 import { SyncPresetLibrary } from './SyncPresetLibrary';
 import { reportError } from '../services/errorPopup';
+import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
 import { dotsToPauses, stripPauses } from '../server/lib/linePauses.js';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
 
@@ -131,6 +133,16 @@ const isDefaultOptions = (options: SyncOptions) => {
   );
 };
 
+/** A saved Fit to this video, while the join is still what it left (and the preset is Custom). */
+const fittedOf = (saved: unknown, preset: string | null, join: SyncJoinSettings): SyncOptions['fitted'] | null => {
+  if (preset || !saved || typeof saved !== 'object') return null;
+  const record = saved as { preset?: unknown; join?: unknown };
+  const from = (Object.keys(SYNC_JOIN_PRESETS) as (keyof typeof SYNC_JOIN_PRESETS)[]).find((id) => id === record.preset);
+  if (!from) return null;
+  const fittedJoin = readJoinSettings(record.join);
+  return (Object.keys(join) as (keyof SyncJoinSettings)[]).every((key) => fittedJoin[key] === join[key]) ? { preset: from, join: fittedJoin } : null;
+};
+
 export const readOptions = (value?: unknown): SyncOptions => {
   try {
     const saved = (value ?? JSON.parse(localStorage.getItem(OPTIONS_KEY) || '{}')) as Partial<SyncOptions>;
@@ -153,6 +165,10 @@ export const readOptions = (value?: unknown): SyncOptions => {
       suggest: saved.suggest === true,
       suggestLonger: saved.suggestLonger === true,
       matchLoudness: saved.matchLoudness === true,
+      fitOnSync: saved.fitOnSync !== false,
+      // What Fit to this video left, kept while the join still is it: then Custom is Fit's, not the user's.
+      ...(fittedOf(saved.fitted, preset ?? null, join) && { fitted: fittedOf(saved.fitted, preset ?? null, join)! }),
+      ...(typeof saved.fitUndone === 'string' && { fitUndone: saved.fitUndone }),
     };
   } catch {
     return defaultSyncOptions();
@@ -275,7 +291,7 @@ export const SyncStatusBar: React.FC<{
   const [kept, setKept] = useState(false);
   useEffect(() => setKept(false), [presetSuggestion?.preset, presetSuggestion?.change]);
   const lengthOff = presetSuggestion && Math.abs(presetSuggestion.change) >= 0.03 ? presetSuggestion : null;
-  const suits = Boolean(presetSuggestion) && presetNow.split(' · ')[0] === presetName(presetSuggestion!.preset);
+  const suits = Boolean(presetSuggestion) && presetNow.split(' · ')[0].replace(/, fitted$/, '') === presetName(presetSuggestion!.preset);
   const offerPreset = lengthOff && !suits && !kept ? lengthOff : null;
   // How late the dub drifts: the latest start of any line.
   const maxLate = Math.max(0, ...report.units.map((u) => u.offset ?? 0));
@@ -647,7 +663,9 @@ const SyncSettingsWindow: React.FC<{
     onFitted(changes);
     onOptionsChange((o) => {
       const next = { ...o.join, ...changes };
-      return { ...o, join: next, preset: joinPresetOf(next, o.screen) };
+      const preset = joinPresetOf(next, o.screen);
+      // Applied onto a preset (not the user's own Custom), it stays Fit's: Sync may fit it again.
+      return { ...o, join: next, preset, fitted: preset === 'custom' && !isOwnCustom(o) ? { preset: lengthPresetOf(o), join: next } : undefined };
     });
   };
 
@@ -696,7 +714,17 @@ const SyncSettingsWindow: React.FC<{
       case 'basics':
         return (
           <div className="flex flex-col gap-4">
-            {fitSource && <FitCard source={fitSource} join={options.join} disabled={isSyncing} onApply={applyFit} suggestion={presetSuggestion} />}
+            {fitSource && (
+              <FitCard
+                source={fitSource}
+                join={options.join}
+                disabled={isSyncing}
+                onApply={applyFit}
+                suggestion={presetSuggestion}
+                fitOnSync={options.fitOnSync !== false}
+              />
+            )}
+            <FitOnSyncToggle on={options.fitOnSync !== false} disabled={isSyncing} onChange={(on) => onOptionsChange((o) => ({ ...o, fitOnSync: on }))} />
             <fieldset className="flex flex-col gap-2" disabled={isSyncing}>
               <legend className={`${sectionLabel} mb-2`}>How to voice</legend>
               <div className="grid lg:grid-cols-2 gap-3">
