@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.44',
+    changes: [
+      "Sync fits its settings to the video by itself: it measures how the original speaker pauses and how much longer the dub runs, picks the length preset (Short, Natural, Long, Very long) and the gaps, and once the lines are voiced measures them again before placing them, so the first Sync places the dub as a second one would. It changes them only when the preview has no fewer lines in sync, shows what changed with one-click Undo, never touches your own Custom settings, and voices nothing again. Turn it off in Sync settings → Basics (Fit to this video when I Sync).",
+      "Split at pauses (D) and Tighten silences (Q) in Edit timing find more pauses: More pauses (Off, Normal, Strong) also catches pauses on room tone, ones a little hiss would break, breaths, and gaps after a comma or a danda when the words are checked. The new cuts show in violet. Split only no longer keeps a margin around words, so short pauses between words split too. Only silence is ever cut.",
+    ],
+  },
+  {
     version: '1.4.43',
     changes: [
       "Cutting a dub line in Review is easier: point between two words and a light line shows where it cuts, with the two words and how far into the line. A click cuts there (S still works). Dots under the line mark every place it can be cut, cyan where the original speaker pauses, and an outline shows where the rest will go.",
