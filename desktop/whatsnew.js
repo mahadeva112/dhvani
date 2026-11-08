@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.48',
+    changes: [
+      'Happy Diwali! Around Diwali, every new project opens with a short Diwali greeting: fireworks and a row of diyas. It goes after five seconds; click or press Esc to close it sooner.',
+    ],
+  },
+  {
     version: '1.4.47',
     changes: [
       'A second dark theme, Graphite: a neutral charcoal without the blue tint. Pick it, or go back to Classic, under Tools and settings (Ctrl K) → Appearance.',
