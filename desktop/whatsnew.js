@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.47',
+    changes: [
+      'A second dark theme, Graphite: a neutral charcoal without the blue tint. Pick it, or go back to Classic, under Tools and settings (Ctrl K) → Appearance.',
+      'Classic is easier to read: small grey text such as times and hints is brighter, and the edges of panels, cards and text boxes show more clearly.',
+    ],
+  },
+  {
     version: '1.4.46',
     changes: [
       "The DHVANI icon in the taskbar and Start menu is now the same size as the other apps' icons. If a pinned taskbar icon still shows the small one, unpin it and pin it again.",
