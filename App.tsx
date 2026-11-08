@@ -281,6 +281,8 @@ import { saveFileAs } from './services/saveFile';
 import { loadPassagePause } from './components/review/passages';
 import type { TranscriptExportResult, TranscriptFormat } from './components/TranscriptExportMenu';
 import { OpenProjectJsonPanel, type PendingProjectJson } from './components/OpenProjectJsonPanel';
+import { DiwaliGreeting } from './components/DiwaliGreeting';
+import { isDiwaliTime } from './services/diwali';
 import { addSignoffs, signoffsForJob } from './services/signoffService';
 import { speakerSyllableRates, useVoiceRates, type VoiceRateVoice } from './services/voiceRate';
 import { currentStep, hasTranscript, openSteps } from './services/steps';
@@ -451,6 +453,11 @@ export default function App() {
   const queueRef = useRef(queue);
   queueRef.current = queue;
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  /** Happy Diwali over the window, shown on every new project around Diwali. */
+  const [diwaliGreeting, setDiwaliGreeting] = useState(0);
+  const greetNewProject = useCallback(() => {
+    if (isDiwaliTime(new Date())) setDiwaliGreeting((n) => n + 1);
+  }, []);
   /** A Dhvani JSON being opened, waiting for the user to pick its media. */
   const [pendingProjectJson, setPendingProjectJson] = useState<ProjectJsonFile | null>(null);
   /** A Dhvani JSON waiting to go on a project being dubbed (Update script). */
@@ -2297,6 +2304,7 @@ export default function App() {
     // A new project goes in beside the others; nothing is deleted until the user deletes it.
     setQueue((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
+    greetNewProject();
 
     // Adding a file only adds it: nothing goes to ElevenLabs until the user
     // presses Transcribe, so the language and speakers can be set first.
@@ -2463,6 +2471,7 @@ export default function App() {
     // A new project goes in beside the others; nothing is deleted until the user deletes it.
     setQueue((prev) => [newJob, ...prev]);
     setActiveJobId(newJob.id);
+    greetNewProject();
   };
 
   /**
@@ -3850,6 +3859,7 @@ export default function App() {
       seekAll(0);
       setQueue((prev) => [job, ...prev.filter((j) => j.id !== job.id)].sort(byNewest));
       setActiveJobId(job.id);
+      greetNewProject();
     },
     [pendingProjectJson, selectedLanguage, pauseAll, seekAll]
   );
@@ -3889,6 +3899,7 @@ export default function App() {
         seekAll(0);
         setQueue((prev) => [job, ...prev.filter((j) => j.id !== id)].sort(byNewest));
         setActiveJobId(id);
+        greetNewProject();
       } catch (err) {
         reportError(err, { title: 'Opening the project failed', safe: 'Your other projects are unchanged.' });
       }
@@ -4045,6 +4056,7 @@ export default function App() {
       }
 
       setQueue((prev) => [...newJobs, ...prev]);
+      if (newJobs.length > 0) greetNewProject();
 
       if (!activeJobId && newJobs.length > 0) {
         setActiveJobId(newJobs[0].id);
@@ -4116,6 +4128,7 @@ export default function App() {
         // A new project goes in beside the others; nothing is deleted until the user deletes it.
         setQueue((prev) => [newJob, ...prev]);
         setActiveJobId(newJob.id);
+        greetNewProject();
       }
     },
     [activeJob, selectedLanguage, customPrompt, promptPresetId, updateJob]
@@ -4438,6 +4451,8 @@ export default function App() {
       {synthAudioUrl && <audio key={synthAudioUrl} ref={synthAudioRef} src={synthAudioUrl} preload="auto" />}
 
       <ErrorPopup />
+
+      {diwaliGreeting > 0 && <DiwaliGreeting key={diwaliGreeting} onDone={() => setDiwaliGreeting(0)} />}
 
       <OpenProjectJsonPanel
         pending={pendingProjectJson}
