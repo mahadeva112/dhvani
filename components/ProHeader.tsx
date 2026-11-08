@@ -655,7 +655,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
         {/* Left: brand and the project in hand */}
         <div className="flex items-center gap-3.5 min-w-0">
           <div className="flex items-center gap-2.5 shrink-0">
-            <img src="./icon-192.png" alt="" aria-hidden="true" draggable={false} className="w-9 h-9 shrink-0" />
+            <img src="./icon-192.png" alt="" aria-hidden="true" draggable={false} className="w-8 h-8 shrink-0" />
             <div className="leading-tight">
               <span className="block text-[17px] font-semibold text-slate-100 font-['Poppins',var(--font-sans)]">Dhvani</span>
               <span className="hidden sm:block text-[10.5px] text-slate-500">Dubbing studio</span>

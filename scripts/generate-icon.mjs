@@ -6,7 +6,8 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Builds every DHVANI app icon from the one logo in desktop/icon-source.png.
+ * Builds every DHVANI app icon from the one logo in desktop/icon-source.png
+ * (rendered from desktop/icon-source.svg).
  *
  * The source sits outside desktop/icons/ so the full-size artwork is not
  * shipped inside the app. To change the logo, replace that file (any square
