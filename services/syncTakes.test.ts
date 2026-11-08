@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendManyToBank, appendToBank, carryTakes, compactBank, phraseLine, phraseOf, pickedTakes, placeTakeChunks, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
+import { appendManyToBank, appendToBank, carryTakes, compactBank, fitTakeToParts, phraseLine, phraseOf, pickedTakes, placeTakeChunks, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
 import { measureEdits, partEnd, partsOf, spokenSpan, type SyncEditPart } from './syncEditModel.ts';
@@ -359,4 +359,54 @@ test('a used take is not cut once the line was changed, moved or locked meanwhil
   assert.equal(placeTakeChunks({ ...args, edits: { '1': { locked: false, parts: [part, { ...part, id: 'x', start: 5 }] } } }), null, 'split');
   assert.equal(placeTakeChunks({ ...args, edits: null, take: take({ bankStart: 9000 }) }), null, 'another take in the dub now');
   assert.equal(placeTakeChunks({ ...args, edits: null, chunks: [{ from: 0, to: 5000, startSample: 0 }] }), null, 'chunks past the take');
+});
+
+/* A line the user cut in two (words 1-3, words 4-6) and placed under the original by hand. */
+const handPart = (n: number, start: number, from: number, to: number, extra: Partial<SyncEditPart> = {}): SyncEditPart => ({
+  id: `1#${n}`, start, from, to, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false, ...extra,
+});
+/** Six words of `w` seconds with `g` seconds between, from `lead` into the take. */
+const wordsAt = (w: number, g: number, lead = 0.2) => Array.from({ length: 6 }, (_, i) => ({ start: lead + i * (w + g), end: lead + i * (w + g) + w }));
+const OLD_WORDS = wordsAt(0.4, 0.1);
+// Part 1 plays words 1-3 with word 1 at 1.0 s; part 2 words 4-6 with word 4 at 3.4 s, a little quieter, faded in.
+const OLD_PARTS = [handPart(0, 0.9, 0.1, 1.5), handPart(1, 3.35, 1.65, 3.2, { gainDb: -2, fadeIn: 0.05 })];
+const firstWordOf = (part: SyncEditPart, word: { start: number }) => part.start + (word.start - part.from);
+
+test('a used take is cut at the same words as the old parts and each part plays its first word where the old one did', () => {
+  for (const [name, words] of [['same', wordsAt(0.4, 0.1)], ['shorter', wordsAt(0.3, 0.05)], ['longer', wordsAt(0.5, 0.15)]] as const) {
+    const fit = fitTakeToParts({ key: '1', oldParts: OLD_PARTS, oldWords: OLD_WORDS, newWords: words, takeSeconds: words[5].end + 0.2, prevEnd: 0.5, nextStart: 6 });
+    assert.ok(fit, name);
+    assert.equal(fit.parts.length, 2, `${name}: two parts, as before`);
+    const [one, two] = fit.parts;
+    assert.ok(Math.abs(firstWordOf(one, words[0]) - 1.0) < 1e-9, `${name}: word 1 at ${firstWordOf(one, words[0])}`);
+    assert.ok(Math.abs(firstWordOf(two, words[3]) - 3.4) < 1e-9, `${name}: word 4 at ${firstWordOf(two, words[3])}`);
+    // Cut between words 3 and 4, never inside one.
+    assert.ok(one.from <= words[0].start && one.to >= words[2].end && one.to <= words[3].start, `${name}: part 1 holds words 1-3 whole`);
+    assert.ok(two.from >= words[2].end && two.from <= words[3].start && two.to >= words[5].end, `${name}: part 2 holds words 4-6 whole`);
+    assert.equal(two.gainDb, -2, 'the gain carries over');
+    assert.equal(two.fadeIn, 0.05, 'and the fade');
+    assert.ok(fit.parts.every((p) => p.rate === 1), 'at the speed it was voiced');
+    assert.deepEqual(fit.over, [0, 0]);
+  }
+});
+
+test('a take too long for its place moves into the room before it, and what still does not fit is flagged, never cut', () => {
+  // Words 0.7 s long: part 1 would run into part 2.
+  const long = wordsAt(0.7, 0.2);
+  const fit = fitTakeToParts({ key: '1', oldParts: OLD_PARTS, oldWords: OLD_WORDS, newWords: long, takeSeconds: long[5].end + 0.2, prevEnd: 0.5, nextStart: 6 });
+  assert.ok(fit);
+  const [one, two] = fit.parts;
+  assert.ok(fit.moved[0] > 0, 'part 1 moved earlier');
+  assert.ok(one.start + one.to - one.from <= two.start - 0.05 + 1e-9 || fit.over[0] > 0);
+  assert.ok(one.start >= 0.5 + 0.05 - 1e-9, 'not into the line before');
+  // Every word is still whole in its part.
+  assert.ok(one.from <= long[0].start && one.to >= long[2].end && two.to >= long[5].end);
+
+  // With no room before it either, it stays and says how far it runs over.
+  const tight = fitTakeToParts({ key: '1', oldParts: OLD_PARTS, oldWords: OLD_WORDS, newWords: wordsAt(1.2, 0.3), takeSeconds: 10, prevEnd: 0.9, nextStart: 6 });
+  assert.ok(tight && tight.over[0] > 0);
+});
+
+test('a take in other words does not pair with the old parts', () => {
+  assert.equal(fitTakeToParts({ key: '1', oldParts: OLD_PARTS, oldWords: OLD_WORDS, newWords: OLD_WORDS.slice(0, 5), takeSeconds: 4 }), null);
 });

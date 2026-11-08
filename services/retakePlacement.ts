@@ -1,22 +1,26 @@
 /**
- * Whether a take used from the Retake window is cut and placed as Chunk sync
- * places a line (on), or plays whole where the line was (off). On unless the
- * user turned it off; kept in this browser only.
+ * Where a take used from the Retake window goes, after it is put in whole:
+ * - 'old': cut at the same words as the old take's parts and each part put
+ *   where the old one was, under the original (fitTakeToParts);
+ * - 'sync': cut and placed as Chunk sync places a line (placeTake.js).
+ * 'old' unless the user picked otherwise; kept in this browser only.
  */
-const KEY = 'dhvani.retake.placeLikeSync';
+export type RetakePlacement = 'old' | 'sync';
 
-export const readPlaceLikeSync = (): boolean => {
+const KEY = 'dhvani.retake.placement';
+
+export const readRetakePlacement = (): RetakePlacement => {
   try {
-    return localStorage.getItem(KEY) !== 'off';
+    return localStorage.getItem(KEY) === 'sync' ? 'sync' : 'old';
   } catch {
-    return true;
+    return 'old';
   }
 };
 
-export const writePlaceLikeSync = (on: boolean) => {
+export const writeRetakePlacement = (placement: RetakePlacement) => {
   try {
-    localStorage.setItem(KEY, on ? 'on' : 'off');
+    localStorage.setItem(KEY, placement);
   } catch {
-    // Without storage it is on, as it is for everyone at first.
+    // Without storage it is 'old', as it is for everyone at first.
   }
 };

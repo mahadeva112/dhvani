@@ -11,7 +11,7 @@ import { usePhoneticTyping } from './review/usePhoneticTyping';
 import { getIndicLanguageConfig } from '../services/indicTransliteration';
 import type { TakeWord } from '../services/takeRange';
 import { takeIsIn } from '../services/voiceChangeService';
-import { readPlaceLikeSync, writePlaceLikeSync } from '../services/retakePlacement';
+import { readRetakePlacement, writeRetakePlacement } from '../services/retakePlacement';
 import {
   phraseLine,
   phraseOf,
@@ -171,7 +171,7 @@ export const TakesPanel: React.FC<{
   inWindow?: boolean;
   /** Whether the words were edited and not yet voiced: what closing would lose. */
   onDirtyChange?: (dirty: boolean) => void;
-  /** The dub was placed by Chunk sync: a take used can be cut and placed as Sync places a line (App.tsx placeUsedTake). */
+  /** The dub was placed by Chunk sync: a take used can also be cut and placed as Sync places a line (App.tsx placeUsedTake). */
   canPlaceLikeSync?: boolean;
   /** Where each word is in the take in the dub, by forced alignment: asked only when the user drags across its wave. */
   onAlignWords?: () => Promise<TakeWord[]>;
@@ -467,7 +467,9 @@ export const TakesPanel: React.FC<{
   // What Clear takes drops: every take but Sync's own and the one in the dub. Asked twice, as they cost voicings.
   const clearable = lineTakes.takes.filter((take) => take.id !== SYNC_TAKE_ID && take.id !== lineTakes.active).length;
   const [confirmClear, setConfirmClear] = useState(false);
-  const [placeLikeSync, setPlaceLikeSync] = useState(readPlaceLikeSync);
+  const [chosenPlacement, setPlacement] = useState(readRetakePlacement);
+  // Like Sync needs a dub Chunk sync placed.
+  const placement = canPlaceLikeSync ? chosenPlacement : 'old';
   useEffect(() => setConfirmClear(false), [unit.key, clearable]);
 
   const [search, setSearch] = useState('');
@@ -1193,7 +1195,7 @@ export const TakesPanel: React.FC<{
                     onUse(take.id);
                   }}
                   disabled={anyBusy || pending}
-                  title={`${take.text !== unit.text ? 'Put this take in the dub, and its words in the script' : 'Put this take in the dub, where the line is now'}${canPlaceLikeSync && placeLikeSync && take.kind !== 'sync' ? ', then cut and placed as Sync places a line' : ''}`}
+                  title={`${take.text !== unit.text ? 'Put this take in the dub, and its words in the script' : 'Put this take in the dub, where the line is now'}${take.kind === 'sync' ? '' : placement === 'old' ? ', then cut where the old parts were' : canPlaceLikeSync ? ', then cut and placed as Sync places a line' : ''}`}
                   className="h-7 px-2.5 rounded-lg border border-slate-700 text-xs text-slate-100 hover:bg-slate-800 cursor-default disabled:opacity-40"
                 >
                   Use {takeName(take, n)}
@@ -1208,27 +1210,36 @@ export const TakesPanel: React.FC<{
         <button type="button" onClick={onListenInDub} className="h-7 px-2.5 rounded-lg border border-edge text-slate-300 hover:bg-slate-800 flex items-center gap-1.5 cursor-default">
           <Headphones className="w-3.5 h-3.5" /> Listen in the dub
         </button>
-        {canPlaceLikeSync && (
-          <label
-            className="h-7 px-2.5 rounded-lg border border-edge text-slate-300 hover:bg-slate-800 flex items-center gap-1.5 cursor-default select-none"
-            title="On: a take you use is cut where it goes quiet and at the original's pauses, and each part is placed on the original, as Sync places a line. The lines either side stay where they are. Off: it plays whole, its first word where the line's was."
-          >
-            <input
-              type="checkbox"
-              checked={placeLikeSync}
-              onChange={(e) => {
-                setPlaceLikeSync(e.target.checked);
-                writePlaceLikeSync(e.target.checked);
-              }}
-              className="accent-indigo-500"
-            />
-            Cut and place like Sync
-          </label>
-        )}
+        <span className="ml-1 text-slate-400">Place a used take</span>
+        <span role="radiogroup" aria-label="Place a used take" className="inline-flex h-7 rounded-lg border border-edge overflow-hidden">
+          {(
+            [
+              ['old', 'Where the old parts were', "Cut at the same words as the parts the line has now, never inside a word, and each part's first word where the old part's was, gain and fades kept. A line in one part stays whole."],
+              ['sync', 'Like Sync', "Cut where it goes quiet and at the original's pauses, and each part placed on the original, as Sync places a line."],
+            ] as const
+          )
+            .filter(([id]) => id === 'old' || canPlaceLikeSync)
+            .map(([id, label, hint]) => (
+              <button
+                key={id}
+                type="button"
+                role="radio"
+                aria-checked={placement === id}
+                title={hint}
+                onClick={() => {
+                  setPlacement(id);
+                  writeRetakePlacement(id);
+                }}
+                className={`px-2.5 cursor-default ${placement === id ? 'bg-indigo-500/20 text-indigo-100' : 'text-slate-300 hover:bg-slate-800'}`}
+              >
+                {label}
+              </button>
+            ))}
+        </span>
         <span>
-          {canPlaceLikeSync && placeLikeSync
-            ? 'A take you use is cut and placed as Sync places a line, at its own speed; Undo puts it back whole.'
-            : 'Each take is fitted as Sync fits a line, never stretched.'}{' '}
+          {placement === 'old'
+            ? 'A take you use goes where the old parts were, at its own speed; Undo puts it back whole.'
+            : 'A take you use is cut and placed as Sync places a line, at its own speed; Undo puts it back whole.'}{' '}
           Sync again keeps the take in the dub and starts the takes afresh.
         </span>
       </div>

@@ -1,4 +1,4 @@
-import { basePart, measureEdits, partsOf, spokenSpan, syncedParts, type SyncBank, type SyncBankLine, type SyncEdits } from './syncEditModel.ts';
+import { basePart, measureEdits, partsOf, partTime, spokenSpan, syncedParts, type SyncBank, type SyncBankLine, type SyncEditPart, type SyncEdits } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService';
 
 /**
@@ -563,4 +563,99 @@ export const pickedTakes = (bank: SyncBank | null | undefined, takes: SyncTakes 
     lines[line.key] = { bankStart: take.bankStart, length: take.length, lead: take.lead, speech: take.speech, cutOff: take.cutOff };
   }
   return Object.keys(lines).length > 0 ? { bankId: bank.bankId, lines } : undefined;
+};
+
+/* ---------- A used take where the old take's parts were ---------- */
+
+/** The least room left between two parts of a line, or a part and the line next to it. */
+export const PART_GAP_SECONDS = 0.05;
+
+/** A word in a take, seconds into its samples (forced alignment). */
+export interface SpokenWord {
+  start: number;
+  end: number;
+}
+
+/**
+ * A take used in place of one the user had cut and placed by hand: cut at
+ * the same words as the old take's parts, never inside a word, and each part
+ * placed so its first word plays where the old part's first word did, under
+ * the original. Each part keeps the old one's gain, fades and mute; it plays
+ * at the speed it was voiced.
+ *
+ * `oldParts` are the old take's parts (copies left out), `oldWords` and
+ * `newWords` the two takes' words in the same order (the same words, so the
+ * same count), `takeSeconds` the new take's length, `prevEnd` and
+ * `nextStart` where the lines either side end and start (null when there is
+ * none). A part that would run into the next is moved earlier into the room
+ * before it; one that still doesn't fit is left as it is, to be fixed by hand
+ * (`over` says by how much). Null when the words don't pair up.
+ */
+export const fitTakeToParts = ({
+  key,
+  oldParts,
+  oldWords,
+  newWords,
+  takeSeconds,
+  prevEnd = null,
+  nextStart = null,
+}: {
+  key: string;
+  oldParts: SyncEditPart[];
+  oldWords: SpokenWord[];
+  newWords: SpokenWord[];
+  takeSeconds: number;
+  prevEnd?: number | null;
+  nextStart?: number | null;
+}): { parts: SyncEditPart[]; moved: number[]; over: number[] } | null => {
+  if (oldWords.length === 0 || oldWords.length !== newWords.length || !(takeSeconds > 0)) return null;
+  const last = newWords.length - 1;
+  /** Halfway through the pause after word `w` of the new take: no part reaches past it into the next word. */
+  const after = (w: number) => (w < last ? (newWords[w].end + newWords[w + 1].start) / 2 : takeSeconds);
+  const before = (w: number) => (w > 0 ? (newWords[w - 1].end + newWords[w].start) / 2 : 0);
+  const sorted = oldParts.filter((part) => !part.copy && part.rate > 0).sort((a, b) => a.start - b.start);
+  const planned: { part: SyncEditPart; old: SyncEditPart }[] = [];
+  for (const old of sorted) {
+    // The words this part plays: those whose middle is inside it.
+    const inside = oldWords.map((w, i) => ({ i, mid: (w.start + w.end) / 2 })).filter(({ mid }) => mid >= old.from && mid <= old.to).map(({ i }) => i);
+    if (inside.length === 0) continue;
+    const a = inside[0];
+    const b = inside[inside.length - 1];
+    // As much before its first word and after its last as the old part kept, never into the next word.
+    const lead = Math.max(0, oldWords[a].start - old.from);
+    const tail = Math.max(0, old.to - oldWords[b].end);
+    const from = Math.max(before(a), newWords[a].start - lead, 0);
+    const to = Math.min(after(b), newWords[b].end + tail, takeSeconds);
+    if (!(to > from)) continue;
+    // Its first word where the old part's first word played.
+    const start = partTime(old, oldWords[a].start) - (newWords[a].start - from);
+    const half = (to - from) / 2;
+    planned.push({
+      old,
+      part: { id: `${key}#r${planned.length}`, start, from, to, rate: 1, gainDb: old.gainDb, fadeIn: Math.min(old.fadeIn, half), fadeOut: Math.min(old.fadeOut, half), muted: old.muted },
+    });
+  }
+  if (planned.length === 0) return null;
+  const moved: number[] = planned.map(() => 0);
+  const over: number[] = planned.map(() => 0);
+  let end = prevEnd ?? -Infinity;
+  planned.forEach(({ part }, k) => {
+    const length = part.to - part.from;
+    const limit = (k < planned.length - 1 ? planned[k + 1].part.start : nextStart ?? Infinity) - PART_GAP_SECONDS;
+    const runs = part.start + length - limit;
+    if (runs > 1e-6) {
+      const room = Math.max(0, part.start - Math.max(0, end + PART_GAP_SECONDS));
+      const shift = Math.min(runs, room);
+      part.start -= shift;
+      moved[k] = shift;
+      over[k] = Math.max(0, runs - shift);
+    }
+    // What would play before 0:00 is the pad before its first word: it is left out.
+    if (part.start < 0) {
+      part.from = Math.min(part.to, part.from - part.start);
+      part.start = 0;
+    }
+    end = part.start + (part.to - part.from);
+  });
+  return { parts: planned.map(({ part }) => part), moved, over };
 };
