@@ -400,6 +400,29 @@ export const generateSrtContent = (
 };
 
 /**
+ * Every word the subtitles are cut on with a measured time: the same words
+ * generateSrtContent takes its timed path with. A hand split uses them so
+ * the new boundary lands where the word is said.
+ */
+export const measuredSubtitleWords = (segments: AudioSegment[], options: Partial<SrtOptions> = {}): WordTimestamp[] => {
+  const config: SrtOptions = { ...DEFAULT_SRT_OPTIONS, ...options };
+  const display: Partial<SrtOptions> = { ...config, removeSpeakerLabel: false };
+  const out: WordTimestamp[] = [];
+  for (const segment of segments) {
+    const rawText = segment.textTarget || segment.targetText || segment.textSource || segment.text || '';
+    const spoken = config.removeSpeakerLabel !== false ? cleanSpeakerLabels(rawText) : rawText.trim();
+    const words = spoken.split(/\s+/).filter(Boolean);
+    const measured = segment.words || [];
+    if (measured.length === 0 || words.length !== measured.length) continue;
+    words.forEach((word, i) => {
+      if (!normalizeSubtitleText(word, display)) return;
+      out.push({ text: word, start: measured[i].start, end: Math.max(measured[i].end, measured[i].start) });
+    });
+  }
+  return out;
+};
+
+/**
  * Generates standard WebVTT content from audio segments.
  */
 export const generateVttContent = (

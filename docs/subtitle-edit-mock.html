@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Subtitle Edit Mock</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  body { background:#0b1020; font-family: Inter, system-ui, sans-serif; }
+  .edge { border-color:#243049; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  textarea { line-height:24px; }
+  @keyframes flash { 0% { box-shadow:0 0 0 2px rgba(129,140,248,.9); } 100% { box-shadow:0 0 0 0 rgba(129,140,248,0); } }
+  .flash { animation: flash 1.2s ease-out; }
+  .scroll::-webkit-scrollbar { width:8px } .scroll::-webkit-scrollbar-thumb { background:#334155; border-radius:8px }
+  .tag { font-size:10.5px; padding:0 6px; border-radius:999px; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[62.5rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  Preview size:
+  <span id="sizeSeg" class="inline-flex rounded-lg border edge overflow-hidden">
+    <button data-size="big" class="px-2.5 py-1">Now (big)</button>
+    <button data-size="small" class="px-2.5 py-1">New (small)</button>
+  </span>
+  <span class="ml-2">Try it: click in a subtitle, put the cursor between words, press <b class="text-slate-200">Enter</b>. Press <b class="text-slate-200">Merge ↓</b> on a card.</span>
+</div>
+
+<section class="max-w-[62.5rem] mx-auto h-[calc(100vh-5.5rem)] min-h-[560px] flex flex-col rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden">
+  <!-- Header -->
+  <div class="flex items-center gap-3.5 px-6 py-4 border-b edge shrink-0">
+    <div class="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/></svg>
+    </div>
+    <div class="flex-1 min-w-0">
+      <h2 class="text-lg font-semibold leading-tight">Export subtitles</h2>
+      <p class="text-[12.5px] text-slate-400 mt-0.5">How the Hindi dub breaks into subtitles. Cuts land between measured words.</p>
+    </div>
+    <button class="w-8 h-8 rounded-lg border edge text-slate-400">✕</button>
+  </div>
+
+  <div class="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[21.25rem_minmax(0,1fr)] overflow-y-auto md:overflow-hidden">
+    <!-- Controls (shortened) -->
+    <div class="hidden md:flex px-5 py-4 border-r edge flex-col gap-4 overflow-y-auto scroll opacity-70">
+      <div class="text-xs text-slate-400">Start from</div>
+      <div class="flex flex-wrap gap-1.5 -mt-2">
+        <span class="px-2.5 py-1 rounded-full border border-indigo-500/60 bg-indigo-500/15 text-indigo-300 text-xs">Netflix</span>
+        <span class="px-2.5 py-1 rounded-full border edge text-slate-400 text-xs">YouTube</span>
+        <span class="px-2.5 py-1 rounded-full border edge text-slate-400 text-xs">Reels</span>
+      </div>
+      <div class="text-xs text-slate-400">Lines per subtitle</div>
+      <div class="flex rounded-[10px] border border-slate-700 p-0.5 -mt-2 text-[12.5px]"><span class="flex-1 text-center py-1.5">1</span><span class="flex-1 text-center py-1.5 rounded-[7px] bg-slate-100 text-slate-950 font-medium">2</span><span class="flex-1 text-center py-1.5">3</span></div>
+      <div>
+        <div class="flex justify-between text-[13px] font-semibold">Characters per line <span class="mono text-xs font-normal">42</span></div>
+        <input type="range" class="w-full accent-indigo-500 mt-2" value="70">
+      </div>
+      <div>
+        <div class="flex justify-between text-[13px] font-semibold">Longest time on screen <span class="mono text-xs font-normal">6.0 s</span></div>
+        <input type="range" class="w-full accent-indigo-500 mt-2" value="80">
+      </div>
+      <p class="text-[11px] text-slate-500">(Settings column unchanged — dimmed in this mock.)</p>
+    </div>
+
+    <!-- Preview + editor -->
+    <div class="px-5 py-4 flex flex-col gap-3 min-w-0 md:min-h-0 bg-slate-950/40">
+      <div class="flex items-center justify-between">
+        <span class="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Preview</span>
+        <span class="text-[11.5px] text-slate-400">Click a subtitle to play from it</span>
+      </div>
+
+      <!-- BIG (current) -->
+      <div id="frameBig" class="flex flex-col gap-3 shrink-0">
+        <div class="relative h-[clamp(9rem,32vh,21rem)] rounded-xl overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]">
+          <span class="absolute top-2.5 left-3 mono text-[11px] text-white/75 js-stamp">00:00:01,200</span>
+          <span class="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]"></span>
+          <span class="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]"></span>
+          <span class="absolute left-1/2 bottom-[9%] -translate-x-1/2 max-w-[86%] text-center text-[clamp(15px,2.2vw,22px)] leading-snug text-white bg-black/55 px-3 py-1 rounded-md js-sub"></span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <button class="w-9 h-9 rounded-full bg-slate-100 text-slate-950 flex items-center justify-center">▶</button>
+          <input type="range" class="flex-1 accent-indigo-500" value="12">
+          <span class="mono text-[11px] text-slate-400">00:01 / 02:14</span>
+        </div>
+      </div>
+
+      <!-- SMALL (new): small frame on the left, player + stats beside it -->
+      <div id="frameSmall" class="hidden shrink-0 flex gap-3 items-stretch">
+        <div class="relative w-[13.5rem] aspect-video shrink-0 rounded-lg overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]">
+          <span class="absolute top-1.5 left-2 mono text-[9.5px] text-white/75 js-stamp">00:00:01,200</span>
+          <span class="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]"></span>
+          <span class="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]"></span>
+          <span class="absolute left-1/2 bottom-[7%] -translate-x-1/2 w-max max-w-[92%] text-center text-[10.5px] leading-tight text-white bg-black/60 px-1.5 py-0.5 rounded js-sub"></span>
+        </div>
+        <div class="flex-1 min-w-0 flex flex-col justify-between gap-2 py-0.5">
+          <div class="flex items-center gap-2.5">
+            <button class="w-8 h-8 rounded-full bg-slate-100 text-slate-950 flex items-center justify-center text-[12px]">▶</button>
+            <input type="range" class="flex-1 min-w-0 accent-indigo-500" value="12">
+            <span class="mono text-[11px] text-slate-400">00:01 / 02:14</span>
+          </div>
+          <div class="text-[13px] text-slate-200 leading-snug line-clamp-2 js-subline"></div>
+          <div class="flex flex-wrap gap-x-3 text-[11.5px] text-slate-400">
+            <span><b class="text-slate-100 js-count">8</b> subtitles</span>
+            <span>longest <b class="text-slate-100">4.6 s</b></span>
+            <span class="text-emerald-300">✓ Exact timing</span>
+          </div>
+        </div>
+      </div>
+
+      <div id="statsBig" class="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
+        <span class="js-bigonly"><b class="text-slate-100 js-count">8</b> subtitles · <b class="text-slate-100">8</b> cues</span>
+        <span class="js-bigonly">longest <b class="text-slate-100">4.6 s</b></span>
+        <span class="js-bigonly text-emerald-300">✓ Exact timing</span>
+        <span class="ml-auto text-[11.5px] text-indigo-300">Edited by hand</span>
+        <button class="h-7 px-2.5 rounded-lg border edge text-[11.5px] text-slate-300">↶ Back to automatic</button>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="flex flex-wrap items-center gap-2">
+        <button class="h-7 px-2.5 rounded-full border border-indigo-500/60 bg-indigo-500/15 text-indigo-300 text-[11.5px] font-medium">All <span class="js-count">8</span></button>
+        <button class="h-7 px-2.5 rounded-full border edge text-slate-400 text-[11.5px]">Needs attention 1</button>
+        <button class="h-7 px-2.5 rounded-full border edge text-slate-400 text-[11.5px]">Edited <span id="editedCount">0</span></button>
+        <span class="flex-1"></span>
+        <span class="flex items-center h-7 rounded-lg border edge text-[11.5px]"><span class="w-6 text-center text-slate-400">−</span><span class="px-1 text-slate-300">≤ 20 cps</span><span class="w-6 text-center text-slate-400">+</span></span>
+        <input placeholder="Find" class="w-28 h-7 px-2.5 rounded-lg bg-slate-950/60 border edge text-[12px]">
+        <button id="undoBtn" class="h-7 px-2.5 rounded-lg border edge text-[11.5px] text-slate-300 disabled:opacity-40" disabled>↶ Undo</button>
+      </div>
+      <p id="notice" class="text-[11.5px] text-slate-400 -mt-1">
+        <kbd class="px-1 rounded bg-slate-800 text-slate-200">Enter</kbd> = new subtitle from the cursor ·
+        <kbd class="px-1 rounded bg-slate-800 text-slate-200">Shift+Enter</kbd> = new line ·
+        <b class="text-slate-200">Merge ↓</b> joins the one below
+      </p>
+
+      <div id="list" class="flex-1 min-h-[12rem] overflow-y-auto scroll rounded-xl border edge bg-slate-950/50 p-2 flex flex-col"></div>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-2.5 px-6 py-3.5 border-t edge shrink-0">
+    <span class="text-[12.5px] text-slate-400">Reset</span><span class="text-[11.5px] text-slate-500">Saved for every project</span>
+    <span class="flex-1"></span>
+    <span class="h-11 px-5 rounded-[10px] bg-indigo-600 text-white text-[14px] font-semibold flex items-center">Download .srt</span>
+  </div>
+</section>
+
+<script>
+const MAX = 42;
+let cues = [
+  { s: 1.2, e: 4.1, t: 'आज हम बात करेंगे कि मन को\nकैसे शांत रखा जाए।' },
+  { s: 4.3, e: 7.9, t: 'जब आप सुबह उठते हैं, तो सबसे पहले\nअपनी सांस पर ध्यान दीजिए।' },
+  { s: 8.1, e: 10.2, t: 'बस कुछ पल के लिए।' },
+  { s: 10.4, e: 14.9, t: 'यह कोई कठिन अभ्यास नहीं है, यह तो\nबस जागरूक रहने का एक तरीका है।' },
+  { s: 15.2, e: 17.0, t: 'और धीरे-धीरे,' },
+  { s: 17.1, e: 20.6, t: 'आप पाएंगे कि आपका मन\nअपने आप स्थिर होने लगता है।' },
+  { s: 21.0, e: 24.4, t: 'इसके लिए किसी विशेष समय या\nस्थान की आवश्यकता नहीं है।' },
+  { s: 24.8, e: 27.3, t: 'बस शुरुआत कीजिए।' },
+];
+let active = 0, flashAt = new Set(), focusAt = null, history = [], edited = 0;
+
+const stamp = (x) => { const ms = Math.round(x*1000); const h = Math.floor(ms/3600000), m = Math.floor(ms/60000)%60, s = Math.floor(ms/1000)%60, r = ms%1000;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')},${String(r).padStart(3,'0')}`; };
+const words = (t) => t.split(/\s+/).filter(Boolean);
+// balanced 2-line wrap
+function wrap(t) {
+  const w = words(t); if (t.replace(/\n/g,' ').length <= MAX) return w.join(' ');
+  let best = null;
+  for (let i = 1; i < w.length; i++) { const a = w.slice(0,i).join(' '), b = w.slice(i).join(' '); const sc = Math.max(a.length,b.length); if (!best || sc < best.sc) best = { sc, v: a+'\n'+b }; }
+  return best.v;
+}
+const push = () => { history.push(JSON.stringify(cues)); document.getElementById('undoBtn').disabled = false; };
+const note = (html) => document.getElementById('notice').innerHTML = html;
+
+function split(i, text, caret) {
+  const before = words(text.slice(0, caret)).length, total = words(text).length;
+  if (before === 0 || before >= total) return note('<span class="text-amber-300">Put the cursor between two words, then press Enter.</span>');
+  push();
+  const c = cues[i], w = words(text), a = w.slice(0, before).join(' '), b = w.slice(before).join(' ');
+  const cut = +(c.s + (c.e - c.s) * (a.length / (a.length + b.length))).toFixed(3);
+  cues.splice(i, 1, { s: c.s, e: cut, t: wrap(a) }, { s: cut + 0.04, e: c.e, t: wrap(b), isNew: true });
+  edited += 2; active = i + 1; flashAt = new Set([i + 1]); focusAt = i + 1;
+  note(`Split ${String(i+1).padStart(2,'0')} after “${w[before-1]}”. <b class="text-slate-200">${String(i+2).padStart(2,'0')}</b> is a new subtitle from ${stamp(cut+0.04)}.`);
+  render();
+}
+function merge(i, text) {
+  if (i >= cues.length - 1) return;
+  push();
+  const a = cues[i], b = cues[i+1];
+  cues.splice(i, 2, { s: a.s, e: b.e, t: wrap(words(text).concat(words(b.t)).join(' ')) });
+  edited += 1; active = i; flashAt = new Set([i]); focusAt = null;
+  note(`Merged ${String(i+1).padStart(2,'0')} with the one below (${String(i+2).padStart(2,'0')}). Undo splits them again.`);
+  render();
+}
+
+function card(c, i) {
+  const last = i === cues.length - 1, lines = c.t.split('\n'), n = String(i+1).padStart(2,'0');
+  const cps = c.t.replace(/\n/g,'').length / Math.max(0.1, c.e - c.s), over = cps > 20;
+  const el = document.createElement('div');
+  el.className = `rounded-xl border px-3 pt-2 pb-2.5 ${i === active ? 'border-indigo-500/70 bg-indigo-500/[0.08]' : 'border-slate-700/70 bg-slate-900 hover:border-slate-600'} ${flashAt.has(i) ? 'flash' : ''}`;
+  el.innerHTML = `
+    <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 mb-2">
+      <span class="px-1.5 rounded-full bg-slate-800 mono text-[11px] text-slate-400">${n}</span>
+      ${c.isNew ? '<span class="tag bg-indigo-500/20 text-indigo-300">new</span>' : ''}
+      <span class="flex items-center gap-1 text-slate-500 text-[11px]">
+        <span class="w-[6.6rem] h-6 px-1.5 leading-6 rounded-md bg-slate-950 border edge mono text-[11px] text-slate-200">${stamp(c.s)}</span>→
+        <span class="w-[6.6rem] h-6 px-1.5 leading-6 rounded-md bg-slate-950 border edge mono text-[11px] text-slate-200">${stamp(c.e)}</span>
+      </span>
+      <span class="text-[11.5px] ${over ? 'text-rose-300' : 'text-emerald-300'}">${Math.round(cps)} cps</span>
+      <span class="flex-1"></span>
+      <button data-act="wrap" title="Wrap again" class="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800">↩</button>
+      <button data-act="split" title="Split where the cursor is (Enter)" class="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800">✂</button>
+      <button data-act="del" title="Remove (Ctrl+Delete)" class="w-7 h-7 rounded-lg text-slate-400 hover:text-rose-300 hover:bg-slate-800">🗑</button>
+    </div>
+    <div class="grid grid-cols-[minmax(0,1fr)_3.25rem] gap-2 items-start">
+      <textarea rows="${lines.length}" wrap="off" spellcheck="false" style="height:${lines.length*24+14}px"
+        class="w-full resize-none px-2.5 py-1.5 rounded-lg bg-slate-950 border edge text-[15px] text-slate-100 whitespace-pre overflow-hidden focus:outline-none focus:border-indigo-500">${c.t}</textarea>
+      <span class="pt-[7px] mono text-[11px] leading-6 text-right">${lines.map(l => `<span class="block ${l.trim().length > MAX ? 'text-rose-300' : 'text-slate-500'}">${l.trim().length}/${MAX}</span>`).join('')}</span>
+    </div>`;
+  const ta = el.querySelector('textarea');
+  ta.addEventListener('input', () => { const k = ta.value.split('\n').length; ta.rows = k; ta.style.height = (k*24+14)+'px'; });
+  ta.addEventListener('focus', () => { active = i; showSub(); el.parentElement.querySelectorAll('.rounded-xl').forEach((x, j) => {}); });
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); split(i, ta.value, ta.selectionStart); }
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'm') { e.preventDefault(); merge(i, ta.value); }
+  });
+  ta.addEventListener('blur', () => { if (ta.value !== c.t && document.body.contains(ta)) { c.t = ta.value; } });
+  el.querySelector('[data-act=split]').addEventListener('mousedown', (e) => { e.preventDefault(); split(i, ta.value, document.activeElement === ta ? ta.selectionStart : Math.floor(ta.value.length/2)); });
+  el.querySelector('[data-act=wrap]').addEventListener('click', () => { push(); c.t = wrap(ta.value); render(); });
+  el.querySelector('[data-act=del]').addEventListener('click', () => { push(); cues.splice(i, 1); note(`Removed ${n}. Undo brings it back.`); render(); });
+  el.addEventListener('click', (e) => { if (e.target.tagName !== 'TEXTAREA' && e.target.tagName !== 'BUTTON') { active = i; render(); } });
+  return el;
+}
+
+// Merge ↓ sits in the gap under each card, so it is clear which two join.
+function gap(i) {
+  const g = document.createElement('div');
+  g.className = 'relative h-7 flex items-center justify-center group';
+  g.innerHTML = `
+    <span class="absolute inset-x-3 top-1/2 border-t border-dashed border-slate-700/0 group-hover:border-slate-600 transition-colors"></span>
+    <button title="Merge ${String(i+1).padStart(2,'0')} with ${String(i+2).padStart(2,'0')} (Ctrl+M)"
+      class="relative h-6 px-2.5 rounded-full border edge bg-slate-900 text-[11px] text-slate-400 hover:text-indigo-200 hover:border-indigo-500/60 hover:bg-indigo-500/15 flex items-center gap-1">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 4v10M7 10l5 5 5-5M5 20h14"/></svg>
+      Merge ↓
+    </button>`;
+  g.querySelector('button').addEventListener('mousedown', (e) => e.preventDefault());
+  g.querySelector('button').addEventListener('click', () => {
+    const ta = document.querySelectorAll('#list textarea')[i];
+    merge(i, ta ? ta.value : cues[i].t);
+  });
+  return g;
+}
+
+function showSub() {
+  const c = cues[active] || cues[0]; if (!c) return;
+  document.querySelectorAll('.js-sub').forEach(x => x.innerHTML = c.t.split('\n').map(l => `<span class="block">${l}</span>`).join(''));
+  document.querySelectorAll('.js-subline').forEach(x => x.textContent = c.t.replace(/\n/g, ' '));
+  document.querySelectorAll('.js-stamp').forEach(x => x.textContent = stamp(c.s));
+}
+function render() {
+  const list = document.getElementById('list'); const top = list.scrollTop;
+  list.innerHTML = '';
+  cues.forEach((c, i) => { list.appendChild(card(c, i)); if (i < cues.length - 1) list.appendChild(gap(i)); });
+  list.scrollTop = top;
+  document.querySelectorAll('.js-count').forEach(x => x.textContent = cues.length);
+  document.getElementById('editedCount').textContent = edited;
+  if (focusAt !== null) { const ta = list.querySelectorAll('textarea')[focusAt]; if (ta) { ta.focus(); ta.setSelectionRange(0, 0); ta.closest('.rounded-xl').scrollIntoView({ block: 'nearest' }); } focusAt = null; }
+  setTimeout(() => { flashAt = new Set(); cues.forEach(c => delete c.isNew); }, 1300);
+  showSub();
+}
+document.getElementById('undoBtn').addEventListener('click', () => {
+  if (!history.length) return; cues = JSON.parse(history.pop()); edited = Math.max(0, edited - 1);
+  document.getElementById('undoBtn').disabled = !history.length; note('Undone.'); render();
+});
+function setSize(size) {
+  document.getElementById('frameBig').classList.toggle('hidden', size !== 'big');
+  document.getElementById('frameSmall').classList.toggle('hidden', size !== 'small');
+  document.querySelectorAll('.js-bigonly').forEach(x => x.classList.toggle('hidden', size !== 'big'));
+  document.querySelectorAll('#sizeSeg button').forEach(b => b.className = 'px-2.5 py-1 ' + (b.dataset.size === size ? 'bg-slate-100 text-slate-950 font-medium' : 'text-slate-300'));
+}
+document.querySelectorAll('#sizeSeg button').forEach(b => b.addEventListener('click', () => setSize(b.dataset.size)));
+setSize('small');
+render();
+</script>
+</body>
+</html>

@@ -323,6 +323,88 @@ const wrapWords = (words: TimedWord[], budget: CueBudget): string => {
   return lines.map(joinText).join('\n');
 };
 
+/*
+ * Balanced wrapping, a port of Srutilekha's transcribe.wrap: the text is set
+ * in the number of lines asked for, as evenly as the words allow, instead of
+ * filling the first line. Used when a subtitle is split, merged or wrapped
+ * again by hand. A cue too short to give each line about MIN_LINE_CHARS stays
+ * on fewer lines; a line runs long only when the words can't fit otherwise.
+ */
+const MIN_LINE_CHARS = 8;
+const LW_OVER = 1000; // per character a multi-word line runs past maxChars
+const LW_BIND_BACK = 100; // a line opens with a phrase-completing word
+const LW_BIND_FWD = 40; // a line closes on a clause-opening word
+const LW_FEWER = 60; // per line short of the number asked for
+const LW_PUNCT = 15; // bonus: the line ends at punctuation
+const LW_CLAUSE = 12; // bonus: the next line opens a clause
+const LW_PHRASE = 15; // bonus: the line ends on a phrase-completing word
+// When two lines can't be equal, the shorter goes on top.
+const LINE_TILT = 0.15;
+
+export const wrapBalanced = (text: string, maxChars: number, maxLines: number): string => {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '';
+  const lens = words.map(vlen);
+  const total = lens.reduce((a, b) => a + b, 0) + words.length - 1;
+  const needed = Math.ceil(total / Math.max(1, maxChars));
+  const n = Math.min(Math.max(1, maxLines), words.length, Math.max(needed, Math.floor(total / MIN_LINE_CHARS), 1));
+  if (n <= 1) return words.join(' ');
+
+  const nw = words.length;
+  const starts = [0];
+  for (const len of lens) starts.push(starts[starts.length - 1] + len);
+  const width = (i: number, j: number) => starts[j] - starts[i] + (j - i - 1);
+  const lineCost = (i: number, j: number, target: number) => {
+    const w = width(i, j);
+    let cost = (w - target) ** 2;
+    if (w > maxChars && j - i > 1) cost += LW_OVER * (w - maxChars);
+    if (i > 0 && bindsBack(words[i])) cost += LW_BIND_BACK;
+    if (j < nw) {
+      if (bindsFwd(words[j - 1])) cost += LW_BIND_FWD;
+      if (endsWith(words[j - 1], STRONG_END) || endsWith(words[j - 1], WEAK_END)) cost -= LW_PUNCT;
+      if (bindsFwd(words[j])) cost -= LW_CLAUSE;
+      if (bindsBack(words[j - 1])) cost -= LW_PHRASE;
+    }
+    return cost;
+  };
+
+  // Fewest-cost split into exactly k lines, for each k up to n.
+  let best: [number, number][] = [[0, nw]];
+  let bestCost = Infinity;
+  for (let k = 1; k <= n; k++) {
+    const avg = total / k;
+    const tilt = k > 1 ? LINE_TILT / (k - 1) : 0;
+    const targets = Array.from({ length: k }, (_, m) => avg * (1 + tilt * (2 * (m + 1) - k - 1)));
+    const dp = Array.from({ length: nw + 1 }, () => new Array<number>(k + 1).fill(Infinity));
+    const back = Array.from({ length: nw + 1 }, () => new Array<number>(k + 1).fill(0));
+    dp[0][0] = 0;
+    for (let m = 1; m <= k; m++) {
+      for (let j = m; j <= nw - (k - m); j++) {
+        for (let i = m - 1; i < j; i++) {
+          if (dp[i][m - 1] === Infinity) continue;
+          const c = dp[i][m - 1] + lineCost(i, j, targets[m - 1]);
+          if (c < dp[j][m]) {
+            dp[j][m] = c;
+            back[j][m] = i;
+          }
+        }
+      }
+    }
+    const cost = dp[nw][k] + LW_FEWER * (n - k);
+    if (cost < bestCost) {
+      const cuts: [number, number][] = [];
+      let j = nw;
+      for (let m = k; m > 0; m--) {
+        cuts.push([back[j][m], j]);
+        j = back[j][m];
+      }
+      best = cuts.reverse();
+      bestCost = cost;
+    }
+  }
+  return best.map(([i, j]) => words.slice(i, j).join(' ')).join('\n');
+};
+
 /** Would these words lay out within the line budget without overflowing? */
 const fitsLines = (words: TimedWord[], budget: CueBudget) => {
   let lines = 1;

@@ -409,6 +409,10 @@ export interface EditedSubtitle {
   start: number;
   end: number;
   text: string;
+  /** The text the automatic cut gave it, when editing began; absent for one split or merged by hand. */
+  auto?: string;
+  /** Its time came from a split with no measured words, shared out by word length. */
+  estimated?: boolean;
 }
 
 export interface SubtitleEdit {

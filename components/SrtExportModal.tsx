@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { X, Download, Copy, Check, Captions, Play, Pause, Pencil, Trash2, Undo2, FileText, ChevronDown, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { X, Download, Copy, Check, Captions, Play, Pause, Pencil, Undo2, FileText, ChevronDown, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { AudioSegment, EditedSubtitle, SubtitleEdit } from '../types';
 import {
   SrtOptions,
@@ -15,11 +15,13 @@ import {
   DEFAULT_SUBTITLE_EXPORT_CHOICE,
   resolveSubtitleTiming,
   buildSubtitleSegments,
+  measuredSubtitleWords,
   subtitleFileLabel,
   generateTargetLanguageScript,
   TargetScriptFormat,
 } from '../services/srtService';
-import { editedSrt, editedVtt, fingerprint, parseStampInput, subtitleEditKey, subtitlesAsScript } from '../services/subtitleEdits';
+import { editedSrt, editedVtt, fingerprint, subtitleEditKey, subtitlesAsScript } from '../services/subtitleEdits';
+import { SubtitleEditor } from './SubtitleEditor';
 import { DUB_TIMING_LIMIT_MS, useDubWordTimings } from '../services/dubSubtitleTiming';
 import { PageScrollLock } from './usePageScrollLock';
 
@@ -95,65 +97,6 @@ const SCRIPT_FORMATS: { id: TargetScriptFormat; label: string; hint: string }[] 
   { id: 'timecoded', label: 'Timecoded (TXT)', hint: 'Each subtitle with its time' },
   { id: 'csv', label: 'Spreadsheet (CSV)', hint: 'For Excel or Google Sheets' },
 ];
-
-/** A time field that accepts what is typed only when it reads as a time; Enter or leaving it applies it. */
-const StampField: React.FC<{ value: number; label: string; onCommit: (seconds: number) => boolean }> = ({ value, label, onCommit }) => {
-  const [draft, setDraft] = useState<string | null>(null);
-  const [bad, setBad] = useState(false);
-  const commit = () => {
-    if (draft === null) return;
-    const seconds = parseStampInput(draft);
-    if (seconds !== null && onCommit(seconds)) {
-      setDraft(null);
-      setBad(false);
-    } else setBad(true);
-  };
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      aria-label={label}
-      title={bad ? 'Not a time that fits here. Type it as 00:01:02,500 or 62.5' : label}
-      value={draft ?? srtStamp(value)}
-      onChange={(e) => {
-        setDraft(e.target.value);
-        setBad(false);
-      }}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') commit();
-        if (e.key === 'Escape') {
-          setDraft(null);
-          setBad(false);
-        }
-      }}
-      onClick={(e) => e.stopPropagation()}
-      className={`w-[6.9rem] px-1.5 py-0.5 rounded-md bg-slate-950 border font-mono text-[11px] tabular-nums text-slate-200 focus:outline-none focus:border-indigo-500 ${
-        bad ? 'border-rose-500' : 'border-edge'
-      }`}
-    />
-  );
-};
-
-/** A subtitle's text, applied when the field is left so typing doesn't save every key. */
-const TextField: React.FC<{ value: string; onCommit: (text: string) => void }> = ({ value, onCommit }) => {
-  const [draft, setDraft] = useState<string | null>(null);
-  const text = draft ?? value;
-  return (
-    <textarea
-      aria-label="Subtitle text"
-      rows={Math.max(1, text.split('\n').length)}
-      value={text}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => {
-        if (draft !== null && draft !== value) onCommit(draft);
-        setDraft(null);
-      }}
-      onClick={(e) => e.stopPropagation()}
-      className="w-full resize-none px-2 py-1 rounded-md bg-slate-950 border border-edge text-[14px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
-    />
-  );
-};
 
 export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   isOpen,
@@ -383,12 +326,32 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const editedSince = Boolean(edit && edit.basis !== fingerprint(previewSrt));
   const outSrt = edit ? editedSrt(edit.cues) : previewSrt;
   const outVtt = edit ? editedVtt(edit.cues) : previewVtt;
-  const saveEdit = (cues: EditedSubtitle[]) => edit && onSubtitleEditChange?.(editKey, { ...edit, cues });
-  const startEditing = () =>
+  /** Undo for this session's hand edits, one list per track and timing. */
+  const [undoStack, setUndoStack] = useState<{ key: string; cues: EditedSubtitle[] }[]>([]);
+  const undoHere = undoStack.filter((u) => u.key === editKey);
+  const saveEdit = (cues: EditedSubtitle[]) => {
+    if (!edit) return;
+    setUndoStack((stack) => [...stack, { key: editKey, cues: edit.cues }].slice(-100));
+    onSubtitleEditChange?.(editKey, { ...edit, cues });
+  };
+  const undoEdit = () => {
+    const lastAt = undoStack.map((u) => u.key).lastIndexOf(editKey);
+    if (!edit || lastAt < 0) return;
+    onSubtitleEditChange?.(editKey, { ...edit, cues: undoStack[lastAt].cues });
+    setUndoStack((stack) => stack.filter((_, i) => i !== lastAt));
+  };
+  /** The word times the automatic cut used, so a split by hand lands on a said word. */
+  const subtitleWords = useMemo(() => (edit ? measuredSubtitleWords(processedSegments, options) : []), [edit, processedSegments, options]);
+  const startEditing = () => {
+    setUndoStack((stack) => stack.filter((u) => u.key !== editKey));
     onSubtitleEditChange?.(editKey, {
-      cues: autoCues.map((c) => ({ start: c.start, end: c.end, text: c.lines.join('\n') })),
+      cues: autoCues.map((c) => {
+        const text = c.lines.join('\n');
+        return { start: c.start, end: c.end, text, auto: text };
+      }),
       basis: fingerprint(previewSrt),
     });
+  };
   const [scriptMenuOpen, setScriptMenuOpen] = useState(false);
   const scriptMenuRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -698,13 +661,13 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
             </div>
 
             {/* The frame and its player stay in view while the subtitles below scroll. */}
-            <div ref={frameRef} className="z-10 -mx-5 -mt-4 px-5 pt-4 pb-1 flex flex-col gap-3 bg-[#0f1524] shrink-0">
-              <div className="relative aspect-video md:aspect-auto md:h-[clamp(9rem,32vh,21rem)] max-w-full rounded-xl overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]" aria-hidden="true">
-                <span className="absolute top-2.5 left-3 font-mono text-[11px] text-white/75">{following ? srtStamp(playTime) : shown ? srtStamp(shown.start) : '00:00:00,000'}</span>
+            <div ref={frameRef} className="z-10 -mx-5 -mt-4 px-5 pt-4 pb-1 flex flex-col sm:flex-row sm:items-stretch gap-3 bg-[#0f1524] shrink-0">
+              <div className="relative w-full sm:w-[13.5rem] aspect-video shrink-0 rounded-lg overflow-hidden bg-[radial-gradient(120%_90%_at_30%_20%,#3a4660_0%,#1c2333_45%,#0d1119_100%)]" aria-hidden="true">
+                <span className="absolute top-1.5 left-2 font-mono text-[9.5px] text-white/75">{following ? srtStamp(playTime) : shown ? srtStamp(shown.start) : '00:00:00,000'}</span>
                 <span className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[34%] h-[78%] rounded-t-[50%] bg-gradient-to-b from-[#5b4a3c] to-[#2b2622]" />
                 <span className="absolute left-1/2 top-[8%] -translate-x-1/2 w-[15%] aspect-square rounded-full bg-[#7a5f4a]" />
                 {shown && (
-                  <span className="absolute left-1/2 bottom-[9%] -translate-x-1/2 max-w-[86%] text-center text-[clamp(15px,2.2vw,22px)] leading-snug text-white bg-black/55 px-3 py-1 rounded-md">
+                  <span className="absolute left-1/2 bottom-[7%] -translate-x-1/2 w-max max-w-[92%] text-center text-[10.5px] leading-tight text-white bg-black/60 px-1.5 py-0.5 rounded">
                     {shown.lines.map((l, i) => (
                       <span key={i} className="block">
                         {l}
@@ -714,6 +677,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                 )}
               </div>
 
+              <div className="flex-1 min-w-0 flex flex-col justify-between gap-2 py-0.5">
               {playUrl ? (
                 <div className="flex items-center gap-2.5">
                   <audio
@@ -758,6 +722,12 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                   Script changed. Sync again to match.
                 </p>
               )}
+              {shown && (
+                <p className="text-[13px] text-slate-200 leading-snug line-clamp-2" title={shown.lines.join(' ')}>
+                  {shown.lines.join(' ')}
+                </p>
+              )}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
@@ -865,67 +835,28 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
               </p>
             )}
 
+            {edit ? (
+              <SubtitleEditor
+                cues={edit.cues}
+                maxChars={Math.max(10, options.maxCharsPerLine || 25)}
+                maxLines={Math.max(1, options.maxLinesPerCue || 1)}
+                words={subtitleWords}
+                activeRow={activeRow}
+                onPick={(i, seek) => {
+                  setPreviewIndex(i);
+                  if (seek && playUrl && edit.cues[i]) seekTo(edit.cues[i].start);
+                }}
+                onChange={saveEdit}
+                onUndo={undoEdit}
+                canUndo={undoHere.length > 0}
+                listRef={listRef}
+              />
+            ) : (
             <div ref={listRef} className="relative flex-1 min-h-[12rem] max-h-[18rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-edge bg-slate-900">
               {cues.length === 0 ? (
                 <p className="p-6 text-center text-xs text-slate-500">No cues to show yet.</p>
               ) : (
-                edit ? (
-                  cues.map((c, i) => {
-                    const at = edit.cues[i];
-                    const update = (patch: Partial<EditedSubtitle>) => saveEdit(edit.cues.map((cue, n) => (n === i ? { ...cue, ...patch } : cue)));
-                    return (
-                      <div
-                        key={i}
-                        data-start={c.start}
-                        data-end={c.end}
-                        onClick={() => {
-                          setPreviewIndex(i);
-                          if (playUrl) seekTo(c.start);
-                        }}
-                        className={`grid grid-cols-[2.25rem_minmax(0,1fr)_1.75rem] sm:grid-cols-[2.25rem_7.4rem_minmax(0,1fr)_1.75rem] gap-x-2.5 gap-y-1 px-3 py-2 border-t border-edge first:border-t-0 items-start cursor-default ${
-                          i === activeRow ? 'bg-indigo-500/15' : 'hover:bg-slate-800/40'
-                        } ${at.text.trim() ? '' : 'opacity-50'}`}
-                      >
-                        <span className="font-mono text-[11px] text-slate-500 tabular-nums pt-1">{c.index}</span>
-                        <span className="flex flex-col gap-1 col-start-2 row-start-2 sm:row-start-1">
-                          <StampField
-                            value={at.start}
-                            label={`Subtitle ${c.index} start`}
-                            onCommit={(start) => {
-                              if (start >= at.end) return false;
-                              update({ start });
-                              return true;
-                            }}
-                          />
-                          <StampField
-                            value={at.end}
-                            label={`Subtitle ${c.index} end`}
-                            onCommit={(end) => {
-                              if (end <= at.start) return false;
-                              update({ end });
-                              return true;
-                            }}
-                          />
-                        </span>
-                        <span className="col-start-2 sm:col-start-3 row-start-1 min-w-0">
-                          <TextField value={at.text} onCommit={(text) => update({ text })} />
-                        </span>
-                        <button
-                          type="button"
-                          aria-label={`Remove subtitle ${c.index}`}
-                          title="Remove this subtitle"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            saveEdit(edit.cues.filter((_, n) => n !== i));
-                          }}
-                          className="w-7 h-7 flex items-center justify-center rounded-md text-slate-500 hover:text-rose-300 hover:bg-slate-800 cursor-default"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    );
-                  })
-                ) : cues.map((c, i) => (
+                cues.map((c, i) => (
                   <button
                     key={c.index}
                     type="button"
@@ -954,6 +885,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                 ))
               )}
             </div>
+            )}
           </div>
         </div>
 
