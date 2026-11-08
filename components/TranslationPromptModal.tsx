@@ -17,6 +17,7 @@ import {
   deleteSavedPrompt,
 } from '../services/savedTranslationPrompts';
 import { AudioSegment } from '../types';
+import { PageScrollLock } from './usePageScrollLock';
 
 interface TranslationPromptModalProps {
   isOpen: boolean;
@@ -216,6 +217,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-150"
       onClick={(e) => e.target === e.currentTarget && !busy && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

@@ -32,6 +32,7 @@ import {
 import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { VoiceSelectorCard } from './VoiceSelectorCard';
 import { reportError } from '../services/errorPopup';
+import { PageScrollLock } from './usePageScrollLock';
 
 interface VoiceSettingsModalProps {
   isOpen: boolean;
@@ -343,6 +344,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"
@@ -897,6 +899,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
           onClick={(e) => e.target === e.currentTarget && setIsPickerOpen(false)}
           onKeyDown={(e) => e.key === 'Escape' && setIsPickerOpen(false)}
         >
+          <PageScrollLock />
           <div className="w-full max-w-5xl flex flex-col gap-3">
             <div className="flex justify-end">
               <button

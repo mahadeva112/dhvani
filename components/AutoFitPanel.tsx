@@ -3,6 +3,7 @@ import { ChevronRight, ListChecks, Ruler, Undo2, X } from 'lucide-react';
 import type { SyncJoinSettings } from '../services/syncService';
 import type { AutoFitChange, AutoFitOutcome } from '../services/syncAutoFit';
 import { presetName } from './SyncJoinSettings';
+import { PageScrollLock } from './usePageScrollLock';
 
 /**
  * What Sync's own Fit to this video did (services/syncAutoFit.ts): one card
@@ -129,6 +130,7 @@ const WhatChangedWindow: React.FC<AutoFitPanelProps & { onClose: () => void }> =
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

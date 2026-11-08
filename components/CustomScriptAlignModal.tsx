@@ -15,6 +15,7 @@ import {
 } from '../services/scriptAlignService';
 import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
+import { PageScrollLock } from './usePageScrollLock';
 
 export type AlignmentStrategy = 'ai' | 'line' | 'proportional' | 'sentence';
 
@@ -496,6 +497,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && !isAligning && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

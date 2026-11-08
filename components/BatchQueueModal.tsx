@@ -22,6 +22,7 @@ import { PROJECT_FILE_EXTENSION } from '../services/projectArchive';
 import JSZip from 'jszip';
 import { audioBufferToWav, audioFileExtension } from '../services/audioService';
 import { generateSrtContent, DEFAULT_SRT_OPTIONS } from '../services/srtService';
+import { PageScrollLock } from './usePageScrollLock';
 
 /** 125 -> "2:05", 3725 -> "1:02:05" */
 const formatLength = (seconds: number) => {
@@ -266,6 +267,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

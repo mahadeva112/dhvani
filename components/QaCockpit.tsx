@@ -41,6 +41,7 @@ import {
   signStage,
   useSignoff,
 } from '../services/signoffService';
+import { PageScrollLock } from './usePageScrollLock';
 
 interface QaCockpitProps {
   jobId: string;
@@ -620,6 +621,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
           className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={(e) => e.target === e.currentTarget && setOverrideTarget(null)}
         >
+          <PageScrollLock />
           <div role="dialog" aria-modal="true" aria-labelledby="waive-title" className="w-full max-w-lg rounded-[18px] border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden">
             <div className="px-5 pt-5">
               <h4 id="waive-title" className="text-base font-semibold text-slate-100">

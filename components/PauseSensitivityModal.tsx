@@ -3,6 +3,7 @@ import { X, Info, Activity, ChevronRight } from 'lucide-react';
 import { gateFromSensitivity, PAUSE_GATE_RANGES } from '../services/audioService';
 import { AudioSegment, PauseGate } from '../types';
 import { MiniWaveform } from './MediaStrip';
+import { PageScrollLock } from './usePageScrollLock';
 
 export interface PauseSensitivityModalProps {
   isOpen: boolean;
@@ -82,6 +83,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

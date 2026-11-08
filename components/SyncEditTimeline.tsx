@@ -85,6 +85,7 @@ import {
 } from '../services/syncEditService';
 import { MAX_SPEAKER_DB, MIN_SPEAKER_DB, type SpeakerMonitor } from '../services/speakerLevels';
 import { HistoryMenu, type ProjectHistoryView } from './HistoryMenu';
+import { PageScrollLock } from './usePageScrollLock';
 
 /**
  * Edit timing: the synced dub's lines on a timeline under the original, to
@@ -3790,6 +3791,7 @@ export const SyncEditTimeline: React.FC<{
               if (e.target === e.currentTarget) setShowHelp(false);
             }}
           >
+            <PageScrollLock />
             <div
               role="dialog"
               aria-modal="true"

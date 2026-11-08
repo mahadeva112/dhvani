@@ -21,6 +21,7 @@ import {
 } from '../services/srtService';
 import { editedSrt, editedVtt, fingerprint, parseStampInput, subtitleEditKey, subtitlesAsScript } from '../services/subtitleEdits';
 import { DUB_TIMING_LIMIT_MS, useDubWordTimings } from '../services/dubSubtitleTiming';
+import { PageScrollLock } from './usePageScrollLock';
 
 /** Short names for the presets, which carry long ones for elsewhere. */
 const PRESET_LABELS: Record<string, string> = {
@@ -469,6 +470,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

@@ -62,6 +62,7 @@ import { cloneCartesiaVoice, isCartesiaVoice } from '../services/cartesiaService
 import type { LaneClip, LineProgress, SpeakerVoices, VoiceChangeSettings } from '../services/voiceChangeService';
 import { EditRenderChip, KEEP, LineLanes, LineRunSummary, SpeakerVoiceRows } from './VoiceChangeLines';
 import { reportError } from '../services/errorPopup';
+import { PageScrollLock } from './usePageScrollLock';
 
 /** Formats the whole-file voice change is asked again in when the plan refuses one (as a dub's are). */
 const STS_FALLBACK: Record<string, string> = { wav_48000: 'mp3_44100_192', mp3_44100_192: 'mp3_44100_128' };
@@ -775,6 +776,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={onClose}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"
@@ -1499,6 +1501,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
           }}
           onKeyDown={(e) => e.key === 'Escape' && setIsPickerOpen(false)}
         >
+          <PageScrollLock />
           <div className="w-full max-w-5xl flex flex-col gap-3">
             <div className="flex justify-end">
               <button

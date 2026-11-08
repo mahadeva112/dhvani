@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.51',
+    changes: [
+      'The page behind a window now stays put: with the Retake window, Tools and settings or any other window open, scrolling no longer moves the page underneath. Close the window and the page scrolls again from where it was.',
+    ],
+  },
+  {
     version: '1.4.50',
     changes: [
       'A brighter Dhvani logo: white sound-wave bars on a purple tile, in the taskbar, Start menu, browser tab and the top of the app. If a pinned taskbar icon still shows the old one, unpin it and pin it again.',

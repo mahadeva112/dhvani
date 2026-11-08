@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { usePageScrollLock } from './usePageScrollLock';
 
 const CLOSE_MS = 150;
 
@@ -20,6 +21,7 @@ export const CenteredPanel: React.FC<{
 }> = ({ open, onClose, label, className = '', layerClassName = 'z-[60]', children }) => {
   const [shown, setShown] = useState(open);
   const [closing, setClosing] = useState(false);
+  usePageScrollLock(shown);
 
   // Stays on screen while it plays its closing animation.
   useEffect(() => {
@@ -59,7 +61,7 @@ export const CenteredPanel: React.FC<{
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        className={`relative w-full max-h-full overflow-y-auto rounded-[20px] bg-slate-900/95 border border-slate-700/80 shadow-2xl shadow-black/60 text-slate-100 flex flex-col ${
+        className={`relative w-full max-h-full overflow-y-auto overscroll-contain rounded-[20px] bg-slate-900/95 border border-slate-700/80 shadow-2xl shadow-black/60 text-slate-100 flex flex-col ${
           closing ? 'tools-hub-panel-out' : 'tools-hub-panel-in'
         } ${className}`}
       >

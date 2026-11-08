@@ -14,6 +14,7 @@ import {
 } from '../services/indicTransliteration';
 import { polishIndicDialogueWithAI } from '../services/geminiService';
 import { AudioSegment } from '../types';
+import { PageScrollLock } from './usePageScrollLock';
 
 interface PhoneticKeyboardModalProps {
   isOpen: boolean;
@@ -248,6 +249,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

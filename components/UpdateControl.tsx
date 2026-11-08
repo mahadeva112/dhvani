@@ -1,6 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RotateCw, X, Check, CheckCircle2, AlertCircle, FolderOpen, Circle } from 'lucide-react';
+import { PageScrollLock } from './usePageScrollLock';
 
 /** The updater's state as desktop/main.cjs pushes it. */
 export interface AppUpdateState {
@@ -259,6 +260,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
       {installing &&
         createPortal(
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <PageScrollLock />
             <section
               role="alertdialog"
               aria-modal="true"
@@ -405,6 +407,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
           className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200 select-text"
           onClick={(e) => e.target === e.currentTarget && setOpen(false)}
         >
+          <PageScrollLock />
           <section
             role="dialog"
             aria-modal="true"

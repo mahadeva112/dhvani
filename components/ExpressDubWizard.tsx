@@ -171,6 +171,7 @@ import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
 import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
 import { alignTakeWords, firstWordAt, takesOf, type TakeAsk } from '../services/syncTakesService';
 import { TakesPanel } from './TakesPanel';
+import { PageScrollLock } from './usePageScrollLock';
 
 type ReviewMode = 'table' | 'script' | 'qa';
 
@@ -5044,6 +5045,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           onClick={(e) => e.target === e.currentTarget && setIsVoicePickerOpen(false)}
           onKeyDown={(e) => e.key === 'Escape' && setIsVoicePickerOpen(false)}
         >
+          <PageScrollLock />
           <div className="w-full max-w-5xl flex flex-col gap-3">
             <div className="flex items-center justify-end gap-3">
               {castPickFor && (

@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { GripHorizontal, X } from 'lucide-react';
+import { usePageScrollLock } from './usePageScrollLock';
 
 type Point = { x: number; y: number };
 
@@ -18,7 +19,7 @@ const readPosition = (key: string): Point | null => {
  * A window that floats over the app without blocking it, as a video editor's
  * tool windows do: dragged by its title bar, kept where it was last put, and
  * closed only by its ✕ or Esc, never by a click elsewhere, so the page under
- * it stays in use. With `confirmClose`, closing first asks that question.
+ * it stays in use. The page itself holds still while it is open. With `confirmClose`, closing first asks that question.
  */
 export const FloatingWindow: React.FC<{
   title: React.ReactNode;
@@ -34,6 +35,7 @@ export const FloatingWindow: React.FC<{
   const [pos, setPos] = useState<Point | null>(() => readPosition(storageKey));
   const [asking, setAsking] = useState(false);
   const drag = useRef<{ dx: number; dy: number } | null>(null);
+  usePageScrollLock();
 
   /** The point moved so the title bar stays on screen. */
   const clampToView = (p: Point): Point => {
@@ -143,7 +145,7 @@ export const FloatingWindow: React.FC<{
           </button>
         </div>
       )}
-      <div className="min-h-0 overflow-y-auto p-3">{children}</div>
+      <div className="min-h-0 overflow-y-auto overscroll-contain p-3">{children}</div>
     </div>
   );
 };

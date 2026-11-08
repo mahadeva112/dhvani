@@ -81,6 +81,7 @@ import { reportError } from '../services/errorPopup';
 import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
 import { dotsToPauses, stripPauses } from '../server/lib/linePauses.js';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
+import { PageScrollLock } from './usePageScrollLock';
 
 /**
  * Sync, in the Dub step: voices the script line by line, places each line in
@@ -878,6 +879,7 @@ const SyncSettingsWindow: React.FC<{
       className="fixed inset-0 z-50 flex items-stretch justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

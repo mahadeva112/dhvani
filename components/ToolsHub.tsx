@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, CornerDownLeft, ExternalLink, Search, X } from 'lucide-react';
+import { PageScrollLock } from './usePageScrollLock';
 
 /**
  * Tools and settings, opened from the header: one window in the middle of the
@@ -172,6 +173,7 @@ export const ToolsHub: React.FC<{
       }`}
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"

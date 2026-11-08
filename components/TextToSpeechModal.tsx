@@ -56,6 +56,7 @@ import { MiniWaveform } from './MediaStrip';
 import { DEFAULT_LANGUAGES } from './ProHeader';
 import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
+import { PageScrollLock } from './usePageScrollLock';
 
 /**
  * Text to speech studio.
@@ -707,6 +708,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
       className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
       onClick={onClose}
     >
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"
@@ -1300,6 +1302,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
           }}
           onKeyDown={(ev) => ev.key === 'Escape' && setIsPickerOpen(false)}
         >
+          <PageScrollLock />
           <div className="w-full max-w-5xl flex flex-col gap-3">
             <div className="flex justify-end">
               <button

@@ -55,6 +55,7 @@ import {
 import { reportError } from '../services/errorPopup';
 import { maskKey, PROBE_WORDS, type ProbeStatus } from '../services/providerDetect';
 import { synthesizeSamplePreview } from '../services/elevenLabsService';
+import { PageScrollLock } from './usePageScrollLock';
 
 interface SetupWizardProps {
   /** Where each credential currently comes from. */
@@ -1310,6 +1311,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
+      <PageScrollLock />
       <section
         role="dialog"
         aria-modal="true"
