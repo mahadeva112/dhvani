@@ -33,6 +33,7 @@
  */
 
 import { GATE_FRAME_SECONDS, gateSounds, peakLevels } from './silenceGate.js';
+import { levelDb, nearestResume, soundFirstCut } from './sourceCuts.js';
 
 /** Chunks closer than this were said in one breath and move together (Samanvaya's _ISO_RIGID_GAP). */
 export const RIGID_GAP_SECONDS = 0.15;
@@ -315,4 +316,123 @@ export const pauseFloor = (kind, original, tier, { gapShare, wordGap, commaGap, 
   const kept = rank > tier ? Math.min(original, maxGap) : Math.max(floor, Math.min(original * gapShare, maxGap));
   // Never more than the pause there was (Samanvaya: "never demand more silence than the artist left").
   return Math.max(0, Math.min(kept, original));
+};
+
+const spokenWord = (word) => /[\p{L}\p{N}]/u.test(String(word?.text ?? ''));
+
+/**
+ * One voiced line as Chunk sync splits it: its chunks in blocks said in one
+ * breath, each chunk with its first sound (`onset`, seconds into the line)
+ * and where that should land (`target`), each block with the pause before it
+ * and how the script reads there. Every block has its `length` in seconds and
+ * each chunk its `at`, seconds from its block's start; with joinSpokenChunks,
+ * blocks the original says in one go are one block (see joinSpokenBlocks).
+ *
+ * `samples` are the line's take with `lead` seconds before its first word and
+ * `speech` seconds of words; `text` what it says, `cues` its cues in order,
+ * `words` its words by forced alignment (null when they couldn't be timed),
+ * `join` the sync's settings, `place` where the user placed it on Review's
+ * dub lane (`{ start, cuts }`, or null), `autoCuts` the cuts at the original's
+ * pauses to try (sourceCuts.js) and `off` true to make none of them.
+ * Returns `{ blocks, cutNotMade, sourceCuts }`: `cutNotMade` when a cut of the
+ * user's couldn't be made, `sourceCuts` the cuts at pauses made and not
+ * (`{ made, skipped }`; null with none to try). Sync (syncDub.js) and a take
+ * put in the dub (placeTake.js) split lines with this alike.
+ */
+export const chunkLine = ({ samples, sampleRate, lead, speech, text, cues, words = null, join, place = null, autoCuts = [], off = false }) => {
+  // Without the words, and asked to check against them, the line isn't split blind: it stays whole.
+  const whole = join.checkCutWords && !words;
+  const protect = words ? words.filter(spokenWord).map((word) => ({ start: Math.floor(word.start * sampleRate), end: Math.ceil(word.end * sampleRate) })) : [];
+  const split = splitChunks(samples, sampleRate, {
+    openDb: join.gateOpenDb,
+    hysteresisDb: join.gateHysteresisDb,
+    minSlice: join.minSliceLength,
+    minSilence: join.minSilenceLength,
+    leadPad: join.leadPad,
+    trailPad: join.trailPad,
+    protect,
+  });
+  // Only the silence before its first sound and after its last goes from a line kept whole.
+  // The user's cuts split it between their words; a part they placed is pinned there.
+  const points = place?.cuts.length && words ? cutPoints(words, place.cuts, sampleRate) : [];
+  const cutNotMade = Boolean(place?.cuts.length && points.length < place.cuts.length);
+  const kinds = words ? wordKinds(text, words) : null;
+  // Cuts at the original's pauses, sound first (sourceCuts.js); a cut of the user's at the same word is theirs.
+  const autoPoints = [];
+  let sourceCuts = null;
+  if (autoCuts.length) {
+    const own = new Set((place?.cuts || []).map((cut) => cut.letters));
+    const made = [];
+    const skipped = [];
+    const speechDb = levelDb(samples, lead * sampleRate, (lead + speech) * sampleRate);
+    for (const cut of autoCuts) {
+      if (own.has(cut.letters)) continue;
+      const found = off
+        ? { why: 'later' }
+        : !words || whole
+          ? { why: 'words' }
+          : soundFirstCut({ samples, sampleRate, words, kinds, chunks: split, letters: cut.letters, speechDb });
+      if (found.why) {
+        skipped.push({ letters: cut.letters, why: found.why });
+        continue;
+      }
+      made.push({ letters: cut.letters, how: found.how });
+      autoPoints.push({ at: found.at, auto: { letters: cut.letters, resume: cut.resume } });
+    }
+    sourceCuts = { made, skipped };
+  }
+  const chunks = splitAtPoints(whole ? [{ from: split[0].from, to: split.at(-1).to }] : split, [...points, ...autoPoints]);
+  if (place && place.start !== null && chunks[0]) chunks[0].pin = place.start;
+  // Where each chunk's first sound is, in seconds into the line: its first word, or past its leading pad.
+  const onsets = chunks.map((chunk, k) => {
+    const word = words?.find((w) => spokenWord(w) && w.end * sampleRate > chunk.from && w.start * sampleRate < chunk.to);
+    if (word) return Math.max(chunk.from / sampleRate, word.start);
+    return k === 0 ? Math.max(chunk.from / sampleRate, lead) : Math.min(chunk.to, chunk.from + Math.round(join.leadPad * sampleRate)) / sampleRate;
+  });
+  const targets = chunkTargets({ onsets, words, cues, lead, speech });
+  // A part cut at the original's pause starts where the speaker starts again.
+  const pausesHere = autoPoints.length ? linePauses(cues) : [];
+  chunks.forEach((chunk, k) => {
+    if (!chunk.auto) return;
+    const resume = Number.isFinite(chunk.auto.resume) ? chunk.auto.resume : nearestResume(pausesHere, targets[k]);
+    if (resume !== null) targets[k] = resume;
+  });
+  // How the script reads at the pause before the chunk starting at `from`: after the last word before it.
+  const kindBefore = (from) => {
+    if (!words) return 'word';
+    let kind = 'word';
+    words.forEach((word, w) => {
+      if (spokenWord(word) && word.end * sampleRate <= from + 0.02 * sampleRate) kind = kinds[w];
+    });
+    return kind;
+  };
+  // Chunks said in one breath move as one block.
+  const blocks = [];
+  chunks.forEach((chunk, k) => {
+    const last = blocks.at(-1);
+    // A pinned chunk's first word lands where the user put it; a cut starts a block of its own.
+    const pinned = Number.isFinite(chunk.pin);
+    const member = { ...chunk, onset: onsets[k], target: pinned ? chunk.pin : targets[k] };
+    if (last && !chunk.cut && !pinned && (chunk.from - last.to) / sampleRate <= RIGID_GAP_SECONDS) {
+      last.chunks.push({ ...member, at: (chunk.from - last.from) / sampleRate });
+      last.to = chunk.to;
+      last.length = (last.to - last.from) / sampleRate;
+    } else {
+      blocks.push({
+        from: chunk.from,
+        to: chunk.to,
+        length: (chunk.to - chunk.from) / sampleRate,
+        chunks: [{ ...member, at: 0 }],
+        kindBefore: last ? kindBefore(chunk.from) : null,
+        pauseBefore: last ? (chunk.from - last.to) / sampleRate : 0,
+        ...(chunk.cut && { cut: true }),
+        ...(chunk.auto && { auto: chunk.auto.letters }),
+        ...(pinned && { pin: chunk.pin }),
+      });
+    }
+  });
+  if (!join.joinSpokenChunks) return { blocks, cutNotMade, sourceCuts };
+  // Said in one go in the original: the dub doesn't stop there either.
+  const floorOf = (kind) => (kind === 'stop' ? join.stopGap : kind === 'comma' ? join.commaGap : join.wordGap);
+  return { blocks: joinSpokenBlocks(blocks, linePauses(cues), floorOf), cutNotMade, sourceCuts };
 };

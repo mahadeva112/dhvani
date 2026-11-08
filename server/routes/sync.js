@@ -33,6 +33,9 @@ import { config } from '../env.js';
 import { addDeliveryCuesToPassages } from '../lib/deliveryCues.js';
 import { alignmentText, cueSpans, cutDubTakes } from '../lib/dubTakes.js';
 import { forceAlign } from '../providers/elevenlabs/alignment.js';
+import { buildSyncUnits } from '../lib/syncUnits.js';
+import { validateAlignedWords } from '../lib/syncWordTiming.js';
+import { placeTake, placeOfCue } from '../lib/placeTake.js';
 import { fitToLength, STS_PCM_RATES } from '../lib/voiceChange.js';
 
 export const syncRouter = Router();
@@ -704,6 +707,95 @@ syncRouter.post('/sync/takes/words', asyncHandler(async (req, res) => {
     throw new ApiError('Word timings are incomplete. Select the words in Takes instead.', { status: 422, code: 'phrase_not_found' });
   }
   res.json({ words });
+}));
+
+/** A take's words by forced alignment, checked against its text, by its samples and text: a take used again is not aligned again. */
+const placeAlignments = new Map();
+
+const finiteSpan = (span) =>
+  span && Number.isFinite(span.start) && Number.isFinite(span.end) && span.end >= span.start ? { start: span.start, end: span.end } : null;
+
+/**
+ * POST /api/sync/takes/place — a take just put in the dub, cut and placed as
+ * Chunk sync places a line (placeTake.js), between the lines either side,
+ * which stay where they are. Body: `{ bankId, key, take: { bankStart,
+ * length, lead, speech }, segments, join, tolerance, timingProtection,
+ * sourceDuration, multiSpeaker, prev, next }`, `prev`/`next` being `{ start,
+ * end }` timeline seconds where the neighbours play now, or null. Only the
+ * take's words are aligned (ElevenLabs forced alignment); nothing is voiced.
+ * Returns `{ chunks, fits, cutNotMade, sourceCuts, wordsError }`.
+ */
+syncRouter.post('/sync/takes/place', asyncHandler(async (req, res) => {
+  const { bankId, key, take, segments, join, tolerance, timingProtection, sourceDuration, multiSpeaker, prev, next } = req.body || {};
+  const entry = typeof bankId === 'string' ? bankFor(bankId) : null;
+  if (!entry) throw new ApiError('The saved lines of this sync are not on the server.', { status: 404, code: 'edit_bank_missing' });
+  const start = take?.bankStart, length = take?.length;
+  if (!Number.isInteger(start) || !Number.isInteger(length) || start < 0 || length <= 0 || start + length > entry.samples.length) {
+    throw new ApiError('That take is not in this bank.', { status: 400, code: 'bad_bank_line' });
+  }
+  if (!Number.isFinite(take.lead) || !Number.isFinite(take.speech) || take.lead < 0 || take.speech < 0) {
+    throw new ApiError('That take has no words to place.', { status: 400, code: 'bad_take' });
+  }
+  if (typeof key !== 'string' || !Array.isArray(segments) || segments.length > 20000) {
+    throw new ApiError('The line to place was not sent.', { status: 400, code: 'bad_place_request' });
+  }
+  const settings = resolveJoinSettings(join);
+  const units = buildSyncUnits(segments, settings).filter((unit) => /[\p{L}\p{N}]/u.test(unit.text));
+  const index = units.findIndex((unit) => lineKey(unit) === key);
+  if (index === -1) throw new ApiError('This line is no longer in the script as it was synced.', { status: 409, code: 'line_changed' });
+  const unit = units[index];
+  const byId = new Map(segments.map((segment) => [segment?.id, segment]));
+  const cues = unit.cueIds.map((id) => byId.get(id)).filter(Boolean).sort((a, b) => a.startTime - b.startTime);
+  const nextUnit = units[index + 1] ?? null;
+  const nextPlace = nextUnit ? placeOfCue(byId.get(nextUnit.cueIds[0]), nextUnit.text) : null;
+  const samples = entry.samples.subarray(start, start + length);
+
+  // Its words, so no cut falls inside one; without them, and asked to check, the take stays whole.
+  let words = null;
+  let wordsError = null;
+  const alignKey = `${entry.sampleRate}|${clipHash(samples)}|${unit.text}`;
+  if (placeAlignments.has(alignKey)) words = placeAlignments.get(alignKey);
+  else {
+    const controller = new AbortController();
+    res.on('close', () => { if (!res.writableFinished) controller.abort(); });
+    try {
+      const wav = await encodeWav(entry.sampleRate)(samples);
+      const aligned = await forceAlign({ buffer: wav.buffer, text: unit.text }, { apiKey: req.get('x-elevenlabs-key') || undefined, signal: controller.signal });
+      words = validateAlignedWords(aligned.words, unit.text, length / entry.sampleRate);
+      placeAlignments.set(alignKey, words);
+      if (placeAlignments.size > ALIGNMENT_CACHE_LIMIT) placeAlignments.delete(placeAlignments.keys().next().value);
+    } catch (error) {
+      if (controller.signal.aborted) throw cancelledError();
+      wordsError = error?.message || 'Word timing could not be checked.';
+    }
+  }
+
+  const placed = placeTake({
+    samples,
+    sampleRate: entry.sampleRate,
+    lead: take.lead,
+    speech: take.speech,
+    unit,
+    prevUnit: units[index - 1] ?? null,
+    nextUnit,
+    cues,
+    nextPlacedStart: nextUnit ? nextPlace?.start ?? nextUnit.srcStart : null,
+    words,
+    prev: finiteSpan(prev),
+    next: finiteSpan(next),
+    join: settings,
+    tolerance: Number.isFinite(tolerance) && tolerance > 0 ? tolerance : 0.15,
+    timingProtection: timingProtection === 'strict' ? 'strict' : 'warn',
+    sourceDuration: Number(sourceDuration) || 0,
+    multiSpeaker: multiSpeaker === true,
+  });
+  res.json({
+    chunks: placed.chunks,
+    fits: placed.fits,
+    cutNotMade: placed.cutNotMade,
+    sourceCuts: placed.sourceCuts ? { made: placed.sourceCuts.made.length, skipped: placed.sourceCuts.skipped.length } : null,
+    wordsError,
+  });
 }));
 
 /**

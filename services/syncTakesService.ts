@@ -4,8 +4,8 @@ import { castPayload } from './castService';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncJoinSettings, SyncUnitReport } from './syncService';
 import type { ElevenLabsVoiceSettings } from './elevenLabsService';
-import type { SpeakerVoice } from '../types';
-import { appendToBank, phraseOf, type SyncTake, type TakeDirection } from './syncTakes.ts';
+import type { AudioSegment, SpeakerVoice } from '../types';
+import { appendToBank, phraseOf, type SyncTake, type TakeChunk, type TakeDirection } from './syncTakes.ts';
 
 /** Takes of a synced line (syncTakes.ts); here, voicing them on the server. */
 export * from './syncTakes.ts';
@@ -24,6 +24,70 @@ export const alignTakeWords = async (
     if (!(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
     await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
     return (await send()).words;
+  }
+};
+
+/* ---------- Placing a used take ---------- */
+
+export interface PlaceTakeRequest {
+  bank: SyncBank;
+  bankBlob: Blob;
+  key: string;
+  take: Pick<SyncTake, 'bankStart' | 'length' | 'lead' | 'speech'>;
+  segments: AudioSegment[];
+  join: SyncJoinSettings;
+  tolerance: number;
+  timingProtection?: 'warn' | 'strict';
+  sourceDuration: number;
+  multiSpeaker: boolean;
+  /** Timeline seconds where the lines either side play now; they stay there. */
+  prev: { start: number; end: number } | null;
+  next: { start: number; end: number } | null;
+}
+
+export interface PlacedTake {
+  chunks: TakeChunk[];
+  /** False when the take could not fit between its neighbours and its limits; it is placed as well as it can be. */
+  fits: boolean;
+  cutNotMade: boolean;
+  sourceCuts: { made: number; skipped: number } | null;
+  /** Why its words couldn't be timed, when they couldn't: then it is not cut between them. */
+  wordsError: string | null;
+}
+
+/**
+ * A take just used in the dub, cut and placed as Chunk sync places a line,
+ * between the lines either side (POST /api/sync/takes/place). Only the take's
+ * words are aligned; nothing is voiced.
+ */
+export const placeTakeLikeSync = async (
+  { bank, bankBlob, key, take, segments, join, tolerance, timingProtection, sourceDuration, multiSpeaker, prev, next }: PlaceTakeRequest,
+  { apiKey, signal }: { apiKey?: string; signal?: AbortSignal } = {}
+): Promise<PlacedTake> => {
+  const send = () =>
+    apiJson<PlacedTake>('/sync/takes/place', {
+      body: {
+        bankId: bank.bankId,
+        key,
+        take: { bankStart: take.bankStart, length: take.length, lead: take.lead, speech: take.speech },
+        segments,
+        join,
+        tolerance,
+        timingProtection,
+        sourceDuration,
+        multiSpeaker,
+        prev,
+        next,
+      },
+      keys: { elevenLabsKey: apiKey },
+      signal,
+    });
+  try {
+    return await send();
+  } catch (err) {
+    if (!(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
+    await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+    return send();
   }
 };
 

@@ -451,9 +451,13 @@ export const putTake = ({
   const gainDb = before?.parts[0]?.gainDb ?? 0;
   if (before && (before.locked || gainDb !== 0)) nextEdits[key] = { locked: before.locked, parts: [{ ...basePart(line, rate), gainDb }] };
   const cleanEdits = Object.keys(nextEdits).length > 0 ? nextEdits : null;
+  return { bank: nextBank, edits: cleanEdits, baseReport: measureTake(baseReport, nextBank, key, take) };
+};
 
+/** The report as Sync made it, measured again for line `key` now playing `take` as it sits in `bank`. */
+const measureTake = (baseReport: SyncReport, bank: SyncBank, key: string, take: SyncTake): SyncReport => {
   const n = baseReport.units.findIndex((unit) => unit.key === key);
-  const measured = measureEdits(baseReport, nextBank, null, [key]);
+  const measured = measureEdits(baseReport, bank, null, [key]);
   const unit = measured.units[n];
   const spoken = Math.max(0, unit.srcEnd - unit.srcStart);
   const short = !unit.silent && (unit.overrun ?? 0) <= baseReport.tolerance && isShort(take.speech, spoken);
@@ -478,7 +482,7 @@ export const putTake = ({
         }
       : u
   );
-  const nextBase: SyncReport = {
+  return {
     ...measured,
     units,
     summary: {
@@ -488,7 +492,60 @@ export const putTake = ({
       cutOff: units.filter((u) => u.cutOff).length,
     },
   };
-  return { bank: nextBank, edits: cleanEdits, baseReport: nextBase };
+};
+
+/** Where a used take is cut and placed as Chunk sync places a line (POST /api/sync/takes/place, server/lib/placeTake.js). */
+export interface TakeChunk {
+  /** Samples into the take. */
+  from: number;
+  to: number;
+  /** Where it plays on the timeline, in samples. */
+  startSample: number;
+}
+
+/**
+ * The dub with line `key`'s take cut into `chunks` and each played where it
+ * was placed, as Sync leaves a line it split: Edit timing shows them as the
+ * line's parts. A gain the user gave the line stays on every part. Null when
+ * the line no longer plays `take` as it went in, or is locked: then nothing
+ * moves.
+ */
+export const placeTakeChunks = ({
+  bank,
+  edits,
+  baseReport,
+  key,
+  take,
+  chunks,
+}: {
+  bank: SyncBank;
+  edits: SyncEdits | null | undefined;
+  baseReport: SyncReport;
+  key: string;
+  take: SyncTake;
+  chunks: TakeChunk[];
+}): { bank: SyncBank; edits: SyncEdits | null; baseReport: SyncReport } | null => {
+  const rate = bank.sampleRate;
+  const index = bank.lines.findIndex((line) => line.key === key);
+  const old = bank.lines[index];
+  const before = edits?.[key];
+  if (!old || old.bankStart !== take.bankStart || old.length !== take.length || before?.locked) return null;
+  // Only a take still as it went in: one part, the whole take, nothing changed but its gain.
+  if (before && (before.parts.length !== 1 || before.parts[0].from !== 0 || Math.abs(before.parts[0].to - old.length / rate) > 1e-6 || before.parts[0].rate !== 1)) return null;
+  const valid = chunks.filter((c) => Number.isInteger(c.from) && Number.isInteger(c.to) && Number.isInteger(c.startSample) && c.from >= 0 && c.to <= old.length && c.to > c.from && c.startSample >= 0);
+  if (valid.length === 0 || valid.length !== chunks.length) return null;
+  const { maxStartShift: _shift, ...rest } = old;
+  const line: SyncBankLine = { ...rest, startSample: Math.max(0, valid[0].startSample - valid[0].from), chunks: valid };
+  const nextBank = { ...bank, lines: bank.lines.map((l, n) => (n === index ? line : l)) };
+  const nextEdits: SyncEdits = { ...(edits ?? {}) };
+  delete nextEdits[key];
+  const gainDb = before?.parts[0]?.gainDb ?? 0;
+  if (gainDb !== 0) nextEdits[key] = { locked: false, parts: syncedParts(line, rate).map((part) => ({ ...part, gainDb })) };
+  return {
+    bank: nextBank,
+    edits: Object.keys(nextEdits).length > 0 ? nextEdits : null,
+    baseReport: measureTake(baseReport, nextBank, key, take),
+  };
 };
 
 /**

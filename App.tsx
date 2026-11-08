@@ -225,8 +225,9 @@ import {
   type HistoryState,
   type ProjectHistory,
 } from './services/projectHistory';
-import { hasEdits, isOriginalClip, lockedLines, measureEdits, originalParts, rebaseEdits, renderSyncEdits, SyncEdits, type SyncBank, type SyncBankLine } from './services/syncEditService';
-import { carryTakes, phraseLine, phraseOf, pickedTakes, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
+import { hasEdits, isOriginalClip, lockedLines, measureEdits, originalParts, partEnd, partsOf, rebaseEdits, renderSyncEdits, SyncEdits, type SyncBank, type SyncBankLine } from './services/syncEditService';
+import { carryTakes, phraseLine, phraseOf, pickedTakes, placeTakeChunks, placeTakeLikeSync, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
+import { readPlaceLikeSync } from './services/retakePlacement';
 import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
 import { stripTags, tagsOf } from './server/lib/lineTags.js';
 import {
@@ -3304,7 +3305,10 @@ export default function App() {
         syncTakes: voiced.syncTakes,
         ...put?.updates,
       });
-      if (put) scheduleSyncEditRender(job.id, put.render, 0);
+      if (put) {
+        scheduleSyncEditRender(job.id, put.render, 0);
+        void placeUsedTake({ ...voiced, ...put.updates }, unit.key, added[0].id);
+      }
       refreshQuota();
       if (voiceError && changedVoice) {
         reportError(voiceError, {
@@ -3334,6 +3338,73 @@ export default function App() {
     if (!put) return;
     updateJob(job.id, put.updates);
     scheduleSyncEditRender(job.id, put.render, 0);
+    void placeUsedTake({ ...job, ...put.updates }, key, takeId);
+  };
+
+  /**
+   * A take just put in the dub, cut and placed the way Chunk sync places a
+   * line (server/lib/placeTake.js), between the lines either side, which stay
+   * where they are. It went in whole first, so it is heard at once; this is a
+   * step of its own in the history, so Undo puts it back whole. Only with
+   * Chunk sync, a line that isn't locked, and the Retake window's "Cut and
+   * place like Sync" on; Sync's own take already has its chunks. `job` is the
+   * project with the take just put in (the queue catches up a render later).
+   */
+  const placeUsedTake = async (job: BatchJob, key: string, takeId: string) => {
+    if (!readPlaceLikeSync()) return;
+    const jobId = job.id;
+    const bank = job?.syncBank;
+    const base = job?.syncBaseReport;
+    const take = job?.syncTakes?.[key]?.takes.find((t) => t.id === takeId);
+    if (!bank || !base || !job.syncBankBlob || !take || !base.join?.chunkSync) return;
+    if (take.chunks?.length || job.syncEdits?.[key]?.locked || job.syncPendingLines?.includes(key)) return;
+    const n = base.units.findIndex((u) => u.key === key);
+    if (n === -1) return;
+    // Where the lines either side play now, in timeline seconds.
+    const spanOf = (unitKey: string | undefined) => {
+      const line = unitKey ? bank.lines.find((l) => l.key === unitKey) : null;
+      if (!line) return null;
+      const parts = partsOf(job.syncEdits, line, bank.sampleRate).filter((part) => !part.muted && !part.copy);
+      if (parts.length === 0) return null;
+      return { start: Math.min(...parts.map((part) => part.start)), end: Math.max(...parts.map(partEnd)) };
+    };
+    try {
+      const placed = await placeTakeLikeSync(
+        {
+          bank,
+          bankBlob: job.syncBankBlob,
+          key,
+          take,
+          segments: job.segments,
+          join: base.join,
+          tolerance: base.tolerance,
+          timingProtection: base.timingProtection,
+          sourceDuration: sourceDurationOf(job),
+          multiSpeaker: isMultiSpeaker(job.segments),
+          prev: spanOf(base.units[n - 1]?.key),
+          next: spanOf(base.units[n + 1]?.key),
+        },
+        { apiKey: elApiKey }
+      );
+      // Only while the line still plays that take as it went in: anything done to it meanwhile is the user's.
+      const now = queueRef.current.find((j) => j.id === jobId);
+      if (!now?.syncBank || !now.syncBaseReport || now.syncBank.bankId !== bank.bankId || now.syncTakes?.[key]?.active !== takeId) return;
+      const next = placeTakeChunks({ bank: now.syncBank, edits: now.syncEdits, baseReport: now.syncBaseReport, key, take, chunks: placed.chunks });
+      if (!next) return;
+      updateJob(
+        jobId,
+        { syncBank: next.bank, syncEdits: next.edits, syncBaseReport: next.baseReport, syncReport: measureEdits(next.baseReport, next.bank, next.edits) },
+        { label: `Line ${n + 1}: take cut and placed like Sync` }
+      );
+      scheduleSyncEditRender(
+        jobId,
+        { bank: next.bank, bankBlob: now.syncBankBlob, baseReport: next.baseReport, edits: next.edits, sourceDuration: sourceDurationOf(now), source: now.audioBuffer },
+        0
+      );
+    } catch (err: any) {
+      if (err?.code === 'cancelled') return;
+      reportError(err, { title: 'The take could not be cut and placed like Sync', safe: 'It plays whole, where the line was. Undo or Sync again as usual.' });
+    }
   };
 
   /**

@@ -11,6 +11,7 @@ import { usePhoneticTyping } from './review/usePhoneticTyping';
 import { getIndicLanguageConfig } from '../services/indicTransliteration';
 import type { TakeWord } from '../services/takeRange';
 import { takeIsIn } from '../services/voiceChangeService';
+import { readPlaceLikeSync, writePlaceLikeSync } from '../services/retakePlacement';
 import {
   phraseLine,
   phraseOf,
@@ -170,6 +171,8 @@ export const TakesPanel: React.FC<{
   inWindow?: boolean;
   /** Whether the words were edited and not yet voiced: what closing would lose. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** The dub was placed by Chunk sync: a take used can be cut and placed as Sync places a line (App.tsx placeUsedTake). */
+  canPlaceLikeSync?: boolean;
   /** Where each word is in the take in the dub, by forced alignment: asked only when the user drags across its wave. */
   onAlignWords?: () => Promise<TakeWord[]>;
   /** The voice the voice changer changed this line's speaker into: new takes come back in it. */
@@ -201,6 +204,7 @@ export const TakesPanel: React.FC<{
   onClose,
   inWindow = false,
   onDirtyChange,
+  canPlaceLikeSync = false,
   voiceTags = { on: false, note: 'This voice reads no tags.' },
   pro = false,
   language = '',
@@ -463,6 +467,7 @@ export const TakesPanel: React.FC<{
   // What Clear takes drops: every take but Sync's own and the one in the dub. Asked twice, as they cost voicings.
   const clearable = lineTakes.takes.filter((take) => take.id !== SYNC_TAKE_ID && take.id !== lineTakes.active).length;
   const [confirmClear, setConfirmClear] = useState(false);
+  const [placeLikeSync, setPlaceLikeSync] = useState(readPlaceLikeSync);
   useEffect(() => setConfirmClear(false), [unit.key, clearable]);
 
   const [search, setSearch] = useState('');
@@ -1188,7 +1193,7 @@ export const TakesPanel: React.FC<{
                     onUse(take.id);
                   }}
                   disabled={anyBusy || pending}
-                  title={take.text !== unit.text ? 'Put this take in the dub, and its words in the script' : 'Put this take in the dub, where the line is now'}
+                  title={`${take.text !== unit.text ? 'Put this take in the dub, and its words in the script' : 'Put this take in the dub, where the line is now'}${canPlaceLikeSync && placeLikeSync && take.kind !== 'sync' ? ', then cut and placed as Sync places a line' : ''}`}
                   className="h-7 px-2.5 rounded-lg border border-slate-700 text-xs text-slate-100 hover:bg-slate-800 cursor-default disabled:opacity-40"
                 >
                   Use {takeName(take, n)}
@@ -1203,7 +1208,29 @@ export const TakesPanel: React.FC<{
         <button type="button" onClick={onListenInDub} className="h-7 px-2.5 rounded-lg border border-edge text-slate-300 hover:bg-slate-800 flex items-center gap-1.5 cursor-default">
           <Headphones className="w-3.5 h-3.5" /> Listen in the dub
         </button>
-        <span>Each take is fitted as Sync fits a line, never stretched. Sync again keeps the take in the dub and starts the takes afresh.</span>
+        {canPlaceLikeSync && (
+          <label
+            className="h-7 px-2.5 rounded-lg border border-edge text-slate-300 hover:bg-slate-800 flex items-center gap-1.5 cursor-default select-none"
+            title="On: a take you use is cut where it goes quiet and at the original's pauses, and each part is placed on the original, as Sync places a line. The lines either side stay where they are. Off: it plays whole, its first word where the line's was."
+          >
+            <input
+              type="checkbox"
+              checked={placeLikeSync}
+              onChange={(e) => {
+                setPlaceLikeSync(e.target.checked);
+                writePlaceLikeSync(e.target.checked);
+              }}
+              className="accent-indigo-500"
+            />
+            Cut and place like Sync
+          </label>
+        )}
+        <span>
+          {canPlaceLikeSync && placeLikeSync
+            ? 'A take you use is cut and placed as Sync places a line, at its own speed; Undo puts it back whole.'
+            : 'Each take is fitted as Sync fits a line, never stretched.'}{' '}
+          Sync again keeps the take in the dub and starts the takes afresh.
+        </span>
       </div>
       </div>
     </section>

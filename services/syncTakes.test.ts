@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendManyToBank, appendToBank, carryTakes, compactBank, phraseLine, phraseOf, pickedTakes, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
+import { appendManyToBank, appendToBank, carryTakes, compactBank, phraseLine, phraseOf, pickedTakes, placeTakeChunks, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
 import { measureEdits, partEnd, partsOf, spokenSpan, type SyncEditPart } from './syncEditModel.ts';
@@ -318,4 +318,45 @@ test('after a Sync nothing is carried across formats, and a line with only Sync 
   const priorTakes = { a: { takes: [take({ id: 'sync', kind: 'sync', bankStart: 0, length: 4, hash: 'x' })], active: 'sync' } };
   assert.equal(await carryTakes({ priorBank, priorBankBlob: wav([1, 2, 3, 4]), priorTakes, bank, bankBlob: wav([1]), report, bankId: 'g' }), null);
   assert.equal(await carryTakes({ priorBank: { ...priorBank, sampleRate: RATE }, priorBankBlob: wav([1, 2, 3, 4]), priorTakes, bank, bankBlob: wav([1]), report, bankId: 'g' }), null);
+});
+
+test('a used take is cut and placed as Chunk sync placed it, its gain on every part, the other lines untouched', () => {
+  const bank: SyncBank = { bankId: 'b', sampleRate: RATE, float: false, lines: [line('1'), line('2', { bankStart: 1000, startSample: 5000 })], speakerGains: {} };
+  const base = { tolerance: 0.15, join: { maxLateStart: 1, flagJoin: 0.05 }, units: [unit('1', 2.1, 3), unit('2', 5.1, 6)], summary: {} } as unknown as SyncReport;
+  const used = take({ length: 900, lead: 0.05, speech: 0.7 });
+  const gained = { '1': { locked: false, parts: [{ id: '1#0', start: 2, from: 0, to: 1, rate: 1, gainDb: -3, fadeIn: 0, fadeOut: 0, muted: false }] } };
+  const put = putTake({ bank, edits: gained, baseReport: base, key: '1', take: used });
+  // The server cut it in two at its pause and put each part on the original.
+  const chunks = [
+    { from: 0, to: 400, startSample: 2050 },
+    { from: 500, to: 900, startSample: 2600 },
+  ];
+  const placed = placeTakeChunks({ bank: put.bank, edits: put.edits, baseReport: put.baseReport, key: '1', take: used, chunks });
+  assert.ok(placed);
+  assert.deepEqual(placed.bank.lines[0].chunks, chunks);
+  assert.equal(placed.bank.lines[0].startSample, 2050);
+  assert.deepEqual(placed.bank.lines[1], bank.lines[1], 'the other line stays where it is');
+  const parts = partsOf(placed.edits, placed.bank.lines[0], RATE);
+  assert.deepEqual(parts.map((p) => [p.start, p.from, p.to, p.gainDb]), [[2.05, 0, 0.4, -3], [2.6, 0.5, 0.9, -3]]);
+  // Its first word is 0.05 s into the first part.
+  assert.ok(Math.abs((placed.baseReport.units[0].placedStart ?? 0) - 2.1) < 1e-9);
+
+  // With no gain there is nothing to keep in the edits: the line plays its chunks.
+  const plain = putTake({ bank, edits: null, baseReport: base, key: '1', take: used });
+  assert.equal(placeTakeChunks({ bank: plain.bank, edits: plain.edits, baseReport: plain.baseReport, key: '1', take: used, chunks })?.edits, null);
+});
+
+test('a used take is not cut once the line was changed, moved or locked meanwhile', () => {
+  const bank: SyncBank = { bankId: 'b', sampleRate: RATE, float: false, lines: [line('1')], speakerGains: {} };
+  const base = { tolerance: 0.15, join: { maxLateStart: 1, flagJoin: 0.05 }, units: [unit('1', 2.1, 3)], summary: {} } as unknown as SyncReport;
+  const used = take({});
+  const chunks = [{ from: 0, to: 900, startSample: 2050 }];
+  const put = putTake({ bank, edits: null, baseReport: base, key: '1', take: used });
+  const args = { bank: put.bank, baseReport: put.baseReport, key: '1', take: used, chunks };
+  const part = partsOf(null, put.bank.lines[0], RATE)[0];
+  assert.equal(placeTakeChunks({ ...args, edits: { '1': { locked: true, parts: [part] } } }), null, 'locked');
+  assert.equal(placeTakeChunks({ ...args, edits: { '1': { locked: false, parts: [{ ...part, to: 0.5 }] } } }), null, 'trimmed');
+  assert.equal(placeTakeChunks({ ...args, edits: { '1': { locked: false, parts: [part, { ...part, id: 'x', start: 5 }] } } }), null, 'split');
+  assert.equal(placeTakeChunks({ ...args, edits: null, take: take({ bankStart: 9000 }) }), null, 'another take in the dub now');
+  assert.equal(placeTakeChunks({ ...args, edits: null, chunks: [{ from: 0, to: 5000, startSample: 0 }] }), null, 'chunks past the take');
 });
