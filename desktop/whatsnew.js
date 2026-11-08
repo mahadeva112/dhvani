@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.50',
+    changes: [
+      'A brighter Dhvani logo: white sound-wave bars on a purple tile, in the taskbar, Start menu, browser tab and the top of the app. If a pinned taskbar icon still shows the old one, unpin it and pin it again.',
+    ],
+  },
+  {
     version: '1.4.49',
     changes: [
       'A new Dhvani logo: the purple sound wave is now the icon in the taskbar, Start menu, browser tab and the top of the app. If a pinned taskbar icon still shows the old one, unpin it and pin it again.',
