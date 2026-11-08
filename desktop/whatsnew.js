@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.53',
+    changes: [
+      'New projects open straight away again, without the Diwali greeting.',
+    ],
+  },
+  {
     version: '1.4.52',
     changes: [
       'Editing subtitles in Export subtitles is easier: each subtitle is its own card. Press Enter where the cursor is to start a new subtitle from there, Shift+Enter for a new line, and the Merge ↓ button between two cards joins the one below.',
