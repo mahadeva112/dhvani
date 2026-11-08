@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
  *
  * The source sits outside desktop/icons/ so the full-size artwork is not
  * shipped inside the app. To change the logo, replace that file (any square
- * image with a transparent background) and run:
+ * image with a transparent background; it need not be square) and run:
  *
  *   npm run icon
  *
@@ -34,6 +34,11 @@ const PNG_TARGETS = [
   { file: path.join(ROOT, 'desktop', 'icons', 'icon.png'), size: 1024 },
   // Browser tab icon for the web and Docker distributions.
   { file: path.join(ROOT, 'public', 'favicon.png'), size: 256 },
+  // Icons in public/manifest.webmanifest: what Chrome puts on the taskbar and
+  // in the Start menu when the browser version is installed as an app. The
+  // app's own header and welcome window show the 192 one.
+  { file: path.join(ROOT, 'public', 'icon-192.png'), size: 192 },
+  { file: path.join(ROOT, 'public', 'icon-512.png'), size: 512 },
 ];
 
 /**

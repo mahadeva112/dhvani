@@ -1323,21 +1323,16 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
         {/* Header: name, how many steps work, Re-check */}
         <div className="relative flex items-center gap-3 @xl:gap-3.5 px-4 @xl:px-7 pt-5 @xl:pt-6 shrink-0">
-          <div className="w-10 h-10 @xl:w-11 @xl:h-11 rounded-xl bg-slate-100 text-slate-950 flex items-center justify-center shrink-0 shadow-lg shadow-black/30" aria-hidden="true">
-            {isSettings ? (
+          {isSettings ? (
+            <div className="w-10 h-10 @xl:w-11 @xl:h-11 rounded-xl bg-slate-100 text-slate-950 flex items-center justify-center shrink-0 shadow-lg shadow-black/30" aria-hidden="true">
               <Key className="w-5 h-5" />
-            ) : (
-              <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
-                <rect x="1" y="6" width="2" height="4" rx="1" />
-                <rect x="4.5" y="3" width="2" height="10" rx="1" />
-                <rect x="8" y="1" width="2" height="14" rx="1" />
-                <rect x="11.5" y="4.5" width="2" height="7" rx="1" />
-              </svg>
-            )}
-          </div>
+            </div>
+          ) : (
+            <img src="./icon-192.png" alt="" aria-hidden="true" draggable={false} className="w-10 h-10 @xl:w-11 @xl:h-11 shrink-0" />
+          )}
           <div className="min-w-0 flex-1">
             <h2 id="setup-title" className="text-[18px] @xl:text-[19px] font-semibold text-slate-100 leading-tight truncate">
-              {isSettings ? 'API settings' : 'Welcome to DHVANI'}
+              {isSettings ? 'API settings' : 'Welcome to Dhvani'}
             </h2>
             <p className="hidden @md:block text-[12.5px] text-slate-400 mt-0.5 truncate">
               {isSettings
