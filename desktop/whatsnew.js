@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.55',
+    changes: [
+      'A retake you use now goes where the parts of the line were: it is cut at the same words as the parts you placed, never inside a word, and each part starts where the old one did, under the original, with its gain and fades. A longer take moves into free room before it; if it still does not fit it is marked for you to fix, never cut. Pick "Like Sync" in the Retake window to place it as Sync would instead. Undo puts it back whole.',
+    ],
+  },
+  {
     version: '1.4.54',
     changes: [
       'A retake you use now sits the way Sync places a line: it is cut where it goes quiet and where the original speaker pauses, and each part lands with the original, while the lines either side stay where they are. It plays at the speed it was voiced. Undo puts it back whole, and "Cut and place like Sync" in the Retake window turns it off.',
