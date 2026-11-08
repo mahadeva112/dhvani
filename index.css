@@ -12,6 +12,18 @@
   --color-crystal-primary: #6366f1;
   --color-crystal-accent: #8b5cf6;
   --color-crystal-highlight: #38bdf8;
+
+  /*
+   * Classic's three contrast fixes (2026-11-08). slate-500, the small grey
+   * text, was 3.75:1 on a panel: lighter now, 5.2:1. indigo-500 under white
+   * text was 4.47:1: a touch deeper, 4.9:1. Borders were slate-800, the same
+   * colour as 433 raised surfaces, at 1.22:1 against a panel: they draw in
+   * their own colour, edge, a step lighter (border-edge). Graphite sets its
+   * own values below.
+   */
+  --color-slate-500: #7d8ba1;
+  --color-indigo-500: #5b5ef0;
+  --color-edge: #2b3a52;
   
   --shadow-glass: 0 8px 32px rgba(99, 102, 241, 0.12);
   --shadow-glass-dark: 0 10px 40px rgba(0, 0, 0, 0.45);
@@ -176,3 +188,40 @@
 .cut-dot { animation: cut-dot-in 160ms ease-out both; }
 .cut-dot.cut-dot-pause { animation: cut-dot-in 160ms ease-out both, cut-dot-pause 1.6s ease-in-out 160ms infinite; }
 @media (prefers-reduced-motion: reduce) { .cut-dot, .cut-dot.cut-dot-pause { animation: none; } }
+
+/*
+ * Graphite: a neutral charcoal dark theme, picked under Tools and settings >
+ * Appearance (components/theme.ts). Classic, the original slate and indigo
+ * look, is the default and needs nothing here. The app's colours are Tailwind
+ * classes, so Graphite swaps the slate scale (no blue tint) and the deep
+ * indigos the classes read, rather than touching every component. Every
+ * pairing the app uses most (slate-400/500 text on slate-900, white on
+ * indigo-500) reads at 4.5:1 or better here.
+ */
+:root[data-theme="graphite"] {
+  --color-slate-50: #f6f6f7;
+  --color-slate-100: #ececef;
+  --color-slate-200: #dcdde1;
+  --color-slate-300: #c6c8ce;
+  --color-slate-400: #abadb5;
+  --color-slate-500: #8e919a;
+  --color-slate-600: #63666f;
+  --color-slate-700: #45474e;
+  --color-slate-800: #36383e;
+  --color-slate-900: #212226;
+  --color-slate-950: #161719;
+  --color-indigo-500: #5361d6;
+  --color-indigo-600: #4651c0;
+  --color-indigo-950: #23253a;
+  --color-edge: #36383e;
+}
+:root[data-theme="graphite"] body {
+  background: radial-gradient(circle at top center, #232428 0%, #1b1c1f 40%, #161719 100%);
+  background-attachment: fixed;
+}
+:root[data-theme="graphite"] ::-webkit-scrollbar-track,
+:root[data-theme="graphite"] .custom-scrollbar::-webkit-scrollbar-track { background: rgba(33, 34, 38, 0.7); }
+:root[data-theme="graphite"] .custom-scrollbar-h::-webkit-scrollbar-track { background: #121315; }
+:root[data-theme="graphite"] .custom-scrollbar-h::-webkit-scrollbar-thumb { border-color: rgba(33, 34, 38, 0.9); }
+:root[data-theme="graphite"] .custom-scrollbar { scrollbar-color: rgba(83, 97, 214, 0.5) rgba(33, 34, 38, 0.7); }
+:root[data-theme="graphite"] .custom-scrollbar-h { scrollbar-color: rgba(83, 97, 214, 0.6) rgba(33, 34, 38, 0.9); }

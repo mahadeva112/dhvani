@@ -163,7 +163,7 @@ const scene = (section: SyncJoinSection, join: SyncJoinSettings, options: SyncOp
 };
 
 export const SyncSettingsDiagram: React.FC<{ section: SyncJoinSection; options: SyncOptions }> = ({ section, options }) => (
-  <figure className="rounded-xl border border-slate-800 bg-slate-950/50 px-4 pt-2 pb-2.5">
+  <figure className="rounded-xl border border-edge bg-slate-950/50 px-4 pt-2 pb-2.5">
     <svg viewBox="0 0 780 132" className="w-full h-auto max-h-36" aria-hidden="true">
       <text x={0} y={ROW_ORIGINAL + 17} className="fill-slate-500 text-[11px]">
         Original

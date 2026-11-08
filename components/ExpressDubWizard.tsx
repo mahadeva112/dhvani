@@ -346,7 +346,7 @@ const LiveClock: React.FC<LiveTimeProps> = ({ currentTime, isPlaying, getLiveTim
 );
 
 const railButton =
-  'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
+  'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
 /**
  * The step a job has got to: source until it is transcribed, review until
@@ -890,7 +890,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     if (totalPages <= 1) return null;
     return (
       <div className={`sticky bottom-0 z-20 py-2 bg-slate-900/95 backdrop-blur-sm ${inset}`}>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2 px-3 bg-slate-950 rounded-xl border border-slate-800 text-[11px] shadow-md">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2 px-3 bg-slate-950 rounded-xl border border-edge text-[11px] shadow-md">
         <div className="text-slate-400 font-medium">
           Cues <span className="text-indigo-400 font-bold">{(currentPage - 1) * itemsPerPage + 1} - {Math.min(filteredSegments.length, currentPage * itemsPerPage)}</span> of <span className="text-white font-bold">{filteredSegments.length}</span>
         </div>
@@ -900,7 +900,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             type="button"
             disabled={currentPage === 1}
             onClick={() => goToPage(1)}
-            className="p-1 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-default"
+            className="p-1 rounded-lg border border-edge text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-default"
             title="First Page"
           >
             <ChevronsLeft className="w-3.5 h-3.5" />
@@ -910,13 +910,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             type="button"
             disabled={currentPage === 1}
             onClick={() => goToPage(currentPage - 1)}
-            className="px-2 py-1 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-default"
+            className="px-2 py-1 rounded-lg border border-edge text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-default"
           >
             <ChevronLeft className="w-3.5 h-3.5" />
             <span>Previous</span>
           </button>
           
-          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-slate-900 border border-slate-800 font-medium">
+          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-slate-900 border border-edge font-medium">
             <span className="text-slate-400">Page</span>
             <input
               type="number"
@@ -929,7 +929,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   goToPage(val);
                 }
               }}
-              className="w-8 bg-slate-950 border border-slate-800 text-center rounded text-white font-bold text-xs focus:outline-none focus:border-indigo-500 py-0.5"
+              className="w-8 bg-slate-950 border border-edge text-center rounded text-white font-bold text-xs focus:outline-none focus:border-indigo-500 py-0.5"
             />
             <span className="text-slate-500">of {totalPages}</span>
           </div>
@@ -938,7 +938,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             type="button"
             disabled={currentPage === totalPages}
             onClick={() => goToPage(currentPage + 1)}
-            className="px-2 py-1 rounded-lg border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-default"
+            className="px-2 py-1 rounded-lg border border-edge text-slate-300 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all flex items-center gap-1 font-semibold cursor-default"
           >
             <span>Next</span>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -948,7 +948,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             type="button"
             disabled={currentPage === totalPages}
             onClick={() => goToPage(totalPages)}
-            className="p-1 rounded-lg border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-default"
+            className="p-1 rounded-lg border border-edge text-slate-400 hover:text-white hover:bg-slate-900 disabled:opacity-20 disabled:pointer-events-none transition-all cursor-default"
             title="Last Page"
           >
             <ChevronsRight className="w-3.5 h-3.5" />
@@ -2263,7 +2263,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             {/* Setup panel */}
             <aside
               aria-label="Dub setup"
-              className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden flex flex-col"
+              className="bg-slate-900/90 border border-edge rounded-2xl overflow-hidden flex flex-col"
             >
               <h2 className="px-4 sm:px-5 pt-4 text-[15px] font-semibold text-slate-100">Dub setup</h2>
 
@@ -2279,7 +2279,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         value={sourceLanguage}
                         onChange={(e) => onSourceLanguageChange?.(e.target.value)}
                         disabled={!onSourceLanguageChange}
-                        className="appearance-none w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
+                        className="appearance-none w-full h-10 bg-slate-950 border border-edge hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
                       >
                         <option value="" className="bg-slate-900">Auto detect</option>
                         <option value="English" className="bg-slate-900">English</option>
@@ -2308,7 +2308,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       onTargetLanguageChange(from);
                     }}
                     disabled={!onSourceLanguageChange || !sourceLanguage || sourceLanguage === 'English'}
-                    className="w-9 h-10 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-default"
+                    className="w-9 h-10 flex items-center justify-center rounded-xl border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-default"
                     title="Swap languages"
                     aria-label="Swap languages"
                   >
@@ -2324,7 +2324,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         id="express-wizard-lang-select"
                         value={targetLanguage}
                         onChange={(e) => onTargetLanguageChange(e.target.value)}
-                        className="appearance-none w-full h-10 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
+                        className="appearance-none w-full h-10 bg-slate-950 border border-edge hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
                       >
                         {languages.map((lang) => {
                           const code = typeof lang === 'string' ? lang : lang.code;
@@ -2349,7 +2349,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </div>
 
               {onMultiSpeakerInputChange && (
-                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
+                <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
                   <label className="flex items-start justify-between gap-3 cursor-default">
                     <span className="flex flex-col gap-0.5">
                       <span className="text-[13px] font-semibold text-slate-100">More than one person speaks</span>
@@ -2379,7 +2379,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         id="express-wizard-speaker-count"
                         value={speakerCount}
                         onChange={(e) => onSpeakerCountChange(Number(e.target.value))}
-                        className="h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
+                        className="h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
                       >
                         <option value={0} className="bg-slate-900">Detect</option>
                         {Array.from({ length: 9 }, (_, i) => i + 2).map((n) => (
@@ -2408,7 +2408,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </div>
               )}
 
-              <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
+              <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{multiSpeaker ? 'Main voice' : 'Voice'}</span>
                 <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
                 {voiceRate && <VoiceRateCard voiceRate={voiceRate} language={targetLanguage} />}
@@ -2434,7 +2434,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </div>
 
               {onSensitivityChange && (
-                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2">
+                <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2">
                   <div className="flex items-center justify-between text-[13px]">
                     <label htmlFor="express-wizard-pause" className="text-slate-200">
                       Pause detection
@@ -2459,13 +2459,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               )}
 
               {onOpenVoiceChanger && (
-                <div className="px-4 sm:px-5 py-4 border-t border-slate-800">
+                <div className="px-4 sm:px-5 py-4 border-t border-edge">
                   <button
                     type="button"
                     onClick={onOpenVoiceChanger}
-                    className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-default"
+                    className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-edge hover:bg-slate-800/60 text-left transition-colors cursor-default"
                   >
-                    <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                    <span className="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center shrink-0">
                       <AudioWaveform className="w-4 h-4" />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -2480,9 +2480,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <button
                       type="button"
                       onClick={onOpenTextToSpeech}
-                      className="mt-2 w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-default"
+                      className="mt-2 w-full flex items-center gap-3 p-2.5 rounded-xl border border-edge hover:bg-slate-800/60 text-left transition-colors cursor-default"
                     >
-                      <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                      <span className="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center shrink-0">
                         <Speech className="w-4 h-4" />
                       </span>
                       <span className="min-w-0 flex-1">
@@ -2497,7 +2497,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </div>
               )}
 
-              <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2.5">
+              <div className="mt-auto px-4 sm:px-5 py-4 border-t border-edge bg-slate-950/60 flex flex-col gap-2.5">
                 <button
                   type="button"
                   onClick={async () => {
@@ -2644,7 +2644,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             }
             toolbarExtra={
               linePreview && !hearingDub && !awaitingScript ? (
-                <div role="group" aria-label="Line speed" className="ml-1 flex p-0.5 gap-0.5 rounded-full border border-slate-800">
+                <div role="group" aria-label="Line speed" className="ml-1 flex p-0.5 gap-0.5 rounded-full border border-edge">
                   {(
                     [
                       ['line', 'On line', 'A stretched line shows its speed on it, and another wording under it when it sounds rushed or drags'],
@@ -2808,14 +2808,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] gap-4 lg:h-[calc(100vh-7rem)] lg:min-h-[600px]">
             <section
               aria-label="Translation cues"
-              className="flex flex-col min-h-0 h-[78vh] lg:h-auto bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
+              className="flex flex-col min-h-0 h-[78vh] lg:h-auto bg-slate-900/90 border border-edge rounded-2xl overflow-hidden"
             >
               {/* Toolbar */}
-              <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-3 border-b border-slate-800">
+              <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-3 border-b border-edge">
                 <div
                   role="group"
                   aria-label="View"
-                  className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5 max-w-full overflow-x-auto [scrollbar-width:none]"
+                  className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5 max-w-full overflow-x-auto [scrollbar-width:none]"
                 >
                   {REVIEW_VIEWS.map(({ id, label, Icon }) => (
                     <button
@@ -2856,7 +2856,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         placeholder={reviewMode === 'script' ? 'Find in script' : 'Find in cues'}
-                        className="w-full h-8 bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-7 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                        className="w-full h-8 bg-slate-950 border border-edge rounded-xl pl-8 pr-7 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
                       />
                       {searchQuery && (
                         <button
@@ -2886,7 +2886,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
                             pacingFilter === f.id
                               ? 'bg-slate-100 text-slate-900 border-slate-100'
-                              : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                              : 'border-edge text-slate-400 hover:text-slate-200 hover:border-slate-700'
                           }`}
                         >
                           {f.dot && <span className={`w-1.5 h-1.5 rounded-full ${f.dot}`} />}
@@ -2902,7 +2902,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <div
                     role="group"
                     aria-label="Text size"
-                    className="ml-auto flex items-center h-8 bg-slate-950 border border-slate-800 rounded-xl"
+                    className="ml-auto flex items-center h-8 bg-slate-950 border border-edge rounded-xl"
                   >
                     <button
                       type="button"
@@ -2940,7 +2940,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <button
                     type="button"
                     onClick={() => onOpenPhoneticKeyboard()}
-                    className={`${reviewMode === 'qa' ? 'ml-auto ' : ''}w-8 h-8 flex items-center justify-center rounded-xl border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default`}
+                    className={`${reviewMode === 'qa' ? 'ml-auto ' : ''}w-8 h-8 flex items-center justify-center rounded-xl border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default`}
                     title="Open the Indic phonetic keyboard"
                     aria-label="Open the Indic phonetic keyboard"
                   >
@@ -3038,7 +3038,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
           {/* Empty Filter State */}
           {reviewMode !== 'qa' && filteredSegments.length === 0 && (
-            <div className="m-3 p-8 rounded-2xl bg-slate-950/60 border border-dashed border-slate-800 text-center space-y-2">
+            <div className="m-3 p-8 rounded-2xl bg-slate-950/60 border border-dashed border-edge text-center space-y-2">
               <p className="text-sm font-semibold text-slate-300">No dialogue cues matched your filter</p>
               <p className="text-xs text-slate-500">Try changing your search query or pacing filter.</p>
               <button
@@ -3058,9 +3058,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           {/* ========================================================================= */}
           {reviewMode === 'table' && filteredSegments.length > 0 && (
             <div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-slate-800 text-[11px] text-slate-400">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-edge text-[11px] text-slate-400">
                 <span>Group rows</span>
-                <div role="group" aria-label="Group rows" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+                <div role="group" aria-label="Group rows" className="flex bg-slate-950 border border-edge rounded-lg p-0.5 gap-0.5">
                   {[
                     { on: false, label: 'Off' },
                     { on: true, label: 'By passage' },
@@ -3083,7 +3083,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <span title="A new passage starts where the original speaker pauses this long, or the speaker changes">
                       Split at original pauses over
                     </span>
-                    <div role="group" aria-label="Pause that starts a passage" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+                    <div role="group" aria-label="Pause that starts a passage" className="flex bg-slate-950 border border-edge rounded-lg p-0.5 gap-0.5">
                       {PASSAGE_PAUSES.map((p) => (
                         <button
                           key={p}
@@ -3113,7 +3113,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   </>
                 )}
               </div>
-              <div className="hidden md:grid grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-4 px-4 py-2 sticky top-0 z-10 bg-slate-900 border-b border-slate-800 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+              <div className="hidden md:grid grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-4 px-4 py-2 sticky top-0 z-10 bg-slate-900 border-b border-edge text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
                 <span>#</span>
                 <span>Time</span>
                 <span>Original</span>
@@ -3147,9 +3147,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <>
                       {passage.index > 0 && !continued && (
                         <div className="flex items-center gap-2 px-4 pt-3 pb-1 font-mono text-[10.5px] text-slate-600">
-                          <span className="flex-1 border-t border-dashed border-slate-800" />
+                          <span className="flex-1 border-t border-dashed border-edge" />
                           {passage.pauseBefore.toFixed(1)}s pause in original
-                          <span className="flex-1 border-t border-dashed border-slate-800" />
+                          <span className="flex-1 border-t border-dashed border-edge" />
                         </div>
                       )}
                       <button
@@ -3163,7 +3163,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           })
                         }
                         aria-expanded={!folded}
-                        className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 bg-slate-900/80 border-y border-slate-800 text-left text-xs hover:bg-slate-800/60 cursor-default"
+                        className="w-full flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 bg-slate-900/80 border-y border-edge text-left text-xs hover:bg-slate-800/60 cursor-default"
                         title={folded ? 'Show this passage' : 'Fold this passage'}
                       >
                         {folded ? (
@@ -3203,7 +3203,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   <div
                     id={`cue-card-${seg.id}`}
                     className={`group relative grid grid-cols-[auto_minmax(0,1fr)_auto] md:grid-cols-[3.5rem_5.5rem_minmax(0,1fr)_minmax(0,1.15fr)_5.5rem] gap-x-4 gap-y-2 px-4 py-3 border-b transition-colors ${
-                      String(cueEditing.boundaryId) === String(seg.id) ? 'border-b-indigo-400' : 'border-slate-800'
+                      String(cueEditing.boundaryId) === String(seg.id) ? 'border-b-indigo-400' : 'border-edge'
                     } ${
                       isCueActive ? 'bg-indigo-950/40' : 'hover:bg-slate-800/30'
                     }`}
@@ -3430,7 +3430,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           const tone = note.tone || (unit.status === 'long' ? 'text-amber-300' : unit.status === 'short' ? 'text-sky-300' : 'text-slate-400');
                           const firstCue = cueIndexById.get(String(unit.cueIds[0]));
                           return (
-                            <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-2">
+                            <div className="mt-2 rounded-lg border border-edge bg-slate-950/40 px-2.5 py-2">
                               <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Sync fit</span>
                                 <span className="font-mono text-[11px] text-slate-300 tabular-nums">{fitLabel(unit)}</span>
@@ -3507,7 +3507,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-3 px-4 py-2 border-t border-slate-800 text-[11px] text-slate-500">
+              <div className="flex items-center justify-between gap-3 px-4 py-2 border-t border-edge text-[11px] text-slate-500">
                 <span className="tabular-nums">
                   {reviewMode === 'qa'
                     ? `${segments.length} cues`
@@ -3527,7 +3527,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             {/* Review panel */}
             <aside
               aria-label="Review"
-              className="flex flex-col min-h-0 bg-slate-900/90 border border-slate-800 rounded-2xl overflow-clip"
+              className="flex flex-col min-h-0 bg-slate-900/90 border border-edge rounded-2xl overflow-clip"
             >
               <div className="flex items-center justify-between gap-2 px-4 sm:px-5 pt-4">
                 <h2 className="text-[15px] font-semibold text-slate-100">Review</h2>
@@ -3543,7 +3543,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
                 {/* Sync fit: how the lines are likely to sit once Sync places them, worked out as the script changes */}
                 {linePreview && !awaitingScript && (
-                  <div className="px-4 sm:px-5 py-4 flex flex-col gap-2 border-b border-slate-800">
+                  <div className="px-4 sm:px-5 py-4 flex flex-col gap-2 border-b border-edge">
                     <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Sync fit</span>
                     <div className="grid grid-cols-3 gap-2">
                       {[
@@ -3551,7 +3551,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         { label: 'tight', value: linePreview.summary.tight, tone: linePreview.summary.tight > 0 ? 'text-amber-300' : 'text-slate-100' },
                         { label: 'too long', value: linePreview.summary.long, tone: linePreview.summary.long > 0 ? 'text-rose-300' : 'text-slate-100' },
                       ].map((m) => (
-                        <div key={m.label} className="rounded-lg bg-slate-950/60 border border-slate-800 px-2.5 py-1.5">
+                        <div key={m.label} className="rounded-lg bg-slate-950/60 border border-edge px-2.5 py-1.5">
                           <span className={`block text-[19px] font-semibold tabular-nums leading-tight ${m.tone}`}>{m.value}</span>
                           <span className="text-[11px] text-slate-400">{m.label}</span>
                         </div>
@@ -3619,7 +3619,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 )}
 
                 {/* Translation */}
-                <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-2.5">
+                <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Translation</span>
                     <span
@@ -3635,7 +3635,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       {scriptIsCustom ? 'Your script' : 'Automatic'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
+                  <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-edge">
                     <span className="w-8 h-8 rounded-lg bg-indigo-500/15 text-indigo-300 flex items-center justify-center shrink-0">
                       <SlidersHorizontal className="w-4 h-4" />
                     </span>
@@ -3651,7 +3651,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         if (onOpenPromptModal) onOpenPromptModal();
                         else setIsLocalPromptModalOpen(true);
                       }}
-                      className="px-2 py-1 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 cursor-default"
+                      className="px-2 py-1 rounded-lg border border-edge bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 cursor-default"
                     >
                       Change
                     </button>
@@ -3665,7 +3665,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       id="express-step2-lang-select"
                       value={targetLanguage}
                       onChange={(e) => onTargetLanguageChange(e.target.value)}
-                      className="flex-1 min-w-0 h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default"
+                      className="flex-1 min-w-0 h-8 bg-slate-950 border border-edge rounded-lg px-2 text-xs font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default"
                     >
                       {languages.map((lang) => {
                         const code = typeof lang === 'string' ? lang : lang.code;
@@ -3727,7 +3727,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
                 {/* Tools */}
                 {(onSensitivityChange || onOpenVoiceChanger || onOpenTextToSpeech) && (
-                  <div className="px-4 sm:px-5 py-4 border-t border-slate-800 flex flex-col gap-3">
+                  <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-3">
                     {onSensitivityChange && (
                       <PauseSensitivityControl
                         variant="compact"
@@ -3740,9 +3740,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <button
                         type="button"
                         onClick={onOpenVoiceChanger}
-                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-default"
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-edge hover:bg-slate-800/60 text-left transition-colors cursor-default"
                       >
-                        <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                        <span className="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center shrink-0">
                           <AudioWaveform className="w-4 h-4" />
                         </span>
                         <span className="min-w-0 flex-1">
@@ -3756,9 +3756,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       <button
                         type="button"
                         onClick={onOpenTextToSpeech}
-                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800/60 text-left transition-colors cursor-default"
+                        className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-edge hover:bg-slate-800/60 text-left transition-colors cursor-default"
                       >
-                        <span className="w-8 h-8 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                        <span className="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center shrink-0">
                           <Speech className="w-4 h-4" />
                         </span>
                         <span className="min-w-0 flex-1">
@@ -3779,7 +3779,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 The footer sticks to the bottom of the window, so the button shows
                 even while the panel's end is still below the fold.
               */}
-              <div className="sticky bottom-0 z-10 px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/95 backdrop-blur flex flex-col gap-2">
+              <div className="sticky bottom-0 z-10 px-4 sm:px-5 py-4 border-t border-edge bg-slate-950/95 backdrop-blur flex flex-col gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -4041,9 +4041,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 )}
               </p>
             )}
-            <ul className="border-t border-slate-800">
+            <ul className="border-t border-edge">
               {readyRows.map((row) => (
-                <li key={row.key} className="flex items-center gap-2.5 py-2.5 border-b border-slate-800">
+                <li key={row.key} className="flex items-center gap-2.5 py-2.5 border-b border-edge">
                   <span className={`w-2 h-2 rounded-full shrink-0 ${row.dot}`} />
                   <span className="min-w-0 flex-1">
                     <span className="block text-[13px] font-semibold text-slate-100">{row.title}</span>
@@ -4201,7 +4201,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             <select
               value={playbackRate}
               onChange={(e) => onPlaybackRateChange(Number(e.target.value))}
-              className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
+              className="h-8 bg-slate-950 border border-edge rounded-lg px-2 font-mono text-xs text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
               aria-label="Playback speed"
             >
               {[0.75, 1, 1.25, 1.5].map((r) => (
@@ -4218,7 +4218,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   if (!hasDub || !reserveReviewWindow((doc) => reviewVideo.pick(doc))) reviewVideo.pick();
                 }}
                 title="Watch a local video while the dub plays. It stays silent and is not saved with the project."
-                className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
+                className="h-8 px-2.5 rounded-lg border border-edge text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
               >
                 <Video className="w-3.5 h-3.5" /> Add video
               </button>
@@ -4230,7 +4230,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   if (hasDub) reserveReviewWindow();
                   setReviewVideoHidden(false);
                 }}
-                className="h-8 px-2.5 rounded-lg border border-slate-800 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
+                className="h-8 px-2.5 rounded-lg border border-edge text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
               >
                 <Video className="w-3.5 h-3.5" /> Show video
               </button>
@@ -4278,7 +4278,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           {report && !isSyncing && autoFitPanel}
           {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
           {hasDub && (
-            <section aria-label="Player" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
+            <section aria-label="Player" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
               {report && canEditTiming && !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport) && (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Player</span>
@@ -4309,7 +4309,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         disabled={!projectHistory.labels.undo}
                         title={projectHistory.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Nothing to undo'}
                         aria-label="Undo"
-                        className="h-8 w-8 rounded-lg border border-slate-800 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
+                        className="h-8 w-8 rounded-lg border border-edge flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
                       >
                         <Undo2 className="w-4 h-4" />
                       </button>
@@ -4319,7 +4319,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         disabled={!projectHistory.labels.redo}
                         title={projectHistory.labels.redo ? `Redo: ${projectHistory.labels.redo} (Ctrl + Shift + Z)` : 'Nothing to redo'}
                         aria-label="Redo"
-                        className="h-8 w-8 rounded-lg border border-slate-800 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
+                        className="h-8 w-8 rounded-lg border border-edge flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
                       >
                         <Redo2 className="w-4 h-4" />
                       </button>
@@ -4458,7 +4458,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <button
                 type="button"
                 onClick={prevCue}
-                className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+                className="w-8 h-8 rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
                 aria-label="Previous cue"
               >
                 <ChevronsLeft className="w-4 h-4" />
@@ -4474,7 +4474,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <button
                 type="button"
                 onClick={nextCue}
-                className="w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+                className="w-8 h-8 rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
                 aria-label="Next cue"
               >
                 <ChevronsRight className="w-4 h-4" />
@@ -4492,7 +4492,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </span>
               {!report && (
                 // Before the first sync there are no lanes, so no track strips: pick the track here.
-                <div role="group" aria-label="Listen to" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+                <div role="group" aria-label="Listen to" className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
                   {[
                     { id: 'source' as const, label: 'Original', dot: 'bg-cyan-400' },
                     { id: 'synth' as const, label: 'Dub', dot: 'bg-indigo-400' },
@@ -4537,7 +4537,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           )}
 
           {multiSpeaker && report && (
-            <section aria-label="Speakers" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
+            <section aria-label="Speakers" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-1">Cast</span>
                 {speakers.map((s) => (
@@ -4643,7 +4643,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             <div className="flex flex-col gap-4 min-w-0 min-h-0">
               {/* Voice, once synced: folded to one line until wanted. Before the first sync it is on the Dub settings card. */}
               {report && (
-              <aside id="dub-voice" aria-label="Voice and delivery" className="flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden scroll-mt-4">
+              <aside id="dub-voice" aria-label="Voice and delivery" className="flex flex-col bg-slate-900/90 border border-edge rounded-2xl overflow-hidden scroll-mt-4">
                 <div className="flex items-center justify-between gap-2 px-4 sm:px-5 pt-4">
                   <h2 className="text-[15px] font-semibold text-slate-100">Voice and delivery</h2>
                   {report && (
@@ -4700,7 +4700,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             setCastPickFor(null);
                             setIsVoicePickerOpen(true);
                           }}
-                          className="px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0"
+                          className="px-2.5 py-1.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0"
                         >
                           Change
                         </button>
@@ -4717,7 +4717,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 aria-pressed={on}
                                 onClick={() => onElVoiceIdChange(fav.id)}
                                 className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-default ${
-                                  on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                                  on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-edge text-slate-300 hover:bg-slate-800/60'
                                 }`}
                                 title={fav.name}
                               >
@@ -4739,7 +4739,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                             onChange={(e) => onElModelIdChange(e.target.value)}
                             disabled={isSyncing}
                             title={hasDub ? 'A new model applies the next time you sync.' : undefined}
-                            className="min-w-0 max-w-[65%] h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
+                            className="min-w-0 max-w-[65%] h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
                           >
                             {!elModels.some((m) => m.model_id === elModelId) && (
                               <option value={elModelId} className="bg-slate-900">{ttsModelName}</option>
@@ -4777,7 +4777,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                                 role="group"
                                 aria-labelledby="dub-voice-expression"
                                 title={hasDub ? 'Applies the next time you sync.' : undefined}
-                                className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5"
+                                className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5"
                               >
                                 {([
                                   { id: 'off', label: 'Off' },

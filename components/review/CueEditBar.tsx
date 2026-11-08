@@ -350,7 +350,7 @@ const Key = ({ children }: { children: React.ReactNode }) => (
 );
 
 const barButton =
-  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-slate-800 text-xs text-slate-300 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-default';
+  'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-edge text-xs text-slate-300 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-default';
 
 /**
  * The strip under the waveform: Split and Undo, what the last edit did, and,
@@ -372,7 +372,7 @@ export function CueEditBar({
   const b = i >= 0 ? segments[i + 1] : null;
 
   return (
-    <div className="bg-slate-900/90 border border-slate-800 rounded-2xl px-3 py-2 text-xs">
+    <div className="bg-slate-900/90 border border-edge rounded-2xl px-3 py-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -442,7 +442,7 @@ function CutTools({ editing, a, b, n }: { editing: CueEditing; a: AudioSegment; 
   const dub = [...firstDub, ...targetTextOf(b).split(/\s+/).filter(Boolean)];
 
   return (
-    <div className="mt-2 pt-2 border-t border-slate-800 space-y-2">
+    <div className="mt-2 pt-2 border-t border-edge space-y-2">
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="font-medium text-slate-200">
           Cut #{n} | #{n + 1}

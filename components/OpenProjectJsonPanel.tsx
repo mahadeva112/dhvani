@@ -92,7 +92,7 @@ export const OpenProjectJsonPanel: React.FC<OpenProjectJsonPanelProps> = ({ pend
   return (
     <CenteredPanel open onClose={close} label={`Open ${name}`} className="max-w-[27rem] p-5 gap-3">
       <div className="flex items-center gap-2.5">
-        <span className="w-9 h-9 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center shrink-0">
+        <span className="w-9 h-9 rounded-lg bg-slate-950 border border-edge flex items-center justify-center shrink-0">
           <FileJson className="w-4 h-4 text-indigo-300" aria-hidden="true" />
         </span>
         <div className="min-w-0">
@@ -102,15 +102,15 @@ export const OpenProjectJsonPanel: React.FC<OpenProjectJsonPanelProps> = ({ pend
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+        <div className="p-2 rounded-lg bg-slate-950/60 border border-edge">
           <div className="font-mono text-[15px] font-semibold text-slate-100 tabular-nums">{segments.length}</div>
           <div className="text-[10.5px] text-slate-500">{segments.length === 1 ? 'segment' : 'segments'}</div>
         </div>
-        <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+        <div className="p-2 rounded-lg bg-slate-950/60 border border-edge">
           <div className="font-mono text-[15px] font-semibold text-slate-100 tabular-nums">{expected ? formatLength(expected) : '—'}</div>
           <div className="text-[10.5px] text-slate-500">long</div>
         </div>
-        <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+        <div className="p-2 rounded-lg bg-slate-950/60 border border-edge">
           <div className="text-[13px] font-semibold text-slate-100 mt-0.5 truncate">{project.detectedLanguage || project.sourceLanguage || 'Transcript'}</div>
           <div className="text-[10.5px] text-slate-500">{translated ? `translated to ${project.language}` : 'not translated'}</div>
         </div>
@@ -149,7 +149,7 @@ export const OpenProjectJsonPanel: React.FC<OpenProjectJsonPanelProps> = ({ pend
       />
 
       {working === 'reading' && (
-        <div role="status" className="flex items-center gap-2 p-2.5 rounded-lg border border-slate-800 text-[11.5px] text-slate-300">
+        <div role="status" className="flex items-center gap-2 p-2.5 rounded-lg border border-edge text-[11.5px] text-slate-300">
           <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
           Reading the media…
         </div>

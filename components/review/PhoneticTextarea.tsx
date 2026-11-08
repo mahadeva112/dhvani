@@ -40,7 +40,7 @@ export const PhoneticSpellings: React.FC<{
           </button>
         ))}
       </div>
-      <div className="mt-1.5 flex gap-3 border-t border-slate-800 px-1 pt-1 text-[10.5px] text-slate-500">
+      <div className="mt-1.5 flex gap-3 border-t border-edge px-1 pt-1 text-[10.5px] text-slate-500">
         <span>Space use</span>
         <span>1–5 pick</span>
         <span>Esc keep English</span>

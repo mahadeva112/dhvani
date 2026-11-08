@@ -59,7 +59,7 @@ export const SpeakerVoiceRows: React.FC<{
           <div
             key={speaker.name}
             className={`grid grid-cols-[34px_minmax(0,1fr)] sm:grid-cols-[34px_minmax(0,1fr)_minmax(0,13rem)_auto] gap-x-3 gap-y-2 items-center p-2.5 rounded-xl border ${
-              keep ? 'border-slate-800 bg-transparent' : 'border-slate-700 bg-slate-950/60'
+              keep ? 'border-edge bg-transparent' : 'border-slate-700 bg-slate-950/60'
             }`}
           >
             <span className={`w-[34px] h-[34px] rounded-full flex items-center justify-center text-[12px] font-semibold ${toneOf(names, speaker.name).avatar}`}>
@@ -91,7 +91,7 @@ export const SpeakerVoiceRows: React.FC<{
               type="button"
               disabled={disabled}
               onClick={() => onBrowse(speaker.name)}
-              className="hidden sm:block h-9 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 cursor-default"
+              className="hidden sm:block h-9 px-2.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 disabled:opacity-40 cursor-default"
             >
               Browse
             </button>
@@ -99,7 +99,7 @@ export const SpeakerVoiceRows: React.FC<{
         );
       })}
       {hasOriginalClips && (
-        <div className="grid grid-cols-[34px_minmax(0,1fr)] gap-3 items-center p-2.5 rounded-xl border border-dashed border-slate-800">
+        <div className="grid grid-cols-[34px_minmax(0,1fr)] gap-3 items-center p-2.5 rounded-xl border border-dashed border-edge">
           <span className={`w-[34px] h-[34px] rounded-full flex items-center justify-center text-[12px] font-semibold ${ORIGINAL_TONE.avatar}`}>O</span>
           <span className="min-w-0">
             <span className="block text-[13px] font-semibold text-slate-100">Original audio</span>
@@ -149,7 +149,7 @@ export const LineLanes: React.FC<{
             <span className="text-[11px] text-slate-400 truncate" title={speaker}>
               {speaker === ORIGINAL_LANE ? 'Original' : speaker}
             </span>
-            <div className="relative h-[26px] rounded-md bg-slate-900 border border-slate-800 overflow-hidden">
+            <div className="relative h-[26px] rounded-md bg-slate-900 border border-edge overflow-hidden">
               {clips
                 .filter((c) => c.speaker === speaker)
                 .map((clip) => {
@@ -224,7 +224,7 @@ export const LineRunSummary: React.FC<{
           { label: 'Fitted in place', value: String(fitted), tone: 'text-emerald-300' },
           { label: 'To check', value: String(flagged.length), tone: flagged.length ? 'text-amber-300' : 'text-slate-100' },
         ].map((m) => (
-          <div key={m.label} className="rounded-[10px] bg-slate-900 border border-slate-800 px-2.5 py-2">
+          <div key={m.label} className="rounded-[10px] bg-slate-900 border border-edge px-2.5 py-2">
             <span className={`block text-[17px] font-semibold tabular-nums ${m.tone}`}>{m.value}</span>
             <span className="block text-[11px] text-slate-400">{m.label}</span>
           </div>
@@ -245,7 +245,7 @@ export const LineRunSummary: React.FC<{
         );
       })}
       {silent > 0 && (
-        <div className="flex items-start gap-2 px-2.5 py-2 rounded-[10px] bg-slate-900 border border-slate-800 text-[12px] text-slate-300">
+        <div className="flex items-start gap-2 px-2.5 py-2 rounded-[10px] bg-slate-900 border border-edge text-[12px] text-slate-300">
           <Minus className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-px" />
           {silent} line{silent === 1 ? '' : 's'} came back silent and kept the old voice.
         </div>

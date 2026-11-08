@@ -521,7 +521,7 @@ export const useLineFixes = ({
 
 /** Quick or Expert: how the preview times the dub lines. */
 export const EstimateSwitch: React.FC<{ method: EstimateMethod; onChange: (method: EstimateMethod) => void }> = ({ method, onChange }) => (
-  <div role="group" aria-label="Estimate" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+  <div role="group" aria-label="Estimate" className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
     {[
       { id: 'quick' as const, label: 'Quick', hint: 'Characters at the voice’s rate: the estimate as it has always been' },
       { id: 'expert' as const, label: 'Expert', hint: 'Syllables at the voice’s rate, with pauses, a fast to slow range and where the lips close' },
@@ -581,7 +581,7 @@ export const ExpertLineDetail: React.FC<{ unit: SyncPreviewUnit }> = ({ unit }) 
     <div className="mt-2.5 flex flex-col gap-2">
       <div className="flex flex-wrap gap-1">
         {x.words.map((w, n) => (
-          <span key={n} className="text-[13px] text-slate-200 bg-slate-900 border border-slate-800 rounded-md px-1.5 py-0.5">
+          <span key={n} className="text-[13px] text-slate-200 bg-slate-900 border border-edge rounded-md px-1.5 py-0.5">
             {w.text}
             <sup className="ml-0.5 font-mono text-[9.5px] text-indigo-300">{w.syllables}</sup>
           </span>
@@ -609,7 +609,7 @@ export const ExpertLineDetail: React.FC<{ unit: SyncPreviewUnit }> = ({ unit }) 
         )}
       </div>
       {/* The line's Rythmo band, against its slot */}
-      <div className="relative h-12 rounded-lg bg-indigo-950/30 border border-slate-800 overflow-hidden" aria-hidden="true">
+      <div className="relative h-12 rounded-lg bg-indigo-950/30 border border-edge overflow-hidden" aria-hidden="true">
         <span className="absolute top-1 bottom-1 left-0 rounded border border-dashed border-slate-600" style={{ width: `${pct(unit.slot)}%` }} />
         {unit.estimate > unit.slot && (
           <span
@@ -803,7 +803,7 @@ export const WordingButtons: React.FC<{
             className={`${compact ? 'h-6 px-2' : 'h-7 px-2.5'} rounded-md border text-[11.5px] cursor-default transition-colors ${
               isMarked
                 ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-200 hover:bg-indigo-500/20'
-                : 'border-slate-800 text-slate-300 hover:bg-slate-800'
+                : 'border-edge text-slate-300 hover:bg-slate-800'
             }`}
           >
             {label}
@@ -899,7 +899,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           <button
             type="button"
             onClick={onEdit}
-            className="h-7 px-2.5 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-xs text-slate-300 cursor-default"
+            className="h-7 px-2.5 flex items-center gap-1 rounded-md border border-edge hover:bg-slate-800 text-xs text-slate-300 cursor-default"
           >
             <Pencil className="w-3 h-3" /> Edit it myself
           </button>
@@ -916,14 +916,14 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
         <div role="status" className="mt-2 flex flex-wrap items-center gap-2 min-h-7 text-xs text-slate-300">
           <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin" /> Asking the text model for{' '}
           {state.count > 1 ? `${state.count} ${kind} wordings` : `a${kind === 'other' ? 'n' : ''} ${kind} wording`}…
-          <button type="button" onClick={onStop} className="ml-1 h-6 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-400 cursor-default">
+          <button type="button" onClick={onStop} className="ml-1 h-6 px-2 rounded-md border border-edge hover:bg-slate-800 text-[11.5px] text-slate-400 cursor-default">
             Stop
           </button>
         </div>
       )}
 
       {state.kind === 'draft' && draftBadge && (
-        <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
+        <div className="mt-2 rounded-lg border border-edge bg-slate-950/60 p-2.5">
           {state.options && state.options.length > 1 && (
             <div className="mb-2">
               <span className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1">
@@ -942,7 +942,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
                       aria-checked={picked}
                       onClick={() => onPick(option)}
                       className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-default ${
-                        picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/70'
+                        picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-edge hover:bg-slate-800/70'
                       }`}
                     >
                       <span
@@ -1006,7 +1006,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
             value={state.text}
             onChange={onDraft}
             rows={2}
-            className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
+            className="w-full resize-y bg-slate-900 border border-edge rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
           />
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
             <button
@@ -1021,7 +1021,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
             <button
               type="button"
               onClick={() => onSuggest()}
-              className="h-7 px-2 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
+              className="h-7 px-2 rounded-md border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
             >
               {state.options && state.options.length > 0 ? 'Another' : 'Suggest one'}
             </button>
@@ -1063,7 +1063,7 @@ export const LineFixControls: React.FC<LineFixControlsProps> = ({
           <button
             type="button"
             onClick={onUndo}
-            className="h-6 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
+            className="h-6 px-2 flex items-center gap-1 rounded-md border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
           >
             <RotateCcw className="w-3 h-3" /> Undo
           </button>
@@ -1098,7 +1098,7 @@ export const useLaneView = () => {
 export const LaneViewSwitch: React.FC<{ view: LaneView; onChange: (view: LaneView) => void }> = ({ view, onChange }) => {
   const shown = view;
   return (
-  <div role="group" aria-label="Lane view" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+  <div role="group" aria-label="Lane view" className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
     {[
       { id: 'wave' as const, label: 'Wave', hint: "The original's audio above; below, each dub line as a wave: a swell for each word, flat where the voice is likely to pause. A guess from the text; nothing is voiced yet." },
       { id: 'blocks' as const, label: 'Blocks', hint: "Each word as a box: the original's where it is said, the dub's as wide as it is likely to take, red past the line's slot." },
@@ -2421,7 +2421,7 @@ export const StretchCard: React.FC<{
 }> = ({ unit, cps, fix, onStretch }) => {
   if (!unit) {
     return (
-      <div className="rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 text-[12.5px] text-slate-400">
+      <div className="rounded-2xl border border-edge bg-slate-900/90 px-4 py-3 text-[12.5px] text-slate-400">
         Pick a dub line, or drag its edge, to see its speed here. Faster than {RUSHED_RATE}× or slower than {SLOW_RATE}×, another wording is offered.
       </div>
     );
@@ -2434,7 +2434,7 @@ export const StretchCard: React.FC<{
   const offer = zone === 'rushed' ? 'shorter' : zone === 'slow' ? 'longer' : null;
   const started = fix && fix.state.kind !== 'idle';
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900/90 px-4 py-3 flex flex-wrap gap-x-8 gap-y-3 items-start">
+    <div className="rounded-2xl border border-edge bg-slate-900/90 px-4 py-3 flex flex-wrap gap-x-8 gap-y-3 items-start">
       <div className="min-w-[220px] flex-1 max-w-[360px]">
         <div className="text-[11.5px] text-slate-500">
           <span className="font-mono font-semibold" style={{ color: hueOf(unit.index) }}>
@@ -2722,7 +2722,7 @@ export const PreviewTimeline: React.FC<{
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-2">
         {expert && (
-          <div role="group" aria-label="Dub lane" className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5">
+          <div role="group" aria-label="Dub lane" className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
             {[
               { id: 'bars' as const, label: 'Bars', hint: 'Each line as a bar, with a fast to slow read under it' },
               { id: 'rythmo' as const, label: 'Rythmo', hint: 'The dub text on the timeline, each word as wide as the time it takes. Zoom in to read short lines.' },
@@ -2822,9 +2822,9 @@ export const PreviewTimeline: React.FC<{
         />
       </div>
       {offClockNote ? (
-        <div className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-[12px] text-slate-300">{offClockNote}</div>
+        <div className="rounded-xl border border-edge bg-slate-950/60 px-3 py-2 text-[12px] text-slate-300">{offClockNote}</div>
       ) : (
-        <div className="min-h-[2.75rem] rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-1.5 text-[12px]" aria-live="polite">
+        <div className="min-h-[2.75rem] rounded-xl border border-edge bg-slate-950/60 px-3 py-1.5 text-[12px]" aria-live="polite">
           {current ? (
             <>
               <div className="flex flex-wrap items-center gap-x-3 font-mono tabular-nums">

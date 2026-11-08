@@ -38,7 +38,7 @@ const Row: React.FC<{ name: React.ReactNode; note?: string; badge?: React.ReactN
 }) => {
   const dense = useContext(DenseContext);
   return (
-    <div className={`flex items-center gap-4 border-b border-slate-800/70 last:border-b-0 ${dense ? 'py-1' : 'py-3.5'}`} title={title}>
+    <div className={`flex items-center gap-4 border-b border-edge/70 last:border-b-0 ${dense ? 'py-1' : 'py-3.5'}`} title={title}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-[13px] font-semibold text-slate-100">
           {name}
@@ -75,7 +75,7 @@ const Seg = <T extends string>({
 }) => {
   const dense = useContext(DenseContext);
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex shrink-0 gap-0.5 p-[3px] rounded-[11px] bg-slate-950 border border-slate-800">
+    <div role="radiogroup" aria-label={label} className="inline-flex shrink-0 gap-0.5 p-[3px] rounded-[11px] bg-slate-950 border border-edge">
       {choices.map((c) => {
         const on = c.id === value;
         return (
@@ -355,7 +355,7 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
   const voiceBlock = (
     <>
       {cast && <div className="pt-3">{cast}</div>}
-      <div className={`flex items-center gap-3 border-b border-slate-800/70 ${pro ? 'pt-3 pb-2.5' : 'pt-4 pb-3.5'}`}>
+      <div className={`flex items-center gap-3 border-b border-edge/70 ${pro ? 'pt-3 pb-2.5' : 'pt-4 pb-3.5'}`}>
         <div className="min-w-0 flex-1">
           {multiSpeaker && <span className="block mb-1 text-[10.5px] uppercase tracking-[.09em] font-semibold text-slate-500">Main voice</span>}
           <SelectedVoiceSummary voiceId={voiceId} availableVoices={availableVoices} />
@@ -411,7 +411,7 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
             onChange={(e) => onModelChange(e.target.value)}
             disabled={disabled}
             aria-label="Model"
-            className="max-w-[14rem] h-8 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-[10px] px-2.5 text-[12.5px] font-semibold text-slate-100 truncate focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
+            className="max-w-[14rem] h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-[10px] px-2.5 text-[12.5px] font-semibold text-slate-100 truncate focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
           >
             {!models.some((m) => m.model_id === modelId) && <option value={modelId} className="bg-slate-900">{modelName}</option>}
             {models.map((m) => (
@@ -508,15 +508,15 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
 
   return (
     <DenseContext.Provider value={pro}>
-      <section aria-label="Dub settings" className="@container flex flex-col min-h-0 h-full bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden">
-        <div className="flex items-center gap-4 px-5 py-3.5 border-b border-slate-800">
+      <section aria-label="Dub settings" className="@container flex flex-col min-h-0 h-full bg-slate-900/90 border border-edge rounded-2xl overflow-hidden">
+        <div className="flex items-center gap-4 px-5 py-3.5 border-b border-edge">
           <div className="min-w-0 flex-1">
             <h2 className="text-[15px] font-semibold text-slate-100">Dub settings</h2>
             <p className="text-xs text-slate-400">
               {pro ? 'Every setting Dub & sync uses. Gate levels, pads and fades are in All sync settings.' : 'The choices that change the dub most. Pro shows every setting.'}
             </p>
           </div>
-          <div role="radiogroup" aria-label="Settings view" className="flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950 border border-slate-800">
+          <div role="radiogroup" aria-label="Settings view" className="flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950 border border-edge">
             {(['simple', 'pro'] as const).map((v) => (
               <button
                 key={v}
@@ -601,7 +601,7 @@ export const DubSettingsCard: React.FC<DubSettingsCardProps> = ({
           )}
         </div>
 
-        <div className="flex items-center gap-3 px-5 py-3 border-t border-slate-800 text-xs text-slate-500">
+        <div className="flex items-center gap-3 px-5 py-3 border-t border-edge text-xs text-slate-500">
           <span className="min-w-0 flex-1 truncate">
             {pro || onByDefault.length === 0
               ? 'Changes here apply to the next Dub & sync.'

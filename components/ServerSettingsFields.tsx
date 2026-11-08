@@ -76,7 +76,7 @@ export const ServerSettingsFields: React.FC<ServerSettingsFieldsProps> = ({
         onClick={() => setIsOpen((open) => !open)}
         aria-expanded={isOpen}
         className={`w-full h-10 flex items-center gap-2 px-3.5 rounded-xl border text-[12.5px] transition-colors cursor-default ${
-          isOpen ? 'border-indigo-500/60 bg-slate-800/50 text-slate-100' : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+          isOpen ? 'border-indigo-500/60 bg-slate-800/50 text-slate-100' : 'border-edge text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
         }`}
       >
         <Settings2 className="w-4 h-4 shrink-0" />
@@ -142,7 +142,7 @@ export const ServerSettingsFields: React.FC<ServerSettingsFieldsProps> = ({
             </div>
           ))}
         </div>
-        <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-t border-slate-800">
+        <div className="shrink-0 flex items-center gap-2 px-4 py-2.5 border-t border-edge">
           {/*
             * Clearing is not quite "back to factory": an empty field falls
             * through to `.env` when one set it. Say so, because the rows

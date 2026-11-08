@@ -87,7 +87,7 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
   return (
     <div ref={rootRef} className="relative min-w-0">
       <div
-        className={`grid grid-cols-[minmax(0,1fr)_2.5rem] rounded-xl border border-slate-800 overflow-hidden ${disabled ? 'opacity-45' : ''}`}
+        className={`grid grid-cols-[minmax(0,1fr)_2.5rem] rounded-xl border border-edge overflow-hidden ${disabled ? 'opacity-45' : ''}`}
       >
         <button
           type="button"
@@ -113,7 +113,7 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
           aria-expanded={open}
           aria-label="Other formats"
           title="Other formats"
-          className={`flex items-center justify-center border-l border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors disabled:cursor-not-allowed cursor-default ${
+          className={`flex items-center justify-center border-l border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors disabled:cursor-not-allowed cursor-default ${
             open ? 'bg-slate-800/60 text-slate-100' : ''
           }`}
         >
@@ -130,8 +130,8 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
           className="z-[60] w-72 max-w-[calc(100vw-1rem)] p-1 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl animate-in fade-in duration-100"
         >
           {scope && onScopeChange && (
-            <div className="px-1.5 pt-1.5 pb-2 mb-1 border-b border-slate-800">
-              <div role="group" aria-label="Which lines" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950 border border-slate-800">
+            <div className="px-1.5 pt-1.5 pb-2 mb-1 border-b border-edge">
+              <div role="group" aria-label="Which lines" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950 border border-edge">
                 {([
                   ['heard', 'As heard in the dub'],
                   ['full', 'Full script'],

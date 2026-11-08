@@ -40,7 +40,7 @@ export const SyncPresetLibrary: React.FC<{
       <p className="text-[11.5px] text-slate-400">Save these sync settings with a name. Settings are also remembered separately for each project.</p>
       <p className="text-[11.5px] text-slate-400">Saved presets stay on this computer. To use them on another one, Export them here and Import the file there.</p>
       <label htmlFor="sync-saved-preset" className="text-[12px] text-slate-400">Saved preset</label>
-      <select id="sync-saved-preset" value={selected} disabled={disabled} className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200"
+      <select id="sync-saved-preset" value={selected} disabled={disabled} className="h-9 bg-slate-950 border border-edge rounded-lg px-2 text-[13px] text-slate-200"
         onChange={(e) => {
           setSelected(e.target.value);
           const preset = presets.find((p) => p.name === e.target.value);
@@ -51,7 +51,7 @@ export const SyncPresetLibrary: React.FC<{
       </select>
       <label htmlFor="sync-preset-name" className="text-[12px] text-slate-400">New preset name</label>
       <input id="sync-preset-name" value={name} maxLength={60} disabled={disabled} onChange={(e) => setName(e.target.value)}
-        placeholder="e.g. Bengali narration" className="h-9 bg-slate-950 border border-slate-800 rounded-lg px-2 text-[13px] text-slate-200" />
+        placeholder="e.g. Bengali narration" className="h-9 bg-slate-950 border border-edge rounded-lg px-2 text-[13px] text-slate-200" />
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={disabled || !name.trim() || presets.length >= 30} className={button} onClick={() => {
           const label = name.trim();

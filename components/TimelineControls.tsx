@@ -219,7 +219,7 @@ const ZOOM_BUTTON =
 export const TimelineZoomControls: React.FC<{ zoom: TimelineZoom }> = ({ zoom }) => (
   <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-slate-500">
     <span className="hidden sm:inline">{zoom.zoomed ? 'Scroll to move · ' : ''}Ctrl + scroll to zoom</span>
-    <div className="flex items-center gap-0.5 rounded-lg border border-slate-800 bg-slate-950/60 p-0.5" role="group" aria-label="Zoom">
+    <div className="flex items-center gap-0.5 rounded-lg border border-edge bg-slate-950/60 p-0.5" role="group" aria-label="Zoom">
       <button type="button" className={ZOOM_BUTTON} onClick={() => zoom.zoomBy(1 / ZOOM_STEP)} disabled={!zoom.canZoomIn} aria-label="Zoom in" title="Zoom in">
         <ZoomIn className="w-4 h-4" />
       </button>
@@ -456,7 +456,7 @@ export const TimelineScrollbar: React.FC<{
       onPointerCancel={endDrag}
       onKeyDown={onKeyDown}
       className={`group relative cursor-default touch-none select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-        inset ? 'h-2.5 rounded-sm bg-slate-900' : 'h-3.5 rounded-full bg-slate-950/80 border border-slate-800'
+        inset ? 'h-2.5 rounded-sm bg-slate-900' : 'h-3.5 rounded-full bg-slate-950/80 border border-edge'
       }`}
     >
       {lines.map((line, i) => (
@@ -509,7 +509,7 @@ export const TimelineTransport: React.FC<{
         type="button"
         onClick={onPrev}
         aria-label="Previous line"
-        className="w-8 h-8 shrink-0 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+        className="w-8 h-8 shrink-0 rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
       >
         <ChevronsLeft className="w-4 h-4" />
       </button>
@@ -527,19 +527,19 @@ export const TimelineTransport: React.FC<{
         type="button"
         onClick={onNext}
         aria-label="Next line"
-        className="w-8 h-8 shrink-0 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+        className="w-8 h-8 shrink-0 rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
       >
         <ChevronsRight className="w-4 h-4" />
       </button>
     )}
     <span
       className={`font-mono tabular-nums text-slate-200 ${
-        onPrev || onNext ? 'text-[15px] px-2.5 py-1 rounded-md bg-slate-950 border border-slate-800' : 'text-[12px]'
+        onPrev || onNext ? 'text-[15px] px-2.5 py-1 rounded-md bg-slate-950 border border-edge' : 'text-[12px]'
       }`}
     >
       {formatClock(currentTime)} <span className="text-slate-500">/ {formatClock(total)}</span>
     </span>
-    {status && <span className="flex-1 min-w-[16rem] flex items-center gap-2 pl-3 border-l border-slate-800">{status}</span>}
+    {status && <span className="flex-1 min-w-[16rem] flex items-center gap-2 pl-3 border-l border-edge">{status}</span>}
     {children && <span className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">{children}</span>}
   </div>
 );

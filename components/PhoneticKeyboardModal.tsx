@@ -241,7 +241,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
       on ? 'bg-slate-900 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
     }`;
   const ghost =
-    'h-[38px] px-3 flex items-center justify-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
+    'h-[38px] px-3 flex items-center justify-center gap-1.5 rounded-[10px] border border-edge bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
   return (
     <div
@@ -255,7 +255,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
         className="relative w-full max-w-[65rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
         {/* Header */}
-        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
           <div
             className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0 text-lg font-semibold"
             aria-hidden="true"
@@ -303,7 +303,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="ml-auto sm:ml-0 w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default"
+              className="ml-auto sm:ml-0 w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors cursor-default"
             >
               <X className="w-4 h-4" />
             </button>
@@ -330,7 +330,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                 {tail}
                 {!output && <span className="text-slate-600 text-lg">Your {lang.name} text appears here</span>}
               </div>
-              <div className="flex items-center gap-2.5 px-4 py-2 border-t border-dashed border-slate-800">
+              <div className="flex items-center gap-2.5 px-4 py-2 border-t border-dashed border-edge">
                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 shrink-0">Roman</span>
                 <input
                   ref={romanRef}
@@ -351,7 +351,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                   autoFocus
                 />
               </div>
-              <div className="flex flex-wrap items-center gap-1.5 px-3 py-2.5 border-t border-slate-800 bg-slate-900" aria-label="Suggestions">
+              <div className="flex flex-wrap items-center gap-1.5 px-3 py-2.5 border-t border-edge bg-slate-900" aria-label="Suggestions">
                 <span className="text-[11.5px] text-slate-500 mr-0.5">
                   {typingWord ? `For “${typingWord}”` : 'Suggestions appear as you type'}
                 </span>
@@ -361,7 +361,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                     type="button"
                     onClick={() => pickSuggestion(s)}
                     className={`flex items-center gap-1.5 h-8 pl-1.5 pr-2.5 rounded-[9px] border text-base transition-colors cursor-default ${
-                      i === 0 ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800'
+                      i === 0 ? 'border-indigo-500/60 bg-indigo-500/10' : 'border-edge bg-slate-950/60 hover:bg-slate-800'
                     }`}
                   >
                     <kbd className="w-[17px] h-[17px] rounded border border-slate-700 bg-slate-900 font-mono text-[10px] text-slate-400 flex items-center justify-center">
@@ -403,8 +403,8 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
               </span>
             </div>
 
-            <div className="rounded-[14px] border border-slate-800 overflow-hidden">
-              <div role="tablist" aria-label="Characters" className="flex gap-0.5 p-1.5 bg-slate-950/60 border-b border-slate-800 overflow-x-auto [scrollbar-width:none]">
+            <div className="rounded-[14px] border border-edge overflow-hidden">
+              <div role="tablist" aria-label="Characters" className="flex gap-0.5 p-1.5 bg-slate-950/60 border-b border-edge overflow-x-auto [scrollbar-width:none]">
                 {([
                   ['vowels', 'Vowels'],
                   ['matras', 'Vowel signs'],
@@ -422,7 +422,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                     key={`${ch}-${i}`}
                     type="button"
                     onClick={() => setTail((t) => t + ch)}
-                    className="h-12 rounded-[9px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 hover:border-slate-700 active:translate-y-px text-[19px] text-slate-100 shadow-[0_1px_0_rgb(30_41_59)] cursor-default"
+                    className="h-12 rounded-[9px] border border-edge bg-slate-950/60 hover:bg-slate-800 hover:border-slate-700 active:translate-y-px text-[19px] text-slate-100 shadow-[0_1px_0_rgb(30_41_59)] cursor-default"
                     title={`Add ${ch}`}
                   >
                     {COMBINING.test(ch) ? `◌${ch}` : ch}
@@ -433,8 +433,8 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
           </div>
 
           {/* Help and tools */}
-          <aside aria-label="Help and tools" className="border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/40 flex flex-col min-w-0">
-            <div role="tablist" className="flex gap-0.5 px-3 pt-2.5 border-b border-slate-800">
+          <aside aria-label="Help and tools" className="border-t md:border-t-0 md:border-l border-edge bg-slate-950/40 flex flex-col min-w-0">
+            <div role="tablist" className="flex gap-0.5 px-3 pt-2.5 border-b border-edge">
               {([
                 ['guide', 'Guide'],
                 ['words', 'My words'],
@@ -512,7 +512,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                       <p className="text-xs text-slate-500 py-2">No words yet.</p>
                     ) : (
                       customWordList.map((w) => (
-                        <div key={w.roman} className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-[9px] bg-slate-900 border border-slate-800">
+                        <div key={w.roman} className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-[9px] bg-slate-900 border border-edge">
                           <span className="font-mono text-[12.5px] text-slate-400">{w.roman}</span>
                           <span className="text-[11px] text-slate-600">→</span>
                           <span className="text-[15px] text-slate-100 min-w-0 truncate">{w.native}</span>
@@ -537,16 +537,16 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
               {sideTab === 'script' && (
                 <>
                   <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-edge">
                       <span className="text-[22px] font-semibold text-slate-100 tabular-nums">{latinCues.length}</span>
                       <span className="text-xs text-slate-400 leading-snug">
                         {latinCues.length === 1 ? 'cue still has' : 'cues still have'} English letters in {latinCues.length === 1 ? 'it' : 'them'}
                       </span>
                     </div>
                     {latinCues.length > 0 && (
-                      <div className="rounded-[10px] border border-slate-800 overflow-hidden">
+                      <div className="rounded-[10px] border border-edge overflow-hidden">
                         {latinCues.slice(0, 3).map(({ seg, i }) => (
-                          <div key={seg.id} className="flex flex-col gap-0.5 px-2.5 py-2 border-t border-slate-800 first:border-t-0">
+                          <div key={seg.id} className="flex flex-col gap-0.5 px-2.5 py-2 border-t border-edge first:border-t-0">
                             <span className="font-mono text-[11.5px] text-slate-500 truncate">
                               #{String(i + 1).padStart(2, '0')} · {targetOf(seg)}
                             </span>
@@ -570,7 +570,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                     </button>
                   </div>
 
-                  <div className="flex flex-col gap-2 pt-3 border-t border-slate-800">
+                  <div className="flex flex-col gap-2 pt-3 border-t border-edge">
                     <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Polish a line with AI</span>
                     <p className="text-xs text-slate-400 leading-relaxed">
                       Fixes vowel signs, joined letters and word choice the way a native speaker would. Uses your translation engine.

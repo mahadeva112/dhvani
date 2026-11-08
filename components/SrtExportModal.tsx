@@ -32,7 +32,7 @@ const PRESET_LABELS: Record<string, string> = {
 };
 
 const footerGhost =
-  'h-[38px] px-3 flex items-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 cursor-default';
+  'h-[38px] px-3 flex items-center gap-1.5 rounded-[10px] border border-edge bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 cursor-default';
 
 /** "00:00:56,400" -> 56.4 */
 const parseStamp = (stamp: string) => {
@@ -128,7 +128,7 @@ const StampField: React.FC<{ value: number; label: string; onCommit: (seconds: n
       }}
       onClick={(e) => e.stopPropagation()}
       className={`w-[6.9rem] px-1.5 py-0.5 rounded-md bg-slate-950 border font-mono text-[11px] tabular-nums text-slate-200 focus:outline-none focus:border-indigo-500 ${
-        bad ? 'border-rose-500' : 'border-slate-800'
+        bad ? 'border-rose-500' : 'border-edge'
       }`}
     />
   );
@@ -149,7 +149,7 @@ const TextField: React.FC<{ value: string; onCommit: (text: string) => void }> =
         setDraft(null);
       }}
       onClick={(e) => e.stopPropagation()}
-      className="w-full resize-none px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-[14px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
+      className="w-full resize-none px-2 py-1 rounded-md bg-slate-950 border border-edge text-[14px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
     />
   );
 };
@@ -475,7 +475,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
         aria-labelledby="srt-title"
         className="w-full max-w-[62.5rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] md:h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
             <Captions className="w-[18px] h-[18px]" />
           </div>
@@ -491,7 +491,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -500,7 +500,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
         {/* On a wide screen the window holds still: the settings and the frame stay put and only the subtitle list scrolls. */}
         <div data-scroller className="flex-1 min-h-0 overflow-y-auto md:overflow-hidden grid md:grid-cols-[21.25rem_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)]">
           {/* Controls */}
-          <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col gap-4 min-w-0 md:min-h-0 md:overflow-y-auto custom-scrollbar">
+          <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-edge flex flex-col gap-4 min-w-0 md:min-h-0 md:overflow-y-auto custom-scrollbar">
             <div className="flex flex-col gap-1.5">
               <span className="text-xs text-slate-400">Start from</span>
               <div className="flex flex-wrap gap-1.5">
@@ -513,7 +513,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                     className={`px-2.5 py-1 rounded-full border text-xs font-medium transition-colors cursor-default ${
                       activePresetId === p.id
                         ? 'border-indigo-500/60 bg-indigo-500/15 text-indigo-300'
-                        : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        : 'border-edge text-slate-400 hover:text-slate-200 hover:border-slate-700'
                     }`}
                   >
                     {PRESET_LABELS[p.id] || p.name}
@@ -837,7 +837,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                         type="button"
                         onClick={() => onSubtitleEditChange(editKey, null)}
                         title="Drop your edits and use the automatic subtitles again"
-                        className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
+                        className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
                       >
                         <Undo2 className="w-3.5 h-3.5" /> Back to automatic
                       </button>
@@ -863,7 +863,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
               </p>
             )}
 
-            <div ref={listRef} className="relative flex-1 min-h-[12rem] max-h-[18rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-slate-800 bg-slate-900">
+            <div ref={listRef} className="relative flex-1 min-h-[12rem] max-h-[18rem] md:max-h-none overflow-y-auto custom-scrollbar rounded-xl border border-edge bg-slate-900">
               {cues.length === 0 ? (
                 <p className="p-6 text-center text-xs text-slate-500">No cues to show yet.</p>
               ) : (
@@ -880,7 +880,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                           setPreviewIndex(i);
                           if (playUrl) seekTo(c.start);
                         }}
-                        className={`grid grid-cols-[2.25rem_minmax(0,1fr)_1.75rem] sm:grid-cols-[2.25rem_7.4rem_minmax(0,1fr)_1.75rem] gap-x-2.5 gap-y-1 px-3 py-2 border-t border-slate-800 first:border-t-0 items-start cursor-default ${
+                        className={`grid grid-cols-[2.25rem_minmax(0,1fr)_1.75rem] sm:grid-cols-[2.25rem_7.4rem_minmax(0,1fr)_1.75rem] gap-x-2.5 gap-y-1 px-3 py-2 border-t border-edge first:border-t-0 items-start cursor-default ${
                           i === activeRow ? 'bg-indigo-500/15' : 'hover:bg-slate-800/40'
                         } ${at.text.trim() ? '' : 'opacity-50'}`}
                       >
@@ -933,7 +933,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                       setPreviewIndex(i);
                       if (playUrl) seekTo(c.start);
                     }}
-                    className={`w-full text-left grid grid-cols-[2.25rem_minmax(0,1fr)] sm:grid-cols-[2.25rem_11.5rem_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 px-3 py-2 border-t border-slate-800 first:border-t-0 items-baseline cursor-default ${
+                    className={`w-full text-left grid grid-cols-[2.25rem_minmax(0,1fr)] sm:grid-cols-[2.25rem_11.5rem_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 px-3 py-2 border-t border-edge first:border-t-0 items-baseline cursor-default ${
                       i === activeRow ? 'bg-indigo-500/15' : 'hover:bg-slate-800/40'
                     }`}
                   >
@@ -955,7 +955,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 px-5 sm:px-6 py-3.5 border-t border-edge shrink-0">
           <button type="button" onClick={handleResetDefaults} className="text-[12.5px] text-slate-400 hover:text-slate-200 px-1 cursor-default">
             Reset to defaults
           </button>

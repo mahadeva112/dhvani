@@ -82,7 +82,7 @@ const valueOf = (key: AutoFitChange['key'], value: AutoFitChange['from']) => {
 const labelOf = (key: AutoFitChange['key']) => (key === 'preset' ? 'Length preset' : LABELS[key] ?? key);
 
 const ChangeRow: React.FC<{ change: AutoFitChange; quiet?: boolean }> = ({ change, quiet }) => (
-  <li className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 py-2 border-t border-slate-800 first:border-t-0">
+  <li className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 py-2 border-t border-edge first:border-t-0">
     <span className="min-w-0">
       <span className={`block text-[13px] ${quiet ? 'text-slate-300' : 'text-slate-100'}`}>{labelOf(change.key)}</span>
       {!quiet && <span className="block text-[11.5px] text-slate-400 mt-0.5">{change.reason}</span>}
@@ -135,7 +135,7 @@ const WhatChangedWindow: React.FC<AutoFitPanelProps & { onClose: () => void }> =
         aria-labelledby="fit-changed-title"
         className="w-full max-w-[40rem] min-h-full sm:min-h-0 sm:my-auto flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden animate-in zoom-in-95 duration-200 motion-reduce:animate-none"
       >
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800">
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-edge">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-indigo-500/15 text-indigo-300 flex items-center justify-center shrink-0" aria-hidden="true">
             <Ruler className="w-[18px] h-[18px]" />
           </div>
@@ -155,7 +155,7 @@ const WhatChangedWindow: React.FC<AutoFitPanelProps & { onClose: () => void }> =
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -180,7 +180,7 @@ const WhatChangedWindow: React.FC<AutoFitPanelProps & { onClose: () => void }> =
             ))}
           </ul>
           {byPreset.length > 0 && (
-            <details className="group rounded-xl border border-slate-800 bg-slate-800/20">
+            <details className="group rounded-xl border border-edge bg-slate-800/20">
               <summary className="flex items-center gap-2 px-3.5 py-2.5 list-none cursor-default text-[12.5px] text-slate-300 hover:text-slate-100 [&::-webkit-details-marker]:hidden">
                 <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
                 {plural(byPreset.length, 'setting')} the {presetName(outcome.presetTo ?? 'natural')} preset sets
@@ -195,7 +195,7 @@ const WhatChangedWindow: React.FC<AutoFitPanelProps & { onClose: () => void }> =
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-slate-800 bg-slate-950/30">
+        <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-edge bg-slate-950/30">
           <span className="flex-1 min-w-[14rem] text-[11.5px] text-slate-400">
             {undone
               ? 'Your settings are back. Sync again to hear it.'
@@ -265,7 +265,7 @@ export const AutoFitPanel: React.FC<AutoFitPanelProps> = (props) => {
   return (
     <section
       aria-label="Fit to this video"
-      className={`flex flex-col gap-2 rounded-xl border px-3.5 py-2.5 ${applied && !undone ? 'border-indigo-500/35 bg-indigo-500/[.06]' : 'border-slate-800 bg-slate-900/70'}`}
+      className={`flex flex-col gap-2 rounded-xl border px-3.5 py-2.5 ${applied && !undone ? 'border-indigo-500/35 bg-indigo-500/[.06]' : 'border-edge bg-slate-900/70'}`}
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <Ruler className="w-4 h-4 shrink-0 text-indigo-300" aria-hidden="true" />

@@ -502,7 +502,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
         aria-labelledby="align-title"
         className="w-full max-w-[65rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
             <ClipboardPaste className="w-[18px] h-[18px]" />
           </div>
@@ -519,14 +519,14 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
             onClick={onClose}
             disabled={isAligning}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Where you are */}
-        <div className="flex flex-wrap gap-1.5 px-5 sm:px-6 py-2.5 border-b border-slate-800 bg-slate-950/40 shrink-0" aria-hidden="true">
+        <div className="flex flex-wrap gap-1.5 px-5 sm:px-6 py-2.5 border-b border-edge bg-slate-950/40 shrink-0" aria-hidden="true">
           {['Paste', 'Match to the English', 'Check the fit'].map((label, i) => {
             const n = i + 1;
             const done = n < step;
@@ -551,7 +551,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
 
         <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[20.5rem_minmax(0,1fr)]">
           {/* Paste and choose */}
-          <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col gap-3.5 min-w-0">
+          <div className="px-5 py-4 border-b md:border-b-0 md:border-r border-edge flex flex-col gap-3.5 min-w-0">
             <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between gap-2 min-h-[20px]">
                 <label htmlFor="align-paste" className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
@@ -662,7 +662,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
             )}
 
             {timed && !timedMismatch ? (
-              <p className="flex items-start gap-2 p-2.5 rounded-[11px] border border-slate-800 text-[11.5px] text-slate-300">
+              <p className="flex items-start gap-2 p-2.5 rounded-[11px] border border-edge text-[11.5px] text-slate-300">
                 <Info className="w-3.5 h-3.5 shrink-0 mt-px text-slate-400" />
                 <span>
                   This script keeps each line's time, so each line goes to the cue at that time. A line that runs over several cues here is split
@@ -687,7 +687,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                       resetFit();
                     }}
                     className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-default disabled:cursor-not-allowed disabled:opacity-60 ${
-                      on ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/40'
+                      on ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-edge hover:bg-slate-800/40'
                     }`}
                   >
                     <span className={`w-[15px] h-[15px] mt-0.5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 ${on ? 'border-indigo-400' : 'border-slate-600'}`}>
@@ -823,7 +823,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                     key={item.id}
                     style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 76px' }}
                     className={`group grid grid-cols-[2rem_minmax(0,1fr)] sm:grid-cols-[2rem_minmax(0,1fr)_minmax(0,1.25fr)_auto] gap-x-2.5 gap-y-1.5 items-start p-2.5 rounded-[10px] border bg-slate-900 ${
-                      flag?.tone === 'rose' || tooFast ? 'border-rose-500/40' : flag ? 'border-amber-500/40' : 'border-slate-800'
+                      flag?.tone === 'rose' || tooFast ? 'border-rose-500/40' : flag ? 'border-amber-500/40' : 'border-edge'
                     }`}
                   >
                     <span className="font-mono text-[11px] text-slate-500 pt-1 tabular-nums">{String(index + 1).padStart(2, '0')}</span>
@@ -833,7 +833,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                         type="button"
                         onClick={() => moveWord(index, 'previous')}
                         disabled={index === 0 || !item.targetText.trim()}
-                        className="mt-1.5 w-[22px] h-[22px] shrink-0 rounded-md border border-slate-800 text-slate-500 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 disabled:!opacity-20 cursor-default"
+                        className="mt-1.5 w-[22px] h-[22px] shrink-0 rounded-md border border-edge text-slate-500 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 disabled:!opacity-20 cursor-default"
                         title="Move the first word to the cue before"
                         aria-label={`Move the first word of cue ${index + 1} to the cue before`}
                       >
@@ -850,13 +850,13 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
                         rows={2}
                         aria-label={`${targetLanguage} for cue ${index + 1}`}
                         placeholder="Empty"
-                        className="flex-1 min-w-0 resize-none bg-transparent border border-transparent hover:border-slate-800 focus:border-indigo-500 focus:bg-slate-950/60 rounded-lg px-2 py-1 text-[14px] leading-relaxed text-slate-100 placeholder-slate-600 focus:outline-none"
+                        className="flex-1 min-w-0 resize-none bg-transparent border border-transparent hover:border-edge focus:border-indigo-500 focus:bg-slate-950/60 rounded-lg px-2 py-1 text-[14px] leading-relaxed text-slate-100 placeholder-slate-600 focus:outline-none"
                       />
                       <button
                         type="button"
                         onClick={() => moveWord(index, 'next')}
                         disabled={index === draft.length - 1 || !item.targetText.trim()}
-                        className="mt-1.5 w-[22px] h-[22px] shrink-0 rounded-md border border-slate-800 text-slate-500 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 disabled:!opacity-20 cursor-default"
+                        className="mt-1.5 w-[22px] h-[22px] shrink-0 rounded-md border border-edge text-slate-500 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 disabled:!opacity-20 cursor-default"
                         title="Move the last word to the next cue"
                         aria-label={`Move the last word of cue ${index + 1} to the next cue`}
                       >
@@ -896,7 +896,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 px-5 sm:px-6 py-3.5 border-t border-edge shrink-0">
           <span className="min-w-0 flex-1 text-[11.5px] text-slate-500">
             Replaces the {targetLanguage} in all {segments.length} cues. The transcript and its timing stay as they are, and you can undo it.
           </span>
@@ -904,7 +904,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isAligning}
-            className="h-[38px] px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 disabled:opacity-40 cursor-default"
+            className="h-[38px] px-3.5 rounded-[10px] border border-edge bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 disabled:opacity-40 cursor-default"
           >
             Cancel
           </button>

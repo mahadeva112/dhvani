@@ -847,7 +847,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
   /* --------------------------- Pieces --------------------------- */
 
   const keyBox = (name: string, working: boolean, onReplace: () => void) => (
-    <div className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-slate-800/25 border border-slate-800 min-w-0">
+    <div className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-slate-800/25 border border-edge min-w-0">
       <span className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${working ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-800 text-slate-400'}`}>
         <ShieldCheck className="w-4 h-4" />
       </span>
@@ -923,7 +923,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
             aria-checked={on}
             onClick={() => onPick(opt.id)}
             className={`min-w-0 flex items-start gap-3 p-3 rounded-xl border text-left transition-colors cursor-default ${
-              on ? 'border-indigo-400/70 bg-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/40'
+              on ? 'border-indigo-400/70 bg-indigo-500/10' : 'border-edge hover:bg-slate-800/40'
             }`}
           >
             <span className={`w-8 h-8 rounded-lg bg-gradient-to-b ${opt.tile} flex items-center justify-center shrink-0`}>
@@ -1093,7 +1093,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
       ])}
       {engine === 'elevenlabs' ? (
         <>
-          <div className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-slate-800/25 border border-slate-800 min-w-0">
+          <div className="flex items-center gap-3 px-3.5 py-3 rounded-xl bg-slate-800/25 border border-edge min-w-0">
             <span className="w-8 h-8 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center shrink-0">
               <AudioLines className="w-4 h-4" />
             </span>
@@ -1186,7 +1186,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           ? 'Pick a voice first'
           : null;
     return (
-      <div className="rounded-xl border border-slate-800 bg-gradient-to-b from-slate-800/40 to-slate-800/10 p-3.5">
+      <div className="rounded-xl border border-edge bg-gradient-to-b from-slate-800/40 to-slate-800/10 p-3.5">
         <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-wider font-semibold text-slate-400">
           <FlaskConical className="w-3.5 h-3.5 shrink-0" />
           Try it
@@ -1195,7 +1195,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           </span>
         </div>
         {/* The result takes the sample's place, so the panel keeps its height. */}
-        <div className="mt-2.5 min-h-[3.75rem] rounded-lg bg-slate-950/70 border border-slate-800 px-3 py-2 flex flex-col justify-center min-w-0">
+        <div className="mt-2.5 min-h-[3.75rem] rounded-lg bg-slate-950/70 border border-edge px-3 py-2 flex flex-col justify-center min-w-0">
           {result.state === 'done' ? (
             <div className="tools-hub-preview-in min-w-0">
               <p className={`text-slate-50 leading-snug break-words ${isTranslate ? 'text-[14px]' : 'text-[12.5px]'}`}>
@@ -1265,7 +1265,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
     const status = statusOf(current);
     const word = PROBE_WORDS[status] || PROBE_WORDS.unverified;
     return (
-    <div className="rounded-xl border border-slate-800 p-3.5 min-w-0">
+    <div className="rounded-xl border border-edge p-3.5 min-w-0">
       <div className="flex items-center gap-2 text-[10.5px] uppercase tracking-wider font-semibold text-slate-400">
         <Shield className="w-3.5 h-3.5 shrink-0" />
         What leaves this computer
@@ -1278,7 +1278,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           <span className="truncate">{current.host}</span>
         </span>
       </div>
-      <ul className="mt-3 pt-2.5 border-t border-slate-800 space-y-1.5 text-[11.5px]">
+      <ul className="mt-3 pt-2.5 border-t border-edge space-y-1.5 text-[11.5px]">
         <li className="flex items-start gap-2 min-w-0">
           <KeyRound className="w-3.5 h-3.5 shrink-0 mt-px text-slate-500" />
           <span className="min-w-0 flex-1 truncate text-slate-300">{current.credential}</span>
@@ -1456,7 +1456,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="relative px-4 @xl:px-7 py-3.5 border-t border-slate-800 bg-slate-950/50 flex flex-wrap items-center gap-x-4 gap-y-2.5 shrink-0">
+        <div className="relative px-4 @xl:px-7 py-3.5 border-t border-edge bg-slate-950/50 flex flex-wrap items-center gap-x-4 gap-y-2.5 shrink-0">
           {isSettings ? (
             <div className="min-w-0 flex-1 basis-56 flex items-center gap-3">
               <span className="hidden @md:flex w-8 h-8 rounded-lg bg-slate-800/70 items-center justify-center shrink-0">
@@ -1622,7 +1622,7 @@ const StepCard: React.FC<{ view: StepView; status: ProbeStatus; active: boolean;
       className={`min-w-0 flex-1 text-left rounded-2xl border p-2.5 @xl:p-3.5 transition-all cursor-default ${
         active
           ? 'border-indigo-400/70 bg-gradient-to-b from-indigo-500/15 to-indigo-500/5 shadow-[0_0_0_1px_rgba(129,140,248,.35),0_16px_40px_-18px_rgba(99,102,241,.8)]'
-          : 'border-slate-800 bg-slate-800/25 hover:bg-slate-800/50 hover:border-slate-700'
+          : 'border-edge bg-slate-800/25 hover:bg-slate-800/50 hover:border-slate-700'
       }`}
     >
       <span className={`flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider font-semibold min-w-0 ${active ? 'text-indigo-300' : 'text-slate-500'}`}>
@@ -1667,7 +1667,7 @@ const StepCard: React.FC<{ view: StepView; status: ProbeStatus; active: boolean;
 
 /** A plan's allowance on one line: name, bar, what is left, when it resets. */
 const UsageMeter: React.FC<{ label: string; share: number; value: string; unit: string; note?: string }> = ({ label, share, value, unit, note }) => (
-  <div className="min-h-11 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-slate-800 bg-slate-800/25 px-3.5 py-2.5">
+  <div className="min-h-11 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-edge bg-slate-800/25 px-3.5 py-2.5">
     <span className="shrink-0 text-[11.5px] text-slate-400">{label}</span>
     <span className="flex-1 min-w-[6rem] h-1.5 rounded-full bg-slate-800 overflow-hidden">
       <span

@@ -484,7 +484,7 @@ export const TakesPanel: React.FC<{
 
   /** Retake pro's side: every tag to pick from, the user's own, and their saved styles. */
   const library = (
-    <aside className="border-r border-slate-800 p-3 flex flex-col gap-2.5 min-w-0" aria-label="Tags">
+    <aside className="border-r border-edge p-3 flex flex-col gap-2.5 min-w-0" aria-label="Tags">
       <div className="relative">
         <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2 top-2" aria-hidden="true" />
         <input
@@ -492,7 +492,7 @@ export const TakesPanel: React.FC<{
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search tags"
           aria-label="Search tags"
-          className="w-full h-8 pl-7 pr-2 rounded-md bg-slate-900 border border-slate-800 text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500"
+          className="w-full h-8 pl-7 pr-2 rounded-md bg-slate-900 border border-edge text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500"
         />
       </div>
       {[...TAG_LIBRARY, { group: 'Your tags', tags: prefs.own.filter((t) => !TAG_LIBRARY.some((g) => g.tags.includes(t))) }].map((g) => {
@@ -536,7 +536,7 @@ export const TakesPanel: React.FC<{
             onKeyDown={(e) => e.key === 'Enter' && addNewTag()}
             placeholder="angry"
             aria-label="Your own tag"
-            className="min-w-0 flex-1 h-7 px-2 rounded-md bg-slate-900 border border-slate-800 text-[12px] text-slate-100 focus:outline-none focus:border-indigo-500"
+            className="min-w-0 flex-1 h-7 px-2 rounded-md bg-slate-900 border border-edge text-[12px] text-slate-100 focus:outline-none focus:border-indigo-500"
           />
           <button type="button" onClick={addNewTag} className="h-7 px-2 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 cursor-default">
             Add
@@ -553,7 +553,7 @@ export const TakesPanel: React.FC<{
                 type="button"
                 onClick={() => tagTarget()?.leadWith(style.tags)}
                 title="Start the line with these tags, in place of the tags it starts with"
-                className="w-full text-left rounded-md border border-slate-800 hover:bg-slate-900 px-2 py-1.5 cursor-default"
+                className="w-full text-left rounded-md border border-edge hover:bg-slate-900 px-2 py-1.5 cursor-default"
               >
                 <span className="block text-[12px] text-slate-200 truncate pr-4">{style.name}</span>
                 <span className="block font-mono text-[10.5px] text-slate-500 truncate">{style.tags.map((t) => `[${t}]`).join(' ')}</span>
@@ -643,7 +643,7 @@ export const TakesPanel: React.FC<{
               {onAlignWords ? 'Drag across the wave, or click a word and Shift + click another' : 'Click a word, then Shift + click another'} · <kbd className="font-mono text-slate-300">Esc</kbd> clears
             </span>
           </div>
-          <div className="rounded-lg border border-slate-800 bg-slate-900/60 px-2.5 pt-2 pb-1.5">
+          <div className="rounded-lg border border-edge bg-slate-900/60 px-2.5 pt-2 pb-1.5">
             {peaks && takeSeconds > 0 && (
               <div
                 ref={wave}
@@ -902,7 +902,7 @@ export const TakesPanel: React.FC<{
               return (
                 <div
                   key={option.text}
-                  className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${option.text === draft.trim() ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800'}`}
+                  className={`flex items-start gap-2 rounded-md border px-2 py-1.5 ${option.text === draft.trim() ? 'border-indigo-500 bg-indigo-500/10' : 'border-edge'}`}
                 >
                   <span className="flex-1 min-w-0 text-[13px] text-slate-100 leading-relaxed">
                     <WithPauses text={option.text} />
@@ -932,7 +932,7 @@ export const TakesPanel: React.FC<{
       {pro && (
         <div>
           <span className={sectionLabel}>Sent to the voice</span>
-          <p className="mt-1 font-mono text-[12px] leading-relaxed text-slate-300 bg-slate-900/70 border border-slate-800 rounded-md px-2.5 py-1.5 break-words">
+          <p className="mt-1 font-mono text-[12px] leading-relaxed text-slate-300 bg-slate-900/70 border border-edge rounded-md px-2.5 py-1.5 break-words">
             {sentText(some ? sayMarked : marked, voiceTags.on) || <span className="text-slate-500">No words yet</span>}
           </p>
           <p className="mt-1 text-[11px] text-slate-500">
@@ -1122,7 +1122,7 @@ export const TakesPanel: React.FC<{
           return (
             <li
               key={take.id}
-              className={`flex flex-wrap items-center gap-2.5 rounded-lg px-2.5 py-2 border ${active ? 'border-indigo-400/70 bg-indigo-500/10' : 'border-slate-800 bg-slate-900/60'}`}
+              className={`flex flex-wrap items-center gap-2.5 rounded-lg px-2.5 py-2 border ${active ? 'border-indigo-400/70 bg-indigo-500/10' : 'border-edge bg-slate-900/60'}`}
             >
               <button
                 type="button"
@@ -1200,7 +1200,7 @@ export const TakesPanel: React.FC<{
       </ul>
 
       <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-slate-500">
-        <button type="button" onClick={onListenInDub} className="h-7 px-2.5 rounded-lg border border-slate-800 text-slate-300 hover:bg-slate-800 flex items-center gap-1.5 cursor-default">
+        <button type="button" onClick={onListenInDub} className="h-7 px-2.5 rounded-lg border border-edge text-slate-300 hover:bg-slate-800 flex items-center gap-1.5 cursor-default">
           <Headphones className="w-3.5 h-3.5" /> Listen in the dub
         </button>
         <span>Each take is fitted as Sync fits a line, never stretched. Sync again keeps the take in the dub and starts the takes afresh.</span>

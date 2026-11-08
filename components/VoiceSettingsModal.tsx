@@ -350,7 +350,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
         className="w-full max-w-[58rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
             <Mic className="w-[18px] h-[18px]" />
           </div>
@@ -364,7 +364,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -372,10 +372,10 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
 
         <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[20rem_minmax(0,1fr)]">
           {/* Left: who speaks, and with which model */}
-          <div className="px-5 py-5 border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/40 flex flex-col gap-5 min-w-0">
+          <div className="px-5 py-5 border-b md:border-b-0 md:border-r border-edge bg-slate-950/40 flex flex-col gap-5 min-w-0">
             <div className="flex flex-col gap-2">
               <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-slate-800">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-900 border border-edge">
                 <span className="w-[42px] h-[42px] rounded-full bg-gradient-to-br from-indigo-500 to-violet-500 text-white font-semibold flex items-center justify-center shrink-0">
                   {initialOf(voiceName)}
                 </span>
@@ -390,7 +390,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   {voiceTags.length > 0 && (
                     <span className="flex flex-wrap gap-1 mt-1.5">
                       {voiceTags.map((t) => (
-                        <span key={t} className="text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-950 border border-slate-800 text-slate-400">
+                        <span key={t} className="text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-950 border border-edge text-slate-400">
                           {t}
                         </span>
                       ))}
@@ -403,7 +403,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                   type="button"
                   onClick={playSample}
                   disabled={!selectedVoice?.preview_url}
-                  className="h-[34px] flex items-center justify-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
+                  className="h-[34px] flex items-center justify-center gap-1.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
                   title="The voice's own sample from ElevenLabs"
                 >
                   {playing === 'sample' ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
@@ -412,7 +412,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsPickerOpen(true)}
-                  className="h-[34px] rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
+                  className="h-[34px] rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Change voice
                 </button>
@@ -434,7 +434,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                         disabled={!onCartesiaPrefsChange}
                         onClick={() => updateCartesia({ modelId: m.id })}
                         className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-default ${
-                          on ? 'border-indigo-500 bg-slate-900 ring-4 ring-indigo-500/10' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
+                          on ? 'border-indigo-500 bg-slate-900 ring-4 ring-indigo-500/10' : 'border-edge bg-slate-900 hover:bg-slate-800/60'
                         }`}
                       >
                         <span
@@ -478,7 +478,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                       aria-checked={on}
                       onClick={() => onElModelIdChange(m.model_id)}
                       className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-default ${
-                        on ? 'border-indigo-500 bg-slate-900 ring-4 ring-indigo-500/10' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
+                        on ? 'border-indigo-500 bg-slate-900 ring-4 ring-indigo-500/10' : 'border-edge bg-slate-900 hover:bg-slate-800/60'
                       }`}
                     >
                       <span
@@ -597,7 +597,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                           disabled={!cartesiaControls || !onCartesiaPrefsChange}
                           onClick={() => updateCartesia({ emotion: emo })}
                           className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors cursor-default disabled:cursor-not-allowed ${
-                            on ? 'bg-slate-100 text-slate-900 border-slate-100' : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                            on ? 'bg-slate-100 text-slate-900 border-slate-100' : 'border-edge text-slate-400 hover:text-slate-200 hover:border-slate-700'
                           }`}
                         >
                           {emo ? emo.charAt(0).toUpperCase() + emo.slice(1) : 'Let the model choose'}
@@ -652,7 +652,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                         o.own ? onElVoiceSettingsChange?.(null) : usingVoiceOwnSettings && update({})
                       }
                       className={`flex items-start gap-2.5 p-3 rounded-[11px] border text-left transition-colors cursor-default ${
-                        on ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/40'
+                        on ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10' : 'border-edge hover:bg-slate-800/40'
                       }`}
                     >
                       <span
@@ -674,7 +674,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
 
             {usingVoiceOwnSettings ? (
               <div className="flex flex-col gap-3">
-              <p className="text-[12.5px] text-slate-400 px-3 py-2.5 rounded-[11px] border border-slate-800">
+              <p className="text-[12.5px] text-slate-400 px-3 py-2.5 rounded-[11px] border border-edge">
                 {voiceOwnSettings
                   ? `Using the saved settings: stability ${(voiceOwnSettings.stability ?? 0.5).toFixed(2)}, similarity ${(
                       voiceOwnSettings.similarity_boost ?? 0.75
@@ -727,7 +727,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
                       className={`px-3 py-1.5 rounded-full border text-xs font-medium transition-colors cursor-default ${
                         activePreset === p.id
                           ? 'bg-slate-100 text-slate-900 border-slate-100'
-                          : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                          : 'border-edge text-slate-400 hover:text-slate-200 hover:border-slate-700'
                       }`}
                     >
                       {p.label}
@@ -809,7 +809,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             {/* Try it */}
             <div className="flex flex-col gap-2">
               <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Try it</span>
-              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 flex flex-col gap-2.5">
+              <div className="rounded-xl border border-edge bg-slate-950/60 p-3 flex flex-col gap-2.5">
                 <textarea
                   id="voice-settings-try"
                   rows={2}
@@ -853,7 +853,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
+        <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-edge shrink-0">
           <span className="flex-1 min-w-[12rem] text-xs text-slate-400">Saved on this computer. Applies to the next dub.</span>
           {cartesiaVoice && onCartesiaPrefsChange && (
             <ResetDefaultsButton

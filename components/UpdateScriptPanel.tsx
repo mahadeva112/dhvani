@@ -44,7 +44,7 @@ const formatLength = (seconds: number) => {
 const lineText = (s: AudioSegment) => (s.textTarget || s.targetText || s.textSource || s.originalText || '').trim();
 
 const Count: React.FC<{ value: number; label: string }> = ({ value, label }) => (
-  <div className="p-2 rounded-lg bg-slate-950/60 border border-slate-800">
+  <div className="p-2 rounded-lg bg-slate-950/60 border border-edge">
     <div className="font-mono text-[15px] font-semibold text-slate-100 tabular-nums">{value}</div>
     <div className="text-[10.5px] text-slate-500">{label}</div>
   </div>
@@ -74,7 +74,7 @@ export const UpdateScriptPanel: React.FC<UpdateScriptPanelProps> = ({ preview, o
   return (
     <CenteredPanel open onClose={onCancel} label={`Update script of ${p.projectName}`} className="max-w-[29rem] p-5 gap-3">
       <div className="flex items-center gap-2.5">
-        <span className="w-9 h-9 rounded-lg bg-slate-950 border border-slate-800 flex items-center justify-center shrink-0">
+        <span className="w-9 h-9 rounded-lg bg-slate-950 border border-edge flex items-center justify-center shrink-0">
           <FileJson className="w-4 h-4 text-indigo-300" aria-hidden="true" />
         </span>
         <div className="min-w-0">
@@ -123,7 +123,7 @@ export const UpdateScriptPanel: React.FC<UpdateScriptPanelProps> = ({ preview, o
             </div>
           )}
           {p.conflicts.length > 0 && (
-            <div className="p-2.5 rounded-lg border border-slate-800 text-[11.5px] text-slate-400">
+            <div className="p-2.5 rounded-lg border border-edge text-[11.5px] text-slate-400">
               Changed here and in the script; the script's version is used:
               <CueList cues={p.conflicts} />
             </div>

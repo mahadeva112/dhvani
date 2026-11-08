@@ -64,7 +64,7 @@ export const ErrorPopup: React.FC = () => {
           </header>
 
           {report.serverSaid && (
-            <div className="rounded-xl bg-slate-950/60 border border-slate-800 px-3 py-2">
+            <div className="rounded-xl bg-slate-950/60 border border-edge px-3 py-2">
               <div className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">What the server said</div>
               <p className="mt-0.5 text-[12.5px] text-slate-300 leading-snug break-words">{report.serverSaid}</p>
             </div>

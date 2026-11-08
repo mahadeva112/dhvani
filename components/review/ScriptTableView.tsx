@@ -517,7 +517,7 @@ export function ScriptTableView({
 
   return (
     <div ref={rootRef}>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-slate-800 text-[11px] text-slate-400">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-edge text-[11px] text-slate-400">
         <span title="Paragraphs are sized from the script's length (a sixth of it, between one and three minutes) and end where the original pauses">
           Paragraphs of about {formatLength(paragraphLength)} · {passages.length} {passages.length === 1 ? 'paragraph' : 'paragraphs'}
         </span>
@@ -525,13 +525,13 @@ export function ScriptTableView({
           type="button"
           onClick={saveWord}
           disabled={savingWord}
-          className="h-6 px-2 rounded-md border border-slate-800 flex items-center gap-1 font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-default disabled:opacity-50"
+          className="h-6 px-2 rounded-md border border-edge flex items-center gap-1 font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-default disabled:opacity-50"
           title={`Save as a Word file: the script in paragraphs, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
         >
           <Download className="w-3 h-3" />
           Word
         </button>
-        <div role="group" aria-label="Word paragraph size" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+        <div role="group" aria-label="Word paragraph size" className="flex bg-slate-950 border border-edge rounded-lg p-0.5 gap-0.5">
           {WORD_PARAGRAPH_SIZES.map((size) => (
             <button
               key={size.id}
@@ -557,7 +557,7 @@ export function ScriptTableView({
           onClick={phonetic.toggle}
           aria-pressed={phonetic.enabled}
           className={`h-6 px-2 rounded-md border flex items-center gap-1 font-medium transition-colors cursor-default ${
-            phonetic.enabled ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
+            phonetic.enabled ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-300' : 'border-edge text-slate-400 hover:text-slate-200'
           }`}
           title={`Type Roman letters and get ${langConfig.nativeName} as you go (Ctrl+G)`}
         >
@@ -639,7 +639,7 @@ export function ScriptTableView({
 
       {/* While a line is typed in: where it is, how it fits, and signs that are awkward to spell in Roman letters. */}
       {edit && editSeg && (
-        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-1 px-4 py-2 border-t border-slate-800 bg-slate-950/95 backdrop-blur-sm">
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-1 px-4 py-2 border-t border-edge bg-slate-950/95 backdrop-blur-sm">
           <button
             type="button"
             tabIndex={-1}
@@ -659,7 +659,7 @@ export function ScriptTableView({
               onMouseDown={keepCaret}
               onClick={convertLine}
               disabled={lineBusy !== null}
-              className={`${barButton} border-slate-800 text-slate-300 hover:text-slate-100 hover:bg-slate-800`}
+              className={`${barButton} border-edge text-slate-300 hover:text-slate-100 hover:bg-slate-800`}
               title="Turn every English-letter word in this line into the script"
             >
               {lineBusy === 'convert' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Languages className="w-3 h-3" />}
@@ -673,7 +673,7 @@ export function ScriptTableView({
             onClick={() => setAiPolishOn((on) => !on)}
             aria-pressed={aiPolishOn}
             className={`${barButton} ${
-              aiPolishOn ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
+              aiPolishOn ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300' : 'border-edge text-slate-400 hover:text-slate-200'
             }`}
             title="Let the translation engine fix vowel signs, joined letters and wording in this line"
           >
@@ -708,7 +708,7 @@ export function ScriptTableView({
                 rootRef.current?.querySelector<HTMLElement>(`[data-dub-cue="${CSS.escape(edit.id)}"]`)?.blur();
                 onOpenKeyboard(editSeg);
               }}
-              className={`${barButton} border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800`}
+              className={`${barButton} border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800`}
               title="Open the on-screen keyboard on this line"
             >
               <Keyboard className="w-3 h-3" />
@@ -725,7 +725,7 @@ export function ScriptTableView({
                 e.preventDefault(); // keeps the caret in the line
                 insertSign(sign);
               }}
-              className="min-w-[2rem] h-8 px-1.5 rounded-md border border-slate-800 bg-slate-900 text-slate-100 text-base hover:border-indigo-500/40 hover:bg-indigo-500/10 cursor-default"
+              className="min-w-[2rem] h-8 px-1.5 rounded-md border border-edge bg-slate-900 text-slate-100 text-base hover:border-indigo-500/40 hover:bg-indigo-500/10 cursor-default"
               lang={targetLanguage || undefined}
             >
               {/* Vowel signs sit on a placeholder circle, as on a keyboard. */}
@@ -766,7 +766,7 @@ export function ScriptTableView({
               </button>
             ))}
           </div>
-          <div className="mt-1.5 flex gap-3 border-t border-slate-800 px-1 pt-1 text-[10.5px] text-slate-500">
+          <div className="mt-1.5 flex gap-3 border-t border-edge px-1 pt-1 text-[10.5px] text-slate-500">
             <span>Space use</span>
             <span>1–5 pick</span>
             <span>Esc keep English</span>

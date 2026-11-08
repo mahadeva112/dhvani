@@ -662,7 +662,7 @@ const NumberField: React.FC<{
       </span>
       <span
         ref={boxRef}
-        className={`h-7 flex items-center gap-1 rounded-md border px-1.5 focus-within:border-indigo-400 ${changed ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-slate-800 bg-slate-950'}`}
+        className={`h-7 flex items-center gap-1 rounded-md border px-1.5 focus-within:border-indigo-400 ${changed ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-edge bg-slate-950'}`}
       >
         <input
           type="text"
@@ -904,7 +904,7 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
   };
   if (name === ORIGINAL_SPEAKER) {
     return (
-      <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-slate-800/80 first:border-t-0" style={{ height: LANE_PX }}>
+      <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 first:border-t-0" style={{ height: LANE_PX }}>
         <span className="flex items-center gap-1.5 text-[11.5px] text-slate-300">
           <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: ORIGINAL_HUE }} />
           Original clips
@@ -921,7 +921,7 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
       on ? onClass : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 hover:border-slate-500'
     }`;
   return (
-    <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-slate-800/80 first:border-t-0 min-w-0" style={{ height: LANE_PX }}>
+    <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 first:border-t-0 min-w-0" style={{ height: LANE_PX }}>
       <span className="flex items-center gap-1.5 text-[11.5px] text-slate-200 min-w-0">
         <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: lanes.colors[name] ?? '#818cf8' }} />
         <span className="truncate" title={name}>
@@ -2756,7 +2756,7 @@ export const SyncEditTimeline: React.FC<{
       tabIndex={0}
       onKeyDown={onKeyDown}
       aria-label="Edit timing"
-      className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-3 focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/60"
+      className="flex flex-col gap-3 rounded-xl border border-edge bg-slate-950/70 p-3 focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/60"
     >
       {/* Title, what the edits come to, and whether the audio has caught up */}
       <div className="flex flex-wrap items-center gap-2">
@@ -2823,7 +2823,7 @@ export const SyncEditTimeline: React.FC<{
 
       {/* Tools: names and shortcuts show on hover */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5">
+        <div className="flex gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5">
           {onOpenTakes && <ToolButton label="Select range" shortcut="Drag" hint="Drag inside a dub line to select words for a retake. Uses ElevenLabs forced alignment; may use alignment credits. No voice is generated until Retake is pressed." pressed={rangeTool} onClick={() => { alignmentRequest.current?.abort(); rangeDrag.current = null; setAligningRange(false); setTakeRange(null); setRangeWords(null); setRangeTool(v => !v); setBlade(false); }}>
             <Mic className="w-4 h-4" /> Select range
           </ToolButton>}
@@ -2852,7 +2852,7 @@ export const SyncEditTimeline: React.FC<{
             </ToolButton>
           )}
         </div>
-        <div className="flex items-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5" role="group" aria-label="Undo and history">
+        <div className="flex items-center gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Undo and history">
           <button type="button" onClick={act.undo} disabled={undoAt === 0} title={projectHistory?.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Undo (Ctrl + Z)'} aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <Undo2 className="w-4 h-4" />
           </button>
@@ -2912,7 +2912,7 @@ export const SyncEditTimeline: React.FC<{
           </div>
           )}
         </div>
-        <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5" role="group" aria-label="Zoom">
+        <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Zoom">
           <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <ZoomOut className="w-4 h-4" />
           </button>
@@ -2929,14 +2929,14 @@ export const SyncEditTimeline: React.FC<{
           onClick={() => setShowHelp(true)}
           title="Shortcuts, and how editing works (?)"
           aria-keyshortcuts="?"
-          className="h-9 px-2.5 rounded-xl border border-slate-800 bg-slate-950 flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
+          className="h-9 px-2.5 rounded-xl border border-edge bg-slate-950 flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
         >
           <CircleHelp className="w-4 h-4" /> Shortcuts
         </button>
       </div>
 
       {/* The picked line: one row, so the lanes keep the room */}
-      <section aria-label="Picked line" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-h-[2.75rem] rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-1.5 min-w-0">
+      <section aria-label="Picked line" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-h-[2.75rem] rounded-xl border border-edge bg-slate-950/60 px-3 py-1.5 min-w-0">
         {group.length > 1 ? (
           <>
             <span className="text-[13px] font-semibold text-slate-100 whitespace-nowrap">{group.length} lines picked</span>
@@ -3082,21 +3082,21 @@ export const SyncEditTimeline: React.FC<{
       </section>
 
       {/* The lanes */}
-      <div className={`grid ${renderTrackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-slate-800 overflow-hidden bg-slate-900/50`}>
-        <div className="flex flex-col text-[11px] text-slate-400 border-r border-slate-800">
-          <div className="h-6 px-2 flex items-center font-mono text-[11px] font-semibold text-slate-200 tabular-nums border-b border-slate-800">{formatTime(currentTime)}</div>
+      <div className={`grid ${renderTrackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-edge overflow-hidden bg-slate-900/50`}>
+        <div className="flex flex-col text-[11px] text-slate-400 border-r border-edge">
+          <div className="h-6 px-2 flex items-center font-mono text-[11px] font-semibold text-slate-200 tabular-nums border-b border-edge">{formatTime(currentTime)}</div>
           {renderTrackHead ? (
-            <div className="h-14 px-2 flex items-center border-b border-slate-800">
+            <div className="h-14 px-2 flex items-center border-b border-edge">
               {renderTrackHead('source', 'Original', 'bg-cyan-400', <Lock className="w-3 h-3 text-slate-600" aria-label="Locked" />)}
             </div>
           ) : (
-            <div className="h-14 px-2 flex items-center gap-1.5 border-b border-slate-800">
+            <div className="h-14 px-2 flex items-center gap-1.5 border-b border-edge">
               <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original <Lock className="w-3 h-3 text-slate-600 ml-auto" aria-label="Locked" />
             </div>
           )}
-          <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-slate-800">Sync links</div>
+          <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-edge">Sync links</div>
           {speakerLanes && (
-            <div className="h-14 px-2 flex items-center border-b border-slate-800">
+            <div className="h-14 px-2 flex items-center border-b border-edge">
               {renderTrackHead ? (
                 renderTrackHead('synth', 'All speakers', 'bg-indigo-400')
               ) : (
@@ -3107,7 +3107,7 @@ export const SyncEditTimeline: React.FC<{
             </div>
           )}
           {speakerLanes ? (
-            <div className="flex flex-col border-b border-slate-800">
+            <div className="flex flex-col border-b border-edge">
               {laneNames.map((name) => (
                 <SpeakerLaneHead
                   key={name}
@@ -3120,13 +3120,13 @@ export const SyncEditTimeline: React.FC<{
               ))}
             </div>
           ) : renderTrackHead ? (
-            <div className="h-[4.5rem] px-2 flex items-center border-b border-slate-800">{renderTrackHead('synth', `${targetLanguage} dub`, 'bg-indigo-400')}</div>
+            <div className="h-[4.5rem] px-2 flex items-center border-b border-edge">{renderTrackHead('synth', `${targetLanguage} dub`, 'bg-indigo-400')}</div>
           ) : (
-            <div className="h-[4.5rem] px-2 flex items-center gap-1.5 border-b border-slate-800">
+            <div className="h-[4.5rem] px-2 flex items-center gap-1.5 border-b border-edge">
               <span className="w-2 h-2 rounded-sm bg-indigo-400" /> <span className="truncate">{targetLanguage} dub</span>
             </div>
           )}
-          <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-slate-800">Script</div>
+          <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-edge">Script</div>
           <div className="h-10 px-2 flex items-center text-[10.5px] text-slate-500">Start drift</div>
         </div>
 
@@ -3136,7 +3136,7 @@ export const SyncEditTimeline: React.FC<{
           style={{ overflowX: 'clip' }}
           onWheel={wheelScroll(windowSeconds, (s) => zoom.scrollTo(zoom.viewStart() + s))}
         >
-          <div className="relative z-20 h-6 px-0 border-b border-slate-800 bg-slate-950/40">
+          <div className="relative z-20 h-6 px-0 border-b border-edge bg-slate-950/40">
             <TimelineRuler zoom={zoom} marks onSeek={(t) => onSeek(clamp(t, 0, total))} />
             {onMarkersChange && (
               <div ref={zoom.strip} className="absolute inset-0 pointer-events-none">
@@ -3160,7 +3160,7 @@ export const SyncEditTimeline: React.FC<{
 
           {/* Original: a click seeks, a drag picks a stretch to put on the dub */}
           <div
-            className="relative h-14 border-b border-slate-800 bg-slate-950/50 overflow-hidden cursor-default touch-none"
+            className="relative h-14 border-b border-edge bg-slate-950/50 overflow-hidden cursor-default touch-none"
             title="Drag across the original to pick a stretch, then drag it down onto the dub"
             onPointerDown={onOriginalPointerDown}
             onPointerMove={onOriginalPointerMove}
@@ -3196,7 +3196,7 @@ export const SyncEditTimeline: React.FC<{
           </div>
 
           {/* Sync links */}
-          <div className="relative h-6 border-b border-slate-800 overflow-hidden">
+          <div className="relative h-6 border-b border-edge overflow-hidden">
             <svg ref={zoom.strip} viewBox="0 0 100 24" preserveAspectRatio="none" overflow="visible" className="absolute inset-0 w-full h-full" aria-hidden="true">
               {spoken.map((unit) => {
                 const { color } = landing(unit, tolerance);
@@ -3219,7 +3219,7 @@ export const SyncEditTimeline: React.FC<{
 
           {/* With several speakers: every speaker's lines in one row, to see who talks when and where they overlap */}
           {speakerLanes && (
-            <div className="relative h-14 border-b border-slate-800 bg-slate-950/40 overflow-hidden" aria-hidden="true">
+            <div className="relative h-14 border-b border-edge bg-slate-950/40 overflow-hidden" aria-hidden="true">
               <div ref={zoom.strip} className="absolute inset-0">
               {visible.map((chunk) => {
                 const row = 44 / laneNames.length;
@@ -3244,7 +3244,7 @@ export const SyncEditTimeline: React.FC<{
           {/* The dub, editable */}
           <div
             ref={laneRef}
-            className={`relative ${speakerLanes ? '' : 'h-[4.5rem]'} border-b border-slate-800 bg-slate-950/70 overflow-hidden touch-none`}
+            className={`relative ${speakerLanes ? '' : 'h-[4.5rem]'} border-b border-edge bg-slate-950/70 overflow-hidden touch-none`}
             style={{ cursor: laneCursor, ...(speakerLanes && { height: laneNames.length * LANE_PX }) }}
             onPointerDown={onLanePointerDown}
             onPointerMove={onLanePointerMove}
@@ -3272,7 +3272,7 @@ export const SyncEditTimeline: React.FC<{
                 <span
                   key={name}
                   aria-hidden="true"
-                  className={`absolute left-0 right-0 pointer-events-none ${n > 0 ? 'border-t border-slate-800/80' : ''} ${silencedLanes.has(name) ? 'bg-slate-950/60' : ''}`}
+                  className={`absolute left-0 right-0 pointer-events-none ${n > 0 ? 'border-t border-edge/80' : ''} ${silencedLanes.has(name) ? 'bg-slate-950/60' : ''}`}
                   style={{ top: n * LANE_PX, height: LANE_PX }}
                 />
               ))}
@@ -3356,7 +3356,7 @@ export const SyncEditTimeline: React.FC<{
           </div>
 
           {/* Script */}
-          <div className="relative h-6 border-b border-slate-800 overflow-hidden">
+          <div className="relative h-6 border-b border-edge overflow-hidden">
             <div ref={zoom.strip} className="absolute inset-0">
             {spoken.map((unit) => (
               <span
@@ -3378,7 +3378,7 @@ export const SyncEditTimeline: React.FC<{
               className="absolute left-0 right-0 bg-emerald-400/[0.07] border-y border-dashed border-emerald-400/30 pointer-events-none"
               style={{ top: `${driftY(tolerance)}%`, bottom: `${100 - driftY(-tolerance)}%` }}
             />
-            <span aria-hidden="true" className="absolute left-0 right-0 top-1/2 border-t border-slate-800 pointer-events-none" />
+            <span aria-hidden="true" className="absolute left-0 right-0 top-1/2 border-t border-edge pointer-events-none" />
             <div ref={zoom.strip} className="absolute inset-0">
             {spoken.map((unit) => (
               <span
@@ -3410,8 +3410,8 @@ export const SyncEditTimeline: React.FC<{
         </div>
 
         {/* Along the foot of the lanes, where a scrollbar sits: the whole dub, and the stretch of it on screen */}
-        <div className="h-5 px-2 flex items-center border-t border-r border-slate-800 text-[10.5px] text-slate-500">Whole dub</div>
-        <div className="h-5 px-1 flex flex-col justify-center border-t border-slate-800 bg-slate-950/50">
+        <div className="h-5 px-2 flex items-center border-t border-r border-edge text-[10.5px] text-slate-500">Whole dub</div>
+        <div className="h-5 px-1 flex flex-col justify-center border-t border-edge bg-slate-950/50">
           <Overview
             total={total}
             chunks={chunks}
@@ -3619,7 +3619,7 @@ export const SyncEditTimeline: React.FC<{
         {aligningRange ? 'Matching the selected audio to its words…' : rangeWords ? `Selected: “${rangeWords.text}” · word boundaries matched. Choose a direction and Retake below.` : 'Drag inside one dub waveform to select words. For keyboard selection, open Takes, click a word, then Shift-click another.'}
       </p>}
       <div className="flex flex-wrap items-center gap-1">
-        <div className="flex flex-wrap gap-0.5 rounded-xl border border-slate-800 bg-slate-950 p-0.5">
+        <div className="flex flex-wrap gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5">
           <ActionButton label="Split" shortcut="S" onClick={act.split} title="Cut the line at the playhead">
             <SquareSplitHorizontal className="w-4 h-4" />
           </ActionButton>
@@ -3827,7 +3827,7 @@ export const SyncEditTimeline: React.FC<{
                     <h5 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{section.title}</h5>
                     <dl className="flex flex-col">
                       {section.keys.map(([keys, what]) => (
-                        <div key={what} className="flex items-baseline justify-between gap-4 border-b border-slate-800/80 py-1">
+                        <div key={what} className="flex items-baseline justify-between gap-4 border-b border-edge/80 py-1">
                           <dt className="text-[12.5px] text-slate-300">{what}</dt>
                           <dd className="shrink-0 font-mono text-[11.5px] text-indigo-200">{keys}</dd>
                         </div>

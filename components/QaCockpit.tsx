@@ -228,13 +228,13 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
       on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
     }`;
   const small =
-    'h-[30px] px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
+    'h-[30px] px-2.5 flex items-center gap-1.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
   return (
     <div className="flex flex-col gap-3 animate-in fade-in duration-200">
-      <div className="rounded-[14px] border border-slate-800 bg-slate-900/90 overflow-hidden">
+      <div className="rounded-[14px] border border-edge bg-slate-900/90 overflow-hidden">
         {/* Summary */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 border-b border-slate-800">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 border-b border-edge">
           <h3 className="text-[15px] font-semibold text-slate-100">QA &amp; sign-off</h3>
           <div className="flex flex-wrap gap-1.5">
             {report.blockingCount > 0 && (
@@ -268,7 +268,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
           </button>
         </div>
 
-        <p className={`flex items-start gap-2 px-4 py-2.5 border-b border-slate-800 text-[12.5px] ${verdict.tone}`}>
+        <p className={`flex items-start gap-2 px-4 py-2.5 border-b border-edge text-[12.5px] ${verdict.tone}`}>
           <verdict.Icon className="w-4 h-4 shrink-0 mt-px" />
           <span>
             {verdict.text}
@@ -282,7 +282,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
 
         {/* Rules & terms */}
         {isSettingsOpen && (
-          <div className="px-4 py-3.5 border-b border-slate-800 bg-slate-950/40 flex flex-col gap-3.5 animate-in fade-in duration-150">
+          <div className="px-4 py-3.5 border-b border-edge bg-slate-950/40 flex flex-col gap-3.5 animate-in fade-in duration-150">
             <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Limits</span>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
@@ -332,7 +332,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
         <div className="grid lg:grid-cols-[minmax(0,1fr)_21.25rem]">
           {/* Findings */}
           <div className="px-3.5 py-3 flex flex-col gap-2 min-w-0">
-            <div role="group" aria-label="Show" className="self-start flex p-0.5 gap-0.5 rounded-[10px] bg-slate-950/60 border border-slate-800">
+            <div role="group" aria-label="Show" className="self-start flex p-0.5 gap-0.5 rounded-[10px] bg-slate-950/60 border border-edge">
               {([
                 ['all', `All ${report.findings.length}`],
                 ['block', `Blocking ${report.blockingCount}`],
@@ -345,7 +345,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
             </div>
 
             {visibleFindings.length === 0 ? (
-              <p className="flex items-center gap-2 px-3 py-6 justify-center rounded-xl border border-dashed border-slate-800 text-[12.5px] text-slate-400">
+              <p className="flex items-center gap-2 px-3 py-6 justify-center rounded-xl border border-dashed border-edge text-[12.5px] text-slate-400">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 Nothing flagged here.{report.counts.skipped > 0 ? ' Some checks did not run; see all checks below.' : ''}
               </p>
@@ -360,7 +360,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                   <div
                     key={finding.id}
                     className={`grid grid-cols-[1.5rem_minmax(0,1fr)] sm:grid-cols-[1.5rem_minmax(0,1fr)_auto] gap-x-3 gap-y-2 p-3 rounded-xl border ${
-                      waived ? 'border-slate-800 bg-slate-950/40 opacity-70' : 'border-slate-800 bg-slate-950/60'
+                      waived ? 'border-edge bg-slate-950/40 opacity-70' : 'border-edge bg-slate-950/60'
                     }`}
                   >
                     <span
@@ -377,7 +377,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                       </span>
                       <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{finding.detail}</p>
                       {target && (
-                        <p className="mt-2 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-[14px] leading-relaxed text-slate-100">
+                        <p className="mt-2 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-edge text-[14px] leading-relaxed text-slate-100">
                           <HighlightedTarget text={target} match={finding.match} />
                         </p>
                       )}
@@ -439,7 +439,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
               })
             )}
 
-            <details className="mt-1 pt-2.5 border-t border-slate-800 group">
+            <details className="mt-1 pt-2.5 border-t border-edge group">
               <summary className="list-none cursor-default flex items-center gap-1.5 text-[12.5px] text-slate-400 hover:text-slate-200 select-none">
                 <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
                 All {report.rules.length} checks
@@ -471,7 +471,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
           </div>
 
           {/* Sign-off */}
-          <aside aria-label="Sign-off" className="px-4 py-3.5 border-t lg:border-t-0 lg:border-l border-slate-800 bg-slate-950/40 flex flex-col gap-3">
+          <aside aria-label="Sign-off" className="px-4 py-3.5 border-t lg:border-t-0 lg:border-l border-edge bg-slate-950/40 flex flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Sign-off</span>
               <span className="text-[11.5px] text-slate-400">Each step needs the one before</span>
@@ -499,7 +499,7 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                 <div
                   key={stage.id}
                   className={`flex flex-col gap-2 p-3 rounded-xl border bg-slate-900 ${
-                    rejected ? 'border-rose-500/40' : done && !(isMachine && !machinePassed) ? 'border-emerald-500/30' : 'border-slate-800'
+                    rejected ? 'border-rose-500/40' : done && !(isMachine && !machinePassed) ? 'border-emerald-500/30' : 'border-edge'
                   } ${!available && !done && !isMachine ? 'opacity-60' : ''}`}
                 >
                   <div className="flex items-start gap-2.5">
@@ -640,11 +640,11 @@ export const QaCockpit: React.FC<QaCockpitProps> = ({
                 />
               </label>
             </div>
-            <div className="flex items-center justify-end gap-2 px-5 py-4 mt-4 border-t border-slate-800">
+            <div className="flex items-center justify-end gap-2 px-5 py-4 mt-4 border-t border-edge">
               <button
                 type="button"
                 onClick={() => setOverrideTarget(null)}
-                className="h-9 px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
+                className="h-9 px-3.5 rounded-[10px] border border-edge bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
               >
                 Cancel
               </button>
@@ -724,7 +724,7 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
     'h-9 min-w-0 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-2.5 text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none';
 
   return (
-    <div className="border-t border-slate-800 pt-3">
+    <div className="border-t border-edge pt-3">
       <button
         type="button"
         onClick={onToggle}
@@ -746,7 +746,7 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
           {terms.length > 0 && (
             <div className="flex flex-col gap-1.5">
               {terms.map((term) => (
-                <div key={term.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-slate-800">
+                <div key={term.id} className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-edge">
                   <span className="text-[13px] font-semibold text-slate-100">{term.source}</span>
                   <span
                     className={`text-[10.5px] font-semibold px-1.5 py-px rounded-full ${
@@ -774,7 +774,7 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
           )}
 
           <div className="flex flex-col gap-2.5 p-3 rounded-xl border border-dashed border-slate-700">
-            <div role="group" aria-label="Kind of term" className="self-start flex p-0.5 gap-0.5 rounded-[9px] bg-slate-950/60 border border-slate-800">
+            <div role="group" aria-label="Kind of term" className="self-start flex p-0.5 gap-0.5 rounded-[9px] bg-slate-950/60 border border-edge">
               {([
                 ['keep', 'Keep as written'],
                 ['prefer', 'Approved rendering'],

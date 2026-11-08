@@ -124,7 +124,7 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
         {...dropHandlers}
         aria-label="Loaded media"
         className={`flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 min-h-[72px] px-3 py-3 rounded-2xl border bg-slate-900/90 transition-colors ${
-          isDragOver ? 'border-indigo-400 bg-indigo-950/30' : 'border-slate-800'
+          isDragOver ? 'border-indigo-400 bg-indigo-950/30' : 'border-edge'
         }`}
       >
         <div className="flex items-center gap-3 min-w-0 flex-1 sm:flex-none sm:w-72">
@@ -152,7 +152,7 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          className="shrink-0 px-3 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-colors cursor-default"
+          className="shrink-0 px-3 py-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-xs font-semibold text-slate-200 transition-colors cursor-default"
         >
           Replace
         </button>
@@ -190,19 +190,19 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
         </span>
       </button>
 
-      <div className="flex items-center gap-1.5 w-full sm:w-auto sm:pl-4 sm:border-l border-slate-800 shrink-0">
+      <div className="flex items-center gap-1.5 w-full sm:w-auto sm:pl-4 sm:border-l border-edge shrink-0">
         <span className="text-xs text-slate-500 mr-0.5">Try a sample</span>
         <button
           type="button"
           onClick={() => onLoadSample('podcast')}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors cursor-default"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors cursor-default"
         >
           <Radio className="w-3.5 h-3.5 text-slate-400" /> Podcast
         </button>
         <button
           type="button"
           onClick={() => onLoadSample('keynote')}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors cursor-default"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors cursor-default"
         >
           <Tv className="w-3.5 h-3.5 text-slate-400" /> Keynote
         </button>

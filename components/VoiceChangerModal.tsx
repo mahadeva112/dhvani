@@ -89,7 +89,7 @@ const primaryButton =
   'h-[42px] px-[18px] flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default';
 
 const actionButton =
-  'w-full flex items-center gap-3 p-2.5 rounded-[11px] border border-slate-800 bg-slate-900 hover:bg-slate-800/70 text-left transition-colors cursor-default';
+  'w-full flex items-center gap-3 p-2.5 rounded-[11px] border border-edge bg-slate-900 hover:bg-slate-800/70 text-left transition-colors cursor-default';
 
 interface VoiceChangerModalProps {
   isOpen: boolean;
@@ -785,7 +785,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
         <audio ref={audioPlayerRef} />
 
         {/* Header with the three modes */}
-        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
             <AudioWaveform className="w-[18px] h-[18px]" />
           </div>
@@ -798,7 +798,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
           <div
             role="tablist"
             aria-label="Mode"
-            className="order-3 sm:order-none w-full sm:w-auto flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950/60 border border-slate-800"
+            className="order-3 sm:order-none w-full sm:w-auto flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950/60 border border-edge"
           >
             {tabButton('sts', 'Change voice', ArrowLeftRight)}
             {tabButton('clone', 'Clone a voice', UserPlus)}
@@ -808,14 +808,14 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Input audio (the dub by default), shared by every mode */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-5 sm:px-6 py-3 border-b border-slate-800 bg-slate-950/40 shrink-0">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-5 sm:px-6 py-3 border-b border-edge bg-slate-950/40 shrink-0">
           <span className="hidden sm:block w-14 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 shrink-0">{inputIsProjectDub || !sourceAudioFile ? 'Dub' : 'Input'}</span>
           <span className="w-[34px] h-[34px] rounded-[9px] bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
             {isRecording ? <Mic className="w-4 h-4" /> : <FileAudio className="w-4 h-4" />}
@@ -848,7 +848,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={isRecording}
-            className="h-8 px-3 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 shrink-0 cursor-default"
+            className="h-8 px-3 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 disabled:opacity-40 shrink-0 cursor-default"
           >
             Other file
           </button>
@@ -856,7 +856,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             type="button"
             onClick={isRecording ? stopRecording : startRecording}
             className={`h-8 px-3 flex items-center gap-2 rounded-[9px] border text-[12.5px] font-medium shrink-0 cursor-default ${
-              isRecording ? 'border-rose-500/60 bg-rose-500/15 text-rose-200' : 'border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-200'
+              isRecording ? 'border-rose-500/60 bg-rose-500/15 text-rose-200' : 'border-edge bg-slate-900 hover:bg-slate-800 text-slate-200'
             }`}
           >
             <span className={`w-2 h-2 rounded-full bg-rose-400 ${isRecording ? 'animate-pulse' : ''}`} />
@@ -886,7 +886,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Replace the dub</span>
                       <EditRenderChip state={editRender} />
                     </div>
-                    <div role="radiogroup" aria-label="How to replace the dub" className="grid grid-cols-2 p-[3px] gap-[3px] rounded-[11px] bg-slate-950/60 border border-slate-800">
+                    <div role="radiogroup" aria-label="How to replace the dub" className="grid grid-cols-2 p-[3px] gap-[3px] rounded-[11px] bg-slate-950/60 border border-edge">
                       {([
                         ['line', 'Line by line', 'Keeps your edits'],
                         ['whole', 'Whole file', 'One take of everything'],
@@ -938,7 +938,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                 ) : (
                 <div className="flex flex-col gap-2">
                   <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Change into</span>
-                  <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/60 border border-edge">
                     <span className="w-[38px] h-[38px] rounded-full bg-gradient-to-br from-amber-600 to-orange-400 text-white font-semibold flex items-center justify-center shrink-0">
                       {(targetName.charAt(0) || '?').toUpperCase()}
                     </span>
@@ -950,7 +950,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleAuditionVoice(targetVoice)}
-                        className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
+                        className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
                       >
                         {auditionVoiceId === targetVoice.voice_id ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
                         Sample
@@ -962,7 +962,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                         setPickerFor(null);
                         setIsPickerOpen(true);
                       }}
-                      className="h-8 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
+                      className="h-8 px-2.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
                     >
                       Change
                     </button>
@@ -979,7 +979,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                             aria-pressed={on}
                             onClick={() => setTargetVoiceId(v.voice_id)}
                             className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-default ${
-                              on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-slate-800 text-slate-300 hover:bg-slate-800/60'
+                              on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-edge text-slate-300 hover:bg-slate-800/60'
                             }`}
                           >
                             <span className="w-5 h-5 rounded-full bg-slate-700 text-white text-[10px] font-semibold flex items-center justify-center">
@@ -1228,7 +1228,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     <button
                       type="button"
                       onClick={() => cloneFileInputRef.current?.click()}
-                      className="h-8 px-3 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-default"
+                      className="h-8 px-3 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-default"
                     >
                       Browse
                     </button>
@@ -1246,14 +1246,14 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                   </div>
                   <div className="flex flex-col gap-1.5">
                     {cloneFiles.length === 0 && originalAudioFile && (
-                      <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-slate-800 text-[12.5px]">
+                      <div className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-edge text-[12.5px]">
                         <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         <span className="min-w-0 flex-1 truncate text-slate-200">Original speaker ({originalAudioFile.name})</span>
                         {originalLength && <span className="font-mono text-[11.5px] text-slate-500">{originalLength}</span>}
                       </div>
                     )}
                     {cloneFiles.map((f, i) => (
-                      <div key={`${f.name}-${i}`} className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-slate-800 text-[12.5px]">
+                      <div key={`${f.name}-${i}`} className="flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] bg-slate-950/60 border border-edge text-[12.5px]">
                         <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         <span className="min-w-0 flex-1 truncate text-slate-200">{f.name}</span>
                         <span className="font-mono text-[11.5px] text-slate-500">{(f.size / 1024 / 1024).toFixed(1)} MB</span>
@@ -1310,12 +1310,12 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                         aria-checked={on}
                         onClick={() => setSelectedEffect(fx.id)}
                         className={`flex flex-col items-start gap-2 p-3 rounded-xl border text-left transition-colors cursor-default ${
-                          on ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/40'
+                          on ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10' : 'border-edge hover:bg-slate-800/40'
                         }`}
                       >
                         <span
                           className={`w-[30px] h-[30px] rounded-lg border flex items-center justify-center ${
-                            on ? 'text-indigo-300 border-indigo-500/40 bg-slate-950/60' : 'text-slate-400 border-slate-800 bg-slate-950/60'
+                            on ? 'text-indigo-300 border-indigo-500/40 bg-slate-950/60' : 'text-slate-400 border-edge bg-slate-950/60'
                           }`}
                         >
                           <fx.Icon className="w-4 h-4" />
@@ -1355,7 +1355,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
           </div>
 
           {/* Result */}
-          <aside aria-label="Result" className="px-5 py-5 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/40 flex flex-col gap-3.5 min-w-0">
+          <aside aria-label="Result" className="px-5 py-5 border-t md:border-t-0 md:border-l border-edge bg-slate-950/40 flex flex-col gap-3.5 min-w-0">
             <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{lineMode ? 'Edit timing' : 'Result'}</span>
 
             {lineMode && lineByLine ? (
@@ -1386,7 +1386,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                 )}
               </>
             ) : isProcessing ? (
-              <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-slate-900 border border-slate-800" role="status" aria-live="polite">
+              <div className="flex flex-col gap-2.5 p-3.5 rounded-xl bg-slate-900 border border-edge" role="status" aria-live="polite">
                 <span className="flex items-center gap-2 text-[13px] font-semibold text-slate-100">
                   <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" /> {runLabel}
                 </span>
@@ -1416,7 +1416,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                   <div
                     key={lane.track}
                     className={`flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900 border ${
-                      lane.track === 'output' ? 'border-indigo-500/50' : 'border-slate-800'
+                      lane.track === 'output' ? 'border-indigo-500/50' : 'border-edge'
                     }`}
                   >
                     <button
@@ -1441,7 +1441,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                 <div className="flex flex-col gap-2">
                   {onSetDubbedMaster && (
                     <button type="button" onClick={handleSetMasterDub} className={`${actionButton} border-indigo-500/50 bg-indigo-950/30`}>
-                      <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-indigo-300 flex items-center justify-center shrink-0">
+                      <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-edge text-indigo-300 flex items-center justify-center shrink-0">
                         <Film className="w-4 h-4" />
                       </span>
                       <span className="min-w-0">
@@ -1452,7 +1452,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                   )}
                   {!inputIsProjectDub && (
                     <button type="button" onClick={handleApplyToProject} className={actionButton}>
-                      <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                      <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-edge text-slate-400 flex items-center justify-center shrink-0">
                         <RefreshCw className="w-4 h-4" />
                       </span>
                       <span className="min-w-0">
@@ -1462,7 +1462,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     </button>
                   )}
                   <button type="button" onClick={handleDownloadOutput} className={actionButton}>
-                    <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+                    <span className="w-[30px] h-[30px] rounded-lg bg-slate-950/60 border border-edge text-slate-400 flex items-center justify-center shrink-0">
                       <Download className="w-4 h-4" />
                     </span>
                     <span className="min-w-0">
@@ -1476,7 +1476,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               </>
             ) : (
               <div className="flex-1 min-h-[13.75rem] flex flex-col items-center justify-center gap-2.5 p-6 text-center rounded-xl border-[1.5px] border-dashed border-slate-700 text-[12.5px] text-slate-500">
-                <span className="w-10 h-10 rounded-[11px] bg-slate-900 border border-slate-800 text-slate-400 flex items-center justify-center">
+                <span className="w-10 h-10 rounded-[11px] bg-slate-900 border border-edge text-slate-400 flex items-center justify-center">
                   <AudioWaveform className="w-5 h-5" />
                 </span>
                 <span className="max-w-[16rem]">Your result appears here, next to the original, so you can compare before using it.</span>

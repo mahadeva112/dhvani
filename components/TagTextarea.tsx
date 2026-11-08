@@ -198,7 +198,7 @@ export const TagTextarea = forwardRef<
           phonetic?.dismiss();
           onBlur?.();
         }}
-        className={`${box} ${text} relative block resize-none overflow-hidden bg-transparent text-transparent caret-slate-100 border border-slate-800 focus:outline-none focus:border-indigo-500 selection:bg-indigo-500/40`}
+        className={`${box} ${text} relative block resize-none overflow-hidden bg-transparent text-transparent caret-slate-100 border border-edge focus:outline-none focus:border-indigo-500 selection:bg-indigo-500/40`}
       />
       {menu && options.length > 0 && (
         <div role="listbox" aria-label="Tags" className="absolute z-20 left-1 top-full mt-1 w-[19rem] max-h-64 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 p-2">

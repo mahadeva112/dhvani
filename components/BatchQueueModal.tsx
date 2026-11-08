@@ -238,7 +238,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
       className={
         primary
           ? 'h-[38px] px-4 flex items-center gap-2 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold cursor-default'
-          : 'h-[34px] px-3 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-default'
+          : 'h-[34px] px-3 flex items-center gap-1.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 shrink-0 cursor-default'
       }
     >
       <Plus className="w-3.5 h-3.5" /> Add files
@@ -253,7 +253,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         onClick={() => importInputRef.current?.click()}
         className={`${
           large ? 'h-[38px] px-4 rounded-[10px] text-[13px]' : 'h-[34px] px-3 rounded-[9px] text-[12.5px]'
-        } flex items-center gap-1.5 border border-slate-800 bg-slate-900 hover:bg-slate-800 font-medium text-slate-200 shrink-0 disabled:opacity-60 cursor-default`}
+        } flex items-center gap-1.5 border border-edge bg-slate-900 hover:bg-slate-800 font-medium text-slate-200 shrink-0 disabled:opacity-60 cursor-default`}
         title={`Open a ${PROJECT_FILE_EXTENSION} project or a Dhvani JSON as a new project`}
       >
         {importing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileUp className="w-3.5 h-3.5" />}
@@ -307,7 +307,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         )}
 
         {/* Header */}
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
             <FolderOpen className="w-[18px] h-[18px]" />
           </div>
@@ -325,7 +325,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -333,7 +333,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
 
         {queue.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-2.5 px-6 py-12 text-center">
-            <span className="w-[52px] h-[52px] rounded-[14px] bg-slate-950/60 border border-slate-800 text-slate-400 flex items-center justify-center">
+            <span className="w-[52px] h-[52px] rounded-[14px] bg-slate-950/60 border border-edge text-slate-400 flex items-center justify-center">
               <FolderOpen className="w-6 h-6" />
             </span>
             <h3 className="mt-1 text-base font-semibold text-slate-100">Start your first project</h3>
@@ -348,7 +348,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         ) : (
           <>
             {/* Summary */}
-            <div className="flex flex-wrap items-center gap-3.5 px-5 sm:px-6 py-3 border-b border-slate-800 bg-slate-950/40 shrink-0">
+            <div className="flex flex-wrap items-center gap-3.5 px-5 sm:px-6 py-3 border-b border-edge bg-slate-950/40 shrink-0">
               <div className="flex-1 min-w-[12.5rem] flex flex-col gap-2">
                 <div className="flex h-[7px] rounded-full overflow-hidden gap-0.5 bg-slate-800" aria-hidden="true">
                   {segments.map((s) =>
@@ -396,11 +396,11 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                   <div
                     key={job.id}
                     className={`grid grid-cols-[2.25rem_minmax(0,1fr)_auto] sm:grid-cols-[2.25rem_minmax(0,1fr)_auto_auto] gap-x-3 gap-y-2 items-center p-3 rounded-xl border transition-colors ${
-                      isOpenJob ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-900' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/40'
+                      isOpenJob ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-900' : 'border-edge bg-slate-900 hover:bg-slate-800/40'
                     }`}
                   >
                     <span
-                      className={`w-9 h-9 rounded-[9px] bg-slate-950/60 border border-slate-800 flex items-center justify-center ${
+                      className={`w-9 h-9 rounded-[9px] bg-slate-950/60 border border-edge flex items-center justify-center ${
                         isOpenJob ? 'text-indigo-300' : 'text-slate-400'
                       }`}
                     >
@@ -484,7 +484,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                         className={`h-8 px-3 rounded-[9px] text-[12.5px] font-medium whitespace-nowrap transition-colors ${
                           isOpenJob
                             ? 'text-slate-500 cursor-default'
-                            : 'border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-200 cursor-default'
+                            : 'border border-edge bg-slate-950/60 hover:bg-slate-800 text-slate-200 cursor-default'
                         }`}
                       >
                         {isOpenJob ? 'Open now' : 'Open'}
@@ -616,7 +616,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
         )}
 
         {/* Footer */}
-        <div className="flex flex-wrap items-center gap-2.5 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 px-5 sm:px-6 py-3.5 border-t border-edge shrink-0">
           {queue.length > 0 &&
             (confirmClear ? (
               <span className="flex items-center gap-2 text-[12.5px] text-slate-300">
@@ -667,7 +667,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                 onClose();
                 onNewDub();
               }}
-              className="h-[38px] px-3.5 flex items-center gap-1.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
+              className="h-[38px] px-3.5 flex items-center gap-1.5 rounded-[10px] border border-edge bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
             >
               <Plus className="w-3.5 h-3.5" /> New dub
             </button>
@@ -675,7 +675,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="h-[38px] px-3.5 rounded-[10px] border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
+            className="h-[38px] px-3.5 rounded-[10px] border border-edge bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 cursor-default"
           >
             Done
           </button>

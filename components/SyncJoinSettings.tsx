@@ -247,18 +247,18 @@ export const SettingsCard: React.FC<{ title: string; advanced?: boolean; changed
   children,
 }) =>
   advanced ? (
-    <details className="group rounded-xl border border-slate-800 bg-slate-800/20">
+    <details className="group rounded-xl border border-edge bg-slate-800/20">
       <summary className="flex items-center gap-2 px-4 py-2.5 list-none cursor-default text-[12px] font-semibold text-slate-300 hover:text-slate-100 [&::-webkit-details-marker]:hidden">
         <ChevronRight className="w-3.5 h-3.5 transition-transform group-open:rotate-90" />
         {title}
         <span className="font-normal text-slate-500">· advanced</span>
         {changed && <span title="Changed from the default" className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
       </summary>
-      <div className="px-4 border-t border-slate-800 divide-y divide-slate-800/70">{children}</div>
+      <div className="px-4 border-t border-edge divide-y divide-slate-800/70">{children}</div>
     </details>
   ) : (
-    <div className="rounded-xl border border-slate-800 bg-slate-800/20">
-      <div className="px-4 py-2.5 border-b border-slate-800 text-[12px] font-semibold text-slate-300">{title}</div>
+    <div className="rounded-xl border border-edge bg-slate-800/20">
+      <div className="px-4 py-2.5 border-b border-edge text-[12px] font-semibold text-slate-300">{title}</div>
       <div className="px-4 divide-y divide-slate-800/70">{children}</div>
     </div>
   );
@@ -386,7 +386,7 @@ export const FitCard: React.FC<{
       {changes.length > 0 && (
         <ul className="flex flex-col">
           {changes.map((change) => (
-            <li key={change.key} className="flex items-start justify-between gap-2 py-1.5 border-t border-slate-800">
+            <li key={change.key} className="flex items-start justify-between gap-2 py-1.5 border-t border-edge">
               <span className="min-w-0">
                 <span className="block text-[12.5px] text-slate-200">{FIT_LABELS[change.key] ?? change.key}</span>
                 <span className="block text-[11.5px] text-slate-400">{change.reason}</span>
@@ -427,7 +427,7 @@ export const FitCard: React.FC<{
 
 /** Fit to this video when I Sync: on unless turned off (services/syncAutoFit.ts). */
 export const FitOnSyncToggle: React.FC<{ on: boolean; disabled?: boolean; onChange: (on: boolean) => void }> = ({ on, disabled, onChange }) => (
-  <label className="flex items-start gap-2.5 rounded-lg border border-slate-800 bg-slate-800/20 px-3 py-2.5 text-[13px] text-slate-200 cursor-default">
+  <label className="flex items-start gap-2.5 rounded-lg border border-edge bg-slate-800/20 px-3 py-2.5 text-[13px] text-slate-200 cursor-default">
     <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} className="mt-0.5 accent-indigo-500" />
     <span>
       Fit to this video when I Sync
@@ -616,7 +616,7 @@ const ModeRow: React.FC<{
       </span>
       <span className="block text-[11.5px] text-slate-400 mt-0.5">{hint}</span>
     </div>
-    <div role="radiogroup" aria-label={label} className="shrink-0 flex rounded-lg border border-slate-800 bg-slate-950 p-0.5">
+    <div role="radiogroup" aria-label={label} className="shrink-0 flex rounded-lg border border-edge bg-slate-950 p-0.5">
       {(['off', 'ask', 'auto'] as const).map((mode) => (
         <button
           key={mode}
@@ -646,7 +646,7 @@ const ChoiceRow: React.FC<{
   disabled?: boolean;
   onPick: (id: string) => void;
 }> = ({ label, choices, value, suggested, disabled, onPick }) => (
-  <div role="radiogroup" aria-label={label} className="grid gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800" style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}>
+  <div role="radiogroup" aria-label={label} className="grid gap-1 p-1 rounded-xl bg-slate-950 border border-edge" style={{ gridTemplateColumns: `repeat(${choices.length}, minmax(0, 1fr))` }}>
     {choices.map((choice) => {
       const on = value === choice.id;
       return (
@@ -750,14 +750,14 @@ export const JoinPresetPicker: React.FC<{
           )}
         </span>
       )}
-      <details className="rounded-lg border border-slate-800 bg-slate-950/40">
+      <details className="rounded-lg border border-edge bg-slate-950/40">
         <summary className="px-3 py-2 text-[12px] text-slate-300 cursor-default select-none">
           What <span className="font-semibold text-slate-100">{joinPresetLabel(options)}</span> sets
         </summary>
         <table className="w-full text-[12px]">
           <tbody>
             {presetRows(options.join, options).map(([what, value]) => (
-              <tr key={what} className="border-t border-slate-800/80">
+              <tr key={what} className="border-t border-edge/80">
                 <td className="px-3 py-1.5 text-slate-400">{what}</td>
                 <td className="px-3 py-1.5 text-right text-slate-100">{value}</td>
               </tr>
@@ -896,7 +896,7 @@ export const SyncJoinSectionControls: React.FC<{
                 <span className="block text-[13px] text-slate-200">Suggest a shorter wording</span>
                 <span className="block text-[11.5px] text-slate-400 mt-0.5">Shown in Review for you to take or leave. The script never changes on its own.</span>
               </div>
-              <div role="radiogroup" aria-label="Suggest a shorter wording" className="shrink-0 flex rounded-lg border border-slate-800 bg-slate-950 p-0.5">
+              <div role="radiogroup" aria-label="Suggest a shorter wording" className="shrink-0 flex rounded-lg border border-edge bg-slate-950 p-0.5">
                 {[false, true].map((on) => (
                   <button
                     key={String(on)}

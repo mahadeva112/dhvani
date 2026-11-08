@@ -37,7 +37,7 @@ interface TranslationPromptModalProps {
 }
 
 const applyCard =
-  'text-left p-3 rounded-[11px] border border-slate-800 hover:bg-slate-800/50 hover:border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-default';
+  'text-left p-3 rounded-[11px] border border-edge hover:bg-slate-800/50 hover:border-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-default';
 
 export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
   isOpen,
@@ -222,7 +222,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
         aria-labelledby="prompt-modal-title"
         className="relative w-full max-w-[60rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
             <AlignLeft className="w-[18px] h-[18px]" />
           </div>
@@ -239,7 +239,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
             onClick={onClose}
             disabled={busy}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -247,7 +247,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
 
         <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[18rem_minmax(0,1fr)]">
           {/* Styles */}
-          <div role="radiogroup" aria-label="Style" className="px-3.5 py-3.5 border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/40 flex flex-col gap-1.5">
+          <div role="radiogroup" aria-label="Style" className="px-3.5 py-3.5 border-b md:border-b-0 md:border-r border-edge bg-slate-950/40 flex flex-col gap-1.5">
             {TRANSLATION_PRESETS.map((preset) => {
               const on = preset.id === selectedPresetId;
               return (
@@ -258,7 +258,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                   aria-checked={on}
                   onClick={() => handleSelectPreset(preset)}
                   className={`flex items-start gap-2.5 p-2.5 rounded-[11px] border text-left transition-colors cursor-default ${
-                    on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-900' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
+                    on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-900' : 'border-edge bg-slate-900 hover:bg-slate-800/60'
                   }`}
                 >
                   <span className={`w-[15px] h-[15px] mt-0.5 rounded-full border-[1.5px] flex items-center justify-center shrink-0 ${on ? 'border-indigo-400' : 'border-slate-600'}`}>
@@ -314,7 +314,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                 <div
                   key={saved.id}
                   className={`group flex items-start rounded-[11px] border transition-colors ${
-                    on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-900' : 'border-slate-800 bg-slate-900 hover:bg-slate-800/60'
+                    on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-900' : 'border-edge bg-slate-900 hover:bg-slate-800/60'
                   }`}
                 >
                   <button
@@ -400,7 +400,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
                     className={`px-2.5 py-1 rounded-full border text-xs font-medium transition-colors cursor-default ${
                       added
                         ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300'
-                        : 'border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        : 'border-edge text-slate-400 hover:text-slate-200 hover:border-slate-700'
                     }`}
                   >
                     {added ? '✓' : '+'} {item.label}
@@ -484,7 +484,7 @@ export const TranslationPromptModal: React.FC<TranslationPromptModalProps> = ({
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-slate-800 shrink-0">
+        <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-edge shrink-0">
           <button
             type="button"
             onClick={handleResetToPreset}

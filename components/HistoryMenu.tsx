@@ -50,7 +50,7 @@ export function HistoryMenu({ history, className = '', compact = false }: { hist
         aria-expanded={open}
         aria-haspopup="true"
         title="Every change to this project, from the first: click a step to go back to it"
-        className={`${compact ? 'h-7 px-2 text-xs' : 'h-8 px-2 text-xs'} rounded-lg flex items-center gap-1.5 font-medium border border-slate-800 cursor-default ${open ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}
+        className={`${compact ? 'h-7 px-2 text-xs' : 'h-8 px-2 text-xs'} rounded-lg flex items-center gap-1.5 font-medium border border-edge cursor-default ${open ? 'bg-slate-800 text-slate-100' : 'text-slate-300 hover:text-white hover:bg-slate-800'}`}
       >
         <History className="w-3.5 h-3.5" /> History
         {count > 0 && <span className="font-mono text-[10.5px] text-slate-500 tabular-nums">{count}</span>}

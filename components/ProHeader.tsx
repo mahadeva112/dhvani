@@ -16,7 +16,10 @@ import {
   Speech,
   Download,
   RefreshCw,
+  Palette,
 } from 'lucide-react';
+import { ThemePicker } from './ThemePicker';
+import { THEMES, useTheme } from './theme';
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported, useUpdateState } from './UpdateControl';
 import { CenteredPanel } from './CenteredPanel';
@@ -138,12 +141,12 @@ const compact = (n: number) =>
 /** Colour for a share left: red under 10%, amber under 25%. */
 const shareTone = (share: number | null) =>
   share === null
-    ? { bar: 'bg-slate-600', text: 'text-slate-100', border: 'border-slate-800' }
+    ? { bar: 'bg-slate-600', text: 'text-slate-100', border: 'border-edge' }
     : share < 0.1
       ? { bar: 'bg-rose-400', text: 'text-rose-300', border: 'border-rose-900/60' }
       : share < 0.25
         ? { bar: 'bg-amber-400', text: 'text-amber-300', border: 'border-amber-900/60' }
-        : { bar: 'bg-emerald-400', text: 'text-slate-100', border: 'border-slate-800' };
+        : { bar: 'bg-emerald-400', text: 'text-slate-100', border: 'border-edge' };
 
 const shortDate = (when: number | string) =>
   new Date(when).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
@@ -313,6 +316,8 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const engineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   const lineCount = activeJob?.segments.length ?? 0;
   const updateState = useUpdateState();
+  const theme = useTheme();
+  const themeName = THEMES.find((t) => t.id === theme)?.label ?? 'Classic';
   const updateOffered = Boolean(updateState?.version) && ['available', 'downloading', 'downloaded'].includes(updateState!.status);
   const updateSummary = !updateState
     ? null
@@ -534,6 +539,18 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       note: 'Used for the next translation.',
       onOpen: onOpenCustomPrompt,
     },
+    {
+      id: 'appearance',
+      group: 'App',
+      label: 'Appearance',
+      hint: 'The colours the whole app is drawn in',
+      summary: themeName,
+      icon: Palette,
+      tone: 'slate',
+      facts: [],
+      extra: <ThemePicker />,
+      note: 'Changes show right away and are remembered on this computer.',
+    },
     updatesSupported() && {
       id: 'updates',
       group: 'App',
@@ -633,7 +650,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const stepDone = (n: number) => (n === 1 ? hasCues : n === 2 ? hasDub : hasSync);
 
   return (
-    <header className="relative z-20 w-full bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md select-none">
+    <header className="relative z-20 w-full bg-slate-950/95 border-b border-edge/80 backdrop-blur-md select-none">
       <div className="min-h-[60px] px-4 sm:px-6 lg:px-8 py-2.5 grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5">
         {/* Left: brand and the project in hand */}
         <div className="flex items-center gap-3.5 min-w-0">
@@ -655,7 +672,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
 
           {activeJob?.file ? (
             <div className="hidden sm:flex items-center gap-2.5 min-w-0" title={activeJob.file.name}>
-              <span className="w-8 h-8 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 flex items-center justify-center shrink-0">
+              <span className="w-8 h-8 rounded-lg bg-slate-900 border border-edge text-slate-400 flex items-center justify-center shrink-0">
                 {isVideo ? <Film className="w-4 h-4" /> : <Music className="w-4 h-4" />}
               </span>
               <span className="min-w-0">
@@ -681,7 +698,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
         {/* Centre: the three steps */}
         <nav
           aria-label="Dubbing steps"
-          className="col-span-2 md:col-span-1 row-start-2 md:row-start-auto justify-self-center flex items-center gap-0.5 p-[3px] rounded-full bg-slate-900 border border-slate-800 max-w-full overflow-x-auto [scrollbar-width:none]"
+          className="col-span-2 md:col-span-1 row-start-2 md:row-start-auto justify-self-center flex items-center gap-0.5 p-[3px] rounded-full bg-slate-900 border border-edge max-w-full overflow-x-auto [scrollbar-width:none]"
         >
           {/* Every step shows as it always has; one not reached yet just can't be opened. */}
           {steps.map((s) => {
@@ -755,7 +772,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               }}
               aria-haspopup="dialog"
               aria-expanded={servicesOpen}
-              className="flex items-center gap-2 h-[34px] px-2.5 rounded-full border border-slate-800 hover:bg-slate-800/60 text-xs text-slate-400 whitespace-nowrap transition-colors cursor-default"
+              className="flex items-center gap-2 h-[34px] px-2.5 rounded-full border border-edge hover:bg-slate-800/60 text-xs text-slate-400 whitespace-nowrap transition-colors cursor-default"
               title={servicesOk ? 'Services connected. Open to see what each has left.' : 'Something needs setting up'}
             >
               <span
@@ -903,7 +920,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
                 onOpenQueue();
               }}
               aria-haspopup="dialog"
-              className="relative h-[34px] px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default"
+              className="relative h-[34px] px-2.5 flex items-center gap-1.5 rounded-[9px] border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default"
               title="Your projects"
               aria-label={projects.length > 0 ? `Your projects, ${projects.length}` : 'Your projects'}
             >
@@ -929,7 +946,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               className={`w-[34px] h-[34px] flex items-center justify-center rounded-[9px] border transition-colors cursor-default ${
                 toolsOpen
                   ? 'bg-slate-800 border-slate-700 text-slate-100'
-                  : 'border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
+                  : 'border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
               }`}
               title="Tools and settings (Ctrl K)"
               aria-label="Tools and settings"

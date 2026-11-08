@@ -204,7 +204,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
 
   const optionClass = (on: boolean) =>
     `w-full flex items-start gap-3 p-3 rounded-xl border text-left transition-colors cursor-default disabled:cursor-not-allowed disabled:opacity-60 ${
-      on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-950/40' : 'border-slate-800 hover:bg-slate-800/40'
+      on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-slate-950/40' : 'border-edge hover:bg-slate-800/40'
     }`;
 
   const radioDot = (on: boolean) => (
@@ -222,9 +222,9 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
       {/* The transcript, read-only, with the timestamps every script will use */}
       <section
         aria-label="Transcript"
-        className="flex flex-col min-h-0 h-[60vh] lg:h-auto bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden"
+        className="flex flex-col min-h-0 h-[60vh] lg:h-auto bg-slate-900/90 border border-edge rounded-2xl overflow-hidden"
       >
-        <div className="flex flex-wrap items-center gap-2.5 px-4 py-3 border-b border-slate-800">
+        <div className="flex flex-wrap items-center gap-2.5 px-4 py-3 border-b border-edge">
           <FileText className="w-4 h-4 text-slate-400" aria-hidden="true" />
           <h2 className="text-[14px] font-semibold text-slate-100">Transcript</h2>
           {hasTranscript && !isTranscribing && !editing && (
@@ -243,7 +243,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
                     setSplitOnOpen(null);
                     setEditing(true);
                   }}
-                  className="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 hover:bg-slate-800 text-[12px] font-medium text-slate-200 cursor-default"
+                  className="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12px] font-medium text-slate-200 cursor-default"
                   title="Split or merge segments before you translate. Optional. Or play to a point and press S."
                 >
                   <Scissors className="w-3.5 h-3.5 text-slate-400" aria-hidden="true" />
@@ -347,7 +347,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
       </section>
 
       {/* The choice */}
-      <aside aria-label="Choose your script" className="bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden flex flex-col min-h-0">
+      <aside aria-label="Choose your script" className="bg-slate-900/90 border border-edge rounded-2xl overflow-hidden flex flex-col min-h-0">
         <div className="px-4 sm:px-5 pt-4 pb-3">
           <h2 className="text-[15px] font-semibold text-slate-100">Choose your {targetLanguage} script</h2>
           <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
@@ -365,7 +365,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
               value={targetLanguage}
               disabled={busy}
               onChange={(e) => onTargetLanguageChange(e.target.value)}
-              className="appearance-none w-full h-9 bg-slate-950 border border-slate-800 hover:border-slate-600 rounded-lg pl-2.5 pr-8 text-[13px] font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
+              className="appearance-none w-full h-9 bg-slate-950 border border-edge hover:border-slate-600 rounded-lg pl-2.5 pr-8 text-[13px] font-medium text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
             >
               {languages.map((lang) => {
                 const code = typeof lang === 'string' ? lang : lang.code;
@@ -436,7 +436,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
           </button>
 
           {method === 'translate' && !sameLanguage && (
-            <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
+            <div className="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-edge">
               <span className="min-w-0 flex-1">
                 <span className="block text-[12.5px] font-semibold text-slate-100 truncate">{translationStyleName}</span>
                 <span className="block text-[11px] text-slate-500 truncate">
@@ -447,7 +447,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
                 type="button"
                 onClick={onOpenPromptModal}
                 disabled={busy}
-                className="px-2 py-1 rounded-lg border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 disabled:opacity-40 cursor-default"
+                className="px-2 py-1 rounded-lg border border-edge bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 disabled:opacity-40 cursor-default"
               >
                 Change
               </button>
@@ -456,7 +456,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
 
           {method === 'translate' && !sameLanguage && onFitToVoiceChange && (
             voiceRate ? (
-              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 cursor-default">
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-950/60 border border-edge cursor-default">
                 <input
                   type="checkbox"
                   checked={fitToVoice}
@@ -485,7 +485,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
           )}
         </div>
 
-        <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2.5">
+        <div className="mt-auto px-4 sm:px-5 py-4 border-t border-edge bg-slate-950/60 flex flex-col gap-2.5">
           {showFast && (
             <>
               <button

@@ -37,7 +37,7 @@ export const VoiceRateCard: React.FC<{ voiceRate: VoiceRateState; language: stri
 
   if (status === 'measuring') {
     return (
-      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/40 border border-slate-800 text-xs text-slate-400" role="status">
+      <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950/40 border border-edge text-xs text-slate-400" role="status">
         <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
         Measuring how fast this voice speaks {language}…
       </div>
@@ -64,7 +64,7 @@ export const VoiceRateCard: React.FC<{ voiceRate: VoiceRateState; language: stri
 
   const pace = paceOf(rate.syllablesPerSecond);
   return (
-    <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/40 border border-slate-800 min-w-0">
+    <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/40 border border-edge min-w-0">
       <Gauge className="w-4 h-4 text-slate-400 shrink-0" aria-hidden="true" />
       <span className="min-w-0 flex-1">
         <span className="block text-[11px] text-slate-500">Speaking rate in {language}</span>
@@ -81,7 +81,7 @@ export const VoiceRateCard: React.FC<{ voiceRate: VoiceRateState; language: stri
         onClick={measureAgain}
         title="Read the sample again and measure the rate anew. Uses a few voice credits."
         aria-label="Measure the speaking rate again"
-        className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default shrink-0"
+        className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default shrink-0"
       >
         <RefreshCw className="w-3.5 h-3.5" />
       </button>

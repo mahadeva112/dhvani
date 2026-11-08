@@ -47,7 +47,8 @@ export interface ToolsHubItem {
   note?: string;
   /** The button at the foot, when "Open" and the name don't read right. */
   openLabel?: string;
-  onOpen: () => void;
+  /** Opens its own window. Without it the item is set only here, and has no button at the foot. */
+  onOpen?: () => void;
 }
 
 const TONES = {
@@ -123,6 +124,10 @@ export const ToolsHub: React.FC<{
   const current = listed.find((item) => item.id === selected) ?? listed[0] ?? null;
 
   const openItem = (item: ToolsHubItem) => {
+    if (!item.onOpen) {
+      setSelected(item.id);
+      return;
+    }
     onClose();
     item.onOpen();
   };
@@ -175,7 +180,7 @@ export const ToolsHub: React.FC<{
           closing ? 'tools-hub-panel-out' : 'tools-hub-panel-in'
         }`}
       >
-        <div className="min-h-0 flex flex-col border-r border-slate-800 bg-slate-950/40">
+        <div className="min-h-0 flex flex-col border-r border-edge bg-slate-950/40">
           <div className="px-4 pt-4 pb-3">
             <h2 className="text-[15px] font-semibold text-slate-100">Tools and settings</h2>
             <label className="mt-3 flex items-center gap-2 h-9 px-2.5 rounded-lg border border-slate-700 bg-slate-950 text-slate-500 focus-within:border-indigo-500">
@@ -237,8 +242,8 @@ export const ToolsHub: React.FC<{
             )}
           </div>
 
-          {footer && <div className="shrink-0 px-4 py-3 border-t border-slate-800">{footer}</div>}
-          <div className="shrink-0 hidden md:flex items-center gap-3 px-4 py-2.5 border-t border-slate-800 text-[11px] text-slate-500">
+          {footer && <div className="shrink-0 px-4 py-3 border-t border-edge">{footer}</div>}
+          <div className="shrink-0 hidden md:flex items-center gap-3 px-4 py-2.5 border-t border-edge text-[11px] text-slate-500">
             <span className="flex items-center gap-1">
               <Key><ArrowUp className="w-3 h-3" /></Key>
               <Key><ArrowDown className="w-3 h-3" /></Key> move
@@ -304,17 +309,19 @@ export const ToolsHub: React.FC<{
                 {current.extra && <div className="mt-3">{current.extra}</div>}
               </div>
 
-              <div className="relative shrink-0 flex items-center gap-3 px-7 py-3.5 border-t border-slate-800 bg-slate-950/30">
+              <div className="relative shrink-0 flex items-center gap-3 px-7 py-3.5 border-t border-edge bg-slate-950/30">
                 <span className="min-w-0 flex-1 text-[12px] text-slate-500">
                   {current.note ?? (current.controls?.length ? 'Changes here save as you make them.' : '')}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => openItem(current)}
-                  className="shrink-0 h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors cursor-default"
-                >
-                  <ExternalLink className="w-4 h-4" /> {current.openLabel ?? `Open ${current.label}`}
-                </button>
+                {current.onOpen && (
+                  <button
+                    type="button"
+                    onClick={() => openItem(current)}
+                    className="shrink-0 h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors cursor-default"
+                  >
+                    <ExternalLink className="w-4 h-4" /> {current.openLabel ?? `Open ${current.label}`}
+                  </button>
+                )}
               </div>
             </ToneContext.Provider>
           ) : (
@@ -331,7 +338,7 @@ export const ToolsHub: React.FC<{
 const HubGroup: React.FC<{ title: string; controls?: boolean; children: React.ReactNode }> = ({ title, controls, children }) => (
   <div className="mt-5">
     <p className="px-1 pb-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{title}</p>
-    <div data-hub-controls={controls || undefined} className="rounded-xl border border-slate-800 bg-slate-800/25 divide-y divide-slate-800">
+    <div data-hub-controls={controls || undefined} className="rounded-xl border border-edge bg-slate-800/25 divide-y divide-slate-800">
       {children}
     </div>
   </div>
@@ -369,7 +376,7 @@ export function HubSegmented<T extends string>({
 }) {
   const tone = useContext(ToneContext);
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex p-0.5 rounded-lg bg-slate-950/70 border border-slate-800 text-[12px]">
+    <div role="radiogroup" aria-label={label} className="inline-flex p-0.5 rounded-lg bg-slate-950/70 border border-edge text-[12px]">
       {options.map((o) => (
         <button
           key={o.id}
@@ -424,7 +431,7 @@ export function HubSelect<T extends string>({
         value={value}
         aria-label={label}
         onChange={(e) => onChange(e.target.value as T)}
-        className="appearance-none h-8 min-w-[10rem] pl-3 pr-8 rounded-lg bg-slate-950/70 border border-slate-800 text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default"
+        className="appearance-none h-8 min-w-[10rem] pl-3 pr-8 rounded-lg bg-slate-950/70 border border-edge text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500 cursor-default"
       >
         {options.map((o) => (
           <option key={o.id} value={o.id}>
@@ -444,7 +451,7 @@ export const HubMeter: React.FC<{ share: number; left?: string; right?: string; 
   right,
   tone = 'indigo',
 }) => (
-  <div className="rounded-xl border border-slate-800 bg-slate-800/25 px-4 py-3">
+  <div className="rounded-xl border border-edge bg-slate-800/25 px-4 py-3">
     <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
       <div
         className={`h-full rounded-full ${tone === 'amber' ? 'bg-amber-400' : tone === 'emerald' ? 'bg-emerald-400' : tone === 'rose' ? 'bg-rose-400' : 'bg-indigo-400'}`}

@@ -301,7 +301,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
       });
   const roomy = cells.length <= 32;
   const CELL: Record<string, string> = {
-    '': 'border-slate-800 bg-slate-950 text-slate-600',
+    '': 'border-edge bg-slate-950 text-slate-600',
     kept: 'border-slate-700 text-slate-400 bg-[repeating-linear-gradient(135deg,rgba(148,163,184,.13)_0_5px,rgba(148,163,184,.04)_5px_10px)]',
     voiced: 'border-indigo-400/60 bg-indigo-500/25 text-indigo-100',
     now: 'border-cyan-400 bg-slate-950 text-cyan-200 animate-pulse',
@@ -404,7 +404,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
               key={s.phase}
               aria-current={state === 'now' ? 'step' : undefined}
               className={`flex flex-col min-h-[118px] rounded-[14px] border px-3 py-3 transition-colors ${
-                state === 'done' ? 'border-emerald-400/25 bg-slate-900/90' : state === 'now' ? 'border-cyan-400/55 bg-cyan-400/[.06]' : 'border-slate-800 bg-slate-900/90'
+                state === 'done' ? 'border-emerald-400/25 bg-slate-900/90' : state === 'now' ? 'border-cyan-400/55 bg-cyan-400/[.06]' : 'border-edge bg-slate-900/90'
               }`}
             >
               <span
@@ -432,7 +432,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
       </ol>
 
       <div className="grid gap-3.5 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)]">
-        <section aria-label="Lines" className="flex flex-col rounded-[18px] border border-slate-800 bg-slate-900/90 px-5 py-4">
+        <section aria-label="Lines" className="flex flex-col rounded-[18px] border border-edge bg-slate-900/90 px-5 py-4">
           <p className="flex items-center gap-2 text-[10.5px] uppercase tracking-[.09em] font-semibold text-slate-500">
             Lines in the dub
             <span className="ml-auto normal-case tracking-normal font-normal">{done ? "each line's fit" : 'by count: Sync says how many, not which'}</span>
@@ -477,7 +477,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
               </span>
             ))}
           </p>
-          <div className="grid grid-cols-4 gap-2.5 mt-3.5 pt-3.5 border-t border-slate-800">
+          <div className="grid grid-cols-4 gap-2.5 mt-3.5 pt-3.5 border-t border-edge">
             {facts.map(([value, label]) => (
               <div key={label}>
                 <b className="block text-[19px] font-semibold font-mono tabular-nums text-slate-100">{value}</b>
@@ -487,7 +487,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
           </div>
         </section>
 
-        <section aria-label="Activity" className="flex flex-col rounded-[18px] border border-slate-800 bg-slate-900/90 px-5 py-4 min-h-0">
+        <section aria-label="Activity" className="flex flex-col rounded-[18px] border border-edge bg-slate-900/90 px-5 py-4 min-h-0">
           <p className="flex items-center gap-2 text-[10.5px] uppercase tracking-[.09em] font-semibold text-slate-500">
             Activity <span className="ml-auto normal-case tracking-normal font-normal">newest first</span>
           </p>
@@ -498,7 +498,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
               .map((e, i) => (
                 <li
                   key={`${e.at}-${i}`}
-                  className={`grid grid-cols-[4.6rem_minmax(0,1fr)_auto] gap-2.5 py-[5px] border-b border-slate-800/70 text-xs ${e.strong ? 'text-slate-100' : 'text-slate-400'}`}
+                  className={`grid grid-cols-[4.6rem_minmax(0,1fr)_auto] gap-2.5 py-[5px] border-b border-edge/70 text-xs ${e.strong ? 'text-slate-100' : 'text-slate-400'}`}
                 >
                   <span className="font-mono tabular-nums text-slate-600">{timeOfDay(e.at)}</span>
                   <span className="truncate" title={e.text}>

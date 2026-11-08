@@ -118,7 +118,7 @@ export const FloatingWindow: React.FC<{
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        className="flex items-center gap-2 px-3 h-10 shrink-0 rounded-t-xl border-b border-slate-800 bg-slate-900 cursor-default select-none touch-none"
+        className="flex items-center gap-2 px-3 h-10 shrink-0 rounded-t-xl border-b border-edge bg-slate-900 cursor-default select-none touch-none"
       >
         <GripHorizontal className="w-4 h-4 text-slate-500" aria-hidden="true" />
         <div className="min-w-0 flex-1 flex items-center gap-2 text-[13px] font-semibold text-slate-100">{title}</div>

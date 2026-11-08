@@ -147,7 +147,7 @@ export const ScriptFitStrip: React.FC<{
 }> = ({ preview, loading, error, rateBasis, filter, onFilter, toFix, onFixAll, estimate }) => {
   if (!preview) {
     return (
-      <div className="px-4 py-2 border-b border-slate-800 bg-slate-950/40 text-xs" role="status">
+      <div className="px-4 py-2 border-b border-edge bg-slate-950/40 text-xs" role="status">
         {error ? (
           <span className="text-amber-300">The sync fit could not be worked out.</span>
         ) : (
@@ -161,7 +161,7 @@ export const ScriptFitStrip: React.FC<{
   const { summary } = preview;
   const fixCount = toFix ? toFix.shorter + toFix.longer : 0;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-slate-800 bg-slate-950/40">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-edge bg-slate-950/40">
       <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-300">Sync fit</span>
       <span className="flex flex-wrap items-center gap-1.5">
         <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 tabular-nums">
@@ -190,7 +190,7 @@ export const ScriptFitStrip: React.FC<{
       {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
       <span className="ml-auto flex flex-wrap items-center gap-2">
         {filter && onFilter && (
-        <span role="group" aria-label="Show lines" className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5 gap-0.5">
+        <span role="group" aria-label="Show lines" className="flex bg-slate-950 border border-edge rounded-lg p-0.5 gap-0.5">
           {[
             { id: 'all' as const, label: 'All lines' },
             { id: 'fix' as const, label: 'Lines to fix' },

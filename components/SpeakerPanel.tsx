@@ -102,7 +102,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
   const length = Math.max(duration, segments.reduce((max, s) => Math.max(max, s.endTime), 0), 0.001);
 
   return (
-    <section aria-label="Speakers" className="bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3 flex flex-col gap-3">
+    <section aria-label="Speakers" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-1">
           <Users className="w-3.5 h-3.5" /> {speakers.length} speakers
@@ -163,7 +163,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
             type="button"
             onClick={() => setManaging((v) => !v)}
             aria-expanded={managing}
-            className="ml-auto flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
+            className="ml-auto flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
           >
             <Users className="w-3.5 h-3.5" /> {managing ? 'Done' : 'Manage speakers'}
           </button>
@@ -244,7 +244,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
         ))}
 
       {managing && onRenameSpeaker && (
-        <div className="border-t border-slate-800 pt-3 grid gap-2">
+        <div className="border-t border-edge pt-3 grid gap-2">
           <p className="text-[11.5px] text-slate-500">
             Rename a speaker, or merge one into another when ElevenLabs split one person in two. Every cue they speak moves with them.
           </p>
@@ -281,7 +281,7 @@ const SpeakerManageRow: React.FC<{ speaker: SpeakerSummary; others: SpeakerSumma
           if (e.key === 'Escape') setName(speaker.name);
         }}
         aria-label={`Name of ${speaker.name}`}
-        className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2.5 text-[13px] text-slate-100 focus:outline-none focus:border-indigo-500"
+        className="h-8 bg-slate-950 border border-edge rounded-lg px-2.5 text-[13px] text-slate-100 focus:outline-none focus:border-indigo-500"
       />
       <span className="text-xs text-slate-500 tabular-nums whitespace-nowrap">
         {speaker.cues} cues · {Math.round(speaker.seconds)} s
@@ -290,7 +290,7 @@ const SpeakerManageRow: React.FC<{ speaker: SpeakerSummary; others: SpeakerSumma
         value=""
         onChange={(e) => e.target.value && onRename(speaker.name, e.target.value)}
         aria-label={`Merge ${speaker.name} into another speaker`}
-        className="h-8 bg-slate-950 border border-slate-800 rounded-lg px-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-default"
+        className="h-8 bg-slate-950 border border-edge rounded-lg px-2 text-xs text-slate-300 focus:outline-none focus:border-indigo-500 cursor-default"
       >
         <option value="">Merge into…</option>
         {others.map((o) => (
@@ -476,7 +476,7 @@ export const CastCard: React.FC<{
         const voiceId = own || mainVoiceId;
         const name = voiceName(voiceId, availableVoices);
         return (
-          <div key={s.name} className="flex items-center gap-2 py-1.5 border-t border-slate-800 first:border-t-0">
+          <div key={s.name} className="flex items-center gap-2 py-1.5 border-t border-edge first:border-t-0">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
             <span className="w-20 shrink-0 truncate text-[13px] text-slate-200" title={s.name}>
               {s.name}
@@ -513,7 +513,7 @@ export const CastCard: React.FC<{
               onClick={() => onPick(s.name)}
               disabled={disabled}
               data-index={n}
-              className="px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0 disabled:opacity-40"
+              className="px-2.5 py-1 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0 disabled:opacity-40"
             >
               Change
             </button>
@@ -626,7 +626,7 @@ export const StemDownloads: React.FC<{ stems: DubStem[]; speakers: SpeakerSummar
           key={stem.speaker}
           type="button"
           onClick={() => onDownload(stem.speaker)}
-          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-slate-800 hover:bg-slate-800/50 text-left cursor-default"
+          className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl border border-edge hover:bg-slate-800/50 text-left cursor-default"
         >
           <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: speaker?.color ?? '#64748b' }} />
           <span className="flex-1 min-w-0 text-[13px] text-slate-100 truncate">{stem.speaker}</span>

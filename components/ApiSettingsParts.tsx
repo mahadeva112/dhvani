@@ -343,12 +343,12 @@ export const ModelPicker: React.FC<{
       </div>
 
       <Popover anchor={field} open={open && models.length > 0} onClose={close} width={460} label="Models">
-        <div className="shrink-0 flex items-center gap-2 px-3 h-9 border-b border-slate-800 text-[11.5px] text-slate-500">
+        <div className="shrink-0 flex items-center gap-2 px-3 h-9 border-b border-edge text-[11.5px] text-slate-500">
           <Search className="w-3.5 h-3.5" />
           <span className="flex-1 truncate">{query?.trim() ? `Matching “${query.trim()}”` : 'Type in the field to search'}</span>
           <span className="shrink-0">{flat.length === models.length ? `${models.length} models` : `${flat.length} of ${models.length}`}</span>
         </div>
-        <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-slate-800">
+        <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-edge">
           {(['All', 'Fast', 'Best', 'Cheap'] as const).map((f) => (
             <button
               key={f}
@@ -368,7 +368,7 @@ export const ModelPicker: React.FC<{
           {flat.length === 0 && <p className="px-3 py-6 text-center text-[12px] text-slate-500">No model matches. Enter keeps what you typed.</p>}
           {groups.map((group) => (
             <div key={group.label}>
-              <div className="sticky top-0 z-10 flex items-center justify-between px-3 h-7 bg-slate-900 border-b border-slate-800/70 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+              <div className="sticky top-0 z-10 flex items-center justify-between px-3 h-7 bg-slate-900 border-b border-edge/70 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
                 {group.label}
                 <span className="normal-case tracking-normal font-normal">{group.items.length}</span>
               </div>
@@ -403,7 +403,7 @@ export const ModelPicker: React.FC<{
             </div>
           ))}
         </div>
-        <div className="shrink-0 flex items-center gap-3 px-3 h-8 border-t border-slate-800 text-[10.5px] text-slate-500">
+        <div className="shrink-0 flex items-center gap-3 px-3 h-8 border-t border-edge text-[10.5px] text-slate-500">
           <span className="whitespace-nowrap">↑ ↓ move · Enter pick</span>
           <span className="ml-auto truncate">Fast, Best and Cheap are a guide from the name</span>
         </div>

@@ -428,7 +428,7 @@ export const ReviewVideoFloat: React.FC<
           <button type="button" role="menuitem" className={menuItem} onClick={() => { setMenuOpen(false); onReplace(own?.win.document ?? document); }}>
             Replace video…
           </button>
-          <div className="my-1 border-t border-slate-800" />
+          <div className="my-1 border-t border-edge" />
           <button type="button" role="menuitem" className={menuItem} disabled={!aspect} onClick={() => { setMenuOpen(false); fitToPicture(); }}>
             {own ? 'Fit the window to the video' : 'Fit the box to the video'}
           </button>
@@ -440,7 +440,7 @@ export const ReviewVideoFloat: React.FC<
               Open in its own window
             </button>
           )}
-          <div className="my-1 border-t border-slate-800" />
+          <div className="my-1 border-t border-edge" />
           <button
             type="button"
             role="menuitem"
@@ -456,7 +456,7 @@ export const ReviewVideoFloat: React.FC<
 
   /** In a narrow window the clock goes first, then the line jumps; play, Listen to and the menu always fit. */
   const controls = (end?: React.ReactNode) => (
-    <div className="@container shrink-0 border-t border-slate-800">
+    <div className="@container shrink-0 border-t border-edge">
       <div className="flex items-center gap-1.5 px-2 h-10 min-w-0">
         <button type="button" onClick={press(onPrevLine)} aria-label="Previous line" className="hidden @[17rem]:flex shrink-0 w-6 h-6 rounded-full items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 cursor-default">
           <ChevronsLeft className="w-3.5 h-3.5" />
@@ -473,7 +473,7 @@ export const ReviewVideoFloat: React.FC<
           <ChevronsRight className="w-3.5 h-3.5" />
         </button>
         <span className="hidden @[20rem]:inline shrink-0 font-mono text-[11px] text-slate-200 tabular-nums">{formatClock(time)}</span>
-        <div role="group" aria-label="Listen to" className="ml-auto shrink-0 flex bg-slate-900 border border-slate-800 rounded-lg p-0.5 gap-0.5 text-[10.5px]">
+        <div role="group" aria-label="Listen to" className="ml-auto shrink-0 flex bg-slate-900 border border-edge rounded-lg p-0.5 gap-0.5 text-[10.5px]">
           {([
             ['source', 'Orig'],
             ['synth', 'Dub'],
@@ -505,7 +505,7 @@ export const ReviewVideoFloat: React.FC<
       onDoubleClick={inWindow ? undefined : (e) => !(e.target as HTMLElement).closest('button') && update({ compact: !saved.compact })}
       title={inWindow ? 'Drag to move' : 'Drag to move · double-click for the video only'}
       style={inWindow ? DRAG : undefined}
-      className={`flex items-center gap-1.5 pl-2.5 pr-1.5 h-9 shrink-0 border-b border-slate-800 bg-slate-900 cursor-default touch-none ${inWindow ? '' : 'rounded-t-xl'}`}
+      className={`flex items-center gap-1.5 pl-2.5 pr-1.5 h-9 shrink-0 border-b border-edge bg-slate-900 cursor-default touch-none ${inWindow ? '' : 'rounded-t-xl'}`}
     >
       <GripHorizontal className="w-4 h-4 shrink-0 text-slate-500" aria-hidden="true" />
       <Video className="w-3.5 h-3.5 shrink-0 text-slate-400" aria-hidden="true" />

@@ -175,7 +175,7 @@ const secondaryButton =
   'h-[42px] px-4 flex items-center gap-2 rounded-[10px] border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200 text-[13px] font-medium whitespace-nowrap transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
 const smallButton =
-  'h-7 px-2 flex items-center gap-1.5 rounded-[8px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-300 transition-colors disabled:opacity-40 cursor-default';
+  'h-7 px-2 flex items-center gap-1.5 rounded-[8px] border border-edge bg-slate-900 hover:bg-slate-800 text-[11.5px] font-medium text-slate-300 transition-colors disabled:opacity-40 cursor-default';
 
 const field =
   'w-full h-10 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[10px] px-3 text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none';
@@ -720,7 +720,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
         <audio ref={playerRef} />
 
         {/* Header with the engine switch */}
-        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-slate-800 shrink-0">
+        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
             <Speech className="w-[18px] h-[18px]" />
           </div>
@@ -733,7 +733,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
           <div
             role="radiogroup"
             aria-label="Engine"
-            className="order-3 sm:order-none w-full sm:w-auto flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950/60 border border-slate-800"
+            className="order-3 sm:order-none w-full sm:w-auto flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950/60 border border-edge"
           >
             {(['elevenlabs', 'cartesia'] as const).map((e) => {
               const disabled = e === 'cartesia' && !cartesiaAvailable;
@@ -759,7 +759,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -770,7 +770,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
             {/* Voice */}
             <div className="flex flex-col gap-2">
               <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/60 border border-slate-800">
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/60 border border-edge">
                 <span className="w-[38px] h-[38px] rounded-full bg-gradient-to-br from-indigo-600 to-cyan-500 text-white font-semibold flex items-center justify-center shrink-0">
                   {(voice.name.charAt(0) || '?').toUpperCase()}
                 </span>
@@ -783,7 +783,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                   </span>
                 </span>
                 {voice.preview && (
-                  <button type="button" onClick={toggleAudition} className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default">
+                  <button type="button" onClick={toggleAudition} className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default">
                     {auditioning ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
                     Sample
                   </button>
@@ -791,7 +791,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsPickerOpen(true)}
-                  className="h-8 px-2.5 rounded-[9px] border border-slate-800 bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
+                  className="h-8 px-2.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
                 >
                   Change
                 </button>
@@ -808,7 +808,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                   aria-label="Language"
                   value={prefs.language}
                   onChange={(ev) => updatePrefs((p) => ({ ...p, language: ev.target.value }))}
-                  className="h-7 bg-slate-950/60 border border-slate-800 rounded-[8px] px-2 text-[11.5px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
+                  className="h-7 bg-slate-950/60 border border-edge rounded-[8px] px-2 text-[11.5px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
                 >
                   {LANGUAGES.map((l) => (
                     <option key={l.code} value={l.code} className="bg-slate-900">
@@ -855,7 +855,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                       key={tag}
                       type="button"
                       onClick={() => insertTag(tag)}
-                      className="px-2 py-0.5 rounded-full border border-slate-800 bg-slate-950/60 hover:border-indigo-500/50 hover:text-indigo-200 text-[11px] font-mono text-slate-400 cursor-default"
+                      className="px-2 py-0.5 rounded-full border border-edge bg-slate-950/60 hover:border-indigo-500/50 hover:text-indigo-200 text-[11px] font-mono text-slate-400 cursor-default"
                     >
                       [{tag}]
                     </button>
@@ -865,7 +865,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
             </div>
 
             {/* Model and delivery, per engine */}
-            <div className="flex flex-col gap-4 p-4 rounded-xl border border-slate-800 bg-slate-950/30">
+            <div className="flex flex-col gap-4 p-4 rounded-xl border border-edge bg-slate-950/30">
               <div className="flex items-center justify-between gap-2 -my-1">
                 <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
                   {VOICE_ENGINE_LABELS[engine]} model &amp; delivery
@@ -1129,7 +1129,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
           </div>
 
           {/* Takes */}
-          <aside aria-label="Takes" className="px-5 py-5 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-950/40 flex flex-col gap-3 min-w-0">
+          <aside aria-label="Takes" className="px-5 py-5 border-t md:border-t-0 md:border-l border-edge bg-slate-950/40 flex flex-col gap-3 min-w-0">
             <div className="flex items-center justify-between">
               <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
                 Takes{takes.length ? ` · ${takes.length}` : ''}
@@ -1143,7 +1143,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
 
             {takes.length === 0 ? (
               <div className="flex-1 min-h-[13.75rem] flex flex-col items-center justify-center gap-2.5 p-6 text-center rounded-xl border-[1.5px] border-dashed border-slate-700 text-[12.5px] text-slate-500">
-                <span className="w-10 h-10 rounded-[11px] bg-slate-900 border border-slate-800 text-slate-400 flex items-center justify-center">
+                <span className="w-10 h-10 rounded-[11px] bg-slate-900 border border-edge text-slate-400 flex items-center justify-center">
                   <Speech className="w-5 h-5" />
                 </span>
                 <span className="max-w-[16rem]">
@@ -1158,7 +1158,7 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
                     <li
                       key={take.id}
                       className={`flex flex-col gap-2 p-3 rounded-xl bg-slate-900 border ${
-                        playingTakeId === take.id ? 'border-indigo-500/60' : 'border-slate-800'
+                        playingTakeId === take.id ? 'border-indigo-500/60' : 'border-edge'
                       }`}
                     >
                       <div className="flex items-center gap-2.5">

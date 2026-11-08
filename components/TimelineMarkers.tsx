@@ -177,7 +177,7 @@ const MarkerNote: React.FC<{
           }
           if (e.key === 'Escape') onClose();
         }}
-        className="w-full px-2 py-1 rounded-md bg-slate-950 border border-slate-800 text-[12.5px] text-slate-100 focus:outline-none focus:border-amber-400"
+        className="w-full px-2 py-1 rounded-md bg-slate-950 border border-edge text-[12.5px] text-slate-100 focus:outline-none focus:border-amber-400"
       />
       <p className="text-[10.5px] text-slate-500 mt-1">Enter saves. Only you see markers; they don't change the dub.</p>
     </div>

@@ -48,7 +48,7 @@ export const SyncAgainGuard: React.FC<{
 
       <ul className="flex flex-col gap-1 text-[12px]">
         {guard.lines.slice(0, SHOWN).map((line) => (
-          <li key={line.key} className="flex items-baseline gap-2.5 rounded-md bg-slate-950/70 border border-slate-800 px-2.5 py-1.5">
+          <li key={line.key} className="flex items-baseline gap-2.5 rounded-md bg-slate-950/70 border border-edge px-2.5 py-1.5">
             <span className="font-mono text-[11.5px] text-indigo-300 tabular-nums shrink-0">{String(line.number).padStart(2, '0')}</span>
             <span className="text-slate-300 min-w-0">{line.changes.join(' · ')}</span>
           </li>

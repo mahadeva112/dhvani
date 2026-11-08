@@ -350,7 +350,7 @@ export const SyncStatusBar: React.FC<{
   return (
     <section
       aria-label="Sync result"
-      className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-slate-800 bg-slate-900/90 px-4 sm:px-5 py-3"
+      className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-edge bg-slate-900/90 px-4 sm:px-5 py-3"
     >
       <span
         className={`shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-semibold ${
@@ -375,7 +375,7 @@ export const SyncStatusBar: React.FC<{
       </div>
       <dl className="flex flex-wrap gap-y-2">
         {stats.map((s) => (
-          <div key={s.label} className="flex flex-col px-3.5 border-l border-slate-800">
+          <div key={s.label} className="flex flex-col px-3.5 border-l border-edge">
             <dt className="text-[11px] text-slate-400 whitespace-nowrap">{s.label}</dt>
             <dd className={`text-[17px] font-semibold tabular-nums leading-tight ${s.tone || 'text-slate-100'}`}>{s.value}</dd>
           </div>
@@ -454,7 +454,7 @@ const VOICING_OPTIONS: { id: SyncVoicing; label: string; detail: string }[] = [
 
 const sectionLabel ='text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
 const downloadRow =
-  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
+  'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-edge bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
 
 type PresetSuggestion = NonNullable<ReturnType<typeof presetSuggestion>>;
 
@@ -736,7 +736,7 @@ const SyncSettingsWindow: React.FC<{
                     <label
                       key={o.id}
                       className={`flex items-start gap-3 rounded-xl border p-3.5 transition-colors ${
-                        checked ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-slate-800 bg-slate-800/20 hover:border-slate-700'
+                        checked ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-edge bg-slate-800/20 hover:border-slate-700'
                       } ${off ? 'opacity-50 cursor-default' : 'cursor-default'}`}
                     >
                       <input
@@ -776,7 +776,7 @@ const SyncSettingsWindow: React.FC<{
             </fieldset>
             <SettingsCard title="Precision">
               <div className="py-3 flex flex-col gap-2">
-                <div role="radiogroup" aria-label="Precision" className="flex gap-1 p-1 rounded-xl bg-slate-950 border border-slate-800">
+                <div role="radiogroup" aria-label="Precision" className="flex gap-1 p-1 rounded-xl bg-slate-950 border border-edge">
                   {(['loose', 'phrase', 'lipsync'] as SyncPrecision[])
                     .map((id) => SYNC_PRECISION_OPTIONS.find((o) => o.id === id))
                     .filter((o): o is (typeof SYNC_PRECISION_OPTIONS)[number] => Boolean(o))
@@ -884,7 +884,7 @@ const SyncSettingsWindow: React.FC<{
         aria-labelledby="sync-settings-title"
         className="w-full max-w-[90rem] h-full flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
-        <div className="flex items-center gap-3.5 px-4 sm:px-5 py-3 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3.5 px-4 sm:px-5 py-3 border-b border-edge shrink-0">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-indigo-500/15 text-indigo-300 flex items-center justify-center shrink-0" aria-hidden="true">
             <SlidersHorizontal className="w-[18px] h-[18px]" />
           </div>
@@ -913,13 +913,13 @@ const SyncSettingsWindow: React.FC<{
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+            className="w-9 h-9 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="shrink-0 flex items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-slate-800 bg-slate-950/40 overflow-x-auto [scrollbar-width:none]">
+        <div className="shrink-0 flex items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-edge bg-slate-950/40 overflow-x-auto [scrollbar-width:none]">
           {chips.map((chip) => (
             <button
               key={chip.label}
@@ -955,7 +955,7 @@ const SyncSettingsWindow: React.FC<{
           <nav
             aria-label="Sync settings sections"
             // Each row grows into the room the window has, up to a comfortable height, and shrinks back to its content when it is short.
-            className="shrink-0 flex md:flex-col gap-0.5 p-2 md:px-2.5 md:py-2 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto [scrollbar-width:thin] border-b md:border-b-0 md:border-r border-slate-800 bg-slate-950/40"
+            className="shrink-0 flex md:flex-col gap-0.5 p-2 md:px-2.5 md:py-2 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto [scrollbar-width:thin] border-b md:border-b-0 md:border-r border-edge bg-slate-950/40"
           >
             {onlyChanged && (
               <div className="hidden md:flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-amber-400/10 text-[11.5px] text-amber-200 shrink-0">
@@ -1029,13 +1029,13 @@ const SyncSettingsWindow: React.FC<{
           </div>
         </div>
 
-        <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3 border-t border-slate-800 bg-slate-950/60">
+        <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3 border-t border-edge bg-slate-950/60">
           <button
             type="button"
             onClick={() => onOptionsChange(defaultSyncOptions())}
             disabled={isSyncing || isDefaultOptions(options)}
             title={isDefaultOptions(options) ? 'Already on the default settings' : 'Line by line, phrase precision, Natural line joins, no suggestions'}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-800 text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
+            className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-edge text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
           >
             <RotateCcw className="w-3.5 h-3.5" /> Reset all to defaults
           </button>
@@ -1217,7 +1217,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   return (
   <aside
     aria-label={ready ? 'Ready to dub' : 'Sync settings'}
-    className={`flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden ${ready ? 'min-h-0 lg:sticky lg:top-4 xl:static xl:h-full' : 'lg:sticky lg:top-4'}`}
+    className={`flex flex-col bg-slate-900/90 border border-edge rounded-2xl overflow-hidden ${ready ? 'min-h-0 lg:sticky lg:top-4 xl:static xl:h-full' : 'lg:sticky lg:top-4'}`}
   >
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
       <h2 className="text-[15px] font-semibold text-slate-100">{ready ? 'Ready to dub' : 'Sync settings'}</h2>
@@ -1230,7 +1230,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       summary && <div className="px-4 sm:px-5 py-3 min-h-0 overflow-y-auto">{summary}</div>
     ) : (
     <div className="px-4 sm:px-5 py-4">
-      <div className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-slate-950/40 p-3.5">
+      <div className="flex flex-col gap-3 rounded-xl border border-edge bg-slate-950/40 p-3.5">
         <div className="flex flex-wrap gap-1.5">
           {chips.map((chip) => (
             <span key={chip} className="px-2 py-0.5 rounded-md border border-slate-700/80 text-[11.5px] text-slate-300">
@@ -1335,7 +1335,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       </div>
     )}
 
-    <div className="mt-auto px-4 sm:px-5 py-4 border-t border-slate-800 bg-slate-950/60 flex flex-col gap-2">
+    <div className="mt-auto px-4 sm:px-5 py-4 border-t border-edge bg-slate-950/60 flex flex-col gap-2">
       {isSyncing ? (
         <button
           type="button"
@@ -1607,7 +1607,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   const precisionLabel = report ? SYNC_PRECISION_OPTIONS.find((o) => o.id === report.precision)?.label : undefined;
 
   return (
-    <section aria-label="Sync" className={`${report ? 'lg:flex-1' : ''} bg-slate-900/90 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0`}>
+    <section aria-label="Sync" className={`${report ? 'lg:flex-1' : ''} bg-slate-900/90 border border-edge rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0`}>
       {/* Once synced, the result is the status bar over the player and the lines are the panel; this heading is for before and during a sync. */}
       {!(report && !isSyncing) && (
       <div>
@@ -1642,7 +1642,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
       {idle && preview}
 
       {idle && !preview && (
-        <div className="flex flex-col sm:flex-row sm:items-center gap-5 rounded-xl border border-slate-800 bg-slate-950/60 px-4 py-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-5 rounded-xl border border-edge bg-slate-950/60 px-4 py-4">
           <div className="flex flex-wrap gap-x-8 gap-y-3 flex-1">
             {[
               { value: lineCount.toLocaleString(), label: 'cues to place' },
@@ -1661,7 +1661,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
       )}
 
       {isSyncing && reading && (
-        <div className="flex flex-col gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3.5 py-3" role="status" aria-live="polite">
+        <div className="flex flex-col gap-2 rounded-xl border border-edge bg-slate-950/40 px-3.5 py-3" role="status" aria-live="polite">
           <div className="flex items-center gap-2 text-[12.5px] text-slate-100">
             <Loader2 className="w-3.5 h-3.5 text-cyan-300 animate-spin shrink-0" />
             {reading.phase === 'listening'
@@ -1686,7 +1686,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
       )}
 
       {waitingFor && (
-        <div className="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/40 px-3.5 py-3 text-[12.5px] text-slate-300" role="status" aria-live="polite">
+        <div className="flex items-center gap-2 rounded-xl border border-edge bg-slate-950/40 px-3.5 py-3 text-[12.5px] text-slate-300" role="status" aria-live="polite">
           <Timer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span>
             In line: “{waitingFor}” is dubbing. This dub starts on its own when that one finishes. You can keep working on any project meanwhile.
@@ -1762,7 +1762,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           <div className="flex flex-col lg:flex-1 lg:min-h-0">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <h3 className="text-[15px] font-semibold text-slate-100 mr-1">Lines</h3>
-              <div role="tablist" aria-label="Which lines" className="flex flex-wrap gap-0.5 p-0.5 rounded-xl bg-slate-950 border border-slate-800">
+              <div role="tablist" aria-label="Which lines" className="flex flex-wrap gap-0.5 p-0.5 rounded-xl bg-slate-950 border border-edge">
                 {shownTabs.map((tab) => (
                   <button
                     key={tab.id}
@@ -1868,7 +1868,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
               <div className="mt-2 relative lg:flex-1 lg:min-h-[28rem]">
               <ul
                 ref={listRef}
-                className="max-h-[36rem] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-slate-800"
+                className="max-h-[36rem] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-edge"
               >
                 {rows.map(({ unit, reason }) => (
                   <ReviewRow
@@ -2185,7 +2185,7 @@ const ReviewRow: React.FC<{
         ) : (
           (unit.exceeded || unit.short) &&
           onApply && (
-            <div className="mt-2 rounded-lg border border-slate-800 bg-slate-950/60 p-2.5">
+            <div className="mt-2 rounded-lg border border-edge bg-slate-950/60 p-2.5">
               <label className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1" htmlFor={`sync-line-${unit.key}`}>
                 {suggested
                   ? fuller
@@ -2211,7 +2211,7 @@ const ReviewRow: React.FC<{
                         aria-checked={picked}
                         onClick={() => pick(option)}
                         className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-default ${
-                          picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-slate-800 hover:bg-slate-800/70'
+                          picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-edge hover:bg-slate-800/70'
                         }`}
                       >
                         <span
@@ -2262,7 +2262,7 @@ const ReviewRow: React.FC<{
                   setOver(null);
                 }}
                 rows={2}
-                className="w-full resize-y bg-slate-900 border border-slate-800 rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
+                className="w-full resize-y bg-slate-900 border border-edge rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
               />
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 {applyVoicesNow ? (
@@ -2294,7 +2294,7 @@ const ReviewRow: React.FC<{
                 <button
                   type="button"
                   onClick={copy}
-                  className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
+                  className="h-7 px-2 flex items-center gap-1 rounded-md border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
                 >
                   {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   {copied ? 'Copied' : 'Copy'}
@@ -2304,7 +2304,7 @@ const ReviewRow: React.FC<{
                     type="button"
                     onClick={tryAnother}
                     disabled={asking}
-                    className="h-7 px-2 flex items-center gap-1 rounded-md border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-300 disabled:opacity-60 cursor-default"
+                    className="h-7 px-2 flex items-center gap-1 rounded-md border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 disabled:opacity-60 cursor-default"
                   >
                     {asking ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                     {asking ? 'Asking…' : suggested ? `${LINE_OPTIONS} more` : `Suggest ${LINE_OPTIONS}`}
@@ -2343,7 +2343,7 @@ const ReviewRow: React.FC<{
         <button
           type="button"
           onClick={() => onListen(Math.max(0, unit.srcStart - 0.6))}
-          className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 cursor-default"
+          className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 cursor-default"
         >
           <Play className="w-3 h-3 fill-current" /> Listen
         </button>
@@ -2353,7 +2353,7 @@ const ReviewRow: React.FC<{
             onClick={onToggleTakes}
             aria-expanded={takesOpen}
             className={`flex items-center gap-1 h-7 px-2.5 rounded-lg border text-xs cursor-default ${
-              takesOpen ? 'border-indigo-400/70 bg-indigo-500/15 text-indigo-100' : 'border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-slate-200'
+              takesOpen ? 'border-indigo-400/70 bg-indigo-500/15 text-indigo-100' : 'border-edge bg-slate-950/60 hover:bg-slate-800 text-slate-200'
             }`}
             title="Voice new takes of this line now, hear them side by side and pick one"
           >
@@ -2364,7 +2364,7 @@ const ReviewRow: React.FC<{
             type="button"
             onClick={() => onRetake(unit)}
             disabled={pending}
-            className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-slate-800 bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
+            className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
             title={
               retakeTakes === 1
                 ? 'Voices this line again (one voicing of the line). Sync again to hear it.'

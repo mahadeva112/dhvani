@@ -1,0 +1,411 @@
+<title>Dhvani Themes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500&display=swap">
+<style>
+/* Layout: page chrome follows the viewer's theme; the mock window below always shows the chosen light theme. Picker cards on top, one large mock, then the contrast proof and the glitch list. */
+:root {
+  --bg: #f4f5f8; --surface: #ffffff; --ink: #151821; --ink-2: #4b5263; --rule: #dde1e8;
+  --accent: #4f46e5; --pick: #eef0ff;
+  --pass: #047857; --fail: #be123c;
+  --f-ui: "Inter", system-ui, sans-serif;
+  --f-bn: "Noto Sans Bengali", "Inter", system-ui, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --f-hi: "Noto Sans Devanagari", "Nirmala UI", sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0b0e16; --surface: #131722; --ink: #e8eaf0; --ink-2: #9aa2b4; --rule: #262c3a;
+  --accent: #8b8cf8; --pick: #1d2040; --pass: #34d399; --fail: #fb7185; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0b0e16; --surface: #131722; --ink: #e8eaf0; --ink-2: #9aa2b4; --rule: #262c3a;
+  --accent: #8b8cf8; --pick: #1d2040; --pass: #34d399; --fail: #fb7185; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font-family: var(--f-bn); line-height: 1.6; }
+.wrap { max-width: 1180px; margin: 0 auto; padding-block: 32px 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 28px; }
+h1 { font-size: 1.75rem; line-height: 1.25; margin: 0; text-wrap: balance; font-weight: 700; }
+h2 { font-size: 1.15rem; margin: 0 0 4px; text-wrap: balance; }
+.lede { color: var(--ink-2); max-width: 68ch; margin: 6px 0 0; }
+.eyebrow { font-family: var(--f-ui); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); }
+
+/* picker */
+.picker { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 900px) { .picker { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .picker { grid-template-columns: minmax(0, 1fr); } }
+.picker[data-count="5"] { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1100px) { .picker[data-count="5"] { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .picker[data-count="5"] { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 460px) { .picker[data-count="5"] { grid-template-columns: minmax(0, 1fr); } }
+.mode { display: inline-flex; justify-self: start; background: var(--surface); border: 1px solid var(--rule); border-radius: 10px; padding: 3px; gap: 3px; margin-bottom: -12px; }
+.mode button { font: 600 .9rem var(--f-ui); color: var(--ink-2); background: none; border: 0; border-radius: 7px; padding: 6px 16px; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
+.mode button span { font-family: var(--f-bn); font-size: .75rem; opacity: .8; }
+.mode button[aria-pressed="true"] { background: var(--accent); color: var(--surface); }
+.mode button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pick { text-align: left; font: inherit; color: inherit; background: var(--surface); border: 1.5px solid var(--rule);
+  border-radius: 12px; padding: 14px; cursor: pointer; display: grid; gap: 8px; align-content: start; }
+.pick:hover { border-color: var(--accent); }
+.pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pick[aria-pressed="true"] { border-color: var(--accent); background: var(--pick); }
+.pick .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pick .name { font-family: var(--f-ui); font-weight: 600; font-size: 1rem; }
+.pick .tag { font-family: var(--f-bn); font-size: .72rem; padding: 1px 8px; border-radius: 99px; background: var(--accent); color: var(--surface); white-space: nowrap; }
+.pick p { margin: 0; font-size: .86rem; color: var(--ink-2); }
+.sw { display: flex; height: 22px; border-radius: 6px; overflow: hidden; border: 1px solid var(--rule); }
+.sw span { flex: 1; }
+
+/* mock window: every colour comes from --m-* set per theme by script */
+.mock { --m-bg:#eef0f4; border-radius: 12px; overflow: hidden; border: 1px solid var(--rule);
+  background: var(--m-bg); color: var(--m-text); font-family: var(--f-ui); font-size: 13px; line-height: 1.45;
+  box-shadow: 0 12px 40px rgba(20, 24, 40, .12); }
+.m-title { display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--m-chrome); border-bottom: 1px solid var(--m-border); }
+.m-logo { font-weight: 700; letter-spacing: .14em; font-size: 12px; color: var(--m-accent); }
+.m-steps { display: flex; gap: 2px; flex-wrap: wrap; margin-left: 8px; }
+.m-step { padding: 3px 10px; border-radius: 6px; color: var(--m-muted); font-weight: 500; }
+.m-step.on { background: var(--m-accent-soft); color: var(--m-accent-ink); }
+.m-spacer { flex: 1; }
+.m-proj { color: var(--m-muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.m-body { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 440px; }
+@media (max-width: 820px) { .m-body { grid-template-columns: minmax(0, 1fr); } .m-proj { display: none; } }
+.m-side { background: var(--m-panel); border-right: 1px solid var(--m-border); display: flex; flex-direction: column; min-width: 0; }
+.m-side-h { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--m-border); }
+.m-h { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--m-muted); }
+.m-count { font-family: var(--f-mono); font-size: 11px; color: var(--m-faint); }
+.m-lines { display: grid; }
+.m-line { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--m-border-soft); }
+.m-line.sel { background: var(--m-sel); box-shadow: inset 3px 0 0 var(--m-accent); }
+.m-num { font-family: var(--f-mono); font-size: 11px; color: var(--m-faint); display: grid; justify-items: center; gap: 4px; padding-top: 2px; }
+.m-dot { width: 8px; height: 8px; border-radius: 2px; }
+.m-src { color: var(--m-muted); font-size: 12px; }
+.m-dub { font-family: var(--f-hi); font-size: 14px; color: var(--m-text); }
+.m-meta { display: flex; gap: 6px; align-items: center; margin-top: 3px; flex-wrap: wrap; }
+.chip { font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 99px; line-height: 18px; border: 1px solid transparent; }
+.chip.ok { color: var(--m-ok); background: var(--m-ok-soft); }
+.chip.warn { color: var(--m-warn); background: var(--m-warn-soft); }
+.chip.bad { color: var(--m-bad); background: var(--m-bad-soft); }
+.m-time { font-family: var(--f-mono); font-size: 11px; color: var(--m-faint); }
+
+.m-main { display: flex; flex-direction: column; min-width: 0; }
+.m-tool { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--m-border); background: var(--m-panel); }
+.seg { display: inline-flex; border: 1px solid var(--m-border); border-radius: 7px; overflow: hidden; background: var(--m-sunk); }
+.seg span { padding: 3px 10px; color: var(--m-muted); font-weight: 500; }
+.seg span.on { background: var(--m-panel); color: var(--m-text); box-shadow: 0 0 0 1px var(--m-border); }
+.btn { font: inherit; font-weight: 600; padding: 5px 12px; border-radius: 7px; border: 1px solid var(--m-border); background: var(--m-panel); color: var(--m-text); }
+.btn.pri { background: var(--m-accent); border-color: var(--m-accent); color: var(--m-on-accent); }
+.btn.ghost { background: transparent; color: var(--m-accent-ink); border-color: transparent; }
+.kbd { font-family: var(--f-mono); font-size: 10px; padding: 0 4px; border: 1px solid var(--m-border); border-bottom-width: 2px; border-radius: 4px; color: var(--m-faint); margin-left: 4px; }
+.m-lanes { position: relative; padding: 8px 0; background: var(--m-lane-bg); }
+.m-lane-l { display: flex; justify-content: space-between; padding: 2px 12px; font-size: 11px; color: var(--m-faint); font-weight: 500; }
+canvas { display: block; width: 100%; height: 86px; }
+.m-ruler { display: flex; justify-content: space-between; padding: 0 12px; font-family: var(--f-mono); font-size: 10px; color: var(--m-faint); border-bottom: 1px solid var(--m-border-soft); }
+.m-bottom { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; padding: 12px; }
+@media (max-width: 620px) { .m-bottom { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--m-panel); border: 1px solid var(--m-border); border-radius: 10px; padding: 12px; display: grid; gap: 10px; align-content: start; }
+.set { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.set small { display: block; color: var(--m-faint); font-size: 11px; }
+.tog { width: 30px; height: 17px; border-radius: 99px; background: var(--m-border); position: relative; flex: none; }
+.tog::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--m-panel); box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.tog.on { background: var(--m-accent); } .tog.on::after { left: 15px; }
+.slider { height: 4px; border-radius: 99px; background: var(--m-border); position: relative; }
+.slider i { position: absolute; inset: 0 40% 0 0; background: var(--m-accent); border-radius: 99px; }
+.slider b { position: absolute; left: 60%; top: 50%; width: 13px; height: 13px; margin: -6.5px; border-radius: 50%; background: var(--m-panel); border: 2px solid var(--m-accent); }
+.note { border-radius: 8px; padding: 8px 10px; font-size: 12px; border: 1px solid; }
+.note.warn { background: var(--m-warn-soft); border-color: var(--m-warn-line); color: var(--m-warn); }
+.input { border: 1px solid var(--m-border); background: var(--m-sunk); border-radius: 7px; padding: 6px 9px; color: var(--m-text); font-family: var(--f-hi); font-size: 14px; }
+.input .caret { display: inline-block; width: 1px; height: 15px; background: var(--m-accent); vertical-align: -2px; }
+.input .hl { background: var(--m-text-sel); }
+
+/* proof */
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 820px) { .grid2 { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 18px; min-width: 0; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .86rem; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--rule); vertical-align: middle; }
+th { font-family: var(--f-ui); font-weight: 600; font-size: .72rem; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+td.n { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pair { display: inline-flex; align-items: center; justify-content: center; min-width: 46px; padding: 1px 8px; border-radius: 6px; font-family: var(--f-ui); font-weight: 600; font-size: .8rem; border: 1px solid rgba(0,0,0,.08); }
+.res { font-family: var(--f-ui); font-weight: 600; font-size: .78rem; }
+.res.pass { color: var(--pass); } .res.fail { color: var(--fail); }
+ol.glitch { margin: 8px 0 0; padding-left: 1.2em; display: grid; gap: 10px; }
+ol.glitch li { padding-left: 4px; }
+ol.glitch b { font-weight: 600; }
+code { font-family: var(--f-mono); font-size: .82em; background: var(--bg); border: 1px solid var(--rule); padding: 0 4px; border-radius: 4px; overflow-wrap: anywhere; }
+.muted { color: var(--ink-2); font-size: .88rem; }
+@media (prefers-reduced-motion: no-preference) { .mock, .pick { transition: background-color .2s, border-color .2s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Dhvani · Theme proposal</div>
+    <h1>ধ্বনির থিম: ৫টি ডার্ক, ৪টি লাইট</h1>
+    <p class="lede">Settings-এ থিম বাছার জায়গাটা এরকম হবে: আগে Dark বা Light, তারপর একটা থিম। কার্ডে ক্লিক করলে নিচের Review স্ক্রিনের মক বদলাবে। নিচে প্রতিটা রঙের কনট্রাস্ট মাপা আছে, যাতে কোথাও লেখা ঝাপসা না হয়।</p>
+  </header>
+
+  <div class="mode" role="group" aria-label="Dark or light">
+    <button type="button" id="mode-dark" data-mode="dark" aria-pressed="true">Dark <span>৫</span></button>
+    <button type="button" id="mode-light" data-mode="light" aria-pressed="false">Light <span>৪</span></button>
+  </div>
+
+  <div class="picker" id="picker" role="group" aria-label="Choose a light theme"></div>
+
+  <section aria-label="Theme preview">
+    <div class="mock" id="mock">
+      <div class="m-title">
+        <span class="m-logo">DHVANI</span>
+        <nav class="m-steps"><span class="m-step">Transcribe</span><span class="m-step">Translate</span><span class="m-step">Dub</span><span class="m-step on">Review</span></nav>
+        <span class="m-spacer"></span>
+        <span class="m-proj">Inner Stillness · Hindi dub · 1.4.46</span>
+      </div>
+      <div class="m-body">
+        <aside class="m-side">
+          <div class="m-side-h"><span class="m-h">Lines</span><span class="m-count">4 / 128</span></div>
+          <div class="m-lines" id="lines"></div>
+        </aside>
+        <div class="m-main">
+          <div class="m-tool">
+            <span class="seg"><span class="on">Wave</span><span>Blocks</span><span>Bars</span></span>
+            <span class="m-spacer"></span>
+            <button class="btn ghost" type="button">Undo<span class="kbd">Ctrl Z</span></button>
+            <button class="btn" type="button">Retake<span class="kbd">T</span></button>
+            <button class="btn pri" type="button">Sync again</button>
+          </div>
+          <div class="m-ruler"><span>00:12</span><span>00:14</span><span>00:16</span><span>00:18</span><span>00:20</span></div>
+          <div class="m-lanes">
+            <div class="m-lane-l"><span>Original</span><span>EN</span></div>
+            <canvas id="cvA" aria-label="Original waveform"></canvas>
+            <div class="m-lane-l"><span>Dub</span><span>HI · v4</span></div>
+            <canvas id="cvB" aria-label="Dub waveform with line clips"></canvas>
+          </div>
+          <div class="m-bottom">
+            <div class="card">
+              <span class="m-h">Line 2 · Takes</span>
+              <div class="input">जब आप भीतर से <span class="hl">स्थिर</span> होते हैं<span class="caret"></span></div>
+              <div class="note warn">0.4 s longer than the original. Try Shorter or a faster take.</div>
+              <div class="set"><span class="seg"><span>Shorter</span><span class="on">Same length</span><span>Longer</span></span></div>
+            </div>
+            <div class="card">
+              <span class="m-h">Sync</span>
+              <div class="set"><span>Match source pauses<small>Cuts pauses the original never made</small></span><span class="tog on"></span></div>
+              <div class="set"><span>Close up chunks<small>Picked lines only</small></span><span class="tog"></span></div>
+              <div class="set" style="display:grid;gap:8px"><span>Pause sensitivity <span class="m-time">0.40 s</span></span><div class="slider"><i></i><b></b></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel" aria-labelledby="ct">
+      <h2 id="ct">কনট্রাস্ট মাপ: <span id="ctName"></span></h2>
+      <p class="muted" style="margin:0 0 10px">লেখার জন্য WCAG AA লাগে ৪.৫:১, বড় লেখা আর আইকনের জন্য ৩:১। এই সংখ্যাগুলো পেজ নিজে হিসাব করছে।</p>
+      <div class="tbl-wrap"><table><thead><tr><th>কী</th><th>নমুনা</th><th>অনুপাত</th><th>ফল</th></tr></thead><tbody id="ctBody"></tbody></table></div>
+    </section>
+    <section class="panel" aria-labelledby="gl">
+      <h2 id="gl">কোথায় গ্লিচ লুকিয়ে আছে</h2>
+      <div data-for="dark">
+      <p class="muted" style="margin:0">এখনকার কোড দেখে পাওয়া। নতুন ডার্ক থিম যোগ করার আগে এগুলো ঠিক করতে হবে, নইলে Graphite বা Umber-এও পুরোনো নীলচে রং উঁকি দেবে।</p>
+      <ol class="glitch">
+        <li><b>এখনকার থিমেই ৩টা কনট্রাস্ট সমস্যা।</b> <code>text-slate-500</code> প্যানেলে ৩.৭৫:১ (৪৭৫ বার), <code>bg-indigo-500</code>-এ সাদা লেখা ৪.৪৭:১ (১৬৩ বার), <code>border-slate-800</code> প্রায় দেখা যায় না। নতুন থিমগুলোতে এগুলো ঠিক করা আছে।</li>
+        <li><b>প্রায় ৪,০০০ হার্ডকোড slate ক্লাস।</b> slate-এ নীলচে ভাব আছে, তাই Graphite আর Umber-এ বেমানান লাগবে। সমাধান একই: প্রতিটা থিমের ক্লাসের নিচে <code>--color-slate-*</code> নতুন করে দেওয়া, কম্পোনেন্টে হাত লাগে না।</li>
+        <li><b>body-র ইন্ডিগো radial gradient আর glass।</b> <code>bg-indigo-950/20</code> আর গ্রেডিয়েন্ট সব থিমে বেগুনি আভা দেবে। এগুলো থিমের টোকেন থেকে আসবে।</li>
+        <li><b>৫টা ক্যানভাস নিজে রং আঁকে।</b> ওয়েভফর্ম, টাইমলাইন, MediaStrip। CSS ভেরিয়েবল থেকে রং পড়বে, থিম বদলালে আবার আঁকবে।</li>
+        <li><b>লাইনের ৪টা রং আর TSX-এর ৬০টা hex, ৩৯টা rgba।</b> প্রতিটা থিমের নিজস্ব লাইন রং আছে; বাকি হার্ডকোড রং টোকেনে যাবে।</li>
+      </ol>
+      </div>
+      <div data-for="light" hidden>
+      <p class="muted" style="margin:0">এখনকার কোড দেখে পাওয়া। যেকোনো থিমই নিই, এগুলো ঠিক না করলে লাইট মোডে ভাঙবে।</p>
+      <ol class="glitch">
+        <li><b>প্রায় ৪,০০০ হার্ডকোড slate ক্লাস।</b> যেমন <code>text-slate-400</code> ৫৪৯ বার, <code>border-slate-800</code> ৪৮৭ বার। সমাধান: Tailwind v4-এ <code>.light</code> ক্লাসের নিচে <code>--color-slate-*</code> উল্টে দেওয়া। একটা জায়গায় বদল, কম্পোনেন্টে হাত লাগে না।</li>
+        <li><b>-300 শেডের রঙিন লেখা সাদায় পড়া যায় না।</b> <code>text-amber-300</code> ১২০ বার, <code>indigo-300</code> ৮৮, <code>emerald-300</code> ৬৩, <code>rose-300</code> ৬১। লাইট মোডে এগুলো 700 শেডে ম্যাপ হবে।</li>
+        <li><b>৫টা ক্যানভাস নিজে রং আঁকে।</b> <code>ReviewWaveformPlayer</code>, <code>SyncEditTimeline</code>, <code>WindowWaveform</code>, <code>MediaStrip</code>, <code>FitText</code>। এগুলো CSS ভেরিয়েবল থেকে রং পড়বে, থিম বদলালে আবার আঁকবে।</li>
+        <li><b>লাইনের ৪টা রং প্যাস্টেল।</b> <code>lineColors.ts</code>-এর sky/rose/lavender/sand সাদায় মিশে যায়। প্রতিটা থিমের নিজস্ব গাঢ় সেট আছে (উপরের মকে দেখা যাচ্ছে)।</li>
+        <li><b>TSX-এ ৬০টা hex আর ৩৯টা rgba।</b> একটা একটা করে টোকেনে বদলাতে হবে।</li>
+        <li><b>body-র গাঢ় radial gradient, glass blur, <code>color-scheme: dark</code>।</b> না বদলালে স্ক্রলবার, ড্রপডাউন আর নেটিভ ইনপুট কালো থেকে যাবে।</li>
+      </ol>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const LIGHT = [
+  { id: 'studio', name: 'Studio', tag: 'সাজেস্টেড',
+    blurb: 'ঠান্ডা ধূসর, সাদা প্যানেল, ইন্ডিগো অ্যাকসেন্ট। এখনকার ডার্ক থিমের সবচেয়ে কাছাকাছি, তাই চোখে অচেনা লাগবে না।',
+    c: { bg:'#eceef3', chrome:'#f7f8fa', panel:'#ffffff', sunk:'#f3f4f7', laneBg:'#f7f8fa', border:'#d6dae2', borderSoft:'#e7e9ee',
+      text:'#151923', muted:'#4a5162', faint:'#5f6778', accent:'#4f46e5', accentInk:'#4338ca', accentSoft:'#e6e5fc', onAccent:'#ffffff',
+      sel:'#f1f0fe', textSel:'#c7c4f7', ok:'#047857', okSoft:'#e3f5ee', warn:'#9a4b06', warnSoft:'#fdf1e1', warnLine:'#f2cf9f', bad:'#be123c', badSoft:'#fde8ec',
+      waveA:'#7b8496', waveB:'#3d3f52', playhead:'#be123c', hues:['#0369a1','#be185d','#6d28d9','#8a5a00'] } },
+  { id: 'paper', name: 'Paper',
+    blurb: 'হালকা উষ্ণ অফ-হোয়াইট। লম্বা সময় স্ক্রিপ্ট পড়া আর রিভিউর জন্য চোখে আরাম, সাদার ঝলক কম।',
+    c: { bg:'#ece7dd', chrome:'#f5f1e9', panel:'#fbf9f4', sunk:'#f1ece3', laneBg:'#f5f1e9', border:'#d8cfbf', borderSoft:'#e8e1d4',
+      text:'#211d17', muted:'#544c40', faint:'#685f52', accent:'#3d48b8', accentInk:'#323c9e', accentSoft:'#e3e3f3', onAccent:'#ffffff',
+      sel:'#efece6', textSel:'#cfd0ee', ok:'#2d6a35', okSoft:'#e6efdf', warn:'#8f4a06', warnSoft:'#f8ead6', warnLine:'#e3c193', bad:'#a8231c', badSoft:'#f6e1dc',
+      waveA:'#8a7f6e', waveB:'#3a352c', playhead:'#a8231c', hues:['#0f6e8c','#a3245f','#5b3fae','#7a5200'] } },
+  { id: 'mist', name: 'Mist',
+    blurb: 'নীলচে ঠান্ডা আলো, Final Cut / DaVinci-র লাইট মোডের মতো। ওয়েভফর্ম আর টাইমলাইন সবচেয়ে পরিষ্কার দেখায়।',
+    c: { bg:'#e3e9f1', chrome:'#eef3f8', panel:'#f8fafd', sunk:'#edf1f7', laneBg:'#eef3f8', border:'#c8d3e1', borderSoft:'#dde5ef',
+      text:'#0f1a2b', muted:'#3f4f66', faint:'#56667d', accent:'#1d5bd8', accentInk:'#1a4fbb', accentSoft:'#dce7fb', onAccent:'#ffffff',
+      sel:'#e8effb', textSel:'#bcd0f5', ok:'#05704f', okSoft:'#dcf1e9', warn:'#934705', warnSoft:'#fbeedd', warnLine:'#efcd9c', bad:'#b3123a', badSoft:'#fbe4ea',
+      waveA:'#71839c', waveB:'#20324d', playhead:'#b3123a', hues:['#0e7490','#b0175e','#6232c9','#875500'] } },
+  { id: 'contrast', name: 'High contrast',
+    blurb: 'খাঁটি সাদা, কালো লেখা, মোটা বর্ডার। খুব উজ্জ্বল ঘর, প্রজেক্টর বা চোখের সমস্যার জন্য।',
+    c: { bg:'#ffffff', chrome:'#ffffff', panel:'#ffffff', sunk:'#f2f2f4', laneBg:'#fafafa', border:'#8d93a0', borderSoft:'#c4c8d0',
+      text:'#000000', muted:'#262a31', faint:'#3d424b', accent:'#312e81', accentInk:'#312e81', accentSoft:'#e0e0f5', onAccent:'#ffffff',
+      sel:'#ececf6', textSel:'#c3c2ef', ok:'#065f46', okSoft:'#dff2ea', warn:'#7c2d12', warnSoft:'#fcebdc', warnLine:'#d28b5a', bad:'#9f1239', badSoft:'#fbe0e7',
+      waveA:'#4b5160', waveB:'#000000', playhead:'#9f1239', hues:['#075985','#9d174d','#5b21b6','#713f12'] } },
+];
+
+const DARK = [
+  { id: 'classic', name: 'Classic', tag: 'এখনকার',
+    blurb: 'এখন অ্যাপে যা আছে। ৩ জায়গায় কনট্রাস্ট কম: slate-500 লেখা, indigo-500 বাটনে সাদা লেখা, slate-800 বর্ডার। নিচের মাপে লাল দেখা যাবে।',
+    c: { bg:'#020617', chrome:'#0b1120', panel:'#0f172a', sunk:'#020617', laneBg:'#0b1120', border:'#1e293b', borderSoft:'#172033',
+      text:'#f1f5f9', muted:'#94a3b8', faint:'#64748b', accent:'#6366f1', accentInk:'#a5b4fc', accentSoft:'#1e1b4b', onAccent:'#ffffff',
+      sel:'#18193a', textSel:'#3730a3', ok:'#6ee7b7', okSoft:'#022c22', warn:'#fcd34d', warnSoft:'#2a1a05', warnLine:'#78350f', bad:'#fda4af', badSoft:'#2d0a14',
+      waveA:'#64748b', waveB:'#c7d2fe', playhead:'#fb7185', hues:['#7dd3fc','#f9a8d4','#c4b5fd','#e9d5a8'] } },
+  { id: 'graphite', name: 'Graphite', tag: 'সাজেস্টেড',
+    blurb: 'নিউট্রাল চারকোল, নীলচে ভাব নেই। লম্বা সেশনে চোখ সবচেয়ে কম ক্লান্ত হয়, ওয়েভফর্মের রং আসল দেখায়।',
+    c: { bg:'#161719', chrome:'#1c1d20', panel:'#212226', sunk:'#18191b', laneBg:'#1b1c1f', border:'#35373d', borderSoft:'#2a2c31',
+      text:'#ececef', muted:'#abadb5', faint:'#8e919a', accent:'#5361d6', accentInk:'#a9b1f6', accentSoft:'#2a2d4a', onAccent:'#ffffff',
+      sel:'#272941', textSel:'#3d4178', ok:'#62d5a3', okSoft:'#15302a', warn:'#f2c14e', warnSoft:'#33290f', warnLine:'#6b5316', bad:'#f58a9b', badSoft:'#3a1a21',
+      waveA:'#70737d', waveB:'#d9dbe2', playhead:'#f58a9b', hues:['#7cc4ec','#ee9ac2','#b8a8f5','#dcc79c'] } },
+  { id: 'black', name: 'Black',
+    blurb: 'খাঁটি কালো ব্যাকগ্রাউন্ড। OLED ল্যাপটপ আর অন্ধকার এডিট রুমের জন্য, প্যানেলগুলো হালকা বর্ডারে আলাদা।',
+    c: { bg:'#000000', chrome:'#060607', panel:'#0b0b0d', sunk:'#000000', laneBg:'#060607', border:'#2a2b30', borderSoft:'#18191c',
+      text:'#f5f5f7', muted:'#a6a6ad', faint:'#8a8a92', accent:'#5257e0', accentInk:'#aaadff', accentSoft:'#17183a', onAccent:'#ffffff',
+      sel:'#121328', textSel:'#2e3080', ok:'#4ade80', okSoft:'#0b2014', warn:'#fbbf24', warnSoft:'#231a04', warnLine:'#5c4307', bad:'#fb7185', badSoft:'#2a0a11',
+      waveA:'#5d5e66', waveB:'#e5e5ea', playhead:'#fb7185', hues:['#67c6f5','#f58cc0','#b39cff','#e2c98f'] } },
+  { id: 'fjord', name: 'Fjord',
+    blurb: 'নরম নীল-ধূসর, কালোর চেয়ে কম কড়া। এখনকার থিমের মেজাজ রেখে আরও শান্ত।',
+    c: { bg:'#1b212c', chrome:'#212835', panel:'#252d3b', sunk:'#1d2430', laneBg:'#202734', border:'#3b4659', borderSoft:'#2f3848',
+      text:'#e6ebf3', muted:'#aab5c7', faint:'#909cb1', accent:'#3a6bd4', accentInk:'#a2c4ff', accentSoft:'#23365a', onAccent:'#ffffff',
+      sel:'#2b3653', textSel:'#34518a', ok:'#80d8aa', okSoft:'#1f3a33', warn:'#f0c674', warnSoft:'#3a3220', warnLine:'#6e5a2c', bad:'#f4979f', badSoft:'#43272f',
+      waveA:'#718099', waveB:'#d8e1ef', playhead:'#f4979f', hues:['#7fd0e6','#eda0c4','#b9a9f2','#e0c99c'] } },
+  { id: 'umber', name: 'Umber',
+    blurb: 'উষ্ণ বাদামি-ধূসর। রাতে কাজের সময় নীল আলো কম, লেখা হালকা বালির রঙে।',
+    c: { bg:'#1a1714', chrome:'#201c18', panel:'#25211c', sunk:'#1c1915', laneBg:'#1f1b17', border:'#3d362e', borderSoft:'#302a24',
+      text:'#efe8de', muted:'#b8ad9d', faint:'#9a8f80', accent:'#6a5cc9', accentInk:'#bab0f6', accentSoft:'#2f2a45', onAccent:'#ffffff',
+      sel:'#2d2839', textSel:'#463c7a', ok:'#8fd19e', okSoft:'#1f3122', warn:'#f0b860', warnSoft:'#3a2c15', warnLine:'#6e5122', bad:'#f2948d', badSoft:'#43241f',
+      waveA:'#7c7266', waveB:'#e9e0d2', playhead:'#f2948d', hues:['#86c8e0','#eb9fbf','#bba9ee','#ddc596'] } },
+];
+const SETS = { light: LIGHT, dark: DARK };
+
+const LINES = [
+  { n: 1, src: 'When you are still within,', dub: 'जब आप भीतर से स्थिर होते हैं,', st: ['ok', 'Fits'], t: '00:12.40' },
+  { n: 2, src: 'everything around you settles.', dub: 'आपके आस-पास सब कुछ थम जाता है।', st: ['warn', '+0.4 s long'], t: '00:14.10', sel: true },
+  { n: 3, src: 'This is not about effort.', dub: 'यह प्रयास के बारे में नहीं है।', st: ['ok', 'Fits'], t: '00:16.85' },
+  { n: 4, src: 'It is about attention.', dub: 'यह ध्यान के बारे में है।', st: ['bad', 'Clipped'], t: '00:18.30' },
+];
+
+const $ = s => document.querySelector(s);
+const kebab = k => k.replace(/[A-Z]/g, m => '-' + m.toLowerCase());
+let mode = 'dark';
+const picked = { light: LIGHT[0], dark: DARK[1] };
+try {
+  const m = localStorage.getItem('dhvani-theme-mode'); if (m === 'light' || m === 'dark') mode = m;
+  for (const k of ['light', 'dark']) { const t = SETS[k].find(x => x.id === localStorage.getItem('dhvani-pick-' + k)); if (t) picked[k] = t; }
+} catch (e) {}
+let current = picked[mode];
+
+function setMode(m) {
+  mode = m; current = picked[mode];
+  try { localStorage.setItem('dhvani-theme-mode', mode); } catch (e) {}
+  document.querySelectorAll('.mode button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  document.querySelectorAll('[data-for]').forEach(el => { el.hidden = el.dataset.for !== mode; });
+  $('#picker').dataset.count = SETS[mode].length;
+  renderPicker(); apply();
+}
+
+function lum(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [n >> 16, (n >> 8) & 255, n & 255].map(v => { v /= 255; return v <= .03928 ? v / 12.92 : Math.pow((v + .055) / 1.055, 2.4); })
+    .reduce((a, v, i) => a + v * [.2126, .7152, .0722][i], 0);
+}
+const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); };
+
+function renderPicker() {
+  $('#picker').innerHTML = SETS[mode].map(t => {
+    const c = t.c;
+    return `<button class="pick" type="button" id="pick-${t.id}" data-id="${t.id}" aria-pressed="${t === current}">
+      <span class="row"><span class="name">${t.name}</span>${t.tag ? `<span class="tag">${t.tag}</span>` : ''}</span>
+      <span class="sw" aria-hidden="true">${[c.bg, c.panel, c.text, c.accent, c.ok, c.warn, c.bad, ...c.hues].map(x => `<span style="background:${x}"></span>`).join('')}</span>
+      <p>${t.blurb}</p></button>`;
+  }).join('');
+  document.querySelectorAll('.pick').forEach(b => b.addEventListener('click', () => {
+    current = picked[mode] = SETS[mode].find(t => t.id === b.dataset.id);
+    try { localStorage.setItem('dhvani-pick-' + mode, current.id); } catch (e) {}
+    apply();
+  }));
+}
+
+function renderLines() {
+  const h = current.c.hues;
+  $('#lines').innerHTML = LINES.map((l, i) => `<div class="m-line${l.sel ? ' sel' : ''}">
+    <span class="m-num">${l.n}<span class="m-dot" style="background:${h[i % 4]}"></span></span>
+    <div style="min-width:0"><div class="m-src">${l.src}</div><div class="m-dub">${l.dub}</div>
+    <div class="m-meta"><span class="chip ${l.st[0]}">${l.st[1]}</span><span class="m-time">${l.t}</span></div></div></div>`).join('');
+}
+
+// deterministic waveform
+function wave(seed, n) {
+  let s = seed; const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const out = []; for (let i = 0; i < n; i++) out.push(r());
+  return out;
+}
+const CLIPS_A = [[.02, .22], [.25, .50], [.54, .74], [.78, .97]];
+const CLIPS_B = [[.03, .21], [.24, .55], [.55, .73], [.79, .99]];
+
+function draw(cv, clips, seed, isDub) {
+  const c = current.c, dpr = window.devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, h);
+  const mid = h / 2, data = wave(seed, Math.floor(w / 2));
+  clips.forEach(([a, b], i) => {
+    const x0 = a * w, x1 = b * w, hue = c.hues[i % 4];
+    if (isDub) {
+      g.fillStyle = hue + '1f'; g.strokeStyle = hue; g.lineWidth = i === 1 ? 2 : 1;
+      g.beginPath(); g.roundRect(x0 + .5, 6.5, x1 - x0 - 1, h - 13, 5); g.fill(); g.stroke();
+    }
+    g.fillStyle = isDub ? c.waveB : c.waveA;
+    for (let x = x0 + 3; x < x1 - 3; x += 2) {
+      const k = Math.sin(((x - x0) / (x1 - x0)) * Math.PI);
+      const amp = (0.25 + 0.75 * data[Math.floor(x / 2) % data.length]) * k * (h / 2 - 12);
+      g.fillRect(x, mid - amp, 1.2, amp * 2);
+    }
+  });
+  if (isDub) { // problem marks on line 2 and 4, only where needed
+    g.fillStyle = c.warn; g.fillRect(CLIPS_B[1][1] * w - 3, 6, 3, h - 12);
+    g.fillStyle = c.bad; g.fillRect(CLIPS_B[3][1] * w - 3, 6, 3, h - 12);
+  }
+  const px = .41 * w; g.fillStyle = c.playhead; g.fillRect(px, 0, 1.5, h);
+}
+
+function renderContrast() {
+  const c = current.c; $('#ctName').textContent = current.name;
+  const rows = [
+    ['মূল লেখা', c.text, c.panel, 4.5], ['ছোট লেখা (muted)', c.muted, c.panel, 4.5], ['সবচেয়ে হালকা লেখা (সময়, নম্বর)', c.faint, c.panel, 4.5],
+    ['সাদা লেখা বাটনে', c.onAccent, c.accent, 4.5], ['অ্যাকসেন্ট লিংক', c.accentInk, c.panel, 4.5],
+    ['Fits চিপ', c.ok, c.okSoft, 4.5], ['সতর্কতা চিপ', c.warn, c.warnSoft, 4.5], ['Clipped চিপ', c.bad, c.badSoft, 4.5],
+    ['সিলেক্টেড লাইনে লেখা', c.text, c.sel, 4.5], ['বর্ডার বনাম প্যানেল', c.border, c.panel, 1.3],
+    ...c.hues.map((h, i) => [`লাইন রং ${i + 1} লেনে`, h, c.laneBg, 3]),
+  ];
+  $('#ctBody').innerHTML = rows.map(([k, fg, bg, need]) => {
+    const r = ratio(fg, bg), ok = r >= need;
+    return `<tr><td>${k}</td><td><span class="pair" style="color:${fg};background:${bg}">Aa</span></td>
+      <td class="n">${r.toFixed(2)}:1</td><td><span class="res ${ok ? 'pass' : 'fail'}">${ok ? 'পাস' : 'কম'} · ${need}</span></td></tr>`;
+  }).join('');
+}
+
+function apply() {
+  const m = $('#mock');
+  Object.entries(current.c).forEach(([k, v]) => { if (typeof v === 'string') m.style.setProperty('--m-' + kebab(k), v); });
+  document.querySelectorAll('.pick').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.id === current.id)));
+  renderLines(); renderContrast();
+  draw($('#cvA'), CLIPS_A, 7, false); draw($('#cvB'), CLIPS_B, 13, true);
+}
+
+document.querySelectorAll('.mode button').forEach(b => b.addEventListener('click', () => setMode(b.dataset.mode)));
+setMode(mode);
+let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(apply, 120); });
+</script>

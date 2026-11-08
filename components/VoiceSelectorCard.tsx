@@ -341,7 +341,7 @@ const chipClass = (active: boolean, tone: 'indigo' | 'purple' | 'amber' = 'indig
   return `flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-default whitespace-nowrap ${
     active
       ? `${activeTone} shadow-2xs`
-      : 'bg-slate-950 text-slate-400 hover:text-indigo-200 hover:bg-slate-900 border-slate-800 hover:border-indigo-500/40'
+      : 'bg-slate-950 text-slate-400 hover:text-indigo-200 hover:bg-slate-900 border-edge hover:border-indigo-500/40'
   }`;
 };
 
@@ -677,7 +677,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     <section
       id="voice-selector-card-container"
       aria-labelledby="voice-library-heading"
-      className={`w-full flex flex-col bg-slate-900/90 border border-slate-800 rounded-2xl overflow-hidden ${className}`}
+      className={`w-full flex flex-col bg-slate-900/90 border border-edge rounded-2xl overflow-hidden ${className}`}
     >
       {/* Heading */}
       <div className="flex items-start justify-between gap-3 px-4 sm:px-5 pt-4">
@@ -694,7 +694,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             <div
               role="radiogroup"
               aria-label="Voice engine"
-              className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5"
+              className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5"
             >
               {(['elevenlabs', 'cartesia'] as const).map((engine) => (
                 <button
@@ -724,7 +724,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       </div>
 
       {/* Search and main filters */}
-      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3.5 border-b border-slate-800">
+      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3.5 border-b border-edge">
         <div className="relative flex-1 min-w-[15rem]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
           <input
@@ -742,7 +742,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             onKeyDown={handleSearchKeyDown}
             placeholder="Search voices"
             title="Search by name, accent, style or voice ID"
-            className="w-full h-9 bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-10 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 transition-all"
+            className="w-full h-9 bg-slate-950 border border-edge rounded-xl pl-9 pr-10 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 transition-all"
             spellCheck={false}
             autoComplete="off"
           />
@@ -765,7 +765,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
           </span>
         </div>
 
-        <div className="flex bg-slate-950 border border-slate-800 rounded-xl p-0.5 gap-0.5" role="group" aria-label="Gender">
+        <div className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5" role="group" aria-label="Gender">
           {(['all', 'female', 'male'] as const).map((g) => (
             <button
               key={g}
@@ -828,7 +828,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
 
       {/* Type, accent and style */}
       {showMoreFilters && (
-        <div id="voice-more-filters" className="px-4 sm:px-5 py-3 space-y-2 border-b border-slate-800 bg-slate-950/60">
+        <div id="voice-more-filters" className="px-4 sm:px-5 py-3 space-y-2 border-b border-edge bg-slate-950/60">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
             <span className="text-[10px] uppercase font-semibold text-slate-500 tracking-wider shrink-0 w-14">Type</span>
             {(Object.keys(CATEGORY_LABELS) as CategoryFilter[]).map((cat) => (
@@ -902,7 +902,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5"
           >
             {Array.from({ length: 20 }, (_, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/60 h-[88px]">
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl border border-edge bg-slate-950/60 h-[88px]">
                 <div className="w-10 h-10 rounded-full bg-slate-800 animate-pulse shrink-0" />
                 <div className="flex-1 min-w-0 space-y-2">
                   <div className="h-3 w-24 rounded bg-slate-800 animate-pulse" />
@@ -913,7 +913,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             ))}
           </div>
         ) : filteredVoices.length === 0 ? (
-          <div className="p-8 text-center rounded-xl border border-dashed border-slate-800 space-y-2">
+          <div className="p-8 text-center rounded-xl border border-dashed border-edge space-y-2">
             <Search className="w-5 h-5 text-slate-600 mx-auto" />
             <p className="text-xs text-slate-400">
               {favoritesOnly && !searchQuery
@@ -966,7 +966,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                       ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
                       : isHighlighted
                         ? 'border-slate-600 bg-slate-800'
-                        : 'border-slate-800 bg-slate-950/60 hover:border-slate-700 hover:bg-slate-800/50'
+                        : 'border-edge bg-slate-950/60 hover:border-slate-700 hover:bg-slate-800/50'
                   }`}
                 >
                   {/* Avatar doubles as the preview button */}
@@ -1075,7 +1075,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       </div>
 
       {/* Footer */}
-      <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-2.5 border-t border-slate-800 text-[11px] text-slate-500">
+      <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-2.5 border-t border-edge text-[11px] text-slate-500">
         <span className="tabular-nums">
           {awaitingLibrary ? 'Loading your voice library…' : <>
           Showing {Math.min(visibleCount, filteredVoices.length).toLocaleString()} of{' '}
@@ -1125,7 +1125,7 @@ export const SelectedVoiceSummary: React.FC<{ voiceId: string; availableVoices?:
     .join(' · ');
 
   return (
-    <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 min-w-0">
+    <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/70 border border-edge min-w-0">
       <span
         className={`w-9 h-9 rounded-full bg-gradient-to-br ${avatarGradient(voiceId || name)} text-white flex items-center justify-center font-semibold text-sm shrink-0`}
       >

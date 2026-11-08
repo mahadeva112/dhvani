@@ -18,6 +18,7 @@ import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { computeWave, drawWave, WaveStyle } from '../services/waveform';
 import { LINE_HUES } from './lineColors';
+import { useTheme } from './theme';
 
 export interface ReviewWaveformPlayerProps {
   audioBuffer: AudioBuffer | null;
@@ -161,6 +162,9 @@ const PALETTE = {
   view: '#818cf8',
 };
 
+/** The same, with Graphite's neutral greys in place of slate (components/theme.ts). */
+const GRAPHITE_PALETTE = { ...PALETTE, wave: '#45474e', hatch: '#36383e', label: '#abadb5', playhead: '#ececef' };
+
 const targetOf = (seg: AudioSegment) => seg.textTarget || seg.targetText || '';
 const sourceOf = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
 const cpsOf = (seg: AudioSegment) => {
@@ -257,7 +261,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   // The marked cues by id, so the waveforms redraw when a mark changes and not on every render.
   const fastIds = segments.filter((seg) => paceOf(seg).level === 'fast').map((seg) => String(seg.id)).join('|');
   const fastSet = useMemo(() => new Set(fastIds.split('|')), [fastIds]);
-  const palette = PALETTE;
+  const palette = useTheme() === 'graphite' ? GRAPHITE_PALETTE : PALETTE;
   /** The timeline's layers, remembered across sessions. */
   const [layers, setLayers] = useState<LaneLayers>(() => {
     try {
@@ -896,17 +900,17 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     `w-[30px] h-[30px] flex items-center justify-center rounded-lg border transition-colors cursor-default ${
       pressed
         ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300'
-        : 'border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800'
+        : 'border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800'
     }`;
   const segBtn = (on: boolean) =>
     `flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-colors ${
       on ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
     } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:text-slate-400 cursor-default`;
-  const smallRoundBtn = 'w-[30px] h-[30px] rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-default';
+  const smallRoundBtn = 'w-[30px] h-[30px] rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-default';
   const stepBtn = 'w-7 h-7 rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center shrink-0 cursor-default';
 
   const miniBtn =
-    'w-7 h-7 shrink-0 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default';
+    'w-7 h-7 shrink-0 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default';
   const playButton = (size: string) => (
     <button
       type="button"
@@ -926,7 +930,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       aria-pressed={loop}
       title="Loop the current cue (L)"
       className={`h-7 px-2.5 flex items-center gap-1.5 rounded-full border text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
-        loop ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300' : 'border-slate-800 text-slate-400 hover:text-slate-200'
+        loop ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300' : 'border-edge text-slate-400 hover:text-slate-200'
       }`}
     >
       <Repeat className="w-3.5 h-3.5" /> Loop cue
@@ -978,9 +982,9 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
 
   return (
     <>
-      <section ref={sectionRef} aria-label="Playback" className="bg-slate-900/90 border border-slate-800 rounded-2xl">
+      <section ref={sectionRef} aria-label="Playback" className="bg-slate-900/90 border border-edge rounded-2xl">
         {/* Top bar: the current cue, then how you listen and look */}
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-3.5 py-2 border-b border-slate-800">
+        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-3.5 py-2 border-b border-edge">
           <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
             <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 whitespace-nowrap">
               {activeCue ? `Cue ${String(activeIndex + 1).padStart(2, '0')} of ${segments.length}` : `${segments.length} cues`}
@@ -1006,7 +1010,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                   title={chip.hint}
                   onClick={() => toggleLayer(chip.id)}
                   className={`h-6 px-2.5 rounded-full border text-[11px] whitespace-nowrap cursor-default transition-colors ${
-                    layers[chip.id] ? 'border-slate-500 bg-slate-800 text-slate-100' : 'border-slate-800 text-slate-400 hover:text-slate-200'
+                    layers[chip.id] ? 'border-slate-500 bg-slate-800 text-slate-100' : 'border-edge text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   {chip.label}
@@ -1017,7 +1021,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
           )}
 
           {onPlaybackRateChange && (
-            <div role="group" aria-label="Speed" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950/60 border border-slate-800">
+            <div role="group" aria-label="Speed" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950/60 border border-edge">
               {RATES.map((r) => (
                 <button key={r} type="button" aria-pressed={playbackRate === r} onClick={() => onPlaybackRateChange(r)} className={`${segBtn(playbackRate === r)} font-mono !py-0.5 !px-2`}>
                   {r}×
@@ -1099,7 +1103,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                       </span>
                     ))}
                   </div>
-                  <div className="mt-2.5 pt-2.5 border-t border-slate-800 grid gap-1 text-slate-400">
+                  <div className="mt-2.5 pt-2.5 border-t border-edge grid gap-1 text-slate-400">
                     <span>Click to jump · drag to scrub</span>
                     {onDragCut && <span>Drag a cut between cues to move it</span>}
                     <span>Ctrl + scroll to zoom · scroll to move once zoomed in</span>
@@ -1107,7 +1111,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                     {belowWave && <span>Drag a dub line to where it should be heard · point between two words and the knife shows: click (or S) cuts there, cyan dots are the original's pauses · double-click a cut to join · Backspace puts it back</span>}
                     <span>Drag the bar under the timeline to move along the track</span>
                   </div>
-                  <div className="mt-2.5 pt-2.5 border-t border-slate-800 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                  <div className="mt-2.5 pt-2.5 border-t border-edge flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-500">
                     {legend}
                     {belowWave && pausesRow && (
                       <>
@@ -1190,14 +1194,14 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               )}
             </div>
             {sourceRow && (
-              <div ref={sourceRowRef} className="relative h-14 border-t border-slate-800 overflow-hidden cursor-default" onWheel={onWheel}>
+              <div ref={sourceRowRef} className="relative h-14 border-t border-edge overflow-hidden cursor-default" onWheel={onWheel}>
                 <div data-track="" className="absolute inset-y-0 will-change-transform pointer-events-none" style={trackStyle}>
                   {sourceRow({ start: drawn.from, span: drawn.span, layers })}
                 </div>
               </div>
             )}
             {belowWave && pausesRow && (!layered || layers.pauses) && (
-              <div ref={pausesRef} className="relative h-3.5 border-t border-slate-800 overflow-hidden cursor-default" onWheel={onWheel}>
+              <div ref={pausesRef} className="relative h-3.5 border-t border-edge overflow-hidden cursor-default" onWheel={onWheel}>
                 <div data-track="" className="absolute inset-y-0 will-change-transform" style={trackStyle}>
                   {pausesRow({ start: drawn.from, span: drawn.span })}
                 </div>
@@ -1206,7 +1210,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             {belowWave && (
               <div
                 ref={laneRef}
-                className={`relative h-14 overflow-hidden cursor-default ${pausesRow ? '' : 'border-t border-slate-800'}`}
+                className={`relative h-14 overflow-hidden cursor-default ${pausesRow ? '' : 'border-t border-edge'}`}
                 onWheel={onWheel}
                 onDoubleClick={zoomToBox}
               >
@@ -1249,7 +1253,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             aria-valuemax={Math.round(total)}
             aria-valuenow={Math.round(vs)}
             aria-label="Move along the track"
-            className="group relative mt-1.5 h-4 rounded-full bg-slate-950/60 border border-slate-800/80 cursor-default touch-none"
+            className="group relative mt-1.5 h-4 rounded-full bg-slate-950/60 border border-edge/80 cursor-default touch-none"
             title={zoom === 1 ? 'The whole track is on view' : 'Drag to move along the track (or scroll over the timeline)'}
             onPointerDown={(e) => onScrollbarPointer(e, 'down')}
             onPointerMove={(e) => onScrollbarPointer(e, 'move')}

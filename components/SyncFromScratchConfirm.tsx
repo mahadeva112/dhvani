@@ -55,7 +55,7 @@ export const SyncFromScratchConfirm: React.FC<{
           <span className="text-[11.5px] text-slate-400">These go:</span>
           <ul className="flex flex-col gap-1 text-[12px]">
             {drops.map((item) => (
-              <li key={item} className="rounded-md bg-slate-950/70 border border-slate-800 px-2.5 py-1.5 text-slate-300">
+              <li key={item} className="rounded-md bg-slate-950/70 border border-edge px-2.5 py-1.5 text-slate-300">
                 {item}
               </li>
             ))}

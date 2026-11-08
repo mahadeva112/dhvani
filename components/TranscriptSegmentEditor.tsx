@@ -239,11 +239,11 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
   });
 
   const toolButton =
-    'h-7 px-2 flex items-center gap-1 rounded-lg border border-slate-800 hover:bg-slate-800 text-[11.5px] text-slate-200 disabled:opacity-40 disabled:hover:bg-transparent cursor-default';
+    'h-7 px-2 flex items-center gap-1 rounded-lg border border-edge hover:bg-slate-800 text-[11.5px] text-slate-200 disabled:opacity-40 disabled:hover:bg-transparent cursor-default';
 
   return (
     <div ref={rootRef} className="flex-1 min-h-0 flex flex-col">
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-slate-800 bg-indigo-500/[0.06]">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-edge bg-indigo-500/[0.06]">
         <Scissors className="w-3.5 h-3.5 text-indigo-300 shrink-0" aria-hidden="true" />
         <span className="text-[12px] text-slate-300">
           Click between two words to split{getPlayhead ? ', or put the playhead there and press S' : ''}.{' '}
@@ -301,7 +301,7 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
               )}
               <li
                 data-seg-id={String(seg.id)}
-                className={`border-b border-slate-800/70 ${changed ? 'bg-indigo-500/[0.07]' : ''}`}
+                className={`border-b border-edge/70 ${changed ? 'bg-indigo-500/[0.07]' : ''}`}
                 style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 52px' }}
               >
                 <div className="grid grid-cols-[2rem_7.5rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-3">
@@ -406,7 +406,7 @@ export const TranscriptSegmentEditor: React.FC<TranscriptSegmentEditorProps> = (
       </ol>
 
       {notice && (
-        <div role="status" className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-800 bg-slate-950/60 text-[12px] text-slate-300">
+        <div role="status" className="flex items-center gap-2 px-4 py-2.5 border-t border-edge bg-slate-950/60 text-[12px] text-slate-300">
           <AudioWaveform className="w-4 h-4 text-cyan-300 shrink-0" aria-hidden="true" />
           <span className="min-w-0 flex-1">{notice}</span>
         </div>

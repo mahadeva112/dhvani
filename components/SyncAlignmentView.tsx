@@ -185,7 +185,7 @@ export const SyncAlignmentView: React.FC<{
   const lineAction = 'h-7 px-2.5 rounded-lg border border-slate-700 text-[11.5px] font-sans text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-1.5 cursor-default';
   /** A track header cell: the track's colour down its left edge, then its name and mixer. */
   const headCell = (stripe: string, children: React.ReactNode) => (
-    <div className="flex min-w-0 self-stretch border-r border-b border-slate-800 bg-slate-900/80">
+    <div className="flex min-w-0 self-stretch border-r border-b border-edge bg-slate-900/80">
       <span className={`w-1 shrink-0 ${stripe}`} aria-hidden="true" />
       <div className="flex-1 min-w-0 flex items-center px-2.5 py-2">{children}</div>
     </div>
@@ -197,17 +197,17 @@ export const SyncAlignmentView: React.FC<{
       <TimelineZoomControls zoom={zoom} />
 
       {/* The arrange view, as in REAPER: track headers on the left, the ruler and lanes on the right, the scroll bar along their foot. */}
-      <div className="rounded-xl border border-slate-800 bg-slate-950/50 overflow-hidden">
+      <div className="rounded-xl border border-edge bg-slate-950/50 overflow-hidden">
         <div
           ref={zoom.lanesRef}
           className={`grid ${trackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'}`}
           style={{ overflowX: 'clip' }}
         >
           {/* Ruler: a click puts the playhead there, a drag scrubs it */}
-          <div className="flex items-center px-2.5 border-r border-b border-slate-800 bg-slate-900/80 font-mono text-[10.5px] text-slate-500 tabular-nums">
+          <div className="flex items-center px-2.5 border-r border-b border-edge bg-slate-900/80 font-mono text-[10.5px] text-slate-500 tabular-nums">
             {formatClock(total)} in all
           </div>
-          <div className="relative h-7 border-b border-slate-800 bg-slate-900/60 overflow-hidden">
+          <div className="relative h-7 border-b border-edge bg-slate-900/60 overflow-hidden">
             <TimelineRuler zoom={zoom} marks onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
             {/* The playhead's cap, at the foot of the ruler */}
             <span
@@ -230,7 +230,7 @@ export const SyncAlignmentView: React.FC<{
             aria-valuemin={0}
             aria-valuemax={Math.round(total)}
             aria-valuenow={Math.round(currentTime)}
-            className={`relative ${laneHeight} border-b border-slate-800 overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-400 ${silent?.source ? 'opacity-40' : ''}`}
+            className={`relative ${laneHeight} border-b border-edge overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-400 ${silent?.source ? 'opacity-40' : ''}`}
             onClick={seekOn('source')}
             onKeyDown={nudge}
             onWheel={onWheel}
@@ -276,7 +276,7 @@ export const SyncAlignmentView: React.FC<{
             aria-valuemin={0}
             aria-valuemax={Math.round(total)}
             aria-valuenow={Math.round(currentTime)}
-            className={`relative ${laneHeight} border-b border-slate-800 overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-400 ${silent?.synth ? 'opacity-40' : ''}`}
+            className={`relative ${laneHeight} border-b border-edge overflow-hidden cursor-default transition-opacity focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-indigo-400 ${silent?.synth ? 'opacity-40' : ''}`}
             onClick={seekOn('synth')}
             onKeyDown={nudge}
             onWheel={onWheel}
@@ -302,7 +302,7 @@ export const SyncAlignmentView: React.FC<{
           </div>
 
           {/* The scroll bar, along the foot of the lanes: the whole dub in its lines' colours */}
-          <div className="border-r border-slate-800 bg-slate-900/80" />
+          <div className="border-r border-edge bg-slate-900/80" />
           <div className="px-1 py-1 bg-slate-950/60">
             <TimelineScrollbar inset total={total} windowStart={zoom.viewStart()} windowSeconds={WINDOW_SECONDS} currentTime={currentTime} lines={overview} onScroll={scrollTo} />
           </div>
@@ -349,7 +349,7 @@ export const SyncAlignmentView: React.FC<{
         {/* The legend, a click away rather than a row of its own */}
         <details className="relative">
           <summary
-            className="list-none w-8 h-8 rounded-full border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default [&::-webkit-details-marker]:hidden"
+            className="list-none w-8 h-8 rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default [&::-webkit-details-marker]:hidden"
             aria-label="What the colours mean"
             title="What the colours mean"
           >

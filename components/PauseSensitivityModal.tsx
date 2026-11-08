@@ -88,7 +88,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
         aria-labelledby="pause-title"
         className="w-full max-w-[38.75rem] min-h-full sm:min-h-0 sm:my-auto flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
       >
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-slate-800">
+        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-edge">
           <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
             <Activity className="w-[18px] h-[18px]" />
           </div>
@@ -102,7 +102,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
           >
             <X className="w-4 h-4" />
           </button>
@@ -147,7 +147,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
                   aria-pressed={on}
                   onClick={() => onSensitivityChange(look.value)}
                   className={`flex flex-col items-start gap-0.5 px-2.5 py-2 rounded-[10px] border text-left transition-colors cursor-default ${
-                    on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-indigo-950/40' : 'border-slate-800 hover:bg-slate-800/50'
+                    on ? 'border-indigo-500 ring-4 ring-indigo-500/10 bg-indigo-950/40' : 'border-edge hover:bg-slate-800/50'
                   }`}
                 >
                   <span className="text-[12.5px] font-semibold text-slate-100">{look.label}</span>
@@ -182,7 +182,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
           </div>
 
           {onGateChange && (
-            <div className="rounded-[10px] border border-slate-800">
+            <div className="rounded-[10px] border border-edge">
               <button
                 type="button"
                 aria-expanded={showAdvanced}
@@ -196,7 +196,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
                 {gate && <span className="ml-auto font-mono text-[11px] text-orange-400">Custom</span>}
               </button>
               {showAdvanced && (
-                <div id="pause-gate" className="px-3 pt-1 pb-3 border-t border-slate-800 flex flex-col gap-1.5">
+                <div id="pause-gate" className="px-3 pt-1 pb-3 border-t border-edge flex flex-col gap-1.5">
                   {GATE_ROWS.map((row) => {
                     const [min, max, step] = PAUSE_GATE_RANGES[row.key];
                     return (
@@ -233,7 +233,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
               ['Silence below', `${effective.openDb - effective.hysteresisDb} dB`],
               ['Shortest cue', `${effective.minSlice.toFixed(2)} s`],
             ].map(([k, v]) => (
-              <div key={k} className="px-2.5 py-2 rounded-[10px] bg-slate-950/60 border border-slate-800">
+              <div key={k} className="px-2.5 py-2 rounded-[10px] bg-slate-950/60 border border-edge">
                 <span className="block text-[11px] text-slate-500">{k}</span>
                 <span className="block font-mono text-[13px] text-slate-100 tabular-nums">{v}</span>
               </div>
@@ -248,7 +248,7 @@ export const PauseSensitivityModal: React.FC<PauseSensitivityModalProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-slate-800">
+        <div className="flex items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-edge">
           <button
             type="button"
             onClick={() => onSensitivityChange(50)}

@@ -265,7 +265,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
               aria-labelledby="installing-title"
               className="w-full max-w-[26rem] rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
             >
-              <div className="flex items-center gap-3.5 px-5 py-4 border-b border-slate-800">
+              <div className="flex items-center gap-3.5 px-5 py-4 border-b border-edge">
                 <div className="w-[38px] h-[38px] rounded-[10px] bg-blue-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
                   <RotateCw className="w-[18px] h-[18px]" />
                 </div>
@@ -319,7 +319,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
               <p className="text-[13.5px] font-semibold leading-snug">Updated to DHVANI {currentVersion}</p>
               <p className="text-[12px] text-slate-400 mt-0.5">Your keys, settings and projects are where you left them.</p>
               {showNewNotes && newNotes && (
-                <div className="mt-2.5 max-h-48 overflow-y-auto custom-scrollbar whitespace-pre-line text-[12.5px] leading-relaxed text-slate-300 rounded-[10px] bg-slate-950/60 border border-slate-800 px-3 py-2.5 select-text">
+                <div className="mt-2.5 max-h-48 overflow-y-auto custom-scrollbar whitespace-pre-line text-[12.5px] leading-relaxed text-slate-300 rounded-[10px] bg-slate-950/60 border border-edge px-3 py-2.5 select-text">
                   {newNotes}
                 </div>
               )}
@@ -411,7 +411,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
             aria-labelledby="update-title"
             className="w-full max-w-[28rem] min-h-full sm:min-h-0 sm:my-auto flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
           >
-            <div className="flex items-center gap-3.5 px-5 py-4 border-b border-slate-800">
+            <div className="flex items-center gap-3.5 px-5 py-4 border-b border-edge">
               <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
                 {status === 'downloaded' ? <RotateCw className="w-[18px] h-[18px]" /> : <Download className="w-[18px] h-[18px]" />}
               </div>
@@ -428,7 +428,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close"
-                className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -461,7 +461,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
               {offered && state.releaseNotes && (
                 <div>
                   <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-500 mb-1">What’s new</p>
-                  <div className="max-h-48 overflow-y-auto custom-scrollbar whitespace-pre-line text-[13px] leading-relaxed text-slate-300 rounded-[10px] bg-slate-950/60 border border-slate-800 px-3 py-2.5">
+                  <div className="max-h-48 overflow-y-auto custom-scrollbar whitespace-pre-line text-[13px] leading-relaxed text-slate-300 rounded-[10px] bg-slate-950/60 border border-edge px-3 py-2.5">
                     {state.releaseNotes}
                   </div>
                 </div>
@@ -500,7 +500,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
               )}
             </div>
 
-            <div className="flex flex-wrap justify-end gap-2 px-5 py-3.5 border-t border-slate-800">
+            <div className="flex flex-wrap justify-end gap-2 px-5 py-3.5 border-t border-edge">
               {status === 'error' || status === 'not-available' ? (
                 <>
                   <button
