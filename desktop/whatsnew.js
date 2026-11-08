@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.54',
+    changes: [
+      'A retake you use now sits the way Sync places a line: it is cut where it goes quiet and where the original speaker pauses, and each part lands with the original, while the lines either side stay where they are. It plays at the speed it was voiced. Undo puts it back whole, and "Cut and place like Sync" in the Retake window turns it off.',
+    ],
+  },
+  {
     version: '1.4.53',
     changes: [
       'New projects open straight away again, without the Diwali greeting.',
