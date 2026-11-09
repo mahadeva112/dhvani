@@ -18,6 +18,8 @@ export interface AppUpdateState {
   transferred: number;
   total: number;
   error: string | null;
+  /** The offer is the Apple Silicon build, for the Intel build running on Rosetta (macOS only). */
+  nativeBuild?: boolean;
 }
 
 interface DesktopUpdates {
@@ -255,15 +257,19 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
   }, [state?.version, state?.releaseNotes]);
 
   // Opening the window counts as seeing the notice.
+  // The Apple Silicon offer announces itself on its own, even at the version already announced.
+  const noticeKey = state?.version ? (state.nativeBuild ? `${state.version}-apple-silicon` : state.version) : null;
+
   React.useEffect(() => {
-    if (open && state?.version && (state.status === 'available' || state.status === 'downloading' || state.status === 'downloaded')) {
-      markNoticeSeen(state.version);
+    if (open && noticeKey && (state?.status === 'available' || state?.status === 'downloading' || state?.status === 'downloaded')) {
+      markNoticeSeen(noticeKey);
     }
-  }, [open, state?.version, state?.status, markNoticeSeen]);
+  }, [open, noticeKey, state?.status, markNoticeSeen]);
 
   if (!api || !state) return null;
 
   const { status, canInstall, version, currentVersion } = state;
+  const nativeBuild = state.nativeBuild === true;
   const percent = Math.round(state.percent || 0);
   const offered = status === 'available' || status === 'downloading' || status === 'downloaded';
 
@@ -275,7 +281,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
   const showUpdated = updated && !installing && updatedSeen !== currentVersion;
   const newNotes = showUpdated ? readSavedNotes(currentVersion) : '';
 
-  const showNotice = status === 'available' && !open && !showUpdated && Boolean(version) && noticeSeen !== version;
+  const showNotice = status === 'available' && !open && !showUpdated && Boolean(version) && noticeSeen !== noticeKey;
 
   const title =
     status === 'checking'
@@ -291,7 +297,9 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 ? 'Ready to install'
                 : 'Download complete'
               : offered
-                ? 'Update available'
+                ? nativeBuild
+                  ? 'Apple Silicon version available'
+                  : 'Update available'
                 : 'Updates';
 
   return (
@@ -397,16 +405,20 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
 
       {showNotice &&
         createPortal(
-          <CornerNotice bar="bg-blue-400" onGone={() => markNoticeSeen(version)}>
+          <CornerNotice bar="bg-blue-400" onGone={() => markNoticeSeen(noticeKey)}>
             {(dismiss) => (
           <>
             <div className="w-8 h-8 rounded-[9px] bg-blue-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
               <Download className="w-4 h-4" strokeWidth={2.5} />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-[13.5px] font-semibold leading-snug">DHVANI {version} is available</p>
+              <p className="text-[13.5px] font-semibold leading-snug">
+                {nativeBuild ? 'DHVANI for Apple Silicon is available' : `DHVANI ${version} is available`}
+              </p>
               <p className="text-[12px] text-slate-400 mt-0.5">
-                Download it when it suits you. Your keys and settings are kept.
+                {nativeBuild
+                  ? 'This Mac is running the Intel version, which is much slower here and can freeze. Your keys and settings are kept.'
+                  : 'Download it when it suits you. Your keys and settings are kept.'}
               </p>
               <div className="flex gap-2 mt-3">
                 <button
@@ -463,7 +475,8 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 </h2>
                 <p className="text-[12.5px] text-slate-400 mt-0.5 tabular-nums">
                   Installed {currentVersion}
-                  {version && offered && <> · New {version}</>}
+                  {nativeBuild ? ' for Intel' : ''}
+                  {version && offered && <> · New {version}{nativeBuild ? ' for Apple Silicon' : ''}</>}
                 </p>
               </div>
               <button
@@ -500,7 +513,15 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 </p>
               )}
 
-              {offered && state.releaseNotes && (
+              {offered && nativeBuild && (
+                <p className="text-[13px] leading-relaxed text-slate-300">
+                  This Mac has an Apple chip, but the copy of DHVANI on it is the Intel version, which macOS runs through
+                  translation. That makes the whole app several times slower and is why it can freeze. Download the Apple
+                  Silicon version, open it, and drag DHVANI into Applications to replace this one.
+                </p>
+              )}
+
+              {offered && !nativeBuild && state.releaseNotes && (
                 <div>
                   <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-500 mb-1">What’s new</p>
                   <div className="max-h-48 overflow-y-auto custom-scrollbar whitespace-pre-line text-[13px] leading-relaxed text-slate-300 rounded-[10px] bg-slate-950/60 border border-edge px-3 py-2.5">
@@ -527,7 +548,9 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
 
               {offered && (
                 <p className="text-[12px] text-slate-500">
-                  {!canInstall && status === 'downloaded'
+                  {!canInstall && status === 'downloaded' && nativeBuild
+                    ? 'Saved in Downloads. Close DHVANI, open the downloaded file and drag DHVANI into Applications, replacing the old one. Your keys and settings are kept.'
+                    : !canInstall && status === 'downloaded'
                     ? 'The new version is saved. Close DHVANI and open the new one; for the zip, unpack it over your DHVANI folder so your keys come along.'
                     : !canInstall
                       ? 'This copy can’t replace itself, so DHVANI downloads the new version for you to open.'

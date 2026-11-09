@@ -329,7 +329,9 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
           ? `${updateState.version} ready · restart to update`
           : `${updateState.version} downloaded`
         : updateOffered
-          ? `${updateState.version} available`
+          ? updateState.nativeBuild
+            ? 'Apple Silicon version available'
+            : `${updateState.version} available`
           : updateState.status === 'checking'
             ? 'Checking…'
             : updateState.status === 'not-available'

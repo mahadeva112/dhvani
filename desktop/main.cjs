@@ -129,6 +129,8 @@ let updateState = {
   transferred: 0,
   total: 0,
   error: null,
+  // The offer is the Apple Silicon build for an Intel build running on Rosetta.
+  nativeBuild: false,
 };
 
 const setUpdateState = (patch) => {
@@ -178,6 +180,13 @@ const plainError = (err) => {
   return text.slice(0, 160) || 'Unknown error';
 };
 
+/**
+ * The Intel build running on an Apple Silicon Mac, through Rosetta. Everything
+ * runs several times slower there, and process.arch says x64, so without this
+ * every update would fetch the Intel build again (a 2026-11-09 M4 report).
+ */
+const translatedOnMac = () => process.platform === 'darwin' && app.runningUnderARM64Translation === true;
+
 /** The file in a release that replaces this build, for builds that cannot install. */
 const pickAsset = (assets) => {
   const files = (assets || []).filter((a) => a?.name && a?.browser_download_url);
@@ -185,7 +194,7 @@ const pickAsset = (assets) => {
   if (process.platform === 'win32') {
     return process.env.PORTABLE_EXECUTABLE_DIR ? find(/-Portable-x64\.exe$/i) : find(/-Portable-x64\.zip$/i);
   }
-  if (process.platform === 'darwin') return find(process.arch === 'arm64' ? /-arm64\.dmg$/i : /-x64\.dmg$/i);
+  if (process.platform === 'darwin') return find(process.arch === 'arm64' || translatedOnMac() ? /-arm64\.dmg$/i : /-x64\.dmg$/i);
   if (process.platform === 'linux') return find(/\.AppImage$/i);
   return null;
 };
@@ -214,7 +223,9 @@ const checkReleasesApi = async () => {
     }
     if (!response.ok) throw new Error(`The update server answered ${response.status}`);
     const release = await response.json();
-    if (isNewer(release.tag_name, app.getVersion())) {
+    // On Rosetta the Apple Silicon build is offered even at the same version.
+    const nativeBuild = translatedOnMac();
+    if (isNewer(release.tag_name, app.getVersion()) || nativeBuild) {
       const asset = pickAsset(release.assets);
       releaseAsset = asset ? { name: asset.name, url: asset.browser_download_url, size: asset.size || 0 } : null;
       setUpdateState({
@@ -222,6 +233,7 @@ const checkReleasesApi = async () => {
         version: String(release.tag_name).replace(/^v/, ''),
         releaseNotes: plainNotes(release.body),
         releaseDate: release.published_at || null,
+        nativeBuild,
       });
     } else {
       setUpdateState({ status: 'not-available' });
@@ -946,6 +958,19 @@ const describeComputer = async () => {
   add('Chip', os.cpus()[0]?.model?.trim());
   add('Cores', os.cpus().length);
   add('Memory', `${mb(os.totalmem())} total, ${mb(os.freemem())} free now`);
+  if (isMac) {
+    // "free" is low on a healthy Mac too; pressure and swap say whether it is short of memory.
+    add('Memory pressure', (await run('memory_pressure', ['-Q'])).replace(/^.*?:\s*/, 'free ').trim());
+    add('Swap', await run('sysctl', ['-n', 'vm.swapusage']));
+  }
+  // What the page holds, decoded audio included. A frozen page never answers, so this waits 2 s at most.
+  const heap = await Promise.race([
+    mainWindow && !mainWindow.isDestroyed()
+      ? mainWindow.webContents.executeJavaScript('performance.memory ? performance.memory.usedJSHeapSize : 0', false).catch(() => 0)
+      : 0,
+    new Promise((resolve) => setTimeout(() => resolve(-1), 2000)),
+  ]);
+  add('Page memory', heap > 0 ? mb(heap) : heap === -1 ? 'the page did not answer' : '');
   add(
     'Screens',
     screen
@@ -1074,6 +1099,9 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     try {
       appendLog(`\n--- DHVANI desktop started ${new Date().toISOString()} ---\n`);
+      if (app.runningUnderARM64Translation) {
+        appendLog('[rosetta] This is the Intel build running translated on an Apple Silicon Mac; it is much slower than the native build.\n');
+      }
       buildMenu();
       createWindow(); // Shows the loading page while the engine starts.
       setupAutoUpdates();
