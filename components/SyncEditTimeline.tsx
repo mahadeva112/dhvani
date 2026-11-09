@@ -95,8 +95,9 @@ import { PageScrollLock } from './usePageScrollLock';
  *   ruler     time; a click puts the playhead there, a drag scrubs it
  *   Original   the original's waveform, each line in its colour (locked);
  *              drag across it to pick a stretch, then drag the stretch down
- *              onto the dub (or Ctrl + C, Ctrl + V at the playhead) to fill a
- *              gap with the original's own voice: a clip of the original
+ *              onto the dub (or Ctrl + C, Ctrl + V at the playhead): a clip of
+ *              the original, all of it, snapped to its own time when dropped
+ *              near it, heard over any line it lands on
  *   links      from each original line's start to where its dub line's first
  *              word now lands: upright is in sync
  *   dub        the lines as they will play, each part with its waveform as
@@ -2480,30 +2481,36 @@ export const SyncEditTimeline: React.FC<{
   const clipboard = useRef<{ from: number; to: number } | null>(null);
   const originalDrag = useRef<{ kind: 'pick' | 'carry'; t0: number; grab: number; moved: boolean } | null>(null);
   /** Where a carried stretch would land, while it is over the dub lane. */
-  const [carry, setCarry] = useState<{ start: number; length: number; fits: boolean } | null>(null);
+  const [carry, setCarry] = useState<{ start: number; length: number; home: boolean } | null>(null);
 
   /**
-   * Where a stretch `length` long dropped at `at` goes on the dub: there, as
-   * long as the gap it lands in allows, its end trimmed to fit before the
-   * next line. Null when it lands on a line.
+   * Where a stretch `length` long dropped at `at` goes on the dub: exactly
+   * there, all of it. Nothing is trimmed and a line in the way does not stop
+   * it: both are heard there (the render mixes them) and the overlap is drawn,
+   * so the user trims whichever they like. `over` names what it plays over.
    */
   const placeOriginal = (at: number, length: number) => {
-    const start = clamp(at, 0, total);
-    // With several speakers a clip of the original goes on its own lane, so only other clips are in its way.
+    const start = Math.max(0, at);
+    const end = start + length;
+    // With several speakers a clip of the original goes on its own lane, so only other clips share it.
     const playing = chunks.filter((c) => !c.part.muted && (!multi || c.lane === ORIGINAL_SPEAKER));
-    if (playing.some((c) => c.part.start <= start + 1e-6 && partEnd(c.part) > start + 1e-6)) return null;
-    const next = Math.min(Infinity, ...playing.filter((c) => c.part.start > start + 1e-6).map((c) => c.part.start));
-    const fit = Math.min(length, next - start);
-    return fit >= MIN_PART_SECONDS ? { start, length: fit, trimmed: fit < length - 1e-6 } : null;
+    const over = playing
+      .filter((c) => c.part.start < end - 1e-6 && partEnd(c.part) > start + 1e-6)
+      .map((c) => `${c.original ? 'clip' : 'line'} ${c.label}`);
+    return { start, length, over };
   };
 
   /** Puts `length` seconds of the original from `from` on the dub at `start`, as a clip of its own. */
-  const putOriginal = (from: number, length: number, start: number, trimmed: boolean) => {
+  const putOriginal = (from: number, length: number, start: number, over: string[]) => {
     const key = `${ORIGINAL_CLIP_PREFIX}${Date.now().toString(36)}${(partCounter++).toString(36)}`;
     const part: SyncEditPart = { id: newPartId(key), start, from, to: from + length, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false };
     commit(withParts(committed, key, [part]), `Put the original ${formatTime(from)} on the dub at ${formatTime(start)}`);
     setSelected(part.id);
-    say(trimmed ? 'Put on the dub, its end trimmed to fit before the next line.' : 'Put on the dub. Drag its edges to trim it, or Del to take it off.');
+    say(
+      over.length > 0
+        ? `Put on the dub, all ${length.toFixed(2)} s. It plays over ${over.join(', ')}: trim either one's edge if you want only one heard.`
+        : `Put on the dub, all ${length.toFixed(2)} s. Drag its edges to trim it, or Del to take it off.`
+    );
   };
 
   const copyPick = () => {
@@ -2516,13 +2523,22 @@ export const SyncEditTimeline: React.FC<{
     const copied = clipboard.current;
     if (!copied) return say('Drag across the original to pick a stretch, then Ctrl + C to copy it.');
     const place = placeOriginal(currentTime, copied.to - copied.from);
-    if (!place) return say('The playhead is on a line. Put it in a gap of the dub, then Ctrl + V.');
-    putOriginal(copied.from, place.length, place.start, place.trimmed);
+    putOriginal(copied.from, place.length, place.start, place.over);
   };
 
-  /** Where a stretch carried from the original lands: snapped to an edge or the playhead, as a move does. */
-  const carryAt = (clientX: number, length: number) => {
-    const raw = timeAt(clientX) - (originalDrag.current?.grab ?? 0);
+  /**
+   * Where a stretch carried from the original lands. Its own time in the
+   * original wins first, within twice the snap reach, so dragging it straight
+   * down puts it exactly where it was said even if the hand drifts a little;
+   * else an edge or the playhead, as a move does.
+   */
+  const carryAt = (clientX: number, length: number, grab: number) => {
+    const raw = timeAt(clientX) - grab;
+    const home = pick?.from;
+    const width = laneRef.current?.getBoundingClientRect().width || 1;
+    if (snap && home !== undefined && Math.abs(raw - home) <= ((2 * SNAP_PX) / width) * windowSeconds) {
+      return { start: home, snapped: { delta: home - raw, at: home, label: 'its place in the original' } };
+    }
     const hit = snapNear(
       [
         { t: raw, kinds: ['edge', 'playhead'] },
@@ -2566,15 +2582,15 @@ export const SyncEditTimeline: React.FC<{
       setHud({ x: hudX, text: `${length.toFixed(2)} s of the original · drop it on the dub lane` });
       return;
     }
-    const { start, snapped } = carryAt(e.clientX, length);
+    const { start, snapped } = carryAt(e.clientX, length, d.grab);
     const place = placeOriginal(start, length);
-    setCarry(place ? { start: place.start, length: place.length, fits: true } : { start: Math.max(0, start), length, fits: false });
-    setSnapLine(place && snapped ? snapped.at : null);
+    setCarry({ start: place.start, length: place.length, home: Math.abs(place.start - pick.from) < 1e-6 });
+    setSnapLine(snapped ? snapped.at : null);
     setHud({
       x: hudX,
-      text: place
-        ? `drop at ${formatTime(place.start)}${place.trimmed ? ` · trimmed to ${place.length.toFixed(2)} s to fit` : ''}${snapped ? ` · snap: ${snapped.label}` : ''}`
-        : 'on a line: drop it in a gap',
+      text: `drop at ${formatTime(place.start)} · ${length.toFixed(2)} s${snapped ? ` · snap: ${snapped.label}` : ''}${
+        place.over.length > 0 ? ` · plays over ${place.over.join(', ')}` : ''
+      }`,
     });
   };
   const onOriginalPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -2593,9 +2609,9 @@ export const SyncEditTimeline: React.FC<{
     }
     if (d.kind !== 'carry' || !pick || !overDub(e.clientY)) return;
     const length = pick.to - pick.from;
-    const place = placeOriginal(carryAt(e.clientX, length).start, length);
-    if (!place) return say('That is on a line of the dub. Drop the original in a gap.');
-    putOriginal(pick.from, place.length, place.start, place.trimmed);
+    // `d`, not originalDrag.current: that is already let go of here, and without the grab the stretch landed where the pointer was, not where it was held.
+    const place = placeOriginal(carryAt(e.clientX, length, d.grab).start, length);
+    putOriginal(pick.from, place.length, place.start, place.over);
   };
   const onOriginalPointerCancel = () => {
     originalDrag.current = null;
@@ -3309,7 +3325,7 @@ export const SyncEditTimeline: React.FC<{
             {carry && (
               <span
                 aria-hidden="true"
-                className={`absolute ${speakerLanes ? '' : 'top-1.5 bottom-1.5'} rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.fits ? 'border-cyan-300 bg-cyan-300/15' : 'border-rose-400 bg-rose-400/10'}`}
+                className={`absolute ${speakerLanes ? '' : 'top-1.5 bottom-1.5'} rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.home ? 'border-cyan-200 bg-cyan-300/25' : 'border-cyan-300 bg-cyan-300/15'}`}
                 style={{
                   left: `${pct(carry.start)}%`,
                   width: `${Math.max(0.15, (carry.length / windowSeconds) * 100)}%`,
@@ -3821,7 +3837,7 @@ export const SyncEditTimeline: React.FC<{
               </div>
               <p className="mt-2 text-[12.5px] leading-relaxed text-slate-400">
                 Click a line on the dub lane to pick it. Drag its middle to move it (past other lines, into any gap it fits), an edge to trim it (Alt: stretch), a top corner to fade it, its top edge up or down for gain; Alt + drag the
-                middle copies it (the line stays where it is, the copy goes where you drop it); Alt + Shift + drag slips the audio inside. With several lines picked, dragging one moves, fades or sets the gain of them all. To fill a gap with the original's own voice, drag across the Original lane to pick a stretch and drag it down onto the dub.
+                middle copies it (the line stays where it is, the copy goes where you drop it); Alt + Shift + drag slips the audio inside. With several lines picked, dragging one moves, fades or sets the gain of them all. To use the original's own voice (a laugh, a breath), drag across the Original lane to pick a stretch and drag it down onto the dub: all of it goes in, and dragged straight down it lands at its own time in the original.
               </p>
               <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
                 {SHORTCUTS.map((section) => (
