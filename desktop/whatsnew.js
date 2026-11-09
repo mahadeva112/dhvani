@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.59',
+    changes: [
+      'DHVANI uses far less memory when you move between projects: a project you are not working on lets go of its audio after half a minute and loads it again when you open it. Switching between long projects no longer fills up the computer’s memory and makes the app freeze.',
+      'On a Mac with an Apple chip that has the Intel version of DHVANI, the app now offers the Apple Silicon version, which runs much faster there. The problem report also shows how short of memory the computer is.',
+    ],
+  },
+  {
     version: '1.4.58',
     changes: [
       'If DHVANI freezes or runs slowly, choose Help → Save Problem Report… to save one text file in Downloads with your computer’s details and what the app was doing when it got stuck. Send that file to whoever is helping you. Your keys and user name are left out, and nothing is sent anywhere by the app.',
