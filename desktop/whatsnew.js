@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.57',
+    changes: [
+      'A stretch of the original you drag down onto the dub in Edit timing, such as a laugh, now lands whole and exactly where you let go. Dragged straight down it sits at its own time in the original, and over a line both are heard so you can trim either.',
+      'The Update button is gone from the top bar. A newer version shows in Tools under Check for updates, and the update notice in the corner now slides in and out smoothly and waits while your pointer is on it.',
+    ],
+  },
+  {
     version: '1.4.56',
     changes: [
       'Using a retake costs no extra credits now: the voice says when each word is spoken as it reads the take, so the take is cut between its words with no separate word timing. It goes where the old parts were the moment you press Use, in one step, and Undo puts the old take back.',
