@@ -106,6 +106,8 @@ export interface TakesRequest {
   readCount: number;
   /** Words of the line to voice again (indexes into wordsOf, inclusive), or `say` in their place; the whole line when left out. */
   phrase?: { from: number; to: number; say?: string };
+  /** The current take's words (SyncTake.words), so a phrase take's words are known without aligning it. */
+  lineWords?: [number, number][];
   direction: TakeDirection;
   count: number;
   join: SyncJoinSettings;
@@ -150,7 +152,7 @@ export const voiceTakes = async (
     bankId: string;
     baseLength: number;
     audioId: string;
-    takes: { seed: number; bankStart: number; length: number; lead: number; speech: number; cutOff: boolean; gain: number; hash: string }[];
+    takes: { seed: number; bankStart: number; length: number; lead: number; speech: number; cutOff: boolean; gain: number; hash: string; words?: [number, number][]; gaps?: number[] }[];
   };
   const send = () =>
     apiJson<Voiced>('/sync/takes', {
@@ -166,6 +168,7 @@ export const voiceTakes = async (
           previousText: request.previousText,
           nextText: request.nextText,
           readCount: request.readCount,
+          ...(words && request.lineWords?.length && { words: request.lineWords }),
         },
         ...(words && { phrase: { ...words, ...(say && { say }) } }),
         seeds,
@@ -220,6 +223,7 @@ export const voiceTakes = async (
       seed: take.seed,
       direction: request.direction,
       ...(words && { phrase: say ?? words.words }),
+      ...(take.words?.length && { words: take.words, ...(take.gaps && { gaps: take.gaps }) }),
       text: unit.text,
     })),
   };

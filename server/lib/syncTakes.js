@@ -79,7 +79,7 @@ export const directedSettings = (settings, direction, engine) => {
 export const fitTake = (decoded, sampleRate, join) => {
   const { samples } = join.removeBreaths ? removeBreaths(decoded, sampleRate, { reduction: join.breathReduction }) : { samples: decoded };
   const clip = prepareClip(samples, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold });
-  return clip ? { samples: clip.samples, lead: clip.lead, speech: clip.speech, cutOff: clip.cutOff } : null;
+  return clip ? { samples: clip.samples, lead: clip.lead, speech: clip.speech, cutOff: clip.cutOff, start: clip.start } : null;
 };
 
 /** Length of the window the quietest join is looked for with (as dubTakes.js cuts lines). */
@@ -122,7 +122,7 @@ export const splicePhrase = (lineSamples, cut, phraseClip, sampleRate, join) => 
   out.set(phraseClip.samples, head.length);
   out.set(tail, head.length + phraseClip.samples.length);
   const clip = prepareClip(out, sampleRate, { tailQuiet: dbToAmplitude(join.tailFloorDb), tailHold: join.tailHold });
-  return clip ? { samples: clip.samples, lead: clip.lead, speech: clip.speech, cutOff: clip.cutOff } : null;
+  return clip ? { samples: clip.samples, lead: clip.lead, speech: clip.speech, cutOff: clip.cutOff, start: clip.start } : null;
 };
 
 /**

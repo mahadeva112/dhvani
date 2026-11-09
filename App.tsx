@@ -226,7 +226,7 @@ import {
   type ProjectHistory,
 } from './services/projectHistory';
 import { hasEdits, isOriginalClip, lockedLines, measureEdits, originalParts, partEnd, partsOf, rebaseEdits, renderSyncEdits, SyncEdits, type SyncBank, type SyncBankLine } from './services/syncEditService';
-import { alignTakeWords, carryTakes, fitTakeToParts, phraseLine, phraseOf, pickedTakes, placeTakeChunks, placeTakeLikeSync, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
+import { alignTakeWords, carryTakes, fitTakeToParts, knownWords, phraseLine, phraseOf, pickedTakes, sayWords, placeTakeChunks, placeTakeLikeSync, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
 import { readRetakePlacement } from './services/retakePlacement';
 import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
 import { stripTags, tagsOf } from './server/lib/lineTags.js';
@@ -343,6 +343,15 @@ const saveFailureMessage = (err: unknown): string => {
 };
 
 /** The source's length, which the synced dub is as long as. */
+/** Where line `key` plays now, in timeline seconds (its parts that sound, copies left out); null when it doesn't. */
+const lineSpanIn = (bank: SyncBank, edits: SyncEdits | null | undefined, key: string | undefined) => {
+  const line = key ? bank.lines.find((l) => l.key === key) : null;
+  if (!line) return null;
+  const parts = partsOf(edits, line, bank.sampleRate).filter((part) => !part.muted && !part.copy);
+  if (parts.length === 0) return null;
+  return { start: Math.min(...parts.map((part) => part.start)), end: Math.max(...parts.map(partEnd)) };
+};
+
 const sourceDurationOf = (job: BatchJob) =>
   job.audioBuffer?.duration || job.audioMetadata?.duration || job.segments[job.segments.length - 1]?.endTime || 0;
 
@@ -3245,6 +3254,11 @@ export default function App() {
           nextText: neighbour(1)?.text.slice(0, 300),
           readCount: base.units.length,
           phrase,
+          lineWords: (() => {
+            const current = takesOf(job.syncTakes, line, base.units[n], bank.sampleRate);
+            const playing = current.takes.find((t) => t.id === current.active);
+            return playing ? knownWords(playing, base.units[n], bank.sampleRate)?.map((w): [number, number] => [w.start, w.end]) : undefined;
+          })(),
           direction,
           count: count ?? TAKES_PER_ASK,
           join: base.join,
@@ -3287,7 +3301,7 @@ export default function App() {
       const now = queueRef.current.find((j) => j.id === job.id);
       if (!now?.syncBank || now.syncBank.bankId !== bank.bankId) return;
       const nowLine = now.syncBank.lines.find((l) => l.key === unit.key) || line;
-      const kept = takesOf(now.syncTakes, nowLine, base.units[n]);
+      const kept = takesOf(now.syncTakes, nowLine, base.units[n], now.syncBank.sampleRate);
       // A take keeps the words the script takes from it, and what the voice read, pauses and all.
       const added = voicedTakes.takes.map((take: SyncTake) =>
         spoken ? { ...take, text: words, spoken } : resaid ? { ...take, text: words, spoken: resaid } : paused ? { ...take, text: base.units[n].text, spoken: paused } : take
@@ -3307,7 +3321,7 @@ export default function App() {
       });
       if (put) {
         scheduleSyncEditRender(job.id, put.render, 0);
-        void placeUsedTake({ ...voiced, ...put.updates }, unit.key, added[0].id, now);
+        if (!put.placed) void placeUsedTake({ ...voiced, ...put.updates }, unit.key, added[0].id, now);
       }
       refreshQuota();
       if (voiceError && changedVoice) {
@@ -3338,7 +3352,7 @@ export default function App() {
     if (!put) return;
     updateJob(job.id, put.updates);
     scheduleSyncEditRender(job.id, put.render, 0);
-    void placeUsedTake({ ...job, ...put.updates }, key, takeId, job);
+    if (!put.placed) void placeUsedTake({ ...job, ...put.updates }, key, takeId, job);
   };
 
   /**
@@ -3364,15 +3378,8 @@ export default function App() {
     const n = base.units.findIndex((u) => u.key === key);
     if (n === -1) return;
     // Where the lines either side play now, in timeline seconds.
-    const spanOf = (unitKey: string | undefined) => {
-      const line = unitKey ? bank.lines.find((l) => l.key === unitKey) : null;
-      if (!line) return null;
-      const parts = partsOf(job.syncEdits, line, bank.sampleRate).filter((part) => !part.muted && !part.copy);
-      if (parts.length === 0) return null;
-      return { start: Math.min(...parts.map((part) => part.start)), end: Math.max(...parts.map(partEnd)) };
-    };
-    const prev = spanOf(base.units[n - 1]?.key);
-    const next = spanOf(base.units[n + 1]?.key);
+    const prev = lineSpanIn(bank, job.syncEdits, base.units[n - 1]?.key);
+    const next = lineSpanIn(bank, job.syncEdits, base.units[n + 1]?.key);
     /** The project now, while the line still plays that take as it went in: anything done to it meanwhile is the user's. */
     const stillAsPut = () => {
       const now = queueRef.current.find((j) => j.id === jobId);
@@ -3384,22 +3391,40 @@ export default function App() {
     const oldParts = oldLine && before.syncBank ? partsOf(before.syncEdits, oldLine, before.syncBank.sampleRate).filter((part) => !part.copy) : [];
     const oldKept = before.syncTakes?.[key];
     const oldText = oldKept?.takes.find((t) => t.id === oldKept.active)?.text ?? before.syncBaseReport?.units.find((u) => u.key === key)?.text ?? '';
-    const count = (text: string) => text.trim().split(/\s+/).filter(Boolean).length;
+    const count = (text: string) => sayWords(text).length;
     const pairs = count(oldText) > 0 && count(oldText) === count(take.text);
     // Like Sync needs a dub Chunk sync placed; without one a used take goes where the old parts were.
     const placement = readRetakePlacement() === 'sync' && base.join?.chunkSync ? 'sync' : 'old';
     if (placement === 'old' && oldLine && oldParts.length >= 2 && pairs) {
       try {
         // The old take's samples are still in this bank: a bank only grows.
-        const oldWords = await alignTakeWords(bank, job.syncBankBlob, oldLine, oldText, { apiKey: elApiKey });
+        // Words already known (kept with a take, or Sync's own alignment) are not aligned again.
+        const spoken = <W extends { text: string }>(words: W[]) => words.filter((w) => /[\p{L}\p{N}]/u.test(w.text));
+        const oldTake = oldKept?.takes.find((t) => t.id === oldKept.active);
+        const oldUnit = before.syncBaseReport?.units.find((u) => u.key === key);
+        const oldWords = (oldTake && knownWords(oldTake, oldUnit, bank.sampleRate)) ?? spoken(await alignTakeWords(bank, job.syncBankBlob, oldLine, oldText, { apiKey: elApiKey }));
         const newLine = bank.lines.find((l) => l.key === key);
         if (!newLine) return;
-        const newWords = await alignTakeWords(bank, job.syncBankBlob, newLine, take.text, { apiKey: elApiKey });
-        const fit = fitTakeToParts({ key, oldParts, oldWords, newWords, takeSeconds: take.length / bank.sampleRate, prevEnd: prev?.end ?? null, nextStart: next?.start ?? null });
+        const newWords = knownWords(take, base.units[n], bank.sampleRate) ?? spoken(await alignTakeWords(bank, job.syncBankBlob, newLine, take.text, { apiKey: elApiKey }));
+        const fit = fitTakeToParts({ key, oldParts, oldWords, newWords, takeSeconds: take.length / bank.sampleRate, prevEnd: prev?.end ?? null, nextStart: next?.start ?? null, cuts: take.gaps });
         const now = stillAsPut();
         if (!fit || !now?.syncBank || !now.syncBaseReport || now.syncEdits?.[key] !== job.syncEdits?.[key]) return;
         const edits: SyncEdits = { ...(now.syncEdits ?? {}), [key]: { locked: Boolean(now.syncEdits?.[key]?.locked), parts: fit.parts } };
-        updateJob(jobId, { syncEdits: edits, syncReport: measureEdits(now.syncBaseReport, now.syncBank, edits) }, { label: `Line ${n + 1}: take placed where the old parts were` });
+        // The words go with the takes, so neither is aligned again.
+        const pairs = (words: { start: number; end: number }[]): [number, number][] => words.map((w) => [w.start, w.end]);
+        const nowKept = now.syncTakes?.[key];
+        const syncTakes = nowKept
+          ? {
+              ...now.syncTakes,
+              [key]: {
+                ...nowKept,
+                takes: nowKept.takes.map((t) =>
+                  t.id === takeId && !t.words?.length ? { ...t, words: pairs(newWords) } : t.id === oldTake?.id && !t.words?.length ? { ...t, words: pairs(oldWords) } : t
+                ),
+              },
+            }
+          : now.syncTakes;
+        updateJob(jobId, { syncEdits: edits, syncReport: measureEdits(now.syncBaseReport, now.syncBank, edits), syncTakes }, { label: `Line ${n + 1}: take placed where the old parts were` });
         scheduleSyncEditRender(
           jobId,
           { bank: now.syncBank, bankBlob: now.syncBankBlob, baseReport: now.syncBaseReport, edits, sourceDuration: sourceDurationOf(now), source: now.audioBuffer },
@@ -3465,7 +3490,35 @@ export default function App() {
     const unit = job.syncBaseReport.units.find((u) => u.key === key);
     if (!line || !unit || job.syncPendingLines?.includes(key)) return null;
     const put = putTake({ bank: job.syncBank, edits: job.syncEdits, baseReport: job.syncBaseReport, key, take });
-    const { bank, edits } = put;
+    const { bank } = put;
+    let { edits } = put;
+    // Where the old parts were, at once, when both takes' words are known: no alignment, one step, one render.
+    let placed = false;
+    const rate = job.syncBank.sampleRate;
+    if (readRetakePlacement() !== 'sync' || !job.syncBaseReport.join?.chunkSync) {
+      const oldList = takesOf(job.syncTakes, line, unit, rate);
+      const oldTake = oldList.takes.find((t) => t.id === oldList.active);
+      const oldParts = partsOf(job.syncEdits, line, rate).filter((part) => !part.copy);
+      const oldWords = oldTake ? knownWords(oldTake, unit, rate) : null;
+      const newWords = knownWords(take, unit, rate);
+      const n = job.syncBaseReport.units.findIndex((u) => u.key === key);
+      if (oldParts.length >= 2 && oldWords && newWords) {
+        const fit = fitTakeToParts({
+          key,
+          oldParts,
+          oldWords,
+          newWords,
+          takeSeconds: take.length / rate,
+          prevEnd: lineSpanIn(job.syncBank, job.syncEdits, job.syncBaseReport.units[n - 1]?.key)?.end ?? null,
+          nextStart: lineSpanIn(job.syncBank, job.syncEdits, job.syncBaseReport.units[n + 1]?.key)?.start ?? null,
+          cuts: take.gaps,
+        });
+        if (fit) {
+          edits = { ...(edits ?? {}), [key]: { locked: Boolean(edits?.[key]?.locked), parts: fit.parts } };
+          placed = true;
+        }
+      }
+    }
     const reworded = take.text !== unit.text;
     const baseReport = reworded ? { ...put.baseReport, units: put.baseReport.units.map((u) => (u.key === key ? { ...u, text: take.text } : u)) } : put.baseReport;
     let segments = job.segments;
@@ -3485,7 +3538,7 @@ export default function App() {
       syncTakes: { ...job.syncTakes, [key]: { ...kept, active: takeId } },
     };
     const render = { bank, bankBlob: job.syncBankBlob, baseReport, edits, sourceDuration: sourceDurationOf(job), source: job.audioBuffer };
-    return { updates, render };
+    return { updates, render, placed };
   };
 
   /**

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendManyToBank, appendToBank, carryTakes, compactBank, fitTakeToParts, phraseLine, phraseOf, pickedTakes, placeTakeChunks, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
+import { appendManyToBank, appendToBank, carryTakes, compactBank, fitTakeToParts, knownWords, sayWords, syncTakeOf, syncTakeWords, phraseLine, phraseOf, pickedTakes, placeTakeChunks, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
 import { measureEdits, partEnd, partsOf, spokenSpan, type SyncEditPart } from './syncEditModel.ts';
@@ -409,4 +409,27 @@ test('a take too long for its place moves into the room before it, and what stil
 
 test('a take in other words does not pair with the old parts', () => {
   assert.equal(fitTakeToParts({ key: '1', oldParts: OLD_PARTS, oldWords: OLD_WORDS, newWords: OLD_WORDS.slice(0, 5), takeSeconds: 4 }), null);
+});
+
+test("Sync's take knows its words from Sync's own alignment, less what was dropped before 0:00, and a kept take from its own", () => {
+  const synced = line('1', { dropped: 100, length: 1000 });
+  const readWords: [string, number, number][] = [['one', 0.2, 0.4], ['—', 0.4, 0.45], ['two', 0.5, 0.8]];
+  assert.deepEqual(syncTakeWords(synced, readWords, RATE), [[0.1, 0.3], [0.4, 0.7]], 'lone punctuation is not a word');
+  const own = syncTakeOf(synced, 'one — two', syncTakeWords(synced, readWords, RATE));
+  assert.deepEqual(knownWords(own, undefined, RATE), [{ start: 0.1, end: 0.3 }, { start: 0.4, end: 0.7 }]);
+  // An older project kept Sync's take without words: the report still has them.
+  const older = syncTakeOf(synced, 'one — two');
+  assert.deepEqual(knownWords(older, unit('1', 2, 3, { readWords }), RATE), [{ start: 0.1, end: 0.3 }, { start: 0.4, end: 0.7 }]);
+  assert.equal(knownWords(take({}), undefined, RATE), null, 'a take with none has to be aligned');
+  assert.deepEqual(sayWords('one — two'), ['one', 'two']);
+});
+
+test('a take is cut where its own sound is quietest between the words, when that is known', () => {
+  const words = wordsAt(0.4, 0.3);
+  // The quiet point after word 3 is early in the pause, not halfway.
+  const cuts = [0.65, 1.35, 1.92, 2.75, 3.45];
+  const fit = fitTakeToParts({ key: '1', oldParts: OLD_PARTS, oldWords: OLD_WORDS, newWords: words, takeSeconds: 4.6, cuts });
+  assert.ok(fit);
+  assert.ok(fit.parts[0].to <= 1.92 + 1e-9, `part 1 ends by the cut, at ${fit.parts[0].to}`);
+  assert.ok(fit.parts[1].from >= 1.92 - 1e-9, `part 2 starts after it, at ${fit.parts[1].from}`);
 });

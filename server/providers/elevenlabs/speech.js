@@ -246,22 +246,10 @@ const resolveSettings = async (voiceId, voiceSettings, apiKey) => {
   }
 };
 
-/** One text-to-speech request. Returns the raw Response so the route can stream it through. */
-export const synthesizeSpeech = async (
-  {
-    voiceId,
-    text,
-    modelId,
-    outputFormat = 'mp3_44100_128',
-    voiceSettings,
-    previousText,
-    nextText,
-    previousRequestIds,
-    seed,
-    performanceTags = false,
-    ownTags = false,
-  },
-  { apiKey, signal, stream = false } = {}
+/** The endpoint and body of one text-to-speech request. */
+const speechRequest = async (
+  { voiceId, text, modelId, outputFormat = 'mp3_44100_128', voiceSettings, previousText, nextText, previousRequestIds, seed, performanceTags = false, ownTags = false },
+  { apiKey, endpoint = '' }
 ) => {
   const cleanVoiceId = requireVoiceId(voiceId);
 
@@ -278,11 +266,9 @@ export const synthesizeSpeech = async (
   }
 
   const settings = await resolveSettings(cleanVoiceId, voiceSettings, apiKey);
-
-  // The streaming endpoint takes the same body and sends audio as it is generated.
-  return elevenLabsBinary(
-    `/text-to-speech/${encodeURIComponent(cleanVoiceId)}${stream ? '/stream' : ''}?output_format=${encodeURIComponent(outputFormat)}`,
-    {
+  return {
+    path: `/text-to-speech/${encodeURIComponent(cleanVoiceId)}${endpoint}?output_format=${encodeURIComponent(outputFormat)}`,
+    body: {
       text: cleanText,
       model_id: resolvedModel,
       voice_settings: normalizeSettings(settings, { withSpeed: supportsSpeed(resolvedModel) }),
@@ -293,8 +279,40 @@ export const synthesizeSpeech = async (
         : {}),
       ...(Number.isInteger(seed) ? { seed } : {}),
     },
-    { apiKey, signal }
-  );
+  };
+};
+
+/** One text-to-speech request. Returns the raw Response so the route can stream it through. */
+export const synthesizeSpeech = async (request, { apiKey, signal, stream = false } = {}) => {
+  // The streaming endpoint takes the same body and sends audio as it is generated.
+  const { path, body } = await speechRequest(request, { apiKey, endpoint: stream ? '/stream' : '' });
+  return elevenLabsBinary(path, body, { apiKey, signal });
+};
+
+/**
+ * One text-to-speech request that also says when each character is spoken
+ * (the with-timestamps endpoint). The same request, the same characters
+ * charged: the timing comes with the audio. `alignment` is
+ * `{ characters, character_start_times_seconds, character_end_times_seconds }`
+ * for the text as sent, or null when the model gave none.
+ */
+export const synthesizeSpeechTimed = async (request, { apiKey, signal } = {}) => {
+  const { path, body } = await speechRequest(request, { apiKey, endpoint: '/with-timestamps' });
+  const response = await elevenLabsBinary(path, body, { apiKey, signal, accept: 'application/json' });
+  const data = await response.json();
+  const alignment = data?.alignment;
+  const timed =
+    alignment &&
+    Array.isArray(alignment.characters) &&
+    Array.isArray(alignment.character_start_times_seconds) &&
+    Array.isArray(alignment.character_end_times_seconds) &&
+    alignment.characters.length === alignment.character_start_times_seconds.length &&
+    alignment.characters.length === alignment.character_end_times_seconds.length;
+  return {
+    buffer: Buffer.from(String(data?.audio_base64 || ''), 'base64'),
+    requestId: response.headers.get('request-id') || null,
+    alignment: timed ? alignment : null,
+  };
 };
 
 /** Seconds of audio in `bytes` of the given output format, or null when it can't be told. */
@@ -541,8 +559,9 @@ export const synthesizeScript = async (
  * many lines the whole read has (default: `lines.length`), so a retake of a
  * few lines gets the settings the rest were voiced with. `onLine(done, index, buffer)` reports
  * each finished line, and `onStabilityAdjustment` what readSettings changed
- * (once, before any line is voiced). Returns `[{ buffer, requestId }]` in the
- * same order.
+ * (once, before any line is voiced). With `timestamps`, each line comes with
+ * when its characters are said (`alignment`, see synthesizeSpeechTimed).
+ * Returns `[{ buffer, requestId, alignment }]` in the same order.
  */
 export const synthesizeLines = async (
   {
@@ -558,6 +577,7 @@ export const synthesizeLines = async (
     tuneStability = true,
     readCount,
     speedScale = 1,
+    timestamps = false,
   },
   { apiKey, signal, onLine = () => {}, onStabilityAdjustment = () => {} } = {}
 ) => {
@@ -578,6 +598,8 @@ export const synthesizeLines = async (
 
   const results = new Array(lines.length);
   const contextState = { enabled: supportsContext(resolvedModel) };
+  // When each word is said, asked with the audio (no extra request); a model or account that refuses it is asked without.
+  const timedState = { enabled: timestamps === true };
   let done = 0;
 
   const generate = async (index) => {
@@ -606,20 +628,31 @@ export const synthesizeLines = async (
           }
         : request;
 
-    let response;
+    const send = async (body) => {
+      if (timedState.enabled) {
+        try {
+          return await synthesizeSpeechTimed(body, { apiKey, signal });
+        } catch (err) {
+          if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
+          if (!(err instanceof ApiError) || !STREAM_UNSUPPORTED.has(err.status)) throw err;
+          logger.warn(`ElevenLabs refused word timing for ${resolvedModel} (${err.status} ${err.code}); voicing without it.`);
+          timedState.enabled = false;
+        }
+      }
+      const response = await synthesizeSpeech(body, { apiKey, signal });
+      return { buffer: Buffer.from(await response.arrayBuffer()), requestId: response.headers.get('request-id') || null, alignment: null };
+    };
+    let result;
     try {
-      response = await synthesizeSpeech(withContext(), { apiKey, signal });
+      result = await send(withContext());
     } catch (err) {
       if (signal?.aborted) throw cancelledError(PROVIDER_LABEL);
       if (!contextState.enabled || !(err instanceof ApiError) || !CONTEXT_REFUSED.has(err.status)) throw err;
       logger.warn(`ElevenLabs refused the neighbouring text for ${resolvedModel} (${err.status} ${err.code}); voicing the rest without it.`);
       contextState.enabled = false;
-      response = await synthesizeSpeech(request, { apiKey, signal });
+      result = await send(request);
     }
-    results[index] = {
-      buffer: Buffer.from(await response.arrayBuffer()),
-      requestId: response.headers.get('request-id') || null,
-    };
+    results[index] = result;
     onLine(++done, index, results[index].buffer);
   };
 

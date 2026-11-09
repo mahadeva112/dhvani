@@ -36,6 +36,7 @@ import { forceAlign } from '../providers/elevenlabs/alignment.js';
 import { buildSyncUnits } from '../lib/syncUnits.js';
 import { validateAlignedWords } from '../lib/syncWordTiming.js';
 import { placeTake, placeOfCue } from '../lib/placeTake.js';
+import { refineWords, sayWords, splicedWords, wordsFromAlignment } from '../lib/takeWords.js';
 import { fitToLength, STS_PCM_RATES } from '../lib/voiceChange.js';
 
 export const syncRouter = Router();
@@ -664,6 +665,14 @@ syncRouter.post(
   })
 );
 
+/** The voice's own timing of takes it voiced, by their audio, for a take voiced again from the clip cache. */
+const voicedTimings = new Map();
+const timingKey = (buffer) => createHash('sha1').update(buffer).digest('hex');
+const rememberTiming = (buffer, alignment) => {
+  voicedTimings.set(timingKey(buffer), alignment);
+  if (voicedTimings.size > 500) voicedTimings.delete(voicedTimings.keys().next().value);
+};
+
 /** Forced alignments of a take, by its samples and the words asked about, so a second phrase retake doesn't pay again. */
 const ALIGNMENT_CACHE_LIMIT = 200;
 const takeAlignments = new Map();
@@ -817,7 +826,10 @@ syncRouter.post('/sync/takes/place', asyncHandler(async (req, res) => {
  * audioId, takes }`: the new bank's id, how many samples the old bank had,
  * the takes' samples as they were added (a WAV in the bank's own format,
  * fetched from /api/sync/audio/:audioId) and each take's `{ seed, bankStart,
- * length, lead, speech, cutOff, gain, hash }`. A bank this server no longer
+ * length, lead, speech, cutOff, gain, hash, words?, gaps? }`: `words` are its
+ * words' `[start, end]` seconds and `gaps` where it may be cut between them,
+ * from the timing ElevenLabs gives with the audio (no alignment is paid for;
+ * a phrase take needs `line.words`, the old take's). A bank this server no longer
  * has is a 404 with code `edit_bank_missing`: send it again and retry.
  */
 syncRouter.post(
@@ -971,18 +983,49 @@ syncRouter.post(
     // Each take is voiced on its own, so no take is read as if it followed another.
     const voiceWith = voiceLinesWith({ apiKey, cartesiaKey, language, signal });
     const cacheText = [spoken, previousText || '', nextText || ''].join('\u0000');
+    // The old take's words, for a phrase take's words before and after the phrase.
+    const oldWords = Array.isArray(line?.words) && line.words.length <= 4000 && line.words.every((w) => Array.isArray(w) && w.length === 2 && w.every(Number.isFinite))
+      ? line.words
+      : null;
     const takes = [];
     for (const seed of takeSeeds) {
       if (signal.aborted) throw cancelledError('Takes');
       const seeded = { ...voice, seed };
       let buffer = await cachedClip(seeded, cacheText);
+      let alignment = buffer ? voicedTimings.get(timingKey(buffer)) ?? null : null;
       if (!buffer) {
-        [buffer] = await voiceWith([{ text: spoken, previousText, nextText, seed }], { voice: seeded, readCount, onLine: () => {} });
+        if (seeded.cartesia) {
+          [buffer] = await voiceWith([{ text: spoken, previousText, nextText, seed }], { voice: seeded, readCount, onLine: () => {} });
+        } else {
+          // When each word is said comes with the audio, in the same request: no alignment is paid for.
+          const [voiced] = await synthesizeLines({ ...seeded, lines: [{ text: spoken, previousText, nextText, seed }], readCount, timestamps: true }, { apiKey, signal });
+          buffer = voiced.buffer;
+          alignment = voiced.alignment;
+        }
         rememberClip(seeded, cacheText, buffer);
+        if (alignment) rememberTiming(buffer, alignment);
       }
       const fitted = fitTake(await decodeAudio(buffer, format), sampleRate, joinSettings);
       const take = fitted && cut ? splicePhrase(lineSamples, cut, fitted, sampleRate, joinSettings) : fitted;
-      if (take) takes.push({ seed, ...take });
+      if (!take) continue;
+      // Its words, seconds into the take as it goes in the bank; none when the voice gave no timing.
+      const read = fitted ? wordsFromAlignment(alignment, spoken) : null;
+      const shifted = read ? read.map((w) => ({ start: Math.max(0, w.start - fitted.start / sampleRate), end: Math.max(0, w.end - fitted.start / sampleRate) })) : null;
+      const words = !shifted
+        ? null
+        : !cut
+          ? shifted
+          : splicedWords({
+              oldWords,
+              before: sayWords(before).length,
+              after: sayWords(after).length,
+              cut,
+              phraseWords: shifted,
+              phraseLength: fitted.samples.length,
+              start: take.start,
+              sampleRate,
+            });
+      takes.push({ seed, ...take, ...(words && words.length > 0 && refineWords(take.samples, sampleRate, words, { lead: take.lead, speech: take.speech })) });
     }
     if (takes.length === 0) throw new ApiError('The voice gave back no sound for this line. Try again.', { status: 502, code: 'takes_silent' });
 
@@ -1022,6 +1065,7 @@ syncRouter.post(
           cutOff: Boolean(take.cutOff),
           gain: gains[n],
           hash: clipHash(written.subarray(at, at + take.samples.length)),
+          ...(take.words && { words: take.words, gaps: take.gaps }),
         };
         at += take.samples.length;
         return out;

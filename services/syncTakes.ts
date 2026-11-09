@@ -85,6 +85,14 @@ export interface SyncTake {
   text: string;
   /** What the voice read, when that was new words, pause marks ([pause 0.4s]) or typed tags ([sighs]): `text` is the words without them. */
   spoken?: string;
+  /**
+   * Its words' `[start, end]`, seconds into its samples: from the voice's own
+   * timing when it was voiced, from Sync's alignment for Sync's take, or from
+   * forced alignment once. Kept so cutting it between words never pays again.
+   */
+  words?: [number, number][];
+  /** Where it may be cut between word w and the next (seconds), found in its sound; absent when only `words` are known. */
+  gaps?: number[];
 }
 
 /** A line's takes, oldest first, and the one it plays. */
@@ -97,8 +105,31 @@ export type SyncTakes = Record<string, LineTakes>;
 
 export const SYNC_TAKE_ID = 'sync';
 
+const round4 = (seconds: number) => Math.round(seconds * 10000) / 10000;
+
+/** A word the voice says: letters or digits in it, not lone punctuation. */
+const spokenToken = (token: string) => /[\p{L}\p{N}]/u.test(token);
+
+/** The words a line's text says, as takes count them. */
+export const sayWords = (text: string) => text.split(/\s+/).filter(spokenToken);
+
+/**
+ * Sync's take's words, from its own forced alignment (the report's
+ * `readWords`, seconds into the take before samples were dropped before
+ * 0:00): seconds into the bank line's samples. Undefined without them.
+ */
+export const syncTakeWords = (line: Pick<SyncBankLine, 'dropped' | 'length'>, readWords: SyncUnitReport['readWords'], sampleRate: number): [number, number][] | undefined => {
+  if (!readWords?.length) return undefined;
+  const shift = (line.dropped || 0) / sampleRate;
+  const end = line.length / sampleRate;
+  const words = readWords
+    .filter(([text, start, stop]) => spokenToken(String(text)) && Number.isFinite(start) && Number.isFinite(stop))
+    .map(([, start, stop]): [number, number] => [round4(Math.min(end, Math.max(0, start - shift))), round4(Math.min(end, Math.max(0, stop - shift)))]);
+  return words.length > 0 ? words : undefined;
+};
+
 /** The take Sync placed, as the bank line has it. */
-export const syncTakeOf = (line: SyncBankLine, text: string): SyncTake => ({
+export const syncTakeOf = (line: SyncBankLine, text: string, words?: [number, number][]): SyncTake => ({
   id: SYNC_TAKE_ID,
   kind: 'sync',
   bankStart: line.bankStart,
@@ -113,12 +144,26 @@ export const syncTakeOf = (line: SyncBankLine, text: string): SyncTake => ({
   dropped: line.dropped,
   ...(line.maxStartShift !== undefined && { maxStartShift: line.maxStartShift }),
   ...(line.chunks?.length && { chunks: line.chunks }),
+  ...(words?.length && { words }),
   text,
 });
 
 /** A line's takes: those kept, or only Sync's own before any was asked for. */
-export const takesOf = (takes: SyncTakes | null | undefined, line: SyncBankLine, unit: SyncUnitReport): LineTakes =>
-  takes?.[line.key] ?? { takes: [{ ...syncTakeOf(line, unit.text), cutOff: Boolean(unit.cutOff) }], active: SYNC_TAKE_ID };
+export const takesOf = (takes: SyncTakes | null | undefined, line: SyncBankLine, unit: SyncUnitReport, sampleRate?: number): LineTakes =>
+  takes?.[line.key] ?? {
+    takes: [{ ...syncTakeOf(line, unit.text, sampleRate ? syncTakeWords(line, unit.readWords, sampleRate) : undefined), cutOff: Boolean(unit.cutOff) }],
+    active: SYNC_TAKE_ID,
+  };
+
+/**
+ * A take's words, `{ start, end }` seconds into its samples, when they are
+ * known: kept with it, or for Sync's own take an older project never kept,
+ * Sync's alignment in the report. Null when they have to be aligned.
+ */
+export const knownWords = (take: SyncTake, unit: SyncUnitReport | undefined, sampleRate: number): SpokenWord[] | null => {
+  const pairs = take.words?.length ? take.words : take.id === SYNC_TAKE_ID && unit ? syncTakeWords(take, unit.readWords, sampleRate) : undefined;
+  return pairs?.length ? pairs.map(([start, end]) => ({ start, end })) : null;
+};
 
 /** The words of a line, as the takes panel picks them. */
 export const wordsOf = (text: string) => text.split(/\s+/).filter(Boolean);
@@ -599,6 +644,7 @@ export const fitTakeToParts = ({
   takeSeconds,
   prevEnd = null,
   nextStart = null,
+  cuts,
 }: {
   key: string;
   oldParts: SyncEditPart[];
@@ -607,12 +653,15 @@ export const fitTakeToParts = ({
   takeSeconds: number;
   prevEnd?: number | null;
   nextStart?: number | null;
+  /** Where the new take may be cut after each word but its last, in its silence (SyncTake.gaps); halfway through each pause when not given. */
+  cuts?: number[];
 }): { parts: SyncEditPart[]; moved: number[]; over: number[] } | null => {
   if (oldWords.length === 0 || oldWords.length !== newWords.length || !(takeSeconds > 0)) return null;
   const last = newWords.length - 1;
-  /** Halfway through the pause after word `w` of the new take: no part reaches past it into the next word. */
-  const after = (w: number) => (w < last ? (newWords[w].end + newWords[w + 1].start) / 2 : takeSeconds);
-  const before = (w: number) => (w > 0 ? (newWords[w - 1].end + newWords[w].start) / 2 : 0);
+  const quiet = cuts?.length === last ? cuts : null;
+  /** Where the pause after word `w` of the new take may be cut: no part reaches past it into the next word. */
+  const after = (w: number) => (w < last ? quiet?.[w] ?? (newWords[w].end + newWords[w + 1].start) / 2 : takeSeconds);
+  const before = (w: number) => (w > 0 ? after(w - 1) : 0);
   const sorted = oldParts.filter((part) => !part.copy && part.rate > 0).sort((a, b) => a.start - b.start);
   const planned: { part: SyncEditPart; old: SyncEditPart }[] = [];
   for (const old of sorted) {
