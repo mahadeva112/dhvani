@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.56',
+    changes: [
+      'Using a retake costs no extra credits now: the voice says when each word is spoken as it reads the take, so the take is cut between its words with no separate word timing. It goes where the old parts were the moment you press Use, in one step, and Undo puts the old take back.',
+    ],
+  },
+  {
     version: '1.4.55',
     changes: [
       'A retake you use now goes where the parts of the line were: it is cut at the same words as the parts you placed, never inside a word, and each part starts where the old one did, under the original, with its gain and fades. A longer take moves into free room before it; if it still does not fit it is marked for you to fix, never cut. Pick "Like Sync" in the Retake window to place it as Sync would instead. Undo puts it back whole.',
