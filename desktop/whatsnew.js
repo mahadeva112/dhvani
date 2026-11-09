@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.58',
+    changes: [
+      'If DHVANI freezes or runs slowly, choose Help → Save Problem Report… to save one text file in Downloads with your computer’s details and what the app was doing when it got stuck. Send that file to whoever is helping you. Your keys and user name are left out, and nothing is sent anywhere by the app.',
+    ],
+  },
+  {
     version: '1.4.57',
     changes: [
       'A stretch of the original you drag down onto the dub in Edit timing, such as a laugh, now lands whole and exactly where you let go. Dragged straight down it sits at its own time in the original, and over a line both are heard so you can trim either.',
