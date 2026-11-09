@@ -37,9 +37,9 @@ declare global {
   }
 }
 
-/** The Tools menu opens the update window through this event. */
+/** The Tools menu opens the update window through this event; `detail.check` false opens it without checking again. */
 export const OPEN_UPDATES_EVENT = 'dhvani:open-updates';
-export const openUpdates = () => window.dispatchEvent(new Event(OPEN_UPDATES_EVENT));
+export const openUpdates = (check = true) => window.dispatchEvent(new CustomEvent(OPEN_UPDATES_EVENT, { detail: { check } }));
 
 /** True inside the desktop app, the only place updates exist. */
 export const updatesSupported = () => typeof window !== 'undefined' && Boolean(window.dhvaniUpdates);
@@ -107,16 +107,82 @@ const megabytes = (bytes: number) => `${Math.round(bytes / 1024 / 1024)} MB`;
 /** How long a corner notice stays before it leaves by itself. */
 const NOTICE_MS = 5000;
 
-/** Calls `onDone` after `ms`, unless `paused`; mounts with the notice it times. */
-const AutoDismiss: React.FC<{ onDone: () => void; paused?: boolean; ms?: number }> = ({ onDone, paused = false, ms = NOTICE_MS }) => {
-  const done = React.useRef(onDone);
-  done.current = onDone;
+/** How long the leaving animation runs (index.css .update-toast-out), with room to spare if animationend never comes. */
+const LEAVE_MS = 320;
+
+/**
+ * A corner notice that rises in, leaves by itself after `ms` and sinks out.
+ * The time left shows as a thin bar at its foot; the pointer over it, focus
+ * inside it, a hidden window and `hold` all hold the clock (and the bar). `children` gets
+ * `dismiss`, which plays the leaving animation and then calls `onGone`.
+ */
+const CornerNotice: React.FC<{
+  onGone: () => void;
+  hold?: boolean;
+  ms?: number;
+  bar: string;
+  children: (dismiss: () => void) => React.ReactNode;
+}> = ({ onGone, hold = false, ms = NOTICE_MS, bar, children }) => {
+  const [leaving, setLeaving] = React.useState(false);
+  const [hovered, setHovered] = React.useState(false);
+  const gone = React.useRef(onGone);
+  gone.current = onGone;
+  const left = React.useRef(ms);
+  const finished = React.useRef(false);
+
+  const finish = React.useCallback(() => {
+    if (finished.current) return;
+    finished.current = true;
+    gone.current();
+  }, []);
+  const dismiss = React.useCallback(() => setLeaving(true), []);
+
+  // A minimised or hidden window holds the clock too, so the notice is still there when DHVANI is looked at again.
+  const [hidden, setHidden] = React.useState(() => typeof document !== 'undefined' && document.hidden);
+  React.useEffect(() => {
+    const onVisibility = () => setHidden(document.hidden);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, []);
+
+  const paused = hold || hovered || leaving || hidden;
+  // The clock runs only while nothing holds it, and picks up where it stopped.
   React.useEffect(() => {
     if (paused) return;
-    const t = window.setTimeout(() => done.current(), ms);
+    const started = Date.now();
+    const t = window.setTimeout(() => setLeaving(true), left.current);
+    return () => {
+      window.clearTimeout(t);
+      left.current = Math.max(0, left.current - (Date.now() - started));
+    };
+  }, [paused]);
+  // animationend finishes it; the timer covers a tab in the background, where animations may not run.
+  React.useEffect(() => {
+    if (!leaving) return;
+    const t = window.setTimeout(finish, LEAVE_MS);
     return () => window.clearTimeout(t);
-  }, [paused, ms]);
-  return null;
+  }, [leaving, finish]);
+
+  return (
+    <div
+      role="status"
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onFocus={() => setHovered(true)}
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setHovered(false)}
+      onAnimationEnd={(e) => e.target === e.currentTarget && leaving && finish()}
+      className={`fixed bottom-6 right-6 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-[14px] bg-slate-900 border border-slate-700/80 shadow-2xl shadow-black/40 text-slate-100 overflow-hidden ${
+        leaving ? 'update-toast-out pointer-events-none' : 'update-toast-in'
+      }`}
+    >
+      <div className="flex items-start gap-3 p-4">{children(dismiss)}</div>
+      <span
+        aria-hidden="true"
+        className={`update-toast-time absolute left-0 bottom-0 h-[2px] w-full ${bar} transition-opacity duration-300 ${hold ? 'opacity-0' : 'opacity-70'}`}
+        style={{ animationDuration: `${ms}ms`, animationPlayState: paused ? 'paused' : 'running' }}
+      />
+    </div>
+  );
 };
 
 const PillSpinner = () => (
@@ -124,12 +190,14 @@ const PillSpinner = () => (
 );
 
 /**
- * The header's Update button and the window behind it.
+ * The update window and its notices, opened from Tools → Check for updates.
  *
- * Renders nothing outside the desktop app, and nothing in the header until a
- * newer published release exists. Each new version also announces itself once
- * with a corner notice; dismissing it or opening the window retires it. The user picks when to download and when to
- * restart; `busy` holds the restart back while a dub or sync is running.
+ * Renders nothing outside the desktop app, and nothing in the header: the user
+ * asked for no Update button up there (2026-11-09), so a newer version shows in
+ * the Tools list's Check for updates item. Each new version also announces
+ * itself once with a corner notice; dismissing it or opening the window retires
+ * it. The user picks when to download and when to restart; `busy` holds the
+ * restart back while a dub or sync is running.
  */
 export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) => {
   const api = typeof window !== 'undefined' ? window.dhvaniUpdates : undefined;
@@ -145,9 +213,9 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
     api.getState().then((s) => live && setState(s));
     const offState = api.onState(setState);
     const offOpen = api.onOpenRequest(() => setOpen(true));
-    const onMenu = () => {
+    const onMenu = (e: Event) => {
       setOpen(true);
-      api.check();
+      if ((e as CustomEvent<{ check?: boolean }>).detail?.check !== false) api.check();
     };
     window.addEventListener(OPEN_UPDATES_EVENT, onMenu);
     return () => {
@@ -209,17 +277,6 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
 
   const showNotice = status === 'available' && !open && !showUpdated && Boolean(version) && noticeSeen !== version;
 
-  const pillLabel =
-    status === 'downloading'
-      ? `Downloading ${percent}%`
-      : status === 'downloaded'
-        ? canInstall
-          ? 'Restart to update'
-          : 'Update downloaded'
-        : installing
-          ? 'Installing…'
-          : `Update to ${version}`;
-
   const title =
     status === 'checking'
       ? 'Checking for updates…'
@@ -239,24 +296,6 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
 
   return (
     <>
-      {offered && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 h-[34px] px-3 rounded-full bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold whitespace-nowrap transition-colors cursor-default"
-          title={status === 'downloaded' ? `DHVANI ${version} is ready to install` : `DHVANI ${version} is available`}
-        >
-          {status === 'downloading' || installing ? (
-            <PillSpinner />
-          ) : status === 'downloaded' ? (
-            <RotateCw className="w-3.5 h-3.5" strokeWidth={2.5} />
-          ) : (
-            <Download className="w-3.5 h-3.5" strokeWidth={2.5} />
-          )}
-          <span className="hidden sm:inline tabular-nums">{pillLabel}</span>
-        </button>
-      )}
-
       {installing &&
         createPortal(
           <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -309,11 +348,9 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
 
       {showUpdated &&
         createPortal(
-          <div
-            role="status"
-            className="fixed bottom-6 right-6 z-50 w-[min(22rem,calc(100vw-2rem))] flex items-start gap-3 p-4 rounded-[14px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 animate-in fade-in slide-in-from-bottom-2 duration-300"
-          >
-            <AutoDismiss paused={showNewNotes} onDone={() => markUpdatedSeen(currentVersion)} />
+          <CornerNotice hold={showNewNotes} bar="bg-emerald-400" onGone={() => markUpdatedSeen(currentVersion)}>
+            {(dismiss) => (
+          <>
             <div className="w-8 h-8 rounded-[9px] bg-emerald-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
               <CheckCircle2 className="w-4 h-4" strokeWidth={2.5} />
             </div>
@@ -337,7 +374,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 )}
                 <button
                   type="button"
-                  onClick={() => markUpdatedSeen(currentVersion)}
+                  onClick={dismiss}
                   className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Close
@@ -346,23 +383,23 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
             </div>
             <button
               type="button"
-              onClick={() => markUpdatedSeen(currentVersion)}
+              onClick={dismiss}
               aria-label="Dismiss"
               className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
             >
               <X className="w-4 h-4" />
             </button>
-          </div>,
+          </>
+            )}
+          </CornerNotice>,
           document.body
         )}
 
       {showNotice &&
         createPortal(
-          <div
-            role="status"
-            className="fixed bottom-6 right-6 z-50 w-[min(22rem,calc(100vw-2rem))] flex items-start gap-3 p-4 rounded-[14px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 animate-in fade-in slide-in-from-bottom-2 duration-300"
-          >
-            <AutoDismiss onDone={() => markNoticeSeen(version)} />
+          <CornerNotice bar="bg-blue-400" onGone={() => markNoticeSeen(version)}>
+            {(dismiss) => (
+          <>
             <div className="w-8 h-8 rounded-[9px] bg-blue-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
               <Download className="w-4 h-4" strokeWidth={2.5} />
             </div>
@@ -381,7 +418,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 </button>
                 <button
                   type="button"
-                  onClick={() => markNoticeSeen(version)}
+                  onClick={dismiss}
                   className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
                 >
                   Later
@@ -390,13 +427,15 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
             </div>
             <button
               type="button"
-              onClick={() => markNoticeSeen(version)}
+              onClick={dismiss}
               aria-label="Dismiss"
               className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
             >
               <X className="w-4 h-4" />
             </button>
-          </div>,
+          </>
+            )}
+          </CornerNotice>,
           document.body
         )}
 

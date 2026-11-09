@@ -319,13 +319,22 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const theme = useTheme();
   const themeName = THEMES.find((t) => t.id === theme)?.label ?? 'Classic';
   const updateOffered = Boolean(updateState?.version) && ['available', 'downloading', 'downloaded'].includes(updateState!.status);
+  /** Where a newer version shows, now that the header has no Update button. */
   const updateSummary = !updateState
     ? null
-    : updateOffered
-      ? `${updateState.version} available`
-      : updateState.status === 'not-available'
-        ? `${updateState.currentVersion} · up to date`
-        : `Version ${updateState.currentVersion}`;
+    : updateState.status === 'downloading'
+      ? `Downloading ${updateState.version} · ${Math.round(updateState.percent || 0)}%`
+      : updateState.status === 'downloaded'
+        ? updateState.canInstall
+          ? `${updateState.version} ready · restart to update`
+          : `${updateState.version} downloaded`
+        : updateOffered
+          ? `${updateState.version} available`
+          : updateState.status === 'checking'
+            ? 'Checking…'
+            : updateState.status === 'not-available'
+              ? `${updateState.currentVersion} · up to date`
+              : `Version ${updateState.currentVersion}`;
   const hubItems: ToolsHubItem[] = [
     onOpenPhoneticKeyboard && {
       id: 'keyboard',
@@ -554,11 +563,11 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
     updatesSupported() && {
       id: 'updates',
       group: 'App',
-      label: 'Check for updates',
+      label: updateOffered ? 'Update available' : 'Check for updates',
       hint: 'Look for a newer DHVANI and install it',
       summary: updateSummary,
       icon: RefreshCw,
-      tone: 'slate',
+      tone: updateOffered ? 'blue' : 'slate',
       facts: [
         { label: 'Installed', value: updateState?.currentVersion || '—' },
         {
@@ -567,8 +576,18 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
           status: updateOffered ? 'ok' : undefined,
         },
       ],
-      openLabel: 'Check now',
-      onOpen: openUpdates,
+      openLabel:
+        updateState?.status === 'downloaded'
+          ? updateState.canInstall
+            ? 'Restart to update'
+            : 'Show the download'
+          : updateState?.status === 'downloading'
+            ? 'Show progress'
+            : updateOffered
+              ? `Get ${updateState!.version}`
+              : 'Check now',
+      // With a version already on offer, open it as it is rather than checking again.
+      onOpen: () => openUpdates(!updateOffered),
     },
   ].filter(Boolean) as ToolsHubItem[];
 
@@ -753,7 +772,7 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
 
         {/* Right: update, services, queue, tools, new dub */}
         <div className="flex items-center justify-end gap-2 min-w-0">
-          {/* Desktop app only. A running dub or sync holds back the restart. */}
+          {/* The update window and notices only, no button here (Tools → Check for updates). Desktop app only; a running dub or sync holds back the restart. */}
           <UpdateControl busy={Boolean(activity)} />
 
           <div className="relative">

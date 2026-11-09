@@ -173,6 +173,23 @@
   .tools-hub-veil-in, .tools-hub-veil-out, .tools-hub-panel-in, .tools-hub-panel-out, .tools-hub-preview-in { animation: none; }
 }
 
+/*
+ * Update notices (components/UpdateControl.tsx): rise and settle in from the
+ * corner, sink and fade out when they go; a thin bar shows the time left and
+ * stops while the pointer is over the notice. Reduced motion: a plain fade.
+ */
+@keyframes update-toast-in { from { opacity: 0; transform: translateY(16px) scale(0.96); } to { opacity: 1; transform: none; } }
+@keyframes update-toast-out { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(10px) scale(0.98); } }
+@keyframes update-toast-time { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+.update-toast-in { animation: update-toast-in 460ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+.update-toast-out { animation: update-toast-out 240ms cubic-bezier(0.4, 0, 1, 1) both; }
+.update-toast-time { transform-origin: left; animation: update-toast-time linear both; }
+@media (prefers-reduced-motion: reduce) {
+  .update-toast-in { animation: tools-hub-fade-in 200ms ease-out both; }
+  .update-toast-out { animation: tools-hub-fade-out 160ms ease-in both; }
+  .update-toast-time { animation: none; opacity: 0; }
+}
+
 /* API settings (components/SetupWizard.tsx): a dot running along each link of the pipeline, and a pulse on a working step. */
 @keyframes api-flow-travel { from { left: 0%; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } to { left: 100%; opacity: 0; } }
 @keyframes api-live-pulse { from { box-shadow: 0 0 0 0 rgb(52 211 153 / 0.5); } to { box-shadow: 0 0 0 6px rgb(52 211 153 / 0); } }
