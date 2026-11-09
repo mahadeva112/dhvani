@@ -123,6 +123,9 @@ const WORKING = new Set<ProcessingStatus>([
   ProcessingStatus.SYNTHESIZING_AUDIO,
 ]);
 
+/** How long a project that is no longer open keeps its decoded audio. */
+const RELEASE_CLOSED_AUDIO_MS = 30_000;
+
 const historyStateOf = (job: BatchJob): HistoryState =>
   Object.fromEntries(HISTORY_FIELDS.map((field) => [field, job[field] ?? null])) as HistoryState;
 
@@ -1741,6 +1744,41 @@ export default function App() {
     }
   }, [activeJob?.id, synthAudioUrl]);
 
+  /*
+   * Decoded audio of projects that are not open is let go once nothing runs on
+   * them. A 13-minute project holds about 550 MB of it (original, dub, synced
+   * dub), and it piled up per project opened: on a 16 GB Mac that ran out of
+   * memory and froze the page (2026-11-09). The effect above decodes it again
+   * when the project is opened. The pause leaves an edit render that was just
+   * scheduled for the project being left time to finish.
+   */
+  const workingJobIds = queue
+    .filter((job) => WORKING.has(job.status))
+    .map((job) => job.id)
+    .join(',');
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setQueue((prev) => {
+        let changed = false;
+        const next = prev.map((job) => {
+          if (job.id === activeJobIdRef.current || WORKING.has(job.status)) return job;
+          if (!job.audioBuffer && !job.synthAudioBuffer && !job.syncedAudioBuffer) return job;
+          changed = true;
+          const released = { ...job, audioBuffer: null, synthAudioBuffer: null, syncedAudioBuffer: null };
+          // A callback keeps the whole render it was made in, so the queue from when this project
+          // was open (and its audio) lives on in callbacks that have not been made again since.
+          // Clearing the old object too is what lets the audio go (seen in a heap snapshot).
+          job.audioBuffer = null;
+          job.synthAudioBuffer = null;
+          job.syncedAudioBuffer = null;
+          return released;
+        });
+        return changed ? next : prev;
+      });
+    }, RELEASE_CLOSED_AUDIO_MS);
+    return () => clearTimeout(timer);
+  }, [activeJobId, workingJobIds]);
+
   // --- AUDIO SYNCHRONIZATION ENGINE ---
   /*
    * Everything here reads refs, not render-time values, so a handler that
@@ -2078,7 +2116,9 @@ export default function App() {
     liveEngineRef.current?.setClips(liveDubClips);
   }, [liveDubClips]);
   useEffect(() => {
-    liveEngineRef.current?.setOriginal(liveOriginal);
+    // Read through the ref: a closure that names the buffer keeps it, and with it this whole
+    // render's scope, alive in every long-lived callback made in the same render.
+    liveEngineRef.current?.setOriginal(liveOriginalRef.current);
   }, [liveOriginal]);
 
   // Spacebar shortcuts for play/pause
@@ -4552,10 +4592,14 @@ export default function App() {
 
   /** The finished dub (the synced one once there is one), which is what the voice changer works on (not the source speech). */
   const voiceChangerBuffer = (playsSynced ? activeJob?.syncedAudioBuffer : activeJob?.synthAudioBuffer) || null;
+  // Read through a ref inside the memo, so no closure names the buffer (see liveOriginalRef).
+  const voiceChangerBufferRef = useRef(voiceChangerBuffer);
+  voiceChangerBufferRef.current = voiceChangerBuffer;
   const voiceChangerBlob = (playsSynced ? activeJob?.syncedBlob : activeJob?.synthesizedBlob) || null;
   const voiceChangerDubFile = useMemo(() => {
     if (!isVoiceChangerOpen || !activeJob) return null;
-    const blob = voiceChangerBlob || (voiceChangerBuffer ? audioBufferToWav(voiceChangerBuffer) : null);
+    const buffer = voiceChangerBufferRef.current;
+    const blob = voiceChangerBlob || (buffer ? audioBufferToWav(buffer) : null);
     if (!blob) return null;
     const name = `dhvani_${activeJob.language || 'dubbed'}_${playsSynced ? 'synced' : 'dub'}.${audioFileExtension(blob)}`;
     return new File([blob], name, { type: blob.type || 'audio/wav' });
