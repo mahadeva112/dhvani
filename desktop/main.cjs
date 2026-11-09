@@ -891,6 +891,118 @@ const showWhatsNew = () => {
   whatsNewWindow.loadFile(path.join(__dirname, 'whatsnew.html'), { query: { version: app.getVersion() } });
 };
 
+/** How much of the end of backend.log goes into a problem report. */
+const REPORT_LOG_BYTES = 1024 * 1024;
+
+/** The last `bytes` of a file, starting at a whole line. */
+const readTail = (file, bytes) => {
+  const size = fs.statSync(file).size;
+  const start = Math.max(0, size - bytes);
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(size - start);
+    fs.readSync(fd, buf, 0, buf.length, start);
+    const text = buf.toString('utf8');
+    return start > 0 ? text.slice(text.indexOf('\n') + 1) : text;
+  } finally {
+    fs.closeSync(fd);
+  }
+};
+
+/** Keys, tokens and the user's own name in paths stay out of a report people send on. */
+const redact = (text) => {
+  const home = require('node:os').homedir();
+  let out = text
+    .replace(/\bsk_[A-Za-z0-9]{16,}/g, 'sk_[hidden]')
+    .replace(/\bAIza[0-9A-Za-z_-]{20,}/g, 'AIza[hidden]')
+    .replace(/(Bearer\s+)[^\s"']+/gi, '$1[hidden]')
+    .replace(/((?:xi-api-key|api[_-]?key|token|secret|password)["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, '$1[hidden]')
+    .replace(/([?&](?:key|token)=)[^&\s"']+/gi, '$1[hidden]');
+  if (home) out = out.split(home).join('~');
+  return out;
+};
+
+const mb = (bytes) => `${Math.round(bytes / (1024 * 1024))} MB`;
+
+/** Plain lines about the computer, enough to tell which Macs or PCs a freeze happens on. */
+const describeComputer = async () => {
+  const os = require('node:os');
+  const { screen } = require('electron');
+  const isMac = process.platform === 'darwin';
+  const lines = [];
+  const add = (label, value) => value !== '' && value != null && lines.push(`${label}: ${value}`);
+
+  add('DHVANI', `${app.getVersion()}${app.isPackaged ? '' : ' (development)'}`);
+  add('Built for', process.arch);
+  // An Intel build on an Apple Silicon Mac (or an x64 build on Windows on Arm) runs translated, much slower.
+  add('Running translated (Rosetta)', app.runningUnderARM64Translation ? 'YES — this is the Intel build on an Apple Silicon Mac' : 'no');
+  if (isMac) {
+    add('Mac model', await run('sysctl', ['-n', 'hw.model']));
+    add('macOS', `${process.getSystemVersion()} (${os.release()})`);
+    add('Low Power Mode', (await run('pmset', ['-g'])).match(/lowpowermode\s+1/) ? 'on' : '');
+  } else {
+    add('System', `${os.type()} ${process.getSystemVersion()} (${os.release()})`);
+  }
+  add('Chip', os.cpus()[0]?.model?.trim());
+  add('Cores', os.cpus().length);
+  add('Memory', `${mb(os.totalmem())} total, ${mb(os.freemem())} free now`);
+  add(
+    'Screens',
+    screen
+      .getAllDisplays()
+      .map((d) => `${d.size.width}×${d.size.height} at ${d.scaleFactor}x`)
+      .join(', ')
+  );
+  const gpu = app.getGPUFeatureStatus();
+  add('Graphics', `canvas ${gpu['2d_canvas']}, compositing ${gpu.gpu_compositing}, webgl ${gpu.webgl}`);
+  add('Electron', `${process.versions.electron} (Chrome ${process.versions.chrome})`);
+  add('App running for', `${Math.round(process.uptime() / 60)} min`);
+  add('Engine', backend ? `running (pid ${backend.pid}, port ${enginePort})` : 'not running');
+  const metrics = app.getAppMetrics();
+  add(
+    'App memory',
+    metrics.map((m) => `${m.type} ${mb(m.memory.workingSetSize * 1024)}`).join(', ')
+  );
+  return lines;
+};
+
+/**
+ * Help → Save problem report…: one text file in Downloads with the computer's
+ * details and the end of backend.log ([hang] stacks included), for the user to
+ * send on. Nothing is uploaded; the user decides where it goes.
+ */
+const saveProblemReport = async () => {
+  try {
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', '-').replace(':', '');
+    const file = path.join(app.getPath('downloads'), `DHVANI-problem-report-${stamp}.txt`);
+    const log = fs.existsSync(logFile) ? readTail(logFile, REPORT_LOG_BYTES) : '(no log yet)';
+    const hangs = log.split('\n').filter((l) => l.startsWith('[hang]'));
+    const report = [
+      'DHVANI problem report',
+      `Saved ${new Date().toString()}`,
+      '',
+      ...(await describeComputer()),
+      '',
+      `Freeze notes in this log: ${hangs.filter((l) => l.includes('has not answered')).length}`,
+      ...hangs.slice(-20),
+      '',
+      `--- End of backend.log (last ${mb(REPORT_LOG_BYTES)} at most) ---`,
+      log,
+    ].join('\n');
+    fs.writeFileSync(file, redact(report));
+    shell.showItemInFolder(file);
+    const where = process.platform === 'darwin' ? 'Finder' : 'the folder';
+    dialog.showMessageBox(mainWindow ?? undefined, {
+      type: 'info',
+      message: 'Problem report saved',
+      detail: `${path.basename(file)} is in Downloads and is shown in ${where}.\n\nSend this file to whoever is helping you. Keys and your user name are left out of it, and nothing was sent anywhere.`,
+      buttons: ['OK'],
+    });
+  } catch (err) {
+    dialog.showErrorBox('The problem report could not be saved', String(err?.message || err));
+  }
+};
+
 const buildMenu = () => {
   const isMac = process.platform === 'darwin';
 
@@ -927,6 +1039,10 @@ const buildMenu = () => {
           {
             label: 'Check for Updates…',
             click: checkForUpdatesFromMenu,
+          },
+          {
+            label: 'Save Problem Report…',
+            click: saveProblemReport,
           },
           {
             label: `Version ${app.getVersion()}`,
