@@ -260,6 +260,8 @@ import {
   deleteHistoryBanks,
   getHistoryBank,
   getHistoryBanks,
+  getReviewVideo,
+  saveReviewVideo,
   saveHistoryBank,
   clearAllJobsFromStorage,
 } from './services/storageService';
@@ -3991,7 +3993,9 @@ export default function App() {
     try {
       // The banks of earlier Syncs, so Undo can go back past them in the opened project too.
       const historyBanks = light ? [] : await getHistoryBanks(id).catch(() => []);
-      const blob = await exportProject(job, signoffsForJob(id), { light, historyBanks });
+      // The review video goes with a full project, not a light one.
+      const reviewVideo = light ? null : await getReviewVideo(id).catch(() => null);
+      const blob = await exportProject(job, signoffsForJob(id), { light, historyBanks, reviewVideo });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -4084,8 +4088,9 @@ export default function App() {
           else setPendingProjectJson(read);
           return;
         }
-        const { job: imported, signoffs, needsMedia, historyBanks } = await importProject(file, id);
+        const { job: imported, signoffs, needsMedia, historyBanks, reviewVideo } = await importProject(file, id);
         for (const bank of historyBanks) await saveHistoryBank(id, bank).catch(console.warn);
+        if (reviewVideo) await saveReviewVideo(id, reviewVideo).catch(console.warn);
         if (needsMedia) {
           // Light export: the user picks the original before the project is made.
           setPendingProjectJson({ id, fileName: file.name, project: imported, job: imported, signoffs, sourceMedia: needsMedia, projectId: '' });

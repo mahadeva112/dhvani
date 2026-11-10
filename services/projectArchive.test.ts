@@ -154,3 +154,18 @@ test('a full project carries the banks of earlier Syncs for its undo history; a 
   assert.deepEqual(light.historyBanks, []);
   assert.equal(light.job.projectHistory, null);
 });
+
+test('a full project carries its review video; a light one and one without leave it out', async () => {
+  const job = sampleJob();
+  const video = new File([new Uint8Array([7, 7, 7])], 'picture.mp4', { type: 'video/mp4', lastModified: 1_700_000_000_123 });
+  const { job: back, reviewVideo } = await importProject(await exportProject(job, [], { reviewVideo: video }), 'new-id');
+  assert.ok(reviewVideo instanceof File);
+  assert.equal(reviewVideo.name, 'picture.mp4');
+  assert.equal(reviewVideo.type, 'video/mp4');
+  assert.deepEqual([...(await bytes(reviewVideo))], [7, 7, 7]);
+  assert.equal('__reviewVideo' in back, false, 'the video is not part of the project');
+  const light = await importProject(await exportProject(job, [], { light: true, reviewVideo: video }), 'n2');
+  assert.equal(light.reviewVideo, null);
+  const none = await importProject(await exportProject(job), 'n3');
+  assert.equal(none.reviewVideo, null);
+});

@@ -7,8 +7,8 @@ import type { HistoryBank } from './storageService';
 /**
  * A whole project in one file, to open again later or on another computer:
  * the source media, the transcript and translation, the dub, Sync's bank with
- * every take, the Edit timing edits, the stems, the undo history and the
- * sign-offs. Opening it makes a new project that carries on from where this
+ * every take, the Edit timing edits, the stems, the undo history, the review
+ * video and the sign-offs. Opening it makes a new project that carries on from where this
  * one was, without voicing anything again.
  *
  * The file is a zip: `project.json` holds the project with each file in it
@@ -173,10 +173,23 @@ export const lightJob = async (job: BatchJob, bankId = newBankId()): Promise<Bat
 export const exportProject = async (
   job: BatchJob,
   signoffs: JobSignoff[] = [],
-  { light = false, historyBanks = [] }: { light?: boolean; historyBanks?: HistoryBank[] } = {}
+  {
+    light = false,
+    historyBanks = [],
+    reviewVideo = null,
+  }: { light?: boolean; historyBanks?: HistoryBank[]; reviewVideo?: File | null } = {}
 ): Promise<Blob> => {
   // The banks of earlier Syncs go with the undo history, so it can go back past them on the other computer too.
-  const { data, media } = packJob(light ? await lightJob(job) : ({ ...job, ...(historyBanks.length > 0 && { [HISTORY_BANKS]: historyBanks }) } as BatchJob));
+  // The review video goes with a full project only; a light one carries no media of the original.
+  const { data, media } = packJob(
+    light
+      ? await lightJob(job)
+      : ({
+          ...job,
+          ...(historyBanks.length > 0 && { [HISTORY_BANKS]: historyBanks }),
+          ...(reviewVideo && { [REVIEW_VIDEO]: reviewVideo }),
+        } as BatchJob)
+  );
   const manifest: ProjectManifest = {
     kind: PROJECT_FILE_KIND,
     version: PROJECT_FILE_VERSION,
@@ -196,6 +209,8 @@ const notAProject = () => new Error("This isn't a Dhvani project file.");
 
 /** Where a project file keeps the banks of earlier Syncs, beside the project. */
 const HISTORY_BANKS = '__historyBanks';
+/** Where a project file keeps the video added for review, beside the project. */
+const REVIEW_VIDEO = '__reviewVideo';
 
 const isHistoryBank = (value: unknown): value is HistoryBank =>
   Boolean(value) && typeof (value as HistoryBank).epoch === 'string' && (value as HistoryBank).blob instanceof Blob && ['bank', 'file'].includes((value as HistoryBank).kind);
@@ -207,7 +222,13 @@ const isHistoryBank = (value: unknown): value is HistoryBank =>
 export const importProject = async (
   file: Blob,
   newId: string
-): Promise<{ job: BatchJob; signoffs: JobSignoff[]; needsMedia: SourceMedia | null; historyBanks: HistoryBank[] }> => {
+): Promise<{
+  job: BatchJob;
+  signoffs: JobSignoff[];
+  needsMedia: SourceMedia | null;
+  historyBanks: HistoryBank[];
+  reviewVideo: File | null;
+}> => {
   let zip: JSZip;
   try {
     zip = await JSZip.loadAsync(file);
@@ -233,9 +254,14 @@ export const importProject = async (
       .filter((f) => !f.dir && f.name.startsWith('media/'))
       .map(async (f) => files.set(f.name, await f.async('blob')))
   );
-  const { [HISTORY_BANKS]: banks, ...rest } = unpackJob(manifest.job, (path) => files.get(path)) as BatchJob & { [HISTORY_BANKS]?: unknown };
+  const {
+    [HISTORY_BANKS]: banks,
+    [REVIEW_VIDEO]: video,
+    ...rest
+  } = unpackJob(manifest.job, (path) => files.get(path)) as BatchJob & { [HISTORY_BANKS]?: unknown; [REVIEW_VIDEO]?: unknown };
   const job = rest as BatchJob;
   const historyBanks = Array.isArray(banks) ? banks.filter(isHistoryBank) : [];
+  const reviewVideo = video instanceof File ? video : null;
   const needsMedia = manifest.light && typeof manifest.light === 'object' ? manifest.light : null;
   if ((!needsMedia && !(job.file instanceof Blob)) || !Array.isArray(job.segments)) throw notAProject();
 
@@ -243,7 +269,7 @@ export const importProject = async (
   const signoffs = (Array.isArray(manifest.signoffs) ? manifest.signoffs : [])
     .filter((s) => s && s.jobId === oldId)
     .map((s) => ({ ...s, jobId: newId, key: `${newId}::${s.key.split('::').pop()}` }));
-  return { job: { ...job, id: newId }, signoffs, needsMedia, historyBanks };
+  return { job: { ...job, id: newId }, signoffs, needsMedia, historyBanks, reviewVideo };
 };
 
 /** The name a project's file is saved under. */

@@ -1,47 +1,80 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { useLiveFrame } from './useLiveTime';
+import { deleteReviewVideo, getReviewVideo, saveReviewVideo } from '../services/storageService';
+import { reportError } from '../services/errorPopup';
 
-/** A local video picked for review: played from its own file, never copied or saved with the project. */
+/** A local video picked for review, kept with its project until removed. */
 export type ReviewVideo = { url: string; name: string };
 
 /**
- * Picks a review video and keeps it until replaced, removed or the project
- * changes. The file plays through an object URL onto the file on disk, so
- * nothing is read into memory or stored; the URL is revoked when it goes.
+ * Picks a review video and keeps it with the project until replaced or
+ * removed: a copy is saved beside the project, so it is back after the app
+ * restarts. It plays through an object URL onto the file on disk, so nothing
+ * is read into memory; the URL is revoked when it goes.
  */
 export const useReviewVideo = (projectId: string | undefined) => {
   const [video, setVideo] = useState<ReviewVideo | null>(null);
   const urlRef = useRef<string | null>(null);
-  const clear = useCallback(() => {
+  /** The project shown now; a video read or picked for another one is dropped. */
+  const projectRef = useRef(projectId);
+  projectRef.current = projectId;
+  const show = useCallback((file: File | null) => {
     if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-    urlRef.current = null;
-    setVideo(null);
+    urlRef.current = file ? URL.createObjectURL(file) : null;
+    setVideo(file && urlRef.current ? { url: urlRef.current, name: file.name } : null);
   }, []);
+  /** Removes the video from the project: it is gone after a restart and from its project file. */
+  const clear = useCallback(() => {
+    show(null);
+    if (projectId) deleteReviewVideo(projectId).catch(console.warn);
+  }, [projectId, show]);
   /**
    * Opens the file picker in `doc`, the window the click was in: a browser
    * shows one only from a click in its own window, so Replace in the video's
    * own window opens it there.
    */
-  const pick = useCallback((doc: Document = document) => {
-    const input = doc.createElement('input');
-    input.type = 'file';
-    input.accept = 'video/*';
-    input.hidden = true;
-    input.addEventListener('change', () => {
-      const file = input.files?.[0];
-      input.remove();
-      if (!file) return;
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
-      urlRef.current = URL.createObjectURL(file);
-      setVideo({ url: urlRef.current, name: file.name });
-    });
-    input.addEventListener('cancel', () => input.remove());
-    doc.body.appendChild(input);
-    input.click();
-  }, []);
-  // A review video belongs to the project it was picked for.
-  useEffect(() => clear, [projectId, clear]);
+  const pick = useCallback(
+    (doc: Document = document) => {
+      const input = doc.createElement('input');
+      input.type = 'file';
+      input.accept = 'video/*';
+      input.hidden = true;
+      input.addEventListener('change', () => {
+        const file = input.files?.[0];
+        input.remove();
+        if (!file || projectRef.current !== projectId) return;
+        show(file);
+        if (projectId) {
+          saveReviewVideo(projectId, file).catch((err) =>
+            reportError(err, {
+              title: "The video couldn't be kept with the project",
+              safe: 'It plays now, but add it again after Dhvani restarts.',
+            })
+          );
+        }
+      });
+      input.addEventListener('cancel', () => input.remove());
+      doc.body.appendChild(input);
+      input.click();
+    },
+    [projectId, show]
+  );
+  // A review video belongs to its project: the one kept for it comes back when it opens.
+  useEffect(() => {
+    if (!projectId) return;
+    let live = true;
+    getReviewVideo(projectId)
+      .then((file) => {
+        // One picked while it was being read stays.
+        if (live && file && !urlRef.current) show(file);
+      })
+      .catch(console.warn);
+    return () => {
+      live = false;
+      show(null);
+    };
+  }, [projectId, show]);
   return { video, pick, clear };
 };
 

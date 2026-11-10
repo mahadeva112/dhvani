@@ -4,7 +4,9 @@ const DB_NAME = "DhvaniDB";
 const STORE_NAME = "jobs";
 /** The banks of earlier Syncs, for undo past a Sync (services/projectHistory.ts): written once each, apart from the project. */
 const HISTORY_STORE = "historyBanks";
-const DB_VERSION = 2;
+/** The video added for review, one per project: a copy, so it is there after a restart even if the original moves. */
+const REVIEW_VIDEO_STORE = "reviewVideos";
+const DB_VERSION = 3;
 
 /**
  * Opens the IndexedDB database.
@@ -20,6 +22,9 @@ const openDB = (): Promise<IDBDatabase> => {
       }
       if (!db.objectStoreNames.contains(HISTORY_STORE)) {
         db.createObjectStore(HISTORY_STORE, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(REVIEW_VIDEO_STORE)) {
+        db.createObjectStore(REVIEW_VIDEO_STORE, { keyPath: "id" });
       }
     };
 
@@ -80,14 +85,15 @@ export const getAllJobsFromStorage = async (): Promise<BatchJob[]> => {
 };
 
 /**
- * Deletes a specific job by ID, and the banks its history kept.
+ * Deletes a specific job by ID, the banks its history kept and its review video.
  */
 export const deleteJobFromStorage = async (id: string): Promise<void> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME, HISTORY_STORE], "readwrite");
+    const transaction = db.transaction([STORE_NAME, HISTORY_STORE, REVIEW_VIDEO_STORE], "readwrite");
     transaction.objectStore(STORE_NAME).delete(id);
     transaction.objectStore(HISTORY_STORE).delete(historyRange(id));
+    transaction.objectStore(REVIEW_VIDEO_STORE).delete(id);
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
@@ -147,10 +153,39 @@ export const getHistoryBanks = async (jobId: string): Promise<HistoryBank[]> => 
 export const clearAllJobsFromStorage = async (): Promise<void> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME, HISTORY_STORE], "readwrite");
+    const transaction = db.transaction([STORE_NAME, HISTORY_STORE, REVIEW_VIDEO_STORE], "readwrite");
     transaction.objectStore(STORE_NAME).clear();
     transaction.objectStore(HISTORY_STORE).clear();
+    transaction.objectStore(REVIEW_VIDEO_STORE).clear();
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
   });
+};
+const reviewVideoRequest = async <T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([REVIEW_VIDEO_STORE], mode);
+    const request = run(transaction.objectStore(REVIEW_VIDEO_STORE));
+    // A write is kept only once its transaction completes.
+    transaction.oncomplete = () => resolve(request.result);
+    transaction.onerror = () => reject(transaction.error ?? request.error);
+    transaction.onabort = () => reject(transaction.error ?? request.error);
+  });
+};
+
+/** The video added for review to project `jobId`, or null. Read back from disk; nothing is loaded into memory. */
+export const getReviewVideo = async (jobId: string): Promise<File | null> => {
+  const row = await reviewVideoRequest<{ file: Blob; name?: string } | undefined>("readonly", (store) => store.get(jobId));
+  if (!row || !(row.file instanceof Blob)) return null;
+  return row.file instanceof File ? row.file : new File([row.file], row.name || "Review video", { type: row.file.type });
+};
+
+/** Keeps a copy of `file` as project `jobId`'s review video, in place of any before. */
+export const saveReviewVideo = async (jobId: string, file: File): Promise<void> => {
+  await reviewVideoRequest("readwrite", (store) => store.put({ id: jobId, file, name: file.name }));
+};
+
+/** Lets go of project `jobId`'s review video. */
+export const deleteReviewVideo = async (jobId: string): Promise<void> => {
+  await reviewVideoRequest("readwrite", (store) => store.delete(jobId));
 };
