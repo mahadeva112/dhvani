@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.60',
+    changes: [
+      'A video you add for review now stays with its project: close DHVANI, open it again, and the video is still there without adding it again. Remove video takes it out of the project for good.',
+      'Export project → Whole project now carries the review video too, so whoever opens the file can watch it as well. A Light export never includes it.',
+    ],
+  },
+  {
     version: '1.4.59',
     changes: [
       'DHVANI uses far less memory when you move between projects: a project you are not working on lets go of its audio after half a minute and loads it again when you open it. Switching between long projects no longer fills up the computer’s memory and makes the app freeze.',
