@@ -853,8 +853,8 @@ const showAbout = () => {
   aboutWindow = new BrowserWindow({
     parent: mainWindow || undefined,
     modal: Boolean(mainWindow),
-    width: 460,
-    height: 340,
+    width: 600,
+    height: 716,
     useContentSize: true,
     resizable: false,
     minimizable: false,
