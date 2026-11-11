@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.63',
+    changes: [
+      'Waveforms in Review, the Dub player and Edit timing are now drawn like a video editor’s: sharp at every zoom and at their real loudness, so a quiet take looks quiet. The new Wave height button (×1, ×2, ×4) next to the zoom draws quiet audio taller; the sound itself never changes.',
+      'You can now zoom in all the way to 10 ms, where the wave shows each sample as a line. The ruler counts milliseconds there.',
+    ],
+  },
+  {
     version: '1.4.62',
     changes: [
       'Help → About DHVANI has a new look and tells what Dhvani is for: where wisdom finds its voice, in the language each person understands best.',
