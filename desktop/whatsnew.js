@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.64',
+    changes: [
+      'Where nothing is said, the waveform is now blank, as in DaVinci: only a faint line marks the middle, so each spoken stretch stands out on its own. Faint room tone no longer shows as a thin band.',
+    ],
+  },
+  {
     version: '1.4.63',
     changes: [
       'Waveforms in Review, the Dub player and Edit timing are now drawn like a video editor’s: sharp at every zoom and at their real loudness, so a quiet take looks quiet. The new Wave height button (×1, ×2, ×4) next to the zoom draws quiet audio taller; the sound itself never changes.',
