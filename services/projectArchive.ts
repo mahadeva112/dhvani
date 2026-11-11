@@ -1,8 +1,8 @@
-import JSZip from 'jszip';
 import type { BatchJob } from '../types';
 import type { JobSignoff } from './signoffService';
 import { compactBank } from './syncTakes.ts';
 import type { HistoryBank } from './storageService';
+import { readZip, writeZip } from './zipStore.ts';
 
 /**
  * A whole project in one file, to open again later or on another computer:
@@ -198,11 +198,13 @@ export const exportProject = async (
     signoffs,
     ...(light && { light: sourceMediaOf(job) }),
   };
-  const zip = new JSZip();
-  zip.file(MANIFEST, JSON.stringify(manifest), { compression: 'DEFLATE' });
   // Media is stored as it is: it is already compressed, and a render stays bit-exact.
-  for (const [path, blob] of media) zip.file(path, blob, { compression: 'STORE' });
-  return zip.generateAsync({ type: 'blob', mimeType: 'application/zip' });
+  // Each file goes into the zip as the Blob it is, never read into memory whole,
+  // so a project of gigabytes saves as easily as a small one.
+  return writeZip([
+    { name: MANIFEST, data: new Blob([JSON.stringify(manifest)], { type: 'application/json' }), deflate: true },
+    ...[...media].map(([path, blob]) => ({ name: path, data: blob })),
+  ]);
 };
 
 const notAProject = () => new Error("This isn't a Dhvani project file.");
@@ -229,17 +231,18 @@ export const importProject = async (
   historyBanks: HistoryBank[];
   reviewVideo: File | null;
 }> => {
-  let zip: JSZip;
+  // Each file in it is a slice of the project file, read only when used.
+  let zip: Map<string, () => Promise<Blob>>;
   try {
-    zip = await JSZip.loadAsync(file);
+    zip = await readZip(file);
   } catch {
     throw notAProject();
   }
-  const entry = zip.file(MANIFEST);
+  const entry = zip.get(MANIFEST);
   if (!entry) throw notAProject();
   let manifest: Partial<ProjectManifest>;
   try {
-    manifest = JSON.parse(await entry.async('string'));
+    manifest = JSON.parse(await (await entry()).text());
   } catch {
     throw notAProject();
   }
@@ -250,9 +253,9 @@ export const importProject = async (
 
   const files = new Map<string, Blob>();
   await Promise.all(
-    Object.values(zip.files)
-      .filter((f) => !f.dir && f.name.startsWith('media/'))
-      .map(async (f) => files.set(f.name, await f.async('blob')))
+    [...zip]
+      .filter(([name]) => name.startsWith('media/'))
+      .map(async ([name, open]) => files.set(name, await open()))
   );
   const {
     [HISTORY_BANKS]: banks,

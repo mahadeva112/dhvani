@@ -169,3 +169,52 @@ test('a full project carries its review video; a light one and one without leave
   const none = await importProject(await exportProject(job), 'n3');
   assert.equal(none.reviewVideo, null);
 });
+
+test('a project file opens in JSZip, as older Dhvani and unzip tools read it', async () => {
+  const { default: JSZip } = await import('jszip');
+  const zip = await JSZip.loadAsync(await (await exportProject(sampleJob())).arrayBuffer());
+  const manifest = JSON.parse(await zip.file('project.json')!.async('string'));
+  assert.equal(manifest.kind, 'dhvani-project');
+  const source = Object.keys(zip.files).find((n) => n.endsWith('talk.mp4'))!;
+  assert.deepEqual([...(await zip.file(source)!.async('uint8array'))], [1, 2, 3, 4]);
+});
+
+test('a project file JSZip wrote (older Dhvani) still opens', async () => {
+  const { default: JSZip } = await import('jszip');
+  const { packJob: pack } = await import('./projectArchive.ts');
+  const job = sampleJob();
+  const { data, media } = pack(job);
+  const zip = new JSZip();
+  zip.file('project.json', JSON.stringify({ kind: 'dhvani-project', version: 1, exportedAt: 1, job: data, signoffs: [] }), { compression: 'DEFLATE' });
+  for (const [path, blob] of media) zip.file(path, new Uint8Array(await blob.arrayBuffer()), { compression: 'STORE' });
+  const old = new Blob([await zip.generateAsync({ type: 'uint8array' })]);
+  const { job: back } = await importProject(old, 'n');
+  assert.deepEqual([...(await bytes(back.file as Blob))], [1, 2, 3, 4]);
+  assert.deepEqual([...(await bytes(back.syncBankBlob as Blob))], [5, 5, 5, 5, 5]);
+});
+
+test('ZIP64 fields, written for files past 4 GB, read back here and in JSZip', async () => {
+  const { writeZip, readZip } = await import('./zipStore.ts');
+  const { default: JSZip } = await import('jszip');
+  const big = new Uint8Array(70_000).map((_, i) => (i * 7) & 0xff);
+  const file = await writeZip(
+    [
+      { name: 'a.txt', data: new Blob(['hello ভাষা']), deflate: true },
+      { name: 'media/0-big.wav', data: new Blob([big]) },
+      { name: 'media/1-small.wav', data: new Blob([new Uint8Array([3, 2, 1])]) },
+    ],
+    { zip64At: 10 }
+  );
+  const ours = await readZip(file);
+  assert.equal(await (await ours.get('a.txt')!()).text(), 'hello ভাষা');
+  assert.deepEqual(new Uint8Array(await (await ours.get('media/0-big.wav')!()).arrayBuffer()), big);
+  assert.deepEqual([...(await bytes(await ours.get('media/1-small.wav')!()))], [3, 2, 1]);
+  const theirs = await JSZip.loadAsync(await file.arrayBuffer());
+  assert.equal(await theirs.file('a.txt')!.async('string'), 'hello ভাষা');
+  assert.deepEqual(await theirs.file('media/0-big.wav')!.async('uint8array'), big);
+});
+
+test('CRC-32 across slices matches the whole', async () => {
+  const { crc32OfBlob } = await import('./zipStore.ts');
+  assert.equal(await crc32OfBlob(new Blob(['123456789'])), 0xcbf43926);
+});
