@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.62',
+    changes: [
+      'Help → About DHVANI has a new look and tells what Dhvani is for: where wisdom finds its voice, in the language each person understands best.',
+    ],
+  },
+  {
     version: '1.4.61',
     changes: [
       'Changed only the words of a line after Sync? Press T on it and Retake: the takes come in the new words and go where the line is, with no Sync again. The lines around it stay exactly where they are.',
