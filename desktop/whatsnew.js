@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.65',
+    changes: [
+      'Export project works for big projects again: a project with long source media, a review video and many takes no longer stops with “Array buffer allocation failed”. Opening a large project file also needs far less memory.',
+    ],
+  },
+  {
     version: '1.4.64',
     changes: [
       'Where nothing is said, the waveform is now blank, as in DaVinci: only a faint line marks the middle, so each spoken stretch stands out on its own. Faint room tone no longer shows as a thin band.',
