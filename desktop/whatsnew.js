@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.61',
+    changes: [
+      'Changed only the words of a line after Sync? Press T on it and Retake: the takes come in the new words and go where the line is, with no Sync again. The lines around it stay exactly where they are.',
+      'A line you cut, joined or retimed can now be synced on its own: Changed only (in Review) or Sync the changed lines only (Dub settings) voices just those lines and keeps every other line where it is. A line that needs more room runs into the next one and is marked, instead of pushing the rest.',
+    ],
+  },
+  {
     version: '1.4.60',
     changes: [
       'A video you add for review now stays with its project: close DHVANI, open it again, and the video is still there without adding it again. Remove video takes it out of the project for good.',
