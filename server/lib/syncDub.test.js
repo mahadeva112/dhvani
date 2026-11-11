@@ -853,6 +853,32 @@ test('a cut-off take the user locked in Edit timing is kept as it is', async () 
   assert.equal(report.units[0].cutOff, true);
 });
 
+test('Sync changed lines only (holdLocked): a longer changed line runs into the held line after it, flagged, and nothing moves', async () => {
+  for (const chunkSync of [false, true]) {
+    clearClipCache();
+    const join = { ...DEFAULT_JOIN_SETTINGS, chunkSync };
+    const before = [cue(1, 1, 2, 'aaaaaaaaaa.'), cue(2, 3, 4, 'bbbbbbbbbb.'), cue(3, 6, 7, 'cccccccccc.')];
+    const first = await runSync({ segments: before, sourceDuration: 9, sampleRate: RATE, voice, join }, fakeDeps().deps);
+    const lockOf = (key) => {
+      const line = first.bank.lines.find((l) => l.key === key);
+      const start = line.startSample / RATE;
+      return { hash: line.hash, cuts: line.cuts, crossfade: line.crossfade, start, end: start + line.length / RATE };
+    };
+    const locked = { 2: lockOf('2'), 3: lockOf('3') };
+    // Line 1 now says four times as much: it can't end before line 2.
+    const after = [cue(1, 1, 2, `${'a'.repeat(40)}.`), before[1], before[2]];
+    const held = await runSync({ segments: after, sourceDuration: 9, sampleRate: RATE, voice, join, locked, holdLocked: true }, fakeDeps().deps);
+    for (const key of ['2', '3']) {
+      const line = held.bank.lines.find((l) => l.key === key);
+      assert.equal(line.startSample / RATE, locked[key].start, `chunkSync ${chunkSync}: line ${key} stays where it was`);
+    }
+    assert.match(held.report.units[0].timingConflict || '', /runs into the next line/, `chunkSync ${chunkSync}`);
+    // Without hold, Sync pushes the locked line later to make room.
+    const pushed = await runSync({ segments: after, sourceDuration: 9, sampleRate: RATE, voice, join, locked }, fakeDeps().deps);
+    assert.ok(pushed.bank.lines.find((l) => l.key === '2').startSample / RATE > locked[2].start + 0.01, `chunkSync ${chunkSync}: pushed without hold`);
+  }
+});
+
 test('audio debug accounts for every sample of every line, and the dub is each clip as voiced', async () => {
   clearClipCache();
   // Different levels per line: a sync must not even them out on its own.

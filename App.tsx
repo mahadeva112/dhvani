@@ -212,7 +212,7 @@ import {
   voiceInAllowedQuality,
   type DubAudioQuality,
 } from './services/dubAudioQuality';
-import { syncPendingAfter, withPendingLines } from './services/syncPending';
+import { lineTextNow, notPending, pendingForSync, rewordedOnly, syncPendingAfter } from './services/syncPending';
 import { BASE_LABELS, backToFirstStep, recordReviewStep, reviewHistoryLabels, startReviewHistory } from './services/reviewHistory';
 import {
   catchUpProject,
@@ -280,7 +280,7 @@ import { looksTranscribedAgain, mergeScriptUpdate } from './services/scriptUpdat
 import { UpdateScriptPanel, type ScriptUpdatePreview } from './components/UpdateScriptPanel';
 import { SyncAgainGuard, type SyncAgainGuardState } from './components/SyncAgainGuard';
 import { SyncFromScratchConfirm, type SyncFromScratchState } from './components/SyncFromScratchConfirm';
-import { lockLines, pickedTakeName, unlockedEdits } from './services/syncAgainGuard';
+import { describeLineEdit, linesToHold, lockLines, pickedTakeName, releaseLines, unlockedEdits } from './services/syncAgainGuard';
 import { transcriptFileName, transcriptParagraphs, transcriptSrt } from './services/transcriptExport';
 import { sameCuts } from './services/transcriptSegments';
 import { saveFileAs } from './services/saveFile';
@@ -2841,6 +2841,25 @@ export default function App() {
   };
 
   /**
+   * Sync changed lines only, as pressed: every line but the changed ones is
+   * locked where it is for this one Sync (hand edits kept), so only the
+   * changed lines are voiced and placed and nothing else moves; the locks it
+   * added are let go once it ends, done or not (see runSyncDub).
+   */
+  const handleSyncChangedOnly = (options: SyncOptions) => {
+    const job = activeJob;
+    if (!job || job.segments.length === 0 || job.targetSource === 'pending') return;
+    if (syncRunRef.current?.projectId === job.id || dubQueue.some((dub) => dub.jobId === job.id)) return;
+    const changed = job.syncPendingLines || [];
+    const bank = job.syncBank;
+    if (!bank || changed.length === 0) return handleSyncDub(options);
+    const held = linesToHold(bank, job.syncEdits, changed);
+    updateJob(job.id, { syncEdits: lockLines(job.syncEdits, held, bank), syncHeldLines: held });
+    // Queued, the sync starts once the locks are in the project it reads.
+    setDubQueue((waiting) => [...waiting, { jobId: job.id, options, voice: currentDubVoice() }]);
+  };
+
+  /**
    * Sync from scratch, as pressed: first says what it drops (hand edits and
    * locks, picked takes, lines moved on Review's dub lane, retakes) and what
    * it costs, as every line is voiced again.
@@ -3005,6 +3024,8 @@ export default function App() {
             ...(dub && { dub }),
             ...(several && { multiSpeaker: true, cast: activeJob.cast, peak: voice.mixPeak }),
             ...(Object.keys(locked).length > 0 && { locked }),
+            // Sync changed lines only: the lines it holds stay put even where a changed line needs more room.
+            ...(!fresh && activeJob.syncHeldLines?.length && { holdLocked: true }),
             ...(picked && { picked, pickedBankBlob: activeJob.syncBankBlob }),
             tuneStability: voice.tuneStability,
           },
@@ -3024,7 +3045,17 @@ export default function App() {
             ? `This dub stays in ${dubAudioQualityLabel(keptFormat)}, the format its picked takes were voiced in. Take them out and Sync again for ${dubAudioQualityLabel(voice.quality)}.`
             : fallbackNotice(voice.quality, voicedFormat),
       }));
-      const { edits: keptEdits, dropped } = rebaseEdits(priorEdits, priorBank, placedBank);
+      const rebased = rebaseEdits(priorEdits, priorBank, placedBank);
+      // Lines Sync changed lines only held are let go again; one voiced differently was placed afresh.
+      const held = fresh ? [] : activeJob.syncHeldLines || [];
+      const keptEdits = releaseLines(rebased.edits, held, placedBank) ?? {};
+      const heldPlain = (key: string) => {
+        const line = priorBank?.lines.find((l) => l.key === key);
+        const edit = priorEdits?.[key];
+        return Boolean(line && edit && describeLineEdit(line, edit, priorBank!.sampleRate).length === 0);
+      };
+      const moved = rebased.dropped.filter((key) => held.includes(key) && heldPlain(key));
+      const dropped = rebased.dropped.filter((key) => !moved.includes(key));
       const edited = hasEdits(keptEdits);
       if (report.audioDebug) {
         const { lines, ...format } = report.audioDebug;
@@ -3089,6 +3120,8 @@ export default function App() {
         // A new sync is the dub now: the one from before a voice change can't come back over it.
         syncBeforeVoiceChange: null,
         syncPendingLines: [],
+        syncPendingWords: [],
+        syncHeldLines: null,
         syncedStems: several ? stems : null,
         syncMix: several ? report.mix || null : null,
         // Until the synced dub decodes, no waveform rather than the previous sync's.
@@ -3096,15 +3129,13 @@ export default function App() {
         status: ProcessingStatus.COMPLETED,
         ...scratch,
       }, fresh ? { label: 'Sync from scratch' } : undefined);
-      setSyncEditStatus(
-        activeJob.id,
-        dropped.length > 0
-          ? {
-              state: 'ready',
-              notice: `${dropped.length === 1 ? 'One line was' : `${dropped.length} lines were`} voiced again, so ${dropped.length === 1 ? 'its' : 'their'} hand edits were dropped.`,
-            }
-          : { state: 'ready' }
-      );
+      const notices = [
+        dropped.length > 0 &&
+          `${dropped.length === 1 ? 'One line was' : `${dropped.length} lines were`} voiced again, so ${dropped.length === 1 ? 'its' : 'their'} hand edits were dropped.`,
+        moved.length > 0 &&
+          `${moved.length === 1 ? 'One line that was not changed was' : `${moved.length} lines that were not changed were`} voiced differently (another voice or setting), so ${moved.length === 1 ? 'it was' : 'they were'} placed afresh.`,
+      ].filter(Boolean);
+      setSyncEditStatus(activeJob.id, notices.length > 0 ? { state: 'ready', notice: notices.join(' ') } : { state: 'ready' });
       // The sync placed the locked lines' blocks; their edits are rendered over them now.
       // The speakers' levels are not in what the sync rendered either, so they are rendered over it too.
       const leveled = several && Object.keys(cleanSpeakerLevels(activeJob.syncSpeakerLevels)).length > 0;
@@ -3133,8 +3164,13 @@ export default function App() {
       if (activeJobIdRef.current === activeJob.id) setTrackMode('both');
       refreshQuota();
     } catch (err: any) {
-      // A failed or cancelled sync leaves the dub and the last synced dub as they were.
-      updateJob(activeJob.id, { status: hadDub ? ProcessingStatus.COMPLETED : ProcessingStatus.IDLE });
+      // A failed or cancelled sync leaves the dub and the last synced dub as they were, the lines it held let go again.
+      const now = queueRef.current.find((job) => job.id === activeJob.id);
+      const held = now?.syncHeldLines || [];
+      updateJob(activeJob.id, {
+        status: hadDub ? ProcessingStatus.COMPLETED : ProcessingStatus.IDLE,
+        ...(held.length > 0 && now?.syncBank && { syncEdits: releaseLines(now.syncEdits, held, now.syncBank), syncHeldLines: null }),
+      });
       if (!controller.signal.aborted && err?.code !== 'cancelled') {
         console.error('Sync Error:', err);
         reportError(err, { title: 'Sync failed', safe: 'Lines already voiced are kept, so syncing again voices only the rest.' });
@@ -3160,7 +3196,7 @@ export default function App() {
     const job = activeJob;
     const voicesNow =
       Boolean(job.syncBank?.lines.some((line) => line.key === unit.key) && job.syncBankBlob && job.syncBaseReport) &&
-      !job.syncPendingLines?.includes(unit.key) &&
+      (!job.syncPendingLines?.includes(unit.key) || rewordedOnly(job, unit.key)) &&
       syncTakesBusy?.jobId !== job.id &&
       syncRunRef.current?.projectId !== job.id;
     if (voicesNow) {
@@ -3172,12 +3208,10 @@ export default function App() {
     const cues = activeJob.segments.filter((s) => ids.includes(String(s.id)));
     const texts = distributeLineText(text, cues.map((c) => c.textTarget || c.targetText || ''));
     const byId = new Map(cues.map((c, n) => [String(c.id), texts[n] ?? '']));
-    updateJob(activeJob.id, {
-      segments: activeJob.segments.map((s) =>
-        byId.has(String(s.id)) ? { ...s, textTarget: byId.get(String(s.id)), targetText: byId.get(String(s.id)) } : s
-      ),
-      syncPendingLines: withPendingLines(activeJob.syncPendingLines, [unit.key]),
-    });
+    const segments = activeJob.segments.map((s) =>
+      byId.has(String(s.id)) ? { ...s, textTarget: byId.get(String(s.id)), targetText: byId.get(String(s.id)) } : s
+    );
+    updateJob(activeJob.id, { segments, ...syncPendingAfter(activeJob, segments) });
   };
 
   /**
@@ -3198,7 +3232,7 @@ export default function App() {
     updateJob(activeJob.id, {
       syncLineSeeds: seeds,
       syncLineTakes: counts,
-      syncPendingLines: withPendingLines(activeJob.syncPendingLines, keys),
+      ...pendingForSync(activeJob, keys),
     });
   };
 
@@ -3212,7 +3246,7 @@ export default function App() {
     updateJob(activeJob.id, {
       syncTakeChoices: { ...activeJob.syncTakeChoices, [unit.key]: { ...unit.takeFit.choice, text: unit.text } },
       syncDeclinedTakes: (activeJob.syncDeclinedTakes || []).filter((key) => key !== unit.key),
-      syncPendingLines: withPendingLines(activeJob.syncPendingLines, [unit.key]),
+      ...pendingForSync(activeJob, [unit.key]),
     });
   };
 
@@ -3227,7 +3261,7 @@ export default function App() {
     updateJob(activeJob.id, {
       syncTakeChoices: choices,
       syncDeclinedTakes: [...new Set([...(activeJob.syncDeclinedTakes || []), unit.key])],
-      ...((unit.takeFit?.used || unit.takeChosen) && { syncPendingLines: withPendingLines(activeJob.syncPendingLines, [unit.key]) }),
+      ...((unit.takeFit?.used || unit.takeChosen) && pendingForSync(activeJob, [unit.key])),
     });
   };
 
@@ -3252,7 +3286,10 @@ export default function App() {
     const line = bank.lines.find((l) => l.key === unit.key);
     const n = base.units.findIndex((u) => u.key === unit.key);
     if (!line || n === -1) return;
-    if (job.syncPendingLines?.includes(unit.key)) return;
+    // A line changed since Sync waits for Sync again, unless only its words changed: then its new words are voiced, whole.
+    const reworded = rewordedOnly(job, unit.key);
+    if (job.syncPendingLines?.includes(unit.key) && (!reworded || phrase)) return;
+    if (reworded && !text?.trim()) text = lineTextNow(job.segments, unit.cueIds);
     // New words are a new reading of the whole line: no phrase of the old take, no tags matched to the old words.
     const spoken = text?.trim() && text.trim() !== unit.text ? text.trim() : null;
     if (spoken && phrase) return;
@@ -3530,7 +3567,9 @@ export default function App() {
     if (!job.syncBank || !job.syncBaseReport || !kept || !take || kept.active === takeId) return null;
     const line = job.syncBank.lines.find(l => l.key === key);
     const unit = job.syncBaseReport.units.find((u) => u.key === key);
-    if (!line || !unit || job.syncPendingLines?.includes(key)) return null;
+    // A line that changed since Sync takes no take, unless only its words changed: a take puts it back in step.
+    const reworded = rewordedOnly(job, key);
+    if (!line || !unit || (job.syncPendingLines?.includes(key) && !reworded)) return null;
     const put = putTake({ bank: job.syncBank, edits: job.syncEdits, baseReport: job.syncBaseReport, key, take });
     const { bank } = put;
     let { edits } = put;
@@ -3561,18 +3600,35 @@ export default function App() {
         }
       }
     }
-    const reworded = take.text !== unit.text;
-    const baseReport = reworded ? { ...put.baseReport, units: put.baseReport.units.map((u) => (u.key === key ? { ...u, text: take.text } : u)) } : put.baseReport;
+    const otherWords = take.text !== unit.text;
+    const baseReport = otherWords ? { ...put.baseReport, units: put.baseReport.units.map((u) => (u.key === key ? { ...u, text: take.text } : u)) } : put.baseReport;
     let segments = job.segments;
-    if (reworded) {
+    // The script already says a take voiced in its new words: its cues keep their words as typed.
+    if (otherWords && take.text !== lineTextNow(job.segments, unit.cueIds)) {
       const ids = unit.cueIds.map(String);
       const cues = job.segments.filter((s) => ids.includes(String(s.id)));
       const texts = distributeLineText(take.text, cues.map((c) => c.textTarget || c.targetText || ''));
       const byId = new Map(cues.map((c, i) => [String(c.id), texts[i] ?? '']));
       segments = job.segments.map((s) => (byId.has(String(s.id)) ? { ...s, textTarget: byId.get(String(s.id)), targetText: byId.get(String(s.id)) } : s));
     }
+    // Back in step with the dub: nothing waits for Sync again on this line, not even a retake asked in Review.
+    const drop = <T,>(record: Record<string, T> | null | undefined) => {
+      if (!record || !(key in record)) return record;
+      const { [key]: _gone, ...rest } = record;
+      return Object.keys(rest).length > 0 ? rest : null;
+    };
+    const inStep: Partial<BatchJob> = reworded
+      ? {
+          ...notPending(job, key),
+          syncLineSeeds: drop(job.syncLineSeeds),
+          syncLineTakes: drop(job.syncLineTakes),
+          syncTakeChoices: drop(job.syncTakeChoices),
+          syncDeclinedTakes: job.syncDeclinedTakes?.filter((k) => k !== key) ?? null,
+        }
+      : {};
     const updates: Partial<BatchJob> = {
-      ...(reworded && { segments }),
+      ...(segments !== job.segments && { segments }),
+      ...inStep,
       syncBank: bank,
       syncEdits: edits,
       syncBaseReport: baseReport,
@@ -3603,6 +3659,9 @@ export default function App() {
     if (!projectId) return;
     if (dubQueue.some((dub) => dub.jobId === projectId)) {
       setDubQueue((waiting) => waiting.filter((dub) => dub.jobId !== projectId));
+      // Sync changed lines only, taken out before it started: the lines it held are let go again.
+      const held = activeJob.syncHeldLines || [];
+      if (held.length > 0 && activeJob.syncBank) updateJob(projectId, { syncEdits: releaseLines(activeJob.syncEdits, held, activeJob.syncBank), syncHeldLines: null });
       return;
     }
     const run = syncRunRef.current;
@@ -4917,6 +4976,7 @@ export default function App() {
           elVoiceSettings={elVoiceSettings}
           onElVoiceSettingsChange={handleElVoiceSettingsChange}
           onSyncDub={handleSyncDub}
+          onSyncChangedOnly={handleSyncChangedOnly}
           onSyncFromScratch={handleSyncFromScratch}
           onSyncEditsChange={handleSyncEditsChange}
           onUndoVoiceChange={handleUndoVoiceChange}
@@ -4935,6 +4995,7 @@ export default function App() {
           isCancellingSync={dubbingHere && isCancellingSync}
           onCancelSync={handleCancelSync}
           syncPendingLines={activeJob?.syncPendingLines || []}
+          syncPendingWords={activeJob?.syncPendingWords || []}
           onApplySyncLine={handleApplySyncLine}
           onRetakeSyncLines={handleRetakeSyncLines}
           onUseOfferedTake={handleUseOfferedTake}

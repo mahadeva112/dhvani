@@ -121,3 +121,26 @@ test('locking a line with no edit locks it where Sync placed it', () => {
   const locked = lockLines(null, ['1'], bank([l]));
   assert.deepEqual(locked['1'], { parts: syncedParts(l, RATE), locked: true });
 });
+
+test('Sync changed lines only holds every other line, then lets them go as they were', async () => {
+  const { linesToHold, releaseLines } = await import('./syncAgainGuard.ts');
+  const { ORIGINAL_CLIP_PREFIX } = await import('./syncEditModel.ts');
+  const ORIGINAL_KEY = `${ORIGINAL_CLIP_PREFIX}1`;
+  const b = bank([line('a', 0), line('b', 3), line('c', 6), line(ORIGINAL_KEY, 9)]);
+  const edits = { c: { locked: false, parts: [{ ...syncedParts(b.lines[2], RATE)[0], gainDb: 3 }] }, d: { locked: true, parts: [] } };
+  // Changed lines, clips of the original and lines locked already are not held.
+  const held = linesToHold(b, { ...edits, a: { locked: true, parts: syncedParts(b.lines[0], RATE) } }, ['b']);
+  assert.deepEqual(held, ['c']);
+  const all = linesToHold(b, null, ['b']);
+  assert.deepEqual(all, ['a', 'c']);
+  const locked = lockLines(edits, all, b);
+  assert.equal(locked.a.locked, true);
+  assert.equal(locked.c.locked, true);
+  const released = releaseLines(locked, all, b)!;
+  // A line held as Sync placed it needs no edit; one with the user's own edit keeps it, unlocked.
+  assert.equal(released.a, undefined);
+  assert.equal(released.c.locked, false);
+  assert.equal(released.c.parts[0].gainDb, 3);
+  assert.equal(released.d.locked, true);
+  assert.equal(releaseLines({ a: locked.a }, ['a'], b), null);
+});

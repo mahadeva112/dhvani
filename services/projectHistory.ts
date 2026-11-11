@@ -36,6 +36,7 @@ export const HISTORY_FIELDS = [
   'syncTakeChoices',
   'syncDeclinedTakes',
   'syncPendingLines',
+  'syncPendingWords',
   'syncSpeakerLevels',
   'syncMarkers',
   'syncSeed',
@@ -53,6 +54,7 @@ const OTHER_FIELDS = [
   'syncTakeChoices',
   'syncDeclinedTakes',
   'syncPendingLines',
+  'syncPendingWords',
   'syncSpeakerLevels',
   'syncMarkers',
 ] as const satisfies readonly HistoryField[];

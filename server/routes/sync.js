@@ -486,6 +486,7 @@ syncRouter.post(
       cast,
       peak,
       locked,
+      holdLocked,
       expressive,
       performanceTags,
       steady,
@@ -595,6 +596,7 @@ syncRouter.post(
           declinedTakes: Array.isArray(declinedTakes) ? declinedTakes.filter((key) => typeof key === 'string' && key.length <= 128).slice(0, 20000) : [],
           matchLoudness: matchLoudness === true,
           locked: cleanLocked(locked),
+          holdLocked: holdLocked === true,
           debug: audioDebug,
         },
         {

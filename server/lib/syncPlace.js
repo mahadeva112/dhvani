@@ -52,9 +52,12 @@ export const pava = (values, weights = values.map(() => 1)) => {
  * the position exactly at `want`. A clip whose bounds can't be met (the clips
  * before it need more room) is placed as early as they allow, later than its
  * bounds, and its index is added to `conflicts`, so the dub is still made and
- * the line is flagged. Returns positions in the same order.
+ * the line is flagged. With `hold`, a `fixed` clip is never pushed later:
+ * the clip before it that needs more room runs into it instead, and that
+ * clip's index is added to `overlaps` (Sync changed lines only). Returns
+ * positions in the same order.
  */
-export const placeClips = (clips, { conflicts = [] } = {}) => {
+export const placeClips = (clips, { conflicts = [], overlaps = [], hold = false } = {}) => {
   if (clips.length === 0) return [];
 
   const offsets = [];
@@ -65,12 +68,21 @@ export const placeClips = (clips, { conflicts = [] } = {}) => {
   });
 
   if (clips.some((clip) => Number.isFinite(clip.latest) || clip.fixed === true)) {
-    const blocks = [];
+    // Runs of clips placed apart: a held clip the ones before it can't make room for starts a new run.
+    const done = [];
+    let blocks = [];
     let lower = -Infinity;
     for (let i = 0; i < clips.length; i++) {
       const clip = clips[i];
       let low = (clip.fixed ? clip.want : Math.max(clip.floor ?? 0, clip.earliest ?? -Infinity)) - offsets[i];
       let high = (clip.fixed ? clip.want : clip.latest ?? Infinity) - offsets[i];
+      if (hold && clip.fixed && i > 0 && Math.max(lower, low) > high + 1e-9) {
+        // Held where it is: the clips before it stay as they are, the last of them running into it.
+        overlaps.push(i - 1);
+        done.push(...blocks);
+        blocks = [];
+        lower = low;
+      }
       lower = Math.max(lower, low);
       if (lower > high + 1e-9) {
         // Held at the earliest the clips before it allow.
@@ -89,7 +101,7 @@ export const placeClips = (clips, { conflicts = [] } = {}) => {
         blocks.push(merged);
       }
     }
-    return blocks.flatMap((block) => Array(block.count).fill(block.value)).map((value, i) => value + offsets[i]);
+    return [...done, ...blocks].flatMap((block) => Array(block.count).fill(block.value)).map((value, i) => value + offsets[i]);
   }
 
   const solved = pava(

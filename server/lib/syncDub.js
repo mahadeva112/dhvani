@@ -321,6 +321,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     lineTakes = {},
     matchLoudness = false,
     locked = {},
+    holdLocked = false,
     debug = false,
     verifyWords = false,
     timingProtection = 'warn',
@@ -1022,6 +1023,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
   // Lines whose timing limits could not be met, with why: the dub is still made, and they are flagged for review.
   const timingConflicts = new Map();
   const placeConflicts = [];
+  // Lines that run into a locked line held where it is (holdLocked: Sync changed lines only), by line index.
+  const heldOverlaps = new Set();
   // Must end by: no later than this may the dub's last line end (see endByVideo).
   const endLimit = join.endByVideo && sourceDuration > 0 ? sourceDuration + join.endSlack : Infinity;
 
@@ -1093,14 +1096,15 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         });
       }
       const conflicts = [];
-      const at = placeClips(items, { conflicts });
+      const overlaps = [];
+      const at = placeClips(items, { conflicts, overlaps, hold: holdLocked });
       let worst = 0;
       items.forEach((item, k) => {
         if (item.line.locked) return;
         // A chunk joined on was moved off its word on purpose: it doesn't keep the pauses from shrinking in punctuation order.
         for (const chunk of item.block.chunks) if (!chunk.follows) worst = Math.max(worst, Math.abs(at[k] + chunk.at + chunk.onset - chunk.from / sampleRate - chunk.target));
       });
-      return { items, at, conflicts, worst };
+      return { items, at, conflicts, overlaps, worst };
     };
     // Pauses between words shrink first, then those at a comma, a sentence end's last, while any chunk is still out.
     const solveAll = (lines) => {
@@ -1184,7 +1188,8 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     let lines = buildLines();
     let solved = solveAll(lines);
     if (base && lines.some((line) => line.blocks.some((block) => block.auto))) ({ lines, solved } = settleSourceCuts(lines, solved, base));
-    const { items, at, conflicts } = solved;
+    const { items, at, conflicts, overlaps } = solved;
+    for (const k of overlaps) heldOverlaps.add(items[k].line.i);
     for (const k of conflicts) {
       const { line, block } = items[k];
       // A part held back by its cap at a pause missed no limit of the user's: nothing to flag.
@@ -1228,6 +1233,7 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
     });
   };
 
+  const placeOverlaps = [];
   const positions = chunked ? placeChunks() : placeClips(
     placedIndex.map((i, n) => {
       const unit = units[i];
@@ -1271,8 +1277,12 @@ export const runSync = async (params, deps, { signal, onProgress = () => {} } = 
         floor: -cores[n].lead,
       };
     }),
-    { conflicts: placeConflicts }
+    { conflicts: placeConflicts, overlaps: placeOverlaps, hold: holdLocked }
   );
+  for (const n of placeOverlaps) heldOverlaps.add(placedIndex[n]);
+  for (const i of heldOverlaps) {
+    if (!timingConflicts.has(i)) timingConflicts.set(i, 'It runs into the next line, which was held where it is. Shorten or retake this line, or move the next one.');
+  }
   for (const n of placeConflicts) {
     const i = placedIndex[n];
     const moved = lockOf[i] ? positions[n] - lockOf[i].start : null;

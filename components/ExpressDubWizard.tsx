@@ -113,6 +113,7 @@ import { SyncAlignmentView } from './SyncAlignmentView';
 import { LinePair } from './LinePair';
 import { applyJoinPreset, describeChange, joinPresetLabel, presetName } from './SyncJoinSettings';
 import { presetSuggestion, type SyncJoinPreset } from '../services/syncPresets';
+import { lineTextNow } from '../services/syncPending';
 import {
   distributeLineText,
   expertPreview,
@@ -422,6 +423,8 @@ interface ExpressDubWizardProps {
   onSyncDub?: (options: SyncOptions) => void;
   /** Sync from scratch: every line voiced anew, nothing kept from the dub before (asks first). */
   onSyncFromScratch?: (options: SyncOptions) => void;
+  /** Syncs only the lines changed since the last Sync, every other line held where it is. */
+  onSyncChangedOnly?: (options: SyncOptions) => void;
   /** The Dub step's sync settings changed, for the project they belong to. */
   onSyncOptionsChange?: (projectId: string, options: SyncOptions) => void;
   /** Raised by Sync settings in the header's menu: each new value opens the Sync settings window. */
@@ -453,6 +456,8 @@ interface ExpressDubWizardProps {
   onCancelSync?: () => void;
   /** Keys of synced lines reworded or retaken since the last sync. */
   syncPendingLines?: string[];
+  /** Of those, the lines whose words are all that changed: retaken in the new words where they are. */
+  syncPendingWords?: string[];
   onApplySyncLine?: (unit: SyncUnitReport, text: string) => void;
   /** Asks for a new take of each of these synced lines. */
   onRetakeSyncLines?: (units: SyncUnitReport[], takes: number) => void;
@@ -597,6 +602,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onElVoiceSettingsChange,
   onSyncDub,
   onSyncFromScratch,
+  onSyncChangedOnly,
   onSyncOptionsChange,
   syncSettingsRequest = 0,
   onSyncEditsChange,
@@ -616,6 +622,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   isCancellingSync = false,
   onCancelSync,
   syncPendingLines = [],
+  syncPendingWords = [],
   onApplySyncLine,
   onRetakeSyncLines,
   onUseOfferedTake,
@@ -3833,6 +3840,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const runSync = () => {
           if (onSyncDub) void syncWithFit({ ...syncOptions, matchLoudness: dubMatchLoudness }, onSyncDub);
         };
+        // Changed lines only: no fit on top, as the lines held stay as they were placed.
+        const runSyncChangedOnly = onSyncChangedOnly ? () => onSyncChangedOnly({ ...syncOptions, matchLoudness: dubMatchLoudness }) : undefined;
         const runSyncFromScratch = onSyncFromScratch
           ? () => void syncWithFit({ ...syncOptions, matchLoudness: dubMatchLoudness }, onSyncFromScratch, { fresh: true })
           : undefined;
@@ -3919,6 +3928,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     busy={syncTakesBusy === unit.key}
                     anyBusy={Boolean(syncTakesBusy)}
                     pending={syncPendingLines.includes(unit.key)}
+                    scriptText={
+                      syncPendingLines.includes(unit.key) && syncPendingWords.includes(unit.key) ? lineTextNow(segments, unit.cueIds) || null : null
+                    }
                     onVoice={(options) => onVoiceSyncTakes(unit, options)}
                     onSuggestWording={suggestTakeWording(unit)}
                     onUse={(takeId) => {
@@ -4606,6 +4618,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   sourceBuffer={activeJob.audioBuffer}
                   dubBuffer={report ? activeJob.syncedAudioBuffer : null}
                   pendingLines={syncPendingLines}
+                  onSyncChangedOnly={runSyncChangedOnly}
                   onApplyLine={
                     onApplySyncLine &&
                     ((unit, text) => {
@@ -4981,6 +4994,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 presetSuggestion={lengthSuggestion}
                 onSync={runSync}
                 onSyncFromScratch={runSyncFromScratch}
+                onSyncChangedOnly={runSyncChangedOnly}
                 onCancel={() => onCancelSync?.()}
                 onBack={() => {
                   setStepOverride(2);

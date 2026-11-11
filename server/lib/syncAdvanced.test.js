@@ -41,6 +41,31 @@ test('a lock that can not be held is moved only as far as the lines before it ne
   assert.deepEqual(conflicts, [1]);
 });
 
+test('held, a locked line is never pushed: the line before it runs into it, flagged, and the lines after stay put', () => {
+  const conflicts = [];
+  const overlaps = [];
+  // A changed line 3 s long wants 1 s; the held lines at 3 s and 5 s don't move for it.
+  const clips = [
+    { want: 0, length: 0.8, gapAfter: 0.1, fixed: true },
+    { want: 1, length: 3, gapAfter: 0.1, earliest: 0.95, floor: 0 },
+    { want: 3, length: 1.5, gapAfter: 0.1, fixed: true },
+    { want: 5, length: 1, gapAfter: 0, fixed: true },
+  ];
+  const held = placeClips(clips, { conflicts, overlaps, hold: true });
+  // It can't fit anyway, so it keeps its own start, its first word on the original's.
+  assert.deepEqual(held.map((x) => +x.toFixed(6)), [0, 1, 3, 5]);
+  assert.deepEqual(overlaps, [1]);
+  assert.deepEqual(conflicts, []);
+  // Without hold, the held lines are pushed later instead.
+  const pushed = placeClips(clips, { conflicts: [] });
+  assert.ok(pushed[2] > 3 && pushed[3] >= 5);
+  // With room, hold changes nothing: the changed line moves earlier into the room before it.
+  const roomy = [{ want: 0, length: 0.5, gapAfter: 0.1, fixed: true }, { want: 1, length: 2, gapAfter: 0.1, earliest: 0.5, floor: 0 }, { want: 3, length: 1, gapAfter: 0, fixed: true }];
+  const none = [];
+  assert.deepEqual(placeClips(roomy, { overlaps: none, hold: true }), placeClips(roomy));
+  assert.deepEqual(none, []);
+});
+
 test('an impossible latest start places the line as early as it can go, and flags it', () => {
   const conflicts = [];
   const positions = placeClips([{ want: 0, length: 4, gapAfter: 0, earliest: 0, latest: 0.1 }, { want: 2, length: 1, gapAfter: 0, earliest: 1.9, latest: 2.1 }], { conflicts });

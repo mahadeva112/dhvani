@@ -339,6 +339,10 @@ export interface BatchJob {
   syncDeclinedTakes?: string[] | null;
   /** Lines changed since the last Sync (reworded, cut, joined or retaken), by line key: the next Sync re-voices them. */
   syncPendingLines?: string[] | null;
+  /** Pending lines whose only change since Sync is their words (syncPending.ts): the takes panel retakes them in the new words where they are, no Sync again. */
+  syncPendingWords?: string[] | null;
+  /** Lines Sync changed lines only locked for its run (syncAgainGuard.ts linesToHold): let go again once it ends. */
+  syncHeldLines?: string[] | null;
   /**
    * Update script: the project whose Dhvani JSON this one was opened from
    * (its id in that file), and the cues as the last such file had them, to

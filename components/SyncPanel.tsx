@@ -92,6 +92,10 @@ import { PageScrollLock } from './usePageScrollLock';
 
 const OPTIONS_KEY = 'dhvani_sync_options';
 
+/** What Sync changed lines only does, on its buttons. */
+const CHANGED_ONLY_HINT =
+  'Voices and places only the changed lines. Every other line is locked where it is for this Sync, then let go again, so it does not move: a changed line that needs more room runs into the next line and is flagged, nothing is pushed. A line voiced differently (another voice or setting) is placed afresh.';
+
 
 const formatClock = (seconds: number) => {
   const t = Math.max(0, seconds || 0);
@@ -485,6 +489,8 @@ export interface SyncSettingsPanelProps {
   onSync: () => void;
   /** Sync from scratch, once synced: every line voiced anew, nothing kept from the dub before (asks first). */
   onSyncFromScratch?: () => void;
+  /** Syncs only the changed lines: every other line is locked where it is for that Sync. */
+  onSyncChangedOnly?: () => void;
   onCancel: () => void;
   /** Back to Review. */
   onBack: () => void;
@@ -1176,6 +1182,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   previewShortCount = 0,
   onSync,
   onSyncFromScratch,
+  onSyncChangedOnly,
   onCancel,
   onBack,
   costNote,
@@ -1389,6 +1396,16 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
                     .join(' ')}
         </p>
       )}
+      {synced && pendingCount > 0 && !isSyncing && !interrupted && !blockedReason && onSyncChangedOnly && (
+        <button
+          type="button"
+          onClick={onSyncChangedOnly}
+          title={CHANGED_ONLY_HINT}
+          className="h-9 flex items-center justify-center gap-2 rounded-xl border border-indigo-500/50 text-[13px] text-indigo-100 hover:bg-indigo-500/15 cursor-default"
+        >
+          <Lock className="w-3.5 h-3.5" /> Sync {pendingCount === 1 ? 'the changed line' : `the ${pendingCount} changed lines`} only
+        </button>
+      )}
       {synced && !isSyncing && !interrupted && !blockedReason && onSyncFromScratch && (
         <button
           type="button"
@@ -1439,6 +1456,8 @@ export interface SyncResultsPanelProps {
   onListen: (time: number) => void;
   /** Keys of lines reworded or retaken since this report: the next Sync voices them again. */
   pendingLines?: string[];
+  /** Syncs only the changed lines: every other line is locked where it is for that Sync. */
+  onSyncChangedOnly?: () => void;
   /** Puts a new wording of a line into the script: voiced into the dub now with `applyVoicesNow`, else on the next Sync. */
   onApplyLine?: (unit: SyncUnitReport, text: string) => void;
   /** A new wording is voiced and put in the dub at once, as a take, rather than waiting for Sync again. */
@@ -1508,6 +1527,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   onSeek,
   onListen,
   pendingLines = [],
+  onSyncChangedOnly,
   onApplyLine,
   applyVoicesNow = false,
   takesBusyKey = null,
@@ -1863,6 +1883,17 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                 >
                   <RefreshCw className="w-3.5 h-3.5" /> Sync again
                 </button>
+                {onSyncChangedOnly && (
+                  <button
+                    type="button"
+                    onClick={onSyncChangedOnly}
+                    disabled={Boolean(blockedReason)}
+                    title={CHANGED_ONLY_HINT}
+                    className="h-8 px-3 flex items-center gap-1.5 rounded-lg border border-indigo-500/50 text-xs text-indigo-100 hover:bg-indigo-500/15 disabled:opacity-40 cursor-default"
+                  >
+                    <Lock className="w-3.5 h-3.5" /> Changed only
+                  </button>
+                )}
               </div>
             )}
             {rows.length > 0 && (

@@ -488,6 +488,8 @@ export interface SyncRequest {
   peak?: MixPeakMode;
   /** Lines locked in Edit timing, by key (syncEditService.lockedLines): held where the user put them. */
   locked?: ReturnType<typeof lockedLines>;
+  /** Locked lines are never pushed later: a line that needs more room runs into the next one instead, flagged (Sync changed lines only). */
+  holdLocked?: boolean;
   /** Voice expression Natural: each cue's text tagged from the source, by cue id; the cues are voiced from these. */
   voiceTexts?: Record<string, string>;
   /** Voice expression Expressive: delivery cues are added to the lines before they are voiced, as in a dub. */

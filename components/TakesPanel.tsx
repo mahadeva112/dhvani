@@ -147,8 +147,14 @@ export const TakesPanel: React.FC<{
   busy: boolean;
   /** Takes of some line are being voiced: one request at a time. */
   anyBusy: boolean;
-  /** The line's words changed since Sync: takes would read the old words. */
+  /** The line changed since Sync: takes would read the old words, or go where it no longer is. */
   pending: boolean;
+  /**
+   * The line's words in the script now, when they are all that changed since
+   * Sync (syncPending.ts): the whole line is retaken in them where it is, and
+   * a take in them puts it back in step, with no Sync again.
+   */
+  scriptText?: string | null;
   /** Locked in Edit timing: it can still be retaken, and a take used keeps the lock. */
   locked?: boolean;
   initialPhrase?: { from: number; to: number } | null;
@@ -194,6 +200,7 @@ export const TakesPanel: React.FC<{
   busy,
   anyBusy,
   pending,
+  scriptText = null,
   locked = false,
   initialPhrase,
   onVoice,
@@ -322,21 +329,28 @@ export const TakesPanel: React.FC<{
   // The whole line's words are edited in a section opened for it; Retake pro has it open beside its tags.
   const [lineOpen, setLineOpen] = useState(false);
 
+  // Only the words changed since Sync: the line can be retaken whole, in the words the script has now.
+  const rewordedSince = pending && scriptText !== null && scriptText.trim() !== '';
+  const blocked = pending && !rewordedSince;
+  // What the line says now: the script's new words, or Sync's.
+  const lineNow = rewordedSince ? stripTags(stripPauses(scriptText!.trim())) : unit.text;
+  const startText = rewordedSince ? scriptText!.trim() : unit.text;
+
   // The line's words, to edit before a retake. Nothing is voiced, and the script is not changed, until the user asks.
-  const [draft, setDraft] = useState(unit.text);
+  const [draft, setDraft] = useState(startText);
   const [wordings, setWordings] = useState<Wordings>({ kind: 'idle' });
   const offered = useRef<string[]>([]);
   const asking = useRef(0);
   useEffect(() => {
-    setDraft(unit.text);
+    setDraft(startText);
     setWordings({ kind: 'idle' });
     offered.current = [];
     asking.current += 1;
-  }, [unit.key, unit.text]);
+  }, [unit.key, unit.text, startText]);
   const reworded = draft.trim() !== '' && draft.trim() !== unit.text.trim();
   // Edited words not yet voiced in any take are what closing would lose.
   const dirty =
-    (reworded && !lineTakes.takes.some((take) => (take.spoken ?? take.text).trim() === dotsToPauses(draft.trim()))) ||
+    (reworded && draft.trim() !== startText.trim() && !lineTakes.takes.some((take) => (take.spoken ?? take.text).trim() === dotsToPauses(draft.trim()))) ||
     (!reworded && resay && !lineTakes.takes.some((take) => take.phrase === sayMarked));
   useEffect(() => onDirtyChange?.(dirty), [dirty]);
   useEffect(() => () => onDirtyChange?.(false), []);
@@ -1035,7 +1049,7 @@ export const TakesPanel: React.FC<{
             <button
               type="button"
               onClick={() => ask({ direction })}
-              disabled={anyBusy || pending || !said}
+              disabled={anyBusy || blocked || !said}
               title="Voices the whole line again; the picked words are ignored"
               className="min-h-8 px-3 py-1 rounded-lg border border-slate-700 text-slate-100 text-xs flex items-center gap-1.5 hover:bg-slate-800 disabled:opacity-40 cursor-default"
             >
@@ -1046,11 +1060,11 @@ export const TakesPanel: React.FC<{
           <button
             type="button"
             onClick={() => ask(reworded ? { direction, text: marked } : { direction })}
-            disabled={anyBusy || pending || !said || problems.unclosed}
+            disabled={anyBusy || blocked || !said || problems.unclosed}
             className="min-h-8 px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1.5 disabled:bg-slate-800 disabled:text-slate-500 cursor-default"
             title={
-              pending
-                ? "This line's words changed since Sync: Sync again, then take it again"
+              blocked
+                ? "This line was cut, joined or retimed since Sync, or waits for a retake asked in Review: Sync again, then take it again"
                 : problems.unclosed
                   ? 'Close the tag with ] first'
                   : reworded
@@ -1067,7 +1081,12 @@ export const TakesPanel: React.FC<{
           </button>
         )}
         <span className="text-[11.5px] text-slate-500">Character counts are estimates. Retaking picked words also uses forced alignment.</span>
-        {pending && <span className="text-[11.5px] text-amber-300">The words changed since Sync: Sync again first.</span>}
+        {blocked && <span className="text-[11.5px] text-amber-300">The line was cut, joined or retimed since Sync, or waits for a retake asked in Review: Sync again first.</span>}
+        {rewordedSince && (
+          <span className="text-[11.5px] text-sky-200">
+            The words changed since Sync: takes are voiced in the new words and go where the line is. The lines around it stay where they are.
+          </span>
+        )}
       </div>
 
       {changedVoice && (
@@ -1144,7 +1163,7 @@ export const TakesPanel: React.FC<{
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                   <span className="text-[12.5px] font-medium text-slate-100">{takeName(take, n)}</span>
                   {take.kind !== 'sync' && <span className="text-[11px] text-slate-400">{take.voice ? `Voice changed · ${take.voice}` : directionLabel(take.direction)}</span>}
-                  {take.text === unit.text && take.spoken && tagsOf(take.spoken).map((t, i) => <TagChip key={i} tag={t} />)}
+                  {take.text === lineNow && take.spoken && tagsOf(take.spoken).map((t, i) => <TagChip key={i} tag={t} />)}
                   {take.phrase && <span className="text-[11px] text-indigo-300 truncate max-w-[16rem]">only “{take.phrase}”</span>}
                   <span className="font-mono text-[11px] text-slate-500 tabular-nums">{take.speech.toFixed(2)} s</span>
                   {best?.id === take.id && <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-indigo-400/15 text-indigo-200">Best fit</span>}
@@ -1157,7 +1176,7 @@ export const TakesPanel: React.FC<{
                     <span className="absolute -top-0.5 h-2.5 w-px bg-slate-200" style={{ left: `${slot / scale * 100}%` }} />
                   </div>;
                 })()}
-                {take.text !== unit.text && (
+                {take.text !== lineNow && (
                   <p className="text-[11.5px] text-sky-200/90 mt-1 leading-snug">
                     Says: <WithPauses text={take.spoken ?? take.text} />
                     <span className="block text-[11px] text-slate-500">Other words than the line has now: using this take puts them in the script.</span>
@@ -1194,8 +1213,8 @@ export const TakesPanel: React.FC<{
                     stop();
                     onUse(take.id);
                   }}
-                  disabled={anyBusy || pending}
-                  title={`${take.text !== unit.text ? 'Put this take in the dub, and its words in the script' : 'Put this take in the dub, where the line is now'}${take.kind === 'sync' ? '' : placement === 'old' ? ', then cut where the old parts were' : canPlaceLikeSync ? ', then cut and placed as Sync places a line' : ''}`}
+                  disabled={anyBusy || blocked || (rewordedSince && take.text === unit.text && unit.text !== lineNow)}
+                  title={`${rewordedSince && take.text === unit.text && unit.text !== lineNow ? 'This take says the words from before your change. Retake the line to voice the new words' : take.text !== lineNow ? 'Put this take in the dub, and its words in the script' : 'Put this take in the dub, where the line is now'}${take.kind === 'sync' ? '' : placement === 'old' ? ', then cut where the old parts were' : canPlaceLikeSync ? ', then cut and placed as Sync places a line' : ''}`}
                   className="h-7 px-2.5 rounded-lg border border-slate-700 text-xs text-slate-100 hover:bg-slate-800 cursor-default disabled:opacity-40"
                 >
                   Use {takeName(take, n)}

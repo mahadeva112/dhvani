@@ -93,6 +93,31 @@ export const unlockedEdits = (
 };
 
 /**
+ * The lines Sync changed lines only holds where they are: every line of the
+ * dub but the changed ones, clips of the original and lines already locked.
+ */
+export const linesToHold = (bank: SyncBank | null | undefined, edits: SyncEdits | null | undefined, changed: string[]): string[] =>
+  (bank?.lines ?? []).filter((line) => !isOriginalClip(line.key) && !changed.includes(line.key) && !edits?.[line.key]?.locked).map((line) => line.key);
+
+/**
+ * `edits` with the lines Sync changed lines only held let go again: a line
+ * still as Sync placed it needs no edit, one with the user's own edits keeps
+ * them, unlocked as they were. Null when no edit is left.
+ */
+export const releaseLines = (edits: SyncEdits | null | undefined, keys: string[], bank: SyncBank): SyncEdits | null => {
+  if (!edits) return null;
+  const next: SyncEdits = { ...edits };
+  for (const key of keys) {
+    const edit = next[key];
+    if (!edit) continue;
+    const line = bank.lines.find((l) => l.key === key);
+    if (line && describeLineEdit(line, edit, bank.sampleRate).length === 0) delete next[key];
+    else next[key] = { ...edit, locked: false };
+  }
+  return Object.keys(next).length > 0 ? next : null;
+};
+
+/**
  * `edits` with each of `keys` locked, so Sync again keeps those lines where
  * they are; a line with no edit is locked as placed, as Lock in Edit timing does.
  */
