@@ -1,7 +1,8 @@
 /*
- * Waveforms: dense solid bars for the players and overviews, and a video
- * editor's crisp per-pixel wave for clips in Edit timing. Nothing here
- * touches audio.
+ * Waveforms: dense solid bars for small overviews (computeWave, drawWave),
+ * and a video editor's crisp per-pixel wave at real level for the waves
+ * worked on in Review, Sync and Edit timing (computePeaks, drawPeaks).
+ * Nothing here touches audio.
  */
 
 /** Per-bucket signed peaks and RMS of a buffer, scaled so its loudest sample is 1. */
@@ -173,37 +174,203 @@ export const drawWave = (ctx: CanvasRenderingContext2D, wave: Wave | null, o: Dr
   ctx.restore();
 };
 
-/**
- * Draws `wave` into the box the way a video editor's timeline does: one
- * solid column per device pixel from the stretch's lowest to its highest
- * sample, with no gaps and no smoothing, so every transient stays sharp.
+/*
+ * Full-resolution peaks, for the waves an editor works on (Review's player,
+ * Edit timing, the sync lanes): drawn the way DaVinci's Fairlight does, from
+ * the samples themselves at their real level, so a zoom never smooths a
+ * transient away and a quiet take looks quiet.
  */
-export const drawWaveLines = (
-  ctx: CanvasRenderingContext2D,
-  wave: Wave | null,
-  o: Omit<DrawWaveOptions, 'style'> & { color: string }
-) => {
-  if (!wave || o.w <= 0 || o.h <= 0 || o.to <= o.from) return;
+
+/** Samples per block at each level, finest first; each is 16 of the one before. */
+const LEVEL_SIZES = [64, 1024, 16384];
+const Q = 32767;
+
+/**
+ * The first channel's samples, plus each block's lowest and highest sample at
+ * a few block sizes (stored as 16-bit, about 11 MB for an hour at 48 kHz).
+ * The samples are the buffer's own, not a copy.
+ */
+export type Peaks = {
+  data: Float32Array;
+  rate: number;
+  seconds: number;
+  levels: { size: number; max: Int16Array; min: Int16Array }[];
+};
+
+const quantize = (v: number) => Math.max(-Q, Math.min(Q, Math.round(v * Q)));
+
+export const computePeaks = (buffer: AudioBuffer): Peaks => {
+  const data = buffer.getChannelData(0);
+  const n = data.length;
+  const levels: Peaks['levels'] = [];
+  // The finest level from the samples; each coarser one from the level below.
+  const first = LEVEL_SIZES[0];
+  const count0 = Math.ceil(n / first);
+  const max0 = new Int16Array(count0);
+  const min0 = new Int16Array(count0);
+  for (let b = 0; b < count0; b++) {
+    const end = Math.min(n, (b + 1) * first);
+    let hi = -1;
+    let lo = 1;
+    for (let i = b * first; i < end; i++) {
+      const v = data[i];
+      if (v > hi) hi = v;
+      if (v < lo) lo = v;
+    }
+    max0[b] = quantize(hi);
+    min0[b] = quantize(lo);
+  }
+  levels.push({ size: first, max: max0, min: min0 });
+  for (let k = 1; k < LEVEL_SIZES.length; k++) {
+    const below = levels[k - 1];
+    const ratio = LEVEL_SIZES[k] / below.size;
+    const count = Math.ceil(below.max.length / ratio);
+    const max = new Int16Array(count);
+    const min = new Int16Array(count);
+    for (let b = 0; b < count; b++) {
+      const end = Math.min(below.max.length, (b + 1) * ratio);
+      let hi = -Q;
+      let lo = Q;
+      for (let j = b * ratio; j < end; j++) {
+        if (below.max[j] > hi) hi = below.max[j];
+        if (below.min[j] < lo) lo = below.min[j];
+      }
+      max[b] = hi;
+      min[b] = lo;
+    }
+    levels.push({ size: LEVEL_SIZES[k], max, min });
+  }
+  return { data, rate: buffer.sampleRate, seconds: n / buffer.sampleRate, levels };
+};
+
+/** Lowest and highest sample in [i0, i1), from the coarsest blocks that fit and the samples at the edges. */
+export const peakRange = (p: Peaks, i0: number, i1: number): { hi: number; lo: number } | null => {
+  const a = Math.max(0, i0);
+  const b = Math.min(p.data.length, i1);
+  if (b <= a) return null;
+  let hi = -Infinity;
+  let lo = Infinity;
+  const scan = (level: number, from: number, to: number) => {
+    if (to <= from) return;
+    if (level < 0) {
+      for (let i = from; i < to; i++) {
+        const v = p.data[i];
+        if (v > hi) hi = v;
+        if (v < lo) lo = v;
+      }
+      return;
+    }
+    const { size, max, min } = p.levels[level];
+    const b0 = Math.ceil(from / size);
+    const b1 = Math.floor(to / size);
+    if (b1 <= b0) return scan(level - 1, from, to);
+    for (let k = b0; k < b1; k++) {
+      if (max[k] / Q > hi) hi = max[k] / Q;
+      if (min[k] / Q < lo) lo = min[k] / Q;
+    }
+    scan(level - 1, from, b0 * size);
+    scan(level - 1, b1 * size, to);
+  };
+  scan(p.levels.length - 1, a, b);
+  return { hi, lo };
+};
+
+export type DrawPeaksOptions = DrawWaveOptions & {
+  /** How much taller than its real level the wave is drawn (Wave height); 1 when left out. */
+  scale?: number;
+};
+
+/**
+ * Draws `peaks` into the box as a video editor's timeline does: one solid
+ * column per device pixel from the stretch's lowest to its highest sample at
+ * its real level (full scale is the box's full height), with silence as a
+ * one-pixel centre line. Zoomed in past a sample per pixel, the samples are
+ * drawn as a line. Columns sharing a style are filled as one path.
+ */
+export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o: DrawPeaksOptions) => {
+  if (!peaks || o.w <= 0 || o.h <= 0 || o.to <= o.from) return;
   const dpr = ctx.getTransform().a || 1;
   const X = Math.round(o.x * dpr);
-  const W = Math.round(o.w * dpr);
-  const top = o.y * dpr;
-  const half = (o.h * dpr) / 2;
-  const mid = Math.round(top + half);
+  const W = Math.max(1, Math.round(o.w * dpr));
+  const top = Math.round(o.y * dpr);
+  const H = Math.round(o.h * dpr);
+  const half = H / 2;
+  const mid = top + Math.floor(half);
   const span = o.to - o.from;
-  const path = new Path2D();
+  const scale = o.scale ?? 1;
+  const fixed: WaveStyle = typeof o.style === 'string' ? { color: o.style } : null;
+  const styleAt: (t: number) => WaveStyle = typeof o.style === 'string' ? () => fixed : o.style;
+  const gainAt = (t: number) => (o.gain ? Math.max(0, o.gain(t)) : 1) * scale;
+  const yOf = (v: number) => mid - Math.max(-1, Math.min(1, v)) * half;
+  const keyOf = (s: WaveStyle) => (s ? `${s.color}|${s.alpha ?? 1}` : '');
+  // A style's alpha dims on top of whatever the caller already set (a faded clip).
+  const baseAlpha = ctx.globalAlpha;
+
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.beginPath();
+  ctx.rect(X, top, W, H);
+  ctx.clip();
+
+  const runs = new Map<string, { style: NonNullable<WaveStyle>; path: Path2D }>();
+  const pathFor = (s: NonNullable<WaveStyle>) => {
+    const key = keyOf(s);
+    let run = runs.get(key);
+    if (!run) runs.set(key, (run = { style: s, path: new Path2D() }));
+    return run.path;
+  };
+
+  const samplesPerPx = (span * peaks.rate) / W;
+  if (samplesPerPx < 1) {
+    // Each sample a point on one line, in the style where it falls.
+    ctx.lineWidth = Math.max(1, dpr);
+    ctx.lineJoin = 'round';
+    const i0 = Math.max(0, Math.floor(o.from * peaks.rate) - 1);
+    const i1 = Math.min(peaks.data.length - 1, Math.ceil(o.to * peaks.rate) + 1);
+    let prev: { x: number; y: number; key: string } | null = null;
+    for (let i = i0; i <= i1; i++) {
+      const t = i / peaks.rate;
+      const s = styleAt(t);
+      const x = X + ((t - o.from) / span) * W;
+      const y = yOf(peaks.data[i] * gainAt(t));
+      if (s) {
+        const path = pathFor(s);
+        path.moveTo(prev ? prev.x : x, prev ? prev.y : y);
+        path.lineTo(x, y);
+      }
+      prev = { x, y, key: keyOf(s) };
+    }
+    for (const { style, path } of runs.values()) {
+      ctx.strokeStyle = style.color;
+      ctx.globalAlpha = baseAlpha * (style.alpha ?? 1);
+      ctx.stroke(path);
+    }
+    ctx.restore();
+    return;
+  }
+
   for (let px = 0; px < W; px++) {
     const t0 = o.from + (span * px) / W;
     const t1 = o.from + (span * (px + 1)) / W;
-    const s = sampleWave(wave, t0, t1);
-    const g = o.gain ? Math.max(0, o.gain((t0 + t1) / 2)) : 1;
-    const y0 = Math.round(mid - Math.min(1, s.hi * g) * half);
-    const y1 = Math.round(mid - Math.max(-1, s.lo * g) * half);
-    if (y1 > y0) path.rect(X + px, y0, 1, y1 - y0);
+    const tm = (t0 + t1) / 2;
+    const s = styleAt(tm);
+    if (!s) continue;
+    // One sample past the column's end, so neighbouring columns join where the wave runs steep.
+    const i0 = Math.floor(t0 * peaks.rate);
+    const r = peakRange(peaks, i0, Math.max(i0 + 1, Math.floor(t1 * peaks.rate)) + 1);
+    const g = gainAt(tm);
+    let y0 = mid;
+    let y1 = mid + 1;
+    if (r) {
+      y0 = Math.min(mid, Math.floor(yOf(r.hi * g)));
+      y1 = Math.max(mid + 1, Math.ceil(yOf(r.lo * g)));
+    }
+    pathFor(s).rect(X + px, y0, 1, y1 - y0);
   }
-  ctx.save();
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = o.color;
-  ctx.fill(path);
+  for (const { style, path } of runs.values()) {
+    ctx.fillStyle = style.color;
+    ctx.globalAlpha = baseAlpha * (style.alpha ?? 1);
+    ctx.fill(path);
+  }
   ctx.restore();
 };

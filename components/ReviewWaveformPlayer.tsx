@@ -16,7 +16,9 @@ import {
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
-import { computeWave, drawWave, WaveStyle } from '../services/waveform';
+import { computePeaks, drawPeaks, WaveStyle } from '../services/waveform';
+import { useWaveHeight } from './waveHeight';
+import { WaveHeightButton } from './WaveHeightButton';
 import { LINE_HUES } from './lineColors';
 import { useTheme } from './theme';
 
@@ -148,7 +150,7 @@ const MINI_BAR_PX = 40;
 
 /** Canvas colours. */
 const PALETTE = {
-  wave: '#334155',
+  wave: '#64748b',
   played: '#22d3ee',
   cue: 'rgba(34,211,238,0.10)',
   cueEdge: 'rgba(34,211,238,0.45)',
@@ -163,7 +165,7 @@ const PALETTE = {
 };
 
 /** The same, with Graphite's neutral greys in place of slate (components/theme.ts). */
-const GRAPHITE_PALETTE = { ...PALETTE, wave: '#45474e', hatch: '#36383e', label: '#abadb5', playhead: '#ececef' };
+const GRAPHITE_PALETTE = { ...PALETTE, wave: '#6b6d75', hatch: '#36383e', label: '#abadb5', playhead: '#ececef' };
 
 const targetOf = (seg: AudioSegment) => seg.textTarget || seg.targetText || '';
 const sourceOf = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
@@ -373,6 +375,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   /** The left cue of the cut being dragged. */
   const cutDragRef = useRef<string | number | null>(null);
   const [redrawTick, setRedrawTick] = useState(0);
+  const waveHeight = useWaveHeight();
 
   const span = total > 0 ? total / zoom : 1;
   const spanRef = useRef(span);
@@ -404,16 +407,15 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const timeNow = () => liveRef.current;
 
   /*
-   * Peaks for the whole file, computed once per buffer. Two hundred per
-   * second, capped, is fine enough for the deepest zoom and cheap to redraw.
-   * They are placed by the buffer's own length, so they line up with the
-   * audio whatever `duration` the caller passes.
+   * Full-resolution peaks for the whole file, computed once per buffer, so
+   * the deepest zoom still shows every transient, as DaVinci does. They are
+   * placed by the buffer's own length, so they line up with the audio
+   * whatever `duration` the caller passes.
    */
   const peaks = useMemo(() => {
-    if (!audioBuffer) return null;
+    if (!audioBuffer || audioBuffer.length === 0) return null;
     try {
-      // 200 a second, so a deep zoom on a long video still shows the shape of each word.
-      return computeWave(audioBuffer, Math.max(200, Math.min(1200000, Math.ceil(audioBuffer.duration * 200))));
+      return computePeaks(audioBuffer);
     } catch (e) {
       console.warn('Could not read the waveform:', e);
       return null;
@@ -604,7 +606,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     from: number,
     to: number,
     color: string | ((t: number) => WaveStyle)
-  ) => drawWave(ctx, peaks, { x: 0, y: top, w, h: height, from, to, style: color });
+  ) => drawPeaks(ctx, peaks, { x: 0, y: top, w, h: height, from, to, style: color, scale: waveHeight });
   /** Bars in their line's colour inside a line (dimmed until played), `base` between lines. */
   const lineBars = (base: string, played: boolean): string | ((t: number) => WaveStyle) => {
     if (!lineSpans?.length) return base;
@@ -673,7 +675,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       ctx.fillRect(cx - 4, h / 2 - 10, 8.5, 20);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet, lineSpans, showNumbers]);
+  }, [peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet, lineSpans, showNumbers, waveHeight]);
 
   useEffect(() => {
     const c = prepareCanvas(wavePlayedRef.current);
@@ -683,7 +685,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     drawBars(c.ctx, c.w, top, c.h - top - (lineSpans?.length ? LANE_INSET : 3), vs, vs + drawnSpan, lineBars(palette.played, true));
     applyFrame(liveRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peaks, zoom, viewStart, span, palette, redrawTick, lineSpans]);
+  }, [peaks, zoom, viewStart, span, palette, redrawTick, lineSpans, waveHeight]);
 
   // The mini player's strip: the whole file.
   useEffect(() => {
@@ -693,7 +695,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     const p = prepareCanvas(miniPlayedRef.current);
     if (p) drawBars(p.ctx, p.w, 2, p.h - 4, 0, total, palette.played);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showMini, peaks, total, palette, redrawTick]);
+  }, [showMini, peaks, total, palette, redrawTick, waveHeight]);
 
   // ---------- pointer ----------
   const timeAt = (e: React.PointerEvent | React.MouseEvent, el: HTMLElement, whole: boolean) => {
@@ -1059,6 +1061,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1} className={`${segBtn(false)} disabled:opacity-40`} title="Show the whole track (F)">
               Fit
             </button>
+            <WaveHeightButton />
             <button
               type="button"
               onClick={() => {

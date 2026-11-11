@@ -38,7 +38,9 @@ import { TimelineRuler, useTimelineZoom, useWindowPlayheads, wheelScroll } from 
 import { MarkerFlags, MarkerLines, MarkerList, newMarker, sortMarkers } from './TimelineMarkers';
 import type { TimelineNote } from '../types';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
-import { drawWaveLines } from '../services/waveform';
+import { drawPeaks } from '../services/waveform';
+import { useWaveHeight } from './waveHeight';
+import { WaveHeightButton } from './WaveHeightButton';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
@@ -308,6 +310,7 @@ const PartWave: React.FC<{
     return () => observer.disconnect();
   }, []);
   const { from, to, rate, gainDb, fadeIn, fadeOut } = part;
+  const scale = useWaveHeight();
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
@@ -336,14 +339,15 @@ const PartWave: React.FC<{
     const length = (to - from) / rate;
     const gain = 10 ** (gainDb / 20);
     const start = bankOffset + from;
-    drawWaveLines(ctx, data, {
+    drawPeaks(ctx, data, {
       x: 0,
       y: top,
       w,
       h: height,
       from: start,
       to: start + length * rate,
-      color: tintOf(hue, 0.82),
+      style: tintOf(hue, 0.82),
+      scale,
       gain: (t) => {
         // t is in the bank; the fades are in the part's own (played) time.
         const at = (t - start) / rate;
@@ -369,7 +373,7 @@ const PartWave: React.FC<{
       ctx.lineTo(w, bottom);
       ctx.stroke();
     }
-  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size]);
+  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size, scale]);
   return <canvas ref={ref} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />;
 });
 
@@ -2941,6 +2945,7 @@ export const SyncEditTimeline: React.FC<{
             <Maximize2 className="w-3.5 h-3.5" /> Fit
           </button>
         </div>
+        <WaveHeightButton className="!h-9 !rounded-xl bg-slate-950" />
         <button
           type="button"
           onClick={() => setShowHelp(true)}
