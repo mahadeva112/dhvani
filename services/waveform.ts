@@ -283,9 +283,11 @@ export type DrawPeaksOptions = DrawWaveOptions & {
 /**
  * Draws `peaks` into the box as a video editor's timeline does: one solid
  * column per device pixel from the stretch's lowest to its highest sample at
- * its real level (full scale is the box's full height), with silence as a
- * one-pixel centre line. Zoomed in past a sample per pixel, the samples are
- * drawn as a line. Columns sharing a style are filled as one path.
+ * its real level (full scale is the box's full height). Where the audio
+ * stays within half a pixel of the centre (silence, faint room tone) nothing
+ * is drawn, as in DaVinci: a lane's centre guide, if it has one, is the
+ * caller's to draw. Zoomed in past a sample per pixel, the samples are drawn
+ * as a line. Columns sharing a style are filled as one path.
  */
 export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o: DrawPeaksOptions) => {
   if (!peaks || o.w <= 0 || o.h <= 0 || o.to <= o.from) return;
@@ -302,6 +304,8 @@ export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o:
   const styleAt: (t: number) => WaveStyle = typeof o.style === 'string' ? () => fixed : o.style;
   const gainAt = (t: number) => (o.gain ? Math.max(0, o.gain(t)) : 1) * scale;
   const yOf = (v: number) => mid - Math.max(-1, Math.min(1, v)) * half;
+  /** Under half a pixel from the centre either way: too quiet to draw. */
+  const quiet = (v: number) => Math.abs(Math.max(-1, Math.min(1, v))) * half < 0.5;
   const keyOf = (s: WaveStyle) => (s ? `${s.color}|${s.alpha ?? 1}` : '');
   // A style's alpha dims on top of whatever the caller already set (a faded clip).
   const baseAlpha = ctx.globalAlpha;
@@ -327,18 +331,21 @@ export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o:
     ctx.lineJoin = 'round';
     const i0 = Math.max(0, Math.floor(o.from * peaks.rate) - 1);
     const i1 = Math.min(peaks.data.length - 1, Math.ceil(o.to * peaks.rate) + 1);
-    let prev: { x: number; y: number; key: string } | null = null;
+    let prev: { x: number; y: number; silent: boolean } | null = null;
     for (let i = i0; i <= i1; i++) {
       const t = i / peaks.rate;
       const s = styleAt(t);
       const x = X + ((t - o.from) / span) * W;
-      const y = yOf(peaks.data[i] * gainAt(t));
-      if (s) {
+      const v = peaks.data[i] * gainAt(t);
+      const y = yOf(v);
+      const silent = quiet(v);
+      // A stretch of silence leaves the lane blank; the line resumes where the sound does.
+      if (s && prev && !(silent && prev.silent)) {
         const path = pathFor(s);
-        path.moveTo(prev ? prev.x : x, prev ? prev.y : y);
+        path.moveTo(prev.x, prev.y);
         path.lineTo(x, y);
       }
-      prev = { x, y, key: keyOf(s) };
+      prev = { x, y, silent };
     }
     for (const { style, path } of runs.values()) {
       ctx.strokeStyle = style.color;
@@ -359,12 +366,10 @@ export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o:
     const i0 = Math.floor(t0 * peaks.rate);
     const r = peakRange(peaks, i0, Math.max(i0 + 1, Math.floor(t1 * peaks.rate)) + 1);
     const g = gainAt(tm);
-    let y0 = mid;
-    let y1 = mid + 1;
-    if (r) {
-      y0 = Math.min(mid, Math.floor(yOf(r.hi * g)));
-      y1 = Math.max(mid + 1, Math.ceil(yOf(r.lo * g)));
-    }
+    if (!r || (quiet(r.hi * g) && quiet(r.lo * g))) continue;
+    // Rounded to the nearest pixel, not outward, so faint noise isn't drawn a pixel thicker each side.
+    const y0 = Math.round(yOf(r.hi * g));
+    const y1 = Math.max(y0 + 1, Math.round(yOf(r.lo * g)));
     pathFor(s).rect(X + px, y0, 1, y1 - y0);
   }
   for (const { style, path } of runs.values()) {
@@ -372,5 +377,23 @@ export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o:
     ctx.globalAlpha = baseAlpha * (style.alpha ?? 1);
     ctx.fill(path);
   }
+  ctx.restore();
+};
+
+/**
+ * A lane's centre guide: a faint one-device-pixel line exactly where
+ * drawPeaks puts the centre for the same box, so silence reads as part of the
+ * lane while the wave itself leaves it blank.
+ */
+export const drawCentreLine = (ctx: CanvasRenderingContext2D, o: { x: number; y: number; w: number; h: number; color: string }) => {
+  if (o.w <= 0 || o.h <= 0) return;
+  const dpr = ctx.getTransform().a || 1;
+  const X = Math.round(o.x * dpr);
+  const W = Math.max(1, Math.round(o.w * dpr));
+  const mid = Math.round(o.y * dpr) + Math.floor(Math.round(o.h * dpr) / 2);
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = o.color;
+  ctx.fillRect(X, mid, W, 1);
   ctx.restore();
 };

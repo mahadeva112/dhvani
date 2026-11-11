@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
-import { computePeaks, drawPeaks, WaveStyle } from '../services/waveform';
+import { computePeaks, drawCentreLine, drawPeaks, WaveStyle } from '../services/waveform';
 import { useWaveHeight } from './waveHeight';
 import { WaveHeightButton } from './WaveHeightButton';
 import { MIN_WINDOW_SECONDS, RULER_STEPS, tickDecimals, ticksBetween } from './TimelineControls';
@@ -152,6 +152,8 @@ const MINI_BAR_PX = 40;
 /** Canvas colours. */
 const PALETTE = {
   wave: '#64748b',
+  /** The faint centre line, all a silent stretch shows. */
+  guide: 'rgba(148,163,184,0.22)',
   played: '#22d3ee',
   cue: 'rgba(34,211,238,0.10)',
   cueEdge: 'rgba(34,211,238,0.45)',
@@ -166,7 +168,7 @@ const PALETTE = {
 };
 
 /** The same, with Graphite's neutral greys in place of slate (components/theme.ts). */
-const GRAPHITE_PALETTE = { ...PALETTE, wave: '#6b6d75', hatch: '#36383e', label: '#abadb5', playhead: '#ececef' };
+const GRAPHITE_PALETTE = { ...PALETTE, wave: '#6b6d75', guide: 'rgba(171,173,181,0.2)', hatch: '#36383e', label: '#abadb5', playhead: '#ececef' };
 
 const targetOf = (seg: AudioSegment) => seg.textTarget || seg.targetText || '';
 const sourceOf = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
@@ -662,7 +664,10 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       }
     });
     const top = coloured ? LANE_INSET : WAVE_TOP;
-    drawBars(ctx, w, top, h - top - (coloured ? LANE_INSET : 3), vs, ve, lineBars(palette.wave, false));
+    const waveH = h - top - (coloured ? LANE_INSET : 3);
+    // Where nothing is said the wave leaves the lane blank, as DaVinci does, but for this faint centre guide.
+    drawCentreLine(ctx, { x: 0, y: top, w, h: waveH, color: palette.guide });
+    drawBars(ctx, w, top, waveH, vs, ve, lineBars(palette.wave, false));
     const cue = segments[activeIndex];
     if (cue && !coloured) {
       ctx.strokeStyle = palette.currentEdge;

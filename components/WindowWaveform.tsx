@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { bufferSeconds } from '../services/playbackTimeline';
-import { computePeaks, drawPeaks, type Peaks } from '../services/waveform';
+import { computePeaks, drawCentreLine, drawPeaks, type Peaks } from '../services/waveform';
 import { shadeOf, tintOf } from './lineColors';
 import { useWaveHeight } from './waveHeight';
 
@@ -63,6 +63,8 @@ export const WindowWaveform: React.FC<{
       drawClips(ctx, data, from, span, spans, gapColor, w, h, dpr, scale);
       return;
     }
+    // Silence leaves the lane blank but for a faint centre guide, as in DaVinci.
+    drawCentreLine(ctx, { x: 0, y: 2, w, h: h - 4, color: gapColor });
     drawPeaks(ctx, data, {
       x: 0,
       y: 2,
@@ -104,8 +106,7 @@ const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, 
     ctx.lineWidth = hair;
     ctx.stroke();
     ctx.clip();
-    ctx.fillStyle = tintOf(s.color, 0.6, 0.45);
-    ctx.fillRect(a, snap(mid), b - a, hair);
+    drawCentreLine(ctx, { x: a, y: top, w: b - a, h: height, color: tintOf(s.color, 0.6, 0.45) });
     ctx.fillStyle = tintOf(s.color, 0.6, 0.22);
     ctx.fillRect(a, snap(mid - height / 4), b - a, hair);
     ctx.fillRect(a, snap(mid + height / 4), b - a, hair);

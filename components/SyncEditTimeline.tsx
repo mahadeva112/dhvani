@@ -38,7 +38,7 @@ import { TimelineRuler, useTimelineZoom, useWindowPlayheads, wheelScroll } from 
 import { MarkerFlags, MarkerLines, MarkerList, newMarker, sortMarkers } from './TimelineMarkers';
 import type { TimelineNote } from '../types';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
-import { drawPeaks } from '../services/waveform';
+import { drawCentreLine, drawPeaks } from '../services/waveform';
 import { useWaveHeight } from './waveHeight';
 import { WaveHeightButton } from './WaveHeightButton';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
@@ -338,8 +338,7 @@ const PartWave: React.FC<{
     // The centre line and the half-height guides, faint, so silence still reads as part of the clip.
     const hair = 1 / dpr;
     const mid = top + height / 2;
-    ctx.fillStyle = tintOf(hue, 0.6, 0.45);
-    ctx.fillRect(0, Math.round(mid * dpr) / dpr, w, hair);
+    drawCentreLine(ctx, { x: 0, y: top, w, h: height, color: tintOf(hue, 0.6, 0.45) });
     ctx.fillStyle = tintOf(hue, 0.6, 0.22);
     ctx.fillRect(0, Math.round((mid - height / 4) * dpr) / dpr, w, hair);
     ctx.fillRect(0, Math.round((mid + height / 4) * dpr) / dpr, w, hair);
