@@ -19,6 +19,7 @@ import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { computePeaks, drawPeaks, WaveStyle } from '../services/waveform';
 import { useWaveHeight } from './waveHeight';
 import { WaveHeightButton } from './WaveHeightButton';
+import { MIN_WINDOW_SECONDS, RULER_STEPS, tickDecimals, ticksBetween } from './TimelineControls';
 import { LINE_HUES } from './lineColors';
 import { useTheme } from './theme';
 
@@ -111,8 +112,8 @@ const CUT_GAP_SECONDS = 0.8;
 const CUT_GRAB_PX = 6;
 
 const RATES = [0.75, 1, 1.25, 1.5];
-/** The deepest zoom shows about this many seconds, however long the track: a word of a long video. */
-const MIN_VIEW_SECONDS = 0.5;
+/** The deepest zoom shows about this many seconds, however long the track: a few hundred samples, each one drawn. */
+const MIN_VIEW_SECONDS = MIN_WINDOW_SECONDS;
 /**
  * The zoom steps for a track this long: half a power of two apart, from the
  * whole track down to MIN_VIEW_SECONDS on view. A fixed list ran out at a
@@ -175,12 +176,14 @@ const cpsOf = (seg: AudioSegment) => {
 };
 
 /** 57.1 -> "00:57.1", 3725 -> "1:02:05.0" */
-const formatTime = (seconds: number, tenths = true) => {
+const formatTime = (seconds: number, tenths: boolean | number = true) => {
   const t = Math.max(0, seconds || 0);
   const h = Math.floor(t / 3600);
   const m = Math.floor((t % 3600) / 60);
   const s = t % 60;
-  const sec = tenths ? s.toFixed(1).padStart(4, '0') : String(Math.floor(s)).padStart(2, '0');
+  // A number is how many decimals: the ruler's labels zoomed in past a second.
+  const places = tenths === true ? 1 : tenths === false ? 0 : tenths;
+  const sec = places > 0 ? s.toFixed(places).padStart(3 + places, '0') : String(Math.floor(s)).padStart(2, '0');
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${String(m).padStart(2, '0')}:${sec}`;
 };
 
@@ -888,11 +891,11 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     width: `${(drawn.span / span) * 100}%`,
     transform: 'translateX(var(--track-shift, 0px))',
   };
-  const rulerStep = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find((s) => span / s <= 10) || 600;
-  const ticks: number[] = [];
-  for (let t = Math.ceil(drawn.from / rulerStep) * rulerStep; t <= drawn.from + drawn.span; t += rulerStep) ticks.push(t);
+  const rulerStep = RULER_STEPS.find((s) => span / s <= 10) || 600;
+  const ticks = ticksBetween(drawn.from, drawn.from + drawn.span, rulerStep);
+  const tickPlaces = tickDecimals(rulerStep);
 
-  const onView = zoom === 1 ? 'whole' : `${span < 10 ? span.toFixed(1) : Math.round(span)} s`;
+  const onView = zoom === 1 ? 'whole' : span < 1 ? `${Math.round(span * 1000)} ms` : `${span < 10 ? span.toFixed(1) : Math.round(span)} s`;
   const playheadOffView = zoom > 1 && (currentTime < vs || currentTime > vs + span);
   const activePace = activeCue ? paceOf(activeCue) : null;
   const paceClass =
@@ -1152,7 +1155,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             <div className="absolute inset-y-0 will-change-transform" style={trackStyle}>
               {ticks.map((t) => (
                 <span key={t} className="absolute top-1 -translate-x-1/2 tabular-nums pointer-events-none" style={{ left: `${((t - drawn.from) / drawn.span) * 100}%` }}>
-                  {formatTime(t, false)}
+                  {formatTime(t, rulerStep >= 1 ? false : tickPlaces)}
                 </span>
               ))}
             </div>

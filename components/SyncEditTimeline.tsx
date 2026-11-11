@@ -293,13 +293,18 @@ const NAME_BAND_PX = 14;
  * and fades. Drawn as a video editor's timeline draws audio: a pale wave in
  * the clip's own colour over its solid body, with a centre line and guides
  * at half height, above the name band.
+ *
+ * `shown` is the stretch of the part (in its own played seconds) to draw; the
+ * canvas covers only that much of the clip. Zoomed far in, a clip is many
+ * screens wide, and a canvas the whole clip wide would be too big to draw.
  */
 const PartWave: React.FC<{
   data: PeakData | null;
   bankOffset: number;
   part: SyncEditPart;
   hue: string;
-}> = React.memo(({ data, bankOffset, part, hue }) => {
+  shown?: { from: number; to: number };
+}> = React.memo(({ data, bankOffset, part, hue, shown }) => {
   const ref = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState(0);
   useEffect(() => {
@@ -311,12 +316,15 @@ const PartWave: React.FC<{
   }, []);
   const { from, to, rate, gainDb, fadeIn, fadeOut } = part;
   const scale = useWaveHeight();
+  const length = (to - from) / rate;
+  const a = shown ? Math.max(0, shown.from) : 0;
+  const b = shown ? Math.min(length, shown.to) : length;
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const w = canvas.clientWidth;
     const h = canvas.clientHeight;
-    if (!w || !h) return;
+    if (!w || !h || b <= a) return;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(w * dpr);
     canvas.height = Math.round(h * dpr);
@@ -336,7 +344,6 @@ const PartWave: React.FC<{
     ctx.fillRect(0, Math.round((mid - height / 4) * dpr) / dpr, w, hair);
     ctx.fillRect(0, Math.round((mid + height / 4) * dpr) / dpr, w, hair);
     if (!data || data.seconds <= 0) return;
-    const length = (to - from) / rate;
     const gain = 10 ** (gainDb / 20);
     const start = bankOffset + from;
     drawPeaks(ctx, data, {
@@ -344,8 +351,8 @@ const PartWave: React.FC<{
       y: top,
       w,
       h: height,
-      from: start,
-      to: start + length * rate,
+      from: start + a * rate,
+      to: start + b * rate,
       style: tintOf(hue, 0.82),
       scale,
       gain: (t) => {
@@ -361,20 +368,28 @@ const PartWave: React.FC<{
     ctx.strokeStyle = 'rgba(241,245,249,0.75)';
     ctx.lineWidth = 1;
     const bottom = h - NAME_BAND_PX;
-    if (fadeIn > 0) {
+    const x = (at: number) => ((at - a) / (b - a)) * w;
+    if (fadeIn > 0 && a < fadeIn) {
       ctx.beginPath();
-      ctx.moveTo(0, bottom);
-      ctx.lineTo(Math.min(w, (fadeIn / length) * w), 0);
+      ctx.moveTo(x(0), bottom);
+      ctx.lineTo(x(fadeIn), 0);
       ctx.stroke();
     }
-    if (fadeOut > 0) {
+    if (fadeOut > 0 && b > length - fadeOut) {
       ctx.beginPath();
-      ctx.moveTo(Math.max(0, w - (fadeOut / length) * w), 0);
-      ctx.lineTo(w, bottom);
+      ctx.moveTo(x(length - fadeOut), 0);
+      ctx.lineTo(x(length), bottom);
       ctx.stroke();
     }
-  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size, scale]);
-  return <canvas ref={ref} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />;
+  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size, scale, a, b, length]);
+  return (
+    <canvas
+      ref={ref}
+      aria-hidden="true"
+      className="absolute inset-y-0 h-full pointer-events-none"
+      style={{ left: `${(a / length) * 100}%`, width: `${((b - a) / length) * 100}%` }}
+    />
+  );
 });
 
 type ClipBoxProps = {
@@ -401,6 +416,8 @@ type ClipBoxProps = {
   zone: string | null;
   /** Blade or range is on: no trim or fade handles. */
   tool: boolean;
+  /** The stretch of the part (its own played seconds) near enough the view to draw; undefined for all of it. */
+  shown?: { from: number; to: number };
 };
 
 /** Two parts with the same fields draw the same, whichever object holds them. */
@@ -414,7 +431,7 @@ const samePart = (a: SyncEditPart, b: SyncEditPart) =>
  * changed, so a drag redraws the part being dragged and leaves the rest.
  */
 const ClipBox = React.memo<ClipBoxProps>(
-  ({ chunk, line, rate, data, bankOffset, left, width, laneTop, hue, color, chosen, picked, silenced, locked, edited, cuts, zone, tool }) => {
+  ({ chunk, line, rate, data, bankOffset, left, width, laneTop, hue, color, chosen, picked, silenced, locked, edited, cuts, zone, tool, shown }) => {
     const { part } = chunk;
     const length = partLength(part);
     const showOffset = chunk.unit && chunk.unit.offset !== null && line && part.from <= line.lead + 1e-6;
@@ -443,7 +460,7 @@ const ClipBox = React.memo<ClipBoxProps>(
             : `Line ${chunk.label}${chunk.unit?.text ? `: ${chunk.unit.text}` : ''}${pauseNote(chunk.unit)}`
         }
       >
-        <PartWave data={data} bankOffset={bankOffset} part={part} hue={hue} />
+        <PartWave data={data} bankOffset={bankOffset} part={part} hue={hue} shown={shown} />
         <span
           className="absolute inset-x-0 bottom-0 flex items-center gap-1 px-1 overflow-hidden whitespace-nowrap text-[10.5px] font-medium leading-none text-white/90 pointer-events-none"
           style={{ height: NAME_BAND_PX, background: shadeOf(hue, 0.38) }}
@@ -508,6 +525,8 @@ const ClipBox = React.memo<ClipBoxProps>(
         const x = a.chunk;
         const y = b.chunk;
         if (x !== y && (x.label !== y.label || x.original !== y.original || x.unit !== y.unit || !samePart(x.part, y.part))) return false;
+      } else if (key === 'shown') {
+        if (a.shown?.from !== b.shown?.from || a.shown?.to !== b.shown?.to) return false;
       } else if (a[key] !== b[key]) return false;
     }
     return true;
@@ -2717,6 +2736,19 @@ export const SyncEditTimeline: React.FC<{
   // Gliding, `ahead` more is drawn past the right edge, for the timeline to move into.
   const onScreen = (start: number, end: number) => end >= windowStart - 1 && start <= windowStart + windowSeconds + ahead + 1;
   const visible = chunks.filter((c) => onScreen(c.part.start, partEnd(c.part)));
+  /**
+   * Zoomed in, the stretch of a long part worth drawing, in its own played
+   * seconds: the window, a window each side and what a glide draws ahead,
+   * snapped to whole windows so it changes only as the view moves a window
+   * on. Undefined when all of the part is that near.
+   */
+  const shownOf = (part: SyncEditPart) => {
+    const length = partLength(part);
+    const lo = windowStart - windowSeconds - part.start;
+    const hi = windowStart + 2 * windowSeconds + ahead - part.start;
+    if (lo <= 0 && hi >= length) return undefined;
+    return { from: Math.max(0, Math.floor(lo / windowSeconds) * windowSeconds), to: Math.min(length, Math.ceil(hi / windowSeconds) * windowSeconds) };
+  };
   /** What the lines being moved play over, as drawn now. */
   const draggedOver = drag.current?.zone === 'move' ? overlapsOf(new Set(drag.current.group.map((c) => c.part.id))) : [];
   /** A part's colour: its speaker's with several speakers, else its line's; a clip of the original the Original lane's. */
@@ -2937,7 +2969,7 @@ export const SyncEditTimeline: React.FC<{
           <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <ZoomOut className="w-4 h-4" />
           </button>
-          <span className="min-w-[3.5rem] text-center font-mono text-[11px] text-slate-400 tabular-nums">{windowSeconds < 60 ? `${Math.round(windowSeconds)} s` : `${(windowSeconds / 60).toFixed(1)} min`}</span>
+          <span className="min-w-[3.5rem] text-center font-mono text-[11px] text-slate-400 tabular-nums">{windowSeconds < 1 ? `${Math.round(windowSeconds * 1000)} ms` : windowSeconds < 60 ? `${Math.round(windowSeconds)} s` : `${(windowSeconds / 60).toFixed(1)} min`}</span>
           <button type="button" onClick={() => zoom.zoomBy(0.5)} disabled={!zoom.canZoomIn} title="Zoom in (=)" aria-label="Zoom in" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <ZoomIn className="w-4 h-4" />
           </button>
@@ -3324,6 +3356,7 @@ export const SyncEditTimeline: React.FC<{
                   cuts={tightenPreview?.cutsByPart.get(part.id)}
                   zone={zone}
                   tool={blade || rangeTool}
+                  shown={shownOf(part)}
                 />
               );
             })}

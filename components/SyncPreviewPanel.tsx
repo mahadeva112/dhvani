@@ -112,10 +112,16 @@ const PAUSE_MARK_LOOK: Record<'maybe' | 'later' | 'skipped', { tick: string; tit
 /** Wave bars sit about this many pixels apart, like a recording's waveform. */
 const BAR_PX = 3.2;
 /**
+ * The closest the estimated Wave's bars come, in seconds (about 4 ms). The
+ * timelines zoom in to single samples now, and every line's bars are built
+ * at once: a bar per pixel there would be millions of them.
+ */
+const MIN_BAR_STEP = 2 ** -8;
+/**
  * Seconds between two Wave bars at this zoom: a power of two, so zooming
  * redraws the bars only when their spacing doubles or halves.
  */
-const barStepAt = (pxPerSecond: number) => (pxPerSecond > 0 ? 2 ** Math.round(Math.log2(BAR_PX / pxPerSecond)) : 0.05);
+const barStepAt = (pxPerSecond: number) => (pxPerSecond > 0 ? Math.max(MIN_BAR_STEP, 2 ** Math.round(Math.log2(BAR_PX / pxPerSecond))) : 0.05);
 /**
  * A line's Wave: thin bars, a group per estimated word, none in its pauses,
  * on a 1000 × 100 box mirrored about its middle. Drawn as one path of

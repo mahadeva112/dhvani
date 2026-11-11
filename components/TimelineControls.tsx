@@ -10,21 +10,38 @@ import { WaveHeightButton } from './WaveHeightButton';
  * the clock.
  */
 
-const formatClock = (seconds: number) => {
+const formatClock = (seconds: number, decimals = 1) => {
   const t = Math.max(0, seconds || 0);
   const m = Math.floor(t / 60);
-  const s = (t % 60).toFixed(1).padStart(4, '0');
+  const s = (t % 60).toFixed(decimals).padStart(3 + decimals, '0');
   return `${m}:${s}`;
+};
+
+/** Decimals a ruler label needs to tell ticks `step` seconds apart. */
+export const tickDecimals = (step: number) => (step >= 0.1 ? 1 : step >= 0.01 ? 2 : 3);
+
+/**
+ * Ruler steps, in seconds, from a millisecond (zoomed in to the samples)
+ * to half an hour.
+ */
+export const RULER_STEPS = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
+
+/** Every `step` from `from` to `to`, counted in whole steps so they don't drift. */
+export const ticksBetween = (from: number, to: number, step: number) => {
+  const out: number[] = [];
+  for (let k = Math.ceil(from / step - 1e-9); k * step <= to + 1e-9; k++) out.push(Number((k * step).toFixed(6)));
+  return out;
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-/** The closest zoom: seconds of the timeline shown at once. */
-const MIN_WINDOW_SECONDS = 4;
+/** The closest zoom: seconds of the timeline shown at once (a few hundred samples, so each one shows). */
+export const MIN_WINDOW_SECONDS = 0.01;
+/** A timeline shorter than this still shows this much when zoomed all the way out. */
+const MIN_FULL_SECONDS = 4;
 /** Each zoom button press shows this much less, or more, of the timeline. */
 const ZOOM_STEP = 2;
 /** Ruler steps, in seconds; the finest that keeps the labels apart is used. */
-const TICK_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800];
 const MAX_TICKS = 8;
 /** Gliding, the playhead stops this far across the window and the timeline moves under it. */
 const GLIDE_ANCHOR = 0.4;
@@ -47,7 +64,7 @@ export type TimelineZoom = ReturnType<typeof useTimelineZoom>;
  * the timeline is drawn again only once it has moved that far.
  */
 export const useTimelineZoom = (total: number, currentTime: number, { wheelScrollsTime = true, glide = false } = {}) => {
-  const fullSpan = Math.max(MIN_WINDOW_SECONDS, total);
+  const fullSpan = Math.max(MIN_FULL_SECONDS, total);
   // Seconds on screen; null is the whole timeline.
   const [zoomSpan, setZoomSpan] = useState<number | null>(null);
   const windowSeconds = zoomSpan === null ? fullSpan : Math.min(zoomSpan, fullSpan);
@@ -269,17 +286,14 @@ export const TimelineRuler: React.FC<{
     zoom.setFollow(true);
   };
 
-  const step = TICK_STEPS.find((s) => windowSeconds / s <= MAX_TICKS) ?? TICK_STEPS[TICK_STEPS.length - 1];
-  const ticks: number[] = [];
-  for (let t = Math.ceil(windowStart / step) * step; t <= windowStart + windowSeconds + ahead + 1e-6; t += step) ticks.push(t);
+  const step = RULER_STEPS.find((s) => windowSeconds / s <= MAX_TICKS) ?? RULER_STEPS[RULER_STEPS.length - 1];
+  const decimals = tickDecimals(step);
+  const label = (t: number) => (decimals === 1 ? formatClock(t).replace(/\.0$/, '') : formatClock(t, decimals));
+  const ticks = ticksBetween(windowStart, windowStart + windowSeconds + ahead, step);
   // Four smaller ticks between times.
-  const minor: number[] = [];
-  if (marks) {
-    const sub = step / 5;
-    for (let t = Math.ceil(windowStart / sub) * sub; t <= windowStart + windowSeconds + ahead + 1e-6; t += sub) {
-      if (Math.abs(t / step - Math.round(t / step)) > 1e-6) minor.push(t);
-    }
-  }
+  const minor = marks
+    ? ticksBetween(windowStart, windowStart + windowSeconds + ahead, step / 5).filter((t) => Math.abs(t / step - Math.round(t / step)) > 1e-6)
+    : [];
 
   return (
     <div
@@ -302,7 +316,7 @@ export const TimelineRuler: React.FC<{
                 <React.Fragment key={t}>
                   <span aria-hidden="true" className="absolute bottom-0 w-px h-3 bg-slate-500" style={{ left: `${pct(t)}%` }} />
                   <span aria-hidden="true" className="absolute top-1 ml-1 whitespace-nowrap text-slate-400" style={{ left: `${pct(t)}%` }}>
-                    {formatClock(t).replace(/\.0$/, '')}
+                    {label(t)}
                   </span>
                 </React.Fragment>
               ))}
@@ -310,7 +324,7 @@ export const TimelineRuler: React.FC<{
           )
           : ticks.map((t) => (
               <span key={t} aria-hidden="true" className="absolute top-0 -translate-x-1/2 whitespace-nowrap" style={{ left: `${pct(t)}%` }}>
-                {formatClock(t).replace(/\.0$/, '')}
+                {label(t)}
               </span>
             ))}
       </div>
