@@ -34,7 +34,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
-import { TimelineRuler, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
+import { PLAYHEAD_RED, Playhead, TimelineRuler, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { MarkerFlags, MarkerLines, MarkerList, newMarker, sortMarkers } from './TimelineMarkers';
 import type { TimelineNote } from '../types';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
@@ -894,7 +894,7 @@ const Overview: React.FC<{
           }}
         />
       ))}
-      <span aria-hidden="true" className="absolute top-0 bottom-0 w-px bg-rose-400 pointer-events-none" style={{ left: `${pct(clamp(currentTime, 0, total))}%` }} />
+      <span aria-hidden="true" className="absolute top-0 bottom-0 w-px pointer-events-none" style={{ left: `${pct(clamp(currentTime, 0, total))}%`, background: PLAYHEAD_RED }} />
       <span
         aria-hidden="true"
         className="absolute top-0 bottom-0 rounded-sm border border-indigo-200/80 bg-indigo-200/15"
@@ -3450,7 +3450,7 @@ export const SyncEditTimeline: React.FC<{
               <span aria-hidden="true" className="absolute top-6 bottom-0 border-l border-dashed border-amber-300" style={{ left: `${pct(snapLine)}%` }} />
             </div>
           )}
-          <span ref={playheadRef(0)} aria-hidden="true" className="absolute top-0 bottom-0 w-0.5 -ml-px bg-rose-400 pointer-events-none z-20" />
+          <Playhead ref={playheadRef(0)} cap className="z-[25]" />
           {hud && (
             <span
               aria-live="polite"

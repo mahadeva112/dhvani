@@ -9,6 +9,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
       "autoPort": true
+    },
+    {
+      "name": "subtitle-mock",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5199", "--strictPort"],
+      "port": 5199
     }
   ]
 }

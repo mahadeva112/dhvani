@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeftRight, Check, CheckCircle2, Download, Layers, Play, Users, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, CheckCircle2, Download, Info, Layers, Play, Users, X } from 'lucide-react';
 import { AudioSegment, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
 import { SpeakerSummary, SpeakerSlip, speakerOf } from '../services/speakers';
 import { mergeSuggestions, type VoiceMatch } from '../services/voiceMatch';
 import type { Voice } from '../services/elevenLabsService';
 import type { VoiceRateState } from '../services/voiceRate';
+import { PLAYHEAD_RED } from './TimelineControls';
 
 /**
  * The pieces of the wizard that deal with several speakers: who speaks when
@@ -210,7 +211,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
               style={{ left: `${(seg.startTime / length) * 100}%` }}
             />
           ))}
-        <span className="absolute -top-1 -bottom-1 w-px bg-white/80" style={{ left: `${(Math.min(currentTime, length) / length) * 100}%` }} />
+        <span className="absolute -top-1 -bottom-1 w-0.5 -ml-px" style={{ left: `${(Math.min(currentTime, length) / length) * 100}%`, background: PLAYHEAD_RED }} />
       </div>
 
       {onRenameSpeaker &&
@@ -454,7 +455,44 @@ const voiceName = (voiceId: string, voices: Voice[]) => {
 const rateNote = (state?: VoiceRateState) =>
   state?.rate ? ` · ${state.rate.syllablesPerSecond.toFixed(1)} syllables/s` : state?.status === 'measuring' ? ' · measuring speed…' : '';
 
-/** Which voice speaks for whom. A speaker with no voice of their own is voiced by the main voice. */
+const pct = (share: number) => `${Math.round(share * 100)}%`;
+const linesWord = (n: number) => `${n} line${n === 1 ? '' : 's'}`;
+const joinNames = (names: string[]) =>
+  names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+
+/** Speakers, most speech first. */
+const byShare = (speakers: SpeakerSummary[]) => [...speakers].sort((a, b) => b.share - a.share);
+
+/**
+ * Under the main voice: who speaks most, and whom the main voice speaks for,
+ * so it is picked for the right person (usually the one who talks most).
+ */
+export const MainVoiceRole: React.FC<{
+  speakers: SpeakerSummary[];
+  cast: Record<string, SpeakerVoice> | undefined;
+  mainVoiceId: string;
+  availableVoices: Voice[];
+}> = ({ speakers, cast, mainVoiceId, availableVoices }) => {
+  if (speakers.length < 2) return null;
+  const lead = byShare(speakers)[0];
+  const onMain = speakers.filter((s) => !cast?.[s.name]?.voiceId).map((s) => s.name);
+  const main = voiceName(mainVoiceId, availableVoices);
+  return (
+    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-indigo-500/12 text-[12px] leading-snug text-indigo-100/90">
+      <Info className="w-3.5 h-3.5 mt-0.5 shrink-0 text-indigo-300" aria-hidden="true" />
+      <span>
+        <span className="font-semibold text-slate-100">
+          {lead.name} speaks most ({pct(lead.share)}).
+        </span>{' '}
+        {onMain.length
+          ? `${main} speaks for ${joinNames(onMain)}, and anyone without their own voice.`
+          : `Every speaker has their own voice, so ${main} is not used.`}
+      </span>
+    </div>
+  );
+};
+
+/** Which voice speaks for whom, most speech first. A speaker with no voice of their own is voiced by the main voice. */
 export const CastCard: React.FC<{
   speakers: SpeakerSummary[];
   cast: Record<string, SpeakerVoice> | undefined;
@@ -467,19 +505,29 @@ export const CastCard: React.FC<{
   rates?: Record<string, VoiceRateState>;
   mainRate?: VoiceRateState;
 }> = ({ speakers, cast, mainVoiceId, availableVoices, disabled, onPick, onUseMain, rates, mainRate }) => {
-  const ownVoices = speakers.map((s) => cast?.[s.name]?.voiceId || mainVoiceId);
-  const shared = new Set(ownVoices).size < speakers.length;
+  const ordered = byShare(speakers);
+  const voiceOf = (s: SpeakerSummary) => cast?.[s.name]?.voiceId || mainVoiceId;
+  // Speakers sharing one voice sound alike: name the one who says least in each group, and whom they share with.
+  const groups = new Map<string, SpeakerSummary[]>();
+  for (const s of ordered) groups.set(voiceOf(s), [...(groups.get(voiceOf(s)) || []), s]);
+  const sharing = [...groups.entries()].filter(([, group]) => group.length > 1);
   return (
     <div className="flex flex-col gap-1">
-      {speakers.map((s, n) => {
+      {ordered.map((s, n) => {
         const own = cast?.[s.name]?.voiceId;
         const voiceId = own || mainVoiceId;
         const name = voiceName(voiceId, availableVoices);
         return (
           <div key={s.name} className="flex items-center gap-2 py-1.5 border-t border-edge first:border-t-0">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-            <span className="w-20 shrink-0 truncate text-[13px] text-slate-200" title={s.name}>
-              {s.name}
+            <span className="w-24 shrink-0 min-w-0" title={`${s.name}: ${pct(s.share)} of the speech, ${linesWord(s.cues)}`}>
+              <span className="block truncate text-[13px] text-slate-200">{s.name}</span>
+              <span className="block text-[10.5px] text-slate-500 font-mono tabular-nums truncate">
+                {pct(s.share)} · {linesWord(s.cues)}
+              </span>
+              <span className="block h-1 mt-1 rounded-full bg-slate-800 overflow-hidden" aria-hidden="true">
+                <span className="block h-full rounded-full" style={{ width: `${Math.max(2, s.share * 100)}%`, backgroundColor: s.color }} />
+              </span>
             </span>
             <span
               className="w-6 h-6 rounded-full flex items-center justify-center text-[10.5px] font-semibold shrink-0"
@@ -520,11 +568,16 @@ export const CastCard: React.FC<{
           </div>
         );
       })}
-      {shared && (
-        <p className="text-[11px] text-amber-300/90 leading-snug pt-1">
-          Some speakers share a voice, so they will sound alike. Give each their own to tell them apart.
-        </p>
-      )}
+      {sharing.map(([voiceId, group]) => {
+        const least = group[group.length - 1];
+        const others = group.slice(0, -1).map((s) => s.name);
+        return (
+          <p key={voiceId} className="text-[11px] text-amber-300/90 leading-snug pt-1">
+            {least.name} ({linesWord(least.cues)}) shares {voiceName(voiceId, availableVoices)} with {joinNames(others)}, so they will sound
+            alike. Give {least.name} their own voice.
+          </p>
+        );
+      })}
     </div>
   );
 };

@@ -16,10 +16,7 @@ import {
   Speech,
   Download,
   RefreshCw,
-  Palette,
 } from 'lucide-react';
-import { ThemePicker } from './ThemePicker';
-import { THEMES, useTheme } from './theme';
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported, useUpdateState } from './UpdateControl';
 import { CenteredPanel } from './CenteredPanel';
@@ -316,8 +313,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const engineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   const lineCount = activeJob?.segments.length ?? 0;
   const updateState = useUpdateState();
-  const theme = useTheme();
-  const themeName = THEMES.find((t) => t.id === theme)?.label ?? 'Classic';
   const updateOffered = Boolean(updateState?.version) && ['available', 'downloading', 'downloaded'].includes(updateState!.status);
   /** Where a newer version shows, now that the header has no Update button. */
   const updateSummary = !updateState
@@ -549,18 +544,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       ],
       note: 'Used for the next translation.',
       onOpen: onOpenCustomPrompt,
-    },
-    {
-      id: 'appearance',
-      group: 'App',
-      label: 'Appearance',
-      hint: 'The colours the whole app is drawn in',
-      summary: themeName,
-      icon: Palette,
-      tone: 'slate',
-      facts: [],
-      extra: <ThemePicker />,
-      note: 'Changes show right away and are remembered on this computer.',
     },
     updatesSupported() && {
       id: 'updates',

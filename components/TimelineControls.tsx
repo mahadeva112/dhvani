@@ -332,6 +332,44 @@ export const TimelineRuler: React.FC<{
   );
 };
 
+/** The playhead's red, as in DaVinci Resolve. */
+export const PLAYHEAD_RED = '#f0473c';
+
+/**
+ * The playhead as in DaVinci Resolve: one red line down the ruler and every
+ * lane, and with `cap` a red head on the ruler at its top. Every timeline
+ * uses this one, so they all look alike. It covers its box; place it with
+ * placePlayheadAt (as useWindowPlayheads does). The line is exactly at the
+ * time, and the head stays whole inside the box at its very start and end,
+ * where a clipped lane would otherwise cut it in half. It never takes a click.
+ */
+export const Playhead = React.forwardRef<HTMLSpanElement, { cap?: boolean; className?: string }>(
+  ({ cap = false, className = '' }, ref) => (
+    <span ref={ref} aria-hidden="true" className={`absolute inset-0 pointer-events-none ${className}`} style={{ display: 'none' }}>
+      <span className="absolute top-0 bottom-0 -ml-px w-0.5" style={{ left: 'calc(var(--playhead, 0) * 100%)', background: PLAYHEAD_RED }} />
+      {cap && (
+        <svg
+          className="absolute top-0 drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]"
+          style={{ left: 'clamp(0px, calc(var(--playhead, 0) * 100% - 6px), calc(100% - 12px))' }}
+          width="12"
+          height="15"
+          viewBox="0 0 12 15"
+        >
+          <path d="M1.5 0h9A1.5 1.5 0 0 1 12 1.5V9l-6 6-6-6V1.5A1.5 1.5 0 0 1 1.5 0z" fill={PLAYHEAD_RED} />
+        </svg>
+      )}
+    </span>
+  )
+);
+Playhead.displayName = 'Playhead';
+
+/** Puts a Playhead at fraction `f` across its box, hidden when off it. */
+export const placePlayheadAt = (el: HTMLElement | null, f: number, hidden = false) => {
+  if (!el) return;
+  el.style.display = !hidden && f >= 0 && f <= 1 ? '' : 'none';
+  el.style.setProperty('--playhead', String(f));
+};
+
 /**
  * Playheads for a timeline that shows `windowSeconds` from `windowStart`.
  * They move every frame through refs, so each is on the painted frame and
@@ -370,11 +408,7 @@ export const useWindowPlayheads = ({
     const gliding = !hidden && follow && isPlaying;
     const start = glideTo ? glideTo(t, gliding) : windowStart;
     const f = (t - start) / windowSeconds;
-    heads.current.forEach((el) => {
-      if (!el) return;
-      el.style.display = !hidden && f >= 0 && f <= 1 ? '' : 'none';
-      el.style.left = `${f * 100}%`;
-    });
+    heads.current.forEach((el) => placePlayheadAt(el, f, hidden));
     if (!hidden && follow && !(glideTo && gliding) && (t < start || t > start + windowSeconds)) onFollow(t);
   };
   useLiveFrame(reportedTime, isPlaying, getLiveTime, apply);
@@ -498,8 +532,8 @@ export const TimelineScrollbar: React.FC<{
       />
       <span
         aria-hidden="true"
-        className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-slate-100 pointer-events-none"
-        style={{ left: `${pct(clamp(currentTime, 0, total))}%` }}
+        className="absolute -top-1 -bottom-1 w-0.5 rounded-full pointer-events-none"
+        style={{ left: `${pct(clamp(currentTime, 0, total))}%`, background: PLAYHEAD_RED }}
       />
     </div>
   );

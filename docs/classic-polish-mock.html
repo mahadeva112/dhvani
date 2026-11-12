@@ -1,0 +1,533 @@
+<title>Dhvani Classic Polish</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@400;500&family=Noto+Sans+Bengali:wght@400;500;600&display=swap">
+<style>
+/* Layout: the real app frame (header, stepper, two-column work area) on a quiet page, with a Bangla note strip above it. Single dark look: the app has no light theme. */
+:root {
+  color-scheme: dark;
+  /* Classic, polished: same slate + indigo family, fewer layers, one edge colour */
+  --ground: #050915;      /* page behind the app */
+  --base: #080d1a;        /* app background, flat (no radial glow) */
+  --panel: #0e1526;       /* panels */
+  --raised: #141d32;      /* cards, inputs inside panels */
+  --hover: #1a2440;
+  --edge: #1f2b44;        /* hairline between things */
+  --edge-strong: #2b3a52; /* controls, focused cards */
+  --text: #e9eef6;
+  --muted: #9aa8bf;
+  --faint: #7d8ba1;
+  --indigo: #5b5ef0;
+  --indigo-soft: #8b8ff8;
+  --indigo-wash: rgba(91, 94, 240, 0.14);
+  --cyan: #22d3ee;
+  --emerald: #34d399;
+  --amber: #fbbf24;
+  --rose: #fb7185;
+  --font-ui: "Inter", "Noto Sans Bengali", ui-sans-serif, system-ui, sans-serif;
+  --font-head: "Space Grotesk", "Inter", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --font-deva: "Noto Sans Devanagari", "Inter", sans-serif;
+  --font-bn: "Noto Sans Bengali", "Inter", sans-serif;
+  --r-panel: 14px;
+  --r-ctl: 9px;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--indigo-soft); outline-offset: 2px; }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.deva { font-family: var(--font-deva); }
+
+/* ---------- Note strip (for the reader, not part of the app) ---------- */
+.note { max-width: 1240px; margin: 0 auto 18px; display: grid; gap: 12px; font-family: var(--font-bn); }
+.note h1 { font-family: var(--font-head); font-size: 20px; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.note h1 span { color: var(--faint); font-weight: 500; }
+.note p { margin: 0; color: var(--muted); max-width: 70ch; }
+.changes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.change { background: var(--panel); border: 1px solid var(--edge); border-radius: 10px; padding: 10px 12px; display: grid; gap: 2px; }
+.change b { font-weight: 600; font-size: 12.5px; }
+.change span { color: var(--muted); font-size: 12px; }
+.viewbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.viewbar small { color: var(--faint); font-size: 12px; }
+
+/* ---------- Shared controls ---------- */
+.seg { display: inline-flex; background: var(--base); border: 1px solid var(--edge); border-radius: var(--r-ctl); padding: 3px; gap: 2px; }
+.seg button { padding: 5px 11px; border-radius: 6px; color: var(--muted); font-weight: 500; font-size: 12.5px; }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--edge-strong); }
+.seg button:hover:not([aria-pressed="true"]) { color: var(--text); }
+.btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: var(--r-ctl); border: 1px solid var(--edge-strong); background: var(--raised); color: var(--text); font-weight: 500; font-size: 12.5px; white-space: nowrap; }
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--indigo); border-color: transparent; color: #fff; font-weight: 600; }
+.btn.primary:hover { background: #6a6df4; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.ghost:hover { background: var(--raised); color: var(--text); }
+.btn svg, .ico { width: 15px; height: 15px; flex: none; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.kbd { font-family: var(--font-mono); font-size: 10.5px; color: var(--faint); border: 1px solid var(--edge-strong); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; line-height: 16px; }
+.eyebrow { font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint); }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 21px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; }
+.chip.ok { color: var(--emerald); background: rgba(52, 211, 153, 0.1); }
+.chip.warn { color: var(--amber); background: rgba(251, 191, 36, 0.11); }
+.chip.bad { color: var(--rose); background: rgba(251, 113, 133, 0.11); }
+.chip.info { color: var(--indigo-soft); background: var(--indigo-wash); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ---------- App frame ---------- */
+.app { max-width: 1240px; margin: 0 auto; background: var(--base); border: 1px solid var(--edge); border-radius: 16px; overflow: hidden; box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.8); }
+.top { display: flex; align-items: center; gap: 14px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--edge); background: linear-gradient(180deg, rgba(91, 94, 240, 0.05), transparent); flex-wrap: nowrap; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 10px; flex: none; }
+.logo { width: 30px; height: 30px; border-radius: 8px; background: var(--indigo); display: grid; place-items: center; }
+.logo svg { width: 18px; height: 18px; stroke: #fff; fill: none; stroke-width: 2.2; stroke-linecap: round; }
+.brand b { font-family: var(--font-head); font-size: 15px; display: block; line-height: 1.1; }
+.brand small { color: var(--faint); font-size: 11px; }
+.file { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: 14px; border-left: 1px solid var(--edge); color: var(--muted); }
+.file span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.steps { display: flex; align-items: center; gap: 2px; margin: 0 auto; background: var(--panel); border: 1px solid var(--edge); border-radius: 999px; padding: 3px; flex: none; }
+.step { display: flex; align-items: center; gap: 7px; padding: 5px 12px 5px 5px; border-radius: 999px; color: var(--muted); font-weight: 500; font-size: 12.5px; }
+.step i { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 10.5px; font-family: var(--font-mono); border: 1px solid var(--edge-strong); color: var(--faint); }
+.step.done i { background: rgba(52, 211, 153, 0.14); border-color: transparent; color: var(--emerald); }
+.step.on { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--edge-strong); }
+.step.on i { background: var(--indigo); border-color: transparent; color: #fff; }
+.right { display: flex; align-items: center; gap: 8px; flex: none; }
+.online { display: inline-flex; align-items: center; gap: 6px; color: var(--emerald); font-size: 12px; font-weight: 500; padding: 0 10px; height: 28px; border-radius: 999px; background: rgba(52, 211, 153, 0.08); }
+
+.view { padding: 16px; display: grid; gap: 14px; }
+.view[hidden] { display: none !important; }
+.panel { background: var(--panel); border: 1px solid var(--edge); border-radius: var(--r-panel); min-width: 0; }
+.ph { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 18px 12px; }
+.ph h2 { font-family: var(--font-head); font-size: 15px; font-weight: 600; margin: 0 0 2px; letter-spacing: -0.005em; }
+.ph p { margin: 0; color: var(--muted); font-size: 12px; max-width: 46ch; }
+.sep { border-top: 1px solid var(--edge); }
+
+/* Drop zone */
+.drop { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px dashed var(--edge-strong); border-radius: var(--r-panel); background: rgba(14, 21, 38, 0.6); flex-wrap: wrap; }
+.drop .up { width: 40px; height: 40px; border-radius: 10px; background: var(--indigo-wash); color: var(--indigo-soft); display: grid; place-items: center; flex: none; }
+.drop .up svg { width: 19px; height: 19px; }
+.drop b { font-size: 13.5px; font-weight: 600; }
+.drop b a { color: var(--indigo-soft); text-decoration: none; border-bottom: 1px solid rgba(139, 143, 248, 0.4); }
+.drop .fmt { color: var(--faint); font-size: 12px; }
+.drop .samples { margin-left: auto; display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: 12px; }
+
+.work { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
+
+/* Voice browser */
+.tools { display: flex; gap: 8px; padding: 0 18px 14px; flex-wrap: wrap; align-items: center; }
+.search { flex: 1 1 220px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; background: var(--base); border: 1px solid var(--edge-strong); border-radius: var(--r-ctl); color: var(--faint); min-width: 0; }
+.search input { flex: 1; min-width: 0; background: none; border: 0; color: var(--text); font: inherit; outline: none; }
+.search:focus-within { border-color: var(--indigo); box-shadow: 0 0 0 3px rgba(91, 94, 240, 0.2); }
+.voices { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; padding: 14px 18px 18px; }
+.voice { display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px; border-radius: 11px; background: var(--raised); border: 1px solid transparent; text-align: left; transition: border-color 0.12s, background 0.12s; }
+.voice:hover { border-color: var(--edge-strong); }
+.voice[aria-pressed="true"] { border-color: var(--indigo); background: linear-gradient(0deg, var(--indigo-wash), var(--indigo-wash)), var(--raised); }
+.av { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; font-size: 14px; color: #0b1020; }
+.voice b { display: block; font-weight: 600; font-size: 13px; }
+.voice small { color: var(--muted); font-size: 11.5px; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voice .tags { display: flex; gap: 4px; margin-top: 4px; }
+.voice .tags span { font-size: 10.5px; color: var(--faint); border: 1px solid var(--edge-strong); border-radius: 5px; padding: 0 5px; }
+.play { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); border: 1px solid var(--edge-strong); }
+.play:hover { color: var(--text); background: var(--hover); }
+.play svg { width: 12px; height: 12px; fill: currentColor; stroke: none; margin-left: 2px; }
+
+/* Setup column */
+.field { padding: 14px 18px; display: grid; gap: 8px; }
+.row2 { display: grid; grid-template-columns: 1fr 24px 1fr; gap: 6px; align-items: end; }
+.row2 .swap { height: 34px; display: grid; place-items: center; color: var(--faint); }
+label.lb { font-size: 12px; color: var(--muted); font-weight: 500; display: block; margin-bottom: 5px; }
+.select { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 10px; background: var(--base); border: 1px solid var(--edge-strong); border-radius: var(--r-ctl); font-weight: 500; width: 100%; }
+.select svg { width: 14px; height: 14px; color: var(--faint); }
+.help { color: var(--faint); font-size: 11.5px; margin: 0; }
+.toggle-row { display: flex; justify-content: space-between; gap: 14px; align-items: flex-start; }
+.toggle-row b { font-weight: 600; font-size: 13px; display: block; margin-bottom: 2px; }
+.switch { width: 36px; height: 20px; border-radius: 999px; background: var(--edge-strong); position: relative; flex: none; transition: background 0.15s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: #cfd7e6; transition: transform 0.15s; }
+.switch[aria-checked="true"] { background: var(--indigo); }
+.switch[aria-checked="true"]::after { transform: translateX(16px); background: #fff; }
+.picked { display: grid; grid-template-columns: 36px 1fr auto; gap: 10px; align-items: center; padding: 10px; background: var(--raised); border-radius: 11px; }
+.rate { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--edge); border-radius: 11px; }
+.rate .num { font-family: var(--font-mono); font-size: 15px; font-weight: 500; }
+.rate small { color: var(--faint); font-size: 11px; display: block; }
+.slider { display: grid; gap: 6px; }
+.slider .hd { display: flex; justify-content: space-between; align-items: baseline; }
+.slider .hd b { font-weight: 600; }
+input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 99px; background: linear-gradient(90deg, var(--indigo) var(--p, 50%), var(--edge-strong) var(--p, 50%)); outline-offset: 6px; }
+input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: 3px solid var(--indigo); cursor: pointer; }
+input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 3px solid var(--indigo); cursor: pointer; }
+.scale { display: flex; justify-content: space-between; color: var(--faint); font-size: 11px; }
+.cta { padding: 14px 18px 18px; display: grid; gap: 8px; }
+.cta .btn { height: 38px; justify-content: center; font-size: 13.5px; }
+
+/* ---------- Review ---------- */
+.rbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rbar h2 { font-family: var(--font-head); font-size: 16px; margin: 0; }
+.rbar .stat { color: var(--muted); font-size: 12.5px; }
+.rbar .stat b { color: var(--text); font-weight: 600; }
+.rbar .sp { flex: 1; }
+.player { display: grid; grid-template-columns: 280px minmax(0, 1fr); }
+.video { border-right: 1px solid var(--edge); padding: 14px; display: grid; gap: 10px; align-content: start; }
+.screen { aspect-ratio: 16 / 9; max-width: 100%; border-radius: 10px; background: radial-gradient(120% 90% at 30% 20%, #1d2846, #0a1020 70%); display: grid; place-items: end start; padding: 10px; position: relative; overflow: hidden; }
+.screen .sub { font-family: var(--font-deva); font-size: 12px; background: rgba(0, 0, 0, 0.55); padding: 3px 8px; border-radius: 5px; justify-self: center; align-self: end; }
+.transport { display: flex; align-items: center; gap: 8px; }
+.bigplay { width: 34px; height: 34px; border-radius: 50%; background: var(--text); color: var(--base); display: grid; place-items: center; }
+.bigplay svg { width: 13px; height: 13px; fill: currentColor; margin-left: 2px; }
+.tc { font-family: var(--font-mono); font-size: 12.5px; }
+.tc span { color: var(--faint); }
+.lanes { padding: 10px 14px 12px; display: grid; gap: 6px; min-width: 0; }
+.lanehead { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.lanehead .eyebrow { display: flex; align-items: center; gap: 6px; }
+.ruler, .lane { position: relative; width: 100%; }
+.ruler { height: 18px; }
+.lane { height: 62px; border-radius: 8px; background: var(--base); border: 1px solid var(--edge); overflow: hidden; }
+canvas { display: block; width: 100%; height: 100%; }
+.lines { display: grid; }
+.line { display: grid; grid-template-columns: 34px 92px minmax(0, 1fr) minmax(0, 1.15fr) 118px 70px; gap: 14px; align-items: center; padding: 11px 18px; border-top: 1px solid var(--edge); }
+.line:hover { background: rgba(20, 29, 50, 0.6); }
+.line.on { background: linear-gradient(90deg, rgba(91, 94, 240, 0.12), rgba(91, 94, 240, 0.02)); box-shadow: inset 2px 0 0 var(--indigo); }
+.line .n { color: var(--faint); font-family: var(--font-mono); font-size: 11.5px; }
+.line .t { color: var(--muted); font-family: var(--font-mono); font-size: 11.5px; line-height: 1.35; }
+.line .src { color: var(--muted); }
+.line .dub { font-family: var(--font-deva); font-size: 14px; line-height: 1.55; }
+.line .act { display: flex; gap: 2px; justify-content: flex-end; }
+.ib { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; color: var(--faint); }
+.ib:hover { background: var(--raised); color: var(--text); }
+.ib svg { width: 14px; height: 14px; }
+.lines .head { color: var(--faint); font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; border-top: 0; padding-block: 10px 8px; }
+.lines .head:hover { background: none; }
+
+@media (max-width: 1000px) {
+  .work { grid-template-columns: minmax(0, 1fr); }
+  .player { grid-template-columns: minmax(0, 1fr); }
+  .video { border-right: 0; border-bottom: 1px solid var(--edge); }
+  .file { display: none; }
+}
+@media (max-width: 760px) {
+  .top { flex-wrap: wrap; height: auto; padding-block: 10px; }
+  .steps { order: 3; margin: 0; width: 100%; justify-content: space-between; }
+  .right { margin-left: auto; }
+  .line { grid-template-columns: 30px minmax(0, 1fr) auto; row-gap: 6px; }
+  .line .t, .lines .head .h-t, .lines .head .h-src { display: none; }
+  .line .src { grid-column: 2 / 4; order: 3; font-size: 12px; }
+  .line .dub { grid-column: 2 / 3; }
+  .line .act { display: none; }
+  .drop .samples { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<section class="note">
+  <h1>Classic, polished <span>· মক, অ্যাপে এখনো নেই</span></h1>
+  <p>একই স্লেট আর ইন্ডিগো রং, কিন্তু স্তর কম আর ধার এক রকম। অ্যাপে এখন শুধু Graphite আছে; এটা পছন্দ হলে Classic এই চেহারায় ফিরিয়ে আনা যায়।</p>
+  <div class="changes">
+    <div class="change"><b>সমতল পটভূমি</b><span>বেগুনি রেডিয়াল আভা নেই; প্যানেল, কার্ড, ইনপুট তিনটে পরিষ্কার ধাপে।</span></div>
+    <div class="change"><b>এক রঙের সরু ধার</b><span>সব ভাগের রেখা একই edge রঙে, কন্ট্রোলে একটু উজ্জ্বল।</span></div>
+    <div class="change"><b>বাছাই স্পষ্ট</b><span>চলতি ধাপ, বাছা ভয়েস, চলতি লাইন ইন্ডিগো দিয়ে চেনা যায়; বাকি সব শান্ত।</span></div>
+    <div class="change"><b>সংখ্যা মনোতে</b><span>সময়, syllables/s, কিউ নম্বর সমান চওড়া হরফে, কলাম মেলে।</span></div>
+  </div>
+  <div class="viewbar">
+    <div class="seg" role="group" aria-label="Screen">
+      <button id="v-source" aria-pressed="true" data-view="source">Source &amp; voice</button>
+      <button id="v-review" aria-pressed="false" data-view="review">Review</button>
+    </div>
+    <small>দুটো স্ক্রিন দেখুন। ভয়েস কার্ড, সুইচ, স্লাইডার আর লাইনগুলো ক্লিক করা যায়।</small>
+  </div>
+</section>
+
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24"><path d="M5 10v4M9 7v10M13 4v16M17 8v8M21 11v2"/></svg></div>
+      <div><b>Dhvani</b><small>Dubbing studio</small></div>
+    </div>
+    <div class="file"><svg class="ico" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg><span id="fileName">morning-talk-ep14.mp4 · 18:42</span></div>
+    <nav class="steps" aria-label="Steps">
+      <div class="step" id="s1"><i>1</i>Source &amp; voice</div>
+      <div class="step" id="s2"><i>2</i>Review</div>
+      <div class="step" id="s3"><i>3</i>Dub</div>
+    </nav>
+    <div class="right">
+      <span class="online"><span class="dot"></span>Online</span>
+      <button class="btn"><svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Projects</button>
+      <button class="btn ghost" aria-label="Tools and settings"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></button>
+    </div>
+  </header>
+
+  <!-- Source & voice -->
+  <main class="view" id="view-source">
+    <div class="drop">
+      <div class="up"><svg class="ico" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></div>
+      <div>
+        <b>Drop audio or video here, or <a href="#source">browse files</a></b>
+        <div class="fmt">WAV · MP3 · M4A · FLAC · MP4 · MOV · MKV. For video, only the audio track is uploaded.</div>
+      </div>
+      <div class="samples">Try a sample <button class="btn">Podcast</button><button class="btn">Keynote</button></div>
+    </div>
+
+    <div class="work">
+      <section class="panel">
+        <div class="ph">
+          <div><h2>Dubbing voice</h2><p>Voices that speak Hindi are shown first. Play a preview before you choose.</p></div>
+          <div class="seg" role="group" aria-label="Voice engine">
+            <button aria-pressed="true">ElevenLabs</button><button aria-pressed="false">Cartesia</button>
+          </div>
+        </div>
+        <div class="tools">
+          <label class="search" for="q"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="q" placeholder="Search voices"><span class="kbd">/</span></label>
+          <div class="seg" role="group" aria-label="Gender"><button aria-pressed="true">All</button><button aria-pressed="false">Female</button><button aria-pressed="false">Male</button></div>
+          <button class="btn"><svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/></svg>Favourites</button>
+          <button class="btn ghost"><svg viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></svg>More filters</button>
+        </div>
+        <div class="sep"></div>
+        <div class="voices" id="voices"></div>
+      </section>
+
+      <aside class="panel">
+        <div class="ph"><div><h2>Dub setup</h2><p>Language, speakers and the voice for this project.</p></div></div>
+        <div class="field">
+          <div class="row2">
+            <div><label class="lb">Spoken in</label><button class="select">Auto detect<svg class="ico" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></div>
+            <div class="swap"><svg class="ico" viewBox="0 0 24 24"><path d="M7 7h12l-3-3M17 17H5l3 3"/></svg></div>
+            <div><label class="lb">Dub into</label><button class="select"><span>Hindi <span class="deva">(हिन्दी)</span></span><svg class="ico" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button></div>
+          </div>
+          <p class="help">Auto detect works for most talks. Set the language when speakers mix languages.</p>
+        </div>
+        <div class="sep"></div>
+        <div class="field">
+          <div class="toggle-row">
+            <div><b>More than one person speaks</b><p class="help">ElevenLabs labels who says each line, so every speaker can get their own voice.</p></div>
+            <button class="switch" role="switch" aria-checked="false" aria-label="More than one person speaks" id="multi"></button>
+          </div>
+        </div>
+        <div class="sep"></div>
+        <div class="field">
+          <span class="eyebrow">Voice</span>
+          <div class="picked" id="picked"></div>
+          <div class="rate">
+            <svg class="ico" viewBox="0 0 24 24" style="color:var(--faint)"><path d="M12 14l4-4M3.5 15a9 9 0 1 1 17 0"/></svg>
+            <div style="flex:1;min-width:0">
+              <small>Speaking rate in Hindi</small>
+              <div style="display:flex;gap:8px;align-items:center"><span class="num" id="rate">5.6</span><span style="color:var(--muted)">syllables/s</span><span class="chip warn">Fast</span></div>
+              <small>From a short sample read · 12 Nov 2026</small>
+            </div>
+            <button class="ib" aria-label="Measure again"><svg class="ico" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+          </div>
+        </div>
+        <div class="sep"></div>
+        <div class="field slider">
+          <div class="hd"><b>Pause detection</b><span class="mono" id="pv">50</span></div>
+          <input type="range" id="pause" min="0" max="100" value="50" aria-label="Pause detection">
+          <div class="scale"><span>Fewer, longer lines</span><span>More, shorter lines</span></div>
+        </div>
+        <div class="sep"></div>
+        <div class="cta">
+          <button class="btn primary"><svg viewBox="0 0 24 24"><path d="M4 12h12M12 6l6 6-6 6"/></svg>Transcribe and translate</button>
+          <p class="help" style="text-align:center">About 4 min for an 18 min talk</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Review -->
+  <main class="view" id="view-review" hidden>
+    <div class="rbar">
+      <h2>Review</h2>
+      <span class="stat"><b class="mono">142</b> lines · <b class="mono" style="color:var(--amber)">6</b> to check</span>
+      <div class="seg" role="group" aria-label="Show"><button aria-pressed="true">All</button><button aria-pressed="false">To check</button><button aria-pressed="false">Locked</button></div>
+      <span class="sp"></span>
+      <div class="seg" role="group" aria-label="Lane view"><button aria-pressed="true">Wave</button><button aria-pressed="false">Blocks</button><button aria-pressed="false">Bars</button></div>
+      <button class="btn ghost"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3"/></svg>Undo</button>
+      <button class="btn primary"><svg viewBox="0 0 24 24"><path d="M4 12h12M12 6l6 6-6 6"/></svg>Dub and sync</button>
+    </div>
+
+    <section class="panel">
+      <div class="player">
+        <div class="video">
+          <div class="screen"><span class="sub" id="subline">बस साँस का अंदर जाना और बाहर आना देखिए।</span></div>
+          <div class="transport">
+            <button class="bigplay" aria-label="Play"><svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg></button>
+            <span class="tc">00:00:14.6 <span>/ 00:18:42.0</span></span>
+            <span class="sp" style="flex:1"></span>
+            <div class="seg" role="group" aria-label="Listen to"><button aria-pressed="false">Original</button><button aria-pressed="true">Dub</button></div>
+          </div>
+        </div>
+        <div class="lanes">
+          <div class="ruler"><canvas id="ruler"></canvas></div>
+          <div class="lanehead"><span class="eyebrow"><span class="dot" style="color:var(--cyan)"></span>Original · English</span><span class="help mono">−18.4 LUFS</span></div>
+          <div class="lane"><canvas id="lane-src"></canvas></div>
+          <div class="lanehead"><span class="eyebrow"><span class="dot" style="color:var(--indigo-soft)"></span>Dub · Hindi</span><span class="help mono">−18.1 LUFS</span></div>
+          <div class="lane"><canvas id="lane-dub"></canvas></div>
+        </div>
+      </div>
+      <div class="lines" id="lines">
+        <div class="line head"><span>#</span><span class="h-t">Time</span><span class="h-src">Original</span><span>Dub</span><span>Fit</span><span></span></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  /* Segmented buttons: one pressed per group */
+  $$('.seg').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('button', g).forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false'));
+    if (b.dataset.view) show(b.dataset.view);
+  }));
+
+  /* Steps follow the view */
+  const show = v => {
+    $('#view-source').hidden = v !== 'source';
+    $('#view-review').hidden = v !== 'review';
+    $('#s1').className = 'step ' + (v === 'source' ? 'on' : 'done');
+    $('#s2').className = 'step ' + (v === 'review' ? 'on' : '');
+    $('#s3').className = 'step';
+    if (v === 'review') requestAnimationFrame(drawAll);
+  };
+
+  /* Voices */
+  const VOICES = [
+    ['Rachel', 'Female · American · calm', '#fb923c', ['Hindi', 'Narration']],
+    ['Aria', 'Female · American · warm', '#f472b6', ['Hindi']],
+    ['Kabir', 'Male · Indian · steady', '#34d399', ['Hindi', 'Talks']],
+    ['Meera', 'Female · Indian · bright', '#fbbf24', ['Hindi', 'Bangla']],
+    ['George', 'Male · British · storyteller', '#60a5fa', ['Narration']],
+    ['Arjun', 'Male · Indian · deep', '#a78bfa', ['Hindi', 'Talks']],
+    ['Sarah', 'Female · American · soft', '#22d3ee', ['Narration']],
+    ['Daniel', 'Male · British · news', '#94a3b8', ['News']],
+  ];
+  let picked = 0;
+  const playSvg = '<svg viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>';
+  const renderVoices = () => {
+    $('#voices').innerHTML = VOICES.map(([n, d, c, t], i) => `
+      <button class="voice" aria-pressed="${i === picked}" data-i="${i}">
+        <span class="av" style="background:${c}">${n[0]}</span>
+        <span style="min-width:0"><b>${n}</b><small>${d}</small><span class="tags">${t.map(x => `<span>${x}</span>`).join('')}</span></span>
+        <span class="play" aria-hidden="true">${playSvg}</span>
+      </button>`).join('');
+    const [n, d, c] = VOICES[picked];
+    $('#picked').innerHTML = `<span class="av" style="background:${c};width:36px;height:36px">${n[0]}</span><span><b style="font-weight:600">${n}</b><small style="display:block;color:var(--muted);font-size:11.5px">${d}</small></span><button class="btn ghost">Change</button>`;
+    $('#rate').textContent = [5.6, 5.2, 4.8, 5.4, 4.4, 4.9, 5.0, 4.6][picked].toFixed(1);
+  };
+  $('#voices').addEventListener('click', e => {
+    const b = e.target.closest('.voice'); if (!b) return;
+    picked = +b.dataset.i; renderVoices();
+  });
+  renderVoices();
+
+  $('#multi').addEventListener('click', e => {
+    const s = e.currentTarget; s.setAttribute('aria-checked', s.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
+  });
+  const pause = $('#pause');
+  const syncPause = () => { pause.style.setProperty('--p', pause.value + '%'); $('#pv').textContent = pause.value; };
+  pause.addEventListener('input', syncPause); syncPause();
+
+  /* Review lines */
+  const LINES = [
+    [1, '00:00:03.2', '00:00:06.1', 'Every morning, the first thing you do decides the day.', 'हर सुबह, आप जो पहला काम करते हैं, वही दिन तय करता है।', 'ok', 'Fits'],
+    [2, '00:00:06.6', '00:00:08.9', 'Most people wake up and reach for the phone.', 'ज़्यादातर लोग उठते ही फ़ोन उठा लेते हैं।', 'ok', 'Fits'],
+    [3, '00:00:09.4', '00:00:12.0', 'Instead, sit for two minutes with your eyes closed.', 'इसके बजाय, दो मिनट आँखें बंद करके बैठिए।', 'ok', 'Fits'],
+    [4, '00:00:12.8', '00:00:15.3', 'Just notice the breath going in and coming out.', 'बस साँस का अंदर जाना और बाहर आना देखिए।', 'warn', '+0.4 s long'],
+    [5, '00:00:15.9', '00:00:17.6', 'You will see the mind settle by itself.', 'आप देखेंगे कि मन अपने आप शांत हो जाता है।', 'bad', 'Fast · 1.18×'],
+    [6, '00:00:18.4', '00:00:21.7', 'This is not a practice. It is simply paying attention.', 'यह कोई अभ्यास नहीं है। यह बस ध्यान देना है।', 'ok', 'Fits'],
+  ];
+  let current = 4;
+  const icon = p => `<svg class="ico" viewBox="0 0 24 24">${p}</svg>`;
+  const renderLines = () => {
+    $$('.line:not(.head)').forEach(n => n.remove());
+    $('#lines').insertAdjacentHTML('beforeend', LINES.map(([n, a, b, s, d, k, f]) => `
+      <div class="line${n === current ? ' on' : ''}" data-n="${n}">
+        <span class="n">${String(n).padStart(3, '0')}</span>
+        <span class="t">${a}<br>${b}</span>
+        <span class="src">${s}</span>
+        <span class="dub">${d}</span>
+        <span><span class="chip ${k}"><span class="dot"></span>${f}</span></span>
+        <span class="act">
+          <button class="ib" aria-label="Play line">${icon('<path d="M6 4l14 8-14 8z"/>')}</button>
+          <button class="ib" aria-label="Retake">${icon('<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>')}</button>
+        </span>
+      </div>`).join(''));
+    const l = LINES.find(x => x[0] === current); $('#subline').textContent = l[4];
+  };
+  $('#lines').addEventListener('click', e => {
+    const r = e.target.closest('.line:not(.head)'); if (!r) return;
+    current = +r.dataset.n; renderLines(); drawAll();
+  });
+  renderLines();
+
+  /* Lanes: canvases sized to their box */
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const T0 = 2, T1 = 23; // seconds shown
+  const x = (t, w) => ((t - T0) / (T1 - T0)) * w;
+  const secs = s => { const [h, m, r] = s.split(':'); return +h * 3600 + +m * 60 + +r; };
+  const fit = c => {
+    const d = window.devicePixelRatio || 1, r = c.getBoundingClientRect();
+    c.width = Math.max(1, r.width * d); c.height = Math.max(1, r.height * d);
+    const g = c.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); return [g, r.width, r.height];
+  };
+  let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const env = []; for (let i = 0; i < 900; i++) env.push(rnd());
+  const amp = (t, spans, shift = 0) => {
+    for (const [a, b] of spans) if (t >= a + shift && t <= b + shift) {
+      const k = Math.min(1, (t - a - shift) * 6, (b + shift - t) * 6);
+      return k * (0.35 + 0.65 * env[Math.floor(t * 40) % env.length]);
+    }
+    return 0.03 * env[Math.floor(t * 40) % env.length];
+  };
+  const spans = LINES.map(l => [secs(l[1]), secs(l[2])]);
+  const dubSpans = LINES.map((l, i) => { const [a, b] = spans[i]; return l[5] === 'warn' ? [a, b + 0.4] : [a + 0.05, b - 0.1]; });
+  const LINE_COLS = ['#818cf8', '#22d3ee', '#a78bfa', '#38bdf8'];
+
+  const drawWave = (g, w, h, sp, col, cur) => {
+    const mid = h / 2;
+    for (let px = 0; px < w; px += 2) {
+      const t = T0 + (px / w) * (T1 - T0);
+      const a = amp(t, sp) * (h / 2 - 6);
+      g.fillStyle = col(t);
+      g.fillRect(px, mid - a, 1.4, Math.max(1, a * 2));
+    }
+  };
+  const drawAll = () => {
+    if ($('#view-review').hidden) return;
+    const edge = css('--edge'), faint = css('--faint');
+    // ruler
+    let [g, w, h] = fit($('#ruler'));
+    g.clearRect(0, 0, w, h); g.font = '10px JetBrains Mono, monospace'; g.fillStyle = faint; g.strokeStyle = edge;
+    for (let s = T0; s <= T1; s++) {
+      const px = x(s, w); g.beginPath(); g.moveTo(px + 0.5, h); g.lineTo(px + 0.5, s % 5 === 0 ? h - 8 : h - 4); g.stroke();
+      if (s % 5 === 0) g.fillText('00:' + String(s).padStart(2, '0'), px + 3, 10);
+    }
+    const tPlay = 14.6;
+    // source lane
+    [g, w, h] = fit($('#lane-src'));
+    g.clearRect(0, 0, w, h);
+    spans.forEach(([a, b], i) => { if (LINES[i][0] === current) { g.fillStyle = 'rgba(34,211,238,0.08)'; g.fillRect(x(a, w), 0, x(b, w) - x(a, w), h); } });
+    drawWave(g, w, h, spans, t => t < tPlay ? '#22d3ee' : '#4b5a74');
+    g.fillStyle = css('--text'); g.fillRect(x(tPlay, w), 0, 1.5, h);
+    // dub lane: line colours, marks only on problem lines
+    [g, w, h] = fit($('#lane-dub'));
+    g.clearRect(0, 0, w, h);
+    dubSpans.forEach(([a, b], i) => {
+      const k = LINES[i][5], x0 = x(a, w), x1 = x(b, w);
+      g.fillStyle = LINES[i][0] === current ? 'rgba(91,94,240,0.16)' : 'rgba(91,94,240,0.05)';
+      g.beginPath(); g.roundRect(x0, 4, x1 - x0, h - 8, 5); g.fill();
+      if (k !== 'ok') { g.fillStyle = k === 'warn' ? '#fbbf24' : '#fb7185'; g.fillRect(x0, h - 6, x1 - x0, 2); }
+    });
+    drawWave(g, w, h, dubSpans, t => { const i = dubSpans.findIndex(([a, b]) => t >= a && t <= b); return i < 0 ? '#3a4766' : LINE_COLS[i % 4]; });
+    g.fillStyle = css('--text'); g.fillRect(x(tPlay, w), 0, 1.5, h);
+  };
+  addEventListener('resize', drawAll);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
+  show('source');
+})();
+</script>

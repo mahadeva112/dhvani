@@ -1,0 +1,197 @@
+<title>Dhvani Main Voice</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Bengali:wght@400;500;600&display=swap">
+<style>
+/* Layout: Bangla note on top, then the Dub setup's Voice section twice, side by side: as the app draws it now, and as proposed. A switch flips both between before and after transcribing. Single dark look, the app's polished Graphite. */
+:root {
+  color-scheme: dark;
+  --ground: #0b0c0e;
+  --base: #111214;
+  --panel: #17181b;
+  --raised: #232529;
+  --hover: #34363c;
+  --edge: #27292d;
+  --edge-strong: #34363c;
+  --text: #ededf0;
+  --muted: #abadb5;
+  --faint: #8b8e98;
+  --indigo: #5866e0;
+  --indigo-soft: #9aa3f5;
+  --indigo-wash: rgba(88, 102, 224, 0.14);
+  --amber: #fbbf24;
+  --emerald: #34d399;
+  --font-ui: "Inter", "Noto Sans Bengali", ui-sans-serif, system-ui, sans-serif;
+  --font-head: "Space Grotesk", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --font-bn: "Noto Sans Bengali", "Inter", sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--ground); color: var(--text); font-family: var(--font-ui); font-size: 13px; line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 40px;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--indigo-soft); outline-offset: 2px; }
+.wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 18px; }
+.note { display: grid; gap: 10px; font-family: var(--font-bn); }
+.note h1 { font-family: var(--font-head); font-size: 20px; margin: 0; text-wrap: balance; }
+.note h1 span { color: var(--faint); font-weight: 500; font-family: var(--font-bn); font-size: 15px; }
+.note p { margin: 0; color: var(--muted); max-width: 72ch; }
+.note ul { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 3px; max-width: 80ch; }
+.note b { color: var(--text); font-weight: 600; }
+.seg { display: inline-flex; background: var(--base); border: 1px solid var(--edge); border-radius: 9px; padding: 3px; gap: 2px; justify-self: start; }
+.seg button { padding: 5px 12px; border-radius: 6px; color: var(--muted); font-weight: 500; font-size: 12.5px; }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--text); box-shadow: inset 0 0 0 1px var(--edge-strong); }
+
+.cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.col { display: grid; gap: 8px; min-width: 0; }
+.col > h2 { margin: 0; font-family: var(--font-bn); font-size: 13px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+.col > h2 .tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; background: var(--raised); color: var(--faint); font-weight: 500; }
+.col.new > h2 .tag { background: var(--indigo-wash); color: var(--indigo-soft); }
+.panel { background: var(--panel); border: 1px solid var(--edge); border-radius: 14px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035); }
+.sec { padding: 16px 18px; display: grid; gap: 10px; border-top: 1px solid var(--edge); }
+.sec:first-child { border-top: 0; }
+.eyebrow { font-size: 10.5px; font-weight: 600; letter-spacing: 0.09em; text-transform: uppercase; color: var(--faint); }
+.help { margin: 0; color: var(--faint); font-size: 11.5px; line-height: 1.45; }
+.toggle-row { display: flex; justify-content: space-between; gap: 12px; }
+.toggle-row b { font-weight: 600; display: block; }
+.switch { width: 36px; height: 20px; border-radius: 999px; background: var(--indigo); position: relative; flex: none; margin-top: 2px; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 19px; width: 14px; height: 14px; border-radius: 50%; background: #fff; }
+.kv { display: flex; justify-content: space-between; align-items: center; color: var(--muted); font-size: 12px; }
+.sel { height: 30px; padding: 0 10px; border: 1px solid var(--edge-strong); border-radius: 8px; background: var(--base); color: var(--text); font-weight: 500; display: inline-flex; align-items: center; gap: 8px; }
+.voice { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px; background: var(--raised); border-radius: 11px; }
+.av { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 600; color: #101114; }
+.voice b { font-weight: 600; display: block; }
+.voice small { color: var(--muted); font-size: 11.5px; }
+.btn { height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--edge-strong); background: var(--base); font-size: 12px; font-weight: 500; white-space: nowrap; }
+.btn:hover { background: var(--hover); }
+.rate { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--edge); border-radius: 11px; }
+.rate small { display: block; color: var(--faint); font-size: 11px; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 500; }
+.chip { display: inline-flex; align-items: center; height: 19px; padding: 0 7px; border-radius: 999px; font-size: 10.5px; font-weight: 500; }
+.chip.warn { color: var(--amber); background: rgba(251, 191, 36, 0.12); }
+.chip.main { color: var(--indigo-soft); background: var(--indigo-wash); }
+.role { display: flex; gap: 8px; align-items: flex-start; padding: 9px 11px; border-radius: 10px; background: var(--indigo-wash); color: #d7dbfb; font-size: 12px; }
+.role svg { width: 15px; height: 15px; flex: none; margin-top: 1px; stroke: var(--indigo-soft); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.alert { margin: 0; color: rgba(252, 211, 77, 0.92); font-size: 11.5px; }
+.rows { display: grid; }
+.row { display: grid; grid-template-columns: 8px 96px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--edge); }
+.row:first-child { border-top: 0; }
+.row .dot { width: 8px; height: 8px; border-radius: 50%; }
+.row .who { font-size: 12.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .who small { display: block; color: var(--faint); font-size: 10.5px; font-family: var(--font-mono); }
+.row .v { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.row .v .mini { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 10.5px; font-weight: 600; flex: none; }
+.row .v span { min-width: 0; }
+.row .v b { display: block; font-weight: 500; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .v small { display: block; color: var(--faint); font-size: 10.5px; }
+.share { display: block; width: 100%; height: 4px; border-radius: 99px; background: var(--raised); overflow: hidden; margin-top: 4px; }
+.share i { display: block; height: 100%; border-radius: inherit; }
+.row.ghost .who, .row.ghost .v { color: var(--muted); }
+.new-mark { position: relative; }
+.new-mark::before { content: ""; position: absolute; left: -10px; top: 4px; bottom: 4px; width: 2px; border-radius: 2px; background: var(--indigo); }
+@media (max-width: 760px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+</style>
+
+<div class="wrap">
+  <section class="note">
+    <h1>Main voice, multi speaker <span>· ৪ নম্বর পরামর্শের মক</span></h1>
+    <p>Main voice বাছাটা সহজ করতে: অ্যাপ বলে দেবে কে সবচেয়ে বেশি বলেন, আর Main voice কাদের হয়ে বলছে। বাঁদিকে অ্যাপ এখন যেমন, ডানদিকে প্রস্তাব। নীল দাগ = নতুন জিনিস।</p>
+    <ul>
+      <li><b>Transcribe-এর আগে:</b> Main voice-এর নিচে লেখা থাকবে, ভয়েসটা বাছুন যিনি সবচেয়ে বেশি বলেন তাঁর জন্য।</li>
+      <li><b>Transcribe-এর পরে:</b> নীল বাক্সে লেখা, কে সবচেয়ে বেশি বলেন (কত %), আর Main voice কাদের হয়ে বলছে।</li>
+      <li><b>Cast-এ প্রতিটা স্পিকারের ভাগ:</b> কত % সময় আর কত লাইন, ছোট বার দিয়ে; সবচেয়ে বেশি যিনি বলেন তিনি উপরে।</li>
+      <li><b>কম বলা স্পিকার:</b> Main voice ভাগ করলে কার সাথে গলা মিলে যাবে, নাম ধরে বলবে।</li>
+    </ul>
+    <div class="seg" role="group" aria-label="When">
+      <button id="st-before" aria-pressed="false" data-st="before">Before transcribing</button>
+      <button id="st-after" aria-pressed="true" data-st="after">After transcribing</button>
+    </div>
+  </section>
+
+  <div class="cols">
+    <div class="col"><h2>এখন <span class="tag">1.4.68 + আজকের বদল</span></h2><div class="panel" id="now"></div></div>
+    <div class="col new"><h2>প্রস্তাব <span class="tag">মক</span></h2><div class="panel" id="new"></div></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const SPK = [
+    { name: 'Speaker 1', color: '#a78bfa', share: 0.61, lines: 48 },
+    { name: 'Speaker 2', color: '#2dd4bf', share: 0.30, lines: 31, own: { n: 'Kabir', c: '#34d399', rate: '5.1' } },
+    { name: 'Speaker 3', color: '#fb923c', share: 0.09, lines: 6 },
+  ];
+  const MAIN = { n: 'Rachel', d: 'Female · American', c: '#fb923c', rate: '5.6' };
+  const info = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v5h1"/></svg>';
+
+  const top = () => `
+    <div class="sec">
+      <div class="toggle-row"><div><b>More than one person speaks</b><p class="help">ElevenLabs labels who says each line, so every speaker can get their own voice.</p></div><span class="switch" aria-hidden="true"></span></div>
+      <div class="kv">How many speakers <span class="sel">3</span></div>
+    </div>`;
+  const mainCard = () => `
+    <div class="voice"><span class="av" style="background:${MAIN.c}">R</span><span><b>${MAIN.n}</b><small>${MAIN.d}</small></span><button class="btn">Change</button></div>`;
+  const rate = () => `
+    <div class="rate"><span style="flex:1;min-width:0"><small>Speaking rate in Hindi</small><span style="display:flex;gap:8px;align-items:center"><span class="num">${MAIN.rate}</span><span style="color:var(--muted)">syllables/s</span><span class="chip warn">Fast</span></span></span></div>`;
+
+  const nowBefore = () => top() + `
+    <div class="sec">
+      <span class="eyebrow">Main voice</span>${mainCard()}
+      <p class="help">Every speaker uses this until you give them their own.</p>${rate()}
+      <span class="eyebrow" style="margin-top:6px">Speakers</span>
+      <div class="rows">${SPK.map(s => `<div class="row ghost"><span class="dot" style="background:${s.color};opacity:.7"></span><span class="who" style="grid-column:2/4">${s.name}</span><span class="help">Main voice</span></div>`).join('')}</div>
+      <p class="help">Each gets their own voice after transcribing.</p>
+    </div>`;
+  const newBefore = () => top() + `
+    <div class="sec">
+      <span class="eyebrow">Main voice</span>${mainCard()}
+      <p class="help new-mark">Pick it for whoever speaks most, such as the host. Every speaker uses it until you give them their own.</p>${rate()}
+      <span class="eyebrow" style="margin-top:6px">Speakers</span>
+      <div class="rows">${SPK.map(s => `<div class="row ghost"><span class="dot" style="background:${s.color};opacity:.7"></span><span class="who" style="grid-column:2/4">${s.name}</span><span class="help">Main voice</span></div>`).join('')}</div>
+      <p class="help">After transcribing you will see who speaks most, and give each their own voice.</p>
+    </div>`;
+
+  const castRow = (s, withShare) => {
+    const v = s.own ? { n: s.own.n, c: s.own.c, r: s.own.rate } : { n: MAIN.n, c: MAIN.c, r: MAIN.rate };
+    return `<div class="row">
+      <span class="dot" style="background:${s.color}"></span>
+      <span class="who">${s.name}${withShare ? `<small>${Math.round(s.share * 100)}% · ${s.lines} lines</small><span class="share"><i style="width:${s.share * 100}%;background:${s.color}"></i></span>` : ''}</span>
+      <span class="v"><span class="mini" style="background:${s.color}26;color:${s.color}">${v.n[0]}</span><span><b>${v.n}</b><small>${s.own ? 'Own voice' : 'Main voice'} · ${v.r} syllables/s</small></span></span>
+      <button class="btn">Change</button>
+    </div>`;
+  };
+  const nowAfter = () => top() + `
+    <div class="sec">
+      <span class="eyebrow">Main voice</span>${mainCard()}${rate()}
+      <span class="eyebrow" style="margin-top:6px">Cast</span>
+      <div class="rows">${SPK.map(s => castRow(s, false)).join('')}</div>
+      <p class="alert">Some speakers share a voice, so they will sound alike. Give each their own to tell them apart.</p>
+    </div>`;
+  const newAfter = () => {
+    const sorted = [...SPK].sort((a, b) => b.share - a.share);
+    const lead = sorted[0];
+    const onMain = SPK.filter(s => !s.own).map(s => s.name);
+    return top() + `
+    <div class="sec">
+      <span class="eyebrow">Main voice</span>${mainCard()}
+      <div class="role new-mark">${info}<span><b style="font-weight:600">${lead.name} speaks most (${Math.round(lead.share * 100)}%).</b> ${MAIN.n} speaks for ${onMain.join(' and ')}, and anyone without their own voice.</span></div>
+      ${rate()}
+      <span class="eyebrow" style="margin-top:6px">Cast · most speech first</span>
+      <div class="rows new-mark">${sorted.map(s => castRow(s, true)).join('')}</div>
+      <p class="alert new-mark">Speaker 3 (6 lines) shares ${MAIN.n} with Speaker 1, so they will sound alike. Give Speaker 3 their own voice.</p>
+    </div>`;
+  };
+
+  const render = st => {
+    document.getElementById('now').innerHTML = st === 'before' ? nowBefore() : nowAfter();
+    document.getElementById('new').innerHTML = st === 'before' ? newBefore() : newAfter();
+    document.querySelectorAll('[data-st]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.st === st)));
+  };
+  document.querySelector('.seg').addEventListener('click', e => { const b = e.target.closest('[data-st]'); if (b) render(b.dataset.st); });
+  render('after');
+})();
+</script>

@@ -19,9 +19,8 @@ import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { computePeaks, drawCentreLine, drawPeaks, WaveStyle } from '../services/waveform';
 import { useWaveHeight } from './waveHeight';
 import { WaveHeightButton } from './WaveHeightButton';
-import { MIN_WINDOW_SECONDS, RULER_STEPS, tickDecimals, ticksBetween } from './TimelineControls';
+import { MIN_WINDOW_SECONDS, PLAYHEAD_RED, Playhead, RULER_STEPS, placePlayheadAt, tickDecimals, ticksBetween } from './TimelineControls';
 import { LINE_HUES, shadeOf, tintOf } from './lineColors';
-import { useTheme } from './theme';
 
 export interface ReviewWaveformPlayerProps {
   audioBuffer: AudioBuffer | null;
@@ -149,11 +148,11 @@ const LANE_INSET = 6;
 /** Height of the mini player bar along the bottom of the window. */
 const MINI_BAR_PX = 40;
 
-/** Canvas colours. */
+/** Canvas colours, in Graphite's neutral greys. */
 const PALETTE = {
-  wave: '#64748b',
+  wave: '#666972',
   /** The faint centre line, all a silent stretch shows. */
-  guide: 'rgba(148,163,184,0.22)',
+  guide: 'rgba(171,173,181,0.2)',
   played: '#22d3ee',
   cue: 'rgba(34,211,238,0.10)',
   cueEdge: 'rgba(34,211,238,0.45)',
@@ -161,14 +160,11 @@ const PALETTE = {
   fastEdge: 'rgba(251,113,133,0.7)',
   current: 'rgba(129,140,248,0.18)',
   currentEdge: '#818cf8',
-  hatch: '#1e293b',
-  label: '#94a3b8',
-  playhead: '#f1f5f9',
+  hatch: '#232529',
+  label: '#abadb5',
+  playhead: PLAYHEAD_RED,
   view: '#818cf8',
 };
-
-/** The same, with Graphite's neutral greys in place of slate (components/theme.ts). */
-const GRAPHITE_PALETTE = { ...PALETTE, wave: '#6b6d75', guide: 'rgba(171,173,181,0.2)', hatch: '#36383e', label: '#abadb5', playhead: '#ececef' };
 
 const targetOf = (seg: AudioSegment) => seg.textTarget || seg.targetText || '';
 const sourceOf = (seg: AudioSegment) => seg.textSource || seg.originalText || '';
@@ -217,10 +213,7 @@ const cueIndexAt = (segments: AudioSegment[], t: number) => {
 
 /** Puts a playhead at fraction `f` of its box, and shows the played layer up to it. */
 const placePlayhead = (head: HTMLElement | null, played: HTMLElement | null, f: number) => {
-  if (head) {
-    head.style.display = f >= 0 && f <= 1 ? '' : 'none';
-    head.style.left = `${f * 100}%`;
-  }
+  placePlayheadAt(head, f);
   if (played) played.style.clipPath = `inset(0 ${(1 - Math.max(0, Math.min(1, f))) * 100}% 0 0)`;
 };
 
@@ -268,7 +261,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   // The marked cues by id, so the waveforms redraw when a mark changes and not on every render.
   const fastIds = segments.filter((seg) => paceOf(seg).level === 'fast').map((seg) => String(seg.id)).join('|');
   const fastSet = useMemo(() => new Set(fastIds.split('|')), [fastIds]);
-  const palette = useTheme() === 'graphite' ? GRAPHITE_PALETTE : PALETTE;
+  const palette = PALETTE;
   /** The timeline's layers, remembered across sessions. */
   const [layers, setLayers] = useState<LaneLayers>(() => {
     try {
@@ -372,10 +365,10 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   const [transportEl, transportRef] = useState<HTMLDivElement | null>(null);
   const waveRef = useRef<HTMLCanvasElement>(null);
   const wavePlayedRef = useRef<HTMLCanvasElement>(null);
-  const waveHeadRef = useRef<HTMLDivElement>(null);
+  const waveHeadRef = useRef<HTMLSpanElement>(null);
   const miniRef = useRef<HTMLCanvasElement>(null);
   const miniPlayedRef = useRef<HTMLCanvasElement>(null);
-  const miniHeadRef = useRef<HTMLDivElement>(null);
+  const miniHeadRef = useRef<HTMLSpanElement>(null);
   const dragRef = useRef<'wave' | 'cut' | null>(null);
   /** The left cue of the cut being dragged. */
   const cutDragRef = useRef<string | number | null>(null);
@@ -1181,6 +1174,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
           below; then a plain scroll bar for the whole track.
         */}
         <div ref={timelineRef} className="px-3.5">
+          {/* The ruler and the lanes, with one playhead down both as in DaVinci Resolve */}
+          <div className="relative">
           <div
             ref={rulerRef}
             className="relative h-5 overflow-hidden font-mono text-[10px] text-slate-500 cursor-pointer touch-none select-none hover:bg-slate-800/40 rounded-md"
@@ -1271,9 +1266,6 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 </div>
               </div>
             )}
-            <div ref={waveHeadRef} className="absolute z-20 top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }}>
-              <span className="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full" style={{ background: palette.playhead }} />
-            </div>
             {!follow && playheadOffView && (
               <button
                 type="button"
@@ -1288,6 +1280,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 <LocateFixed className="w-3 h-3" /> Playhead
               </button>
             )}
+          </div>
+          <Playhead ref={waveHeadRef} cap className="z-20" />
           </div>
           <div
             ref={scrollbarRef}
@@ -1314,8 +1308,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 />
                 <span
                   aria-hidden="true"
-                  className="absolute -top-0.5 -bottom-0.5 w-0.5 -ml-px rounded-full bg-slate-100 pointer-events-none"
-                  style={{ left: `${(Math.max(0, Math.min(total, currentTime)) / total) * 100}%` }}
+                  className="absolute -top-0.5 -bottom-0.5 w-0.5 -ml-px rounded-full pointer-events-none"
+                  style={{ left: `${(Math.max(0, Math.min(total, currentTime)) / total) * 100}%`, background: palette.playhead }}
                 />
               </>
             )}
@@ -1392,7 +1386,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             >
               <canvas ref={miniRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
               <canvas ref={miniPlayedRef} className="absolute inset-0 w-full h-full" aria-hidden="true" />
-              <div ref={miniHeadRef} className="absolute top-0 bottom-0 w-0.5 -ml-px pointer-events-none" style={{ background: palette.playhead }} />
+              <Playhead ref={miniHeadRef} />
             </div>
             <button
               type="button"

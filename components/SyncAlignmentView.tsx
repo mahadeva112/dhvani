@@ -3,7 +3,7 @@ import { CircleHelp, Mic, Pencil } from 'lucide-react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import { LINE_HUES, hueOf, withAlpha } from './lineColors';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
-import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
+import { Playhead, TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { LinePair } from './LinePair';
 
@@ -209,12 +209,8 @@ export const SyncAlignmentView: React.FC<{
           </div>
           <div className="relative h-7 border-b border-edge bg-slate-900/60 overflow-hidden">
             <TimelineRuler zoom={zoom} marks onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
-            {/* The playhead's cap, at the foot of the ruler */}
-            <span
-              ref={playheadRef(3)}
-              aria-hidden="true"
-              className="absolute bottom-0 w-0 h-0 -ml-[5px] border-x-[5px] border-x-transparent border-t-[7px] border-t-slate-100 pointer-events-none"
-            />
+            {/* The playhead's head, on the ruler as in DaVinci Resolve */}
+            <Playhead ref={playheadRef(3)} cap />
           </div>
 
           {/* Original */}
@@ -260,7 +256,7 @@ export const SyncAlignmentView: React.FC<{
               <WindowWaveform data={sourcePeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={sourceSpans} className="text-slate-400/30" />
             </div>
             </div>
-            <span ref={playheadRef(0)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100 pointer-events-none" />
+            <Playhead ref={playheadRef(0)} />
           </div>
 
           {/* Dub */}
@@ -298,7 +294,7 @@ export const SyncAlignmentView: React.FC<{
               <WindowWaveform data={dubPeaks} from={windowStart} span={WINDOW_SECONDS + ahead} spans={dubSpans} className="text-slate-400/30" />
             </div>
             </div>
-            <span ref={playheadRef(2)} className="absolute top-0 bottom-0 w-px -ml-px bg-slate-100 pointer-events-none" />
+            <Playhead ref={playheadRef(2)} />
           </div>
 
           {/* The scroll bar, along the foot of the lanes: the whole dub in its lines' colours */}

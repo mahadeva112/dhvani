@@ -58,7 +58,7 @@ import { projectFileStem } from '../services/projects';
 import { useVoiceMatches } from '../services/useVoiceMatches';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker, SPEAKER_COLORS } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
-import { SpeakerBar, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
+import { SpeakerBar, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MainVoiceRole, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
 import { retranslateCues, type RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import { scrollWithin } from './scrollWithin';
@@ -2448,7 +2448,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </span>
                 <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
                 {multiSpeakerInput && !multiSpeaker && (
-                  <p className="text-[11px] text-slate-500 leading-snug -mt-1">Every speaker uses this until you give them their own.</p>
+                  <p className="text-[11px] text-slate-500 leading-snug -mt-1">
+                    Pick it for whoever speaks most, such as the host. Every speaker uses it until you give them their own.
+                  </p>
+                )}
+                {multiSpeaker && activeJob && (
+                  <MainVoiceRole speakers={speakers} cast={activeJob.cast} mainVoiceId={elVoiceId} availableVoices={availableVoices} />
                 )}
                 {voiceRate && <VoiceRateCard voiceRate={voiceRate} language={targetLanguage} />}
                 {/* More than one person speaks is on, but no speakers are known yet: show what is coming, so the
@@ -2470,7 +2475,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       ))}
                     <p className="text-[11px] text-slate-500 leading-snug pt-1">
                       {speakerCount > 0
-                        ? 'Each gets their own voice after transcribing.'
+                        ? 'After transcribing you will see who speaks most, and give each their own voice.'
                         : 'Speakers are found when the file is transcribed. Then you can give each their own voice here.'}
                     </p>
                   </div>

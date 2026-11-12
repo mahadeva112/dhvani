@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Check, Loader2, Pencil, RotateCcw, X } from 'lucide-react';
-import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
+import { Playhead, TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { FitText, SqueezedWord } from './FitText';
@@ -2725,7 +2725,7 @@ export const PreviewTimeline: React.FC<{
       </span>
     ) : null;
   const playhead = (index: number) => (
-    <span ref={playheadRef(index)} className="absolute top-0 bottom-0 w-0.5 -ml-px bg-slate-100 pointer-events-none" />
+    <Playhead ref={playheadRef(index)} />
   );
 
   return (
@@ -2758,7 +2758,11 @@ export const PreviewTimeline: React.FC<{
       </div>
       <div ref={zoom.lanesRef} className="grid grid-cols-[5rem_minmax(0,1fr)] gap-x-3 gap-y-1.5 items-center" style={{ overflowX: 'clip' }}>
         <span />
-        <TimelineRuler zoom={zoom} onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
+        <div className="relative">
+          <TimelineRuler zoom={zoom} onSeek={(t) => onSeek(Math.max(0, Math.min(total, t)))} />
+          {/* The playhead's head, on the ruler as in DaVinci Resolve */}
+          <Playhead ref={playheadRef(2)} cap />
+        </div>
         <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
           <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original
         </span>
