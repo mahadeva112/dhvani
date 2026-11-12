@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.68',
+    changes: [
+      'Long projects use far less memory while you retake and edit: each take and each render used to need about 2 GB extra for an hour’s dub, and after a long session the computer slowed down and “Your edits could not be rendered” appeared. The sound is exactly the same.',
+    ],
+  },
+  {
     version: '1.4.67',
     changes: [
       'Opening a long project does less work: each waveform is read once instead of once per view, and a project that already has its lines no longer scans the whole recording for speech again.',
