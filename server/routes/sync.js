@@ -245,29 +245,35 @@ export const keptResultCount = () => results.size;
  * render took it (see runSync). The app keeps its own copy with the project
  * and sends it again (PUT /api/sync/edit/banks/:bankId) when this one has
  * gone: dropped after BANK_TTL_MS unused, or the oldest first past
- * BANK_BYTES_LIMIT, or with the server.
+ * BANK_BYTES_LIMIT, or with the server. A bank used in the last
+ * BANK_IN_USE_MS is never dropped for room: a long dub's bank and the clips
+ * of the original rendered with it would otherwise push each other out, and
+ * every render would find one of them gone.
  */
 const BANK_TTL_MS = 3 * 60 * 60 * 1000;
 const BANK_BYTES_LIMIT = 768 * 1024 * 1024;
+const BANK_IN_USE_MS = 30 * 60 * 1000;
 const STRETCH_CACHE_LIMIT = 200;
 const STRETCH_CACHE_BYTES = 128 * 1024 * 1024;
 const banks = new Map();
 
 const BANK_ID = /^[A-Za-z0-9-]{8,64}$/;
 
-const keepBank = (bankId, { sampleRate, float, samples }) => {
+export const keepBank = (bankId, { sampleRate, float, samples }, now = Date.now()) => {
   banks.delete(bankId);
-  banks.set(bankId, { sampleRate, float, samples, usedAt: Date.now(), arrays: null, arraysKey: '', stretched: new Map() });
+  banks.set(bankId, { sampleRate, float, samples, usedAt: now, arrays: null, arraysKey: '', stretched: new Map() });
   let bytes = 0;
   for (const entry of banks.values()) bytes += entry.samples.byteLength;
-  for (const [id, entry] of banks) {
-    if (bytes <= BANK_BYTES_LIMIT || id === bankId) break;
+  for (const [id, entry] of [...banks]) {
+    if (bytes <= BANK_BYTES_LIMIT) break;
+    if (id === bankId || now - entry.usedAt < BANK_IN_USE_MS) continue;
     bytes -= entry.samples.byteLength;
     banks.delete(id);
   }
 };
 
-const bankFor = (bankId) => {
+/** The bank kept under `bankId`, or null (exported for tests). */
+export const bankFor = (bankId) => {
   const now = Date.now();
   for (const [id, entry] of banks) if (now - entry.usedAt > BANK_TTL_MS) banks.delete(id);
   const entry = banks.get(bankId);

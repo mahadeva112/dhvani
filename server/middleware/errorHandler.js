@@ -24,6 +24,12 @@ export const errorHandler = (err, req, res, _next) => {
     );
   }
 
+  // The app stopped sending (it was closed, or a newer request replaced this one): nothing went wrong here.
+  if (err?.type === 'request.aborted') {
+    logger.info(`${req.method} ${req.path}: the app stopped sending it.`);
+    return res.status(400).end();
+  }
+
   if (err instanceof ApiError) {
     logger.warn(`${req.method} ${req.path} -> ${err.status} ${err.code}: ${err.message}`);
     return res.status(err.status).json(err.toJSON());

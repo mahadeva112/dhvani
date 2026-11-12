@@ -1,4 +1,5 @@
-import { apiGetAudio, apiJson, apiPutBlob, DhvaniApiError } from './apiClient';
+import { apiGetAudio, apiJson, DhvaniApiError } from './apiClient';
+import { sendBankAgain } from './bankUpload';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
 import { castPayload } from './castService';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
@@ -22,7 +23,7 @@ export const alignTakeWords = async (
   try { return (await send()).words; }
   catch (err) {
     if (!(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
-    await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+    await sendBankAgain(bank.bankId, bankBlob, { signal });
     return (await send()).words;
   }
 };
@@ -86,7 +87,7 @@ export const placeTakeLikeSync = async (
     return await send();
   } catch (err) {
     if (!(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
-    await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+    await sendBankAgain(bank.bankId, bankBlob, { signal });
     return send();
   }
 };
@@ -199,7 +200,7 @@ export const voiceTakes = async (
   } catch (err) {
     // The server keeps a bank a few hours, and not across a restart: send it again.
     if (!(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
-    await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+    await sendBankAgain(bank.bankId, bankBlob, { signal });
     data = await send();
   }
   const added = await apiGetAudio(`/sync/audio/${encodeURIComponent(data.audioId)}`, { signal });

@@ -1,4 +1,5 @@
-import { apiJson, apiPutBlob, DhvaniApiError } from './apiClient';
+import { apiJson, DhvaniApiError } from './apiClient';
+import { sendBankAgain } from './bankUpload';
 import { fetchMixed } from './castService';
 import { DubMixReport, DubStem } from '../types';
 import type { SyncReport } from './syncService';
@@ -148,9 +149,9 @@ export const renderSyncEdits = async (
       if (!(err instanceof DhvaniApiError) || attempt >= 2) throw err;
       if (err.code === 'edit_bank_missing') {
         if (!bankBlob) throw new DhvaniApiError('The lines of this sync were not saved with the project. Sync again to edit its timing.', { code: 'edit_bank_lost' });
-        await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+        await sendBankAgain(bank.bankId, bankBlob, { signal });
       } else if (err.code === 'edit_original_missing' && original) {
-        await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(original.bankId)}`, original.blob(), { signal });
+        await sendBankAgain(original.bankId, original.blob(), { signal });
       } else throw err;
     }
   }

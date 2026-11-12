@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
-import { syncRouter, keepResult, keptResultCount } from './sync.js';
+import { syncRouter, keepResult, keptResultCount, keepBank, bankFor } from './sync.js';
 import { pcmToWav } from '../lib/wav.js';
 
 const listen = async () => {
@@ -36,6 +36,22 @@ test('kept results over the byte budget drop the oldest, never ones kept in the 
   } finally {
     await close();
   }
+});
+
+test('banks over the byte budget never push out one used in the last half hour', () => {
+  // Counted as 500 MB each without holding that much.
+  const big = () => ({ sampleRate: 48000, float: true, samples: Object.defineProperty(new Float32Array(4), 'byteLength', { value: 500 * 1024 * 1024 }) });
+  const now = Date.now();
+  keepBank('bank-test-stale', big(), now - 60 * 60 * 1000);
+  keepBank('bank-test-dub', big(), now - 5 * 60 * 1000);
+  // The clips of the original, sent for the same render as the dub's bank: the stale one goes, the dub's stays.
+  keepBank('original-test-clips', big(), now);
+  assert.equal(bankFor('bank-test-stale'), null);
+  assert.ok(bankFor('bank-test-dub'), 'the long dub\'s bank in use is kept');
+  assert.ok(bankFor('original-test-clips'));
+  // Sending the dub's bank again does not push out the clips of the original either.
+  keepBank('bank-test-dub', big(), now);
+  assert.ok(bankFor('original-test-clips'));
 });
 
 test('edit renders sent together all finish, one at a time, and a failed one does not stop the rest', async () => {

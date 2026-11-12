@@ -1,4 +1,5 @@
 import { apiGet, apiGetAudio, apiJson, apiPutBlob, DhvaniApiError } from './apiClient';
+import { sendBankAgain } from './bankUpload';
 import { AudioSegment, DubLines, DubMixReport, DubStem, MixPeakMode, SpeakerVoice } from '../types';
 import { ElevenLabsVoiceSettings, StabilityAdjustment } from './elevenLabsService';
 import { isCartesiaVoice, cartesiaDelivery, type CartesiaVoicePrefs } from './cartesiaService';
@@ -575,7 +576,7 @@ export const syncDub = async (
       return await send(withDub);
     } catch (err) {
       if (!picked || !(err instanceof DhvaniApiError) || err.code !== 'sync_bank_missing') throw err;
-      if (pickedBankBlob) await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(picked.bankId)}`, pickedBankBlob, { signal });
+      if (pickedBankBlob) await sendBankAgain(picked.bankId, pickedBankBlob, { signal });
       else keepPicked = false;
       return send(withDub);
     }

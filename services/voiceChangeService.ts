@@ -1,4 +1,5 @@
 import { apiGetAudio, apiJson, apiPutBlob, DhvaniApiError } from './apiClient';
+import { sendBankAgain } from './bankUpload';
 import { originalParts, partEnd, partsOf, type SyncBank, type SyncBankLine, type SyncEdits } from './syncEditModel.ts';
 import { appendManyToBank, takesOf, type SyncTake, type SyncTakes } from './syncTakes.ts';
 import type { ChangedVoice } from './changedVoices.ts';
@@ -143,7 +144,7 @@ export const voiceChangeLines = async (
         } catch (err) {
           // The server keeps a bank a few hours, and not across a restart: send it again, once for all lines.
           if (!(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
-          resent ??= apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+          resent ??= sendBankAgain(bank.bankId, bankBlob, { signal });
           await resent;
           data = await send(line);
         }
@@ -254,7 +255,7 @@ export const voiceChangeTakes = async (
       // The server keeps a bank a few hours, and not across a restart: send it again, once.
       if (resent || !(err instanceof DhvaniApiError) || err.code !== 'edit_bank_missing') throw err;
       resent = true;
-      await apiPutBlob(`/sync/edit/banks/${encodeURIComponent(bank.bankId)}`, bankBlob, { signal });
+      await sendBankAgain(bank.bankId, bankBlob, { signal });
       return changeRegion(bank.bankId, take, voice.voiceId, voice.settings, { apiKey, signal });
     }
   };
