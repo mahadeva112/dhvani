@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.67',
+    changes: [
+      'Opening a long project does less work: each waveform is read once instead of once per view, and a project that already has its lines no longer scans the whole recording for speech again.',
+      'If the window still stops answering, the problem report now says what DHVANI was busy with at the time.',
+    ],
+  },
+  {
     version: '1.4.66',
     changes: [
       'Editing the timing of a long dub no longer stops with “The saved lines of this sync are not on the server”. The dub’s lines and the clips of the original no longer push each other out, and a new edit no longer cuts off the lines being sent again.',
