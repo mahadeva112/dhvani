@@ -156,6 +156,96 @@ export const analyzeAudio = async (
   }
 };
 
+/** Where a plain PCM WAV keeps its samples: 16-bit or 32-bit float, any channel count. */
+export type PcmWavLayout = { offset: number; frames: number; channels: number; sampleRate: number; float: boolean };
+
+/**
+ * The layout of a plain PCM WAV (16-bit integer or 32-bit float, the kinds
+ * DHVANI writes), from the start of the file; null for anything else, which
+ * goes to the browser's decoder. `fileSize` bounds a data chunk whose size
+ * was never filled in.
+ */
+export const pcmWavLayout = (head: ArrayBuffer, fileSize: number): PcmWavLayout | null => {
+  const view = new DataView(head);
+  const tag = (at: number) => String.fromCharCode(...new Uint8Array(head, at, 4));
+  if (head.byteLength < 12 || tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null;
+  let fmt: { format: number; channels: number; sampleRate: number; bits: number; align: number } | null = null;
+  for (let at = 12; at + 8 <= head.byteLength; ) {
+    const id = tag(at);
+    const size = view.getUint32(at + 4, true);
+    if (id === 'fmt ' && at + 24 <= head.byteLength) {
+      fmt = {
+        format: view.getUint16(at + 8, true),
+        channels: view.getUint16(at + 10, true),
+        sampleRate: view.getUint32(at + 12, true),
+        align: view.getUint16(at + 20, true),
+        bits: view.getUint16(at + 22, true),
+      };
+    } else if (id === 'data') {
+      if (!fmt || fmt.channels < 1 || fmt.sampleRate <= 0) return null;
+      const float = fmt.format === 3 && fmt.bits === 32;
+      if (!float && !(fmt.format === 1 && fmt.bits === 16)) return null;
+      if (fmt.align !== fmt.channels * (fmt.bits / 8)) return null;
+      const offset = at + 8;
+      const bytes = Math.min(size, Math.max(0, fileSize - offset));
+      const frames = Math.floor(bytes / fmt.align);
+      return frames > 0 ? { offset, frames, channels: fmt.channels, sampleRate: fmt.sampleRate, float } : null;
+    }
+    at += 8 + size + (size % 2); // chunks are padded to an even length
+  }
+  return null;
+};
+
+/** Chromium's 16-bit scale: a single-precision reciprocal (the product is exact in a double, then rounded once into the buffer). */
+const FROM_POSITIVE = Math.fround(1 / 32767);
+const FROM_NEGATIVE = Math.fround(1 / 32768);
+
+/** Bytes of a WAV read before its layout is known: room for any header DHVANI or an editor writes. */
+const WAV_HEAD_BYTES = 64 * 1024;
+
+/** Bytes read at a time: small next to any audio worth worrying about, large enough to be quick. */
+const WAV_SLICE_BYTES = 4 << 20;
+
+/**
+ * A plain PCM WAV straight into an AudioBuffer, a slice of the file at a
+ * time: neither the file nor a copy of it is ever held whole, where the
+ * browser's decoder needs the file, a copy for it to take, and the result,
+ * at once. Measured on an hour's 16-bit dub (691 MB of samples): the decoder
+ * took up to 1.8-2.6 GB more memory on top of what it kept, this about
+ * 0.15 GB. (Streaming the file instead buffered all of it, twice.) The
+ * samples are the decoder's: 32-bit float as stored, 16-bit as Chromium
+ * scales it (times the single-precision reciprocal of 32767, or of 32768
+ * below zero; checked against its decoder for all 65,536 values).
+ */
+const readPcmWav = async (blob: Blob, layout: PcmWavLayout): Promise<AudioBuffer> => {
+  const { offset, frames, channels, sampleRate, float } = layout;
+  const buffer = new AudioBuffer({ numberOfChannels: channels, length: frames, sampleRate });
+  const out = Array.from({ length: channels }, (_, ch) => buffer.getChannelData(ch));
+  const frameBytes = channels * (float ? 4 : 2);
+  // Whole frames per slice, so each slice starts on a frame and its typed view is aligned.
+  const framesPerSlice = Math.max(1, Math.floor(WAV_SLICE_BYTES / frameBytes));
+  for (let frame = 0; frame < frames; frame += framesPerSlice) {
+    const count = Math.min(framesPerSlice, frames - frame);
+    const from = offset + frame * frameBytes;
+    const bytes = await blob.slice(from, from + count * frameBytes).arrayBuffer();
+    if (bytes.byteLength < count * frameBytes) throw new Error('The audio file ended before its samples did.');
+    if (float) {
+      const samples = new Float32Array(bytes, 0, count * channels);
+      if (channels === 1) out[0].set(samples, frame);
+      else for (let i = 0; i < count; i++) for (let ch = 0; ch < channels; ch++) out[ch][frame + i] = samples[i * channels + ch];
+    } else {
+      const samples = new Int16Array(bytes, 0, count * channels);
+      for (let i = 0; i < count; i++) {
+        for (let ch = 0; ch < channels; ch++) {
+          const v = samples[i * channels + ch];
+          out[ch][frame + i] = v * (v < 0 ? FROM_NEGATIVE : FROM_POSITIVE);
+        }
+      }
+    }
+  }
+  return buffer;
+};
+
 /** The sample rate in a WAV file's header, or null for anything that isn't a readable WAV. */
 export const wavSampleRate = (bytes: ArrayBuffer): number | null => {
   const view = new DataView(bytes);
@@ -177,17 +267,40 @@ export const wavSampleRate = (bytes: ArrayBuffer): number | null => {
  * decoded at its own sample rate, so its samples are the file's, not resampled
  * to the sound card's rate: written back with audioBufferToWav, it is the same
  * audio. Anything else is decoded at the device's rate.
+ *
+ * A plain PCM WAV (the bank after each take, the dub after each render) is
+ * read straight into the buffer a slice at a time (readPcmWav); before
+ * 1.4.68 each of those held the whole file and a copy of it beside the
+ * result, and with an hour's project the page reached 10 GB.
  */
 export const decodeAudioBlobUrl = async (blobUrl: string): Promise<AudioBuffer> => {
-    const response = await fetch(blobUrl);
-    const arrayBuffer = await response.arrayBuffer();
+    const blob = await (await fetch(blobUrl)).blob();
+    if (typeof AudioBuffer !== 'undefined') {
+      const layout = pcmWavLayout(await blob.slice(0, WAV_HEAD_BYTES).arrayBuffer(), blob.size);
+      if (layout) {
+        try {
+          return await readPcmWav(blob, layout);
+        } catch (err) {
+          // A rate or length AudioBuffer can't hold: the browser's decoder below.
+          if (!(err instanceof DOMException) || err.name !== 'NotSupportedError') throw err;
+        }
+      }
+    }
+    return decodeWithBrowser(blob);
+};
+
+/** The browser's decoder: a WAV at its own rate, anything else at the device's. */
+const decodeWithBrowser = async (blob: Blob): Promise<AudioBuffer> => {
+    let arrayBuffer = await blob.arrayBuffer();
     const rate = wavSampleRate(arrayBuffer);
     if (rate && typeof OfflineAudioContext !== 'undefined') {
       try {
         // An offline context decodes at the rate it is made with and needs no audio device.
-        return await new OfflineAudioContext(1, 1, rate).decodeAudioData(arrayBuffer.slice(0));
+        // It takes the bytes; the device decode below reads them again if it has to.
+        return await new OfflineAudioContext(1, 1, rate).decodeAudioData(arrayBuffer);
       } catch {
         // A rate the browser can't make a context at: decode at the device's rate below.
+        arrayBuffer = await blob.arrayBuffer();
       }
     }
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
