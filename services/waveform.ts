@@ -199,7 +199,23 @@ export type Peaks = {
 
 const quantize = (v: number) => Math.max(-Q, Math.min(Q, Math.round(v * Q)));
 
+/**
+ * Peaks by buffer: Review's player, Edit timing, the Sync estimate and the
+ * alignment view each draw the same original and dub, and an hour of audio
+ * takes most of a second to read. Each buffer is read once; it is let go
+ * with the buffer.
+ */
+const peaksByBuffer = new WeakMap<AudioBuffer, Peaks>();
+
 export const computePeaks = (buffer: AudioBuffer): Peaks => {
+  const kept = peaksByBuffer.get(buffer);
+  if (kept) return kept;
+  const peaks = readPeaks(buffer);
+  peaksByBuffer.set(buffer, peaks);
+  return peaks;
+};
+
+const readPeaks = (buffer: AudioBuffer): Peaks => {
   const data = buffer.getChannelData(0);
   const n = data.length;
   const levels: Peaks['levels'] = [];

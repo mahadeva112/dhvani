@@ -17,6 +17,7 @@ directories:
 # devDependencies out. Listing node_modules here by hand only fights that.
 files:
   - desktop/main.cjs
+  - desktop/freezeTrace.cjs
   - desktop/preload.cjs
   - desktop/loading.html
   - desktop/about.html

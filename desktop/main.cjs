@@ -2,7 +2,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 const net = require('node:net');
 const { fork, execFile } = require('node:child_process');
-const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session, net: electronNet } = require('electron');
+const { app, BrowserWindow, shell, dialog, Menu, ipcMain, session, net: electronNet, contentTracing } = require('electron');
+const { summarizeFreezeTrace, FREEZE_TRACE_CATEGORIES } = require('./freezeTrace.cjs');
 
 /**
  * DHVANI desktop shell.
@@ -712,6 +713,40 @@ const watchForFreezes = (win) => {
   let pingSent = 0;
   let frozenSince = 0;
   let lastLogged = 0;
+  /*
+   * From the first freeze note until the page answers, a Chromium trace runs,
+   * and what the page was busy with goes in the log: the call stack alone is
+   * empty when the page is busy outside script. At most one trace at a time,
+   * and never longer than a minute.
+   */
+  let tracing = null;
+  const startTrace = () => {
+    if (tracing) return;
+    tracing = contentTracing
+      .startRecording({ included_categories: FREEZE_TRACE_CATEGORIES, excluded_categories: ['*'] })
+      .then(() => setTimeout(() => stopTrace('still frozen after a minute'), 60_000))
+      .catch((err) => {
+        appendLog(`[hang] the freeze could not be traced: ${err?.message || err}\n`);
+        tracing = null;
+        return null;
+      });
+  };
+  const stopTrace = async (why) => {
+    const started = tracing;
+    if (!started) return;
+    tracing = null;
+    const timer = await started;
+    if (timer === null) return;
+    clearTimeout(timer);
+    try {
+      const file = await contentTracing.stopRecording(path.join(app.getPath('temp'), `dhvani-freeze-${process.pid}.json`));
+      const lines = summarizeFreezeTrace(JSON.parse(fs.readFileSync(file, 'utf8')));
+      fs.rm(file, { force: true }, () => {});
+      appendLog(`[hang] while it was frozen (${why}) the page spent its time on:\n${lines.map((line) => `  ${line}`).join('\n')}\n`);
+    } catch (err) {
+      appendLog(`[hang] the freeze trace could not be read: ${err?.message || err}\n`);
+    }
+  };
   const logStack = async (seconds) => {
     try {
       const stack = await contents.mainFrame.collectJavaScriptCallStack();
@@ -728,7 +763,10 @@ const watchForFreezes = (win) => {
       contents
         .executeJavaScript('1', false)
         .then(() => {
-          if (frozenSince) appendLog(`[hang] ${new Date().toISOString()} the page answers again after ${Math.round((Date.now() - frozenSince) / 1000)} s\n`);
+          if (frozenSince) {
+            appendLog(`[hang] ${new Date().toISOString()} the page answers again after ${Math.round((Date.now() - frozenSince) / 1000)} s\n`);
+            stopTrace('until it answered');
+          }
           pingSent = 0;
           frozenSince = 0;
         })
@@ -741,8 +779,12 @@ const watchForFreezes = (win) => {
     frozenSince ||= pingSent;
     lastLogged = now;
     logStack(Math.round((now - pingSent) / 1000));
+    startTrace();
   }, 2000);
-  win.on('closed', () => clearInterval(timer));
+  win.on('closed', () => {
+    clearInterval(timer);
+    stopTrace('until the window closed');
+  });
 };
 
 const createWindow = () => {

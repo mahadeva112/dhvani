@@ -42,3 +42,9 @@ test('an empty or out-of-range stretch has no peak', () => {
   assert.equal(peakRange(peaks, 500, 500), null);
   assert.equal(peakRange(peaks, 2000, 3000), null);
 });
+
+test('peaks of one buffer are read once and shared by every view that draws it', () => {
+  const buffer = fakeBuffer(new Float32Array(5000).map((_, i) => Math.sin(i / 7)));
+  assert.equal(computePeaks(buffer), computePeaks(buffer));
+  assert.notEqual(computePeaks(buffer), computePeaks(fakeBuffer(new Float32Array(5000))));
+});

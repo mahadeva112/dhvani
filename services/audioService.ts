@@ -9,6 +9,8 @@ export interface AudioAnalysisOptions {
   sensitivity?: number; // 0 to 100 (Default: 50)
   /** The gate as set by hand in Pause detection's Advanced gate; wins over `sensitivity`. */
   gate?: PauseGate | null;
+  /** False when only the audio is wanted (a project opened again keeps its lines): no speech detection over the whole file. */
+  detect?: boolean;
 }
 
 export interface SensitivityProfile {
@@ -131,7 +133,7 @@ export const analyzeAudio = async (
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
     
     // 3. Detect Segments with configurable sensitivity
-    const segments = detectSpeechSegments(audioBuffer, options);
+    const segments = options?.detect === false ? [] : detectSpeechSegments(audioBuffer, options);
     
     const metadata: AudioMetadata = {
       duration: audioBuffer.duration,

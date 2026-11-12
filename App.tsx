@@ -1722,7 +1722,7 @@ export default function App() {
   // Re-decode audio buffers if needed
   useEffect(() => {
     if (activeJob && !activeJob.audioBuffer && activeJob.file) {
-      analyzeAudio(activeJob.file, { sensitivity: activeJob.analysisSensitivity ?? 50, gate: activeJob.analysisGate })
+      analyzeAudio(activeJob.file, { sensitivity: activeJob.analysisSensitivity ?? 50, gate: activeJob.analysisGate, detect: activeJob.segments.length === 0 })
         .then(({ buffer, segments }) => {
           updateJob(activeJob.id, {
             audioBuffer: buffer,
