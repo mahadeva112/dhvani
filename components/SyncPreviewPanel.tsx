@@ -2,7 +2,7 @@ import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } f
 import { Check, Loader2, Pencil, RotateCcw, X } from 'lucide-react';
 import { TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
-import { hueOf, withAlpha } from './lineColors';
+import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { FitText, SqueezedWord } from './FitText';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
 import { AudioSegment } from '../types';
@@ -110,7 +110,7 @@ const PAUSE_MARK_LOOK: Record<'maybe' | 'later' | 'skipped', { tick: string; tit
   },
 };
 /** Wave bars sit about this many pixels apart, like a recording's waveform. */
-const BAR_PX = 3.2;
+const BAR_PX = 2;
 /**
  * The closest the estimated Wave's bars come, in seconds (about 4 ms). The
  * timelines zoom in to single samples now, and every line's bars are built
@@ -139,7 +139,7 @@ const wavePath = (words: { start: number; end: number }[], length: number, step:
     for (let k = 0; k < n; k++) {
       const p = (k + 0.5) / n;
       // Up to the full height of the line, as the original's bars above fill theirs (ReviewWaveformPlayer).
-      const h = Math.max(2, 50 * peak * Math.sin(Math.PI * p) ** 0.55 * (0.55 + 0.45 * wobble(i * 31 + k, 7)));
+      const h = Math.max(1, 46 * peak * Math.sin(Math.PI * p) ** 0.55 * (0.55 + 0.45 * wobble(i * 31 + k, 7)));
       d += `M${x(w.start + span * p)},${(50 - h).toFixed(1)}V${(50 + h).toFixed(1)}`;
     }
   });
@@ -2028,12 +2028,13 @@ export const DubEstimateLane: React.FC<{
                       hover.current = null;
                       setCutPreview(null);
                     }}
-                    className="absolute top-1.5 bottom-1.5 rounded border border-dashed touch-none cursor-default"
+                    className={`absolute top-1.5 bottom-1.5 border touch-none cursor-default ${drawn === 'wave' ? 'rounded-[3px] overflow-hidden' : 'rounded border-dashed'}`}
                     style={{
                       left: `${pct(p.start)}%`,
                       width: `${Math.max(0.3, width)}%`,
-                      background: drawn === 'bars' || drawn === 'rythmo' ? withAlpha(hue, words ? 0.1 : 0.28) : 'transparent',
-                      borderColor: drawn === 'bars' || drawn === 'rythmo' ? hue : 'transparent',
+                      // Wave: a solid clip body under a pale wave, as Edit timing draws a clip.
+                      background: drawn === 'wave' ? shadeOf(hue, 0.5) : drawn === 'bars' || drawn === 'rythmo' ? withAlpha(hue, words ? 0.1 : 0.28) : 'transparent',
+                      borderColor: drawn === 'wave' ? shadeOf(hue, 0.3) : drawn === 'bars' || drawn === 'rythmo' ? hue : 'transparent',
                       boxShadow: quiet ? undefined : selected ? SELECTED_RING : u.key === currentKey ? NOW_RING : undefined,
                     }}
                   >
@@ -2042,17 +2043,20 @@ export const DubEstimateLane: React.FC<{
                       <svg aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 1000 100" preserveAspectRatio="none">
                         <defs>
                           <linearGradient id={`${gradientId}-${u.index}-${p.index}`} gradientUnits="userSpaceOnUse" x1="0" x2="1000" y1="0" y2="0">
-                            <stop offset={showFit ? inSlot : 1} stopColor={hue} />
-                            <stop offset={showFit ? inSlot : 1} stopColor="#fb7185" />
+                            <stop offset={showFit ? inSlot : 1} stopColor={tintOf(hue, 0.82)} />
+                            <stop offset={showFit ? inSlot : 1} stopColor="#fda4af" />
                           </linearGradient>
                         </defs>
-                        <line x1="0" x2="1000" y1="50" y2="50" stroke={hue} strokeOpacity={0.35} vectorEffect="non-scaling-stroke" />
+                        {/* Centre line and half-height guides, as on an Edit timing clip */}
+                        <line x1="0" x2="1000" y1="50" y2="50" stroke={tintOf(hue, 0.6, 0.45)} vectorEffect="non-scaling-stroke" />
+                        <line x1="0" x2="1000" y1="25" y2="25" stroke={tintOf(hue, 0.6, 0.22)} vectorEffect="non-scaling-stroke" />
+                        <line x1="0" x2="1000" y1="75" y2="75" stroke={tintOf(hue, 0.6, 0.22)} vectorEffect="non-scaling-stroke" />
                         <path
                           d={path}
                           fill="none"
                           stroke={`url(#${gradientId}-${u.index}-${p.index})`}
                           strokeOpacity={0.95}
-                          strokeWidth={1.7}
+                          strokeWidth={1.3}
                           strokeLinecap="round"
                           vectorEffect="non-scaling-stroke"
                         />

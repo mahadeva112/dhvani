@@ -56,7 +56,7 @@ import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, Tr
 import { hasTranscript } from '../services/steps';
 import { projectFileStem } from '../services/projects';
 import { useVoiceMatches } from '../services/useVoiceMatches';
-import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker } from '../services/speakers';
+import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker, SPEAKER_COLORS } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
 import { SpeakerBar, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
 import { retranslateCues, type RetranslateProgress } from '../services/subtitleService';
@@ -91,6 +91,8 @@ import {
 } from '../services/srtService';
 import { timelineMapper } from '../services/playbackTimeline';
 import { ReviewWaveformPlayer } from './ReviewWaveformPlayer';
+import { GrammarCheckButton, GrammarPanel, type GrammarScope } from './review/GrammarPanel';
+import { checkGrammar as checkGrammarLines, type GrammarFix, type GrammarState } from '../services/grammarCheck';
 import { VoiceSelectorCard, SelectedVoiceSummary, POPULAR_ELEVENLABS_VOICES, VoiceEngine } from './VoiceSelectorCard';
 import { MediaStrip } from './MediaStrip';
 import { FloatingWindow } from './FloatingWindow';
@@ -144,7 +146,7 @@ import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } 
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { learnedPace, learnPaceFromSync, voicePaceKey, type LearnedPace } from '../services/voicePace';
-import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, deepCut, PauseTicksLane, WordingSuggestRow, StretchCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, StretchCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
@@ -211,9 +213,6 @@ const SyllableCount: React.FC<{ text: string; className?: string }> = ({ text, c
 type SyllableFitInfo = ReturnType<typeof syllableFit> & { own: number; cues: string | null };
 
 /** A dub line's syllables and what it takes to fit its slot: fewer, or room for more. */
-/** Wordings ahead (Review): remembered on/off, and at most this many lines asked for at once. */
-const WORDINGS_AHEAD_KEY = 'dhvani_wordings_ahead';
-const MAX_WORDINGS_AHEAD = 6;
 
 const SyllableFitNote: React.FC<{ fit: SyllableFitInfo; className?: string }> = ({ fit, className = '' }) =>
   fit.own === 0 && fit.syllables === 0 ? null : (
@@ -1810,6 +1809,73 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   }, [segments, searchQuery, pacingFilter, speakerFilter, slipsOnly, speakerSlips, voiceOnly, voiceFlags, fixCueIds, cuePace]);
   const filteredIds = useMemo(() => new Set(filteredSegments.map((seg) => String(seg.id))), [filteredSegments]);
 
+  /*
+    Grammar check: only when the user presses Check grammar, on the lines they
+    picked. Fixes show in the Grammar panel; the script changes only on Accept.
+  */
+  const [grammar, setGrammar] = useState<{
+    running: boolean;
+    error: string | null;
+    checked: number;
+    unread: number;
+    fixes: GrammarFix[];
+    states: Record<string, GrammarState>;
+  } | null>(null);
+  const grammarAbort = useRef<AbortController | null>(null);
+  useEffect(() => {
+    grammarAbort.current?.abort();
+    setGrammar(null);
+  }, [activeJob?.id]);
+  const startGrammarCheck = async (scope: GrammarScope) => {
+    const list =
+      scope === 'picked' ? segments.filter((seg) => selectedCues.has(String(seg.id))) : scope === 'shown' ? filteredSegments : segments;
+    const lines = list
+      .map((seg) => ({ id: String(seg.id), text: getTargetText(seg), sourceText: getSourceText(seg) }))
+      .filter((l) => l.text.trim());
+    grammarAbort.current?.abort();
+    const abort = new AbortController();
+    grammarAbort.current = abort;
+    setGrammar({ running: true, error: null, checked: lines.length, unread: 0, fixes: [], states: {} });
+    try {
+      const { fixes, unread } = await checkGrammarLines(lines, targetLanguage, { signal: abort.signal });
+      if (abort.signal.aborted) return;
+      setGrammar((g) => g && { ...g, running: false, fixes, unread });
+    } catch (err) {
+      if (abort.signal.aborted) return;
+      setGrammar((g) => g && { ...g, running: false, error: err instanceof Error ? err.message : 'The grammar check failed.' });
+    }
+  };
+  const stopGrammarCheck = () => {
+    grammarAbort.current?.abort();
+    setGrammar((g) => g && { ...g, running: false, error: 'Stopped. Nothing was changed.' });
+  };
+  const closeGrammarCheck = () => {
+    grammarAbort.current?.abort();
+    setGrammar(null);
+  };
+  const markGrammar = (ids: string[], state: GrammarState) =>
+    setGrammar((g) => g && { ...g, states: { ...g.states, ...Object.fromEntries(ids.map((id) => [id, state])) } });
+  const acceptGrammarFixes = (fixes: GrammarFix[]) => {
+    const now = new Map(latestSegments.current.map((seg) => [String(seg.id), getTargetText(seg)]));
+    // A line edited since the check keeps the user's edit.
+    const usable = fixes.filter((f) => now.get(f.id) === f.text);
+    if (!usable.length) return;
+    handleUpdateLines(usable.map((f) => ({ id: f.id, text: f.fixed })));
+    markGrammar(usable.map((f) => f.id), 'accepted');
+  };
+  const undoGrammarFix = (fix: GrammarFix) => {
+    if (grammar?.states[fix.id] === 'accepted') {
+      const seg = latestSegments.current.find((s) => String(s.id) === fix.id);
+      // Put back only while the line still reads as the fix left it.
+      if (seg && getTargetText(seg) === fix.fixed) handleUpdateLines([{ id: fix.id, text: fix.text }]);
+    }
+    markGrammar([fix.id], 'open');
+  };
+  const grammarOpenIds = useMemo(
+    () => new Set(grammar && !grammar.running ? grammar.fixes.filter((f) => (grammar.states[f.id] ?? 'open') === 'open').map((f) => f.id) : []),
+    [grammar]
+  );
+
 
   const activeSegmentId = useMemo(() => {
     return segments.find((s) => sourceClockTime >= s.startTime && sourceClockTime <= s.endTime)?.id || null;
@@ -1939,46 +2005,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       syncTakeChoices: on ? { ...choices, [unit.key]: { ...(Number.isInteger(seed) && { seed: seed as number }), pace: PACE_DIRECTION, text: unit.text } } : choices,
     });
   };
-  /**
-   * Wordings ahead: as soon as a line is likely to run long, its shorter
-   * wordings are asked for in the background, so they are there when the user
-   * looks. Once per line as worded; a line too long to shorten without losing
-   * meaning (deepCut) is left for the user to ask for. Uses the text model, so
-   * it can be turned off.
-   */
-  const [wordingsAhead, setWordingsAhead] = useState(() => {
-    try {
-      return localStorage.getItem(WORDINGS_AHEAD_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const changeWordingsAhead = (on: boolean) => {
-    setWordingsAhead(on);
-    try {
-      localStorage.setItem(WORDINGS_AHEAD_KEY, String(on));
-    } catch {
-      /* Storage off: the choice lasts until the app closes. */
-    }
-  };
-  const lineFixesRef = useRef(lineFixes);
-  lineFixesRef.current = lineFixes;
-  const askedAhead = useRef(new Set<string>());
-  useEffect(() => {
-    if (!wordingsAhead || activeStep !== 2 || !linePreview) return;
-    // Once typing stops: a line being written is long for a moment on every key.
-    const timer = window.setTimeout(() => {
-      const fixes = lineFixesRef.current;
-      linePreview.units
-        .filter((u) => u.status === 'long' && fixes.stateOf(u).kind === 'idle' && !deepCut(u) && !askedAhead.current.has(`${u.key}|${u.text}`))
-        .slice(0, MAX_WORDINGS_AHEAD)
-        .forEach((u) => {
-          askedAhead.current.add(`${u.key}|${u.text}`);
-          fixes.controlsFor(u).onSuggest();
-        });
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [wordingsAhead, activeStep, linePreview]);
 
   /** A line picked on Review's dub lane: the player goes to it, and its last cue (where its fit sits) opens ready to type. */
   const pickReviewLine = (unit: SyncPreviewUnit) => {
@@ -2417,9 +2443,38 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               )}
 
               <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
-                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{multiSpeaker ? 'Main voice' : 'Voice'}</span>
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                  {multiSpeaker || multiSpeakerInput ? 'Main voice' : 'Voice'}
+                </span>
                 <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
+                {multiSpeakerInput && !multiSpeaker && (
+                  <p className="text-[11px] text-slate-500 leading-snug -mt-1">Every speaker uses this until you give them their own.</p>
+                )}
                 {voiceRate && <VoiceRateCard voiceRate={voiceRate} language={targetLanguage} />}
+                {/* More than one person speaks is on, but no speakers are known yet: show what is coming, so the
+                    section never looks like a one-voice dub. Voices are picked per speaker only after transcribing,
+                    since which person ElevenLabs calls Speaker 1 is not known before. */}
+                {multiSpeakerInput && !multiSpeaker && (
+                  <div className="flex flex-col gap-1 pt-2">
+                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Speakers</span>
+                    {speakerCount > 0 &&
+                      Array.from({ length: speakerCount }, (_, i) => (
+                        <div key={i} className="flex items-center gap-2 py-1.5 border-t border-edge first:border-t-0">
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0 opacity-70"
+                            style={{ backgroundColor: SPEAKER_COLORS[i % SPEAKER_COLORS.length] }}
+                          />
+                          <span className="flex-1 min-w-0 truncate text-[13px] text-slate-300">Speaker {i + 1}</span>
+                          <span className="text-[11px] text-slate-500">Main voice</span>
+                        </div>
+                      ))}
+                    <p className="text-[11px] text-slate-500 leading-snug pt-1">
+                      {speakerCount > 0
+                        ? 'Each gets their own voice after transcribing.'
+                        : 'Speakers are found when the file is transcribed. Then you can give each their own voice here.'}
+                    </p>
+                  </div>
+                )}
                 {/* Each speaker's voice can be picked here too, so translation is sized for it before anything is voiced. */}
                 {multiSpeaker && onCastChange && activeJob && (
                   <div className="flex flex-col gap-2 pt-2">
@@ -2907,10 +2962,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 )}
 
                 {reviewMode !== 'qa' && (
+                  <div className="ml-auto">
+                    <GrammarCheckButton
+                      picked={selectedCues.size}
+                      shown={filteredSegments.length}
+                      total={segments.length}
+                      busy={Boolean(grammar?.running)}
+                      onStart={startGrammarCheck}
+                    />
+                  </div>
+                )}
+
+                {reviewMode !== 'qa' && (
                   <div
                     role="group"
                     aria-label="Text size"
-                    className="ml-auto flex items-center h-8 bg-slate-950 border border-edge rounded-xl"
+                    className="flex items-center h-8 bg-slate-950 border border-edge rounded-xl"
                   >
                     <button
                       type="button"
@@ -2979,13 +3046,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <span className="flex flex-wrap items-center gap-2">
                       <EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />
                       <LaneViewSwitch view={laneView} onChange={setLaneView} />
-                      <label
-                        className="flex items-center gap-1.5 text-[11.5px] text-slate-400 cursor-default"
-                        title="As soon as a line is likely to run long, two shorter wordings are asked for in the background, ready when you look. Uses your text model. Alt + 1 or 2 puts one in; Alt + ↓ or ↑ goes to the next line to fix."
-                      >
-                        <input type="checkbox" className="accent-indigo-500" checked={wordingsAhead} onChange={(e) => changeWordingsAhead(e.target.checked)} />
-                        Wordings ahead
-                      </label>
                     </span>
                   }
                 />
@@ -3265,6 +3325,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       </button>
                       <span className="font-mono text-[11px] text-slate-500 pt-1.5 tabular-nums">
                         {String(cueNumber).padStart(2, '0')}
+                        {grammarOpenIds.has(String(seg.id)) && (
+                          <span className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-400 align-middle" title="Grammar fix waiting in the Grammar panel" />
+                        )}
                       </span>
                     </div>
 
@@ -3535,8 +3598,33 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             {/* Review panel */}
             <aside
               aria-label="Review"
-              className="flex flex-col min-h-0 bg-slate-900/90 border border-edge rounded-2xl overflow-clip"
+              className="relative flex flex-col min-h-0 bg-slate-900/90 border border-edge rounded-2xl overflow-clip"
             >
+              {grammar && (
+                <GrammarPanel
+                  running={grammar.running}
+                  error={grammar.error}
+                  checked={grammar.checked}
+                  unread={grammar.unread}
+                  fixes={grammar.fixes}
+                  states={grammar.states}
+                  currentText={(id) => {
+                    const seg = segments.find((s) => String(s.id) === id);
+                    return seg ? getTargetText(seg) : null;
+                  }}
+                  cueLabel={(id) => `#${String((cueIndexById.get(id) ?? 0) + 1).padStart(2, '0')}`}
+                  fontSize={Math.max(13, reviewFontPx - 2)}
+                  onAccept={acceptGrammarFixes}
+                  onSkip={(ids) => markGrammar(ids, 'skipped')}
+                  onUndo={undoGrammarFix}
+                  onJump={(id) => {
+                    const seg = segments.find((s) => String(s.id) === id);
+                    if (seg) handleJumpToCue(seg);
+                  }}
+                  onStop={stopGrammarCheck}
+                  onClose={closeGrammarCheck}
+                />
+              )}
               <div className="flex items-center justify-between gap-2 px-4 sm:px-5 pt-4">
                 <h2 className="text-[15px] font-semibold text-slate-100">Review</h2>
                 <button

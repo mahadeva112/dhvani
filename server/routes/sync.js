@@ -23,6 +23,7 @@ import { TTS_CONTEXT_CHARS, withSentenceEnd } from '../lib/ttsText.js';
 import { checkParts, lineArrays, ORIGINAL_SPEAKER, renderEdits } from '../lib/syncEdit.js';
 import { runConversation } from '../lib/conversationDub.js';
 import { MIX_PEAK_MODES } from '../lib/speakerMix.js';
+import { checkGrammar } from '../lib/grammarCheck.js';
 import { shortenLine, lengthenLine, suggestLine, suggestLines, quickLine, checkWording, rewordLimit, MAX_OPTIONS } from '../lib/syncRewrite.js';
 import { stripPauses } from '../lib/linePauses.js';
 import { previewSync } from '../lib/syncPreview.js';
@@ -1461,6 +1462,25 @@ syncRouter.post(
       { apiKey: req.get('x-gemini-key') || undefined }
     );
     res.json({ ok: result.ok, issues: result.issues, backTranslation: result.backTranslation ?? null });
+  })
+);
+
+/**
+ * POST /api/sync/grammar-check — the user's grammar check of dub lines, from
+ * Review's Check grammar button. Body: `{ lines: [{ id, text, sourceText }],
+ * language }`. Replies `{ fixes: [{ id, fixed, kind, why }], dropped, unread }`
+ * (grammarCheck.js). The script is never changed here.
+ */
+syncRouter.post(
+  '/sync/grammar-check',
+  asyncHandler(async (req, res) => {
+    const { lines, language } = req.body || {};
+    if (!Array.isArray(lines) || lines.length === 0) throw new ApiError('There are no lines to check.', { status: 400, code: 'no_text' });
+    const result = await checkGrammar(
+      { lines, language: typeof language === 'string' ? language.slice(0, 60) : '' },
+      { apiKey: req.get('x-gemini-key') || undefined }
+    );
+    res.json(result);
   })
 );
 

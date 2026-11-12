@@ -20,7 +20,7 @@ import { computePeaks, drawCentreLine, drawPeaks, WaveStyle } from '../services/
 import { useWaveHeight } from './waveHeight';
 import { WaveHeightButton } from './WaveHeightButton';
 import { MIN_WINDOW_SECONDS, RULER_STEPS, tickDecimals, ticksBetween } from './TimelineControls';
-import { LINE_HUES } from './lineColors';
+import { LINE_HUES, shadeOf, tintOf } from './lineColors';
 import { useTheme } from './theme';
 
 export interface ReviewWaveformPlayerProps {
@@ -612,14 +612,45 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     to: number,
     color: string | ((t: number) => WaveStyle)
   ) => drawPeaks(ctx, peaks, { x: 0, y: top, w, h: height, from, to, style: color, scale: waveHeight });
-  /** Bars in their line's colour inside a line (dimmed until played), `base` between lines. */
+  /**
+   * Inside a line, the pale wave in its own colour that Edit timing draws over a
+   * clip (dimmed until played); `base` between lines.
+   */
   const lineBars = (base: string, played: boolean): string | ((t: number) => WaveStyle) => {
     if (!lineSpans?.length) return base;
     const fixed = { color: base };
     return (t: number) => {
       const line = lineSpans.find((l) => t >= l.from && t <= l.to);
-      return line ? { color: line.color, alpha: played ? 1 : 0.5 } : fixed;
+      return line ? { color: tintOf(line.color, 0.82), alpha: played ? 1 : 0.6 } : fixed;
     };
+  };
+  /**
+   * Each line as Edit timing draws a clip: a solid body in its colour, darker
+   * edge, with a centre line and guides at half height in a tint of it.
+   */
+  const drawLineBodies = (ctx: CanvasRenderingContext2D, x: (t: number) => number, w: number, top: number, height: number, vs: number, ve: number) => {
+    const dpr = window.devicePixelRatio || 1;
+    const hair = 1 / dpr;
+    const mid = top + height / 2;
+    const snap = (y: number) => Math.round(y * dpr) / dpr;
+    for (const line of lineSpans ?? []) {
+      if (line.to < vs || line.from > ve) continue;
+      const a = Math.max(-2, x(line.from));
+      const b = Math.min(w + 2, x(line.to));
+      if (b - a < 1) continue;
+      ctx.beginPath();
+      ctx.roundRect(a, top - 2, b - a, height + 4, 3);
+      ctx.fillStyle = shadeOf(line.color, 0.5);
+      ctx.fill();
+      ctx.strokeStyle = shadeOf(line.color, 0.3);
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.fillStyle = tintOf(line.color, 0.6, 0.45);
+      ctx.fillRect(a, snap(mid), b - a, hair);
+      ctx.fillStyle = tintOf(line.color, 0.6, 0.22);
+      ctx.fillRect(a, snap(mid - height / 4), b - a, hair);
+      ctx.fillRect(a, snap(mid + height / 4), b - a, hair);
+    }
   };
 
   useEffect(() => {
@@ -645,6 +676,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
         ctx.stroke();
       }
     }
+    // Each line's clip body goes under its number and its wave.
+    if (coloured) drawLineBodies(ctx, x, w, LANE_INSET, h - 2 * LANE_INSET, vs, ve);
     segments.forEach((seg, i) => {
       if (seg.endTime < vs || seg.startTime > ve) return;
       const a = x(seg.startTime);
@@ -666,7 +699,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     const top = coloured ? LANE_INSET : WAVE_TOP;
     const waveH = h - top - (coloured ? LANE_INSET : 3);
     // Where nothing is said the wave leaves the lane blank, as DaVinci does, but for this faint centre guide.
-    drawCentreLine(ctx, { x: 0, y: top, w, h: waveH, color: palette.guide });
+    // Between lines (or with no lines), a faint centre guide: the lane is otherwise blank there, as DaVinci leaves it.
+    if (!coloured) drawCentreLine(ctx, { x: 0, y: top, w, h: waveH, color: palette.guide });
     drawBars(ctx, w, top, waveH, vs, ve, lineBars(palette.wave, false));
     const cue = segments[activeIndex];
     if (cue && !coloured) {

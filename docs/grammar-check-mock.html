@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grammar Check Mock</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  body { background:#0b1020; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#243049; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .scroll::-webkit-scrollbar { width:8px } .scroll::-webkit-scrollbar-thumb { background:#334155; border-radius:8px }
+  del { background:rgba(244,63,94,.18); color:#fda4af; text-decoration:line-through; border-radius:3px; padding:0 2px; }
+  ins { background:rgba(16,185,129,.18); color:#6ee7b7; text-decoration:none; border-radius:3px; padding:0 2px; }
+  .hi { font-size:15px; line-height:1.6; }
+  @keyframes bar { from { width:0 } to { width:100% } }
+  .run { animation: bar 1.6s linear forwards; }
+  .hidden2 { display:none !important; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[72rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex rounded-lg border edge overflow-hidden">
+    <button data-mock="A" class="px-3 py-1">Mock A · side panel</button>
+    <button data-mock="B" class="px-3 py-1">Mock B · inline under the line</button>
+  </span>
+  <span class="ml-1">চেষ্টা করুন: <b class="text-slate-200">Check grammar</b> চাপুন → কোন লাইন বাছুন → প্রতি লাইনে <b class="text-slate-200">Accept / Skip</b>। নিজে থেকে কিছুই চলে না, কিছুই বদলায় না।</span>
+</div>
+
+<section class="max-w-[72rem] mx-auto rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl overflow-hidden">
+  <!-- Review toolbar -->
+  <div class="flex flex-wrap items-center gap-2 px-5 py-3 border-b edge">
+    <h2 class="text-base font-semibold mr-2">Review</h2>
+    <span class="text-xs text-slate-400">Hindi dub · 8 lines</span>
+    <div class="flex-1"></div>
+    <button class="px-3 py-1.5 rounded-lg border edge text-xs text-slate-300">Undo</button>
+    <button class="px-3 py-1.5 rounded-lg border edge text-xs text-slate-300">Retake</button>
+    <div class="relative">
+      <button id="gcBtn" class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-950 text-xs font-medium inline-flex items-center gap-1.5">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 7V5h11v2M9.5 5v12M7 17h5"/><path d="m14 15 2.5 2.5L21 13"/></svg>
+        Check grammar
+      </button>
+      <!-- scope popover -->
+      <div id="scopePop" class="hidden2 absolute right-0 top-10 z-20 w-72 rounded-xl border border-slate-700 bg-slate-950 shadow-2xl p-3 text-[12.5px]">
+        <div class="font-medium mb-2">Check grammar on</div>
+        <label class="flex items-start gap-2 py-1.5 cursor-pointer"><input type="radio" name="scope" value="picked" class="mt-0.5"> <span>Picked lines only <span class="text-slate-500">· 3 picked</span></span></label>
+        <label class="flex items-start gap-2 py-1.5 cursor-pointer"><input type="radio" name="scope" value="all" checked class="mt-0.5"> <span>All lines <span class="text-slate-500">· 8 lines</span></span></label>
+        <div class="mt-2 pt-2 border-t edge text-slate-400 leading-relaxed">Checks spelling, matras, gender/number agreement and punctuation. Meaning and word choice stay as they are. Sends only these lines' text to your gateway.</div>
+        <div class="flex gap-2 mt-3">
+          <button id="scopeGo" class="flex-1 py-1.5 rounded-lg bg-indigo-500 text-white font-medium">Check</button>
+          <button id="scopeCancel" class="px-3 py-1.5 rounded-lg border edge text-slate-300">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- progress strip -->
+  <div id="prog" class="hidden2 px-5 py-2 border-b edge text-xs text-slate-400 flex items-center gap-3">
+    <span>Checking grammar…</span>
+    <div class="flex-1 h-1.5 rounded bg-slate-800 overflow-hidden"><div id="progBar" class="h-full bg-indigo-400"></div></div>
+    <button id="stopBtn" class="text-slate-300 underline">Stop</button>
+  </div>
+
+  <div id="layout" class="grid grid-cols-1">
+    <!-- script table -->
+    <div class="min-w-0">
+      <div class="grid grid-cols-[3rem_5.5rem_minmax(0,1fr)_minmax(0,1fr)] gap-0 text-[11px] uppercase tracking-wide text-slate-500 px-5 py-2 border-b edge">
+        <span>#</span><span>Time</span><span>Original</span><span>Hindi dub</span>
+      </div>
+      <div id="rows" class="divide-y divide-slate-800"></div>
+    </div>
+    <!-- side panel (Mock A) -->
+    <aside id="side" class="hidden2 border-l edge bg-slate-950/40 flex flex-col max-h-[44rem]">
+      <div class="px-4 py-3 border-b edge flex items-center gap-2">
+        <div class="flex-1">
+          <div class="font-medium text-sm">Grammar</div>
+          <div id="sideSum" class="text-xs text-slate-400"></div>
+        </div>
+        <button id="closeSide" class="w-7 h-7 rounded-lg border edge text-slate-400">✕</button>
+      </div>
+      <div id="sideList" class="flex-1 overflow-y-auto scroll p-3 space-y-2.5"></div>
+      <div class="px-4 py-3 border-t edge flex gap-2">
+        <button id="acceptAll" class="flex-1 py-1.5 rounded-lg border border-emerald-500/50 text-emerald-300 text-xs">Accept all left</button>
+        <button id="skipAll" class="px-3 py-1.5 rounded-lg border edge text-slate-300 text-xs">Skip all</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- footer (Mock B) -->
+  <div id="footB" class="hidden2 px-5 py-2.5 border-t edge flex items-center gap-3 text-xs">
+    <span id="footSum" class="text-slate-400 flex-1"></span>
+    <button id="prevB" class="px-2.5 py-1 rounded-lg border edge text-slate-300">↑ Prev</button>
+    <button id="nextB" class="px-2.5 py-1 rounded-lg border edge text-slate-300">↓ Next</button>
+    <button id="clearB" class="px-2.5 py-1 rounded-lg border edge text-slate-300">Close check</button>
+  </div>
+</section>
+
+<div class="max-w-[72rem] mx-auto mt-3 text-[12px] text-slate-500 leading-relaxed">
+  Accept করলে লাইনটা "reworded" হয় — Takes-এ জায়গায় থেকেই retake করা যায়, বাকি লাইন নড়ে না। প্রতিটা Accept-এর নিজের Undo ধাপ।
+</div>
+
+<script>
+const LINES = [
+  { t:'00:01.2', en:'The girls are going to school.', hi:'लड़कियाँ स्कूल जा रहा है।',
+    fix:'लड़कियाँ स्कूल जा <ins>रही हैं</ins>।', show:'लड़कियाँ स्कूल जा <del>रहा है</del><ins>रही हैं</ins>।', fixed:'लड़कियाँ स्कूल जा रही हैं।', kind:'Agreement', why:'“लड़कियाँ” is plural feminine, so the verb is “रही हैं”.' },
+  { t:'00:04.8', en:'Thank you for coming today.', hi:'आज आने के लिए धन्यवाद।' },
+  { t:'00:07.5', en:'By your grace, everything went well.', hi:'आपकी क्रिपा से सब ठीक हो गया।',
+    show:'आपकी <del>क्रिपा</del><ins>कृपा</ins> से सब ठीक हो गया।', fixed:'आपकी कृपा से सब ठीक हो गया।', kind:'Spelling', why:'“कृपा” is written with ृ, not “क्रि”.' },
+  { t:'00:11.0', en:'We all understand this.', hi:'हम सब इसको समझते है।',
+    show:'हम सब इसको समझते <del>है</del><ins>हैं</ins>।', fixed:'हम सब इसको समझते हैं।', kind:'Matra', why:'With “हम” the verb takes “हैं” (with the bindu).' },
+  { t:'00:14.3', en:'Will you come tomorrow?', hi:'क्या तुम कल आओगे।',
+    show:'क्या तुम कल आओगे<del>।</del><ins>?</ins>', fixed:'क्या तुम कल आओगे?', kind:'Punctuation', why:'It is a question in the original; a danda reads it flat.' },
+  { t:'00:17.9', en:'I don\'t know that.', hi:'मुझको को यह पता नहीं।',
+    show:'मुझको <del>को </del>यह पता नहीं।', fixed:'मुझको यह पता नहीं।', kind:'Repeated word', why:'“को” appears twice.' },
+  { t:'00:20.6', en:'Look at the sky.', hi:'आसमान की ओर देखो।' },
+  { t:'00:23.4', en:'This is the moment.', hi:'यही वह क्षण है।' },
+];
+const PICKED = new Set([0,2,4]);
+let mock = 'A', state = 'idle', scope = 'all', res = {}; // res[i] = 'open'|'accepted'|'skipped'
+let focus = -1;
+
+const $ = id => document.getElementById(id);
+const esc = s => s;
+
+function kindPill(k){ return `<span class="text-[10.5px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300">${k}</span>`; }
+
+function renderRows(){
+  $('rows').innerHTML = LINES.map((l,i)=>{
+    const r = res[i]; const has = state==='done' && r;
+    const picked = PICKED.has(i);
+    const mark = has && r==='open' ? `<span class="ml-1 inline-block w-2 h-2 rounded-full bg-amber-400 align-middle" title="Grammar"></span>` : '';
+    const text = r==='accepted' ? l.fixed : l.hi;
+    const doneTag = r==='accepted' ? ` <span class="text-[10.5px] px-1.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300">Reworded · retake</span>` : '';
+    let inline = '';
+    if (mock==='B' && has && r==='open'){
+      inline = `<div class="col-span-4 -mt-1 mb-1 ml-[8.5rem] rounded-xl border ${focus===i?'border-indigo-400/70':'border-amber-500/30'} bg-amber-500/[.04] px-3 py-2.5">
+        <div class="flex items-center gap-2 mb-1">${kindPill(l.kind)}<span class="text-xs text-slate-400">${l.why}</span></div>
+        <div class="hi">${l.show}</div>
+        <div class="flex gap-2 mt-2">
+          <button data-acc="${i}" class="px-3 py-1 rounded-lg bg-emerald-500/90 text-slate-950 text-xs font-medium">Accept</button>
+          <button data-skip="${i}" class="px-3 py-1 rounded-lg border edge text-slate-300 text-xs">Skip</button>
+          <span class="text-[11px] text-slate-500 self-center ml-1">Enter · Esc</span>
+        </div></div>`;
+    }
+    return `<div data-row="${i}" class="grid grid-cols-[3rem_5.5rem_minmax(0,1fr)_minmax(0,1fr)] px-5 py-2.5 ${focus===i?'bg-indigo-500/10':''} ${picked?'border-l-2 border-l-indigo-400/70':''}">
+      <span class="text-slate-500 mono text-xs pt-1">${i+1}</span>
+      <span class="text-slate-500 mono text-xs pt-1">${l.t}</span>
+      <span class="text-slate-400 text-[13px] pr-4">${l.en}</span>
+      <span class="hi">${text}${mark}${doneTag}</span>
+      ${inline}
+    </div>`;
+  }).join('');
+}
+
+function renderSide(){
+  const ids = Object.keys(res).map(Number);
+  const open = ids.filter(i=>res[i]==='open');
+  const sum = `${ids.length} of ${scope==='all'?LINES.length:PICKED.size} lines need a fix · ${open.length} left`;
+  $('sideSum').textContent = sum; $('footSum').textContent = state==='done' ? (open.length ? sum + ' · ↑↓ to move, Enter accepts, Esc skips' : 'All fixes handled. Accepted lines are marked for retake.') : '';
+  $('sideList').innerHTML = ids.map(i=>{
+    const l = LINES[i], r = res[i];
+    if (r!=='open') return `<div class="rounded-xl border edge px-3 py-2 text-xs text-slate-500 flex gap-2"><span class="mono">#${i+1}</span><span class="flex-1">${r==='accepted'?'Accepted':'Skipped'}</span><button data-undo="${i}" class="underline">Undo</button></div>`;
+    return `<div data-card="${i}" class="rounded-xl border ${focus===i?'border-indigo-400/70':'edge'} bg-slate-900 px-3 py-2.5 cursor-pointer">
+      <div class="flex items-center gap-2 mb-1"><span class="mono text-xs text-slate-500">#${i+1} · ${l.t}</span>${kindPill(l.kind)}</div>
+      <div class="hi">${l.show}</div>
+      <div class="text-xs text-slate-400 mt-1">${l.why}</div>
+      <div class="flex gap-2 mt-2">
+        <button data-acc="${i}" class="px-3 py-1 rounded-lg bg-emerald-500/90 text-slate-950 text-xs font-medium">Accept</button>
+        <button data-skip="${i}" class="px-3 py-1 rounded-lg border edge text-slate-300 text-xs">Skip</button>
+      </div></div>`;
+  }).join('') || `<div class="text-xs text-slate-500 p-2">No grammar problems found.</div>`;
+}
+
+function render(){
+  document.querySelectorAll('#mockSeg button').forEach(b=>{
+    const on = b.dataset.mock===mock; b.className = 'px-3 py-1 ' + (on?'bg-slate-100 text-slate-950 font-medium':'text-slate-300');
+  });
+  const showSide = mock==='A' && state==='done';
+  $('side').classList.toggle('hidden2', !showSide);
+  $('layout').className = 'grid ' + (showSide ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem]' : 'grid-cols-1');
+  $('footB').classList.toggle('hidden2', !(mock==='B' && state==='done'));
+  renderRows(); renderSide();
+}
+
+function nextOpen(from, dir=1){
+  const ids = Object.keys(res).map(Number).filter(i=>res[i]==='open').sort((a,b)=>a-b);
+  if (!ids.length) return -1;
+  if (dir>0) return ids.find(i=>i>from) ?? ids[0];
+  return [...ids].reverse().find(i=>i<from) ?? ids[ids.length-1];
+}
+function decide(i, v){ res[i]=v; focus = nextOpen(i); render(); }
+
+$('gcBtn').onclick = () => $('scopePop').classList.toggle('hidden2');
+$('scopeCancel').onclick = () => $('scopePop').classList.add('hidden2');
+$('scopeGo').onclick = () => {
+  scope = document.querySelector('input[name=scope]:checked').value;
+  $('scopePop').classList.add('hidden2');
+  state='running'; res={}; focus=-1; render();
+  $('prog').classList.remove('hidden2');
+  const bar = $('progBar'); bar.classList.remove('run'); void bar.offsetWidth; bar.classList.add('run');
+  clearTimeout(window._t);
+  window._t = setTimeout(()=>{
+    $('prog').classList.add('hidden2');
+    LINES.forEach((l,i)=>{ if (l.show && (scope==='all' || PICKED.has(i))) res[i]='open'; });
+    state='done'; focus = nextOpen(-1); render();
+  }, 1700);
+};
+$('stopBtn').onclick = () => { clearTimeout(window._t); $('prog').classList.add('hidden2'); state='idle'; render(); };
+$('closeSide').onclick = $('clearB').onclick = () => { state='idle'; res = Object.fromEntries(Object.entries(res).filter(([k,v])=>v==='accepted')); focus=-1; render(); };
+$('acceptAll').onclick = () => { for (const i in res) if (res[i]==='open') res[i]='accepted'; focus=-1; render(); };
+$('skipAll').onclick = () => { for (const i in res) if (res[i]==='open') res[i]='skipped'; focus=-1; render(); };
+$('nextB').onclick = () => { focus = nextOpen(focus, 1); render(); };
+$('prevB').onclick = () => { focus = nextOpen(focus, -1); render(); };
+document.querySelectorAll('#mockSeg button').forEach(b=> b.onclick = ()=>{ mock=b.dataset.mock; render(); });
+document.addEventListener('click', e=>{
+  const a = e.target.closest('[data-acc]'), s = e.target.closest('[data-skip]'), u = e.target.closest('[data-undo]'), c = e.target.closest('[data-card]');
+  if (a) return decide(+a.dataset.acc, 'accepted');
+  if (s) return decide(+s.dataset.skip, 'skipped');
+  if (u) { res[+u.dataset.undo]='open'; focus=+u.dataset.undo; return render(); }
+  if (c) { focus=+c.dataset.card; render(); }
+});
+document.addEventListener('keydown', e=>{
+  if (state!=='done' || focus<0 || res[focus]!=='open') return;
+  if (e.key==='Enter') { e.preventDefault(); decide(focus,'accepted'); }
+  if (e.key==='Escape') decide(focus,'skipped');
+  if (e.key==='ArrowDown') { e.preventDefault(); focus = nextOpen(focus,1); render(); }
+  if (e.key==='ArrowUp') { e.preventDefault(); focus = nextOpen(focus,-1); render(); }
+});
+render();
+</script>
+</body>
+</html>
