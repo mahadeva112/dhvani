@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.70',
+    changes: [
+      'Review is calmer: the dub line is the biggest text, counts, the fit meter and the wording buttons show only on the line you are in (or on every line with ⋯ → Detailed), and a line that needs work gets a coloured edge and a few words. The side panel is gone: Translation and Tools open in a window, Continue to dub sits under the list.',
+      'One “Show” filter replaces the row of chips, and every Sync fit count is in lines, so the numbers agree. Script view’s Word button now asks the paragraph size when you save.',
+    ],
+  },
+  {
     version: '1.4.69',
     changes: [
       'Review has a Check grammar button: it checks the dub lines’ spelling, matras, agreement and punctuation, and you accept or skip each fix. “Wordings ahead” is gone, and Review’s waves now look like the ones in Edit timing.',
