@@ -340,8 +340,9 @@ export const PLAYHEAD_RED = '#f0473c';
  * lane, and with `cap` a red head on the ruler at its top. Every timeline
  * uses this one, so they all look alike. It covers its box; place it with
  * placePlayheadAt (as useWindowPlayheads does). The line is exactly at the
- * time, and the head stays whole inside the box at its very start and end,
- * where a clipped lane would otherwise cut it in half. It never takes a click.
+ * time and the head's tip always sits on it, at the very start too: a head
+ * pushed inward there leaves the line on its side, which reads wrong. It
+ * never takes a click.
  */
 export const Playhead = React.forwardRef<HTMLSpanElement, { cap?: boolean; className?: string }>(
   ({ cap = false, className = '' }, ref) => (
@@ -350,7 +351,7 @@ export const Playhead = React.forwardRef<HTMLSpanElement, { cap?: boolean; class
       {cap && (
         <svg
           className="absolute top-0 drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]"
-          style={{ left: 'clamp(0px, calc(var(--playhead, 0) * 100% - 6px), calc(100% - 12px))' }}
+          style={{ left: 'calc(var(--playhead, 0) * 100% - 6px)' }}
           width="12"
           height="15"
           viewBox="0 0 12 15"
