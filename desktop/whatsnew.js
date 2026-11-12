@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.69',
+    changes: [
+      'Review has a Check grammar button: it checks the dub lines’ spelling, matras, agreement and punctuation, and you accept or skip each fix. “Wordings ahead” is gone, and Review’s waves now look like the ones in Edit timing.',
+      'Every timeline’s playhead is a red line with a head on the ruler, as in DaVinci Resolve. The app has one look, Graphite. With several speakers, the voice step shows who speaks most and whom the main voice speaks for.',
+    ],
+  },
+  {
     version: '1.4.68',
     changes: [
       'Long projects use far less memory while you retake and edit: each take and each render used to need about 2 GB extra for an hour’s dub, and after a long session the computer slowed down and “Your edits could not be rendered” appeared. The sound is exactly the same.',
