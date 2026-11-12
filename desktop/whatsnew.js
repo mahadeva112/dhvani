@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.66',
+    changes: [
+      'Editing the timing of a long dub no longer stops with “The saved lines of this sync are not on the server”. The dub’s lines and the clips of the original no longer push each other out, and a new edit no longer cuts off the lines being sent again.',
+    ],
+  },
+  {
     version: '1.4.65',
     changes: [
       'Export project works for big projects again: a project with long source media, a review video and many takes no longer stops with “Array buffer allocation failed”. Opening a large project file also needs far less memory.',
