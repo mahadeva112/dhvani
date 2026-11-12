@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Review Simplify Mock</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b1020; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#243049; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .scroll::-webkit-scrollbar { width:8px } .scroll::-webkit-scrollbar-thumb { background:#334155; border-radius:8px }
+  .hidden2 { display:none !important; }
+  [contenteditable]:focus { outline:none; }
+  .hi-edit { border-radius:8px; padding:4px 8px; margin:-4px -8px; transition: background .12s, box-shadow .12s; }
+  .row:hover .hi-edit { background:rgba(148,163,184,.06); }
+  .hi-edit:focus { background:#0b1222 !important; box-shadow:0 0 0 1px #6366f1; }
+  .row .rowmore, .row .rowplay { opacity:0; transition:opacity .12s; }
+  .row:hover .rowmore, .row:hover .rowplay, .row.focus .rowmore, .row.focus .rowplay { opacity:1; }
+  .drawer { transition: transform .18s ease; }
+  .pop { box-shadow: 0 18px 40px -12px rgba(0,0,0,.7); }
+  .kbd { font-family: ui-monospace, Consolas, monospace; font-size:11px; padding:0 5px; border-radius:4px; border:1px solid #334155; color:#94a3b8; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<!-- Mock switcher and notes -->
+<div class="max-w-[80rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex rounded-lg border edge overflow-hidden">
+    <button data-mock="A" class="px-3 py-1">Mock A · পাশে সরু পট্টি</button>
+    <button data-mock="B" class="px-3 py-1">Mock B · sidebar নেই, উপরে menu</button>
+  </span>
+  <span class="ml-1">দুটোতেই লাইনের চেহারা একই, তফাত শুধু ডান দিকের setup কোথায় থাকে। একটা লাইনে click করুন, খুঁটিনাটি শুধু সেখানেই খুলবে। হিন্দি লেখা সরাসরি edit করা যায়, fit সঙ্গে সঙ্গে বদলায়।</span>
+</div>
+
+<div class="max-w-[80rem] mx-auto">
+  <!-- Step bar (unchanged, for context) -->
+  <div class="flex flex-wrap items-center gap-2 mb-3 text-[13px]">
+    <span class="text-slate-500">1 Source &amp; voice</span><span class="text-slate-600">›</span>
+    <span class="text-slate-100 font-semibold">2 Review</span><span class="text-slate-600">›</span>
+    <span class="text-slate-500">3 Dub</span>
+    <div class="flex-1"></div>
+    <!-- Mock B: setup menus live here -->
+    <div id="bMenus" class="flex items-center gap-2">
+      <div class="relative">
+        <button id="bTransBtn" class="h-9 px-3 rounded-xl border edge bg-slate-900 hover:bg-slate-800 text-[13px] text-slate-200 inline-flex items-center gap-2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 8 6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/></svg>
+          Translation <span class="text-slate-400">· Hindi · Natural</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div id="bTransPop" class="hidden2 pop absolute right-0 top-11 z-30 w-[22rem] rounded-2xl border border-slate-700 bg-slate-950 p-4"></div>
+      </div>
+      <div class="relative">
+        <button id="bToolsBtn" class="h-9 px-3 rounded-xl border edge bg-slate-900 hover:bg-slate-800 text-[13px] text-slate-200 inline-flex items-center gap-2">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+          Tools
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div id="bToolsPop" class="hidden2 pop absolute right-0 top-11 z-30 w-72 rounded-2xl border border-slate-700 bg-slate-950 p-2"></div>
+      </div>
+    </div>
+    <button class="h-9 px-4 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold inline-flex items-center gap-1.5">
+      Continue to Dub
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
+  </div>
+
+  <!-- Player (unchanged) -->
+  <div class="mb-3 h-14 rounded-2xl border edge bg-slate-900/70 flex items-center px-4 text-[12.5px] text-slate-500">
+    Player, Original and Dub lanes — আগের মতোই, এই mock-এ বদলায়নি
+  </div>
+
+  <div id="workspace" class="relative flex gap-3">
+    <!-- Editor -->
+    <section class="flex-1 min-w-0 flex flex-col rounded-2xl border edge bg-slate-900/90 overflow-hidden h-[44rem]">
+      <!-- Toolbar: one row -->
+      <div class="flex flex-wrap items-center gap-2 px-4 py-3 border-b edge">
+        <div class="flex bg-slate-950 border edge rounded-xl p-0.5 gap-0.5 text-[13px]">
+          <button class="px-3 py-1 rounded-lg bg-slate-800 text-slate-100">Lines</button>
+          <button class="px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200">Script</button>
+          <button class="px-3 py-1 rounded-lg text-slate-400 hover:text-slate-200">QA</button>
+        </div>
+        <div class="relative flex-1 min-w-[10rem] max-w-[18rem]">
+          <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input placeholder="Find in lines" class="w-full h-8 bg-slate-950 border edge rounded-xl pl-8 pr-2 text-[13px] placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+        </div>
+        <div class="relative">
+          <button id="filterBtn" class="h-8 px-3 rounded-xl border edge bg-slate-950 text-[13px] text-slate-200 inline-flex items-center gap-2"></button>
+          <div id="filterPop" class="hidden2 pop absolute left-0 top-10 z-30 w-60 rounded-xl border border-slate-700 bg-slate-950 p-1.5 text-[13px]"></div>
+        </div>
+        <div class="flex-1"></div>
+        <button class="h-8 px-3 rounded-xl border edge text-[13px] text-slate-200 hover:bg-slate-800 inline-flex items-center gap-1.5" title="Opens the Grammar panel, as now">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 7V5h11v2M9.5 5v12M7 17h5"/><path d="m14 15 2.5 2.5L21 13"/></svg>
+          Check grammar
+        </button>
+        <div class="relative">
+          <button id="moreBtn" class="w-8 h-8 rounded-xl border edge text-slate-300 hover:bg-slate-800 flex items-center justify-center" title="View options" aria-label="View options">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
+          </button>
+          <div id="morePop" class="hidden2 pop absolute right-0 top-10 z-30 w-72 rounded-xl border border-slate-700 bg-slate-950 p-3 text-[13px]"></div>
+        </div>
+      </div>
+
+      <!-- Sync fit: the one place its numbers live -->
+      <div id="fitStrip" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 border-b edge text-[13px]"></div>
+
+      <!-- Lines -->
+      <div id="list" class="flex-1 min-h-0 overflow-y-auto scroll"></div>
+
+      <div id="foot" class="flex items-center justify-between px-4 py-2 border-t edge text-[12.5px] text-slate-400"></div>
+    </section>
+
+    <!-- Mock A: slim rail -->
+    <aside id="rail" class="w-14 shrink-0 rounded-2xl border edge bg-slate-900/90 flex flex-col items-center gap-1.5 py-3 h-[44rem]">
+      <button data-drawer="translation" class="railbtn w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:bg-slate-800" title="Translation">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 8 6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6"/></svg>
+      </button>
+      <span class="text-[10.5px] text-slate-500 -mt-1 mb-1">Script</span>
+      <button data-drawer="tools" class="railbtn w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:bg-slate-800" title="Tools">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
+      </button>
+      <span class="text-[10.5px] text-slate-500 -mt-1">Tools</span>
+    </aside>
+
+    <!-- Mock A: drawer over the editor's right edge -->
+    <div id="drawer" class="drawer pop absolute top-0 right-[4.25rem] z-20 w-[22rem] h-[44rem] rounded-2xl border border-slate-700 bg-slate-950 flex flex-col" style="transform:translateX(120%);visibility:hidden">
+      <div class="flex items-center gap-2 px-4 py-3 border-b edge">
+        <span id="drawerTitle" class="font-semibold text-[15px] flex-1"></span>
+        <button id="drawerClose" class="w-8 h-8 rounded-lg border edge text-slate-400 hover:text-slate-100" aria-label="Close">✕</button>
+      </div>
+      <div id="drawerBody" class="flex-1 overflow-y-auto scroll p-4"></div>
+    </div>
+  </div>
+
+  <!-- What changed -->
+  <div class="mt-4 grid md:grid-cols-2 gap-3 text-[13px] leading-relaxed">
+    <div class="rounded-2xl border edge bg-slate-900/60 p-4">
+      <div class="font-semibold text-slate-200 mb-1.5">দুটো mock-এ একই যা</div>
+      <ul class="list-disc pl-5 text-slate-400 space-y-1">
+        <li>হিন্দি লেখা সবচেয়ে বড় আর উজ্জ্বল; মূল লেখা ছোট আর হালকা।</li>
+        <li>Fit করা লাইনে কোনো badge বা meter নেই। লম্বা বা আগে শেষ হওয়া লাইনে শুধু বাঁ দিকে রঙিন দাগ আর এক লাইনের কারণ।</li>
+        <li>char, syllable, meter, wording বোতাম শুধু যে লাইনে click করেছেন সেখানে। সব লাইনে চাইলে ⋯ → Detailed।</li>
+        <li>Sync fit-এর সংখ্যা একটাই জায়গায় (উপরের strip), সব গোনা "line"-এ — filter, strip আর footer মেলে।</li>
+        <li>৫টা chip এখন একটা Show ▾। Text size, Estimate, Lane view, keyboard ⋯-এ।</li>
+        <li>Split, cut, join লাইনের ⋯-এ, shortcut পাশেই (S, M)। Continue to Dub উপরে।</li>
+        <li>সবচেয়ে ছোট লেখা 12 px, আগের চেয়ে উজ্জ্বল।</li>
+      </ul>
+    </div>
+    <div class="rounded-2xl border edge bg-slate-900/60 p-4">
+      <div class="font-semibold text-slate-200 mb-1.5">তফাত</div>
+      <p class="text-slate-400"><b class="text-slate-200">Mock A</b> — ডান দিকে 56 px-এর পট্টি। Script বা Tools চাপলে একটা panel editor-এর উপর খোলে, ✕ বা Esc-এ বন্ধ। Grammar panel আগের মতো এখানেই খুলবে।</p>
+      <p class="text-slate-400 mt-2"><b class="text-slate-200">Mock B</b> — ডান দিকে কিছুই নেই, editor পুরো চওড়া। Translation আর Tools উপরের সারিতে menu হিসেবে, Continue to Dub-এর পাশে। Grammar panel খুললে তখনই শুধু ডান দিকে আসবে।</p>
+      <p class="text-slate-500 mt-2">কোনো feature মোছা হয়নি — Re-translate, Fast re-translate, Paste script, style, ভাষা, cue split sensitivity, Voice changer, Text to speech সব আছে, শুধু সরানো।</p>
+    </div>
+  </div>
+</div>
+
+<script>
+const RATE = 5.6; // syllables a second, the voice's pace in this mock
+const LINES = [
+  { en:'Good evening, everyone.', hi:'आप सभी को नमस्कार।', r:.82 },
+  { en:'Today I want to talk about something very simple.', hi:'आज मैं एक बहुत ही सरल बात करना चाहता हूँ।', r:.84 },
+  { en:'Simple, but not easy.', hi:'सरल है, लेकिन आसान नहीं है, यह याद रखिए।', r:1.45,
+    shorter:'सरल है, पर आसान नहीं।' },
+  { en:'Most people think life happens to them.', hi:'ज़्यादातर लोग सोचते हैं कि जीवन उनके साथ हो रहा है।', r:1.0 },
+  { en:'But life is something you make.', hi:'पर जीवन वह है जो आप बनाते हैं।', r:.8 },
+  { en:'If you sit here for a moment and just breathe,', hi:'अगर आप एक पल यहाँ बैठें,', r:.55,
+    longer:'अगर आप एक पल यहाँ बैठकर बस साँस लें,' },
+  { en:'you will notice something.', hi:'तो आपको कुछ महसूस होगा।', r:.83 },
+  { en:'Your body is not you.', hi:'यह शरीर आप नहीं हैं।', r:.8 },
+  { en:'It is something you gathered.', hi:'यह कुछ ऐसा है जिसे आपने धीरे-धीरे इकट्ठा किया है।', r:1.55,
+    shorter:'यह आपने धीरे-धीरे इकट्ठा किया है।' },
+  { en:'Like the food you eat every day.', hi:'जैसे वह भोजन जो आप रोज़ खाते हैं।', r:.85 },
+  { en:'Your mind too is an accumulation.', hi:'आपका मन भी एक संचय ही है।', r:.82 },
+  { en:'Once you see this, a certain freedom comes.', hi:'जब आप यह देख लेते हैं, तो एक तरह की आज़ादी आती है।', r:1.0 },
+];
+const PASSAGES = [ { from:0, to:4 }, { from:5, to:11 } ];
+
+// A Devanagari line's syllables: each vowel sign or consonant not joined by a virama.
+function syl(t){
+  let n = 0; const s = [...t];
+  for (let i=0;i<s.length;i++){
+    const c = s[i].codePointAt(0);
+    if (c>=0x0905 && c<=0x0914) n++;
+    else if ((c>=0x0915 && c<=0x0939) || (c>=0x0958 && c<=0x095F)) { if (s[i+1] !== '्') n++; }
+  }
+  return n;
+}
+const chars = t => [...t.replace(/\s/g,'')].length;
+const est = t => syl(t) / RATE;
+
+// Slots from the first text, so the mock opens with a mix of fits.
+let t0 = 0.8;
+LINES.forEach(l => { l.slot = Math.round(est(l.hi) / l.r * 10) / 10; l.start = t0; t0 += l.slot + 0.5; l.orig = l.hi; });
+
+function statusOf(l){
+  const r = est(l.hi) / l.slot;
+  if (r > 1.08) return 'long';
+  if (r < 0.7) return 'short';
+  if (r >= 0.95) return 'tight';
+  return 'fit';
+}
+const STAT = {
+  long:  { stripe:'bg-rose-400',  text:'text-rose-300',  dot:'bg-rose-400',  label:'Too long' },
+  tight: { stripe:'',             text:'text-amber-300', dot:'bg-amber-400', label:'Tight' },
+  short: { stripe:'bg-sky-400',   text:'text-sky-300',   dot:'bg-sky-400',   label:'Ends early' },
+  fit:   { stripe:'',             text:'text-slate-400', dot:'',             label:'Fits' },
+};
+const needsFix = s => s==='long' || s==='short';
+const fmt = s => { const m = Math.floor(s/60), r = (s%60).toFixed(1).padStart(4,'0'); return `${String(m).padStart(2,'0')}:${r}`; };
+
+let mock = 'A', focus = 2, filter = 'all', detailed = false, fontPx = 17, estimate = 'Expert', lane = 'Wave';
+let drawer = null, rowMenu = -1, wording = {}; // wording[i] = { dir, text } while a suggestion waits
+const $ = id => document.getElementById(id);
+
+function counts(){
+  const c = { fit:0, tight:0, long:0, short:0 }; let longest = 0;
+  LINES.forEach(l => { const s = statusOf(l); c[s]++; if (s==='long') longest = Math.max(longest, est(l.hi)-l.slot); });
+  c.fix = c.long + c.short; c.longest = longest; return c;
+}
+function shown(){
+  return LINES.map((l,i)=>i).filter(i => {
+    const s = statusOf(LINES[i]);
+    return filter==='all' || (filter==='fix' ? needsFix(s) : s===filter);
+  });
+}
+
+function meter(l){
+  const e = est(l.hi), max = Math.max(e, l.slot) * 1.15;
+  const s = statusOf(l);
+  const fill = s==='long' ? 'bg-rose-400' : s==='tight' ? 'bg-amber-400' : s==='short' ? 'bg-sky-400' : 'bg-emerald-400/80';
+  return `<div class="flex items-center gap-2.5 mt-2">
+    <div class="relative h-1.5 w-48 rounded-full bg-slate-800">
+      <div class="absolute inset-y-0 left-0 rounded-full ${fill}" style="width:${e/max*100}%"></div>
+      <div class="absolute -top-1 -bottom-1 w-px bg-slate-300" style="left:${l.slot/max*100}%" title="Slot end"></div>
+    </div>
+    <span class="mono text-[12px] text-slate-400">${e.toFixed(1)} s read · ${l.slot.toFixed(1)} s slot</span>
+  </div>`;
+}
+function countsLine(l){
+  return `<span class="mono text-[12px] text-slate-400">${chars(l.hi)} char · ${syl(l.hi)} syl · slot holds ~${Math.round(l.slot*RATE)} syl</span>`;
+}
+function reason(l){
+  const s = statusOf(l), e = est(l.hi);
+  if (s==='long') return `About ${(e-l.slot).toFixed(1)} s too long`;
+  if (s==='short') return `Ends about ${(l.slot-e).toFixed(1)} s before the speaker stops`;
+  if (s==='tight') return `Tight, still fits`;
+  return 'Fits';
+}
+
+function rowHTML(i){
+  const l = LINES[i], s = statusOf(l), st = STAT[s], on = focus===i;
+  const edited = l.hi !== l.orig;
+  let under = '';
+  if (on || detailed){
+    under += `<div class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">${countsLine(l)}${edited?'<span class="text-[12px] text-sky-300">Edited</span>':''}</div>`;
+    under += meter(l);
+  }
+  if (!on && needsFix(s)) under = `<div class="mt-1.5 text-[13px] ${st.text}">${reason(l)}</div>` + (detailed ? under : '');
+  if (on){
+    if (s!=='fit') under += `<div class="mt-2 text-[13px] ${st.text}">${reason(l)}${s==='long' ? '. Shorten it so the voice doesn\'t rush.' : s==='short' ? '. A fuller line fills the gap.' : ''}</div>`;
+    const w = wording[i];
+    if (w){
+      under += `<div class="mt-2.5 rounded-xl border border-indigo-400/40 bg-indigo-500/[.06] px-3 py-2.5">
+        <div class="text-[12px] text-slate-400 mb-1">${w.dir} wording · meaning checked</div>
+        <div style="font-size:${fontPx}px" class="leading-relaxed text-slate-100">${w.text}</div>
+        <div class="flex gap-2 mt-2"><button data-use="${i}" class="px-3 py-1 rounded-lg bg-indigo-500 text-white text-[12.5px] font-medium">Use it</button><button data-skipw="${i}" class="px-3 py-1 rounded-lg border edge text-slate-300 text-[12.5px]">Keep mine</button></div>
+      </div>`;
+    } else {
+      const btn = (d, primary) => `<button data-word="${i}" data-dir="${d}" class="px-2.5 py-1 rounded-lg border ${primary?'border-indigo-400/60 text-indigo-200':'edge text-slate-300'} text-[12.5px] hover:bg-slate-800">${d}</button>`;
+      under += `<div class="mt-2.5 flex flex-wrap items-center gap-1.5">
+        ${btn('Shorter', s==='long')}${btn('Longer', s==='short')}${btn('Same length', false)}
+        ${s==='long' ? `<label class="ml-2 flex items-center gap-1.5 text-[12.5px] text-slate-300"><input type="checkbox" class="accent-indigo-500"> Read faster with a pace direction</label>` : ''}
+      </div>
+      <details class="mt-2"><summary class="text-[12.5px] text-slate-400 hover:text-slate-200 cursor-default select-none">Syllables, pauses and lips</summary>
+        <div class="mt-1.5 text-[12.5px] text-slate-400 leading-relaxed">Pause after the comma ~0.2 s · lips close on “प/ब/म” at 2 of 3 points · ${syl(l.hi)} syllables at ${RATE} a second.</div>
+      </details>`;
+    }
+    if (edited) under += `<button data-revert="${i}" class="mt-2 text-[12.5px] text-slate-400 underline hover:text-slate-200">Back to the translation</button>`;
+  }
+  const dot = s==='tight' && !on ? `<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 ml-1.5 align-middle" title="Tight"></span>` : '';
+  return `<div data-row="${i}" class="row ${on?'focus':''} relative grid grid-cols-[2.5rem_minmax(0,1fr)_2rem] md:grid-cols-[2.75rem_4.75rem_minmax(0,1fr)_minmax(0,1.3fr)_2rem] gap-x-4 gap-y-2 px-4 py-3.5 border-b edge ${on?'bg-indigo-950/40':'hover:bg-slate-800/25'}">
+    ${st.stripe ? `<span class="absolute left-0 top-2 bottom-2 w-[3px] rounded-r ${st.stripe}"></span>` : on ? '<span class="absolute left-0 top-0 bottom-0 w-[3px] bg-indigo-400"></span>' : ''}
+    <div class="order-1 flex items-start gap-1.5 pt-0.5">
+      <span class="mono text-[12.5px] text-slate-500 pt-1 w-5">${String(i+1).padStart(2,'0')}</span>
+    </div>
+    <button class="order-2 text-left mono text-[12.5px] text-slate-400 hover:text-indigo-300 pt-1 leading-snug" title="Jump the player here">${fmt(l.start)}<span class="md:block text-slate-500 ml-2 md:ml-0">${l.slot.toFixed(1)} s</span></button>
+    <div class="order-4 md:order-3 col-span-3 md:col-span-1 text-slate-400 leading-relaxed" style="font-size:${Math.max(13, fontPx-3)}px">
+      <div class="flex items-start gap-2">
+        <button class="rowplay shrink-0 mt-0.5 w-6 h-6 rounded-full border border-slate-700 text-slate-300 hover:border-indigo-400 flex items-center justify-center" title="Listen to the original (Space)" aria-label="Listen"><svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg></button>
+        <span>${l.en}</span>
+      </div>
+      ${on || detailed ? `<div class="mono text-[12px] text-slate-500 mt-1 ml-8">${[...l.en.replace(/\s/g,'')].length} char</div>` : ''}
+    </div>
+    <div class="order-5 md:order-4 col-span-3 md:col-span-1 min-w-0">
+      <div contenteditable="true" data-edit="${i}" spellcheck="false" class="hi-edit text-slate-50 leading-relaxed" style="font-size:${fontPx}px">${l.hi}</div>${dot}
+      ${under}
+    </div>
+    <div class="order-3 md:order-5 relative">
+      <button data-rowmenu="${i}" class="rowmore w-8 h-8 rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center" title="More (split, join, speaker)" aria-label="More">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>
+      </button>
+      ${rowMenu===i ? `<div class="pop absolute right-0 top-9 z-30 w-64 rounded-xl border border-slate-700 bg-slate-950 p-1.5 text-[13px]">
+        ${[['Listen to the original','Space'],['Split before the picked word','S'],['Adjust the cut with the next line',''],['Join with the next line','M'],['Change speaker…',''],['Retake this line','T']].map(([a,k])=>`<button class="w-full flex items-center justify-between gap-3 px-2.5 py-1.5 rounded-lg hover:bg-slate-800 text-left text-slate-200">${a}${k?`<span class="kbd">${k}</span>`:''}</button>`).join('')}
+      </div>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderList(){
+  const ids = new Set(shown());
+  let html = '';
+  PASSAGES.forEach((p, pi) => {
+    const inP = [];
+    for (let i=p.from;i<=p.to;i++) if (ids.has(i)) inP.push(i);
+    if (!inP.length) return;
+    let fix = 0; for (let i=p.from;i<=p.to;i++) if (needsFix(statusOf(LINES[i]))) fix++;
+    html += `<div class="sticky top-0 z-10 flex items-center gap-3 px-4 py-2 bg-slate-900/95 backdrop-blur border-b edge text-[12.5px]">
+      <span class="text-slate-300 font-medium">Passage ${pi+1}</span>
+      <span class="mono text-slate-500">${fmt(LINES[p.from].start)} – ${fmt(LINES[p.to].start + LINES[p.to].slot)}</span>
+      <span class="flex-1"></span>
+      ${fix ? `<span class="text-slate-400">${fix} to fix</span>` : '<span class="text-slate-500">All fit</span>'}
+    </div>`;
+    html += inP.map(rowHTML).join('');
+  });
+  $('list').innerHTML = html || `<div class="p-8 text-center text-slate-400 text-[13px]">No lines here. <button data-filter="all" class="underline">Show all lines</button></div>`;
+}
+
+function renderStrip(){
+  const c = counts();
+  const part = (n, label, cls) => `<span class="${n && cls ? cls : 'text-slate-300'}"><b class="mono font-semibold">${n}</b> ${label}</span>`;
+  $('fitStrip').innerHTML = `
+    <span class="text-slate-400 font-medium">Sync fit</span>
+    <span class="text-slate-400">${LINES.length} lines:</span>
+    ${part(c.fit,'fit','')}
+    <span class="text-slate-600">·</span>${part(c.tight,'tight','text-amber-300')}
+    <span class="text-slate-600">·</span>${part(c.long,'too long','text-rose-300')}
+    <span class="text-slate-600">·</span>${part(c.short, c.short===1 ? 'ends early' : 'end early','text-sky-300')}
+    ${c.long ? `<span class="text-slate-500 mono text-[12.5px]">longest +${c.longest.toFixed(1)} s</span>` : ''}
+    <span class="flex-1"></span>
+    <span class="text-[12.5px] text-slate-500">${estimate} estimate</span>
+    ${c.fix ? `<button data-filter="fix" class="h-7 px-3 rounded-lg border border-slate-600 text-[12.5px] text-slate-100 hover:bg-slate-800">Show ${c.fix} to fix →</button>` : ''}`;
+}
+
+function renderFilter(){
+  const c = counts();
+  const opts = [
+    ['all','All lines', LINES.length, ''],
+    ['fix','Lines to fix', c.fix, 'bg-indigo-400'],
+    null,
+    ['long','Too long', c.long, 'bg-rose-400'],
+    ['tight','Tight', c.tight, 'bg-amber-400'],
+    ['short','Ends early', c.short, 'bg-sky-400'],
+  ];
+  const cur = opts.find(o => o && o[0]===filter);
+  $('filterBtn').innerHTML = `<span class="text-slate-400">Show</span> ${cur[1]} <span class="mono text-slate-400 text-[12px]">${cur[2]}</span><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>`;
+  $('filterPop').innerHTML = opts.map(o => o ? `<button data-filter="${o[0]}" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg ${filter===o[0]?'bg-slate-800 text-slate-100':'text-slate-300 hover:bg-slate-800/70'}">
+      <span class="w-1.5 h-1.5 rounded-full ${o[3]||'bg-transparent'}"></span><span class="flex-1 text-left">${o[1]}</span><span class="mono text-[12px] text-slate-400">${o[2]}</span></button>` : '<div class="my-1 border-t edge"></div>').join('');
+}
+
+function seg(name, values, cur){
+  return `<div class="flex items-center justify-between gap-3 py-1.5"><span class="text-slate-300">${name}</span>
+    <span class="inline-flex rounded-lg border edge overflow-hidden">${values.map(v=>`<button data-set="${name}" data-val="${v}" class="px-2.5 py-1 text-[12.5px] ${v===cur?'bg-slate-100 text-slate-950 font-medium':'text-slate-300'}">${v}</button>`).join('')}</span></div>`;
+}
+function renderMore(){
+  $('morePop').innerHTML = `
+    ${seg('Line details', ['Simple','Detailed'], detailed?'Detailed':'Simple')}
+    <div class="text-[12px] text-slate-500 -mt-0.5 mb-1">Detailed shows counts and the fit meter on every line.</div>
+    <div class="flex items-center justify-between gap-3 py-1.5"><span class="text-slate-300">Text size</span>
+      <span class="inline-flex items-center rounded-lg border edge"><button data-font="-1" class="w-8 h-7 text-slate-300">−</button><span class="mono text-[12px] w-11 text-center">${fontPx}px</span><button data-font="1" class="w-8 h-7 text-slate-300">+</button></span></div>
+    <div class="my-1.5 border-t edge"></div>
+    ${seg('Estimate', ['Quick','Expert'], estimate)}
+    ${seg('Lanes', ['Wave','Blocks','Bars'], lane)}
+    <div class="my-1.5 border-t edge"></div>
+    <button class="w-full flex items-center justify-between px-0.5 py-1.5 text-slate-300 hover:text-slate-100">Indic phonetic keyboard <span class="kbd">Ctrl K</span></button>`;
+}
+
+const railBtn = 'w-full flex items-center justify-center gap-1.5 h-9 rounded-lg border edge bg-slate-900 hover:bg-slate-800 text-[13px] text-slate-200';
+function translationHTML(){
+  return `
+    <div class="flex items-center justify-between mb-3"><span class="text-[13px] text-slate-400">Cues hold</span><span class="text-[12px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">Automatic translation</span></div>
+    <div class="flex items-center gap-2.5 p-2.5 rounded-xl bg-slate-900 border edge mb-3">
+      <span class="flex-1"><span class="block text-[14px] font-semibold">Natural</span><span class="block text-[12.5px] text-slate-400">Translation style</span></span>
+      <button class="px-2.5 py-1 rounded-lg border edge text-[12.5px] text-slate-200 hover:bg-slate-800">Change</button>
+    </div>
+    <label class="flex items-center gap-2 mb-3 text-[13px] text-slate-400">Dub into
+      <select class="flex-1 h-8 bg-slate-900 border edge rounded-lg px-2 text-[13px] text-slate-100"><option>Hindi</option><option>Bengali</option><option>Tamil</option></select></label>
+    <div class="grid grid-cols-2 gap-2">
+      <button class="${railBtn}">Re-translate</button>
+      <button class="${railBtn}">Paste script</button>
+      <button class="${railBtn} col-span-2">Fast re-translate</button>
+    </div>
+    <div class="mt-4 pt-3 border-t edge">
+      <div class="flex items-center justify-between text-[13px]"><span class="text-slate-300">Cue split sensitivity</span><span class="mono text-slate-400 text-[12px]">Medium · 12 cues</span></div>
+      <input type="range" class="w-full mt-2 accent-indigo-500" value="50">
+    </div>`;
+}
+function toolsHTML(){
+  const item = (t, d) => `<button class="w-full flex items-center gap-3 p-2.5 rounded-xl border edge hover:bg-slate-800/60 text-left mb-2">
+    <span class="flex-1"><span class="block text-[14px] font-semibold">${t}</span><span class="block text-[12.5px] text-slate-400">${d}</span></span><span class="text-slate-500">›</span></button>`;
+  return item('Voice changer','Keep the delivery, swap the speaker\'s voice') + item('Text to speech','Voice any text with ElevenLabs or Cartesia')
+    + `<div class="text-[12px] text-slate-500 px-1 mt-1">Both also open from the Tools hub.</div>`;
+}
+
+function renderChrome(){
+  document.querySelectorAll('#mockSeg button').forEach(b => b.className = 'px-3 py-1 ' + (b.dataset.mock===mock ? 'bg-slate-100 text-slate-950 font-medium' : 'text-slate-300'));
+  $('rail').classList.toggle('hidden2', mock!=='A');
+  $('bMenus').classList.toggle('hidden2', mock!=='B');
+  if (mock!=='A') drawer = null;
+  const d = $('drawer');
+  d.style.transform = drawer ? 'translateX(0)' : 'translateX(120%)';
+  d.style.visibility = drawer ? 'visible' : 'hidden';
+  document.querySelectorAll('.railbtn').forEach(b => b.classList.toggle('bg-slate-800', b.dataset.drawer===drawer));
+  if (drawer){ $('drawerTitle').textContent = drawer==='translation' ? 'Script & translation' : 'Tools'; $('drawerBody').innerHTML = drawer==='translation' ? translationHTML() : toolsHTML(); }
+  $('bTransPop').innerHTML = `<div class="font-semibold text-[15px] mb-3">Script &amp; translation</div>` + translationHTML();
+  $('bToolsPop').innerHTML = toolsHTML();
+}
+
+function renderFoot(){
+  const n = shown().length;
+  $('foot').innerHTML = `<span class="mono">${filter==='all' ? `${LINES.length} lines` : `Showing ${n} of ${LINES.length} lines`}</span>
+    <span class="hidden sm:flex items-center gap-3"><span><span class="kbd">↑</span> <span class="kbd">↓</span> move between lines</span><span><span class="kbd">Enter</span> edit</span></span>`;
+}
+
+function render(){ renderStrip(); renderFilter(); renderMore(); renderList(); renderFoot(); renderChrome(); }
+function closePops(except){ ['filterPop','morePop','bTransPop','bToolsPop'].forEach(id => { if (id!==except) $(id).classList.add('hidden2'); }); }
+
+// Live fit while typing, without losing the caret.
+document.addEventListener('input', e => {
+  const el = e.target.closest('[data-edit]'); if (!el) return;
+  const i = +el.dataset.edit; LINES[i].hi = el.textContent;
+  renderStrip(); renderFilter(); renderFoot();
+  const row = el.closest('.row');
+  const fresh = document.createElement('div'); fresh.innerHTML = rowHTML(i);
+  const newRow = fresh.firstElementChild;
+  newRow.querySelector('[data-edit]').replaceWith(el);
+  row.replaceWith(newRow); el.focus();
+  const sel = getSelection(); sel.selectAllChildren(el); sel.collapseToEnd();
+});
+
+document.addEventListener('click', e => {
+  const t = e.target;
+  const pick = (sel) => t.closest(sel);
+  let m;
+  if ((m = pick('[data-mock]'))) { mock = m.dataset.mock; closePops(); return render(); }
+  if ((m = pick('#filterBtn'))) { closePops('filterPop'); $('filterPop').classList.toggle('hidden2'); return; }
+  if ((m = pick('#moreBtn'))) { closePops('morePop'); $('morePop').classList.toggle('hidden2'); return; }
+  if ((m = pick('#bTransBtn'))) { closePops('bTransPop'); $('bTransPop').classList.toggle('hidden2'); return; }
+  if ((m = pick('#bToolsBtn'))) { closePops('bToolsPop'); $('bToolsPop').classList.toggle('hidden2'); return; }
+  if ((m = pick('[data-filter]'))) { filter = m.dataset.filter; closePops(); const s = shown(); if (s.length && !s.includes(focus)) focus = s[0]; return render(); }
+  if ((m = pick('[data-set]'))) {
+    const v = m.dataset.val;
+    if (m.dataset.set==='Line details') detailed = v==='Detailed';
+    if (m.dataset.set==='Estimate') estimate = v;
+    if (m.dataset.set==='Lanes') lane = v;
+    render(); $('morePop').classList.remove('hidden2'); return;
+  }
+  if ((m = pick('[data-font]'))) { fontPx = Math.min(24, Math.max(14, fontPx + +m.dataset.font)); render(); $('morePop').classList.remove('hidden2'); return; }
+  if ((m = pick('[data-drawer]'))) { drawer = drawer===m.dataset.drawer ? null : m.dataset.drawer; return renderChrome(); }
+  if (pick('#drawerClose')) { drawer = null; return renderChrome(); }
+  if ((m = pick('[data-rowmenu]'))) { const i = +m.dataset.rowmenu; rowMenu = rowMenu===i ? -1 : i; focus = i; closePops(); return renderList(); }
+  if ((m = pick('[data-word]'))) {
+    const i = +m.dataset.word, dir = m.dataset.dir, l = LINES[i];
+    const text = dir==='Shorter' ? (l.shorter || l.hi.replace(/ ही /,' ')) : dir==='Longer' ? (l.longer || l.hi.replace(/।$/,' भी।')) : l.hi;
+    wording[i] = { dir, text }; return renderList();
+  }
+  if ((m = pick('[data-use]'))) { const i = +m.dataset.use; LINES[i].hi = wording[i].text; delete wording[i]; return render(); }
+  if ((m = pick('[data-skipw]'))) { delete wording[+m.dataset.skipw]; return renderList(); }
+  if ((m = pick('[data-revert]'))) { const i = +m.dataset.revert; LINES[i].hi = LINES[i].orig; return render(); }
+  if (!pick('.pop')) closePops();
+  if ((m = pick('[data-row]')) && !pick('[contenteditable]') && !pick('button') && !pick('details') && !pick('label')) {
+    const i = +m.dataset.row; if (focus !== i) { focus = i; rowMenu = -1; renderList(); }
+    return;
+  }
+  if ((m = pick('[data-edit]'))) { const i = +m.dataset.edit; if (focus !== i) { focus = i; rowMenu = -1; renderList(); const el = document.querySelector(`[data-edit="${i}"]`); el.focus(); const s = getSelection(); s.selectAllChildren(el); s.collapseToEnd(); } return; }
+  if (rowMenu >= 0 && !pick('.pop')) { rowMenu = -1; renderList(); }
+});
+
+document.addEventListener('keydown', e => {
+  const editing = document.activeElement?.isContentEditable || ['INPUT','SELECT'].includes(document.activeElement?.tagName);
+  if (e.key==='Escape') {
+    if (editing) { document.activeElement.blur(); return; }
+    drawer = null; rowMenu = -1; closePops(); return render();
+  }
+  if (editing) return;
+  const s = shown(); const at = s.indexOf(focus);
+  if (e.key==='ArrowDown' || e.key==='ArrowUp') {
+    e.preventDefault();
+    focus = s[Math.max(0, Math.min(s.length-1, at + (e.key==='ArrowDown' ? 1 : -1)))] ?? focus;
+    renderList(); document.querySelector(`[data-row="${focus}"]`)?.scrollIntoView({ block:'nearest' });
+  }
+  if (e.key==='Enter' && focus >= 0) { e.preventDefault(); const el = document.querySelector(`[data-edit="${focus}"]`); el?.focus(); const sel = getSelection(); sel.selectAllChildren(el); sel.collapseToEnd(); }
+});
+
+render();
+</script>
+</body>
+</html>

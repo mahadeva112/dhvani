@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { CheckCheck, Download, Keyboard, Languages, Loader2, Pause, Play } from 'lucide-react';
+import { CheckCheck, Keyboard, Languages, Loader2, Pause, Play } from 'lucide-react';
 import { AudioSegment } from '../../types';
 import { scrollWithin } from '../scrollWithin';
 import { SCRIPT_PALETTES, getIndicLanguageConfig, transliterateTextSmart, transliterateWordOffline } from '../../services/indicTransliteration';
@@ -18,6 +18,7 @@ import {
   type WordParagraphSize,
 } from '../../services/scriptDocx';
 import { saveFileAs } from '../../services/saveFile';
+import { WordSaveMenu } from './ReviewMenus';
 
 export interface LinePacing {
   level: 'natural' | 'tight' | 'fast';
@@ -490,7 +491,9 @@ export function ScriptTableView({
   const [savingWord, setSavingWord] = useState(false);
   const [wordSize, setWordSize] = useState<WordParagraphSize>(loadWordParagraphSize);
   const [wordError, setWordError] = useState<string | null>(null);
-  const saveWord = async () => {
+  const saveWord = async (size: WordParagraphSize) => {
+    setWordSize(size);
+    saveWordParagraphSize(size);
     setSavingWord(true);
     setWordError(null);
     const build = async () =>
@@ -500,7 +503,7 @@ export function ScriptTableView({
             title: exportTitle || `${targetLanguage || 'Dub'} script`,
             sourceLanguage,
             targetLanguage,
-            rows: scriptDocxRows(segments, getSourceText, getTargetText, passagePause, wordSize),
+            rows: scriptDocxRows(segments, getSourceText, getTargetText, passagePause, size),
           }),
         ],
         { type: DOCX_MIME }
@@ -521,35 +524,14 @@ export function ScriptTableView({
         <span title="Paragraphs are sized from the script's length (a sixth of it, between one and three minutes) and end where the original pauses">
           Paragraphs of about {formatLength(paragraphLength)} · {passages.length} {passages.length === 1 ? 'paragraph' : 'paragraphs'}
         </span>
-        <button
-          type="button"
-          onClick={saveWord}
-          disabled={savingWord}
-          className="h-6 px-2 rounded-md border border-edge flex items-center gap-1 font-medium text-slate-400 hover:text-slate-200 transition-colors cursor-default disabled:opacity-50"
+        {/* The Word file's paragraph size is picked as it is saved: it changes the file, not this view */}
+        <WordSaveMenu
+          sizes={WORD_PARAGRAPH_SIZES}
+          current={wordSize}
+          saving={savingWord}
+          onSave={(size) => void saveWord(size)}
           title={`Save as a Word file: the script in paragraphs, ${sourceLanguage || 'the original'} on the left, ${targetLanguage || 'the dub'} on the right`}
-        >
-          <Download className="w-3 h-3" />
-          Word
-        </button>
-        <div role="group" aria-label="Word paragraph size" className="flex bg-slate-950 border border-edge rounded-lg p-0.5 gap-0.5">
-          {WORD_PARAGRAPH_SIZES.map((size) => (
-            <button
-              key={size.id}
-              type="button"
-              aria-pressed={wordSize === size.id}
-              onClick={() => {
-                setWordSize(size.id);
-                saveWordParagraphSize(size.id);
-              }}
-              title={`Word file: ${size.hint}`}
-              className={`px-2 py-0.5 rounded-md cursor-default transition-colors ${
-                wordSize === size.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {size.label}
-            </button>
-          ))}
-        </div>
+        />
         {wordError && <span className="text-rose-300">{wordError}</span>}
         <span className="ml-auto text-slate-500">Type straight into the dub · click the original to play from there</span>
         <button

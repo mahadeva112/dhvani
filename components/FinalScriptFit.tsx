@@ -34,6 +34,16 @@ const FILL_TONE: Record<SyncPreviewUnit['status'], string> = {
   short: 'bg-sky-400/80',
 };
 
+/** A line to fix in a few words, for its row while the row is closed. */
+export const fitNote = (unit: SyncPreviewUnit) =>
+  unit.wantSeconds !== undefined
+    ? `Trimmed to ${unit.wantSeconds.toFixed(1)} s, the words don't fit it yet`
+    : unit.status === 'long'
+      ? `About ${unit.overflow.toFixed(1)} s too long`
+      : unit.status === 'short'
+        ? `Ends about ${unit.underflow.toFixed(1)} s early`
+        : fitLabel(unit);
+
 /** What a line's badge says, in seconds. */
 export const fitLabel = (unit: SyncPreviewUnit) =>
   unit.status === 'long'
@@ -144,10 +154,15 @@ export const ScriptFitStrip: React.FC<{
   onFixAll?: () => void;
   /** Shown beside the rate: the Quick or Expert switch. */
   estimate?: React.ReactNode;
-}> = ({ preview, loading, error, rateBasis, filter, onFilter, toFix, onFixAll, estimate }) => {
+  /** How the estimate was made, in a sentence, for the rate's tooltip. */
+  basis?: string;
+  /** Lines that need a new wording, and the way to list only them. */
+  fixCount?: number;
+  onShowFix?: () => void;
+}> = ({ preview, loading, error, rateBasis, filter, onFilter, toFix, onFixAll, estimate, basis, fixCount: linesToFix = 0, onShowFix }) => {
   if (!preview) {
     return (
-      <div className="px-4 py-2 border-b border-edge bg-slate-950/40 text-xs" role="status">
+      <div className="px-4 py-2.5 border-b border-edge bg-slate-950/40 text-[13px]" role="status">
         {error ? (
           <span className="text-amber-300">The sync fit could not be worked out.</span>
         ) : (
@@ -160,31 +175,49 @@ export const ScriptFitStrip: React.FC<{
   }
   const { summary } = preview;
   const fixCount = toFix ? toFix.shorter + toFix.longer : 0;
+  // Counted from the lines themselves, so every count in Review (filter, strip, passages) is the same count.
+  const count = (status: SyncPreviewUnit['status']) => preview.units.filter((u) => u.status === status).length;
+  const counts = { fits: count('fits'), tight: count('tight'), long: count('long'), short: count('short') };
+  const part = (n: number, label: string, tone: string) => (
+    <span className={n > 0 && tone ? tone : 'text-slate-300'}>
+      <b className="font-mono font-semibold tabular-nums">{n}</b> {label}
+    </span>
+  );
+  const dot = <span className="text-slate-600">·</span>;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 border-b border-edge bg-slate-950/40">
-      <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-300">Sync fit</span>
-      <span className="flex flex-wrap items-center gap-1.5">
-        <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 tabular-nums">
-          {summary.fits - summary.short} fit
-        </span>
-        {summary.tight > 0 && (
-          <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-amber-300/10 text-amber-200 tabular-nums">{summary.tight} tight</span>
-        )}
-        {summary.long > 0 && (
-          <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 tabular-nums">{summary.long} too long</span>
-        )}
-        {summary.short > 0 && (
-          <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-300 tabular-nums">{summary.short} end early</span>
-        )}
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-4 py-2.5 border-b border-edge bg-slate-950/40 text-[13px]">
+      <span className="font-medium text-slate-300">Sync fit</span>
+      <span className="text-slate-400 tabular-nums">
+        {preview.units.length} {preview.units.length === 1 ? 'line' : 'lines'}:
       </span>
+      {part(counts.fits, 'fit', '')}
+      {dot}
+      {part(counts.tight, 'tight', 'text-amber-300')}
+      {dot}
+      {part(counts.long, 'too long', 'text-rose-300')}
+      {dot}
+      {part(counts.short, counts.short === 1 ? 'ends early' : 'end early', 'text-sky-300')}
+      {counts.long > 0 && <span className="font-mono text-[12.5px] text-slate-400 tabular-nums">longest +{summary.maxOverflow.toFixed(1)} s</span>}
+      {summary.lips && summary.lips.total > 0 && (
+        <span className="font-mono text-[12.5px] text-slate-400 tabular-nums" title="Lines whose lip closings land where the original's do">
+          lips {summary.lips.matched} / {summary.lips.total}
+        </span>
+      )}
       <span
-        className="font-mono text-[11px] text-slate-500 tabular-nums"
-        title={RATE_BASIS_TITLES[rateBasis]}
+        className="text-[12.5px] text-slate-400 underline decoration-dotted decoration-slate-600 underline-offset-4 cursor-help"
+        title={[
+          `${
+            preview.method === 'expert' && preview.syllablesPerSecond
+              ? `Expert · ${preview.syllablesPerSecond.toFixed(1)} syllables/s`
+              : `Quick · ${preview.charsPerSecond.toFixed(1)} chars/s`
+          } · ${RATE_BASIS_LABELS[rateBasis]}.`,
+          basis,
+          RATE_BASIS_TITLES[rateBasis],
+        ]
+          .filter(Boolean)
+          .join('\n')}
       >
-        {preview.method === 'expert' && preview.syllablesPerSecond
-          ? `Expert · ${preview.syllablesPerSecond.toFixed(1)} syllables/s`
-          : `est. at ${preview.charsPerSecond.toFixed(1)} chars/s`}{' '}
-        · {RATE_BASIS_LABELS[rateBasis]}
+        {preview.method === 'expert' ? 'Expert' : 'Quick'} estimate
       </span>
       {estimate}
       {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
@@ -213,7 +246,7 @@ export const ScriptFitStrip: React.FC<{
           <button
             type="button"
             onClick={onFixAll}
-            className="h-7 px-2.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default"
+            className="h-7 px-2.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
             title="Asks your text model, not ElevenLabs, for each line the way it needs"
           >
             Suggest for all {fixCount}
@@ -221,6 +254,15 @@ export const ScriptFitStrip: React.FC<{
               {' '}
               ({[toFix.shorter && `${toFix.shorter} shorter`, toFix.longer && `${toFix.longer} fuller`].filter(Boolean).join(', ')})
             </span>
+          </button>
+        )}
+        {onShowFix && linesToFix > 0 && (
+          <button
+            type="button"
+            onClick={onShowFix}
+            className="h-7 px-2.5 rounded-lg border border-slate-600 hover:bg-slate-800 text-[12.5px] font-medium text-slate-100 cursor-default"
+          >
+            Show {linesToFix} to fix →
           </button>
         )}
       </span>
