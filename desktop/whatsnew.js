@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.73',
+    changes: [
+      'Edit timing takes tracks of your own audio: drop music, room tone or a recorded line on the timeline (on a track, or anywhere else for a new one), and right-click a track’s name to add, rename, move or delete. Each track has its own mute, solo and level.',
+      'Download “Dub + tracks” saves the dub with your tracks mixed in. The synced dub itself, and its subtitles, stay the dub alone.',
+    ],
+  },
+  {
     version: '1.4.72',
     changes: [
       'Dub length is on Auto by default: Sync picks Short, Natural, Long or Very long from the video when you press Dub & sync. A length you pick yourself stays.',
