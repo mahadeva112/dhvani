@@ -504,8 +504,8 @@ export interface SyncSettingsPanelProps {
   onDownloadWav?: () => void;
   /** Saves the synced dub as MP3; absent before the first sync. */
   onDownloadMp3?: () => Promise<void>;
-  /** Saves the synced dub with the tracks of outside audio mixed in; absent without tracks. */
-  onDownloadWithTracks?: () => Promise<void>;
+  /** Saves the synced dub with the tracks of outside audio mixed in, as WAV or MP3; absent without tracks. */
+  onDownloadWithTracks?: (format: 'wav' | 'mp3') => Promise<void>;
   /** Opens the voice changer on the synced dub; absent before the first sync. */
   onOpenVoiceChanger?: () => void;
   /** The subtitles section: downloads and settings, built by the step. */
@@ -1213,7 +1213,8 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   const bar = variant === 'bar';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingMp3, setSavingMp3] = useState(false);
-  const [mixingTracks, setMixingTracks] = useState(false);
+  /** Which Dub + tracks file is being mixed, if one is. */
+  const [mixingTracks, setMixingTracks] = useState<'wav' | 'mp3' | null>(null);
   // Only a request made while the rail is on screen opens it, not one left from before the Dub step.
   const seenOpenRequest = useRef(openRequest);
   useEffect(() => {
@@ -1402,22 +1403,30 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
             )}
           </button>
         )}
-        {onDownloadWithTracks && (
-          <button
-            type="button"
-            onClick={() => {
-              setMixingTracks(true);
-              onDownloadWithTracks().finally(() => setMixingTracks(false));
-            }}
-            disabled={isSyncing || mixingTracks}
-            className={downloadRow}
-            title="The dub with the tracks you added in Edit timing mixed in, at the dub's own rate, as a 32-bit float WAV so nothing clips. Muted or soloed tracks are still in it."
-          >
-            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
-            <span className="flex-1 text-[13px]">{mixingTracks ? 'Mixing the tracks in…' : 'Dub + tracks'}</span>
-            {mixingTracks ? <Loader2 className="w-4 h-4 text-slate-500 animate-spin" /> : <Download className="w-4 h-4 text-slate-500" />}
-          </button>
-        )}
+        {onDownloadWithTracks &&
+          (['wav', 'mp3'] as const).map((format) => (
+            <button
+              key={format}
+              type="button"
+              onClick={() => {
+                setMixingTracks(format);
+                onDownloadWithTracks(format).finally(() => setMixingTracks(null));
+              }}
+              disabled={isSyncing || mixingTracks !== null}
+              className={downloadRow}
+              title={
+                format === 'wav'
+                  ? "The dub with the tracks you added in Edit timing mixed in, at the dub's own rate, as a 32-bit float WAV so nothing clips. Muted or soloed tracks are still in it."
+                  : "The same mix as an MP3 at 320 kbps, at the dub's own rate. An MP3 can't hold peaks above 0 dB, so if the mix goes over, the WAV keeps them and the MP3 clips there."
+              }
+            >
+              <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">{format.toUpperCase()}</span>
+              <span className="flex-1 text-[13px]">
+                {mixingTracks === format ? (format === 'mp3' ? 'Making the MP3…' : 'Mixing the tracks in…') : 'Dub + tracks'}
+              </span>
+              {mixingTracks === format ? <Loader2 className="w-4 h-4 text-slate-500 animate-spin" /> : <Download className="w-4 h-4 text-slate-500" />}
+            </button>
+          ))}
         {onOpenVoiceChanger && (
           <button type="button" onClick={onOpenVoiceChanger} disabled={isSyncing} className={downloadRow}>
             <AudioWaveform className="w-4 h-4 text-slate-400 shrink-0" />

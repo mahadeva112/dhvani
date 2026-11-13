@@ -4086,11 +4086,13 @@ export default function App() {
   /**
    * Saves the dub with the tracks of outside audio mixed in, rendered now at
    * the dub's own rate as a 32-bit float WAV, so nothing clips and nothing is
-   * turned down. The synced dub's own file stays the dub alone.
+   * turned down. The synced dub's own file stays the dub alone. As MP3, that
+   * WAV is encoded at 320 kbps, its rate and channels kept.
    */
-  const handleDownloadWithTracks = useCallback(async () => {
+  const handleDownloadWithTracks = useCallback(async (format: 'wav' | 'mp3' = 'wav') => {
     const job = activeJob;
     if (!job?.syncBank || !job.syncBaseReport || !job.syncAudioTracks?.length) return;
+    const mp3 = format === 'mp3';
     try {
       const { blob } = await renderSyncEdits({
         bank: withSpeakerLevels(job.syncBank, job.syncSpeakerLevels),
@@ -4101,9 +4103,15 @@ export default function App() {
         source: job.audioBuffer,
         tracks: { tracks: job.syncAudioTracks, files: trackFiles, buffers: trackBuffersRef.current },
       });
-      saveAudioFile(blob, `${projectFileStem(job)} - dub and tracks.${audioFileExtension(blob)}`);
+      const file = mp3 && audioFileExtension(blob) !== 'mp3' ? await apiPostBlobAudio('/audio/mp3', blob) : blob;
+      saveAudioFile(file, `${projectFileStem(job)} - dub and tracks.${mp3 ? 'mp3' : audioFileExtension(file)}`);
     } catch (err) {
-      reportError(err, { title: 'Saving the dub with its tracks failed', safe: 'The dub and the tracks are unchanged; Download WAV still saves the dub alone.' });
+      reportError(err, {
+        title: mp3 ? 'Saving the dub with its tracks as MP3 failed' : 'Saving the dub with its tracks failed',
+        safe: mp3
+          ? 'The dub and the tracks are unchanged; the WAV of Dub + tracks still works.'
+          : 'The dub and the tracks are unchanged; Download WAV still saves the dub alone.',
+      });
     }
   }, [activeJob, trackFiles]);
 

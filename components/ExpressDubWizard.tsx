@@ -439,8 +439,8 @@ interface ExpressDubWizardProps {
   onSyncEditsChange?: (edits: SyncEdits, label: string, tracks?: AudioTrack[]) => void;
   /** Edit timing's tracks of outside audio: their files, and mute and solo for listening. */
   syncAudio?: AudioTrackLanes;
-  /** Saves the dub with its tracks mixed in. */
-  onDownloadWithTracks?: () => Promise<void>;
+  /** Saves the dub with its tracks mixed in, as WAV or MP3. */
+  onDownloadWithTracks?: (format: 'wav' | 'mp3') => Promise<void>;
   /** Puts back the synced dub from before a whole-file voice change, so its timing can be edited again. */
   onUndoVoiceChange?: () => void;
   /** Whether the synced dub has caught up with the edits. */
