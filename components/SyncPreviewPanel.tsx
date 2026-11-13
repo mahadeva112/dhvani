@@ -2448,16 +2448,19 @@ const METER_BANDS: [number, number, string][] = [
 const meterAt = (rate: number) => ((Math.min(MAX_LINE_RATE, Math.max(MIN_LINE_RATE, rate)) - MIN_LINE_RATE) / (MAX_LINE_RATE - MIN_LINE_RATE)) * 100;
 
 /**
- * The picked line's card under Review's lanes: its words, a meter of how long
- * the dub likely runs against its room (the white tick is where the original
- * speaker stops), how it fits in words, and what fixes it: another wording,
- * a speed that fits, Back to 1× once stretched, and Open line. Its wordings,
- * once asked for, are worked on right here. In Card view the speed meter
- * shows here too, and the lane keeps no speed marks.
+ * The picked line in the player's play row, where the live caption was: its
+ * words (the original under them), a meter of how long the dub likely runs
+ * against its room (the white tick is where the original speaker stops), how
+ * it fits in words, and what fixes it: another wording, a speed that fits,
+ * Back to 1× once stretched, and Open line. The words are said once, here,
+ * not in a caption and again in a card. In Card view the speed meter shows
+ * too, and the lane keeps no speed marks. Wordings, once asked for, open
+ * under the play row (LineFitWordings).
  */
-export const LineFitCard: React.FC<{
-  unit: SyncPreviewUnit | null;
-  cps: number;
+export const LineFitRow: React.FC<{
+  unit: SyncPreviewUnit;
+  /** The line's original words, under its own. */
+  source?: string;
   /** Which cues the line is, as the list numbers them ("8–10"). */
   cues?: string;
   fix: Omit<LineFixControlsProps, 'unit' | 'cps'> | null;
@@ -2465,14 +2468,7 @@ export const LineFitCard: React.FC<{
   onOpen?: (unit: SyncPreviewUnit) => void;
   /** Card view: the speed meter, always. */
   showSpeed?: boolean;
-}> = ({ unit, cps, cues, fix, onStretch, onOpen, showSpeed = false }) => {
-  if (!unit) {
-    return (
-      <div className="mx-3.5 mb-2.5 rounded-xl border border-edge/70 px-3 py-2 text-[12px] text-slate-500">
-        Pick a dub line to see how it fits its room, and fix it here.
-      </div>
-    );
-  }
+}> = ({ unit, source, cues, fix, onStretch, onOpen, showSpeed = false }) => {
   const hue = hueOf(unit.index);
   const rate = unit.rate ?? 1;
   const zone = rateZone(rate);
@@ -2525,94 +2521,108 @@ export const LineFitCard: React.FC<{
     );
   const btn = 'h-7 px-2.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 text-[12px] text-slate-200 hover:bg-slate-800 whitespace-nowrap cursor-default';
   return (
-    <div className="mx-3.5 mb-2.5 rounded-xl border px-3 py-2" style={{ borderColor: withAlpha(hue, 0.35), background: withAlpha(hue, 0.05) }}>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
-        <div className="flex items-center gap-2 text-[11.5px] text-slate-500 whitespace-nowrap">
-          <span className="w-2.5 h-2.5 rounded-full" style={{ background: hue }} />
-          <span className="font-mono font-semibold" style={{ color: hue }}>
-            Line {unit.index + 1}
-          </span>
-          {cues && <span className="font-mono">cues {cues}</span>}
-        </div>
-        <p className="min-w-[14rem] flex-1 text-[14px] text-slate-100 leading-snug line-clamp-2" lang="und">
+    <div className="min-w-0 flex-1 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+      <div className="flex items-center gap-2 text-[11.5px] text-slate-500 whitespace-nowrap" title={cues ? `Line ${unit.index + 1}: cues ${cues}` : undefined}>
+        <span className="w-2.5 h-2.5 rounded-full" style={{ background: hue }} />
+        <span className="font-mono font-semibold" style={{ color: hue }}>
+          Line {unit.index + 1}
+        </span>
+      </div>
+      <span className="min-w-[14rem] flex-1">
+        <span className="block text-[14px] leading-snug text-slate-100 line-clamp-2" lang="und">
           {unit.text}
-        </p>
-        <div
-          className="w-52 shrink-0"
-          title={`About ${unit.estimate.toFixed(1)} s, a guess from the text · room ${unit.slot.toFixed(1)} s · the original speaker talks ${unit.spoken.toFixed(1)} s (white tick)`}
-        >
-          <div className="relative h-2.5 rounded-full bg-slate-800 border border-slate-700">
-            <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: at(fill), background: hue, opacity: 0.85 }} />
-            {over > 0 && (
-              <span className={`absolute inset-y-0 rounded-r-full ${unit.status === 'long' ? 'bg-rose-400' : 'bg-amber-300'}`} style={{ left: at(unit.slot), width: at(over) }} />
-            )}
-            <span className="absolute -top-1 -bottom-1 w-px bg-white/80" style={{ left: at(unit.spoken) }} />
-            <span className="absolute -top-1.5 -bottom-1.5 w-0.5 -ml-px rounded-full bg-slate-300" style={{ left: at(unit.slot) }} />
-          </div>
-          <div className="mt-1 flex justify-between font-mono text-[10.5px] text-slate-400 tabular-nums">
-            <span>dub ≈ {unit.estimate.toFixed(1)} s</span>
-            <span>room {unit.slot.toFixed(1)} s</span>
-          </div>
+        </span>
+        {source && (
+          <span className="block text-[11.5px] leading-snug text-slate-400 truncate" title={source}>
+            {source}
+          </span>
+        )}
+      </span>
+      <div
+        className="w-44 shrink-0"
+        title={`About ${unit.estimate.toFixed(1)} s, a guess from the text · room ${unit.slot.toFixed(1)} s · the original speaker talks ${unit.spoken.toFixed(1)} s (white tick)`}
+      >
+        <div className="relative h-2.5 rounded-full bg-slate-800 border border-slate-700">
+          <span className="absolute inset-y-0 left-0 rounded-full" style={{ width: at(fill), background: hue, opacity: 0.85 }} />
+          {over > 0 && (
+            <span className={`absolute inset-y-0 rounded-r-full ${unit.status === 'long' ? 'bg-rose-400' : 'bg-amber-300'}`} style={{ left: at(unit.slot), width: at(over) }} />
+          )}
+          <span className="absolute -top-1 -bottom-1 w-px bg-white/80" style={{ left: at(unit.spoken) }} />
+          <span className="absolute -top-1.5 -bottom-1.5 w-0.5 -ml-px rounded-full bg-slate-300" style={{ left: at(unit.slot) }} />
         </div>
-        <div className="text-[12.5px] min-w-[12rem]">
-          <div>{message}</div>
-          {(stretched || showSpeed) && (
-            <div className="mt-0.5 flex items-center gap-2 text-[11.5px]">
-              <span className="font-mono tabular-nums" style={{ color: tone ?? '#e2e8f0' }}>
-                Read at {rate.toFixed(2)}×
-              </span>
-              <span style={{ color: tone ?? '#4ade80' }}>{RATE_WORDS[zone]}</span>
-            </div>
-          )}
-          {showSpeed && (
-            <div className="relative mt-1 w-44" title="0.5× to 2×: natural up to 1.15×, a little quick to 1.3×, rushed past it; slower than 0.85× drags">
-              <div className="flex h-1.5 rounded-full overflow-hidden">
-                {METER_BANDS.map(([a, b, cls]) => (
-                  <span key={a} className={cls} style={{ width: `${((b - a) / (MAX_LINE_RATE - MIN_LINE_RATE)) * 100}%` }} />
-                ))}
-              </div>
-              <span className="absolute -top-1 w-[3px] h-3.5 -ml-[1.5px] rounded-full bg-slate-100" style={{ left: `${meterAt(rate)}%` }} />
-            </div>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {!started && wording && fix && (
-            <button
-              type="button"
-              onClick={() => fix.onSuggest(wording)}
-              className={btn}
-              title={wording === 'shorter' ? 'Wordings with fewer words, same meaning' : 'Fuller wordings, same meaning'}
-            >
-              {wording === 'shorter' ? '↓ Shorter wording' : '↑ Longer wording'}
-            </button>
-          )}
-          {speedFix && (
-            <button
-              type="button"
-              onClick={() => onStretch(unit, speedFix)}
-              className={btn}
-              title={`Read it at ${speedFix.toFixed(2)}× (pitch kept) so it ${unit.status === 'short' ? 'fills the original speech' : 'fits its room'}: ${RATE_WORDS[rateZone(speedFix)].toLowerCase()}`}
-            >
-              <span style={{ color: RATE_TONE[rateZone(speedFix)] ?? undefined }}>Read {speedFix.toFixed(2)}×</span>
-            </button>
-          )}
-          {stretched && (
-            <button type="button" onClick={() => onStretch(unit, 1)} className={btn}>
-              Back to 1×
-            </button>
-          )}
-          {onOpen && (
-            <button type="button" onClick={() => onOpen(unit)} className={btn} title="Open its last cue in the list, ready to type">
-              Open line
-            </button>
-          )}
+        <div className="mt-1 flex justify-between font-mono text-[10.5px] text-slate-400 tabular-nums">
+          <span>dub ≈ {unit.estimate.toFixed(1)} s</span>
+          <span>room {unit.slot.toFixed(1)} s</span>
         </div>
       </div>
-      {fix && started && (
-        <div className="mt-2 pt-2 border-t border-edge/70">
-          <LineFixControls unit={unit} cps={cps} {...fix} />
-        </div>
-      )}
+      <div className="text-[12.5px]">
+        <div className="whitespace-nowrap">{message}</div>
+        {(stretched || showSpeed) && (
+          <div className="mt-0.5 flex items-center gap-2 text-[11.5px]">
+            <span className="font-mono tabular-nums" style={{ color: tone ?? '#e2e8f0' }}>
+              Read at {rate.toFixed(2)}×
+            </span>
+            <span style={{ color: tone ?? '#4ade80' }}>{RATE_WORDS[zone]}</span>
+          </div>
+        )}
+        {showSpeed && (
+          <div className="relative mt-1 w-44" title="0.5× to 2×: natural up to 1.15×, a little quick to 1.3×, rushed past it; slower than 0.85× drags">
+            <div className="flex h-1.5 rounded-full overflow-hidden">
+              {METER_BANDS.map(([a, b, cls]) => (
+                <span key={a} className={cls} style={{ width: `${((b - a) / (MAX_LINE_RATE - MIN_LINE_RATE)) * 100}%` }} />
+              ))}
+            </div>
+            <span className="absolute -top-1 w-[3px] h-3.5 -ml-[1.5px] rounded-full bg-slate-100" style={{ left: `${meterAt(rate)}%` }} />
+          </div>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {!started && wording && fix && (
+          <button
+            type="button"
+            onClick={() => fix.onSuggest(wording)}
+            className={btn}
+            title={wording === 'shorter' ? 'Wordings with fewer words, same meaning' : 'Fuller wordings, same meaning'}
+          >
+            {wording === 'shorter' ? '↓ Shorter wording' : '↑ Longer wording'}
+          </button>
+        )}
+        {speedFix && (
+          <button
+            type="button"
+            onClick={() => onStretch(unit, speedFix)}
+            className={btn}
+            title={`Read it at ${speedFix.toFixed(2)}× (pitch kept) so it ${unit.status === 'short' ? 'fills the original speech' : 'fits its room'}: ${RATE_WORDS[rateZone(speedFix)].toLowerCase()}`}
+          >
+            <span style={{ color: RATE_TONE[rateZone(speedFix)] ?? undefined }}>Read {speedFix.toFixed(2)}×</span>
+          </button>
+        )}
+        {stretched && (
+          <button type="button" onClick={() => onStretch(unit, 1)} className={btn}>
+            Back to 1×
+          </button>
+        )}
+        {onOpen && (
+          <button type="button" onClick={() => onOpen(unit)} className={btn} title="Open its last cue in the list, ready to type">
+            Open line
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+/** The picked line's wordings, once asked for: under the play row, across the player. Nothing until then. */
+export const LineFitWordings: React.FC<{
+  unit: SyncPreviewUnit | null;
+  cps: number;
+  fix: Omit<LineFixControlsProps, 'unit' | 'cps'> | null;
+}> = ({ unit, cps, fix }) => {
+  if (!unit || !fix || fix.state.kind === 'idle') return null;
+  const hue = hueOf(unit.index);
+  return (
+    <div className="mx-3.5 mb-2.5 rounded-xl border px-3 py-2" style={{ borderColor: withAlpha(hue, 0.35), background: withAlpha(hue, 0.05) }}>
+      <LineFixControls unit={unit} cps={cps} {...fix} />
     </div>
   );
 };

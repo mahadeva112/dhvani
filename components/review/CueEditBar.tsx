@@ -352,89 +352,123 @@ const Key = ({ children }: { children: React.ReactNode }) => (
 const barButton =
   'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-lg border border-edge text-xs text-slate-300 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-default';
 
+const headButton =
+  'inline-flex items-center gap-1.5 h-[30px] px-2 rounded-lg border border-edge text-xs text-slate-300 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-default';
+
 /**
- * The strip under the waveform: Split and Undo, what the last edit did, and,
- * while a cut is selected, the tools for that cut. It never blocks playback.
+ * Split, Undo, Redo, History and Back to the first translation, small, for
+ * the player's top bar. What the last edit did is in Undo's tooltip (and its
+ * label on wide screens); the keys are in the player's ? hints.
  */
-export function CueEditBar({
+export function CueEditButtons({ editing, history }: { editing: CueEditing; history: ReviewUndo }) {
+  return (
+    <div role="toolbar" aria-label="Edit" className="flex items-center gap-1 pr-1.5 mr-0.5 border-r border-edge">
+      <button
+        type="button"
+        onClick={() => (editing.caret ? editing.splitAtCaret() : editing.splitAtPlayhead())}
+        className={headButton}
+        title={editing.caret ? 'Split before the word you picked (S or Ctrl+Enter)' : 'Split the cue at the playhead, at the nearest word gap (S)'}
+      >
+        <Scissors className="w-3.5 h-3.5" />
+        Split
+        <Key>S</Key>
+      </button>
+      <button
+        type="button"
+        onClick={history.undo}
+        disabled={!history.undoLabel}
+        className={headButton}
+        title={history.undoLabel ? `Undo: ${history.undoLabel} (Ctrl+Z)` : 'Nothing to undo'}
+      >
+        <Undo2 className="w-3.5 h-3.5" />
+        Undo
+        {history.undoLabel && <span className="hidden 2xl:inline max-w-[9rem] truncate text-slate-500">· {history.undoLabel}</span>}
+      </button>
+      <button
+        type="button"
+        onClick={history.redo}
+        disabled={!history.redoLabel}
+        className={headButton}
+        title={history.redoLabel ? `Redo: ${history.redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo'}
+        aria-label="Redo"
+      >
+        <Redo2 className="w-3.5 h-3.5" />
+      </button>
+      {history.history && history.history.entries.length > 1 && <HistoryMenu history={history.history} compact />}
+      {history.baseLabel && (
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(`Put every line back to ${history.baseLabel}? Your edits since are kept in Undo: Ctrl+Z brings them back.`)) {
+              history.backToBase();
+            }
+          }}
+          className={headButton}
+          title={`Back to ${history.baseLabel}: every line as it was then. Undo brings your edits back.`}
+          aria-label={`Back to ${history.baseLabel}`}
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Under the player, only while there is something to say: a notice from the
+ * last edit, the word picked to split before, or the tools for a picked cut.
+ * The standing hint (S, M, a word in Original) lives in the ? hints.
+ */
+export function CueEditNotice({
   editing,
-  history,
   segments,
   cueNumber,
 }: {
   editing: CueEditing;
-  history: ReviewUndo;
   segments: AudioSegment[];
   cueNumber: (id: string | number) => number;
 }) {
   const i = editing.boundaryId === null ? -1 : segments.findIndex((seg) => String(seg.id) === String(editing.boundaryId));
   const a = i >= 0 ? segments[i] : null;
   const b = i >= 0 ? segments[i + 1] : null;
-
+  // A notice goes after a while (or on ×), so the bar takes no room for long; one still working stays.
+  const [hidden, setHidden] = useState<string | null>(null);
+  useEffect(() => {
+    if (!editing.notice || editing.retranslating) return;
+    const timer = setTimeout(() => setHidden(editing.notice), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [editing.notice, editing.retranslating]);
+  const notice = editing.notice && editing.notice !== hidden ? editing.notice : null;
+  const message = notice ?? (editing.caret ? `Split before the picked word in #${cueNumber(editing.caret.id)} with S or Ctrl+Enter.` : null);
+  if (!message && !(a && b)) return null;
   return (
     <div className="bg-slate-900/90 border border-edge rounded-2xl px-3 py-2 text-xs">
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => (editing.caret ? editing.splitAtCaret() : editing.splitAtPlayhead())}
-          className={barButton}
-          title={editing.caret ? 'Split before the word you picked (S or Ctrl+Enter)' : 'Split the cue at the playhead, at the nearest word gap (S)'}
-        >
-          <Scissors className="w-3.5 h-3.5" />
-          Split
-          <Key>S</Key>
-        </button>
-        <button
-          type="button"
-          onClick={history.undo}
-          disabled={!history.undoLabel}
-          className={barButton}
-          title={history.undoLabel ? `Undo: ${history.undoLabel} (Ctrl+Z)` : 'Nothing to undo'}
-        >
-          <Undo2 className="w-3.5 h-3.5" />
-          Undo
-          {history.undoLabel && <span className="max-w-[11rem] truncate text-slate-500">· {history.undoLabel}</span>}
-        </button>
-        <button
-          type="button"
-          onClick={history.redo}
-          disabled={!history.redoLabel}
-          className={barButton}
-          title={history.redoLabel ? `Redo: ${history.redoLabel} (Ctrl+Shift+Z)` : 'Nothing to redo'}
-          aria-label="Redo"
-        >
-          <Redo2 className="w-3.5 h-3.5" />
-        </button>
-        {history.history && history.history.entries.length > 1 && <HistoryMenu history={history.history} compact />}
-        {history.baseLabel && (
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm(`Put every line back to ${history.baseLabel}? Your edits since are kept in Undo: Ctrl+Z brings them back.`)) {
-                history.backToBase();
-              }
-            }}
-            className={barButton}
-            title={`Every line as it was in ${history.baseLabel}. Undo brings your edits back.`}
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            Back to {history.baseLabel}
-          </button>
-        )}
-        <span className="text-slate-400 min-w-0 flex-1" aria-live="polite">
-          {editing.notice ??
-            (editing.caret
-              ? `Split before the picked word in #${cueNumber(editing.caret.id)} with S or Ctrl+Enter.`
-              : 'Play to where a cue should end and press S, or click a word in Original. M joins a cue with the next.')}
-        </span>
-      </div>
-
-      {a && b && <CutTools editing={editing} a={a} b={b} n={cueNumber(a.id)} />}
+      {message && (
+        <div className="flex items-center gap-2">
+          <p className="flex-1 min-w-0 text-slate-300" aria-live="polite">
+            {message}
+          </p>
+          {notice && (
+            <button
+              type="button"
+              onClick={() => setHidden(notice)}
+              className="w-6 h-6 inline-flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default"
+              aria-label="Hide this note"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+      {a && b && <CutTools editing={editing} a={a} b={b} n={cueNumber(a.id)} flush={!message} />}
     </div>
   );
 }
 
-function CutTools({ editing, a, b, n }: { editing: CueEditing; a: AudioSegment; b: AudioSegment; n: number }) {
+/** How long an edit's note stays under the player. */
+const NOTICE_MS = 8000;
+
+function CutTools({ editing, a, b, n, flush = false }: { editing: CueEditing; a: AudioSegment; b: AudioSegment; n: number; flush?: boolean }) {
   const { tokens, measured } = cueTokens(a);
   const lastWord = tokens[tokens.length - 1]?.text ?? '';
   const pause = Math.max(0, b.startTime - a.endTime);
@@ -442,7 +476,7 @@ function CutTools({ editing, a, b, n }: { editing: CueEditing; a: AudioSegment; 
   const dub = [...firstDub, ...targetTextOf(b).split(/\s+/).filter(Boolean)];
 
   return (
-    <div className="mt-2 pt-2 border-t border-edge space-y-2">
+    <div className={`${flush ? '' : 'mt-2 pt-2 border-t border-edge'} space-y-2`}>
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="font-medium text-slate-200">
           Cut #{n} | #{n + 1}

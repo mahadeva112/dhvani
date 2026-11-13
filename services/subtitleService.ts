@@ -267,22 +267,32 @@ export const retranslateCues = async (
 
   const body = { cues: segmentsToCues(segments), sourceLanguage, targetLanguage, customPrompt, ...(voiceRate && { voiceRate }), ...(speakerRates && Object.keys(speakerRates).length > 0 && { speakerRates }), ...(fast && { fast }), jobId };
 
+  // Cancel stops the backend too: it outlives the request on purpose, so it is told to send no more batches.
+  const stopBackend = () => {
+    void apiJson(`/pipeline/retranslate/${jobId}`, { method: 'DELETE', retry: false }).catch(() => {});
+  };
+  signal?.addEventListener('abort', stopBackend, { once: true });
+
   let response: RetranslateResult | null = null;
-  for (let resumes = 0; !response; resumes += 1) {
-    try {
-      response = await apiStream<RetranslateResult>('/pipeline/retranslate', body, { keys, signal, onEvent: report });
-    } catch (err) {
-      const dropped = err instanceof DhvaniApiError && (err.code === 'backend_unreachable' || err.code === 'incomplete_stream');
-      if (signal?.aborted || !dropped) throw err;
+  try {
+    for (let resumes = 0; !response; resumes += 1) {
       try {
-        response = await awaitTranslationJob(jobId, { signal, onEvent: report });
-      } catch (lost) {
-        // The backend restarted mid-run: sent again under the same id, it
-        // carries on from the batches it had saved instead of starting over.
-        if (!(lost instanceof DhvaniApiError && lost.code === 'translation_lost') || resumes >= MAX_TRANSLATION_RESUMES) throw lost;
-        onProgress?.({ done: 0, total: 0, cueCount: segments.length, message: 'The backend restarted; carrying on from the last finished batch' });
+        response = await apiStream<RetranslateResult>('/pipeline/retranslate', body, { keys, signal, onEvent: report });
+      } catch (err) {
+        const dropped = err instanceof DhvaniApiError && (err.code === 'backend_unreachable' || err.code === 'incomplete_stream');
+        if (signal?.aborted || !dropped) throw err;
+        try {
+          response = await awaitTranslationJob(jobId, { signal, onEvent: report });
+        } catch (lost) {
+          // The backend restarted mid-run: sent again under the same id, it
+          // carries on from the batches it had saved instead of starting over.
+          if (!(lost instanceof DhvaniApiError && lost.code === 'translation_lost') || resumes >= MAX_TRANSLATION_RESUMES) throw lost;
+          onProgress?.({ done: 0, total: 0, cueCount: segments.length, message: 'The backend restarted; carrying on from the last finished batch' });
+        }
       }
     }
+  } finally {
+    signal?.removeEventListener('abort', stopBackend);
   }
 
   // Merge by id so any UI-only field on the original segment survives.

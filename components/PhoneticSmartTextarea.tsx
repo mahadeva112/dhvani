@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import {
   Keyboard,
   Languages,
@@ -43,6 +43,8 @@ export interface PhoneticSmartTextareaProps {
   defaultAiPolish?: boolean;
   /** Text size in px, for screens that let the reviewer scale the script. */
   fontSize?: number;
+  /** As tall as its text: one line of words is one row, never a scrollbar. `rows` is the least it shows. */
+  autoGrow?: boolean;
 }
 
 interface UndoEntry {
@@ -65,6 +67,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   defaultAiPolish = false,
   compactToolbar = false,
   fontSize,
+  autoGrow = false,
 }) => {
   // Enabled state for phonetic auto-transliteration (persisted or on by default)
   const isPhoneticOn = usePhoneticSwitch();
@@ -91,6 +94,19 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
   // Debounce ref
   const debounceTimeoutRef = useRef<any>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Grown to its text: measured on every change of words, size or width (a wrap can add a row).
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!autoGrow || !el) return;
+    const fit = () => {
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight + (el.offsetHeight - el.clientHeight)}px`;
+    };
+    fit();
+    const watch = new ResizeObserver(() => fit());
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [autoGrow, value, fontSize]);
 
   const langConfig = getIndicLanguageConfig(language);
   const scriptPalette = SCRIPT_PALETTES[langConfig.script] || SCRIPT_PALETTES.Devanagari;
@@ -572,7 +588,7 @@ export const PhoneticSmartTextarea: React.FC<PhoneticSmartTextareaProps> = ({
               ? `Dialogue translation in ${langConfig.nativeName} (${langConfig.name})... Type in English phonetically (e.g. "namaste").`
               : `Dialogue translation...`)
           }
-          className={`w-full p-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 text-xs font-serif text-slate-900 dark:text-white focus:outline-none resize-none leading-relaxed transition-all shadow-inner ${className}`}
+          className={`w-full ${autoGrow ? 'px-2.5 py-1.5 overflow-hidden' : 'p-2.5'} rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 text-xs font-serif text-slate-900 dark:text-white focus:outline-none resize-none leading-relaxed transition-[border-color,box-shadow] shadow-inner ${className}`}
         />
 
         {/* Live Word Suggestions Popup (Candidate List with Number Keys 1-5) */}

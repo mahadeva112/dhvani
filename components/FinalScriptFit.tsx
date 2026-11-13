@@ -160,10 +160,12 @@ export const ScriptFitStrip: React.FC<{
   /** Lines that need a new wording, and the way to list only them. */
   fixCount?: number;
   onShowFix?: () => void;
-}> = ({ preview, loading, error, rateBasis, filter, onFilter, toFix, onFixAll, estimate, basis, fixCount: linesToFix = 0, onShowFix }) => {
+  /** In a toolbar's row: no strip of its own; the longest overrun and lip matches go in the label's tooltip. */
+  inline?: boolean;
+}> = ({ preview, loading, error, rateBasis, filter, onFilter, toFix, onFixAll, estimate, basis, fixCount: linesToFix = 0, onShowFix, inline = false }) => {
   if (!preview) {
     return (
-      <div className="px-4 py-2.5 border-b border-edge bg-slate-950/40 text-[13px]" role="status">
+      <div className={inline ? 'text-[12.5px]' : 'px-4 py-2.5 border-b border-edge bg-slate-950/40 text-[13px]'} role="status">
         {error ? (
           <span className="text-amber-300">The sync fit could not be worked out.</span>
         ) : (
@@ -186,11 +188,30 @@ export const ScriptFitStrip: React.FC<{
   );
   const dot = <span className="text-slate-600">·</span>;
   return (
-    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-4 py-2.5 border-b border-edge bg-slate-950/40 text-[13px]">
-      <span className="font-medium text-slate-300">Sync fit</span>
-      <span className="text-slate-400 tabular-nums">
-        {preview.units.length} {preview.units.length === 1 ? 'line' : 'lines'}:
+    <div
+      className={`flex flex-wrap items-center gap-x-2.5 gap-y-1.5 ${inline ? 'text-[12.5px]' : 'px-4 py-2.5 border-b border-edge bg-slate-950/40 text-[13px]'}`}
+    >
+      <span
+        className="font-medium text-slate-300"
+        title={
+          inline
+            ? [
+                `${preview.units.length} ${preview.units.length === 1 ? 'line' : 'lines'}`,
+                counts.long > 0 && `longest +${summary.maxOverflow.toFixed(1)} s`,
+                summary.lips && summary.lips.total > 0 && `lips ${summary.lips.matched} / ${summary.lips.total} land where the original's do`,
+              ]
+                .filter(Boolean)
+                .join(' · ')
+            : undefined
+        }
+      >
+        Sync fit
       </span>
+      {!inline && (
+        <span className="text-slate-400 tabular-nums">
+          {preview.units.length} {preview.units.length === 1 ? 'line' : 'lines'}:
+        </span>
+      )}
       {part(counts.fits, 'fit', '')}
       {dot}
       {part(counts.tight, 'tight', 'text-amber-300')}
@@ -198,8 +219,8 @@ export const ScriptFitStrip: React.FC<{
       {part(counts.long, 'too long', 'text-rose-300')}
       {dot}
       {part(counts.short, counts.short === 1 ? 'ends early' : 'end early', 'text-sky-300')}
-      {counts.long > 0 && <span className="font-mono text-[12.5px] text-slate-400 tabular-nums">longest +{summary.maxOverflow.toFixed(1)} s</span>}
-      {summary.lips && summary.lips.total > 0 && (
+      {!inline && counts.long > 0 && <span className="font-mono text-[12.5px] text-slate-400 tabular-nums">longest +{summary.maxOverflow.toFixed(1)} s</span>}
+      {!inline && summary.lips && summary.lips.total > 0 && (
         <span className="font-mono text-[12.5px] text-slate-400 tabular-nums" title="Lines whose lip closings land where the original's do">
           lips {summary.lips.matched} / {summary.lips.total}
         </span>
@@ -222,7 +243,7 @@ export const ScriptFitStrip: React.FC<{
       </span>
       {estimate}
       {loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin" aria-label="Updating" />}
-      <span className="ml-auto flex flex-wrap items-center gap-2">
+      <span className={`${inline ? '' : 'ml-auto'} flex flex-wrap items-center gap-2`}>
         {filter && onFilter && (
         <span role="group" aria-label="Show lines" className="flex bg-slate-950 border border-edge rounded-lg p-0.5 gap-0.5">
           {[

@@ -1,4 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
+import { useStepHeaderSlot } from './stepHeaderSlot';
 import {
   Play,
   Pause,
@@ -46,7 +48,6 @@ import {
   FileText,
   Video,
   Zap,
-  Wrench,
 } from 'lucide-react';
 import { AudioSegment, BatchJob, MixPeakMode, ProcessingStatus, TargetSource, TrackSwitchOptions } from '../types';
 import { hasTranscript } from '../services/steps';
@@ -54,8 +55,8 @@ import { projectFileStem } from '../services/projects';
 import { useVoiceMatches } from '../services/useVoiceMatches';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker, SPEAKER_COLORS } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
-import { SpeakerBar, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MainVoiceRole, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
-import { retranslateCues, type RetranslateProgress } from '../services/subtitleService';
+import { SpeakerBar, SpeakerStrip, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MainVoiceRole, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
+import { retranslateCues, translationFraction, type RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import { scrollWithin } from './scrollWithin';
 import type { TranscriptExportResult, TranscriptFormat } from './TranscriptExportMenu';
@@ -104,7 +105,6 @@ import { PhoneticSmartTextarea } from './PhoneticSmartTextarea';
 import { SrtExportModal } from './SrtExportModal';
 import { CustomScriptAlignModal } from './CustomScriptAlignModal';
 import { TranslationPromptModal } from './TranslationPromptModal';
-import { PauseSensitivityControl } from './PauseSensitivityControl';
 import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncStatusBar, useSyncOptions } from './SyncPanel';
 import { DubSettingsCard } from './DubSettingsCard';
@@ -144,7 +144,7 @@ import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } 
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { learnedPace, learnPaceFromSync, voicePaceKey, type LearnedPace } from '../services/voicePace';
-import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, LineFitCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, LineFitRow, LineFitWordings, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
@@ -165,7 +165,7 @@ import { choicesFor, rememberChoice } from '../services/wordingChoices';
 import { useSignoff } from '../services/signoffService';
 import { ScriptTableView, type LinePacing } from './review/ScriptTableView';
 import { PASSAGE_PAUSES, buildPassages, loadPassagePause, savePassagePause } from './review/passages';
-import { CueEditBar, PickableWords, useCueEditing, useReviewUndoKeys, type ReviewUndo } from './review/CueEditBar';
+import { CueEditButtons, CueEditNotice, PickableWords, useCueEditing, useReviewUndoKeys, type ReviewUndo } from './review/CueEditBar';
 import { reviewHistoryLabels } from '../services/reviewHistory';
 import { HistoryMenu, type ProjectHistoryView } from './HistoryMenu';
 import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
@@ -175,6 +175,13 @@ import { TakesPanel } from './TakesPanel';
 import { PageScrollLock } from './usePageScrollLock';
 
 type ReviewMode = 'table' | 'script' | 'qa';
+
+/** Review's edit keys, in the player's ? hints (they were a sentence in a bar of their own). */
+const REVIEW_EDIT_HINTS: [string[], string][] = [
+  [['S'], 'split the cue at the playhead (or before a word clicked in Original)'],
+  [['M'], 'join a cue with the next'],
+  [['Ctrl', 'Z'], 'undo · Ctrl + Shift + Z redo'],
+];
 
 const REVIEW_VIEWS: { id: ReviewMode; label: string; Icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'table', label: 'Cues', Icon: Table },
@@ -538,6 +545,8 @@ interface ExpressDubWizardProps {
   translationReady?: boolean;
   translationProgress?: RetranslateProgress | null;
   isTranslatingLanguage?: boolean;
+  /** Stops the running translation; nothing it did is applied. */
+  onCancelTranslation?: () => void;
   onOpenPromptModal?: () => void;
   onOpenVoiceChanger?: () => void;
   /** Opens the standalone text-to-speech studio. */
@@ -675,6 +684,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   translationReady = true,
   translationProgress = null,
   isTranslatingLanguage,
+  onCancelTranslation,
   onOpenPromptModal,
   onOpenVoiceChanger,
   onOpenTextToSpeech,
@@ -754,7 +764,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     } catch {}
   };
   /** Review's setup windows, opened from the bar above the player. */
-  const [reviewWindow, setReviewWindow] = useState<'translation' | 'tools' | null>(null);
+  const [reviewWindow, setReviewWindow] = useState<'translation' | 'speakers' | null>(null);
+  const stepHeaderSlot = useStepHeaderSlot();
   /** The dub language's name, as the language list shows it. */
   const languageLabel = (() => {
     const hit = languages.find((lang) => (typeof lang === 'string' ? lang : lang.code) === targetLanguage);
@@ -1025,6 +1036,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   // Several speakers: who they are, labels that look like slips, and where two talk at once.
   const speakers = useMemo(() => listSpeakers(segments), [segments]);
   const multiSpeaker = useMemo(() => isMultiSpeaker(segments), [segments]);
+  const speakerColorOf = useMemo(() => new Map(speakers.map((sp) => [sp.name, sp.color])), [speakers]);
   // Sync settings from the header's menu: the Dub step's rail opens its own window, with Fit and Sync; any other step opens it on its own.
   const onDubStep = activeStep === 3 && Boolean(activeJob);
   const [syncSettingsAlone, setSyncSettingsAlone] = useState(false);
@@ -1648,6 +1660,22 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [laneDrag, setLaneDrag] = useState<{ key: string; seconds: number } | null>(null);
   const [laneView, setLaneView] = useLaneView();
   const selectedLine = linePreview?.units.find((u) => u.key === selectedLineKey) || null;
+  /**
+   * The line being heard, by the lane's own rule (its start to the next
+   * phrase). The play row shows the picked line, so the pick follows the
+   * playhead into each line: what you hear is what you see fixed. A line whose
+   * wordings are open stays until they are used or closed; a pick made on the
+   * lane (or a stretch) stays until the playhead reaches another line.
+   */
+  const heardLineKey = useMemo(
+    () => linePreview?.units.find((u) => sourceClockTime >= u.srcStart && sourceClockTime < Math.max(u.nextStart ?? -Infinity, u.srcEnd))?.key ?? null,
+    [linePreview, sourceClockTime]
+  );
+  useEffect(() => {
+    if (!heardLineKey || heardLineKey === selectedLineKey) return;
+    if (selectedLine && lineFixes.stateOf(selectedLine).kind !== 'idle') return;
+    setSelectedLineKey(heardLineKey);
+  }, [heardLineKey]); // eslint-disable-line react-hooks/exhaustive-deps
   /** A line's cues as the list numbers them: "8" or "8–10". */
   const cueRangeOf = (unit: SyncPreviewUnit) => {
     const numbers = unit.cueIds.map((id) => segments.findIndex((seg) => String(seg.id) === String(id)) + 1).filter((n) => n > 0);
@@ -1656,6 +1684,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     const hi = Math.max(...numbers);
     return lo === hi ? String(lo) : `${lo}–${hi}`;
   };
+  /** A line's original words, its cues' joined, for under its own in the play row. */
+  const lineSourceOf = (unit: SyncPreviewUnit) =>
+    unit.cueIds
+      .map((id) => segments.find((seg) => String(seg.id) === String(id)))
+      .map((seg) => (seg ? getSourceText(seg) : ''))
+      .filter(Boolean)
+      .join(' ');
   /**
    * A cue's colour: its line's (lineColors.ts), so a line keeps one colour here,
    * in the sync preview and in the sync report. Until the preview has grouped
@@ -2697,45 +2732,56 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {/* ========================================================================= */}
       {activeStep === 2 && activeJob && (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
-          {/* Review's setup, out of the editor's way: the script and its translation, and the tools, each in a window in the middle */}
-          {!awaitingScript && (
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Back a step: a button like Translation and Tools, not bare text */}
-              <button
-                type="button"
-                onClick={() => setStepOverride(1)}
-                className="group h-9 pl-2 pr-3 rounded-xl border border-edge bg-slate-900 hover:bg-slate-800 text-[13px] text-slate-200 flex items-center gap-1.5 cursor-default"
-                title="Back to step 1: the source, speakers and voices"
-              >
-                <ChevronLeft className="w-4 h-4 text-slate-400 transition-transform group-hover:-translate-x-0.5" />
-                <span className="text-slate-400">Back to</span> Source &amp; voice
-              </button>
-              <span className="flex-1" />
-              <button
-                type="button"
-                onClick={() => setReviewWindow('translation')}
-                className="h-9 px-3 rounded-xl border border-edge bg-slate-900 hover:bg-slate-800 text-[13px] text-slate-200 flex items-center gap-2 cursor-default"
-                title="Translation style, the dub language, Re-translate, Paste script"
-              >
-                <Languages className="w-4 h-4 text-slate-400" />
-                Translation
-                <span className="text-slate-400 truncate max-w-[14rem]">
-                  · {languageLabel} · {scriptIsCustom ? 'Your script' : promptStyleName(promptPresetId || DEFAULT_PROMPT_PRESET_ID)}
-                </span>
-              </button>
-              {(onSensitivityChange || onOpenVoiceChanger || onOpenTextToSpeech) && (
-                <button
-                  type="button"
-                  onClick={() => setReviewWindow('tools')}
-                  className="h-9 px-3 rounded-xl border border-edge bg-slate-900 hover:bg-slate-800 text-[13px] text-slate-200 flex items-center gap-2 cursor-default"
-                  title={[onOpenVoiceChanger && 'Voice changer', onOpenTextToSpeech && 'Text to speech', onSensitivityChange && 'Cue split sensitivity'].filter(Boolean).join(', ')}
-                >
-                  <Wrench className="w-4 h-4 text-slate-400" />
-                  Tools
-                </button>
-              )}
-            </div>
-          )}
+          {/*
+            Review's setup, out of the editor's way: back a step, and the script
+            and its translation in a window in the middle. They
+            sit in the app bar, so they take no row above the player.
+          */}
+          {!awaitingScript &&
+            (() => {
+              const inBar = Boolean(stepHeaderSlot);
+              const button = inBar
+                ? 'h-[34px] min-w-0 px-3 rounded-full border border-edge hover:bg-slate-800/60 text-[12.5px] text-slate-200 flex items-center gap-1.5 whitespace-nowrap cursor-default'
+                : 'h-9 px-3 rounded-xl border border-edge bg-slate-900 hover:bg-slate-800 text-[13px] text-slate-200 flex items-center gap-2 cursor-default';
+              const setup = (
+                <>
+                  {/* In the app bar the steps already go back to Source & voice, so only the window row has its own Back */}
+                  {!inBar && (
+                    <button
+                      type="button"
+                      onClick={() => setStepOverride(1)}
+                      className={`group ${button} pl-2 gap-1.5`}
+                      title="Back to step 1: the source, speakers and voices"
+                    >
+                      <ChevronLeft className="w-4 h-4 text-slate-400 transition-transform group-hover:-translate-x-0.5" />
+                      <span className="text-slate-400">Back to</span> Source &amp; voice
+                    </button>
+                  )}
+                  {!inBar && <span className="flex-1" />}
+                  <button
+                    type="button"
+                    onClick={() => setReviewWindow('translation')}
+                    className={button}
+                    title={`Translation: ${languageLabel} · ${scriptIsCustom ? 'Your script' : promptStyleName(promptPresetId || DEFAULT_PROMPT_PRESET_ID)}. Style, the dub language, Re-translate, Paste script`}
+                  >
+                    <Languages className="w-4 h-4 text-slate-400 shrink-0" />
+                    {inBar ? (
+                      // In the app bar: the icon and the language only; "Translation" and the style are in the tooltip.
+                      <span className="truncate max-w-[12rem]">{targetLanguage}</span>
+                    ) : (
+                      <>
+                        Translation
+                        <span className="text-slate-400 truncate max-w-[14rem]">
+                          · {languageLabel} · {scriptIsCustom ? 'Your script' : promptStyleName(promptPresetId || DEFAULT_PROMPT_PRESET_ID)}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                  {inBar && <span className="w-px h-6 bg-slate-800 mx-0.5" aria-hidden="true" />}
+                </>
+              );
+              return stepHeaderSlot ? createPortal(setup, stepHeaderSlot) : <div className="flex flex-wrap items-center gap-2">{setup}</div>;
+            })()}
 
           <CenteredPanel open={reviewWindow === 'translation'} onClose={() => setReviewWindow(null)} label="Script and translation" className="max-w-[28rem] p-5">
             <div className="flex items-center justify-between gap-2 mb-4">
@@ -2795,6 +2841,16 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 })}
               </select>
             </div>
+            {isTranslatingLanguage && onCancelTranslation && (
+              <button
+                type="button"
+                onClick={onCancelTranslation}
+                className={`${railButton} h-9 text-[13px] w-full mt-3`}
+                title="Stop the translation. Nothing it did is applied."
+              >
+                <X className="w-3.5 h-3.5" /> Cancel translation
+              </button>
+            )}
             <div className="grid grid-cols-2 gap-2 mt-3">
               {onRetranslateSegments && (
                 <button
@@ -2842,57 +2898,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             </div>
           </CenteredPanel>
 
-          <CenteredPanel open={reviewWindow === 'tools'} onClose={() => setReviewWindow(null)} label="Tools" className="max-w-[28rem] p-5">
-            <div className="flex items-center justify-between gap-2 mb-4">
-              <h2 className="text-[16px] font-semibold text-slate-100">Tools</h2>
-              <button type="button" onClick={() => setReviewWindow(null)} className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 cursor-default" aria-label="Close">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex flex-col gap-3">
-              {onSensitivityChange && (
-                <PauseSensitivityControl variant="compact" sensitivity={analysisSensitivity} onChange={onSensitivityChange} segmentCount={segments.length} />
-              )}
-              {onOpenVoiceChanger && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReviewWindow(null);
-                    onOpenVoiceChanger();
-                  }}
-                  className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-edge hover:bg-slate-800/60 text-left transition-colors cursor-default"
-                >
-                  <span className="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center shrink-0">
-                    <AudioWaveform className="w-4 h-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-semibold text-slate-100">Voice changer</span>
-                    <span className="block text-[12.5px] text-slate-400 truncate">Keep the delivery, swap the speaker's voice</span>
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-                </button>
-              )}
-              {onOpenTextToSpeech && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReviewWindow(null);
-                    onOpenTextToSpeech();
-                  }}
-                  className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-edge hover:bg-slate-800/60 text-left transition-colors cursor-default"
-                >
-                  <span className="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center shrink-0">
-                    <Speech className="w-4 h-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14px] font-semibold text-slate-100">Text to speech</span>
-                    <span className="block text-[12.5px] text-slate-400 truncate">Voice any text with ElevenLabs or Cartesia</span>
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-                </button>
-              )}
-            </div>
-          </CenteredPanel>
 
           {/* Interactive Audio Waveform & Pro Audition Player */}
           {/* The waveform, cues and clock of the track being heard. */}
@@ -2969,7 +2974,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   {(
                     [
                       ['line', 'On line', 'A stretched line shows its speed on it, and another wording under it when it sounds rushed or drags'],
-                      ['card', 'Card', 'The lane stays clear: the picked line\'s speed shows in its card under the lanes'],
+                      ['card', 'Card', 'The lane stays clear: the picked line\'s speed shows in the play row, with its fit'],
                     ] as const
                   ).map(([id, label, hint]) => (
                     <button
@@ -3013,33 +3018,71 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             }
             // In the timeline's View menu: Wave, Blocks or Bars, right where the lanes change.
             laneSwitch={linePreview && !hearingDub && !awaitingScript ? <LaneViewSwitch view={laneView} onChange={setLaneView} /> : undefined}
-            // Under the lanes: the picked line's fit against its room, and what fixes it (in Card view its speed too).
-            footer={
-              linePreview && !hearingDub && !awaitingScript ? (
-                <LineFitCard
+            // In the play row, where the caption was: the picked line, its fit against its room and what fixes it (in Card view its speed too).
+            caption={
+              linePreview && !hearingDub && !awaitingScript && selectedLine ? (
+                <LineFitRow
                   unit={selectedLine}
-                  cps={linePreview.charsPerSecond}
-                  cues={selectedLine ? cueRangeOf(selectedLine) : undefined}
-                  fix={selectedLine ? lineFixes.controlsFor(selectedLine) : null}
+                  source={lineSourceOf(selectedLine)}
+                  cues={cueRangeOf(selectedLine)}
+                  fix={lineFixes.controlsFor(selectedLine)}
                   onStretch={(unit, rate) => stretchLine(unit, rate)}
                   onOpen={pickReviewLine}
                   showSpeed={stretchView === 'card'}
                 />
               ) : undefined
             }
+            // Under the play row, once asked for: the picked line's wordings.
+            footer={
+              linePreview && !hearingDub && !awaitingScript ? (
+                <LineFitWordings unit={selectedLine} cps={linePreview.charsPerSecond} fix={selectedLine ? lineFixes.controlsFor(selectedLine) : null} />
+              ) : undefined
+            }
+            // Split, Undo and History in the player's top bar, not a bar of their own.
+            headerStart={!awaitingScript && !hearingDub ? <CueEditButtons editing={cueEditing} history={reviewUndo} /> : undefined}
+            extraHints={!awaitingScript && !hearingDub ? REVIEW_EDIT_HINTS : undefined}
+            // Who speaks when, as a thin line under the waveform; the rest of Speakers is in its window.
+            speakerRow={
+              multiSpeaker && !hearingDub
+                ? ({ start, span }) => <SpeakerStrip segments={segments} colorOf={speakerColorOf} filter={speakerFilter} overlapIds={overlapIds} windowStart={start} windowSeconds={span} />
+                : undefined
+            }
           />
 
           {!awaitingScript && (
-            <CueEditBar
-              editing={cueEditing}
-              history={reviewUndo}
-              segments={segments}
-              cueNumber={(id) => (cueIndexById.get(String(id)) ?? 0) + 1}
-            />
+            <CueEditNotice editing={cueEditing} segments={segments} cueNumber={(id) => (cueIndexById.get(String(id)) ?? 0) + 1} />
           )}
 
+          {/* A translation running from Review: how far it is, and Cancel. The lines change only once it finishes. */}
+          {!awaitingScript && isTranslatingLanguage && (
+            <div role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 bg-slate-900/90 border border-indigo-500/40 rounded-2xl px-3 py-2 text-[13px]">
+              <RefreshCw className="w-4 h-4 text-indigo-300 animate-spin shrink-0" />
+              <span className="text-slate-100">
+                {translationProgress?.step === 'check' ? 'Checking meaning and length' : `Translating to ${targetLanguage}`}
+                {(() => {
+                  const fraction = translationFraction(translationProgress);
+                  return fraction === null ? '…' : ` · ${Math.round(fraction * 100)}%`;
+                })()}
+              </span>
+              <span className="text-slate-400 flex-1 min-w-[12rem]">Your lines stay as they are until it finishes.</span>
+              {onCancelTranslation && (
+                <button
+                  type="button"
+                  onClick={onCancelTranslation}
+                  className="h-8 px-3 inline-flex items-center gap-1.5 rounded-lg border border-slate-600 hover:bg-slate-800 text-[12.5px] font-medium text-slate-100 cursor-default"
+                  title="Stop the translation. Nothing it did is applied."
+                >
+                  <X className="w-3.5 h-3.5" /> Cancel
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Speakers: who speaks, their filter, names and merges, in a window from the list's Speakers button */}
           {multiSpeaker && (
+            <CenteredPanel open={reviewWindow === 'speakers'} onClose={() => setReviewWindow(null)} label="Speakers" className="max-w-[46rem] w-full">
             <SpeakerBar
+              bare
               speakers={speakers}
               segments={segments}
               duration={activeJob.audioBuffer?.duration || duration}
@@ -3073,6 +3116,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 onReplaceSegments(latestSegments.current.map((seg) => (target.has(String(seg.id)) ? { ...seg, speaker: target.get(String(seg.id)) } : seg)));
               }}
             />
+            </CenteredPanel>
           )}
 
           {multiSpeaker && selectedCues.size > 0 && (
@@ -3104,6 +3148,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               pipelineStatus={pipelineStatus}
               isTranslating={Boolean(isTranslatingLanguage)}
               translationProgress={translationProgress}
+              onCancelTranslation={onCancelTranslation}
               translationStyleName={promptStyleName(promptPresetId || DEFAULT_PROMPT_PRESET_ID)}
               translationSummary={translationSummary}
               translationReady={translationReady}
@@ -3175,7 +3220,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 {/* The cockpit does its own filtering, so these would only confuse. */}
                 {reviewMode !== 'qa' && (
                   <>
-                    <div className="relative flex-1 min-w-[10rem]">
+                    <div className="relative flex-1 min-w-[10rem] max-w-[22rem]">
                       <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       <input
                         id="express-step2-search"
@@ -3197,7 +3242,40 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       )}
                     </div>
 
+                    {/* Each line's fit at the voice's rate, in the toolbar's row; the one place to reword lines before they are voiced */}
+                    {!awaitingScript && (
+                      <ScriptFitStrip
+                        inline
+                        preview={linePreview}
+                        loading={syncPreview.loading}
+                        error={syncPreview.error}
+                        rateBasis={rateBasis}
+                        toFix={{
+                          shorter: linesToFix.filter((u) => lineFixes.directionOf(u) === 'shorter').length,
+                          longer: linesToFix.filter((u) => lineFixes.directionOf(u) === 'longer').length,
+                        }}
+                        onFixAll={() => {
+                          lineFixes.suggestAll(linesToFix);
+                          setReviewMode('table');
+                          setPacingFilter('fix');
+                        }}
+                        basis={
+                          linePreview
+                            ? `${estimateBasis(linePreview, rateBasis, expertBasis, mainPace?.lines)}${
+                                linePreview.placedShare < 1 ? `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed` : ''
+                              }.`
+                            : undefined
+                        }
+                        fixCount={pacingFilter === 'fix' ? 0 : linesToFixCount}
+                        onShowFix={() => {
+                          setReviewMode('table');
+                          setPacingFilter('fix');
+                        }}
+                      />
+                    )}
+
                     {/* One filter, its counts in lines once the Sync fit is worked out (as the strip counts them), else in cues */}
+                    <div className="ml-auto">
                     <ShowLinesMenu
                       value={pacingFilter}
                       onChange={(id) => setPacingFilter(id)}
@@ -3209,11 +3287,37 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         { id: 'short' as const, label: 'Ends early', count: pacingCounts.short, dot: 'bg-sky-400' },
                       ]}
                     />
+                    </div>
                   </>
                 )}
 
+                {/* Speakers: who is filtered, labels to check, names and merges, in a window */}
+                {multiSpeaker && reviewMode !== 'qa' && (
+                  <button
+                    type="button"
+                    onClick={() => setReviewWindow('speakers')}
+                    className={`h-8 px-3 rounded-xl border flex items-center gap-2 text-[13px] whitespace-nowrap cursor-default ${
+                      speakerFilter.length > 0 || slipsOnly || voiceOnly ? 'border-indigo-500/60 bg-indigo-500/10 text-indigo-200' : 'border-edge text-slate-200 hover:bg-slate-800'
+                    }`}
+                    title={`${speakers.length} speakers: show only some, check labels, rename or merge`}
+                  >
+                    <span className="flex -space-x-1" aria-hidden="true">
+                      {speakers.slice(0, 4).map((sp) => (
+                        <span key={sp.name} className="w-2.5 h-2.5 rounded-full ring-2 ring-slate-900" style={{ backgroundColor: sp.color }} />
+                      ))}
+                    </span>
+                    <span className="truncate max-w-[10rem]">{speakerFilter.length > 0 ? speakerFilter.join(', ') : 'Speakers'}</span>
+                    {speakerSlips.size + voiceFlags.size > 0 && (
+                      <span className="px-1.5 rounded-md bg-amber-500 text-slate-950 text-[10px] font-mono font-semibold leading-4" title="Labels to check">
+                        {speakerSlips.size + voiceFlags.size}
+                      </span>
+                    )}
+                    <ChevronDown className="w-3.5 h-3.5 opacity-70" />
+                  </button>
+                )}
+
                 {reviewMode !== 'qa' && (
-                  <div className="ml-auto">
+                  <div>
                     <GrammarCheckButton
                       picked={selectedCues.size}
                       shown={filteredSegments.length}
@@ -3249,36 +3353,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </div>
 
 
-              {/* Each line's fit at the voice's rate, and the one place to reword lines before they are voiced */}
-              {!awaitingScript && reviewMode !== 'qa' && (
-                <ScriptFitStrip
-                  preview={linePreview}
-                  loading={syncPreview.loading}
-                  error={syncPreview.error}
-                  rateBasis={rateBasis}
-                  toFix={{
-                    shorter: linesToFix.filter((u) => lineFixes.directionOf(u) === 'shorter').length,
-                    longer: linesToFix.filter((u) => lineFixes.directionOf(u) === 'longer').length,
-                  }}
-                  onFixAll={() => {
-                    lineFixes.suggestAll(linesToFix);
-                    setReviewMode('table');
-                    setPacingFilter('fix');
-                  }}
-                  basis={
-                    linePreview
-                      ? `${estimateBasis(linePreview, rateBasis, expertBasis, mainPace?.lines)}${
-                          linePreview.placedShare < 1 ? `, each line at ${Math.round(linePreview.placedShare * 100)}% of its read once placed` : ''
-                        }.`
-                      : undefined
-                  }
-                  fixCount={pacingFilter === 'fix' ? 0 : linesToFixCount}
-                  onShowFix={() => {
-                    setReviewMode('table');
-                    setPacingFilter('fix');
-                  }}
-                />
-              )}
 
               {/* Active view */}
               <div ref={scriptScrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain custom-scrollbar">
@@ -3623,7 +3697,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           })
                         }
                         onOpenKeyboardModal={onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard(seg) : undefined}
-                        rows={2}
+                        rows={1}
+                        autoGrow
                         placeholder={`${targetLanguage} line`}
                         compactToolbar
                         fontSize={reviewFontPx}

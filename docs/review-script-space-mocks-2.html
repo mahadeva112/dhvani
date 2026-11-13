@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Review Space Mocks 2</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#232a36; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .card { background:#11141b; border:1px solid #232a36; border-radius:16px; }
+  .btn { height:30px; padding:0 10px; border:1px solid #232a36; border-radius:9px; background:#151922; color:#cbd5e1; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .sbtn { height:28px; padding:0 10px; border:1px solid #334155; border-radius:8px; background:#0f131b; color:#e2e8f0; font-size:12px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .chip { font-size:11.5px; padding:1px 8px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .s1 { color:#a5b4fc; border-color:#4f46e5aa; background:#4f46e51a; }
+  .s2 { color:#5eead4; border-color:#14b8a6aa; background:#14b8a61a; }
+  .ta { background:#0c0f15; border:1px solid #2a3240; border-radius:10px; color:#f1f5f9; }
+  #stage { width:1905px; height:974px; transform-origin: top left; background:#0a0c11; position:relative; overflow:hidden; border-radius:10px; }
+  .row.open { background:#151a26; }
+  .kbd { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; padding:0 5px; border-radius:4px; border:1px solid #334155; color:#94a3b8; }
+  .new { box-shadow: 0 0 0 2px #22d3ee88; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-3 sm:p-5">
+
+<div class="max-w-[1905px] mx-auto">
+  <div class="flex flex-wrap items-center gap-2 mb-2 text-[13px]">
+    <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+    <div id="tabs" class="inline-flex flex-wrap rounded-lg border edge overflow-hidden"></div>
+    <label class="ml-2 inline-flex items-center gap-1.5 text-slate-400"><input id="marks" type="checkbox" checked /> যা সরল, নীল দাগে দেখাও</label>
+    <span id="count" class="ml-auto text-slate-300"></span>
+  </div>
+  <p id="note" class="text-[13.5px] text-slate-300 mb-3 max-w-[90rem] leading-relaxed"></p>
+  <div id="wrap" style="position:relative">
+    <div id="stage"></div>
+  </div>
+  <p class="text-[12px] text-slate-500 mt-2">ফ্রেমটা তোমার স্ক্রিনের মাপ (1905 × 974) ছোট করে দেখানো। হলুদ রেখা = স্ক্রিনের নিচের কিনারা। উপরের সংখ্যা = list-এ যতগুলো লাইন পুরো দেখা যায়।</p>
+</div>
+
+<script>
+const LINES = [
+  [0.0,2.2,1,"I don't know how Vicky Yash became Ravana.","पता नहीं यश रावण कैसे बन गए।","tight"],
+  [2.3,0.8,1,"I know him very well.","मैं उन्हें जानता हूँ।","fit"],
+  [4.6,1.9,2,"There was a question whether anyone could play Ravana at all.","सवाल था कि रावण को कोई निभा भी सकता है या नहीं।","tight"],
+  [6.8,2.6,1,"He was a scholar, a great devotee of Shiva.","वह विद्वान था, शिव का बड़ा भक्त।","fit"],
+  [9.6,3.1,1,"People only remember the ten heads.","लोग बस दस सिर याद रखते हैं।","fit"],
+  [12.9,1.4,1,"But that is not the whole story.","पर पूरी कहानी यह नहीं है।","tight"],
+  [14.5,2.8,2,"So what made him fall?","तो उसका पतन किसने किया?","fit"],
+  [17.6,2.2,1,"His own desire, nothing else.","उसकी अपनी इच्छा, और कुछ नहीं।","long"],
+  [20.0,3.4,1,"Ram did not defeat him, he defeated himself.","राम ने उसे नहीं हराया, उसने खुद को हराया।","tight"],
+  [23.6,1.9,1,"That is what the story is really about.","कहानी असल में इसी के बारे में है।","fit"],
+  [25.8,2.4,1,"Every one of us carries a Ravana.","हम सब के भीतर एक रावण है।","fit"],
+  [28.4,1.6,1,"The question is who wins.","सवाल यह है कि जीतता कौन है।","tight"],
+  [30.3,2.9,2,"And how do you make sure it is Ram?","और यह कैसे पक्का करें कि जीत राम की हो?","fit"],
+  [33.5,2.0,1,"You don't fight the Ravana.","आप रावण से लड़ते नहीं।","fit"],
+  [35.7,3.0,1,"You simply stop feeding him.","आप बस उसे खिलाना बंद कर देते हैं।","tight"],
+  [39.0,1.8,1,"That is all.","बस इतना ही।","fit"],
+  [41.1,2.6,1,"It sounds simple, but it is a life's work.","सुनने में आसान है, पर यह पूरी ज़िंदगी का काम है।","fit"],
+  [44.0,2.1,2,"Thank you for being here.","यहाँ आने के लिए धन्यवाद।","fit"],
+  [46.3,2.4,1,"Let us sit for a few minutes.","चलिए कुछ मिनट बैठते हैं।","fit"],
+  [49.0,2.0,1,"Close your eyes.","आँखें बंद कर लीजिए।","fit"],
+];
+const HUES = ['#4f9fbf','#c0607f','#8b7fd6','#b39a5c','#5fb38a','#c27a4a'];
+const fmt = (t) => `0:${t.toFixed(1).padStart(4,'0')}`;
+const NEW = () => document.getElementById('marks').checked ? 'new' : '';
+const fitTag = (f) => f === 'long' ? '<span class="text-[11px] px-1.5 rounded bg-rose-500/15 text-rose-300 shrink-0">Too long</span>'
+  : f === 'tight' ? '<span class="text-[11px] px-1.5 rounded bg-amber-500/15 text-amber-300 shrink-0">Tight</span>' : '';
+const fitEdge = (f) => f === 'long' ? 'border-l-2 border-rose-500' : 'border-l-2 border-transparent';
+const spk = (s) => `<span class="chip ${s===1?'s1':'s2'}">● Speaker ${s} ▾</span>`;
+const dot = (s) => `<span class="w-2 h-2 rounded-full shrink-0 ${s===1?'bg-indigo-400':'bg-teal-400'}" title="Speaker ${s}"></span>`;
+
+// ---------------- shared pieces (from the current code) ----------------
+const appBar = (extra='') => `
+<div class="h-[57px] flex items-center gap-3 px-5 border-b edge bg-[#0a0c11]">
+  <div class="w-8 h-8 rounded-lg bg-indigo-600"></div>
+  <div class="leading-tight"><div class="font-semibold text-[15px]">Dhvani</div><div class="text-[11px] text-slate-500">Dubbing studio</div></div>
+  <div class="ml-6 leading-tight"><div class="text-[13px] font-semibold">Ravana could not defeat Ram</div><div class="text-[11.5px] text-slate-400">English → Hindi · 1:17 <span class="text-emerald-400">✓ Dub ready</span></div></div>
+  <div class="mx-auto flex items-center gap-1 rounded-full border edge px-2 py-1 text-[13px]">
+    <span class="px-3 text-slate-400">✓ Source &amp; voice</span>
+    <span class="px-3 py-0.5 rounded-full bg-slate-800 font-semibold">② Review <span class="text-indigo-300 text-[11px]">26 cues</span></span>
+    <span class="px-3 text-slate-400">✓ Dub</span>
+  </div>
+  ${extra}
+  <span class="btn">● Online</span><span class="btn">Projects 13</span><span class="btn">⚙</span><span class="btn bg-slate-100 text-slate-900">+ New dub</span>
+</div>`;
+const setupInAppBar = () => `<span class="btn ${NEW()}">Translation · Hindi · Swami</span><span class="btn ${NEW()}">Tools</span>`;
+const setupRow = `
+<div class="flex items-center px-[30px] h-[36px] mt-[24px] text-[13px]"><span class="btn !h-9">‹ <span class="text-slate-400">Back to</span> Source &amp; voice</span><span class="ml-auto btn !h-9">Translation · Hindi (हिन्दी) · Swami</span><span class="ml-2 btn !h-9">Tools</span></div>`;
+
+const playerHead = (left='') => `
+  <div class="flex items-center gap-2.5 px-4 h-[44px] text-[12px] border-b edge">
+    ${left}
+    <span class="mono text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">Cue 01 of 26</span>
+    <span class="mono text-slate-300">00:00.1 – 00:02.2</span><span class="text-slate-400">SPEAKER 1</span>
+    <span class="ml-auto"></span>
+    <span class="btn">◉ View ▾</span><span class="btn mono">1×</span><span class="btn">− ━━●━━ +</span><span class="btn mono">27 s</span><span class="btn">Fit</span><span class="btn">⌖</span><span class="btn">?</span>
+  </div>`;
+function lanes(speakerStrip=false){
+  return `
+  <div class="relative">
+    <div class="flex justify-between text-[10.5px] text-slate-500 mono px-5 h-[18px] items-center"><span>00:00</span><span>00:05</span><span>00:10</span><span>00:15</span><span>00:20</span><span>00:25</span></div>
+    <canvas data-wave="src" data-h="56" class="w-full block border-t edge" style="height:56px"></canvas>
+    ${speakerStrip ? `<div class="${NEW()} flex h-[4px] gap-[2px] mx-0" title="Who speaks: Speaker 1 / Speaker 2"><div style="flex:9" class="bg-indigo-500/80"></div><div style="flex:2" class="bg-teal-400/90"></div><div style="flex:12" class="bg-indigo-500/80"></div><div style="flex:1" class="bg-teal-400/90"></div><div style="flex:6" class="bg-indigo-500/80"></div></div>` : ''}
+    <canvas data-wave="pause" data-h="12" class="w-full block" style="height:12px"></canvas>
+    <canvas data-wave="dub" data-h="56" class="w-full block" style="height:56px"></canvas>
+    <div class="absolute left-[22px] top-[18px] bottom-0 w-[2px] bg-rose-500"></div>
+  </div>
+  <div class="mx-4 my-[6px] h-[8px] rounded bg-slate-800 relative"><div class="absolute left-0 top-0 h-full w-[34%] rounded bg-slate-600"></div></div>`;
+}
+const transportBtns = `<span class="btn">↺</span><span class="btn">⏮</span><span class="w-9 h-9 rounded-full bg-slate-100 text-slate-900 flex items-center justify-center shrink-0">▶</span><span class="btn">⏭</span><span class="btn">↻</span><span class="btn">⟳ Loop cue</span><span class="mono text-[13px] whitespace-nowrap">00:00.0 <span class="text-slate-500">/ 01:16.6</span></span>`;
+const caption = `<div class="leading-tight ml-2 min-w-0"><div class="text-[15px] flex items-center gap-2">पता नहीं यश रावण कैसे बन गए। <span class="text-[11px] px-1.5 rounded bg-amber-500/15 text-amber-300">Tight</span></div><div class="text-[11.5px] text-slate-400 truncate">I don't know how Vicky Yash became Ravana.</div></div>`;
+const transport = (extra='') => `<div class="flex items-center gap-2.5 px-4 h-[52px]">${transportBtns}${caption}<span class="ml-auto"></span>${extra}</div>`;
+const editInline = () => `<span class="inline-flex gap-1.5 ${NEW()} rounded-lg"><span class="btn">✂ Split <span class="kbd">S</span></span><span class="btn">↶ Undo</span><span class="btn">↷</span><span class="btn">⟲ History 489 ▾</span><span class="btn">⋯</span></span>`;
+
+// The picked line's card (LineFitCard) as the app draws it today
+const meter = (w='w-52') => `
+  <div class="${w} shrink-0">
+    <div class="relative h-2.5 rounded-full bg-slate-800 border border-slate-700">
+      <span class="absolute inset-y-0 left-0 rounded-full" style="width:84%;background:${HUES[0]};opacity:.85"></span>
+      <span class="absolute inset-y-0 rounded-r-full bg-amber-300" style="left:84%;width:8%"></span>
+      <span class="absolute -top-1 -bottom-1 w-px bg-white/80" style="left:72%"></span>
+      <span class="absolute -top-1.5 -bottom-1.5 w-0.5 rounded-full bg-slate-300" style="left:84%"></span>
+    </div>
+    <div class="mt-1 flex justify-between mono text-[10.5px] text-slate-400"><span>dub ≈ 2.4 s</span><span>room 2.2 s</span></div>
+  </div>`;
+const fitMsg = `<div class="text-[12.5px] whitespace-nowrap"><b class="text-amber-300">Tight</b><span class="text-slate-400"> · fills 109% of its room, 0.2 s over</span></div>`;
+const fixBtns = `<div class="flex items-center gap-1.5"><span class="sbtn">↓ Shorter wording</span><span class="sbtn text-amber-200">Read 1.09×</span><span class="sbtn">Open line</span></div>`;
+const lineCard = (cls='') => `
+  <div class="mx-3.5 mb-2.5 rounded-xl border px-3 py-2 ${cls}" style="border-color:${HUES[0]}59;background:${HUES[0]}0d">
+    <div class="flex items-center gap-x-5">
+      <div class="flex items-center gap-2 text-[11.5px] text-slate-500 whitespace-nowrap"><span class="w-2.5 h-2.5 rounded-full" style="background:${HUES[0]}"></span><span class="mono font-semibold" style="color:${HUES[0]}">Line 1</span><span class="mono">cues 1</span></div>
+      <p class="flex-1 text-[14px] leading-snug">पता नहीं यश रावण कैसे बन गए।</p>
+      ${meter()}${fitMsg}${fixBtns}
+    </div>
+  </div>`;
+// C: caption and the line card are one row: the words are said once
+const mergedTransport = (extra='') => `
+  <div class="flex items-center gap-2.5 px-4 h-[58px] ${NEW()} rounded-b-2xl">
+    ${transportBtns}
+    <span class="w-px h-8 bg-slate-700 mx-1"></span>
+    <div class="flex items-center gap-2 text-[11.5px] whitespace-nowrap"><span class="w-2.5 h-2.5 rounded-full" style="background:${HUES[0]}"></span><span class="mono font-semibold" style="color:${HUES[0]}">Line 1</span></div>
+    <div class="leading-tight min-w-0 flex-1"><div class="text-[15px] truncate">पता नहीं यश रावण कैसे बन गए।</div><div class="text-[11.5px] text-slate-400 truncate">I don't know how Vicky Yash became Ravana.</div></div>
+    ${meter('w-44')}${fitMsg}${fixBtns}
+    <span class="w-px h-8 bg-slate-700 mx-1"></span>${extra}
+  </div>`;
+
+const editBarCard = `
+<div class="card mx-[30px] mt-[16px] h-[46px] flex items-center gap-2 px-3 text-[12.5px]">
+  <span class="btn">✂ Split <span class="kbd">S</span></span><span class="btn">↶ Undo · Edit timing: Set the speed o…</span><span class="btn">↷</span><span class="btn">⟲ History 489 ▾</span><span class="btn">↺ Back to the AI translation</span>
+  <span class="text-slate-400">Play to where a cue should end and press S, or click a word in Original. M joins a cue with the next.</span>
+</div>`;
+const speakersCard = `
+<div class="card mx-[30px] mt-[16px] h-[82px] px-4 py-3">
+  <div class="flex items-center gap-2 text-[12px]"><span class="text-slate-400 font-semibold tracking-wide">2 SPEAKERS</span><span class="chip s1">● Speaker 1 89%</span><span class="chip s2">● Speaker 2 11%</span><span class="ml-auto btn">Manage speakers</span></div>
+  <div class="flex h-[7px] gap-[3px] mt-3"><div style="flex:9" class="bg-indigo-500 rounded"></div><div style="flex:2" class="bg-teal-400 rounded"></div><div style="flex:12" class="bg-indigo-500 rounded"></div><div style="flex:1" class="bg-teal-400 rounded"></div><div style="flex:6" class="bg-indigo-500 rounded"></div></div>
+</div>`;
+const viewSwitch = `<span class="inline-flex rounded-xl border edge bg-[#0c0f15] p-0.5 text-[12.5px]"><span class="px-2.5 py-1 rounded-lg bg-slate-800">▦ Cues</span><span class="px-2.5 py-1 text-slate-400">Script</span><span class="px-2.5 py-1 text-slate-400">QA <span class="text-amber-300">11</span></span></span>`;
+const search = (w='flex-1') => `<span class="${w} h-[32px] rounded-xl border edge bg-[#0c0f15] px-3 flex items-center text-[12.5px] text-slate-500">⌕ Find in cues</span>`;
+const syncFit = (cls='') => `<span class="inline-flex items-center gap-3 rounded-lg ${cls}"><span class="text-[12.5px] text-slate-300 whitespace-nowrap">Sync fit <b>7</b> fit · <b class="text-amber-300">6</b> tight · <b class="text-rose-300">1</b> too long</span><span class="btn">Show 1 to fix →</span></span>`;
+const mergedToolbar = (extra='') => `<div class="flex items-center gap-2 px-4 h-[50px] border-b edge shrink-0">${viewSwitch}${search('w-[20rem]')}${syncFit(NEW())}<span class="ml-auto btn ${NEW()}">Show All lines · Speakers ▾</span><span class="btn">Check grammar</span><span class="btn">⋯</span>${extra}</div>`;
+const COLS = 'grid-cols-[4.5rem_4.5rem_minmax(0,1fr)_minmax(0,1.3fr)]';
+const colHead = `<div class="grid ${COLS} gap-4 px-4 h-[32px] items-center border-b edge text-[12px] text-slate-500 sticky top-0 bg-[#11141b] z-10"><span>#</span><span>Time</span><span>Original</span><span>Hindi (हिन्दी)</span></div>`;
+const footer = `<div class="h-[40px] border-t edge flex items-center px-4 text-[12px] text-slate-400 shrink-0">Showing 26 of 26 cues (14 lines)<span class="ml-auto btn bg-indigo-600 !border-indigo-500 text-white">Continue to dub →</span></div>`;
+
+// Rows
+const tallRow = (l,i) => `
+<div class="row grid grid-cols-[5rem_6rem_minmax(0,1fr)_minmax(0,1.3fr)] gap-4 px-4 py-3 border-b edge h-[102px]">
+  <div class="flex gap-2 items-start text-[12px] text-slate-400"><span class="w-4 h-4 border edge rounded mt-1"></span><span class="btn !h-7 !px-2">▷</span><span class="mono mt-1">${String(i+1).padStart(2,'0')}</span></div>
+  <div class="mono text-[12px] text-slate-300 mt-1">${fmt(l[0])}<div class="text-slate-500">${l[1]}s</div></div>
+  <div class="text-[13.5px] text-slate-300 space-y-2">${spk(l[2])}<div>${l[3]}</div></div>
+  <div class="ta px-3 py-2.5 h-[70px] text-[16px]">${l[4]}</div>
+</div>`;
+const compactRow = (l,i) => `
+<div class="row ${fitEdge(l[5])} grid ${COLS} gap-4 px-4 py-[7px] border-b edge items-center">
+  <div class="flex gap-2 items-center text-[12px] text-slate-400"><span class="btn !h-6 !px-1.5">▷</span><span class="mono">${String(i+1).padStart(2,'0')}</span></div>
+  <div class="mono text-[12px] text-slate-400">${fmt(l[0])}</div>
+  <div class="text-[13.5px] text-slate-300 flex items-center gap-2 min-w-0">${dot(l[2])}<span class="truncate">${l[3]}</span></div>
+  <div class="ta px-3 py-[6px] text-[16px] flex items-center gap-2"><span class="flex-1">${l[4]}</span>${fitTag(l[5])}</div>
+</div>`;
+// B: the open row carries the line card's meter and fixes
+const openRowWithCard = (l,i) => `
+<div class="row open ${fitEdge(l[5])} px-4 py-2.5 border-b edge ${NEW()}">
+  <div class="grid ${COLS} gap-4 items-start">
+    <div class="flex gap-2 items-center text-[12px] text-slate-400"><span class="btn !h-6 !px-1.5">▷</span><span class="mono">${String(i+1).padStart(2,'0')}</span></div>
+    <div class="mono text-[12px] text-slate-300 mt-1">${fmt(l[0])}<div class="text-slate-500">${l[1]}s</div></div>
+    <div class="text-[13.5px] text-slate-300 space-y-1.5">${spk(l[2])}<div>${l[3]}</div></div>
+    <div>
+      <div class="ta px-3 py-[7px] text-[16.5px] ring-1 ring-indigo-500">${l[4]}</div>
+      <div class="flex items-center gap-4 mt-2">${meter('w-44')}${fitMsg}${fixBtns.replace('<span class="sbtn">Open line</span>','')}</div>
+    </div>
+  </div>
+</div>`;
+const denseRow = (l,i, open=false) => open ? openRowWithCard(l,i) : `
+<div class="row ${fitEdge(l[5])} grid ${COLS} gap-4 px-4 h-[36px] border-b edge items-center">
+  <div class="text-[12px] text-slate-500 mono">${String(i+1).padStart(2,'0')}</div>
+  <div class="mono text-[12px] text-slate-500">${fmt(l[0])}</div>
+  <div class="text-[13px] text-slate-400 flex items-center gap-2 min-w-0">${dot(l[2])}<span class="truncate">${l[3]}</span></div>
+  <div class="text-[15.5px] text-slate-100 flex items-center gap-2 min-w-0"><span class="flex-1 leading-snug">${l[4]}</span>${fitTag(l[5])}</div>
+</div>`;
+
+// list box that fills from its top to a given bottom
+// The merged screens are one column: the list takes whatever height the player leaves.
+const listBox = (_top, _bottom, inner, tb=mergedToolbar(), foot=footer) =>
+  `<div class="card mx-[30px] my-[12px] overflow-hidden flex flex-col flex-1 min-h-0" data-list>${tb}<div class="flex-1 min-h-0 overflow-hidden">${colHead}${inner}</div>${foot}</div>`;
+const abs = (_top, html) => `<div class="mx-[30px] mt-[12px] shrink-0">${html}</div>`;
+const column = (html) => `<div class="flex flex-col h-full">${html}</div>`;
+
+// Player heights: head 44 + ruler 18 + 56 + 12 + 56 + scroll 20 = 206, + transport 52 + card 64 = 322 today
+const MOCKS = {
+  now: {
+    label: 'আজ (নতুন player সহ)',
+    note: 'তোমার শেষ commit-এর পরে Review যেমন। Player-এ এখন dub lane-এ প্রতিটা লাইনের জায়গা আঁকা, আর play সারির নিচে বাছা লাইনের card (meter, Tight, Shorter / Read 1.09× / Open line)। Card-টা খুব কাজের, কিন্তু player আরও প্রায় 64 px লম্বা হয়েছে। "Back to Source & voice" এখন একটা বোতাম, তার সারিটা আলাদাই আছে। তাই list-এর প্রথম লাইন শুরু হয় প্রায় 768 px-এ, স্ক্রিনের চার ভাগের তিন ভাগের পরে, আর খুললে কোনোমতে ২টো লাইন দেখা যায়।',
+    html: () => `${appBar()}${setupRow}
+      <div class="card mx-[30px] mt-[16px] overflow-hidden">${playerHead()}${lanes()}${transport()}${lineCard()}</div>
+      ${editBarCard}${speakersCard}
+      <div class="card mx-[30px] mt-[18px] overflow-hidden" data-list style="height:860px">
+        <div class="flex items-center gap-2 px-4 h-[54px] border-b edge">${viewSwitch}${search()}<span class="btn">Show All lines 14 ▾</span><span class="btn">Check grammar</span><span class="btn">⋯</span></div>
+        <div class="flex items-center gap-3 px-4 h-[46px] border-b edge">${syncFit()}</div>
+        <div class="grid grid-cols-[5rem_6rem_minmax(0,1fr)_minmax(0,1.3fr)] gap-4 px-4 h-[38px] items-center border-b edge text-[12px] text-slate-500"><span>#</span><span>Time</span><span>Original</span><span>Hindi (हिन्दी)</span></div>
+        ${LINES.map(tallRow).join('')}
+      </div>`,
+  },
+  A: {
+    label: 'A · bar গুটিয়ে এক সারি',
+    note: 'আগের বারের A, নতুন player-এর সাথে। (১) "Back to", Translation, Tools যায় app bar-এ, আলাদা সারি থাকে না। (২) Split / Undo / History যায় play সারির ডানদিকে, "Back to the AI translation" ⋯-এ, hint ? বোতামে। (৩) Speakers কার্ডের বদলে মূল waveform-এর নিচে একটা সরু রঙের দাগ। নাম বদল, speaker শোনা, ভুল speaker, Fix by voice যায় "Show · Speakers ▾" মেনুতে। (৪) Sync fit বসে toolbar-এর সারিতে। (৫) হিন্দি বাক্স লেখার মাপে উঁচু হয়। লাইনের card player-এই থাকে, যেমন আছে।',
+    html: () => { const pTop=57+14, pH=322, lTop=pTop+pH+12; return column(`${appBar('<span class="btn '+NEW()+'">‹ Source &amp; voice</span>'+setupInAppBar())}
+      ${abs(pTop, `<div class="card overflow-hidden">${playerHead()}${lanes(true)}${transport(editInline())}${lineCard()}</div>`)}
+      ${listBox(lTop, 974-14, LINES.map(compactRow).join(''))}`); },
+  },
+  B: {
+    label: 'B · card নামে list-এ',
+    note: 'A-র সব বদল আছে, আর লাইনের card player থেকে নেমে list-এর খোলা লাইনের ভেতরে বসে। Card আর খোলা লাইন দুটোই একই লাইনের কথা বলে, তাই একটাই থাকে: হিন্দি বাক্সের ঠিক নিচে meter, Tight, Shorter wording, Read 1.09×। Dub lane-এ কোনো লাইনে click করলে list-এ সেই লাইনটাই খোলে, তাই "Open line" বোতামের আর দরকার পড়ে না। Player আজকের থেকে 64 px ছোট হয়, আর ঠিক করার জিনিস থাকে লেখার পাশে।',
+    html: () => { const pTop=57+14, pH=258, lTop=pTop+pH+12; return column(`${appBar('<span class="btn '+NEW()+'">‹ Source &amp; voice</span>'+setupInAppBar())}
+      ${abs(pTop, `<div class="card overflow-hidden">${playerHead()}${lanes(true)}${transport(editInline())}</div>`)}
+      ${listBox(lTop, 974-14, LINES.map((l,i)=> i===0 ? openRowWithCard(l,i) : compactRow(l,i)).join(''))}`); },
+  },
+  C: {
+    label: 'C · caption-ই card',
+    note: 'Card player-এই থাকে, কিন্তু আলাদা সারি হিসেবে নয়। Play সারিতে যে caption (হিন্দি + English) আছে, card সেই একই লাইনের কথা দ্বিতীয়বার লেখে। তাই দুটো এক সারি হয়: Line 1, লেখা, meter, Tight, Shorter / Read / Open line। Split / Undo / History যায় player-এর উপরের সারির বাঁদিকে। List আর সারি A-র মতো। Wording খুললে (Shorter চাপলে) সারিটা নিচে খোলে, আজকের card-এর মতোই।',
+    html: () => { const pTop=57+14, pH=264, lTop=pTop+pH+12; return column(`${appBar('<span class="btn '+NEW()+'">‹ Source &amp; voice</span>'+setupInAppBar())}
+      ${abs(pTop, `<div class="card overflow-hidden">${playerHead(editInline().replace('History 489 ▾','489'))}${lanes(true)}${mergedTransport('<span class="btn">⋯</span>')}</div>`)}
+      ${listBox(lTop, 974-14, LINES.map(compactRow).join(''))}`); },
+  },
+  D: {
+    label: 'D · ঘন list',
+    note: 'C-র player (caption আর card এক সারিতে), তার সাথে list spreadsheet-এর মতো ঘন: প্রতিটা লাইন 36 px, হিন্দি পুরো লেখা থাকে, কাটা হয় না (লম্বা হলে দুই সারিতে wrap)। শুধু খোলা লাইনটা লেখার বাক্স হয়, তার নিচে meter আর fix। ↑ / ↓ বা click করে লাইন খোলো, Enter চাপলে লেখা শুরু। এতে সবচেয়ে বেশি লাইন দেখা যায়, কিন্তু প্রতিটা লাইনে লেখার আগে একবার খুলতে হয়।',
+    html: () => { const pTop=57+14, pH=264, lTop=pTop+pH+12; return column(`${appBar('<span class="btn '+NEW()+'">‹ Source &amp; voice</span>'+setupInAppBar())}
+      ${abs(pTop, `<div class="card overflow-hidden">${playerHead(editInline().replace('History 489 ▾','489'))}${lanes(true)}${mergedTransport('<span class="btn">⋯</span>')}</div>`)}
+      ${listBox(lTop, 974-14, LINES.map((l,i)=>denseRow(l,i,i===1)).join(''))}`); },
+  },
+  E: {
+    label: 'E · player নিচে',
+    note: 'DaVinci / Premiere-এর মতো: লেখা উপরে, timeline নিচে। List শুরু হয় app bar-এর ঠিক নিচে। Player (C-র মতো caption আর card এক সারিতে) স্ক্রিনের নিচে বসে, play সারি একদম হাতের কাছে। Continue to dub যায় list-এর toolbar-এ। সারি A-র মতো, প্রতিটা লাইনে সরাসরি লেখা যায়। অসুবিধা: Source আর Dub step-এ player উপরে, শুধু এখানে নিচে।',
+    html: () => { const pH=264, pTop=974-12-pH, lTop=57+12; return column(`${appBar('<span class="btn '+NEW()+'">‹ Source &amp; voice</span>'+setupInAppBar())}
+      ${listBox(lTop, pTop-10, LINES.map(compactRow).join(''), mergedToolbar('<span class="btn bg-indigo-600 !border-indigo-500 text-white">Continue to dub →</span>'), '')}
+      ${abs(pTop, `<div class="card overflow-hidden">${playerHead(editInline().replace('History 489 ▾','489'))}${lanes(true)}${mergedTransport('<span class="btn">⋯</span>')}</div>`)}`); },
+  },
+};
+
+// ---------------- drawing ----------------
+function seeded(n){ let s=n; return ()=>{ s=(s*16807)%2147483647; return s/2147483647; }; }
+function drawWaves(){
+  document.querySelectorAll('canvas[data-wave]').forEach((c,ci)=>{
+    const W = c.clientWidth, H = +c.dataset.h; if (!W) return; c.width=W; c.height=H;
+    const g = c.getContext('2d'); const rnd = seeded(7+ci*13); const total = 27; const kind = c.dataset.wave;
+    const X = (t) => t/total*W;
+    LINES.slice(0,11).forEach((l,i)=>{
+      const hue = HUES[i % HUES.length];
+      const next = LINES[i+1] ? LINES[i+1][0] : l[0]+l[1]+0.6;
+      if (kind === 'pause') { if (i) { g.fillStyle='#22d3ee'; g.beginPath(); g.arc(X(l[0]-0.12), H/2, 2.2, 0, 7); g.fill(); } return; }
+      if (kind === 'src') {
+        const x0=X(l[0]), x1=X(l[0]+l[1]); g.fillStyle = hue+'55'; g.fillRect(x0, 3, x1-x0, H-6);
+        g.fillStyle = '#ffffffbb';
+        for (let x=x0+1; x<x1-1; x+=2){ const h=(H-10)*(0.15+rnd()*0.7)*(0.55+0.45*Math.sin(x/7+i)); g.fillRect(x, H/2-h/2, 1, Math.max(1,h)); }
+        return;
+      }
+      // dub: the line's room as a dashed box, the dub guess as a bar inside it
+      const r0=X(l[0]), r1=X(next-0.15);
+      g.setLineDash([4,3]); g.lineWidth=1; g.strokeStyle = l[5]==='tight' ? '#f59e0b' : hue+'aa'; g.strokeRect(r0+0.5, 4.5, r1-r0-1, H-9); g.setLineDash([]);
+      const est = l[5]==='long' ? (next-l[0])*1.25 : l[5]==='tight' ? (next-l[0])*0.97 : (next-l[0])*0.75;
+      const e1 = X(l[0]+est);
+      g.fillStyle = hue+'bb'; g.fillRect(r0+2, 10, Math.min(e1,r1)-r0-4, H-20);
+      if (e1 > r1) { g.fillStyle='#f43f5e'; for (let x=r1; x<e1; x+=6) g.fillRect(x, 10, 3, H-20); g.fillStyle='#fecdd3'; g.font='10px monospace'; g.fillText('+0.6 s', r1+2, H-1); }
+      g.fillStyle='#ffffffaa'; g.font='10px monospace'; g.fillText(String(i+1), r0+4, 9);
+    });
+  });
+}
+
+// ---------------- counting ----------------
+function topIn(el){ const stage=document.getElementById('stage'); let y=0; while (el && el!==stage){ y+=el.offsetTop; el=el.offsetParent; } return y; }
+function countRows(){
+  const list = document.querySelector('[data-list]');
+  const foot = [...list.children].find(c => c.classList.contains('border-t'));
+  const bottom = Math.min(974, topIn(list) + list.offsetHeight - (foot ? foot.offsetHeight : 0));
+  let full = 0; list.querySelectorAll('.row').forEach(r=>{ if (topIn(r) + r.offsetHeight <= bottom + 0.5) full++; });
+  return { full, first: Math.round(topIn(list.querySelector('.row'))) };
+}
+const counts = {};
+let current = 'A';
+function show(id){
+  current = id;
+  const m = MOCKS[id];
+  document.getElementById('stage').innerHTML = m.html() + '<div style="position:absolute;left:0;right:0;top:972px;height:2px;background:#f59e0b;z-index:50"></div>';
+  document.getElementById('note').textContent = m.note;
+  document.querySelectorAll('#tabs button').forEach(b=>b.className = 'px-3 py-1 ' + (b.dataset.id===id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'));
+  fit(); document.getElementById('count').textContent = '';
+  // Tailwind's CDN builds the CSS for new classes a moment after they appear, so measure after that.
+  setTimeout(() => {
+    drawWaves(); counts[id] = countRows();
+    const c = counts[id], now = counts.now;
+    document.getElementById('count').innerHTML = `পুরো দেখা যায়: <b class="text-white text-[15px]">${c.full}</b> টা লাইন · প্রথম লাইন শুরু ${c.first} px-এ` + (id!=='now' && now ? ` <span class="text-slate-500">(আজ ${now.full} টা, ${now.first} px)</span>` : '');
+  }, 220);
+  try { localStorage.setItem('reviewSpaceMock2', id); } catch {}
+}
+function fit(){
+  const wrap = document.getElementById('wrap'), stage = document.getElementById('stage');
+  const s = Math.min(1, (wrap.clientWidth || 1905)/1905); stage.style.transform = `scale(${s})`; wrap.style.height = (974*s)+'px';
+}
+const tabs = document.getElementById('tabs');
+Object.entries(MOCKS).forEach(([id,m])=>{ const b=document.createElement('button'); b.dataset.id=id; b.textContent=m.label; b.onclick=()=>show(id); tabs.appendChild(b); });
+document.getElementById('marks').onchange = () => show(current);
+let start = 'A'; try { start = localStorage.getItem('reviewSpaceMock2') || 'A'; } catch {}
+show('now');
+setTimeout(() => show(MOCKS[start] ? start : 'A'), 450);
+addEventListener('resize', ()=>{ fit(); drawWaves(); });
+</script>
+</body>
+</html>

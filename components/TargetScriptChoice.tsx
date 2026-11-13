@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw, Scissors, Zap } from 'lucide-react';
+import { ArrowRight, ChevronDown, ClipboardPaste, FileText, Gauge, Languages, RefreshCw, Scissors, X, Zap } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { timingProblems } from '../services/transcriptSegments';
 import { TranscriptExportMenu, TranscriptExportNotice, type TranscriptExportResult, type TranscriptFormat } from './TranscriptExportMenu';
@@ -24,6 +24,8 @@ interface TargetScriptChoiceProps {
   pipelineStatus?: string;
   isTranslating: boolean;
   translationProgress?: RetranslateProgress | null;
+  /** Stops a running translation; nothing it did is applied. */
+  onCancelTranslation?: () => void;
   translationStyleName: string;
   /** Where translation runs, e.g. "Your gateway — gpt-4.1". */
   translationSummary?: string | null;
@@ -88,6 +90,7 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
   isTranscribing,
   pipelineStatus = '',
   isTranslating,
+  onCancelTranslation,
   translationProgress = null,
   translationStyleName,
   translationSummary,
@@ -535,6 +538,16 @@ export const TargetScriptChoice: React.FC<TargetScriptChoiceProps> = ({
             )}
           </button>
 
+          {isTranslating && onCancelTranslation && (
+            <button
+              type="button"
+              onClick={onCancelTranslation}
+              className="h-9 flex items-center justify-center gap-2 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-200 text-[13px] font-medium cursor-default"
+              title="Stop the translation. Nothing it did is applied; the transcript stays as it is."
+            >
+              <X className="w-4 h-4" /> Cancel translation
+            </button>
+          )}
           {editing ? (
             <p className="text-[11.5px] text-slate-400 text-center">Apply or cancel your segment changes first.</p>
           ) : fastSpinning ? (

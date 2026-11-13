@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startTranslationJob, updateTranslationJob, finishTranslationJob, getTranslationJob } from './translationJobs.js';
+import { startTranslationJob, updateTranslationJob, finishTranslationJob, getTranslationJob, cancelTranslationJob, isTranslationCancelled } from './translationJobs.js';
 
 test('a translation job keeps its progress and then its result for a later ask', () => {
   assert.ok(startTranslationJob('tr-test-done'));
@@ -52,4 +52,18 @@ test('a checkpoint is read back only for the same translation, and old ones are 
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('Cancel stops only a running translation, and a new run of the same id starts clean', () => {
+  assert.equal(cancelTranslationJob('tr-test-unknown'), false);
+  assert.ok(startTranslationJob('tr-test-cancel'));
+  assert.equal(isTranslationCancelled('tr-test-cancel'), false);
+  assert.equal(cancelTranslationJob('tr-test-cancel'), true);
+  assert.equal(isTranslationCancelled('tr-test-cancel'), true);
+
+  finishTranslationJob('tr-test-cancel', { error: { code: 'translation_cancelled' } });
+  assert.equal(cancelTranslationJob('tr-test-cancel'), false, 'a finished job is not cancelled again');
+
+  assert.ok(startTranslationJob('tr-test-cancel'));
+  assert.equal(isTranslationCancelled('tr-test-cancel'), false);
 });

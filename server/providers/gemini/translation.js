@@ -495,7 +495,7 @@ const readGlossary = async (translatable, { sourceLanguage, targetLanguage, cust
 };
 
 /** An error no other batch can get past: every batch after it would fail the same way. */
-const stopsAll = (err) => err?.code === 'invalid_api_key' || err?.status === 401 || err?.status === 403;
+const stopsAll = (err) => err?.code === 'invalid_api_key' || err?.code === 'translation_cancelled' || err?.status === 401 || err?.status === 403;
 
 /**
  * Full translation: every batch is translated and then checked (refineBatch),

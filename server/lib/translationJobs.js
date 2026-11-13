@@ -94,6 +94,21 @@ export const startTranslationJob = (id) => {
   return job;
 };
 
+/**
+ * Marks a running translation as stopped by the user: it sends no more
+ * batches to the model (the one in flight finishes) and ends as cancelled.
+ * Returns whether this backend had it running.
+ */
+export const cancelTranslationJob = (id) => {
+  const job = jobs.get(id);
+  if (!job || job.state !== 'running') return false;
+  job.cancelled = true;
+  return true;
+};
+
+/** Whether the user stopped this translation. */
+export const isTranslationCancelled = (id) => Boolean(jobs.get(id)?.cancelled);
+
 export const updateTranslationJob = (id, progress) => {
   const job = jobs.get(id);
   if (job) job.progress = progress;

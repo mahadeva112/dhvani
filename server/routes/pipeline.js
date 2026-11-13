@@ -10,6 +10,8 @@ import {
   updateTranslationJob,
   finishTranslationJob,
   getTranslationJob,
+  cancelTranslationJob,
+  isTranslationCancelled,
   translationFingerprint,
   saveCheckpoint,
   loadCheckpoint,
@@ -132,6 +134,7 @@ pipelineRouter.post(
     }
 
     const { translateCueTexts } = await import('../providers/gemini/translation.js');
+    const { generateText } = await import('../providers/textModel.js');
     const { serializeSrt, retextCues, assertTimingsPreserved } = await import('../lib/srt.js');
 
     const sourceCues = cues.map((cue, index) => ({
@@ -190,7 +193,15 @@ pipelineRouter.post(
         onProgress: (event) => send({ type: 'progress', cueCount, ...event }),
         resumeFrom,
         onBatchDone: job ? (progress) => saveCheckpoint(jobId, fingerprint, progress) : undefined,
+        // Stopped by the user (DELETE below): no further call goes to the model.
+        generate: job
+          ? (request) => {
+              if (isTranslationCancelled(jobId)) throw cancelledError();
+              return generateText(request);
+            }
+          : undefined,
       });
+      if (job && isTranslationCancelled(jobId)) throw cancelledError();
 
       // `pausedText` is the line as the voice says it, with the speaker's pauses kept (translationPauses.js).
       const translatedCues = retextCues(sourceCues, outcome.translations, 'translatedText').map((cue) => ({
@@ -225,6 +236,19 @@ pipelineRouter.post(
     }
   })
 );
+
+/** The error a translation stopped by the user ends with. */
+const cancelledError = () => new ApiError('The translation was stopped.', { status: 499, code: 'translation_cancelled' });
+
+/**
+ * DELETE /api/pipeline/retranslate/:jobId
+ *
+ * Stops a running translation: the batch the model is writing finishes, no
+ * other is sent, and the job ends as cancelled. Nothing is applied anywhere.
+ */
+pipelineRouter.delete('/pipeline/retranslate/:jobId', (req, res) => {
+  res.json({ stopped: cancelTranslationJob(req.params.jobId) });
+});
 
 /**
  * GET /api/pipeline/retranslate/:jobId

@@ -60,8 +60,20 @@ export interface ReviewWaveformPlayerProps {
   belowWave?: (view: { start: number; span: number; time: number; layers: LaneLayers }) => React.ReactNode;
   /** Extra controls in the View menu, after the layers (how a stretch is shown). */
   toolbarExtra?: React.ReactNode;
-  /** Under the transport, inside the player: the picked line's card. */
+  /** Under the transport, inside the player: the picked line's wordings, once asked for. */
   footer?: React.ReactNode;
+  /**
+   * In the play row where the live caption goes: the picked line with its fit
+   * and fixes. Given, it replaces the caption; on a narrow player it takes a
+   * row of its own under the buttons.
+   */
+  caption?: React.ReactNode;
+  /** First in the top bar, before the cue: the edit buttons (Split, Undo, History). */
+  headerStart?: React.ReactNode;
+  /** A thin row right under the waveform on the same clock: who speaks when. */
+  speakerRow?: (view: { start: number; span: number }) => React.ReactNode;
+  /** More lines for the ? hints: keys this screen adds. */
+  extraHints?: [string[], string][];
   /** First in the View menu: how the lanes draw the lines (Wave, Blocks, Bars). */
   laneSwitch?: React.ReactNode;
   /** A row under `belowWave` on the same clock (wording suggestions for stretched lines). */
@@ -246,6 +258,10 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   belowLane,
   toolbarExtra,
   footer,
+  caption,
+  headerStart,
+  speakerRow,
+  extraHints,
   laneSwitch,
   pausesRow,
   cuePace,
@@ -1045,6 +1061,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     [['L'], 'loop cue'],
     [['+', '−'], 'zoom in / out'],
     [['F'], 'the whole track'],
+    ...(extraHints || []),
   ];
 
   return (
@@ -1052,6 +1069,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       <section ref={sectionRef} aria-label="Playback" className="bg-slate-900/90 border border-edge rounded-2xl">
         {/* Top bar: the current cue, then how you listen and look */}
         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-3.5 py-2 border-b border-edge">
+          {headerStart}
           <div className="flex items-center gap-2.5 min-w-0 flex-1 overflow-hidden">
             <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300 whitespace-nowrap">
               {activeCue ? `Cue ${String(activeIndex + 1).padStart(2, '0')} of ${segments.length}` : `${segments.length} cues`}
@@ -1307,6 +1325,13 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
                 </span>
               )}
             </div>
+            {speakerRow && (
+              <div className="relative h-1 overflow-hidden pointer-events-none" aria-hidden="true">
+                <div data-track="" className="absolute inset-y-0 will-change-transform" style={trackStyle}>
+                  {speakerRow({ start: drawn.from, span: drawn.span })}
+                </div>
+              </div>
+            )}
             {sourceRow && (
               <div ref={sourceRowRef} className="relative h-14 border-t border-edge overflow-hidden cursor-default" onWheel={onWheel}>
                 <div data-track="" className="absolute inset-y-0 will-change-transform pointer-events-none" style={trackStyle}>
@@ -1411,6 +1436,11 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
           <span className="font-mono text-[13px] text-slate-100 tabular-nums whitespace-nowrap">
             {formatTime(currentTime)} <span className="text-slate-500">/ {formatTime(total)}</span>
           </span>
+          {caption ? (
+            <div className="order-last min-[1500px]:order-none basis-full min-[1500px]:basis-auto flex-1 min-w-0 flex items-center min-[1500px]:ml-1 min-[1500px]:pl-3 min-[1500px]:border-l min-[1500px]:border-edge">
+              {caption}
+            </div>
+          ) : (
           <div className="order-last md:order-none basis-full md:basis-auto flex-1 min-w-0 flex items-center gap-3 md:pl-1" aria-live="polite">
             {activeCue ? (
               <>
@@ -1431,6 +1461,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
               <span className="text-xs text-slate-500">Press play to follow the cues line by line.</span>
             )}
           </div>
+          )}
         </div>
         {footer}
       </section>

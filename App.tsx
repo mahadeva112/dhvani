@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, startTransition } from 'react';
-import { RefreshCw, AlertTriangle, Languages } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Languages, X } from 'lucide-react';
 import { ProHeader, DEFAULT_LANGUAGES, DEFAULT_TARGET_LANGUAGE, HeaderQuota } from './components/ProHeader';
 import { ExpressDubWizard, stepForJob } from './components/ExpressDubWizard';
 import { useTrackMixer } from './components/useTrackMixer';
@@ -835,12 +835,25 @@ export default function App() {
   });
   /** The translations in flight, by project, with each one's progress (null until the first report). */
   const [translations, setTranslations] = useState<Record<string, RetranslateProgress | null>>({});
-  const startTranslating = useCallback((jobId: string) => setTranslations((all) => ({ ...all, [jobId]: null })), []);
-  const stopTranslating = useCallback(
-    (jobId: string) =>
-      setTranslations(({ [jobId]: _done, ...rest }) => rest),
-    []
-  );
+  /** Each running translation's stop switch, by project: Cancel aborts it, and the backend is told to stop. */
+  const translationStops = useRef(new Map<string, AbortController>());
+  /** Marks a project as translating and returns the signal its translation listens to for Cancel. */
+  const startTranslating = useCallback((jobId: string) => {
+    translationStops.current.get(jobId)?.abort();
+    const stop = new AbortController();
+    translationStops.current.set(jobId, stop);
+    setTranslations((all) => ({ ...all, [jobId]: null }));
+    return stop.signal;
+  }, []);
+  const stopTranslating = useCallback((jobId: string, signal?: AbortSignal) => {
+    // A newer translation of the same project keeps its own switch.
+    if (!signal || translationStops.current.get(jobId)?.signal === signal) translationStops.current.delete(jobId);
+    setTranslations(({ [jobId]: _done, ...rest }) => rest);
+  }, []);
+  /** Cancel: the translation stops, nothing it did is applied, the lines stay as they were. */
+  const cancelTranslation = useCallback((jobId: string) => {
+    translationStops.current.get(jobId)?.abort();
+  }, []);
   /** Progress reports for one project's translation; any that land after it ended are dropped. */
   const translationProgressOf = useCallback(
     (jobId: string) => (progress: RetranslateProgress) => setTranslations((all) => (jobId in all ? { ...all, [jobId]: progress } : all)),
@@ -1243,99 +1256,35 @@ export default function App() {
     [activeJob, updateJob, stepGate.upTo]
   );
 
-  // Central Target Language Change Handler with Instant Re-translation
+  /**
+   * The dub language picked. It only sets the language: lines already
+   * translated are never sent to translation from here (a pick by mistake
+   * used to start a full translation and throw the Sync away). They keep
+   * their words, and the user is told to Re-translate or paste a script.
+   */
   const handleLanguageChange = useCallback(
-    async (newLang: string) => {
+    (newLang: string) => {
       setSelectedLanguage(newLang);
       try {
         localStorage.setItem('dhvani_target_language', newLang);
       } catch {
         // ignore storage errors
       }
-
-      if (activeJob) {
-        // 1. Immediately update active job's language
-        updateJob(activeJob.id, { language: newLang });
-
-        // A transcript still waiting for a choice is only retargeted: the
-        // user picks translate or their own script after this.
-        if (activeJob.targetSource === 'pending') return;
-
-        // The user's own script is never machine-translated. It stays as
-        // written, and the user is told it no longer matches.
-        if (activeJob.targetSource === 'custom') {
-          const previous = activeJob.language || selectedLanguage;
-          if (previous !== newLang) {
-            updateJob(activeJob.id, {
-              translationWarning: `Your script is in ${previous}, and the dub language is now ${newLang}. Paste a ${newLang} script or translate the transcript from the Translation panel.`,
-            });
-          }
-          return;
-        }
-
-        // 2. If the active job already has dialogue segments, re-translate them to the new language
-        if (activeJob.segments && activeJob.segments.length > 0) {
-          startTranslating(activeJob.id);
-          try {
-            const promptToUse = activeJob.customPrompt || customPrompt;
-
-            // Re-translates existing cues only: the audio is never re-sent and
-            // the ElevenLabs timestamps are reused verbatim.
-            const { segments: translatedSegments, translatedSrt, untranslatedCueIds } =
-              await retranslateCues(activeJob.segments, {
-                sourceLanguage: activeJob.detectedLanguage || sourceLanguage,
-                targetLanguage: newLang,
-                customPrompt: promptToUse,
-                onProgress: translationProgressOf(activeJob.id),
-              });
-
-            const newScript = translatedSegments
-              .map((s) => s.textTarget || (s as any).targetText || '')
-              .filter(Boolean)
-              .join(' ');
-
-            updateJob(activeJob.id, {
-              language: newLang,
-              segments: translatedSegments,
-              reviewHistory: startReviewHistory(translatedSegments, BASE_LABELS.translation),
-              script: newScript,
-              translatedSrt,
-              translationWarning: untranslatedWarning(untranslatedCueIds.length),
-              untranslatedCueIds: untranslatedCueIds.length ? untranslatedCueIds : null,
-              synthesizedAudioUrl: null,
-              synthesizedBlob: null,
-              synthAudioBuffer: null,
-              xmlOutput: '',
-              syncedAudioUrl: null,
-              syncedBlob: null,
-              syncedAudioBuffer: null,
-              syncReport: null,
-              syncBank: null,
-              syncBankBlob: null,
-              syncTakes: null,
-              syncEdits: null,
-              syncBaseReport: null,
-              syncBeforeVoiceChange: null,
-              syncChangedVoices: null,
-              dubStems: null,
-              dubMix: null,
-              syncedStems: null,
-              syncMix: null,
-            });
-          } catch (err: any) {
-            // The transcription and its timings survive a failed translation.
-            console.warn('Auto translation to new language failed:', err);
-            reportError(err, {
-              title: `Translation to ${newLang} failed`,
-              safe: 'Your transcription and timestamps are intact — translate again when ready.',
-            });
-          } finally {
-            stopTranslating(activeJob.id);
-          }
-        }
-      }
+      if (!activeJob) return;
+      const previous = activeJob.language || selectedLanguage;
+      updateJob(activeJob.id, { language: newLang });
+      // A transcript still waiting for a choice is only retargeted: the user picks translate or their own script after this.
+      if (activeJob.targetSource === 'pending' || previous === newLang) return;
+      const hasLines = activeJob.segments?.some((seg) => (seg.textTarget || (seg as any).targetText || '').trim());
+      if (!hasLines) return;
+      updateJob(activeJob.id, {
+        translationWarning:
+          activeJob.targetSource === 'custom'
+            ? `Your script is in ${previous}, and the dub language is now ${newLang}. Paste a ${newLang} script or translate the transcript from the Translation panel.`
+            : `The lines are in ${previous}, and the dub language is now ${newLang}. Re-translate from the Translation panel to translate them; nothing has changed yet.`,
+      });
     },
-    [activeJob, customPrompt, selectedLanguage, updateJob]
+    [activeJob, selectedLanguage, updateJob]
   );
 
   // Custom Translation Prompt Handlers
@@ -1362,7 +1311,7 @@ export default function App() {
     async (overridePrompt?: string, { fast = false }: { fast?: boolean } = {}) => {
       if (!activeJob || !activeJob.segments || activeJob.segments.length === 0) return;
       const promptToUse = overridePrompt !== undefined ? overridePrompt : (activeJob.customPrompt || customPrompt);
-      startTranslating(activeJob.id);
+      const signal = startTranslating(activeJob.id);
       try {
         const targetLang = activeJob.language || selectedLanguage;
 
@@ -1375,8 +1324,11 @@ export default function App() {
             ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
             ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
             fast,
+            signal,
             onProgress: translationProgressOf(activeJob.id),
           });
+        // Cancelled while the last answer was on its way: nothing is applied.
+        if (signal.aborted) return;
 
         const newScript = translatedSegments
           .map((s) => s.textTarget || (s as any).targetText || '')
@@ -1413,6 +1365,8 @@ export default function App() {
           syncMix: null,
         });
       } catch (err: any) {
+        // Cancelled by the user: no error, the lines stay as they were.
+        if (signal.aborted) return;
         console.warn('Retranslate with prompt error:', err);
         reportError(err, {
           title: `Translation to ${activeJob.language || selectedLanguage} failed`,
@@ -1421,7 +1375,7 @@ export default function App() {
         });
         throw err;
       } finally {
-        stopTranslating(activeJob.id);
+        stopTranslating(activeJob.id, signal);
       }
     },
     [activeJob, customPrompt, selectedLanguage, updateJob, fitTranslationToVoice, voiceRate.rate, voiceRates.speakers]
@@ -1441,7 +1395,7 @@ export default function App() {
       updateJob(jobId, { translationWarning: null, untranslatedCueIds: null });
       return;
     }
-    startTranslating(activeJob.id);
+    const signal = startTranslating(activeJob.id);
     try {
       const { segments: done, untranslatedCueIds } = await retranslateCues(missing, {
         sourceLanguage: activeJob.detectedLanguage || sourceLanguage,
@@ -1449,8 +1403,10 @@ export default function App() {
         customPrompt: activeJob.customPrompt || customPrompt,
         ...(fitTranslationToVoice && voiceRate.rate && { voiceRate: voiceRate.rate.syllablesPerSecond }),
         ...(fitTranslationToVoice && { speakerRates: speakerSyllableRates(voiceRates.speakers) }),
+        signal,
         onProgress: translationProgressOf(activeJob.id),
       });
+      if (signal.aborted) return;
       // Applied to the job as it is now, in case anything changed while it ran.
       const job = queueRef.current.find((j) => j.id === jobId);
       if (!job) return;
@@ -1472,10 +1428,11 @@ export default function App() {
         ...syncPendingAfter(job, segments),
       });
     } catch (err: any) {
+      if (signal.aborted) return;
       updateJob(jobId, { translationWarning: untranslatedWarning(ids.size) });
       reportError(err, { title: `Translating ${ids.size} cue(s) failed`, safe: 'Those cues kept their previous text; nothing else changed.' });
     } finally {
-      stopTranslating(activeJob.id);
+      stopTranslating(activeJob.id, signal);
     }
   }, [activeJob, customPrompt, selectedLanguage, updateJob, fitTranslationToVoice, voiceRate.rate, voiceRates.speakers]);
 
@@ -4929,6 +4886,15 @@ export default function App() {
               {isTranslatingLanguage ? 'Translating…' : `Translate ${activeJob.untranslatedCueIds!.length} missed line(s)`}
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => updateJob(activeJob.id, { translationWarning: null })}
+            className="shrink-0 -my-1 w-7 h-7 inline-flex items-center justify-center rounded-lg text-sky-300 hover:text-white hover:bg-sky-900/60 cursor-default"
+            aria-label="Hide this note"
+            title="Hide this note"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -5065,6 +5031,7 @@ export default function App() {
           translationReady={Boolean(backendHealth?.geminiConfigured)}
           translationProgress={translationProgress}
           isTranslatingLanguage={isTranslatingLanguage}
+          onCancelTranslation={activeJob ? () => cancelTranslation(activeJob.id) : undefined}
           onOpenPromptModal={() => setIsPromptModalOpen(true)}
           onOpenVoiceChanger={() => setIsVoiceChangerOpen(true)}
           onOpenTextToSpeech={() => setIsTextToSpeechOpen(true)}

@@ -65,6 +65,8 @@ interface SpeakerBarProps {
   voiceShown?: boolean;
   onShowVoice?: () => void;
   onFixByVoice?: () => void;
+  /** Inside a window: no card of its own. */
+  bare?: boolean;
 }
 
 /**
@@ -91,6 +93,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
   voiceShown = false,
   onShowVoice,
   onFixByVoice,
+  bare = false,
 }) => {
   const [managing, setManaging] = useState(false);
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set());
@@ -103,7 +106,7 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
   const length = Math.max(duration, segments.reduce((max, s) => Math.max(max, s.endTime), 0), 0.001);
 
   return (
-    <section aria-label="Speakers" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
+    <section aria-label="Speakers" className={`${bare ? 'px-5 py-4' : 'bg-slate-900/90 border border-edge rounded-2xl px-4 py-3'} flex flex-col gap-3`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-1">
           <Users className="w-3.5 h-3.5" /> {speakers.length} speakers
@@ -255,6 +258,47 @@ export const SpeakerBar: React.FC<SpeakerBarProps> = ({
         </div>
       )}
     </section>
+  );
+};
+
+/**
+ * Who speaks when, as a thin line under Review's waveform on the player's
+ * clock: each cue in its speaker's colour, faded when the list is filtered to
+ * someone else, an amber tick where two speakers talk at once. The chips,
+ * names and merges are in the Speakers window.
+ */
+export const SpeakerStrip: React.FC<{
+  segments: AudioSegment[];
+  colorOf: Map<string, string>;
+  filter: string[];
+  overlapIds: Set<string>;
+  windowStart: number;
+  windowSeconds: number;
+}> = ({ segments, colorOf, filter, overlapIds, windowStart, windowSeconds }) => {
+  const pct = (t: number) => ((t - windowStart) / windowSeconds) * 100;
+  const end = windowStart + windowSeconds;
+  return (
+    <>
+      {segments
+        .filter((seg) => seg.endTime >= windowStart && seg.startTime <= end)
+        .map((seg) => {
+          const who = speakerOf(seg);
+          return (
+            <span
+              key={seg.id}
+              className="absolute inset-y-0"
+              style={{
+                left: `${pct(seg.startTime)}%`,
+                width: `${Math.max(0.1, pct(seg.endTime) - pct(seg.startTime))}%`,
+                backgroundColor: colorOf.get(who) ?? '#64748b',
+                opacity: filter.length === 0 || filter.includes(who) ? 0.9 : 0.25,
+              }}
+            >
+              {overlapIds.has(String(seg.id)) && <span className="absolute left-0 inset-y-0 w-1 bg-amber-400" />}
+            </span>
+          );
+        })}
+    </>
   );
 };
 

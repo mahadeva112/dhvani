@@ -21,6 +21,7 @@ import {
 import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported, useUpdateState } from './UpdateControl';
 import { CenteredPanel } from './CenteredPanel';
+import { STEP_HEADER_SLOT_ID } from './stepHeaderSlot';
 import { HubMeter, HubSegmented, HubSelect, HubSwitch, ToolsHub, type ToolsHubItem } from './ToolsHub';
 import { readOptions, rememberSyncOptions } from './SyncPanel';
 import { applyJoinPreset, joinPresetOf } from './SyncJoinSettings';
@@ -756,6 +757,8 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
 
         {/* Right: update, services, queue, tools, new dub */}
         <div className="flex items-center justify-end gap-2 min-w-0">
+          {/* The step on screen puts its own buttons here (Review: Back, Translation, Tools), so they take no row of their own */}
+          <div id={STEP_HEADER_SLOT_ID} className="contents" />
           {/* The update window and notices only, no button here (Tools → Check for updates). Desktop app only; a running dub or sync holds back the restart. */}
           <UpdateControl busy={Boolean(activity)} />
 
