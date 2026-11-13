@@ -144,7 +144,7 @@ import { DEFAULT_DUB_AUDIO_QUALITY, DUB_AUDIO_QUALITIES, type DubAudioQuality } 
 import type { EstimateMethod, LineContext, SpeakerFitRates, SyncOptions, SyncPreviewUnit, SyncProgress, SyncReport, SyncUnitReport } from '../services/syncService';
 import { syllableFit, syllableRate, timeLine } from '../services/speechTiming';
 import { learnedPace, learnPaceFromSync, voicePaceKey, type LearnedPace } from '../services/voicePace';
-import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, StretchCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
+import { useSyncPreview, useLineFixes, LineFixControls, WordingButtons, lineNote, isShort, EstimateSwitch, ExpertLineDetail, estimateBasis, directionFor, RATE_BASIS_NOTE, LINE_OPTIONS, DubEstimateLane, SourceLineLane, LaneViewSwitch, useLaneView, PauseTicksLane, WordingSuggestRow, LineFitCard, type PlaceDrag, type StretchDraft } from './SyncPreviewPanel';
 import { placeOf, withCut, withLinePlaces, withLineRate, withLineRates, withPartStart, withPauseSkip } from '../services/linePlaces';
 import type { WordingRequest } from './TakesPanel';
 import { stripPauses } from '../server/lib/linePauses.js';
@@ -1648,6 +1648,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [laneDrag, setLaneDrag] = useState<{ key: string; seconds: number } | null>(null);
   const [laneView, setLaneView] = useLaneView();
   const selectedLine = linePreview?.units.find((u) => u.key === selectedLineKey) || null;
+  /** A line's cues as the list numbers them: "8" or "8–10". */
+  const cueRangeOf = (unit: SyncPreviewUnit) => {
+    const numbers = unit.cueIds.map((id) => segments.findIndex((seg) => String(seg.id) === String(id)) + 1).filter((n) => n > 0);
+    if (!numbers.length) return undefined;
+    const lo = Math.min(...numbers);
+    const hi = Math.max(...numbers);
+    return lo === hi ? String(lo) : `${lo}–${hi}`;
+  };
   /**
    * A cue's colour: its line's (lineColors.ts), so a line keeps one colour here,
    * in the sync preview and in the sync report. Until the preview has grouped
@@ -2670,8 +2678,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           {/* Review's setup, out of the editor's way: the script and its translation, and the tools, each in a window in the middle */}
           {!awaitingScript && (
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => setStepOverride(1)} className="text-[13px] text-slate-400 hover:text-slate-200 cursor-default">
-                ← Source &amp; voice
+              {/* Back a step: a button like Translation and Tools, not bare text */}
+              <button
+                type="button"
+                onClick={() => setStepOverride(1)}
+                className="group h-9 pl-2 pr-3 rounded-xl border border-edge bg-slate-900 hover:bg-slate-800 text-[13px] text-slate-200 flex items-center gap-1.5 cursor-default"
+                title="Back to step 1: the source, speakers and voices"
+              >
+                <ChevronLeft className="w-4 h-4 text-slate-400 transition-transform group-hover:-translate-x-0.5" />
+                <span className="text-slate-400">Back to</span> Source &amp; voice
               </button>
               <span className="flex-1" />
               <button
@@ -2932,7 +2947,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   {(
                     [
                       ['line', 'On line', 'A stretched line shows its speed on it, and another wording under it when it sounds rushed or drags'],
-                      ['card', 'Card', 'The lane stays clear: the picked line\'s speed and wordings show in a card under the player'],
+                      ['card', 'Card', 'The lane stays clear: the picked line\'s speed shows in its card under the lanes'],
                     ] as const
                   ).map(([id, label, hint]) => (
                     <button
@@ -2974,17 +2989,23 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   )
                 : undefined
             }
+            // In the timeline's View menu: Wave, Blocks or Bars, right where the lanes change.
+            laneSwitch={linePreview && !hearingDub && !awaitingScript ? <LaneViewSwitch view={laneView} onChange={setLaneView} /> : undefined}
+            // Under the lanes: the picked line's fit against its room, and what fixes it (in Card view its speed too).
+            footer={
+              linePreview && !hearingDub && !awaitingScript ? (
+                <LineFitCard
+                  unit={selectedLine}
+                  cps={linePreview.charsPerSecond}
+                  cues={selectedLine ? cueRangeOf(selectedLine) : undefined}
+                  fix={selectedLine ? lineFixes.controlsFor(selectedLine) : null}
+                  onStretch={(unit, rate) => stretchLine(unit, rate)}
+                  onOpen={pickReviewLine}
+                  showSpeed={stretchView === 'card'}
+                />
+              ) : undefined
+            }
           />
-
-          {/* Card view: the picked line's speed and wordings, under the player */}
-          {stretchView === 'card' && linePreview && !hearingDub && !awaitingScript && (
-            <StretchCard
-              unit={selectedLine}
-              cps={linePreview.charsPerSecond}
-              fix={selectedLine ? lineFixes.controlsFor(selectedLine) : null}
-              onStretch={(unit, rate) => stretchLine(unit, rate)}
-            />
-          )}
 
           {!awaitingScript && (
             <CueEditBar
@@ -3200,7 +3221,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     foldedCount={foldedPassages.size}
                     onUnfoldAll={() => setFoldedPassages(new Set())}
                     estimate={<EstimateSwitch method={estimateMethod} onChange={changeEstimateMethod} />}
-                    lanes={<LaneViewSwitch view={laneView} onChange={setLaneView} />}
                     onOpenKeyboard={onOpenPhoneticKeyboard ? () => onOpenPhoneticKeyboard() : undefined}
                   />
                 </div>

@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Estimate Timeline Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b1020; font-family: Inter, system-ui, "Nirmala UI", "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#243049; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .hidden2 { display:none !important; }
+  .pop { box-shadow: 0 18px 40px -12px rgba(0,0,0,.7); }
+  .chip { height:26px; padding:0 9px; border-radius:8px; border:1px solid #243049; display:inline-flex; align-items:center; gap:6px; color:#cbd5e1; background:#0f172a; white-space:nowrap; }
+  .chip:hover { background:#1e293b; }
+  .chip.on { background:#1e293b; color:#fff; border-color:#334155; }
+  .ibtn { width:28px; height:26px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; color:#94a3b8; }
+  .ibtn:hover { background:#1e293b; color:#e2e8f0; }
+  .kbd { font-family: ui-monospace, Consolas, monospace; font-size:11px; padding:0 5px; border-radius:4px; border:1px solid #334155; color:#94a3b8; }
+  input[type=range] { accent-color:#6366f1; }
+  #tl { cursor: pointer; }
+  .tbtn { height:30px; padding:0 10px; border-radius:9px; border:1px solid #334155; font-size:12.5px; color:#e2e8f0; background:#111827; display:inline-flex; align-items:center; gap:6px; }
+  .tbtn:hover { background:#1e293b; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[90rem] mx-auto">
+  <!-- Switcher -->
+  <div class="flex flex-wrap items-center gap-2 mb-2 text-[12.5px] text-slate-400">
+    <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+    <span id="mockSeg" class="inline-flex flex-wrap rounded-lg border edge overflow-hidden"></span>
+  </div>
+  <p id="mockNote" class="mb-3 text-[13.5px] leading-relaxed text-slate-300 max-w-[70rem]"></p>
+
+  <!-- Context row (unchanged) -->
+  <div class="flex items-center gap-2 mb-2 text-[13px]">
+    <span class="text-slate-300">← Source &amp; voice</span>
+    <div class="flex-1"></div>
+    <span class="chip">Translation <span class="text-slate-400">· Hindi (हिन्दी) · Swami</span></span>
+    <span class="chip">Tools</span>
+  </div>
+
+  <!-- Player -->
+  <div id="player" class="relative rounded-2xl border edge bg-[#0e1424]">
+    <div id="topbar" class="flex flex-wrap items-center gap-2 px-3 py-2 border-b edge text-[12px]"></div>
+    <div id="laneWrap" class="relative px-3 pt-1">
+      <svg id="tl" class="block w-full select-none"></svg>
+      <div id="tip" class="hidden2 pointer-events-none absolute z-20 rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-[12px] text-slate-200 pop"></div>
+    </div>
+    <div class="px-3 pb-2 pt-1">
+      <div id="sb" class="relative h-2.5 rounded-full bg-slate-800/80 cursor-pointer">
+        <div id="thumb" class="absolute top-0 h-full rounded-full bg-slate-600"></div>
+        <div id="sbHead" class="absolute -top-0.5 h-3.5 w-0.5 bg-red-500"></div>
+      </div>
+    </div>
+    <div id="bottom" class="px-3 py-2 border-t edge"></div>
+    <div id="viewPop" class="hidden2 pop absolute z-30 w-64 rounded-xl border border-slate-700 bg-slate-950 p-2 text-[12.5px]"></div>
+    <div id="helpPop" class="hidden2 pop absolute z-30 w-80 rounded-xl border border-slate-700 bg-slate-950 p-3 text-[12.5px] text-slate-300"></div>
+  </div>
+
+  <!-- Advice -->
+  <section class="mt-6 grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+    <div class="rounded-2xl border edge bg-slate-900/60 p-5 text-[14px] leading-relaxed text-slate-300">
+      <h2 class="text-[16px] font-semibold text-slate-100 mb-2">আমার পরামর্শ — এই timeline-এর একটাই কাজ</h2>
+      <p class="mb-3">এক নজরে বলা: <b class="text-slate-100">এই dub লাইনটা তার ঘরে ধরবে কি না, না ধরলে কত বেশি।</b> ঘর মানে slot — লাইনের শুরু থেকে পরের কথা শুরুর আগ পর্যন্ত (একটা শ্বাস বাদ দিয়ে), ঠিক যেভাবে Sync fit মাপে। বাকি সব এর পরে।</p>
+      <ol class="list-decimal pl-5 space-y-2">
+        <li><b class="text-slate-100">ঘরটা dub lane-এ আঁকা নেই।</b> এখন উপরের রঙিন বাক্স আর নিচের বাক্সের কিনারা চোখ দিয়ে মেলাতে হয়, আর বিরতির জায়গাটা (পরের লাইন অবধি ফাঁকা অংশ) কোথাও দেখা যায় না। ঘর দেখালেই অর্ধেক কাজ হয়ে যায়।</li>
+        <li><b class="text-slate-100">সংখ্যা শুধু সমস্যার লাইনে।</b> "+0.85 s" কেবল যে লাইন ঘর ছাড়ায় তার গায়ে — সব লাইনে লেখা নয় (আগে clip-এর label strip বাতিল হয়েছিল, সেটা মানা হয়েছে)।</li>
+        <li><b class="text-slate-100">অবস্থার রং লাইনের রং থেকে আলাদা।</b> লাল = ঘর ছাড়িয়েছে, amber = প্রায় ভরা (tight), নীল = মূল বক্তা থামার অনেক আগে শেষ। লাইনের ৪টে রং যেমন আছে তেমনই।</li>
+        <li><b class="text-slate-100">উপরের bar-এ ১৬টা জিনিস।</b> Pauses / Fit / Line numbers / On line·Card একটা <span class="kbd">View ▾</span>-এ; চারটে speed একটা <span class="kbd">1×</span> বোতামে (click করলে ঘোরে); "Each line in its own colour…" লেখাটা <span class="kbd">?</span>-এর ভেতরে। চারটে mock-এই এটা করা।</li>
+        <li><b class="text-slate-100">"Tight" chip নিচে একদম ডান কোণে</b> — লাইনের লেখা থেকে অনেক দূরে, চোখে পড়ে না। অবস্থা লেখার ঠিক পাশে।</li>
+        <li><b class="text-slate-100">অনুমান আর আসল audio আলাদা দেখাক।</b> Dub lane-এর wave আসল শব্দের মতো দেখায়, অথচ এটা লেখা থেকে অনুমান। Chunk-এর কিনারা dashed রাখলে চুপচাপ বোঝা যায় — চারটেতেই আছে।</li>
+      </ol>
+    </div>
+    <div class="rounded-2xl border edge bg-slate-900/60 p-5 text-[13.5px] leading-relaxed text-slate-300">
+      <h2 class="text-[16px] font-semibold text-slate-100 mb-3">চারটে পাশাপাশি</h2>
+      <table class="w-full text-left text-[13px]">
+        <thead class="text-slate-400"><tr><th class="py-1 pr-2 font-medium">Mock</th><th class="py-1 pr-2 font-medium">কী যোগ হয়</th><th class="py-1 font-medium">জায়গা</th></tr></thead>
+        <tbody class="align-top">
+          <tr class="border-t edge"><td class="py-2 pr-2 text-slate-100">A · ঘর</td><td class="py-2 pr-2">প্রতিটা লাইনের ঘর dashed বাক্সে, বেশি অংশ লাল ডোরা + সংখ্যা</td><td class="py-2">০ px</td></tr>
+          <tr class="border-t edge"><td class="py-2 pr-2 text-slate-100">B · আগে সমস্যা</td><td class="py-2 pr-2">ঠিক লাইন ঝাপসা, উপরে গোনা + ‹ › দিয়ে পরের সমস্যায় লাফ</td><td class="py-2">০ px</td></tr>
+          <tr class="border-t edge"><td class="py-2 pr-2 text-slate-100">C · Fit রেল</td><td class="py-2 pr-2">নিচে সরু রেল: প্রতিটা ঘর কতটা ভরল, পুরো zoom-out-এও পড়া যায়</td><td class="py-2">+১৪ px</td></tr>
+          <tr class="border-t edge"><td class="py-2 pr-2 text-slate-100">D · লেন্স</td><td class="py-2 pr-2">বাছা লাইন উজ্জ্বল, বাকি ঝাপসা; নিচে লাইনের card: মাপ + সমাধানের বোতাম</td><td class="py-2">+৩০ px</td></tr>
+        </tbody>
+      </table>
+      <div class="mt-4 rounded-xl border border-indigo-500/40 bg-indigo-500/10 p-3">
+        <div class="text-slate-100 font-semibold mb-1">আমার বাছাই: A, সঙ্গে D-এর card</div>
+        A কোনো নতুন সারি বা বোতাম ছাড়াই মূল প্রশ্নের উত্তর দেয় — সব লাইনের ঘর একসঙ্গে দেখা যায়। লাইনে click করলে নিচের caption-এর জায়গায় D-এর card (মাপ + Shorter / Read faster) খোলে, তাই ঠিক করার পথও এক click দূরে। B-এর ‹ › key হিসেবে রাখা যায় (<span class="kbd">Alt+↓</span>, rows-এ যেমন আছে)।
+      </div>
+    </div>
+  </section>
+  <p class="mt-4 text-[12px] text-slate-500">নমুনা data: ২৬ cue, ১২টা লাইন, 01:16.6। অবস্থা Sync fit-এর নিয়মেই: ঘরের বাইরে = Too long, ঘরের ৯০%-এর বেশি = Tight, বক্তা থামার ০.৮ s-এর বেশি আগে শেষ = Short। Play চাপলে playhead চলে (শব্দ নেই)। চাকা ঘোরালে সরে, Ctrl+চাকা zoom।</p>
+</div>
+
+<script>
+const HUES = ['#7dd3fc', '#f9a8d4', '#c4b5fd', '#e9d5a8'];
+const ST = { long: '#f87171', tight: '#fbbf24', short: '#60a5fa', fits: '#4ade80' };
+const ST_NAME = { long: 'Too long', tight: 'Tight', short: 'Short', fits: 'Fits' };
+const TOTAL = 76.6, BREATH = 0.15, TIGHT_SHARE = 0.9;
+const NOISE = [[2.9, 3.6]];
+const LINES = [
+  { src: [[0.1, 1.05], [1.2, 2.2]], next: 2.9, dub: [[0.1, 2.65]], cues: [1, 1], hi: 'पता नहीं यश रावण कैसे बन गए।', en: "I don't know how Vicky Yash became Ravana." },
+  { src: [[5.2, 7.0], [7.3, 9.5], [9.8, 11.3]], next: 11.6, dub: [[5.2, 7.6], [8.0, 10.6]], cues: [2, 3], hi: 'हर किरदार के पीछे एक लंबी तैयारी होती है, जो किसी को दिखती नहीं।', en: 'Behind every role is a long preparation that nobody sees.' },
+  { src: [[11.6, 12.0], [12.5, 13.8], [14.5, 15.5], [15.8, 17.0], [17.5, 19.0], [19.3, 20.8]], next: 22.3, dub: [[11.6, 11.9], [12.6, 14.0], [14.8, 17.2], [18.0, 19.6]], cues: [4, 7], hi: 'जब आप भीतर से स्थिर होते हैं, तो बाहर की हलचल आपको हिला नहीं पाती।', en: 'When you are steady within, the noise outside cannot shake you, and the work falls into place.' },
+  { src: [[22.3, 24.6], [24.9, 26.8], [27.1, 28.6]], next: 29.4, dub: [[22.3, 27.9], [28.2, 30.1]], cues: [8, 10], hi: 'लोग सोचते हैं कि यह सब प्रतिभा है, पर असल में यह रोज़ का अभ्यास है, बिना रुके, बिना थके।', en: 'People think it is all talent, but really it is daily practice.' },
+  { src: [[29.4, 31.2], [31.5, 33.0]], next: 34.2, dub: [[30.25, 33.4]], cues: [11, 12], hi: 'अभ्यास से ही सहजता आती है।', en: 'Ease comes only from practice.' },
+  { src: [[34.2, 36.4], [36.8, 39.5]], next: 40.6, dub: [[34.2, 36.9], [37.3, 40.4]], cues: [13, 15], hi: 'और सहजता से ही वह गहराई आती है, जिसे लोग जादू कहते हैं।', en: 'And from ease comes the depth people call magic.' },
+  { src: [[40.6, 42.1], [42.4, 44.0]], next: 45.0, dub: [[40.6, 43.9]], cues: [16, 17], hi: 'जादू कुछ नहीं, बस ध्यान है।', en: 'There is no magic, only attention.' },
+  { src: [[45.0, 47.6], [47.9, 49.8], [50.1, 51.2]], next: 52.0, dub: [[45.0, 48.5], [49.0, 52.6]], cues: [18, 20], hi: 'जब आप पूरी तरह किसी काम में डूब जाते हैं, तो समय का पता ही नहीं चलता, सब अपने आप होता है।', en: 'When you are fully absorbed in something, time disappears.' },
+  { src: [[52.0, 54.1], [54.4, 56.3]], next: 57.5, dub: [[52.75, 56.0]], cues: [21, 22], hi: 'वही असली आनंद है।', en: 'That is the real joy.' },
+  { src: [[57.5, 60.0], [60.3, 63.0]], next: 64.0, dub: [[57.5, 60.2], [60.6, 62.9]], cues: [23, 24], hi: 'और यह आनंद किसी बाहरी चीज़ पर टिका नहीं है।', en: 'And this joy does not rest on anything outside.' },
+  { src: [[64.0, 66.8], [67.1, 69.8]], next: 70.6, dub: [[64.0, 67.0], [67.4, 70.0]], cues: [25, 25], hi: 'यह आपके भीतर है, बस आपको उसकी ओर मुड़ना है, धीरे से।', en: 'It is within you; you only have to turn towards it.' },
+  { src: [[70.6, 73.2], [73.5, 76.2]], next: null, dub: [[70.6, 75.5]], cues: [26, 26], hi: 'बस इतना ही।', en: 'That is all.' },
+];
+LINES.forEach((l, i) => {
+  l.i = i; l.hue = HUES[i % 4];
+  l.start = l.src[0][0]; l.spokenEnd = l.src[l.src.length - 1][1];
+  l.slotEnd = l.next != null ? l.next - BREATH : TOTAL;
+  l.slot = l.slotEnd - l.start;
+  l.dubEnd = l.dub[l.dub.length - 1][1];
+  l.est = l.dubEnd - l.start;
+  l.overflow = Math.max(0, l.dubEnd - l.slotEnd);
+  l.status = l.overflow > 0.1 ? 'long' : l.est > TIGHT_SHARE * l.slot ? 'tight' : l.dubEnd < l.spokenEnd - 0.8 ? 'short' : 'fits';
+  l.words = l.hi.split(/\s+/).length;
+});
+const COUNTS = LINES.reduce((c, l) => (c[l.status]++, c), { fits: 0, tight: 0, long: 0, short: 0 });
+
+const MOCKS = {
+  A: { name: 'A · ঘর দেখাও', note: '<b class="text-slate-100">ঘর (slot) dub lane-এ আঁকা।</b> প্রতিটা লাইনের পেছনে dashed বাক্স — লাইনের শুরু থেকে পরের কথার আগ পর্যন্ত। Dub তার ভেতরে থাকলে ঠিক। বাইরে গেলে সেই অংশটুকু লাল ডোরা আর পাশে "+0.85 s"; প্রায় ভরা হলে ঘরের ডান কিনারা amber; অনেক আগে শেষ হলে বক্তা যতক্ষণ বলছেন সেই ফাঁক নীল। কোনো নতুন সারি বা বোতাম নেই।' },
+  B: { name: 'B · আগে সমস্যা', note: '<b class="text-slate-100">ঠিক লাইনগুলো চুপ, সমস্যার লাইন জ্বলে।</b> যে লাইন ঘরে ধরে সেটা ঝাপসা ধূসর; Too long / Tight / Short পুরো রঙে, শেষে অবস্থার রঙের দাগ। উপরে গোনা — কোনো গোনায় click করলে সেই ধরনের পরের লাইনে যায়, ‹ › দিয়ে আগে-পরে (<span class="kbd">Alt+↓</span>)। ঘর আঁকা নেই, তাই সবচেয়ে শান্ত।' },
+  C: { name: 'C · Fit রেল', note: '<b class="text-slate-100">Dub lane-এর নিচে একটা সরু রেল।</b> প্রতিটা লাইনের ঘর ধূসর নালা, dub যতটা ভরে ততটা লাইনের রঙে; ঘর ছাড়ালে লাল বাড়তি, প্রায় ভরা হলে amber মাথা, ছোট সাদা দাগ = মূল বক্তা যেখানে থামেন। Lane-গুলো একদম আগের মতো। পুরো file zoom-out করলেও রেলটা পড়া যায়। Hover করলে মাপ।' },
+  D: { name: 'D · লাইনের লেন্স', note: '<b class="text-slate-100">একটা লাইন বাছলে শুধু সেটাই।</b> বাকি সব ঝাপসা, বাছা লাইনের ঘরের দুই কিনারা দুই lane জুড়ে দাগ, উপরে "room 6.95 s"। নিচের caption-এর জায়গায় লাইনের card: লেখা, ঘর বনাম dub-এর মিটার, কত বেশি (প্রায় কত শব্দ), আর সমাধানের বোতাম — Shorter wording, Read 1.12×, Open line। ঠিক করার জন্য সবচেয়ে কাজের।' },
+};
+
+const $ = (id) => document.getElementById(id);
+const S = { mock: 'A', v0: 0, span: 32, play: 0, playing: false, rate: 1, picked: 3, kind: 'problems', viewOpen: false, helpOpen: false };
+let W = 1000;
+const LAY = { rulerH: 18, oY: 22, oH: 46, dY: 76, dH: 40 };
+const fmt = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${String(m).padStart(2, '0')}:${s.toFixed(1).padStart(4, '0')}`; };
+const x = (t) => ((t - S.v0) / S.span) * W;
+const tAt = (px) => S.v0 + (px / W) * S.span;
+const noise = (t, seed) => Math.abs(Math.sin(t * 12.9898 + seed) * 0.45 + Math.sin(t * 4.1 + seed * 2) * 0.35 + Math.sin(t * 37.3 + seed * 3) * 0.2);
+function bars(segs, mid, hMax, seed, wordy) {
+  let d = '';
+  const step = 3;
+  for (const [s, e] of segs) {
+    const a0 = Math.max(0, Math.ceil(x(s) / step) * step), a1 = Math.min(W, x(e));
+    for (let px = a0; px <= a1; px += step) {
+      const t = tAt(px);
+      const edge = Math.min(t - s, e - t);
+      let a = Math.min(1, edge / 0.08) * (0.28 + 0.72 * noise(t, seed));
+      if (wordy && ((t * 3.1 + seed) % 1) < 0.1) a *= 0.12;
+      if (a > 0.03) { const h = Math.max(1, a * hMax); d += `M${px.toFixed(1)} ${(mid - h).toFixed(1)}V${(mid + h).toFixed(1)}`; }
+    }
+  }
+  return d;
+}
+const lineAt = (t) => { let best = LINES[0]; for (const l of LINES) if (l.start <= t + 0.01) best = l; return best; };
+const cueAt = (t) => { const l = lineAt(t); const n = l.cues[1] - l.cues[0] + 1; const k = Math.min(n - 1, Math.max(0, Math.floor(((t - l.start) / Math.max(0.1, l.spokenEnd - l.start)) * n))); return l.cues[0] + k; };
+const isProblem = (l) => l.status !== 'fits';
+
+function dimOf(l) {
+  if (S.mock === 'B') return l.status === 'fits' ? 0.28 : 1;
+  if (S.mock === 'D') return l.i === S.picked ? 1 : 0.28;
+  return 1;
+}
+function pill(px, y, text, color) {
+  const w = text.length * 6.4 + 12;
+  return `<g><rect x="${px}" y="${y}" width="${w}" height="16" rx="8" fill="#140c12" stroke="${color}" stroke-opacity=".8"/><text x="${px + w / 2}" y="${y + 11.5}" text-anchor="middle" font-size="10.5" font-family="ui-monospace,Consolas,monospace" fill="${color}">${text}</text></g>`;
+}
+
+function renderSVG() {
+  W = $('laneWrap').clientWidth - 24;
+  const rail = S.mock === 'C';
+  const H = LAY.dY + LAY.dH + (rail ? 16 : 4);
+  const svg = $('tl');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('height', H);
+  let o = `<defs>
+    <pattern id="hR" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="6" fill="${ST.long}" fill-opacity=".55"/></pattern>
+    <pattern id="hB" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2" height="6" fill="${ST.short}" fill-opacity=".45"/></pattern>
+  </defs>`;
+  // ruler
+  const step = S.span <= 14 ? 1 : S.span <= 40 ? 5 : 10;
+  for (let t = Math.ceil(S.v0 / step) * step; t <= S.v0 + S.span; t += step) {
+    const px = x(t);
+    o += `<line x1="${px}" x2="${px}" y1="10" y2="${LAY.rulerH}" stroke="#334155"/><text x="${px + 3}" y="9" font-size="9.5" fill="#64748b" font-family="ui-monospace,Consolas,monospace">${fmt(t).slice(0, 5)}</text>`;
+  }
+  // noise in original
+  o += `<path d="${bars(NOISE, LAY.oY + LAY.oH / 2, LAY.oH / 2 - 6, 9, false)}" stroke="#64748b" stroke-width="1.5"/>`;
+  const vis = (a, b) => b >= S.v0 - 1 && a <= S.v0 + S.span + 1;
+  let over = '';
+  for (const l of LINES) {
+    if (!vis(l.start, Math.max(l.slotEnd, l.dubEnd) + 1)) continue;
+    const op = dimOf(l);
+    const hue = op < 1 ? '#94a3b8' : l.hue;
+    const picked = l.i === S.picked;
+    // original box + wave
+    const ox0 = x(l.start), ox1 = x(l.spokenEnd);
+    o += `<g opacity="${op < 1 ? 0.55 : 1}"><rect x="${ox0}" y="${LAY.oY}" width="${ox1 - ox0}" height="${LAY.oH}" rx="5" fill="${hue}" fill-opacity="${op < 1 ? 0.12 : 0.36}" stroke="${hue}" stroke-opacity="${op < 1 ? 0.2 : 0.55}"/>`;
+    o += `<path d="${bars(l.src, LAY.oY + LAY.oH / 2, LAY.oH / 2 - 5, l.i * 1.7, false)}" stroke="#f1f5f9" stroke-opacity="${op < 1 ? 0.35 : 0.85}" stroke-width="1.6"/></g>`;
+    // room (A, and picked line in D)
+    if (S.mock === 'A' || (S.mock === 'D' && picked)) {
+      const rx0 = x(l.start), rx1 = x(l.slotEnd);
+      o += `<rect x="${rx0}" y="${LAY.dY - 3}" width="${rx1 - rx0}" height="${LAY.dH + 6}" rx="6" fill="${l.hue}" fill-opacity=".05" stroke="${l.hue}" stroke-opacity=".55" stroke-dasharray="4 3"/>`;
+      if (l.status === 'tight') o += `<line x1="${rx1}" x2="${rx1}" y1="${LAY.dY - 3}" y2="${LAY.dY + LAY.dH + 3}" stroke="${ST.tight}" stroke-width="2.5"/>`;
+    }
+    // dub parts
+    for (const [a, b] of l.dub) {
+      const dx0 = x(a), dx1 = x(b);
+      o += `<g opacity="${op}"><rect x="${dx0}" y="${LAY.dY}" width="${dx1 - dx0}" height="${LAY.dH}" rx="5" fill="${hue}" fill-opacity="${op < 1 ? 0.14 : 0.36}" stroke="${hue}" stroke-opacity=".8" stroke-dasharray="3 2"/>`;
+      o += `<path d="${bars([[a, b]], LAY.dY + LAY.dH / 2, LAY.dH / 2 - 5, l.i * 2.3 + 5, true)}" stroke="#f1f5f9" stroke-opacity="${op < 1 ? 0.35 : 0.85}" stroke-width="1.6"/></g>`;
+    }
+    if (picked && S.mock !== 'D') {
+      for (const [a, b] of l.dub) o += `<rect x="${x(a) - 1.5}" y="${LAY.dY - 1.5}" width="${x(b) - x(a) + 3}" height="${LAY.dH + 3}" rx="6" fill="none" stroke="#e2e8f0" stroke-opacity=".7" stroke-width="1.2"/>`;
+    }
+    // status marks on lanes (A, B, D)
+    if (S.mock !== 'C') {
+      const showMarks = S.mock !== 'D' || picked;
+      if (showMarks && l.status === 'long') {
+        const a = x(l.slotEnd), b = x(l.dubEnd);
+        o += `<rect x="${a}" y="${LAY.dY}" width="${b - a}" height="${LAY.dH}" fill="url(#hR)"/><line x1="${b}" x2="${b}" y1="${LAY.dY}" y2="${LAY.dY + LAY.dH}" stroke="${ST.long}" stroke-width="2.5"/>`;
+        over += pill(b + 4, LAY.dY + 2, `+${l.overflow.toFixed(2)} s`, ST.long);
+      }
+      if (showMarks && l.status === 'short' && S.mock !== 'B') {
+        const a = x(l.dubEnd), b = x(l.spokenEnd);
+        o += `<rect x="${a}" y="${LAY.dY + 8}" width="${b - a}" height="${LAY.dH - 16}" rx="3" fill="url(#hB)" stroke="${ST.short}" stroke-opacity=".5" stroke-dasharray="3 2"/>`;
+      }
+      if (S.mock === 'B' && l.status !== 'fits') {
+        const b = x(l.dubEnd);
+        o += `<rect x="${b - 3}" y="${LAY.dY}" width="3" height="${LAY.dH}" rx="1.5" fill="${ST[l.status]}"/>`;
+        if (l.status === 'short') o += `<rect x="${b}" y="${LAY.dY + 8}" width="${x(l.spokenEnd) - b}" height="${LAY.dH - 16}" rx="3" fill="url(#hB)"/>`;
+      }
+    }
+    // rail (C)
+    if (rail) {
+      const ry = LAY.dY + LAY.dH + 6, rh = 7;
+      const a = x(l.start), e = x(l.slotEnd), f = x(Math.min(l.dubEnd, l.slotEnd));
+      o += `<g data-rail="${l.i}"><rect x="${a}" y="${ry}" width="${e - a}" height="${rh}" rx="3.5" fill="#1e293b" stroke="#334155" stroke-width=".6"/>`;
+      o += `<rect x="${a}" y="${ry}" width="${Math.max(0, f - a)}" height="${rh}" rx="3.5" fill="${l.hue}" fill-opacity=".85"/>`;
+      if (l.status === 'long') o += `<rect x="${e}" y="${ry}" width="${x(l.dubEnd) - e}" height="${rh}" rx="3.5" fill="${ST.long}"/>`;
+      if (l.status === 'tight') o += `<rect x="${f - 4}" y="${ry}" width="4" height="${rh}" rx="2" fill="${ST.tight}"/>`;
+      if (l.status === 'short') o += `<rect x="${f}" y="${ry + 1.5}" width="${x(l.spokenEnd) - f}" height="${rh - 3}" fill="${ST.short}" fill-opacity=".55"/>`;
+      o += `<line x1="${x(l.spokenEnd)}" x2="${x(l.spokenEnd)}" y1="${ry - 2}" y2="${ry + rh + 2}" stroke="#f8fafc" stroke-opacity=".75" stroke-width="1.2"/></g>`;
+    }
+  }
+  o += over;
+  // lens guides (D)
+  if (S.mock === 'D') {
+    const l = LINES[S.picked];
+    const a = x(l.start), e = x(l.slotEnd);
+    o += `<line x1="${a}" x2="${a}" y1="12" y2="${H}" stroke="${l.hue}" stroke-opacity=".8" stroke-dasharray="3 3"/><line x1="${e}" x2="${e}" y1="12" y2="${H}" stroke="${l.hue}" stroke-opacity=".8" stroke-dasharray="3 3"/>`;
+    o += `<rect x="${a}" y="12" width="${e - a}" height="6" fill="${l.hue}" fill-opacity=".22"/>`;
+    o += `<text x="${(a + e) / 2}" y="9" text-anchor="middle" font-size="10" fill="${l.hue}" font-family="ui-monospace,Consolas,monospace">room ${l.slot.toFixed(2)} s</text>`;
+  }
+  // playhead
+  const ph = x(S.play);
+  o += `<g id="ph"><line x1="${ph}" x2="${ph}" y1="0" y2="${H}" stroke="#ef4444" stroke-width="1.5"/><path d="M${ph - 5} 0h10l-5 7z" fill="#ef4444"/></g>`;
+  svg.innerHTML = o;
+}
+
+function renderScroll() {
+  const sb = $('sb'), w = sb.clientWidth;
+  $('thumb').style.left = (S.v0 / TOTAL) * w + 'px';
+  $('thumb').style.width = Math.max(24, (S.span / TOTAL) * w) + 'px';
+  $('sbHead').style.left = (S.play / TOTAL) * w + 'px';
+}
+
+const ICON = {
+  play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>',
+  pause: '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg>',
+  prev: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>',
+  next: '<svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg>',
+  back: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/></svg>',
+  fwd: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg>',
+  loop: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m17 2 4 4-4 4M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v1a4 4 0 0 1-4 4H3"/></svg>',
+  minus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M21 21l-4.3-4.3"/></svg>',
+  plus: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M8 11h6M11 8v6M21 21l-4.3-4.3"/></svg>',
+  move: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20"/></svg>',
+  follow: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>',
+  help: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg>',
+  eye: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  down: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m6 9 6 6 6-6"/></svg>',
+  left: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m15 18-6-6 6-6"/></svg>',
+  right: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="m9 18 6-6-6-6"/></svg>',
+  text: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7V5h16v2M9 19h6M12 5v14"/></svg>',
+  gauge: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 14l4-4M3.3 19a10 10 0 1 1 17.4 0"/></svg>',
+  edit: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>',
+};
+
+function cueInfo() {
+  const l = LINES[S.picked];
+  const c = cueAt(S.play);
+  return `<span class="mono px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-200 font-semibold">Cue ${String(c).padStart(2, '0')} of 26</span>
+    <span class="mono text-slate-400">${fmt(l.start)} – ${fmt(l.spokenEnd)}</span><span class="text-slate-500">SPEAKER 1</span>`;
+}
+
+function renderTop() {
+  let left = cueInfo();
+  if (S.mock === 'B') {
+    const p = (k) => `<button data-act="kind" data-kind="${k}" class="chip ${S.kind === k ? 'on' : ''}"><span class="w-2 h-2 rounded-full" style="background:${ST[k]}"></span>${COUNTS[k]} ${ST_NAME[k].toLowerCase()}</button>`;
+    left += `<span class="mx-1 h-5 w-px bg-slate-700"></span><span class="text-slate-400">12 lines</span>
+      <span class="chip" style="cursor:default"><span class="w-2 h-2 rounded-full" style="background:${ST.fits}"></span>${COUNTS.fits} fit</span>${p('long')}${p('tight')}${p('short')}
+      <span class="inline-flex rounded-lg border edge overflow-hidden"><button data-act="step" data-dir="-1" class="ibtn !rounded-none" title="Previous to fix (Alt+↑)">${ICON.left}</button><button data-act="step" data-dir="1" class="ibtn !rounded-none" title="Next to fix (Alt+↓)">${ICON.right}</button></span>`;
+  }
+  $('topbar').innerHTML = `${left}<div class="flex-1"></div>
+    <button data-act="view" class="chip">${ICON.eye} View ${ICON.down}</button>
+    <button data-act="rate" class="chip mono" title="Playback speed (click to change)">${S.rate}×</button>
+    <span class="inline-flex items-center gap-1"><button data-act="zout" class="ibtn" title="Zoom out (−)">${ICON.minus}</button>
+    <input id="zoom" type="range" min="8" max="${TOTAL}" step="0.5" value="${TOTAL + 8 - S.span}" class="w-24">
+    <button data-act="zin" class="ibtn" title="Zoom in (+)">${ICON.plus}</button><span class="mono text-slate-400 w-10 text-right">${Math.round(S.span)} s</span>
+    <button data-act="fit" class="chip" title="Whole file (F)">Fit</button></span>
+    <button class="ibtn" title="Snap">${ICON.move}</button><button class="ibtn text-indigo-300" title="Follow playhead">${ICON.follow}</button>
+    <button data-act="help" class="ibtn" title="Keys and colours">${ICON.help}</button>`;
+  $('zoom').oninput = (e) => { const c = S.v0 + S.span / 2; S.span = TOTAL + 8 - Number(e.target.value); S.v0 = Math.max(0, Math.min(TOTAL - S.span, c - S.span / 2)); draw(); };
+}
+
+function statusChip(l) {
+  const c = ST[l.status];
+  const t = l.status === 'long' ? `Too long · +${l.overflow.toFixed(2)} s` : l.status === 'tight' ? `Tight · ${Math.round((l.est / l.slot) * 100)}% of its room` : l.status === 'short' ? `Short · ${(l.spokenEnd - l.dubEnd).toFixed(1)} s before the speaker stops` : `Fits · ${(l.slotEnd - l.dubEnd).toFixed(1)} s spare`;
+  return `<span class="inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11.5px] font-medium" style="color:${c};background:${c}1f;border:1px solid ${c}55">${t}</span>`;
+}
+
+function meter(l) {
+  const scale = Math.max(l.slot, l.est, l.spokenEnd - l.start) * 1.04;
+  const pc = (s) => (s / scale) * 100;
+  const fill = Math.min(l.est, l.slot);
+  return `<div class="w-56">
+    <div class="relative h-3 rounded-full bg-slate-800 border border-slate-700">
+      <div class="absolute inset-y-0 left-0 rounded-full" style="width:${pc(fill)}%;background:${l.hue};opacity:.85"></div>
+      ${l.status === 'long' ? `<div class="absolute inset-y-0 rounded-r-full" style="left:${pc(l.slot)}%;width:${pc(l.overflow)}%;background:${ST.long}"></div>` : ''}
+      <div class="absolute -inset-y-1 w-px bg-white/80" style="left:${pc(l.spokenEnd - l.start)}%"></div>
+      <div class="absolute -inset-y-1.5 w-0.5 bg-slate-300" style="left:${pc(l.slot)}%"></div>
+    </div>
+    <div class="mt-1 flex justify-between mono text-[10.5px] text-slate-400"><span>dub ≈ ${l.est.toFixed(2)} s</span><span>room ${l.slot.toFixed(2)} s</span></div>
+  </div>`;
+}
+
+function card(l) {
+  const perWord = l.est / l.words;
+  let msg, acts;
+  if (l.status === 'long') {
+    msg = `<b style="color:${ST.long}">${l.overflow.toFixed(2)} s too long</b> <span class="text-slate-400">· about ${Math.max(1, Math.round(l.overflow / perWord))} word${Math.round(l.overflow / perWord) > 1 ? 's' : ''} over</span>`;
+    acts = `<button class="tbtn">${ICON.text} Shorter wording</button><button class="tbtn">${ICON.gauge} Read ${(l.est / l.slot).toFixed(2)}×</button>`;
+  } else if (l.status === 'tight') {
+    msg = `<b style="color:${ST.tight}">Tight</b> <span class="text-slate-400">· fills ${Math.round((l.est / l.slot) * 100)}% of its room, ${(l.slotEnd - l.dubEnd).toFixed(2)} s to spare</span>`;
+    acts = `<button class="tbtn">${ICON.text} Shorter wording</button>`;
+  } else if (l.status === 'short') {
+    msg = `<b style="color:${ST.short}">Short</b> <span class="text-slate-400">· ends ${(l.spokenEnd - l.dubEnd).toFixed(1)} s before the speaker stops</span>`;
+    acts = `<button class="tbtn">${ICON.text} Longer wording</button><button class="tbtn">${ICON.gauge} Read ${(l.est / (l.spokenEnd - l.start)).toFixed(2)}×</button>`;
+  } else {
+    msg = `<b style="color:${ST.fits}">Fits</b> <span class="text-slate-400">· ${(l.slotEnd - l.dubEnd).toFixed(2)} s to spare</span>`;
+    acts = '';
+  }
+  return `<div class="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border px-3 py-2" style="border-color:${l.hue}55;background:${l.hue}0d">
+    <div class="flex items-center gap-2 text-[12px] text-slate-400"><span class="w-2.5 h-2.5 rounded-full" style="background:${l.hue}"></span><span class="mono">Line ${l.i + 1}</span><span class="mono text-slate-500">cues ${l.cues[0]}${l.cues[1] !== l.cues[0] ? '–' + l.cues[1] : ''}</span></div>
+    <div class="min-w-[16rem] flex-1"><div class="text-[16px] text-slate-50 leading-snug">${l.hi}</div><div class="text-[12px] text-slate-400">${l.en}</div></div>
+    ${meter(l)}
+    <div class="text-[12.5px]">${msg}</div>
+    <div class="flex gap-2">${acts}<button class="tbtn">${ICON.edit} Open line</button></div>
+  </div>`;
+}
+
+function renderBottom() {
+  const l = LINES[S.picked];
+  const transport = `<div class="flex items-center gap-1 text-slate-300">
+      <button class="ibtn" data-act="back" title="Back 5 s">${ICON.back}</button>
+      <button class="ibtn" data-act="prevl" title="Previous line">${ICON.prev}</button>
+      <button data-act="play" class="w-9 h-9 rounded-full bg-white text-slate-900 flex items-center justify-center">${S.playing ? ICON.pause : ICON.play}</button>
+      <button class="ibtn" data-act="nextl" title="Next line">${ICON.next}</button>
+      <button class="ibtn" data-act="fwd" title="Forward 5 s">${ICON.fwd}</button>
+      <button class="chip ml-1">${ICON.loop} Loop cue</button>
+      <span class="mono text-[13px] ml-2"><span class="text-indigo-200">${fmt(S.play)}</span> <span class="text-slate-500">/ ${fmt(TOTAL)}</span></span>
+    </div>`;
+  if (S.mock === 'D') {
+    $('bottom').innerHTML = `<div class="flex flex-col gap-2">${transport}${card(l)}</div>`;
+  } else {
+    $('bottom').innerHTML = `<div class="flex flex-wrap items-center gap-x-4 gap-y-2">${transport}
+      <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-2"><span class="text-[15px] text-slate-50">${l.hi}</span>${statusChip(l)}</div><div class="text-[12px] text-slate-400">${l.en}</div></div></div>`;
+  }
+}
+
+function renderPops() {
+  const vp = $('viewPop'), hp = $('helpPop');
+  vp.classList.toggle('hidden2', !S.viewOpen);
+  hp.classList.toggle('hidden2', !S.helpOpen);
+  const top = $('topbar').offsetHeight + 4;
+  vp.style.top = hp.style.top = top + 'px';
+  vp.style.right = '150px'; hp.style.right = '10px';
+  const ck = (label, on, hint) => `<label class="flex items-start gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-800/70 cursor-pointer"><input type="checkbox" ${on ? 'checked' : ''} class="mt-0.5 accent-indigo-500"><span><span class="text-slate-200">${label}</span><span class="block text-[11.5px] text-slate-500">${hint}</span></span></label>`;
+  vp.innerHTML = `<div class="px-2 pb-1 text-[11px] uppercase tracking-wide text-slate-500">Show on the lanes</div>
+    ${ck('Pauses', false, 'Pause row, cuts in each dub line')}${ck('Fit on every line', S.mock !== 'B', 'Else only the picked line')}${ck('Line numbers', false, 'Cue numbers above, line numbers below')}
+    <div class="mt-1 border-t edge pt-2 px-2 text-[11px] uppercase tracking-wide text-slate-500">Stretched speed</div>
+    <div class="px-2 pt-1 flex gap-1"><span class="chip on">On line</span><span class="chip">Card</span></div>
+    <div class="mt-2 border-t edge pt-2 px-2 text-[11px] uppercase tracking-wide text-slate-500">Lanes</div>
+    <div class="px-2 pt-1 pb-1 flex gap-1"><span class="chip on">Wave</span><span class="chip">Blocks</span><span class="chip">Bars</span></div>`;
+  const leg = (c, t, kind) => `<div class="flex items-center gap-2 py-0.5"><span class="inline-block w-6 h-2.5 rounded-sm" style="${kind === 'hatch' ? `background:repeating-linear-gradient(45deg,${c} 0 3px,transparent 3px 6px)` : kind === 'dash' ? `border:1px dashed ${c}` : `background:${c}`}"></span>${t}</div>`;
+  hp.innerHTML = `<div class="text-slate-100 font-medium mb-1">Colours</div>
+    <div class="text-slate-400 mb-1">Each line keeps its colour: the original above, its dub below. The dub is a guess from the text until you dub it.</div>
+    ${S.mock === 'A' || S.mock === 'D' ? leg('#94a3b8', 'Dashed box: the line\'s room, to where the next one starts', 'dash') : ''}
+    ${S.mock === 'C' ? leg('#64748b', 'Rail: each line\'s room, filled as far as the dub runs', '') : ''}
+    ${leg(ST.long, 'Too long: runs past its room', 'hatch')}${leg(ST.tight, 'Tight: fills more than 90% of its room', '')}${leg(ST.short, 'Short: ends well before the speaker stops', 'hatch')}
+    <div class="text-slate-100 font-medium mt-3 mb-1">Keys</div>
+    <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-slate-400"><span class="kbd">Space</span>Play / pause<span class="kbd">Alt+↓ ↑</span>Next / previous line to fix<span class="kbd">+ −</span>Zoom<span class="kbd">F</span>Whole file<span class="kbd">Ctrl+wheel</span>Zoom at the pointer</div>`;
+}
+
+function draw() { renderTop(); renderSVG(); renderScroll(); renderBottom(); renderPops(); }
+
+function pick(i, center) {
+  S.picked = i; const l = LINES[i]; S.play = l.start;
+  if (center || l.start < S.v0 || Math.max(l.dubEnd, l.slotEnd) > S.v0 + S.span) S.v0 = Math.max(0, Math.min(TOTAL - S.span, l.start - S.span * 0.25));
+  draw();
+}
+function stepProblem(dir) {
+  const want = (l) => (S.mock === 'B' && S.kind !== 'problems' ? l.status === S.kind : isProblem(l));
+  const n = LINES.length;
+  for (let k = 1; k <= n; k++) { const i = (S.picked + dir * k + n * 2) % n; if (want(LINES[i])) return pick(i, true); }
+}
+
+// Clicks
+$('player').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act;
+  if (a === 'view') { S.viewOpen = !S.viewOpen; S.helpOpen = false; return renderPops(); }
+  if (a === 'help') { S.helpOpen = !S.helpOpen; S.viewOpen = false; return renderPops(); }
+  if (a === 'rate') { const r = [0.75, 1, 1.25, 1.5]; S.rate = r[(r.indexOf(S.rate) + 1) % r.length]; return renderTop(); }
+  if (a === 'zin' || a === 'zout') { const c = S.v0 + S.span / 2; S.span = Math.max(8, Math.min(TOTAL, S.span * (a === 'zin' ? 0.7 : 1.4))); S.v0 = Math.max(0, Math.min(TOTAL - S.span, c - S.span / 2)); return draw(); }
+  if (a === 'fit') { S.span = TOTAL; S.v0 = 0; return draw(); }
+  if (a === 'play') { S.playing = !S.playing; if (S.playing) { last = performance.now(); requestAnimationFrame(tick); } return renderBottom(); }
+  if (a === 'kind') { S.kind = S.kind === b.dataset.kind ? 'problems' : b.dataset.kind; renderTop(); return stepProblem(1); }
+  if (a === 'step') return stepProblem(Number(b.dataset.dir));
+  if (a === 'prevl') return pick(Math.max(0, S.picked - 1));
+  if (a === 'nextl') return pick(Math.min(LINES.length - 1, S.picked + 1));
+  if (a === 'back' || a === 'fwd') { S.play = Math.max(0, Math.min(TOTAL, S.play + (a === 'back' ? -5 : 5))); S.picked = lineAt(S.play).i; return draw(); }
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#viewPop,#helpPop,[data-act=view],[data-act=help]') && (S.viewOpen || S.helpOpen)) { S.viewOpen = S.helpOpen = false; renderPops(); }
+});
+$('tl').addEventListener('click', (e) => {
+  const r = $('tl').getBoundingClientRect();
+  const t = tAt(((e.clientX - r.left) / r.width) * W);
+  const l = LINES.find((q) => t >= q.start - 0.05 && t <= Math.max(q.slotEnd, q.dubEnd) + 0.05) || lineAt(t);
+  S.picked = l.i; S.play = Math.max(0, t); draw();
+});
+$('tl').addEventListener('mousemove', (e) => {
+  const tip = $('tip');
+  const r = $('tl').getBoundingClientRect();
+  const yv = ((e.clientY - r.top) / r.height) * Number($('tl').getAttribute('height'));
+  const t = tAt(((e.clientX - r.left) / r.width) * W);
+  const l = LINES.find((q) => t >= q.start && t <= Math.max(q.slotEnd, q.dubEnd));
+  if (!l || yv < LAY.dY - 4) { tip.classList.add('hidden2'); return; }
+  const c = ST[l.status];
+  tip.innerHTML = `<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full" style="background:${l.hue}"></span><span class="mono">Line ${l.i + 1}</span><span style="color:${c}">${ST_NAME[l.status]}</span></div>
+    <div class="mono text-slate-400 mt-0.5">room ${l.slot.toFixed(2)} s · dub ≈ ${l.est.toFixed(2)} s${l.overflow > 0.1 ? ` · <span style="color:${ST.long}">+${l.overflow.toFixed(2)} s</span>` : ''}</div>
+    <div class="text-slate-500 text-[11px]">A guess from the text</div>`;
+  tip.classList.remove('hidden2');
+  const lx = e.clientX - $('laneWrap').getBoundingClientRect().left;
+  tip.style.left = Math.min(lx + 14, $('laneWrap').clientWidth - 230) + 'px';
+  tip.style.top = (e.clientY - $('laneWrap').getBoundingClientRect().top + 14) + 'px';
+});
+$('tl').addEventListener('mouseleave', () => $('tip').classList.add('hidden2'));
+$('tl').addEventListener('wheel', (e) => {
+  e.preventDefault();
+  if (e.ctrlKey) {
+    const r = $('tl').getBoundingClientRect(); const at = tAt(((e.clientX - r.left) / r.width) * W);
+    const ns = Math.max(8, Math.min(TOTAL, S.span * (e.deltaY > 0 ? 1.15 : 0.87)));
+    S.v0 = Math.max(0, Math.min(TOTAL - ns, at - ((at - S.v0) / S.span) * ns)); S.span = ns;
+  } else {
+    S.v0 = Math.max(0, Math.min(TOTAL - S.span, S.v0 + ((e.deltaY + e.deltaX) / 600) * S.span));
+  }
+  draw();
+}, { passive: false });
+let dragSb = null;
+$('sb').addEventListener('pointerdown', (e) => {
+  const r = $('sb').getBoundingClientRect();
+  const at = ((e.clientX - r.left) / r.width) * TOTAL;
+  if (at < S.v0 || at > S.v0 + S.span) S.v0 = Math.max(0, Math.min(TOTAL - S.span, at - S.span / 2));
+  dragSb = { x: e.clientX, v0: S.v0, w: r.width }; $('sb').setPointerCapture(e.pointerId); draw();
+});
+$('sb').addEventListener('pointermove', (e) => { if (!dragSb) return; S.v0 = Math.max(0, Math.min(TOTAL - S.span, dragSb.v0 + ((e.clientX - dragSb.x) / dragSb.w) * TOTAL)); renderSVG(); renderScroll(); });
+$('sb').addEventListener('pointerup', () => (dragSb = null));
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.code === 'Space') { e.preventDefault(); $('player').querySelector('[data-act=play]').click(); }
+  if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); stepProblem(e.key === 'ArrowDown' ? 1 : -1); }
+  if (e.key === 'f' || e.key === 'F') { S.span = TOTAL; S.v0 = 0; draw(); }
+});
+
+let last = 0;
+function tick(now) {
+  if (!S.playing) return;
+  const dt = (now - last) / 1000; last = now;
+  S.play = Math.min(TOTAL, S.play + dt * S.rate);
+  if (S.play >= TOTAL) S.playing = false;
+  const l = lineAt(S.play);
+  const moved = S.play > S.v0 + S.span * 0.9;
+  if (moved) S.v0 = Math.min(TOTAL - S.span, S.play - S.span * 0.1);
+  if (l.i !== S.picked || moved) { S.picked = l.i; draw(); }
+  else {
+    const ph = x(S.play);
+    $('ph').innerHTML = `<line x1="${ph}" x2="${ph}" y1="0" y2="${$('tl').getAttribute('height')}" stroke="#ef4444" stroke-width="1.5"/><path d="M${ph - 5} 0h10l-5 7z" fill="#ef4444"/>`;
+    $('sbHead').style.left = (S.play / TOTAL) * $('sb').clientWidth + 'px';
+    const tm = $('bottom').querySelector('.text-indigo-200'); if (tm) tm.textContent = fmt(S.play);
+  }
+  if (S.playing) requestAnimationFrame(tick); else renderBottom();
+}
+
+// Switcher
+function setMock(m) {
+  S.mock = m;
+  $('mockSeg').innerHTML = Object.entries(MOCKS).map(([k, v]) => `<button data-mock="${k}" class="px-3 py-1 ${k === m ? 'bg-indigo-500/25 text-indigo-100' : 'hover:bg-slate-800'}">${v.name}</button>`).join('');
+  $('mockNote').innerHTML = MOCKS[m].note;
+  if (m === 'B' || m === 'D') { if (!isProblem(LINES[S.picked])) S.picked = 3; }
+  draw();
+}
+$('mockSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-mock]'); if (b) setMock(b.dataset.mock); });
+window.addEventListener('resize', draw);
+S.play = LINES[3].start;
+setMock(new URLSearchParams(location.search).get('m') || 'A');
+</script>
+</body>
+</html>

@@ -13,6 +13,9 @@ import {
   ChevronUp,
   LocateFixed,
   CircleHelp,
+  Eye,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
@@ -55,8 +58,12 @@ export interface ReviewWaveformPlayerProps {
    * lane): given the window on screen and the time, in seconds.
    */
   belowWave?: (view: { start: number; span: number; time: number; layers: LaneLayers }) => React.ReactNode;
-  /** Extra controls in the top bar, after the layer chips (how a stretch is shown). */
+  /** Extra controls in the View menu, after the layers (how a stretch is shown). */
   toolbarExtra?: React.ReactNode;
+  /** Under the transport, inside the player: the picked line's card. */
+  footer?: React.ReactNode;
+  /** First in the View menu: how the lanes draw the lines (Wave, Blocks, Bars). */
+  laneSwitch?: React.ReactNode;
   /** A row under `belowWave` on the same clock (wording suggestions for stretched lines). */
   belowLane?: (view: { start: number; span: number }) => React.ReactNode;
   /** The lane's name in the legend. */
@@ -96,12 +103,14 @@ export interface LaneLayers {
   fit: boolean;
   numbers: boolean;
 }
-const LAYERS_KEY = 'dhvani.reviewLayers';
-/** Off until turned on: the lines' colours alone at first. */
-const NO_LAYERS: LaneLayers = { pauses: false, fit: false, numbers: false };
+/** v2 since every line's room is drawn with Fit: Fit starts on once, the other layers carry over. */
+const LAYERS_KEY = 'dhvani.reviewLayers.v2';
+const OLD_LAYERS_KEY = 'dhvani.reviewLayers';
+/** At first: the lines' colours and each line's room (Fit); pauses and numbers off until turned on. */
+const NO_LAYERS: LaneLayers = { pauses: false, fit: true, numbers: false };
 const LAYER_CHIPS: { id: keyof LaneLayers; label: string; hint: string }[] = [
   { id: 'pauses', label: 'Pauses', hint: "Pauses and cuts: the pauses row, the cuts in each dub line, Sync's place for a moved line, and the picked line's outline. Off, lines are told apart by colour alone" },
-  { id: 'fit', label: 'Fit', hint: 'How every dub line fits its room (the line you pick, or stretch, always shows it)' },
+  { id: 'fit', label: 'Fit', hint: "Every dub line's room as a dashed box, and how it fits (the line you pick, or stretch, always shows it)" },
   { id: 'numbers', label: 'Line numbers', hint: 'Cue numbers on the original, line numbers on the dub' },
 ];
 
@@ -236,6 +245,8 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   belowWaveLabel,
   belowLane,
   toolbarExtra,
+  footer,
+  laneSwitch,
   pausesRow,
   cuePace,
   fastLabel = 'Too fast',
@@ -265,7 +276,10 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   /** The timeline's layers, remembered across sessions. */
   const [layers, setLayers] = useState<LaneLayers>(() => {
     try {
-      return { ...NO_LAYERS, ...JSON.parse(localStorage.getItem(LAYERS_KEY) || '{}') };
+      const saved = localStorage.getItem(LAYERS_KEY);
+      if (saved) return { ...NO_LAYERS, ...JSON.parse(saved) };
+      const old = JSON.parse(localStorage.getItem(OLD_LAYERS_KEY) || '{}');
+      return { ...NO_LAYERS, ...old, fit: true };
     } catch {
       return NO_LAYERS;
     }
@@ -896,15 +910,20 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     };
   }, [zoom, Boolean(sourceRow), Boolean(belowWave), Boolean(pausesRow), Boolean(belowLane), layers.pauses]);
 
-  // The hints close on a click outside them, or Esc.
+  // The hints and the View menu close on a click outside them, or Esc.
   const helpRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<HTMLDivElement>(null);
+  const [showView, setShowView] = useState(false);
   useEffect(() => {
-    if (!showHelp) return;
+    if (!showHelp && !showView) return;
     const onDown = (e: PointerEvent) => {
       if (!helpRef.current?.contains(e.target as Node)) setShowHelp(false);
+      if (!viewRef.current?.contains(e.target as Node)) setShowView(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowHelp(false);
+      if (e.key !== 'Escape') return;
+      setShowHelp(false);
+      setShowView(false);
     };
     document.addEventListener('pointerdown', onDown);
     window.addEventListener('keydown', onKey);
@@ -912,7 +931,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       document.removeEventListener('pointerdown', onDown);
       window.removeEventListener('keydown', onKey);
     };
-  }, [showHelp]);
+  }, [showHelp, showView]);
 
   // ---------- pieces ----------
   const vs = zoom === 1 ? 0 : viewStart;
@@ -985,9 +1004,20 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
         Each line in its own colour, its dub below in the same
       </span>
       {belowWave && (
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-0.5 rounded-full bg-rose-400" /> {fastLabel}
-        </span>
+        <>
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-2.5 rounded-sm border border-dashed border-slate-400" /> A line's room: to where the next one starts
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-2.5 rounded-sm bg-[repeating-linear-gradient(135deg,rgba(239,68,68,0.7)_0_3px,transparent_3px_6px)]" /> {fastLabel}: past its room
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-2.5 rounded-sm border-r-2 border-amber-300 border-y border-l border-dashed border-y-slate-500 border-l-slate-500" /> Tight: fills most of it
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-2.5 rounded-sm border border-dashed border-sky-400/70" /> Ends well before the speaker stops
+          </span>
+        </>
       )}
     </>
   ) : (
@@ -1034,37 +1064,81 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             {activeCue?.speaker && (
               <span className="hidden sm:inline text-[11px] uppercase tracking-wide font-semibold text-slate-500 truncate">{activeCue.speaker}</span>
             )}
-            <span className="hidden xl:flex items-center gap-x-3 ml-1 text-[11px] text-slate-500 whitespace-nowrap">{legend}</span>
           </div>
 
+          {/* What the lanes show, in one menu: the layers, then how a stretch is shown */}
           {layered && (
-            <div role="group" aria-label="Show on the timeline" className="flex items-center gap-1">
-              {LAYER_CHIPS.map((chip) => (
-                <button
-                  key={chip.id}
-                  type="button"
-                  aria-pressed={layers[chip.id]}
-                  title={chip.hint}
-                  onClick={() => toggleLayer(chip.id)}
-                  className={`h-6 px-2.5 rounded-full border text-[11px] whitespace-nowrap cursor-default transition-colors ${
-                    layers[chip.id] ? 'border-slate-500 bg-slate-800 text-slate-100' : 'border-edge text-slate-400 hover:text-slate-200'
-                  }`}
+            <div ref={viewRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setShowView((v) => !v)}
+                aria-expanded={showView}
+                aria-haspopup="menu"
+                title="What the lanes show"
+                className={`h-[30px] px-2.5 flex items-center gap-1.5 rounded-lg border text-xs whitespace-nowrap transition-colors cursor-default ${
+                  showView ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-200' : 'border-edge text-slate-300 hover:text-slate-100 hover:bg-slate-800'
+                }`}
+              >
+                <Eye className="w-3.5 h-3.5" /> View <ChevronDown className="w-3 h-3" />
+              </button>
+              {showView && (
+                <div
+                  role="menu"
+                  aria-label="What the lanes show"
+                  className="absolute right-0 top-full mt-1.5 z-30 w-64 p-1.5 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60 animate-in fade-in zoom-in-95 duration-100"
                 >
-                  {chip.label}
-                </button>
-              ))}
-              {toolbarExtra}
+                  {laneSwitch && (
+                    <div className="px-2 pt-1 pb-2 mb-1 border-b border-edge">
+                      <div className="pb-1.5 text-[10.5px] uppercase tracking-wide text-slate-500">Lines drawn as</div>
+                      {laneSwitch}
+                    </div>
+                  )}
+                  <div className="px-2 pt-1 pb-1 text-[10.5px] uppercase tracking-wide text-slate-500">Show on the lanes</div>
+                  {LAYER_CHIPS.map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={layers[chip.id]}
+                      onClick={() => toggleLayer(chip.id)}
+                      className="w-full flex items-start gap-2 px-2 py-1.5 rounded-lg text-left hover:bg-slate-800/70 cursor-default"
+                    >
+                      <span
+                        className={`mt-0.5 w-3.5 h-3.5 shrink-0 rounded border flex items-center justify-center ${
+                          layers[chip.id] ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-slate-600'
+                        }`}
+                      >
+                        {layers[chip.id] && <Check className="w-2.5 h-2.5" strokeWidth={3} />}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block text-[12.5px] text-slate-200">{chip.label}</span>
+                        <span className="block text-[11px] leading-snug text-slate-500">{chip.hint}</span>
+                      </span>
+                    </button>
+                  ))}
+                  {toolbarExtra && (
+                    <div className="mt-1 pt-2 pb-1 px-2 border-t border-edge flex items-center justify-between gap-2">
+                      <span className="text-[11.5px] text-slate-400">A stretched line's speed</span>
+                      {toolbarExtra}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
           {onPlaybackRateChange && (
-            <div role="group" aria-label="Speed" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950/60 border border-edge">
-              {RATES.map((r) => (
-                <button key={r} type="button" aria-pressed={playbackRate === r} onClick={() => onPlaybackRateChange(r)} className={`${segBtn(playbackRate === r)} font-mono !py-0.5 !px-2`}>
-                  {r}×
-                </button>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => onPlaybackRateChange(RATES[(RATES.indexOf(playbackRate) + 1) % RATES.length] ?? 1)}
+              className={`h-[30px] min-w-[42px] px-2 rounded-lg border font-mono text-xs tabular-nums transition-colors cursor-default ${
+                playbackRate === 1 ? 'border-edge text-slate-300 hover:text-slate-100 hover:bg-slate-800' : 'border-indigo-500/50 bg-indigo-500/15 text-indigo-200'
+              }`}
+              aria-label={`Playback speed ${playbackRate}×`}
+              title={`Playback speed: ${RATES.map((r) => `${r}×`).join(', ')} (click to change)`}
+            >
+              {playbackRate}×
+            </button>
           )}
 
           <div className="flex items-center gap-1">
@@ -1341,18 +1415,24 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             {activeCue ? (
               <>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[14px] leading-snug text-slate-100">{targetOf(activeCue) || <span className="text-slate-500">No {targetLanguage} line yet</span>}</span>
+                  <span className="block text-[14px] leading-snug text-slate-100">
+                    {targetOf(activeCue) || <span className="text-slate-500">No {targetLanguage} line yet</span>}
+                    {/* How it sits, right by its words */}
+                    {targetOf(activeCue) && (
+                      <span className={`ml-2 align-[1px] inline-block text-[10.5px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${paceClass}`}>{activePace?.label}</span>
+                    )}
+                  </span>
                   <span className="block text-[11.5px] leading-snug text-slate-400 truncate" title={sourceOf(activeCue)}>
                     {sourceOf(activeCue)}
                   </span>
                 </span>
-                {targetOf(activeCue) && <span className={`shrink-0 text-[10.5px] font-medium px-2 py-0.5 rounded-full ${paceClass}`}>{activePace?.label}</span>}
               </>
             ) : (
               <span className="text-xs text-slate-500">Press play to follow the cues line by line.</span>
             )}
           </div>
         </div>
+        {footer}
       </section>
 
       {/*
