@@ -289,6 +289,18 @@ export interface AudioTrackLanes {
   onImport: (files: File[]) => Promise<AudioFileInfo[]>;
 }
 
+/** Where a track's lane is: above the Original, above the dub, or under it (as tracks were at first). */
+type TrackPlace = 'top' | 'aboveDub' | 'bottom';
+const placeOf = (track: AudioTrack): TrackPlace => track.place ?? 'bottom';
+const PLACES: TrackPlace[] = ['top', 'aboveDub', 'bottom'];
+/** The rows lanes are drawn in: tracks above the Original, tracks above the dub, and the dub's own row (with the tracks under it). */
+type LaneGroup = 'top' | 'mid' | 'main';
+/** A track's slot: its place, and its index among the other tracks there. */
+type Slot = { place: TrackPlace; index: number };
+const sameSlot = (a: Slot, b: Slot) => a.place === b.place && a.index === b.index;
+const GROUP_OF: Record<TrackPlace, LaneGroup> = { top: 'top', aboveDub: 'mid', bottom: 'main' };
+const PLACE_WORDS: Record<TrackPlace, string> = { top: 'above the Original', aboveDub: 'above the dub', bottom: 'under the dub' };
+
 /** Colours a new track takes in turn: away from the dub's indigo and the original's cyan. */
 const TRACK_COLORS = ['#34d399', '#a3e635', '#fbbf24', '#fb7185', '#f472b6', '#2dd4bf', '#facc15', '#c084fc'];
 
@@ -1082,7 +1094,9 @@ const TrackLaneHead: React.FC<{
   onDragStart: (e: React.PointerEvent<HTMLDivElement>) => void;
   /** This track is being dragged. */
   dragging: boolean;
-}> = ({ track, clips, caption, heard, monitor, renaming, onMonitor, onLevel, onRename, onStartRename, onMenu, height, onDragStart, dragging }) => {
+  /** The first header of its row: no rule above it. */
+  first?: boolean;
+}> = ({ track, clips, caption, heard, monitor, renaming, onMonitor, onLevel, onRename, onStartRename, onMenu, height, onDragStart, dragging, first = false }) => {
   const [db, setDb] = useState(track.gainDb);
   useEffect(() => setDb(track.gainDb), [track.gainDb]);
   const commit = (value: number) => {
@@ -1094,7 +1108,7 @@ const TrackLaneHead: React.FC<{
     }`;
   return (
     <div
-      className={`px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 min-w-0 touch-none select-none ${dragging ? 'bg-indigo-500/15 opacity-70' : ''}`}
+      className={`px-2 flex flex-col justify-center gap-0.5 ${first ? '' : 'border-t border-edge/80'} min-w-0 touch-none select-none ${dragging ? 'bg-indigo-500/15 opacity-70' : ''}`}
       style={{ height, cursor: dragging ? 'grabbing' : 'grab' }}
       title="Drag up or down to move the track"
       onPointerDown={(e) => {
@@ -1379,12 +1393,36 @@ export const SyncEditTimeline: React.FC<{
     () => (multi ? [...new Set(bank.lines.filter((line) => !line.original).map((line) => line.speaker || 'Speaker')), ORIGINAL_SPEAKER] : ['']),
     [multi, bank]
   );
-  const laneNames = useMemo(() => [...baseLanes, ...tracks.map((track) => trackLane(track.id))], [baseLanes, tracks]);
-  /** One lane or several: with tracks, the one dub lane is a lane among others. */
-  const laned = laneNames.length > 1;
-  const laneHeights = useMemo(() => laneNames.map((_, n) => (!multi && n === 0 ? DUB_LANE_PX : LANE_PX)), [laneNames, multi]);
-  const laneTops = useMemo(() => laneHeights.map((_, n) => laneHeights.slice(0, n).reduce((sum, h) => sum + h, 0)), [laneHeights]);
-  const lanesHeight = laneHeights.reduce((sum, h) => sum + h, 0);
+  /*
+   * Tracks go in one of three places: above the Original, above the dub, or
+   * under it (the default). Each place is a group of lanes drawn in its own
+   * row; lanes are numbered top to bottom across all three, and each knows
+   * its group and its top within that group's row.
+   */
+  const topTracks = useMemo(() => tracks.filter((track) => placeOf(track) === 'top'), [tracks]);
+  const midTracks = useMemo(() => tracks.filter((track) => placeOf(track) === 'aboveDub'), [tracks]);
+  const bottomTracks = useMemo(() => tracks.filter((track) => placeOf(track) === 'bottom'), [tracks]);
+  const laneNames = useMemo(
+    () => [...topTracks, ...midTracks].map((track) => trackLane(track.id)).concat(baseLanes, bottomTracks.map((track) => trackLane(track.id))),
+    [topTracks, midTracks, baseLanes, bottomTracks]
+  );
+  const laneGroups = useMemo(
+    () => laneNames.map((_, n): LaneGroup => (n < topTracks.length ? 'top' : n < topTracks.length + midTracks.length ? 'mid' : 'main')),
+    [laneNames, topTracks.length, midTracks.length]
+  );
+  /** The dub's own row: one lane or several (speakers, tracks under it). */
+  const mainCount = baseLanes.length + bottomTracks.length;
+  const laned = mainCount > 1;
+  const laneHeights = useMemo(() => laneNames.map((name) => (!multi && name === '' ? DUB_LANE_PX : LANE_PX)), [laneNames, multi]);
+  /** Each lane's top inside its own group's row. */
+  const laneTops = useMemo(
+    () => laneHeights.map((_, n) => laneHeights.slice(0, n).reduce((sum, h, k) => sum + (laneGroups[k] === laneGroups[n] ? h : 0), 0)),
+    [laneHeights, laneGroups]
+  );
+  const groupHeight = (group: LaneGroup) => laneHeights.reduce((sum, h, n) => sum + (laneGroups[n] === group ? h : 0), 0);
+  const lanesHeight = groupHeight('main');
+  /** Whether a lane draws with lane geometry: always outside the dub's row, there only with several lanes. */
+  const lanedAt = (n: number) => laneGroups[n] !== 'main' || laned;
   const laneIndex = useMemo(() => new Map(laneNames.map((name, n) => [name, n])), [laneNames]);
   const laneOfChunk = (chunk: Chunk) => laneIndex.get(chunk.lane) ?? 0;
   const trackById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
@@ -1567,15 +1605,38 @@ export const SyncEditTimeline: React.FC<{
     return list;
   }, [baseReport]);
   const laneRef = useRef<HTMLDivElement>(null);
-  /** The lane under `clientY`: always 0 with one dub lane. */
-  const laneAt = (clientY: number) => {
-    const r = laneRef.current?.getBoundingClientRect();
-    if (!laned || !r) return 0;
-    const y = clientY - r.top;
-    let n = 0;
-    while (n < laneNames.length - 1 && y >= laneTops[n + 1]) n++;
-    return n;
+  /** The rows of tracks above the Original and above the dub; the dub's own row is laneRef. */
+  const topRowRef = useRef<HTMLDivElement>(null);
+  const midRowRef = useRef<HTMLDivElement>(null);
+  const originalRowRef = useRef<HTMLDivElement>(null);
+  const rowOf = (group: LaneGroup) => (group === 'top' ? topRowRef : group === 'mid' ? midRowRef : laneRef).current;
+  /** Where lane `n` is on screen, top and bottom. */
+  const laneSpan = (n: number) => {
+    const r = rowOf(laneGroups[n])?.getBoundingClientRect();
+    const top = (r?.top ?? 0) + (lanedAt(n) ? laneTops[n] : 0);
+    return { top, bottom: top + (lanedAt(n) ? laneHeights[n] : r?.height ?? 0) };
   };
+  /** The lane under `clientY`, or the nearest one; always 0 with one dub lane and no tracks. */
+  const laneAt = (clientY: number) => {
+    if (laneNames.length <= 1) return 0;
+    let best = 0;
+    let gap = Infinity;
+    for (let n = 0; n < laneNames.length; n++) {
+      const { top, bottom } = laneSpan(n);
+      if (clientY >= top && clientY < bottom) return n;
+      const d = Math.min(Math.abs(clientY - top), Math.abs(clientY - bottom));
+      if (d < gap) {
+        gap = d;
+        best = n;
+      }
+    }
+    return best;
+  };
+  /** Whether `clientY` is over any lane of any row. */
+  const overLanes = (clientY: number) => laneNames.some((_, n) => {
+    const { top, bottom } = laneSpan(n);
+    return clientY >= top && clientY < bottom;
+  });
   const timeAt = (clientX: number) => {
     const r = laneRef.current?.getBoundingClientRect();
     if (!r || !r.width) return zoom.viewStart();
@@ -2631,7 +2692,7 @@ export const SyncEditTimeline: React.FC<{
     if (lineProps && (lineProps.id !== selected || selectedIds.length > 1)) setLineProps(null);
   }, [lineProps, selected, selectedIds.length]);
 
-  const clipBox = (id: string) => laneRef.current?.querySelector<HTMLElement>(`[data-part="${CSS.escape(id)}"]`) ?? null;
+  const clipBox = (id: string) => rootRef.current?.querySelector<HTMLElement>(`[data-part="${CSS.escape(id)}"]`) ?? null;
 
   const openMenu = (x: number, y: number, at: number | null) => {
     setLineProps(null);
@@ -2770,9 +2831,30 @@ export const SyncEditTimeline: React.FC<{
   const clipsOn = (trackId: string, edits: SyncEdits = committed) =>
     Object.entries(edits).filter(([key, edit]) => isAudioClip(key) && edit.audio?.track === trackId);
 
-  const addTrack = (index: number) => {
+  /** `list` with track `id` put in `place`, at `index` among the other tracks there. */
+  const placedTracks = (list: AudioTrack[], id: string, place: TrackPlace, index: number) => {
+    const moving = list.find((t) => t.id === id);
+    if (!moving) return list;
+    const { place: _was, ...rest } = moving;
+    const moved: AudioTrack = place === 'bottom' ? rest : { ...rest, place };
+    const others = list.filter((t) => t.id !== id);
+    const there = others.filter((t) => placeOf(t) === place);
+    there.splice(clamp(index, 0, there.length), 0, moved);
+    return PLACES.flatMap((p) => (p === place ? there : others.filter((t) => placeOf(t) === p)));
+  };
+  /** Where track `id` is: its place, and its index among the tracks there. */
+  const slotOf = (id: string): Slot => {
+    const track = trackById.get(id);
+    const place = track ? placeOf(track) : 'bottom';
+    return { place, index: tracks.filter((t) => placeOf(t) === place).findIndex((t) => t.id === id) };
+  };
+
+  /** A new track beside track `refId` (above or below it), or under the dub's other tracks. */
+  const addTrack = (refId: string | null, side: 'above' | 'below' = 'below') => {
     const track: AudioTrack = { id: newTrackId(), name: trackName(), color: trackColor(), gainDb: 0 };
-    commit(committed, `Add ${track.name}`, [...tracks.slice(0, index), track, ...tracks.slice(index)]);
+    const at: Slot = refId ? slotOf(refId) : { place: 'bottom', index: bottomTracks.length };
+    const index = refId && side === 'below' ? at.index + 1 : at.index;
+    commit(committed, `Add ${track.name}`, placedTracks([...tracks, track], track.id, at.place, index));
     setRenamingTrack(track.id);
   };
   const renameTrack = (id: string, name: string | null) => {
@@ -2782,35 +2864,71 @@ export const SyncEditTimeline: React.FC<{
     if (!track || !clean || clean === track.name) return;
     commit(committed, `Rename ${track.name} to ${clean}`, tracks.map((t) => (t.id === id ? { ...t, name: clean } : t)));
   };
+  /**
+   * The slot one step up or down from track `id`: past its neighbour in its
+   * place, or over into the next place (under the dub, above the dub, above
+   * the Original). Null at the very top or bottom.
+   */
+  const stepSlot = (id: string, by: -1 | 1): Slot | null => {
+    const { place, index } = slotOf(id);
+    const count = tracks.filter((t) => placeOf(t) === place).length;
+    const p = PLACES.indexOf(place);
+    if (by < 0) {
+      if (index > 0) return { place, index: index - 1 };
+      if (p === 0) return null;
+      const up = PLACES[p - 1];
+      return { place: up, index: tracks.filter((t) => placeOf(t) === up).length };
+    }
+    if (index < count - 1) return { place, index: index + 1 };
+    if (p === PLACES.length - 1) return null;
+    return { place: PLACES[p + 1], index: 0 };
+  };
+  /** How a move to `to` reads in the menu: up, down, or into another place. */
+  const moveWords = (id: string, to: Slot) => {
+    const from = slotOf(id);
+    if (to.place !== from.place) return `Move ${PLACE_WORDS[to.place]}`;
+    return to.index < from.index ? 'Move up' : 'Move down';
+  };
+  const moveTrackTo = (id: string, to: Slot) => {
+    const track = trackById.get(id);
+    if (!track) return;
+    const from = slotOf(id);
+    const how = to.place !== from.place ? PLACE_WORDS[to.place] : to.index < from.index ? 'up' : 'down';
+    commit(committed, `Move ${track.name} ${how}`, placedTracks(tracks, id, to.place, to.index));
+  };
   const moveTrack = (id: string, by: -1 | 1) => {
-    const from = tracks.findIndex((t) => t.id === id);
-    const to = from + by;
-    if (from < 0 || to < 0 || to >= tracks.length) return;
-    const next = [...tracks];
-    [next[from], next[to]] = [next[to], next[from]];
-    commit(committed, `Move ${tracks[from].name} ${by < 0 ? 'up' : 'down'}`, next);
+    const to = stepSlot(id, by);
+    if (to) moveTrackTo(id, to);
   };
   /*
    * A track's header dragged up or down, as in a DAW: past a few pixels it
    * is picked up, a line shows where it would go, and letting go puts it
    * there. `to` is its place among the tracks once dropped.
    */
-  const [trackDrag, setTrackDrag] = useState<{ id: string; y0: number; to: number; moved: boolean } | null>(null);
+  const [trackDrag, setTrackDrag] = useState<{ id: string; y0: number; to: Slot; moved: boolean } | null>(null);
   const trackDragRef = useRef(trackDrag);
   trackDragRef.current = trackDrag;
-  const trackDropAt = (clientY: number, id: string) => {
-    const r = laneRef.current?.getBoundingClientRect();
-    if (!r) return tracks.findIndex((t) => t.id === id);
-    const y = clientY - r.top;
-    const others = tracks.filter((t) => t.id !== id);
-    // Its place: after every other track whose middle is above the pointer.
-    return others.filter((t) => {
-      const n = laneIndex.get(trackLane(t.id)) ?? 0;
-      return laneTops[n] + laneHeights[n] / 2 < y;
+  /**
+   * Where a track dragged to `clientY` goes: above the Original when over its
+   * upper half or higher, above the dub down to the middle of the dub's own
+   * lanes, else under the dub; and among the tracks there, after each one
+   * whose middle is above the pointer.
+   */
+  const dubLanesHeight = baseLanes.reduce((sum, name) => sum + laneHeights[laneIndex.get(name) ?? 0], 0);
+  const trackDropAt = (clientY: number, id: string): Slot => {
+    const original = originalRowRef.current?.getBoundingClientRect();
+    const main = laneRef.current?.getBoundingClientRect();
+    const place: TrackPlace =
+      original && clientY < original.top + original.height / 2 ? 'top' : main && clientY < main.top + dubLanesHeight / 2 ? 'aboveDub' : 'bottom';
+    const index = tracks.filter((t) => {
+      if (t.id === id || placeOf(t) !== place) return false;
+      const { top, bottom } = laneSpan(laneIndex.get(trackLane(t.id)) ?? 0);
+      return (top + bottom) / 2 < clientY;
     }).length;
+    return { place, index };
   };
   const startTrackDrag = (e: React.PointerEvent<HTMLDivElement>, id: string) => {
-    setTrackDrag({ id, y0: e.clientY, to: tracks.findIndex((t) => t.id === id), moved: false });
+    setTrackDrag({ id, y0: e.clientY, to: slotOf(id), moved: false });
   };
   useEffect(() => {
     if (!trackDrag) return;
@@ -2819,18 +2937,14 @@ export const SyncEditTimeline: React.FC<{
         if (!d) return d;
         const moved = d.moved || Math.abs(e.clientY - d.y0) > 4;
         const to = moved ? trackDropAt(e.clientY, d.id) : d.to;
-        return moved === d.moved && to === d.to ? d : { ...d, moved, to };
+        return moved === d.moved && sameSlot(to, d.to) ? d : { ...d, moved, to };
       });
     const up = (e: PointerEvent) => {
       const d = trackDragRef.current;
       setTrackDrag(null);
       if (!d || !(d.moved || Math.abs(e.clientY - d.y0) > 4)) return;
       const to = trackDropAt(e.clientY, d.id);
-      const from = tracks.findIndex((t) => t.id === d.id);
-      if (from < 0 || to === from) return;
-      const next = tracks.filter((t) => t.id !== d.id);
-      next.splice(to, 0, tracks[from]);
-      commit(committed, `Move ${tracks[from].name} ${to < from ? 'up' : 'down'}`, next);
+      if (!sameSlot(to, slotOf(d.id))) moveTrackTo(d.id, to);
     };
     const cancel = (e: KeyboardEvent) => e.key === 'Escape' && setTrackDrag(null);
     window.addEventListener('pointermove', move);
@@ -2845,17 +2959,21 @@ export const SyncEditTimeline: React.FC<{
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackDrag !== null, tracks, committed, laneTops]);
-  /** Where the dragged track would land: the px top of the gap between lanes, or null when it would stay put. */
-  const trackDropLine = (() => {
-    if (!trackDrag?.moved) return null;
-    const from = tracks.findIndex((t) => t.id === trackDrag.id);
-    if (from < 0 || trackDrag.to === from) return null;
-    const others = tracks.filter((t) => t.id !== trackDrag.id);
-    const before = others[trackDrag.to];
-    if (before) return laneTops[laneIndex.get(trackLane(before.id)) ?? 0];
+  /** Where the dragged track would land: its row, and the px top of the gap there; null when it would stay put. */
+  const trackDropLine = ((): { group: LaneGroup; top: number } | null => {
+    if (!trackDrag?.moved || sameSlot(trackDrag.to, slotOf(trackDrag.id))) return null;
+    const { place, index } = trackDrag.to;
+    const group = GROUP_OF[place];
+    const others = tracks.filter((t) => t.id !== trackDrag.id && placeOf(t) === place);
+    const before = others[index];
+    if (before) return { group, top: laneTops[laneIndex.get(trackLane(before.id)) ?? 0] };
     const last = others[others.length - 1];
-    const n = laneIndex.get(trackLane(last.id)) ?? 0;
-    return laneTops[n] + laneHeights[n];
+    if (last) {
+      const n = laneIndex.get(trackLane(last.id)) ?? 0;
+      return { group, top: laneTops[n] + laneHeights[n] };
+    }
+    // Nothing else there: the top of its row, or under the dub's own lanes.
+    return { group, top: group === 'main' ? dubLanesHeight : 0 };
   })();
 
   const deleteTrack = (id: string) => {
@@ -2927,8 +3045,7 @@ export const SyncEditTimeline: React.FC<{
   const dropTarget = (clientX: number, clientY: number): { track: string | null; at: number; snapped: string | null } => {
     const r = laneRef.current?.getBoundingClientRect();
     const inside = Boolean(r && clientX >= r.left && clientX <= r.right);
-    const overLanes = Boolean(r && inside && clientY >= r.top && clientY <= r.bottom);
-    const lane = overLanes ? laneNames[laneAt(clientY)] : undefined;
+    const lane = inside && overLanes(clientY) ? laneNames[laneAt(clientY)] : undefined;
     const track = lane ? trackOfLane(lane) : null;
     const raw = inside ? Math.max(0, timeAt(clientX)) : currentTime;
     const hit = inside ? snapNear([{ t: raw, kinds: ['playhead', 'edge', 'start'] }], new Set()) : null;
@@ -2967,18 +3084,20 @@ export const SyncEditTimeline: React.FC<{
     if (!id || index < 0) {
       return [
         { label: 'Add audio…', icon: <FileAudio className={icon} />, run: () => pickAudio(null) },
-        { label: 'Add track', icon: <Plus className={icon} />, run: () => addTrack(tracks.length) },
+        { label: 'Add track', icon: <Plus className={icon} />, run: () => addTrack(null) },
       ];
     }
     const list: MenuEntry[] = [
       { label: 'Add audio…', icon: <FileAudio className={icon} />, run: () => pickAudio(id) },
-      { label: 'Add track below', icon: <Plus className={icon} />, run: () => addTrack(index + 1) },
-      { label: 'Add track above', icon: <ArrowUp className={icon} />, run: () => addTrack(index) },
+      { label: 'Add track below', icon: <Plus className={icon} />, run: () => addTrack(id, 'below') },
+      { label: 'Add track above', icon: <ArrowUp className={icon} />, run: () => addTrack(id, 'above') },
       { label: 'Rename', shortcut: 'F2', icon: <Pencil className={icon} />, run: () => setRenamingTrack(id) },
       'rule',
     ];
-    if (index > 0) list.push({ label: 'Move up', icon: <ArrowUp className={icon} />, run: () => moveTrack(id, -1) });
-    if (index < tracks.length - 1) list.push({ label: 'Move down', icon: <ArrowDown className={icon} />, run: () => moveTrack(id, 1) });
+    const up = stepSlot(id, -1);
+    const down = stepSlot(id, 1);
+    if (up) list.push({ label: moveWords(id, up), icon: <ArrowUp className={icon} />, run: () => moveTrackTo(id, up) });
+    if (down) list.push({ label: moveWords(id, down), icon: <ArrowDown className={icon} />, run: () => moveTrackTo(id, down) });
     list.push('rule', { label: 'Delete track', shortcut: 'Del', icon: <Trash2 className={icon} />, run: () => deleteTrack(id), danger: true });
     return list.filter((entry, n) => entry !== 'rule' || (n > 0 && n < list.length - 1 && list[n - 1] !== 'rule'));
   };
@@ -3338,6 +3457,215 @@ export const SyncEditTimeline: React.FC<{
       </>
     );
   };
+  /** Pointer handling, the same on every row of lanes: a drag can start on one row and carry a clip to another. */
+  const rowHandlers = {
+    onPointerDown: onLanePointerDown,
+    onPointerMove: onLanePointerMove,
+    onContextMenu: onLaneContextMenu,
+    onDoubleClick: onLaneDoubleClick,
+    onPointerLeave: () => {
+      if (drag.current) return;
+      // A hover waiting for the next frame would light the part again after the pointer left.
+      if (!marquee.current && !rangeDrag.current) {
+        if (moveFrame.current !== null) cancelAnimationFrame(moveFrame.current);
+        moveFrame.current = null;
+        pendingMove.current = null;
+      }
+      setHover(null);
+      pointerTime.current = null;
+    },
+    onPointerUp: endDrag,
+    onPointerCancel: () => {
+      if (rangeDrag.current) {
+        rangeDrag.current = null;
+        setTakeRange(null);
+      } else endDrag();
+    },
+  };
+  /** The lanes of one row, top to bottom, as numbers. */
+  const lanesOf = (group: LaneGroup) => laneNames.map((_, n) => n).filter((n) => laneGroups[n] === group);
+  /** Whether a row is drawn: it has lanes, or a dragged track would land in it. */
+  const rowShown = (group: LaneGroup) => group === 'main' || lanesOf(group).length > 0 || trackDropLine?.group === group;
+  /** The px top and height of lane `n` in its row, for a mark drawn over it. */
+  const laneBox = (n: number, inset = 0) => ({ top: laneTops[n] + inset, height: laneHeights[n] - 2 * inset });
+
+  /**
+   * One row of lanes: tracks above the Original, tracks above the dub, or the
+   * dub's own row (its lanes and the tracks under it). Every row draws its
+   * own clips, overlaps and marks; the dub's row also what is only about it.
+   */
+  const laneRow = (group: LaneGroup) => {
+    if (!rowShown(group)) return null;
+    const lanes = lanesOf(group);
+    const main = group === 'main';
+    // Only the dub's row draws without lane geometry: one dub lane and nothing under it.
+    const geometry = !main || laned;
+    const inRow = (n: number) => laneGroups[n] === group;
+    const first = lanes[0];
+    const last = lanes[lanes.length - 1];
+    const bandFrom = band ? Math.max(band.laneFrom, first ?? Infinity) : 0;
+    const bandTo = band ? Math.min(band.laneTo, last ?? -Infinity) : -1;
+    const dragged = trackDrag?.moved ? laneIndex.get(trackLane(trackDrag.id)) : undefined;
+    const dropOn = fileDrop?.track ? laneIndex.get(trackLane(fileDrop.track)) : undefined;
+    return (
+      <div
+        ref={main ? laneRef : group === 'top' ? topRowRef : midRowRef}
+        className={`relative ${geometry ? '' : 'h-[4.5rem]'} border-b border-edge bg-slate-950/70 ${lanes.length > 0 ? 'overflow-hidden' : ''} touch-none`}
+        style={{ cursor: laneCursor, ...(geometry && { height: groupHeight(group) }) }}
+        {...rowHandlers}
+      >
+        {geometry &&
+          lanes.map((n) => (
+            <span
+              key={laneNames[n]}
+              aria-hidden="true"
+              className={`absolute left-0 right-0 pointer-events-none ${n !== first ? 'border-t border-edge/80' : ''} ${silencedLanes.has(laneNames[n]) ? 'bg-slate-950/60' : isTrackLane(laneNames[n]) ? 'bg-slate-900/40' : ''}`}
+              style={laneBox(n)}
+            />
+          ))}
+        <div ref={zoom.strip} className="absolute inset-0">
+          {visible
+            .filter((chunk) => inRow(laneOfChunk(chunk)))
+            .map((chunk) => {
+              const { part } = chunk;
+              const n = laneOfChunk(chunk);
+              const zone =
+                hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : seamLit?.id === part.id ? seamLit.zone : null;
+              return (
+                <ClipBox
+                  key={part.id}
+                  chunk={chunk}
+                  line={chunk.original ? undefined : lineOf(chunk)}
+                  rate={rate}
+                  data={chunk.file ? filePeaks[chunk.file.id] ?? null : chunk.original ? sourcePeaks : bankPeaks}
+                  bankOffset={chunk.original ? 0 : lineOf(chunk).bankStart / rate}
+                  left={pct(part.start)}
+                  width={Math.max(0.15, (partLength(part) / windowSeconds) * 100)}
+                  laneTop={geometry ? laneTops[n] + 5 : undefined}
+                  laneHeight={laneHeights[n]}
+                  hue={laneHue(chunk)}
+                  color={statusColor(chunk)}
+                  chosen={part.id === selected}
+                  picked={selectedSet.has(part.id)}
+                  silenced={silencedLanes.has(chunk.lane)}
+                  locked={!chunk.original && (committed[chunk.key]?.locked ?? false)}
+                  edited={!chunk.original && isEdited(committed, chunk.key)}
+                  cuts={tightenPreview?.cutsByPart.get(part.id)}
+                  zone={zone}
+                  tool={blade || rangeTool}
+                  shown={shownOf(part)}
+                />
+              );
+            })}
+          {main && carry && (
+            <span
+              aria-hidden="true"
+              className={`absolute ${laned ? '' : 'top-1.5 bottom-1.5'} rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.home ? 'border-cyan-200 bg-cyan-300/25' : 'border-cyan-300 bg-cyan-300/15'}`}
+              style={{
+                left: `${pct(carry.start)}%`,
+                width: `${Math.max(0.15, (carry.length / windowSeconds) * 100)}%`,
+                // The clips of the original's lane with several speakers, else the one dub lane.
+                ...(laned && laneBox(laneIndex.get(multi ? ORIGINAL_SPEAKER : '') ?? 0, 5)),
+              }}
+            />
+          )}
+          {main && takeRange && (
+            <span
+              aria-hidden="true"
+              className="absolute top-0 bottom-0 border-x-2 border-indigo-300 bg-indigo-400/20 pointer-events-none z-30"
+              style={{ left: `${pct(takeRange.from)}%`, width: `${((takeRange.to - takeRange.from) / windowSeconds) * 100}%` }}
+            />
+          )}
+          {/* Where two lines of one lane play over each other: both are heard, nothing is cut */}
+          {overlaps
+            .filter((o) => inRow(o.lane) && onScreen(o.from, o.to))
+            .map((o) => (
+              <span
+                key={`${o.a.part.id}|${o.b.part.id}`}
+                title={`${o.a.original ? 'Clip' : 'Line'} ${o.a.label} and ${o.b.original ? 'clip' : 'line'} ${o.b.label} play over each other for ${(o.to - o.from).toFixed(2)} s`}
+                className={`absolute ${geometry ? '' : 'top-1 bottom-1'} border-x-2 border-rose-400 bg-rose-500/35 pointer-events-none z-20`}
+                style={{
+                  left: `${pct(o.from)}%`,
+                  width: `${Math.max(0.15, ((o.to - o.from) / windowSeconds) * 100)}%`,
+                  backgroundImage: 'repeating-linear-gradient(135deg, rgba(251,113,133,0.55) 0 4px, transparent 4px 8px)',
+                  ...(geometry && laneBox(o.lane, 4)),
+                }}
+              />
+            ))}
+          {band && bandFrom <= bandTo && (
+            <span
+              aria-hidden="true"
+              className={`absolute ${geometry ? '' : 'top-0 bottom-0'} border border-dashed border-indigo-300/80 bg-indigo-400/10 pointer-events-none z-20`}
+              style={{
+                left: `${pct(band.from)}%`,
+                width: `${((band.to - band.from) / windowSeconds) * 100}%`,
+                ...(geometry && { top: laneTops[bandFrom], height: laneTops[bandTo] + laneHeights[bandTo] - laneTops[bandFrom] }),
+              }}
+            />
+          )}
+          {/* Where the picked line's original starts */}
+          {main && currentUnit && onScreen(currentUnit.srcStart, currentUnit.srcStart) && (
+            <span aria-hidden="true" className="absolute top-0 bottom-0 border-l border-dashed border-amber-300/80 pointer-events-none" style={{ left: `${pct(currentUnit.srcStart)}%` }} />
+          )}
+          {fileDrop && onScreen(fileDrop.at, fileDrop.at) && (
+            <span aria-hidden="true" className="absolute top-0 bottom-0 z-30 border-l-2 border-indigo-300 pointer-events-none" style={{ left: `${pct(fileDrop.at)}%` }} />
+          )}
+        </div>
+        {main && !bankPeaks && bankBlob && <span className="absolute right-2 bottom-1 text-[10px] text-slate-500 pointer-events-none">Drawing the waveforms…</span>}
+        {/* A track being dragged up or down: its lane lit, and where it would go */}
+        {dragged !== undefined && inRow(dragged) && (
+          <span aria-hidden="true" className="absolute left-0 right-0 z-20 pointer-events-none bg-indigo-400/10" style={laneBox(dragged)} />
+        )}
+        {trackDropLine?.group === group && (
+          <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine.top }} />
+        )}
+        {/* Files dragged over a track: the lane they would go on */}
+        {dropOn !== undefined && inRow(dropOn) && (
+          <span aria-hidden="true" className="absolute left-0 right-0 z-30 pointer-events-none bg-indigo-400/15 border-y-2 border-indigo-400/70" style={laneBox(dropOn)} />
+        )}
+      </div>
+    );
+  };
+
+  /** One track's header, as its lane: name, clips, mute, solo, level and menu; drag it to move the track. */
+  const trackHeadFor = (track: AudioTrack) => {
+    const own = chunks.filter((c) => c.file && c.lane === trackLane(track.id));
+    const first = own[0]?.file && trackFiles[own[0].file.id];
+    const caption = first
+      ? `${first.name} · ${first.sampleRate / 1000} kHz ${first.channels > 1 ? 'stereo' : 'mono'}${new Set(own.map((c) => c.file!.id)).size > 1 ? ' · and more' : ''}`
+      : 'Drop audio on this lane';
+    return (
+      <TrackLaneHead
+        key={track.id}
+        track={track}
+        clips={own.filter((c) => !c.part.muted).length}
+        caption={caption}
+        heard={!silencedLanes.has(trackLane(track.id))}
+        monitor={audio?.monitor[track.id] ?? { muted: false, solo: false }}
+        renaming={renamingTrack === track.id}
+        onMonitor={(patch) => audio?.onMonitor(track.id, patch)}
+        onLevel={(db) => setTrackLevel(track.id, db)}
+        onRename={(name) => renameTrack(track.id, name)}
+        onStartRename={() => setRenamingTrack(track.id)}
+        onMenu={(x, y) => setTrackMenu({ x, y, track: track.id })}
+        onDragStart={(e) => startTrackDrag(e, track.id)}
+        dragging={Boolean(trackDrag?.moved && trackDrag.id === track.id)}
+        first={false}
+        height={laneHeights[laneIndex.get(trackLane(track.id)) ?? 0]}
+      />
+    );
+  };
+  /** The headers of a row of tracks above the Original or above the dub, as tall as its lanes. */
+  const trackHeadRow = (group: 'top' | 'mid', list: AudioTrack[]) =>
+    rowShown(group) && (
+      <div className="relative flex flex-col border-b border-edge" style={{ height: groupHeight(group) }}>
+        {trackDropLine?.group === group && (
+          <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine.top }} />
+        )}
+        {list.map((track, k) => (k === 0 ? React.cloneElement(trackHeadFor(track), { first: true }) : trackHeadFor(track)))}
+      </div>
+    );
+
   const entries = menu && current ? menuEntries() : [];
   const runEntry = (entry: Exclude<MenuEntry, 'rule'>) => {
     closeMenu();
@@ -3689,9 +4017,10 @@ export const SyncEditTimeline: React.FC<{
       </section>
 
       {/* The lanes */}
-      <div className={`grid ${renderTrackHead || laned ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-edge overflow-hidden bg-slate-900/50`}>
+      <div className={`grid ${renderTrackHead || laneNames.length > 1 ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-edge overflow-hidden bg-slate-900/50`}>
         <div className="flex flex-col text-[11px] text-slate-400 border-r border-edge">
           <div className="h-6 px-2 flex items-center font-mono text-[11px] font-semibold text-slate-200 tabular-nums border-b border-edge">{formatTime(currentTime)}</div>
+          {trackHeadRow('top', topTracks)}
           {renderTrackHead ? (
             <div className="h-14 px-2 flex items-center border-b border-edge">
               {renderTrackHead('source', 'Original', 'bg-cyan-400', <Lock className="w-3 h-3 text-slate-600" aria-label="Locked" />)}
@@ -3713,9 +4042,10 @@ export const SyncEditTimeline: React.FC<{
               )}
             </div>
           )}
+          {trackHeadRow('mid', midTracks)}
           <div className="relative flex flex-col border-b border-edge" style={{ height: laned ? lanesHeight : DUB_LANE_PX }}>
-          {trackDropLine !== null && (
-            <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine }} />
+          {trackDropLine?.group === 'main' && (
+            <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine.top }} />
           )}
           {speakerLanes ? (
             <div className="flex flex-col" onContextMenu={audio ? (e) => (e.preventDefault(), setTrackMenu({ x: e.clientX, y: e.clientY, track: null })) : undefined}>
@@ -3745,33 +4075,8 @@ export const SyncEditTimeline: React.FC<{
               <span className="w-2 h-2 rounded-sm bg-indigo-400" /> <span className="truncate">{targetLanguage} dub</span>
             </div>
           )}
-          {/* Tracks of outside audio, under the dub */}
-          {tracks.map((track, n) => {
-            const own = chunks.filter((c) => c.file && c.lane === trackLane(track.id));
-            const first = own[0]?.file && trackFiles[own[0].file.id];
-            const caption = first
-              ? `${first.name} · ${first.sampleRate / 1000} kHz ${first.channels > 1 ? 'stereo' : 'mono'}${new Set(own.map((c) => c.file!.id)).size > 1 ? ' · and more' : ''}`
-              : 'Drop audio on this lane';
-            return (
-              <TrackLaneHead
-                key={track.id}
-                track={track}
-                clips={own.filter((c) => !c.part.muted).length}
-                caption={caption}
-                heard={!silencedLanes.has(trackLane(track.id))}
-                monitor={audio?.monitor[track.id] ?? { muted: false, solo: false }}
-                renaming={renamingTrack === track.id}
-                onMonitor={(patch) => audio?.onMonitor(track.id, patch)}
-                onLevel={(db) => setTrackLevel(track.id, db)}
-                onRename={(name) => renameTrack(track.id, name)}
-                onStartRename={() => setRenamingTrack(track.id)}
-                onMenu={(x, y) => setTrackMenu({ x, y, track: track.id })}
-                onDragStart={(e) => startTrackDrag(e, track.id)}
-                dragging={Boolean(trackDrag?.moved && trackDrag.id === track.id)}
-                height={laneHeights[baseLanes.length + n]}
-              />
-            );
-          })}
+          {/* Tracks of outside audio under the dub */}
+          {bottomTracks.map(trackHeadFor)}
           </div>
           <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-edge">Script</div>
           <div className="h-10 px-2 flex items-center text-[10.5px] text-slate-500">Start drift</div>
@@ -3805,8 +4110,12 @@ export const SyncEditTimeline: React.FC<{
             <MarkerLines markers={markers} windowStart={windowStart} windowSeconds={windowSeconds} ahead={ahead} />
           </div>
 
+          {/* Tracks above the Original */}
+          {laneRow('top')}
+
           {/* Original: a click seeks, a drag picks a stretch to put on the dub */}
           <div
+            ref={originalRowRef}
             className="relative h-14 border-b border-edge bg-slate-950/50 overflow-hidden cursor-default touch-none"
             title="Drag across the original to pick a stretch, then drag it down onto the dub"
             onPointerDown={onOriginalPointerDown}
@@ -3888,148 +4197,11 @@ export const SyncEditTimeline: React.FC<{
             </div>
           )}
 
-          {/* The dub, editable */}
-          <div
-            ref={laneRef}
-            className={`relative ${laned ? '' : 'h-[4.5rem]'} border-b border-edge bg-slate-950/70 overflow-hidden touch-none`}
-            style={{ cursor: laneCursor, ...(laned && { height: lanesHeight }) }}
-            onPointerDown={onLanePointerDown}
-            onPointerMove={onLanePointerMove}
-            onContextMenu={onLaneContextMenu}
-            onDoubleClick={onLaneDoubleClick}
-            onPointerLeave={() => {
-              if (drag.current) return;
-              // A hover waiting for the next frame would light the part again after the pointer left.
-              if (!marquee.current && !rangeDrag.current) {
-                if (moveFrame.current !== null) cancelAnimationFrame(moveFrame.current);
-                moveFrame.current = null;
-                pendingMove.current = null;
-              }
-              setHover(null);
-              pointerTime.current = null;
-            }}
-            onPointerUp={endDrag}
-            onPointerCancel={() => {
-              if (rangeDrag.current) { rangeDrag.current = null; setTakeRange(null); }
-              else endDrag();
-            }}
-          >
-            {laned &&
-              laneNames.map((name, n) => (
-                <span
-                  key={name}
-                  aria-hidden="true"
-                  className={`absolute left-0 right-0 pointer-events-none ${n > 0 ? 'border-t border-edge/80' : ''} ${silencedLanes.has(name) ? 'bg-slate-950/60' : isTrackLane(name) ? 'bg-slate-900/40' : ''}`}
-                  style={{ top: laneTops[n], height: laneHeights[n] }}
-                />
-              ))}
-            <div ref={zoom.strip} className="absolute inset-0">
-            {visible.map((chunk) => {
-              const { part } = chunk;
-              const zone =
-                hover?.id === part.id ? hover.zone : drag.current?.chunk.part.id === part.id ? drag.current.zone : seamLit?.id === part.id ? seamLit.zone : null;
-              return (
-                <ClipBox
-                  key={part.id}
-                  chunk={chunk}
-                  line={chunk.original ? undefined : lineOf(chunk)}
-                  rate={rate}
-                  data={chunk.file ? filePeaks[chunk.file.id] ?? null : chunk.original ? sourcePeaks : bankPeaks}
-                  bankOffset={chunk.original ? 0 : lineOf(chunk).bankStart / rate}
-                  left={pct(part.start)}
-                  width={Math.max(0.15, (partLength(part) / windowSeconds) * 100)}
-                  laneTop={laned ? laneTops[laneOfChunk(chunk)] + 5 : undefined}
-                  laneHeight={laneHeights[laneOfChunk(chunk)]}
-                  hue={laneHue(chunk)}
-                  color={statusColor(chunk)}
-                  chosen={part.id === selected}
-                  picked={selectedSet.has(part.id)}
-                  silenced={silencedLanes.has(chunk.lane)}
-                  locked={!chunk.original && (committed[chunk.key]?.locked ?? false)}
-                  edited={!chunk.original && isEdited(committed, chunk.key)}
-                  cuts={tightenPreview?.cutsByPart.get(part.id)}
-                  zone={zone}
-                  tool={blade || rangeTool}
-                  shown={shownOf(part)}
-                />
-              );
-            })}
-            {carry && (
-              <span
-                aria-hidden="true"
-                className={`absolute ${laned ? '' : 'top-1.5 bottom-1.5'} rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.home ? 'border-cyan-200 bg-cyan-300/25' : 'border-cyan-300 bg-cyan-300/15'}`}
-                style={{
-                  left: `${pct(carry.start)}%`,
-                  width: `${Math.max(0.15, (carry.length / windowSeconds) * 100)}%`,
-                  // The clips of the original's lane with several speakers, else the one dub lane.
-                  ...(laned && { top: laneTops[multi ? laneIndex.get(ORIGINAL_SPEAKER) ?? 0 : 0] + 5, height: laneHeights[multi ? laneIndex.get(ORIGINAL_SPEAKER) ?? 0 : 0] - 10 }),
-                }}
-              />
-            )}
-            {takeRange && (
-              <span aria-hidden="true" className="absolute top-0 bottom-0 border-x-2 border-indigo-300 bg-indigo-400/20 pointer-events-none z-30"
-                style={{ left: `${pct(takeRange.from)}%`, width: `${((takeRange.to - takeRange.from) / windowSeconds) * 100}%` }} />
-            )}
-            {/* Where two lines of one lane play over each other: both are heard, nothing is cut */}
-            {overlaps
-              .filter((o) => onScreen(o.from, o.to))
-              .map((o) => (
-                <span
-                  key={`${o.a.part.id}|${o.b.part.id}`}
-                  title={`${o.a.original ? 'Clip' : 'Line'} ${o.a.label} and ${o.b.original ? 'clip' : 'line'} ${o.b.label} play over each other for ${(o.to - o.from).toFixed(2)} s`}
-                  className={`absolute ${laned ? '' : 'top-1 bottom-1'} border-x-2 border-rose-400 bg-rose-500/35 pointer-events-none z-20`}
-                  style={{
-                    left: `${pct(o.from)}%`,
-                    width: `${Math.max(0.15, ((o.to - o.from) / windowSeconds) * 100)}%`,
-                    backgroundImage: 'repeating-linear-gradient(135deg, rgba(251,113,133,0.55) 0 4px, transparent 4px 8px)',
-                    ...(laned && { top: laneTops[o.lane] + 4, height: laneHeights[o.lane] - 8 }),
-                  }}
-                />
-              ))}
-            {band && (
-              <span
-                aria-hidden="true"
-                className={`absolute ${laned ? '' : 'top-0 bottom-0'} border border-dashed border-indigo-300/80 bg-indigo-400/10 pointer-events-none z-20`}
-                style={{
-                  left: `${pct(band.from)}%`,
-                  width: `${((band.to - band.from) / windowSeconds) * 100}%`,
-                  ...(laned && { top: laneTops[band.laneFrom], height: laneTops[band.laneTo] + laneHeights[band.laneTo] - laneTops[band.laneFrom] }),
-                }}
-              />
-            )}
-            {/* Where the picked line's original starts */}
-            {currentUnit && onScreen(currentUnit.srcStart, currentUnit.srcStart) && (
-              <span aria-hidden="true" className="absolute top-0 bottom-0 border-l border-dashed border-amber-300/80 pointer-events-none" style={{ left: `${pct(currentUnit.srcStart)}%` }} />
-            )}
-            </div>
-            {!bankPeaks && bankBlob && <span className="absolute right-2 bottom-1 text-[10px] text-slate-500 pointer-events-none">Drawing the waveforms…</span>}
-            {/* A track being dragged up or down: its lane lit, and where it would go */}
-            {trackDrag?.moved && laneIndex.has(trackLane(trackDrag.id)) && (
-              <span
-                aria-hidden="true"
-                className="absolute left-0 right-0 z-20 pointer-events-none bg-indigo-400/10"
-                style={{ top: laneTops[laneIndex.get(trackLane(trackDrag.id)) as number], height: laneHeights[laneIndex.get(trackLane(trackDrag.id)) as number] }}
-              />
-            )}
-            {trackDropLine !== null && (
-              <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine }} />
-            )}
-            {/* Files dragged over: the track they would go on, and where */}
-            {fileDrop && (
-              <>
-                {fileDrop.track && laneIndex.has(trackLane(fileDrop.track)) && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute left-0 right-0 z-30 pointer-events-none bg-indigo-400/15 border-y-2 border-indigo-400/70"
-                    style={{ top: laneTops[laneIndex.get(trackLane(fileDrop.track)) as number], height: laneHeights[laneIndex.get(trackLane(fileDrop.track)) as number] }}
-                  />
-                )}
-                {onScreen(fileDrop.at, fileDrop.at) && (
-                  <span aria-hidden="true" className="absolute top-0 bottom-0 z-30 border-l-2 border-indigo-300 pointer-events-none" style={{ left: `${pct(fileDrop.at)}%` }} />
-                )}
-              </>
-            )}
-          </div>
+          {/* Tracks above the dub */}
+          {laneRow('mid')}
+
+          {/* The dub, editable, with the tracks under it */}
+          {laneRow('main')}
 
           {/* Script */}
           <div className="relative h-6 border-b border-edge overflow-hidden">

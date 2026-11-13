@@ -149,6 +149,8 @@ export interface AudioTrack {
   color: string;
   /** The track's level, in dB, on top of each clip's own gain. */
   gainDb: number;
+  /** Where its lane is in Edit timing: above the Original, above the dub, or (unset) under the dub. */
+  place?: 'top' | 'aboveDub';
 }
 
 /** A file dropped on the timeline, kept with the project as it came. */
