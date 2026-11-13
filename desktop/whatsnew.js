@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.75',
+    changes: [
+      '“Dub + tracks” can be saved as MP3 too (320 kbps), next to the WAV.',
+    ],
+  },
+  {
     version: '1.4.74',
     changes: [
       'In Edit timing, Ctrl + C, Ctrl + V and Ctrl + D copy, paste and duplicate the picked lines and clips (also in the right-click menu). Pick a copy and press T to retake that copy alone; retaking a line leaves its copies as they were.',
