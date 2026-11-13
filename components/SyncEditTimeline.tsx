@@ -876,6 +876,7 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
       ['Drop audio files', 'On a track: there. Elsewhere: a new track'],
       ['Right-click a lane name', 'Add audio, add, rename, move, delete'],
       ['Drag a clip up or down', 'Onto another track'],
+      ['Drag a track’s name up or down', 'Move the track'],
     ],
   },
   {
@@ -1077,7 +1078,11 @@ const TrackLaneHead: React.FC<{
   onStartRename: () => void;
   onMenu: (x: number, y: number) => void;
   height: number;
-}> = ({ track, clips, caption, heard, monitor, renaming, onMonitor, onLevel, onRename, onStartRename, onMenu, height }) => {
+  /** A press on the header itself (not its buttons or level): the start of dragging the track up or down. */
+  onDragStart: (e: React.PointerEvent<HTMLDivElement>) => void;
+  /** This track is being dragged. */
+  dragging: boolean;
+}> = ({ track, clips, caption, heard, monitor, renaming, onMonitor, onLevel, onRename, onStartRename, onMenu, height, onDragStart, dragging }) => {
   const [db, setDb] = useState(track.gainDb);
   useEffect(() => setDb(track.gainDb), [track.gainDb]);
   const commit = (value: number) => {
@@ -1089,8 +1094,13 @@ const TrackLaneHead: React.FC<{
     }`;
   return (
     <div
-      className="px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 min-w-0"
-      style={{ height }}
+      className={`px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 min-w-0 touch-none select-none ${dragging ? 'bg-indigo-500/15 opacity-70' : ''}`}
+      style={{ height, cursor: dragging ? 'grabbing' : 'grab' }}
+      title="Drag up or down to move the track"
+      onPointerDown={(e) => {
+        if (e.button !== 0 || renaming || (e.target as HTMLElement).closest('button, input')) return;
+        onDragStart(e);
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         onMenu(e.clientX, e.clientY);
@@ -2780,6 +2790,74 @@ export const SyncEditTimeline: React.FC<{
     [next[from], next[to]] = [next[to], next[from]];
     commit(committed, `Move ${tracks[from].name} ${by < 0 ? 'up' : 'down'}`, next);
   };
+  /*
+   * A track's header dragged up or down, as in a DAW: past a few pixels it
+   * is picked up, a line shows where it would go, and letting go puts it
+   * there. `to` is its place among the tracks once dropped.
+   */
+  const [trackDrag, setTrackDrag] = useState<{ id: string; y0: number; to: number; moved: boolean } | null>(null);
+  const trackDragRef = useRef(trackDrag);
+  trackDragRef.current = trackDrag;
+  const trackDropAt = (clientY: number, id: string) => {
+    const r = laneRef.current?.getBoundingClientRect();
+    if (!r) return tracks.findIndex((t) => t.id === id);
+    const y = clientY - r.top;
+    const others = tracks.filter((t) => t.id !== id);
+    // Its place: after every other track whose middle is above the pointer.
+    return others.filter((t) => {
+      const n = laneIndex.get(trackLane(t.id)) ?? 0;
+      return laneTops[n] + laneHeights[n] / 2 < y;
+    }).length;
+  };
+  const startTrackDrag = (e: React.PointerEvent<HTMLDivElement>, id: string) => {
+    setTrackDrag({ id, y0: e.clientY, to: tracks.findIndex((t) => t.id === id), moved: false });
+  };
+  useEffect(() => {
+    if (!trackDrag) return;
+    const move = (e: PointerEvent) =>
+      setTrackDrag((d) => {
+        if (!d) return d;
+        const moved = d.moved || Math.abs(e.clientY - d.y0) > 4;
+        const to = moved ? trackDropAt(e.clientY, d.id) : d.to;
+        return moved === d.moved && to === d.to ? d : { ...d, moved, to };
+      });
+    const up = (e: PointerEvent) => {
+      const d = trackDragRef.current;
+      setTrackDrag(null);
+      if (!d || !(d.moved || Math.abs(e.clientY - d.y0) > 4)) return;
+      const to = trackDropAt(e.clientY, d.id);
+      const from = tracks.findIndex((t) => t.id === d.id);
+      if (from < 0 || to === from) return;
+      const next = tracks.filter((t) => t.id !== d.id);
+      next.splice(to, 0, tracks[from]);
+      commit(committed, `Move ${tracks[from].name} ${to < from ? 'up' : 'down'}`, next);
+    };
+    const cancel = (e: KeyboardEvent) => e.key === 'Escape' && setTrackDrag(null);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    window.addEventListener('keydown', cancel, true);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('keydown', cancel, true);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trackDrag !== null, tracks, committed, laneTops]);
+  /** Where the dragged track would land: the px top of the gap between lanes, or null when it would stay put. */
+  const trackDropLine = (() => {
+    if (!trackDrag?.moved) return null;
+    const from = tracks.findIndex((t) => t.id === trackDrag.id);
+    if (from < 0 || trackDrag.to === from) return null;
+    const others = tracks.filter((t) => t.id !== trackDrag.id);
+    const before = others[trackDrag.to];
+    if (before) return laneTops[laneIndex.get(trackLane(before.id)) ?? 0];
+    const last = others[others.length - 1];
+    const n = laneIndex.get(trackLane(last.id)) ?? 0;
+    return laneTops[n] + laneHeights[n];
+  })();
+
   const deleteTrack = (id: string) => {
     const track = trackById.get(id);
     if (!track) return;
@@ -3635,7 +3713,10 @@ export const SyncEditTimeline: React.FC<{
               )}
             </div>
           )}
-          <div className="flex flex-col border-b border-edge" style={{ height: laned ? lanesHeight : DUB_LANE_PX }}>
+          <div className="relative flex flex-col border-b border-edge" style={{ height: laned ? lanesHeight : DUB_LANE_PX }}>
+          {trackDropLine !== null && (
+            <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine }} />
+          )}
           {speakerLanes ? (
             <div className="flex flex-col" onContextMenu={audio ? (e) => (e.preventDefault(), setTrackMenu({ x: e.clientX, y: e.clientY, track: null })) : undefined}>
               {baseLanes.map((name) => (
@@ -3685,6 +3766,8 @@ export const SyncEditTimeline: React.FC<{
                 onRename={(name) => renameTrack(track.id, name)}
                 onStartRename={() => setRenamingTrack(track.id)}
                 onMenu={(x, y) => setTrackMenu({ x, y, track: track.id })}
+                onDragStart={(e) => startTrackDrag(e, track.id)}
+                dragging={Boolean(trackDrag?.moved && trackDrag.id === track.id)}
                 height={laneHeights[baseLanes.length + n]}
               />
             );
@@ -3920,6 +4003,17 @@ export const SyncEditTimeline: React.FC<{
             )}
             </div>
             {!bankPeaks && bankBlob && <span className="absolute right-2 bottom-1 text-[10px] text-slate-500 pointer-events-none">Drawing the waveforms…</span>}
+            {/* A track being dragged up or down: its lane lit, and where it would go */}
+            {trackDrag?.moved && laneIndex.has(trackLane(trackDrag.id)) && (
+              <span
+                aria-hidden="true"
+                className="absolute left-0 right-0 z-20 pointer-events-none bg-indigo-400/10"
+                style={{ top: laneTops[laneIndex.get(trackLane(trackDrag.id)) as number], height: laneHeights[laneIndex.get(trackLane(trackDrag.id)) as number] }}
+              />
+            )}
+            {trackDropLine !== null && (
+              <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine }} />
+            )}
             {/* Files dragged over: the track they would go on, and where */}
             {fileDrop && (
               <>
