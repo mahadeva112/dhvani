@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.74',
+    changes: [
+      'In Edit timing, Ctrl + C, Ctrl + V and Ctrl + D copy, paste and duplicate the picked lines and clips (also in the right-click menu). Pick a copy and press T to retake that copy alone; retaking a line leaves its copies as they were.',
+      'A track can sit above the Original, above the dub or under it: drag its name up or down to move it.',
+    ],
+  },
+  {
     version: '1.4.73',
     changes: [
       'Edit timing takes tracks of your own audio: drop music, room tone or a recorded line on the timeline (on a track, or anywhere else for a new one), and right-click a track’s name to add, rename, move or delete. Each track has its own mute, solo and level.',
