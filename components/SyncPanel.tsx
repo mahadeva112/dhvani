@@ -504,6 +504,8 @@ export interface SyncSettingsPanelProps {
   onDownloadWav?: () => void;
   /** Saves the synced dub as MP3; absent before the first sync. */
   onDownloadMp3?: () => Promise<void>;
+  /** Saves the synced dub with the tracks of outside audio mixed in; absent without tracks. */
+  onDownloadWithTracks?: () => Promise<void>;
   /** Opens the voice changer on the synced dub; absent before the first sync. */
   onOpenVoiceChanger?: () => void;
   /** The subtitles section: downloads and settings, built by the step. */
@@ -1197,6 +1199,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   extras,
   onDownloadWav,
   onDownloadMp3,
+  onDownloadWithTracks,
   onOpenVoiceChanger,
   subtitles,
   multiSpeaker = false,
@@ -1210,6 +1213,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   const bar = variant === 'bar';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingMp3, setSavingMp3] = useState(false);
+  const [mixingTracks, setMixingTracks] = useState(false);
   // Only a request made while the rail is on screen opens it, not one left from before the Dub step.
   const seenOpenRequest = useRef(openRequest);
   useEffect(() => {
@@ -1396,6 +1400,22 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
             ) : (
               <Download className="w-4 h-4 text-slate-500" />
             )}
+          </button>
+        )}
+        {onDownloadWithTracks && (
+          <button
+            type="button"
+            onClick={() => {
+              setMixingTracks(true);
+              onDownloadWithTracks().finally(() => setMixingTracks(false));
+            }}
+            disabled={isSyncing || mixingTracks}
+            className={downloadRow}
+            title="The dub with the tracks you added in Edit timing mixed in, at the dub's own rate, as a 32-bit float WAV so nothing clips. Muted or soloed tracks are still in it."
+          >
+            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
+            <span className="flex-1 text-[13px]">{mixingTracks ? 'Mixing the tracks in…' : 'Dub + tracks'}</span>
+            {mixingTracks ? <Loader2 className="w-4 h-4 text-slate-500 animate-spin" /> : <Download className="w-4 h-4 text-slate-500" />}
           </button>
         )}
         {onOpenVoiceChanger && (

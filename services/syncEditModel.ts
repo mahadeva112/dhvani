@@ -83,6 +83,8 @@ export interface SyncLineEdit {
   parts: SyncEditPart[];
   /** A locked line stays where it is when Sync runs again. */
   locked: boolean;
+  /** An audio clip (see AUDIO_CLIP_PREFIX): the file its parts are cut from, and the track it is on. */
+  audio?: { file: string; track: string };
 }
 
 /** Edits by line key. A line not in it is as Sync placed it. */
@@ -124,6 +126,90 @@ export const originalLines = (edits: SyncEdits | null | undefined, sourceDuratio
   Object.keys(edits ?? {})
     .filter(isOriginalClip)
     .map((key) => originalLine(key, sourceDuration, sampleRate));
+
+/**
+ * Tracks of audio from outside, under the dub in Edit timing (music, room
+ * tone, a line someone recorded): files the user dropped on the timeline.
+ * Each placed file is a clip kept in the edits under a key starting with
+ * this, its edit naming the file and the track (`audio`), its parts' `from`
+ * and `to` being seconds of the file. Sync never moves them, and they are not
+ * in the synced dub's own file: they play in Edit timing and go into the WAV
+ * saved as "Dub + tracks". Nothing is done to them that the user didn't set:
+ * no ducking, no fades, no level matching.
+ */
+export const AUDIO_CLIP_PREFIX = 'audio:';
+export const isAudioClip = (key: string) => key.startsWith(AUDIO_CLIP_PREFIX);
+/** A clip rather than a line of the dub: of the original, or of a file from outside. */
+export const isClip = (key: string) => isOriginalClip(key) || isAudioClip(key);
+
+/** One track of outside audio, as its lane shows it. Its level is in the "Dub + tracks" file; mute and solo are for listening. */
+export interface AudioTrack {
+  id: string;
+  name: string;
+  color: string;
+  /** The track's level, in dB, on top of each clip's own gain. */
+  gainDb: number;
+}
+
+/** A file dropped on the timeline, kept with the project as it came. */
+export interface AudioFileInfo {
+  id: string;
+  name: string;
+  /** Seconds, as decoded. */
+  duration: number;
+  sampleRate: number;
+  channels: number;
+}
+export interface AudioFileRecord extends AudioFileInfo {
+  blob: Blob;
+}
+
+/** A track's lane name in Edit timing, apart from any speaker's. */
+export const trackLane = (trackId: string) => `\u0000track:${trackId}`;
+export const isTrackLane = (lane: string) => lane.startsWith('\u0000track:');
+export const trackOfLane = (lane: string) => (isTrackLane(lane) ? lane.slice('\u0000track:'.length) : null);
+
+/** The file as a line, for the audio clip `key`: what its parts are cut from. */
+export const audioLine = (key: string, file: AudioFileInfo | undefined, trackId: string, sampleRate: number): SyncBankLine => ({
+  ...originalLine(key, file?.duration ?? 0, sampleRate),
+  speaker: trackLane(trackId),
+});
+
+/** The audio clips in `edits` whose file is known, each as its line, in the order they were made. */
+export const audioLines = (edits: SyncEdits | null | undefined, files: Record<string, AudioFileInfo>, sampleRate: number): SyncBankLine[] =>
+  Object.entries(edits ?? {})
+    .filter(([key, edit]) => isAudioClip(key) && edit.audio && files[edit.audio.file])
+    .map(([key, edit]) => audioLine(key, files[edit.audio!.file], edit.audio!.track, sampleRate));
+
+/**
+ * The parts of the audio clips that play, each with its file and track, in
+ * seconds of its file; a clip on a track that is gone, or of a file that is
+ * gone, plays nothing.
+ */
+export const audioParts = (edits: SyncEdits | null | undefined, tracks: AudioTrack[] | null | undefined, files: Record<string, AudioFileInfo>) => {
+  const trackIds = new Set((tracks ?? []).map((track) => track.id));
+  return Object.entries(edits ?? {}).flatMap(([key, edit]) => {
+    if (!isAudioClip(key) || !edit.audio || !trackIds.has(edit.audio.track)) return [];
+    const file = files[edit.audio.file];
+    if (!file) return [];
+    const { track } = edit.audio;
+    return edit.parts
+      .filter((part) => !part.muted)
+      .map((part) => {
+        const from = clamp(part.from, 0, file.duration);
+        return { part: { ...part, from, to: clamp(part.to, from, file.duration) }, file: file.id, track };
+      })
+      .filter(({ part }) => part.to - part.from > 0);
+  });
+};
+
+/** The edits without the audio clips: what the synced dub's own file is rendered from. */
+export const withoutAudioClips = (edits: SyncEdits | null | undefined): SyncEdits =>
+  Object.fromEntries(Object.entries(edits ?? {}).filter(([key]) => !isAudioClip(key)));
+
+/** Only the audio clips of `edits`. */
+export const audioClipsOf = (edits: SyncEdits | null | undefined): SyncEdits =>
+  Object.fromEntries(Object.entries(edits ?? {}).filter(([key]) => isAudioClip(key)));
 
 /** Speeds a part may be stretched to in Edit timing. */
 export const MIN_EDIT_RATE = 0.7;
@@ -334,8 +420,8 @@ export const rebaseEdits = (
   const newLines = new Map(newBank.lines.map((line) => [line.key, line]));
   const rate = newBank.sampleRate;
   for (const [key, edit] of Object.entries(edits)) {
-    // A clip of the original is cut from the original, which a new sync doesn't change.
-    if (isOriginalClip(key)) {
+    // A clip is cut from the original or from a file from outside, which a new sync doesn't change.
+    if (isClip(key)) {
       out[key] = edit;
       continue;
     }

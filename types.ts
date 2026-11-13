@@ -1,5 +1,5 @@
 import type { SyncReport } from './services/syncService';
-import type { SyncBank, SyncEdits } from './services/syncEditService';
+import type { AudioFileRecord, AudioTrack, SyncBank, SyncEdits } from './services/syncEditService';
 import type { SyncTakes } from './services/syncTakes';
 import type { ReviewHistory } from './services/reviewHistory';
 import type { ProjectHistory } from './services/projectHistory';
@@ -324,6 +324,10 @@ export interface BatchJob {
   syncBank?: SyncBank | null;
   syncBankBlob?: Blob | null;
   syncEdits?: SyncEdits | null;
+  /** Tracks of outside audio under the dub in Edit timing; their clips are in `syncEdits` (syncEditModel's AUDIO_CLIP_PREFIX). */
+  syncAudioTracks?: AudioTrack[] | null;
+  /** The files those clips are cut from, as they were dropped. Kept until the project goes, so undo can bring a clip back. */
+  syncAudioFiles?: AudioFileRecord[] | null;
   syncBaseReport?: SyncReport | null;
   /** Retaken lines, by line key: each keeps its own seed, so its new take survives later Syncs and reloads. */
   syncLineSeeds?: Record<string, number> | null;

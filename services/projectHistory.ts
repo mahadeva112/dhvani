@@ -29,6 +29,7 @@ export const HISTORY_FIELDS = [
   'syncBank',
   'syncBaseReport',
   'syncEdits',
+  'syncAudioTracks',
   'syncTakes',
   'syncChangedVoices',
   'syncLineSeeds',
@@ -57,6 +58,7 @@ const OTHER_FIELDS = [
   'syncPendingWords',
   'syncSpeakerLevels',
   'syncMarkers',
+  'syncAudioTracks',
 ] as const satisfies readonly HistoryField[];
 
 /** Steps kept; the oldest go first, never the first step. */
@@ -407,6 +409,7 @@ export const describeProjectChange = (before: HistoryState, after: HistoryState)
   if (changed.includes('syncEdits')) return { label: 'Edit timing' };
   if (changed.includes('syncSpeakerLevels')) return { label: 'Speaker level', key: 'levels' };
   if (changed.includes('syncMarkers')) return { label: 'Markers', key: 'markers' };
+  if (changed.includes('syncAudioTracks')) return { label: 'Tracks' };
   if (changed.includes('syncChangedVoices')) return { label: 'Voice changer' };
   return { label: 'Change' };
 };

@@ -1616,7 +1616,9 @@ syncRouter.post(
           if (!Number.isInteger(bankStart) || !Number.isInteger(length) || bankStart < 0 || length < 0 || bankStart + length > originalEntry.samples.length) {
             throw new ApiError(`Clip ${n + 1} of the original is not in its saved samples.`, { status: 400, code: 'bad_bank_line' });
           }
-          return { bankStart, length, gain: 1, speaker: ORIGINAL_SPEAKER };
+          // A clip of a file from outside renders as its track, so it gets a stem of its own.
+          const speaker = typeof line.speaker === 'string' && line.speaker.trim() ? line.speaker.slice(0, 128) : ORIGINAL_SPEAKER;
+          return { bankStart, length, gain: 1, speaker };
         })
       : [];
     if (!Array.isArray(lines) || lines.length > 20000) throw new ApiError('The lines of the sync are missing.', { status: 400, code: 'no_lines' });

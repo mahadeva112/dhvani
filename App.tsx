@@ -228,7 +228,7 @@ import {
   type HistoryState,
   type ProjectHistory,
 } from './services/projectHistory';
-import { hasEdits, isOriginalClip, lockedLines, measureEdits, originalParts, partEnd, partsOf, rebaseEdits, renderSyncEdits, SyncEdits, type SyncBank, type SyncBankLine } from './services/syncEditService';
+import { audioParts, hasEdits, isClip, lockedLines, measureEdits, originalParts, partEnd, partsOf, rebaseEdits, renderSyncEdits, SyncEdits, withoutAudioClips, type AudioFileInfo, type AudioFileRecord, type AudioTrack, type SyncBank, type SyncBankLine } from './services/syncEditService';
 import { alignTakeWords, carryTakes, fitTakeToParts, knownWords, phraseLine, phraseOf, pickedTakes, sayWords, placeTakeChunks, placeTakeLikeSync, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
 import { readRetakePlacement } from './services/retakePlacement';
 import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
@@ -1631,19 +1631,81 @@ export default function App() {
     () => (liveBank && activeJob?.syncBaseReport?.mix ? silencedSpeakers([...new Set(liveBank.lines.map((line) => line.speaker))], speakerMonitor) : new Set<string>()),
     [liveBank, activeJob?.syncBaseReport, speakerMonitor]
   );
+  /*
+   * Tracks of outside audio under the dub in Edit timing: each file decoded
+   * once for the open project, to play live and to draw; a track's mute and
+   * solo are for listening, as a speaker's.
+   */
+  const [trackBuffers, setTrackBuffers] = useState<Record<string, AudioBuffer>>({});
+  const trackBuffersRef = useRef(trackBuffers);
+  trackBuffersRef.current = trackBuffers;
+  const [trackMonitor, setTrackMonitor] = useState<Record<string, SpeakerMonitor>>({});
+  useEffect(() => {
+    setTrackBuffers({});
+    setTrackMonitor({});
+  }, [activeJobId]);
+  const trackFiles = useMemo(
+    () => Object.fromEntries((activeJob?.syncAudioFiles || []).map(({ blob: _blob, ...info }) => [info.id, info as AudioFileInfo])),
+    [activeJob?.syncAudioFiles]
+  );
+  useEffect(() => {
+    const missing = (activeJob?.syncAudioFiles || []).filter((file) => !trackBuffersRef.current[file.id]);
+    if (missing.length === 0) return;
+    let live = true;
+    for (const file of missing) {
+      const url = URL.createObjectURL(file.blob);
+      decodeAudioBlobUrl(url)
+        .then((buffer) => live && setTrackBuffers((all) => (all[file.id] ? all : { ...all, [file.id]: buffer })))
+        .catch((err) => console.warn(`Could not read ${file.name} for its track:`, err))
+        .finally(() => URL.revokeObjectURL(url));
+    }
+    return () => {
+      live = false;
+    };
+  }, [activeJob?.syncAudioFiles]);
+  /** The tracks not heard now: muted, or left out by a solo on another track. */
+  const silencedTracks = useMemo(() => {
+    const tracks = activeJob?.syncAudioTracks || [];
+    const soloing = tracks.some((track) => trackMonitor[track.id]?.solo);
+    return new Set(tracks.filter((track) => trackMonitor[track.id]?.muted || (soloing && !trackMonitor[track.id]?.solo)).map((track) => track.id));
+  }, [activeJob?.syncAudioTracks, trackMonitor]);
+  const liveTrackParts = (edits: SyncEdits | null | undefined, tracks: AudioTrack[] | null | undefined, silenced: Set<string>) =>
+    audioParts(edits, tracks, trackFiles)
+      .filter(({ track }) => !silenced.has(track))
+      .map(({ part, file, track }) => ({ part, file, gain: 10 ** ((tracks?.find((t) => t.id === track)?.gainDb ?? 0) / 20) }));
   const liveDubClips = useMemo(
     () =>
       liveDub && liveBank
-        ? liveClips(liveBank, activeJob?.syncEdits, Boolean(activeJob?.syncBaseReport?.mix), activeJob ? originalParts(activeJob.syncEdits, sourceDurationOf(activeJob)) : [], liveSilenced)
+        ? liveClips(
+            liveBank,
+            activeJob?.syncEdits,
+            Boolean(activeJob?.syncBaseReport?.mix),
+            activeJob ? originalParts(activeJob.syncEdits, sourceDurationOf(activeJob)) : [],
+            liveSilenced,
+            liveTrackParts(activeJob?.syncEdits, activeJob?.syncAudioTracks, silencedTracks)
+          )
         : [],
-    [liveDub, liveBank, activeJob?.syncEdits, activeJob?.syncBaseReport, activeJob?.audioBuffer, liveSilenced]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [liveDub, liveBank, activeJob?.syncEdits, activeJob?.syncBaseReport, activeJob?.audioBuffer, liveSilenced, activeJob?.syncAudioTracks, silencedTracks, trackFiles]
   );
   const liveDubClipsRef = useRef(liveDubClips);
   liveDubClipsRef.current = liveDubClips;
   const liveEngineRef = useRef<LiveDubEngine | null>(null);
-  const liveDubInputRef = useRef<{ bank: NonNullable<BatchJob['syncBank']>; multiSpeaker: boolean; sourceDuration: number; silenced: Set<string> } | null>(null);
+  const liveDubInputRef = useRef<{
+    bank: NonNullable<BatchJob['syncBank']>;
+    multiSpeaker: boolean;
+    sourceDuration: number;
+    silenced: Set<string>;
+    trackParts: (edits: SyncEdits) => ReturnType<typeof liveTrackParts>;
+  } | null>(null);
   liveDubInputRef.current = activeJob && liveBank
-    ? { bank: liveBank, multiSpeaker: Boolean(activeJob.syncBaseReport?.mix), sourceDuration: sourceDurationOf(activeJob), silenced: liveSilenced }
+    ? {
+        bank: liveBank,
+        multiSpeaker: Boolean(activeJob.syncBaseReport?.mix),
+        sourceDuration: sourceDurationOf(activeJob),
+        silenced: liveSilenced,
+        trackParts: (edits) => liveTrackParts(edits, activeJob.syncAudioTracks, silencedTracks),
+      }
     : null;
   // The original, which the clips of it on the dub play from.
   const liveOriginal = activeJob?.audioBuffer ?? null;
@@ -1654,7 +1716,9 @@ export default function App() {
     const engine = liveEngineRef.current;
     const input = liveDubInputRef.current;
     if (!engine || !input) return;
-    engine.setClips(edits ? liveClips(input.bank, edits, input.multiSpeaker, originalParts(edits, input.sourceDuration), input.silenced) : liveDubClipsRef.current);
+    engine.setClips(
+      edits ? liveClips(input.bank, edits, input.multiSpeaker, originalParts(edits, input.sourceDuration), input.silenced, input.trackParts(edits)) : liveDubClipsRef.current
+    );
   }, []);
 
   // Sync playback rate to audio elements, including ones mounted after the rate was set
@@ -2057,6 +2121,7 @@ export default function App() {
         if (!out) return;
         engine = new LiveDubEngine(out.ctx, out.input, editTimingAudio);
         engine.setOriginal(liveOriginalRef.current);
+        engine.setFiles(trackBuffersRef.current);
         engine.setClips(liveDubClipsRef.current);
         liveEngineRef.current = engine;
       }
@@ -2074,6 +2139,9 @@ export default function App() {
   useEffect(() => {
     liveEngineRef.current?.setClips(liveDubClips);
   }, [liveDubClips]);
+  useEffect(() => {
+    liveEngineRef.current?.setFiles(trackBuffersRef.current);
+  }, [trackBuffers]);
   useEffect(() => {
     // Read through the ref: a closure that names the buffer keeps it, and with it this whole
     // render's scope, alive in every long-lived callback made in the same render.
@@ -2628,15 +2696,26 @@ export default function App() {
     syncEditRunsRef.current[jobId] = { timer, controller: null };
   };
 
-  /** Edit timing changed a line: the report follows at once, the audio once the user pauses. */
-  const handleSyncEditsChange = (edits: SyncEdits, label?: string) => {
+  /**
+   * Edit timing changed a line, or a track (with `tracks`, the tracks as they
+   * are now, in the same step): the report follows at once, the audio once the
+   * user pauses. Clips on tracks are not in the synced dub's file, so a change
+   * to them alone renders nothing.
+   */
+  const handleSyncEditsChange = (edits: SyncEdits, label?: string, tracks?: AudioTrack[]) => {
     if (!activeJob?.syncBank || !activeJob.syncBaseReport) return;
     const clean = hasEdits(edits) ? edits : null;
+    const dubChanged = JSON.stringify(withoutAudioClips(clean)) !== JSON.stringify(withoutAudioClips(activeJob.syncEdits));
     updateJob(
       activeJob.id,
-      { syncEdits: clean, syncReport: measureEdits(activeJob.syncBaseReport, activeJob.syncBank, clean) },
+      {
+        syncEdits: clean,
+        syncReport: measureEdits(activeJob.syncBaseReport, activeJob.syncBank, clean),
+        ...(tracks && { syncAudioTracks: tracks.length > 0 ? tracks : null }),
+      },
       label ? { label: `Edit timing: ${label}` } : undefined
     );
+    if (!dubChanged) return;
     scheduleSyncEditRender(activeJob.id, {
       bank: activeJob.syncBank,
       bankBlob: activeJob.syncBankBlob,
@@ -2661,6 +2740,47 @@ export default function App() {
       source: activeJob.audioBuffer,
     });
   };
+
+  /**
+   * Audio files dropped on Edit timing, kept with the project as they came and
+   * decoded to play and draw. A file that can't be read as audio is named in
+   * the error; the others are kept.
+   */
+  const handleImportTrackAudio = async (files: File[]): Promise<AudioFileInfo[]> => {
+    const jobId = activeJob?.id;
+    if (!jobId) return [];
+    const records: AudioFileRecord[] = [];
+    const buffers: Record<string, AudioBuffer> = {};
+    const failed: string[] = [];
+    for (const file of files) {
+      const url = URL.createObjectURL(file);
+      try {
+        const buffer = await decodeAudioBlobUrl(url);
+        const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `file-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+        records.push({ id, name: file.name, blob: file, duration: buffer.duration, sampleRate: buffer.sampleRate, channels: buffer.numberOfChannels });
+        buffers[id] = buffer;
+      } catch {
+        failed.push(file.name);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+    if (records.length > 0) {
+      setTrackBuffers((all) => ({ ...all, ...buffers }));
+      updateJobWith(jobId, (job) => ({ syncAudioFiles: [...(job.syncAudioFiles || []), ...records] }));
+    }
+    if (failed.length > 0) {
+      reportError(new Error(`${failed.join(', ')} could not be read as audio.`), {
+        title: failed.length === 1 ? 'That file could not be added' : 'Some files could not be added',
+        safe: records.length > 0 ? 'The other files were added.' : 'Nothing was changed.',
+      });
+    }
+    return records.map(({ blob: _blob, ...info }) => info);
+  };
+
+  /** A track muted or soloed: heard in Edit timing only, never left out of the file. */
+  const handleTrackMonitorChange = (trackId: string, patch: Partial<SpeakerMonitor>) =>
+    setTrackMonitor((all) => ({ ...all, [trackId]: { muted: false, solo: false, ...all[trackId], ...patch } }));
 
   /** A speaker's lane muted or soloed: heard in the live dub only. */
   const handleSpeakerMonitorChange = (speaker: string, patch: Partial<SpeakerMonitor>) =>
@@ -2830,7 +2950,7 @@ export default function App() {
       options,
       lines: job.segments.length,
       characters: job.segments.reduce((sum, seg) => sum + (seg.textTarget || seg.targetText || '').length, 0),
-      edited: Object.keys(job.syncEdits || {}).filter((key) => !isOriginalClip(key)).length,
+      edited: Object.keys(job.syncEdits || {}).filter((key) => !isClip(key)).length,
       picked: Object.keys(job.syncTakes || {}).filter((key) => pickedTakeName(job.syncTakes, key)).length,
       placed: job.segments.filter((seg) => seg.dubPlace).length,
       retakes: new Set([...Object.keys(job.syncLineSeeds || {}), ...Object.keys(job.syncTakeChoices || {})]).size,
@@ -2899,10 +3019,10 @@ export default function App() {
     const sourceDuration = sourceDurationOf(activeJob);
 
     // Locked lines in Edit timing stay where the user put them.
-    // From scratch, only clips of the original stay: no lock, hand edit, picked take or place on Review's dub lane.
+    // From scratch, only clips (of the original, or on a track) stay: no lock, hand edit, picked take or place on Review's dub lane.
     const priorBank = activeJob.syncBank || null;
     const priorEdits = fresh
-      ? Object.fromEntries(Object.entries(activeJob.syncEdits || {}).filter(([key]) => isOriginalClip(key)))
+      ? Object.fromEntries(Object.entries(activeJob.syncEdits || {}).filter(([key]) => isClip(key)))
       : activeJob.syncEdits || null;
     const locked = fresh ? {} : lockedLines(priorBank, priorEdits);
     // Takes picked in the takes panel are kept as they are, unless their words changed since.
@@ -3882,6 +4002,30 @@ export default function App() {
     const dub = masterDubFile();
     if (dub) saveAudioFile(dub.file, `${dub.name}.${audioFileExtension(dub.file)}`);
   }, [masterDubFile]);
+
+  /**
+   * Saves the dub with the tracks of outside audio mixed in, rendered now at
+   * the dub's own rate as a 32-bit float WAV, so nothing clips and nothing is
+   * turned down. The synced dub's own file stays the dub alone.
+   */
+  const handleDownloadWithTracks = useCallback(async () => {
+    const job = activeJob;
+    if (!job?.syncBank || !job.syncBaseReport || !job.syncAudioTracks?.length) return;
+    try {
+      const { blob } = await renderSyncEdits({
+        bank: withSpeakerLevels(job.syncBank, job.syncSpeakerLevels),
+        bankBlob: job.syncBankBlob,
+        edits: job.syncEdits || null,
+        report: job.syncBaseReport,
+        sourceDuration: sourceDurationOf(job),
+        source: job.audioBuffer,
+        tracks: { tracks: job.syncAudioTracks, files: trackFiles, buffers: trackBuffersRef.current },
+      });
+      saveAudioFile(blob, `${projectFileStem(job)} - dub and tracks.${audioFileExtension(blob)}`);
+    } catch (err) {
+      reportError(err, { title: 'Saving the dub with its tracks failed', safe: 'The dub and the tracks are unchanged; Download WAV still saves the dub alone.' });
+    }
+  }, [activeJob, trackFiles]);
 
   /** Saves the dub as MP3. The dub stays WAV; only the saved copy is encoded. */
   const handleDownloadMasterMp3 = useCallback(async () => {
@@ -4945,6 +5089,19 @@ export default function App() {
           onSyncChangedOnly={handleSyncChangedOnly}
           onSyncFromScratch={handleSyncFromScratch}
           onSyncEditsChange={handleSyncEditsChange}
+          syncAudio={
+            activeJob?.syncBank
+              ? {
+                  tracks: activeJob.syncAudioTracks || [],
+                  files: trackFiles,
+                  buffers: trackBuffers,
+                  monitor: trackMonitor,
+                  onMonitor: handleTrackMonitorChange,
+                  onImport: handleImportTrackAudio,
+                }
+              : undefined
+          }
+          onDownloadWithTracks={handleDownloadWithTracks}
           onUndoVoiceChange={handleUndoVoiceChange}
           syncEditStatus={syncEditStatus}
           syncEditLive={liveDub}

@@ -1,6 +1,7 @@
 import type { BatchJob } from '../types';
 import type { JobSignoff } from './signoffService';
 import { compactBank } from './syncTakes.ts';
+import { hasEdits, withoutAudioClips } from './syncEditModel.ts';
 import type { HistoryBank } from './storageService';
 import { readZip, writeZip } from './zipStore.ts';
 
@@ -162,6 +163,10 @@ export const lightJob = async (job: BatchJob, bankId = newBankId()): Promise<Bat
     // Its steps point at takes and Syncs a light file doesn't carry.
     projectHistory: null,
     syncBeforeVoiceChange: null,
+    // Tracks of outside audio are the full project's: their files stay out, and so do their clips.
+    syncAudioTracks: null,
+    syncAudioFiles: null,
+    syncEdits: job.syncEdits && hasEdits(withoutAudioClips(job.syncEdits)) ? withoutAudioClips(job.syncEdits) : null,
     ...(compact && { syncBank: compact.bank, syncBankBlob: compact.bankBlob, syncTakes: compact.takes }),
   };
 };

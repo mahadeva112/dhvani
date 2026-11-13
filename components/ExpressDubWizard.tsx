@@ -168,8 +168,8 @@ import { PASSAGE_PAUSES, buildPassages, loadPassagePause, savePassagePause } fro
 import { CueEditButtons, CueEditNotice, PickableWords, useCueEditing, useReviewUndoKeys, type ReviewUndo } from './review/CueEditBar';
 import { reviewHistoryLabels } from '../services/reviewHistory';
 import { HistoryMenu, type ProjectHistoryView } from './HistoryMenu';
-import { SyncEditTimeline, type SyncEditStatus } from './SyncEditTimeline';
-import { isOriginalClip, type SyncEdits } from '../services/syncEditService';
+import { SyncEditTimeline, type AudioTrackLanes, type SyncEditStatus } from './SyncEditTimeline';
+import { isClip, type AudioTrack, type SyncEdits } from '../services/syncEditService';
 import { alignTakeWords, firstWordAt, takesOf, type TakeAsk } from '../services/syncTakesService';
 import { TakesPanel } from './TakesPanel';
 import { PageScrollLock } from './usePageScrollLock';
@@ -436,7 +436,11 @@ interface ExpressDubWizardProps {
   /** Raised by Sync settings in the header's menu: each new value opens the Sync settings window. */
   syncSettingsRequest?: number;
   /** Edit timing: the synced dub's lines changed by hand, with a name for the change. Omitted hides Edit timing. */
-  onSyncEditsChange?: (edits: SyncEdits, label: string) => void;
+  onSyncEditsChange?: (edits: SyncEdits, label: string, tracks?: AudioTrack[]) => void;
+  /** Edit timing's tracks of outside audio: their files, and mute and solo for listening. */
+  syncAudio?: AudioTrackLanes;
+  /** Saves the dub with its tracks mixed in. */
+  onDownloadWithTracks?: () => Promise<void>;
   /** Puts back the synced dub from before a whole-file voice change, so its timing can be edited again. */
   onUndoVoiceChange?: () => void;
   /** Whether the synced dub has caught up with the edits. */
@@ -614,6 +618,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   onSyncOptionsChange,
   syncSettingsRequest = 0,
   onSyncEditsChange,
+  syncAudio,
+  onDownloadWithTracks,
   onUndoVoiceChange,
   syncEditStatus = { state: 'ready' },
   syncEditLive = false,
@@ -3990,7 +3996,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         };
         const canEditTiming = Boolean(onSyncEditsChange);
         // Clips of the original put on the dub are hand edits too, but not lines.
-        const editedLineCount = Object.keys(activeJob.syncEdits || {}).filter((key) => !isOriginalClip(key)).length;
+        const editedLineCount = Object.keys(activeJob.syncEdits || {}).filter((key) => !isClip(key)).length;
         const hasEditedTiming = editedLineCount > 0;
         const legacyDub = !report && Boolean(activeJob.synthesizedAudioUrl);
 
@@ -4331,6 +4337,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             extras={dubExtras}
             onDownloadWav={report ? onDownloadWav : undefined}
             onDownloadMp3={report ? onDownloadMp3 : undefined}
+            onDownloadWithTracks={report && activeJob.syncAudioTracks?.length ? onDownloadWithTracks : undefined}
             onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
             openRequest={syncSettingsRequest + cardSettingsRequest}
             fitSource={fitSource}
@@ -4527,6 +4534,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   baseReport={activeJob.syncBaseReport}
                   edits={activeJob.syncEdits}
                   onChange={onSyncEditsChange}
+                  audio={syncAudio}
                   projectHistory={projectHistory}
                   status={syncEditStatus}
                   live={syncEditLive}
@@ -4796,8 +4804,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onUseTake={onUseOfferedTake}
                   onKeepTake={onKeepOfferedTake}
                   renderTakes={renderTakes}
-                  lockedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => activeJob.syncEdits?.[key]?.locked)}
-                  editedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => !isOriginalClip(key))}
+                  lockedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => !isClip(key) && activeJob.syncEdits?.[key]?.locked)}
+                  editedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => !isClip(key))}
                   focusLine={focusLine}
                   onSuggestLine={(unit, avoid) =>
                     unit.targetChars == null

@@ -33,6 +33,16 @@ export interface LiveClip {
   cutOut: boolean;
   /** A clip of the original: `bankFrom` and `bankTo` are seconds of the original, not of the bank. */
   original?: boolean;
+  /** An audio clip on a track: `bankFrom` and `bankTo` are seconds of this file (its id), not of the bank. */
+  file?: string;
+}
+
+/** An audio clip's part as it plays, with its track's level (syncEditModel's audioParts). */
+export interface LiveTrackPart {
+  part: SyncEditPart;
+  file: string;
+  /** The track's level as a gain. */
+  gain: number;
 }
 
 const EDGE_FADE = 0.003;
@@ -53,10 +63,29 @@ export const liveClips = (
   /** The clips of the original that play (syncEditService's originalParts), from the original's own buffer. */
   originals: SyncEditPart[] = [],
   /** Speakers not to play: muted or left out by a solo in Edit timing. Listening only. */
-  silenced: ReadonlySet<string> = new Set()
+  silenced: ReadonlySet<string> = new Set(),
+  /** The audio clips on tracks that play (not muted or soloed away), from their files' own buffers. */
+  trackParts: LiveTrackPart[] = []
 ): LiveClip[] => {
   const rate = bank.sampleRate;
   const out: LiveClip[] = [];
+  for (const { part, file, gain: trackGain } of trackParts) {
+    const gain = trackGain * 10 ** (part.gainDb / 20);
+    out.push({
+      id: ['file', file, part.id, part.start, part.from, part.to, part.rate, gain.toFixed(5), part.fadeIn, part.fadeOut].join(':'),
+      stretchKey: `file:${file}:${part.from.toFixed(5)}:${part.to.toFixed(5)}:${part.rate}`,
+      bankFrom: part.from,
+      bankTo: part.to,
+      start: Math.max(0, part.start),
+      rate: part.rate,
+      gain,
+      fadeIn: part.fadeIn,
+      fadeOut: part.fadeOut,
+      cutIn: true,
+      cutOut: true,
+      file,
+    });
+  }
   for (const part of originals) {
     out.push({
       id: ['original', part.id, part.start, part.from, part.to, part.rate, part.gainDb, part.fadeIn, part.fadeOut].join(':'),
@@ -188,6 +217,15 @@ export class LiveDubEngine {
     this.bank = bank;
   }
 
+  /** The files on tracks, by id, for their clips; a clip whose file isn't here stays silent. */
+  private files: Record<string, AudioBuffer> = {};
+  setFiles(files: Record<string, AudioBuffer>) {
+    if (files === this.files) return;
+    this.files = files;
+    for (const key of this.stretched.keys()) if (key.startsWith('file:')) this.stretched.delete(key);
+    this.schedule();
+  }
+
   setOriginal(original: AudioBuffer | null) {
     if (original === this.original) return;
     this.original = original;
@@ -281,7 +319,7 @@ export class LiveDubEngine {
   }
 
   private bufferFor(clip: LiveClip): { buffer: AudioBuffer; offset: number } | null {
-    const audio = clip.original ? this.original : this.bank;
+    const audio = clip.file ? this.files[clip.file] ?? null : clip.original ? this.original : this.bank;
     if (!audio) return null;
     if (Math.abs(clip.rate - 1) < 1e-6) return { buffer: audio, offset: clip.bankFrom };
     let buffer = this.stretched.get(clip.stretchKey);

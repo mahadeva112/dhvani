@@ -3,7 +3,7 @@ import { sendBankAgain } from './bankUpload';
 import { fetchMixed } from './castService';
 import { DubMixReport, DubStem } from '../types';
 import type { SyncReport } from './syncService';
-import { originalParts, renderPayload, type SyncBank, type SyncEdits } from './syncEditModel.ts';
+import { audioParts, ORIGINAL_SPEAKER, originalParts, renderPayload, type AudioFileInfo, type AudioTrack, type SyncBank, type SyncEditPart, type SyncEdits } from './syncEditModel.ts';
 
 /** The bank, the edits and what they do to the report (syncEditModel.ts); here, rendering them on the server. */
 export * from './syncEditModel.ts';
@@ -58,23 +58,58 @@ const samplesId = (samples: Float32Array) => {
   return `original-${hex(a)}${hex(b)}-${samples.length.toString(36)}`;
 };
 
+/** Outside audio for the "Dub + tracks" file: the tracks, and each file decoded. */
+export interface TrackAudio {
+  tracks: AudioTrack[];
+  files: Record<string, AudioFileInfo>;
+  buffers: Record<string, AudioBuffer>;
+}
+
+/** The name a track's stem and clips render as: its own, apart from any speaker's. */
+export const trackSpeaker = (track: AudioTrack, speakers: Set<string>) => {
+  let name = track.name.trim() || 'Track';
+  while (speakers.has(name) || name === ORIGINAL_SPEAKER) name = `${name} (track)`;
+  return name;
+};
+
 /**
- * The clips of the original as the server renders them: each part's stretch
- * of the original, one after another as a bank of their own, and the parts
- * to play from it, numbered after the bank's lines.
+ * The clips as the server renders them: each part's stretch of the original
+ * (or, with `audio`, of its file), one after another as a bank of their own,
+ * and the parts to play from it, numbered after the bank's lines. Each line
+ * says the speaker it renders as, so every track gets a stem of its own.
  */
-const originalRender = async (bank: SyncBank, edits: SyncEdits | null | undefined, source: AudioBuffer | null | undefined) => {
+const clipsRender = async (
+  bank: SyncBank,
+  edits: SyncEdits | null | undefined,
+  source: AudioBuffer | null | undefined,
+  audio?: TrackAudio | null
+) => {
   const rate = bank.sampleRate;
-  const parts = originalParts(edits, source?.duration ?? Infinity);
-  if (parts.length === 0) return null;
-  if (!source) throw new DhvaniApiError('The original audio is still loading. Try again in a moment.', { code: 'original_not_loaded' });
-  const lines: { bankStart: number; length: number }[] = [];
+  type Clip = { part: SyncEditPart; buffer: AudioBuffer | null | undefined; speaker: string; gainDb: number };
+  const clips: Clip[] = originalParts(edits, source?.duration ?? Infinity).map((part) => ({ part, buffer: source, speaker: ORIGINAL_SPEAKER, gainDb: 0 }));
+  if (clips.length > 0 && !source) throw new DhvaniApiError('The original audio is still loading. Try again in a moment.', { code: 'original_not_loaded' });
+  if (audio) {
+    const speakers = new Set(bank.lines.map((line) => line.speaker));
+    const names = new Map<string, string>();
+    for (const track of audio.tracks) {
+      const name = trackSpeaker(track, speakers);
+      speakers.add(name);
+      names.set(track.id, name);
+    }
+    for (const { part, file, track } of audioParts(edits, audio.tracks, audio.files)) {
+      const buffer = audio.buffers[file];
+      if (!buffer) throw new DhvaniApiError(`${audio.files[file]?.name || 'A file on a track'} is still loading. Try again in a moment.`, { code: 'track_not_loaded' });
+      clips.push({ part, buffer, speaker: names.get(track) as string, gainDb: audio.tracks.find((t) => t.id === track)?.gainDb ?? 0 });
+    }
+  }
+  if (clips.length === 0) return null;
+  const lines: { bankStart: number; length: number; speaker: string }[] = [];
   const pieces: Float32Array[] = [];
   let at = 0;
-  for (const part of parts) {
-    const piece = await originalSamples(source, part.from, part.to, rate);
+  for (const { part, buffer, speaker } of clips) {
+    const piece = await originalSamples(buffer as AudioBuffer, part.from, part.to, rate);
     pieces.push(piece);
-    lines.push({ bankStart: at, length: piece.length });
+    lines.push({ bankStart: at, length: piece.length, speaker });
     at += piece.length;
   }
   const samples = new Float32Array(at);
@@ -83,13 +118,13 @@ const originalRender = async (bank: SyncBank, edits: SyncEdits | null | undefine
     bankId: samplesId(samples),
     blob: () => floatWav(samples, rate),
     lines,
-    parts: parts.map((part, n) => ({
+    parts: clips.map(({ part, gainDb }, n) => ({
       line: bank.lines.length + n,
       from: 0,
       to: lines[n].length,
       startSample: Math.max(0, Math.round(part.start * rate)),
       rate: part.rate,
-      gainDb: part.gainDb,
+      gainDb: part.gainDb + gainDb,
       fadeIn: part.fadeIn,
       fadeOut: part.fadeOut,
     })),
@@ -115,6 +150,7 @@ export const renderSyncEdits = async (
     report,
     sourceDuration,
     source,
+    tracks,
   }: {
     bank: SyncBank;
     bankBlob: Blob | null | undefined;
@@ -123,10 +159,17 @@ export const renderSyncEdits = async (
     sourceDuration: number;
     /** The original, for the clips of it on the dub. */
     source?: AudioBuffer | null;
+    /**
+     * The tracks of outside audio, for the "Dub + tracks" file: mixed in, each
+     * as a stem of its own, at full precision. Without it, the dub alone.
+     */
+    tracks?: TrackAudio | null;
   },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncEditRender> => {
-  const original = await originalRender(bank, edits, source);
+  const original = await clipsRender(bank, edits, source, tracks);
+  // With tracks the file is a mix of several sources: one stem each, kept at full precision so nothing clips.
+  const several = Boolean(report.mix) || Boolean(tracks);
   const body = {
     bankId: bank.bankId,
     sampleRate: bank.sampleRate,
@@ -136,8 +179,8 @@ export const renderSyncEdits = async (
     ...(original && { original: { bankId: original.bankId, lines: original.lines } }),
     sourceDuration,
     edgeFade: report.join?.edgeFade ?? 0,
-    multiSpeaker: Boolean(report.mix),
-    peak: report.mix?.peak,
+    multiSpeaker: several,
+    peak: report.mix?.peak ?? (tracks ? 'float' : undefined),
   };
   type Rendered = { audioId: string; contentType: string; stems: { speaker: string; audioId: string; contentType: string }[]; report: { mix?: DubMixReport } };
   let data: Rendered | null = null;

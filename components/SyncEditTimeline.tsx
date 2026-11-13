@@ -2,12 +2,15 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { createPortal } from 'react-dom';
 import {
   AlignStartVertical,
+  ArrowDown,
   ArrowLeft,
   ArrowRight,
   ArrowRightToLine,
+  ArrowUp,
   Check,
   ChevronDown,
   CircleHelp,
+  FileAudio,
   Flag,
   FoldHorizontal,
   History,
@@ -18,6 +21,8 @@ import {
   Magnet,
   Maximize2,
   Mic,
+  Pencil,
+  Plus,
   MoreHorizontal,
   Play,
   Redo2,
@@ -38,7 +43,7 @@ import { PLAYHEAD_RED, Playhead, TimelineRuler, useTimelineZoom, useWindowPlayhe
 import { MarkerFlags, MarkerLines, MarkerList, newMarker, sortMarkers } from './TimelineMarkers';
 import type { TimelineNote } from '../types';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
-import { drawCentreLine, drawPeaks } from '../services/waveform';
+import { computePeaks, drawCentreLine, drawPeaks } from '../services/waveform';
 import { useWaveHeight } from './waveHeight';
 import { WaveHeightButton } from './WaveHeightButton';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
@@ -68,14 +73,24 @@ import {
   syncedParts,
   hasEdits,
   isEdited,
+  isAudioClip,
+  isClip,
   isOriginalClip,
+  isTrackLane,
   MAX_EDIT_RATE,
   measureEdits,
   MIN_EDIT_RATE,
   MIN_PART_SECONDS,
   ORIGINAL_CLIP_PREFIX,
   originalLines,
+  audioClipsOf,
+  audioLines,
+  AUDIO_CLIP_PREFIX,
   ORIGINAL_SPEAKER,
+  trackLane,
+  trackOfLane,
+  type AudioFileInfo,
+  type AudioTrack,
   partEnd,
   partLength,
   partsOf,
@@ -244,8 +259,10 @@ const ORIGINAL_HUE = '#22d3ee';
 type Chunk = {
   key: string;
   line: number;
-  /** A clip of the original rather than a line of the dub. */
+  /** A clip rather than a line of the dub: of the original, or (with `file`) of a file on a track. */
   original: boolean;
+  /** An audio clip on a track: the file it is cut from. */
+  file?: { id: string; name: string };
   unit: SyncUnitReport | undefined;
   unitIndex: number;
   part: SyncEditPart;
@@ -255,8 +272,30 @@ type Chunk = {
   lane: string;
 };
 
-/** With several speakers, how tall each speaker's lane is (px). */
+/** With several speakers, how tall each speaker's lane is (px); a track's lane is as tall. */
 const LANE_PX = 56;
+/** The one dub lane, with one speaker: taller, as the lane the editing happens on. */
+const DUB_LANE_PX = 72;
+
+/** Edit timing's tracks of outside audio: their files, and each track's mute and solo, for listening. */
+export interface AudioTrackLanes {
+  tracks: AudioTrack[];
+  files: Record<string, AudioFileInfo>;
+  /** Each file decoded, to draw; a file still decoding draws without its wave. */
+  buffers: Record<string, AudioBuffer>;
+  monitor: Record<string, SpeakerMonitor>;
+  onMonitor: (trackId: string, patch: Partial<SpeakerMonitor>) => void;
+  /** Keeps dropped files with the project and returns them as read; a file that isn't audio is left out. */
+  onImport: (files: File[]) => Promise<AudioFileInfo[]>;
+}
+
+/** Colours a new track takes in turn: away from the dub's indigo and the original's cyan. */
+const TRACK_COLORS = ['#34d399', '#a3e635', '#fbbf24', '#fb7185', '#f472b6', '#2dd4bf', '#facc15', '#c084fc'];
+
+/** Files taken as audio by their name when the browser gives no type. */
+const AUDIO_FILE_NAME = /\.(wav|wave|mp3|flac|ogg|oga|opus|m4a|aac|aif|aiff|caf|webm|weba|mka)$/i;
+
+const newTrackId = () => `t${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 
 /** Edit timing's lanes with several speakers: each speaker's colour, voice, level, mute and solo. */
 export interface SpeakerLanes {
@@ -271,17 +310,18 @@ export interface SpeakerLanes {
   onMonitor: (speaker: string, patch: Partial<SpeakerMonitor>) => void;
 }
 
-/** A line's edits replaced by `parts`. Anything edited is locked. A clip of the original with no parts left is gone. */
+/** A line's edits replaced by `parts`. Anything edited is locked. A clip with no parts left is gone. */
 const withParts = (edits: SyncEdits, key: string, parts: SyncEditPart[]): SyncEdits => {
-  if (parts.length === 0 && isOriginalClip(key)) {
+  if (parts.length === 0 && isClip(key)) {
     const { [key]: _gone, ...rest } = edits;
     return rest;
   }
-  return { ...edits, [key]: { parts, locked: true } };
+  // An audio clip keeps its file and track.
+  return { ...edits, [key]: { ...(edits[key]?.audio && { audio: edits[key].audio }), parts, locked: true } };
 };
 
-/** The clips of the original in `edits`, to tell whether a drag changed any. */
-const originalsOf = (edits: SyncEdits | null | undefined) => JSON.stringify(Object.entries(edits ?? {}).filter(([key]) => isOriginalClip(key)));
+/** The clips (of the original, and on tracks) in `edits`, to tell whether a drag changed any. */
+const originalsOf = (edits: SyncEdits | null | undefined) => JSON.stringify(Object.entries(edits ?? {}).filter(([key]) => isClip(key)));
 
 const sameEdits = (a: SyncEdits | null | undefined, b: SyncEdits | null | undefined) => a === b || (!hasEdits(a) && !hasEdits(b));
 
@@ -400,8 +440,10 @@ type ClipBoxProps = {
   bankOffset: number;
   left: number;
   width: number;
-  /** With several speakers, the px top of its lane; undefined with one dub lane. */
+  /** With several lanes, the px top of its lane; undefined with one dub lane. */
   laneTop: number | undefined;
+  /** How tall its lane is (px), with several lanes. */
+  laneHeight?: number;
   hue: string;
   color: string;
   chosen: boolean;
@@ -430,7 +472,7 @@ const samePart = (a: SyncEditPart, b: SyncEditPart) =>
  * changed, so a drag redraws the part being dragged and leaves the rest.
  */
 const ClipBox = React.memo<ClipBoxProps>(
-  ({ chunk, line, rate, data, bankOffset, left, width, laneTop, hue, color, chosen, picked, silenced, locked, edited, cuts, zone, tool, shown }) => {
+  ({ chunk, line, rate, data, bankOffset, left, width, laneTop, laneHeight = LANE_PX, hue, color, chosen, picked, silenced, locked, edited, cuts, zone, tool, shown }) => {
     const { part } = chunk;
     const length = partLength(part);
     const showOffset = chunk.unit && chunk.unit.offset !== null && line && part.from <= line.lead + 1e-6;
@@ -444,9 +486,9 @@ const ClipBox = React.memo<ClipBoxProps>(
     return (
       <div
         data-part={part.id}
-        className={`absolute ${laneTop !== undefined ? '' : 'top-1.5 bottom-1.5'} rounded-[3px] border overflow-hidden ${chunk.original ? 'border-dashed' : ''} ${part.muted || silenced ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
+        className={`absolute ${laneTop !== undefined ? '' : 'top-1.5 bottom-1.5'} rounded-[3px] border overflow-hidden ${chunk.original && !chunk.file ? 'border-dashed' : ''} ${part.muted || silenced ? 'opacity-35' : ''} ${chosen ? 'ring-2 ring-slate-100 z-10' : picked ? 'ring-2 ring-indigo-300 z-10' : ''}`}
         style={{
-          ...(laneTop !== undefined && { top: laneTop, height: LANE_PX - 10 }),
+          ...(laneTop !== undefined && { top: laneTop, height: laneHeight - 10 }),
           left: `${left}%`,
           width: `${width}%`,
           background: shadeOf(hue, 0.5),
@@ -454,7 +496,9 @@ const ClipBox = React.memo<ClipBoxProps>(
           backgroundImage: part.muted ? 'repeating-linear-gradient(135deg, rgba(148,163,184,0.18) 0 4px, transparent 4px 8px)' : undefined,
         }}
         title={
-          chunk.original
+          chunk.file
+            ? `${chunk.file.name}: ${formatTime(part.from)} to ${formatTime(part.to)} of the file`
+            : chunk.original
             ? `Clip ${chunk.label}: the original from ${formatTime(part.from)} to ${formatTime(part.to)}`
             : `Line ${chunk.label}${chunk.unit?.text ? `: ${chunk.unit.text}` : ''}${pauseNote(chunk.unit)}`
         }
@@ -770,7 +814,7 @@ const useDismiss = (open: boolean, ref: React.RefObject<HTMLElement | null>, clo
 };
 
 /** One entry of a line's right-click menu, or a rule between groups of them. */
-type MenuEntry = { label: string; shortcut?: string; icon: React.ReactNode; run: () => void } | 'rule';
+type MenuEntry = { label: string; shortcut?: string; icon: React.ReactNode; run: () => void; danger?: boolean } | 'rule';
 
 /** The Shortcuts sheet: keys, then what they do. */
 const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
@@ -824,6 +868,14 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
       ['Scroll  Ctrl + scroll', 'Move, zoom'],
       ['Ctrl + Z  Ctrl + Shift + Z', 'Undo, redo'],
       ['Ctrl + C  Ctrl + V', 'Copy the original onto the dub'],
+    ],
+  },
+  {
+    title: 'Tracks',
+    keys: [
+      ['Drop audio files', 'On a track: there. Elsewhere: a new track'],
+      ['Right-click a lane name', 'Add audio, add, rename, move, delete'],
+      ['Drag a clip up or down', 'Onto another track'],
     ],
   },
   {
@@ -1005,12 +1057,144 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
   );
 };
 
+/**
+ * A track's lane header: its name (double-click or F2 to rename), how many
+ * clips it has, its mute and solo for listening, and its level, which the
+ * "Dub + tracks" file is mixed with. Right-click, or the ⋯ button, opens its
+ * menu.
+ */
+const TrackLaneHead: React.FC<{
+  track: AudioTrack;
+  clips: number;
+  /** What its files are, under its name: the first file's name, rate and channels. */
+  caption: string;
+  heard: boolean;
+  monitor: SpeakerMonitor;
+  renaming: boolean;
+  onMonitor: (patch: Partial<SpeakerMonitor>) => void;
+  onLevel: (db: number) => void;
+  onRename: (name: string | null) => void;
+  onStartRename: () => void;
+  onMenu: (x: number, y: number) => void;
+  height: number;
+}> = ({ track, clips, caption, heard, monitor, renaming, onMonitor, onLevel, onRename, onStartRename, onMenu, height }) => {
+  const [db, setDb] = useState(track.gainDb);
+  useEffect(() => setDb(track.gainDb), [track.gainDb]);
+  const commit = (value: number) => {
+    if (Math.abs(value - track.gainDb) > 1e-6) onLevel(value);
+  };
+  const toggle = (on: boolean, onClass: string) =>
+    `w-[22px] h-5 rounded-[5px] border text-[10.5px] font-semibold flex items-center justify-center cursor-default transition-colors ${
+      on ? onClass : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 hover:border-slate-500'
+    }`;
+  return (
+    <div
+      className="px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 min-w-0"
+      style={{ height }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        onMenu(e.clientX, e.clientY);
+      }}
+    >
+      <span className="flex items-center gap-1.5 text-[11.5px] text-slate-200 min-w-0">
+        <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: track.color }} />
+        {renaming ? (
+          <input
+            autoFocus
+            defaultValue={track.name}
+            aria-label="Track name"
+            maxLength={60}
+            onFocus={(e) => e.currentTarget.select()}
+            onBlur={(e) => onRename(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') onRename(e.currentTarget.value);
+              else if (e.key === 'Escape') onRename(null);
+            }}
+            className="min-w-0 flex-1 h-5 px-1 rounded bg-slate-950 border border-indigo-400 text-[11.5px] text-slate-100 focus:outline-none"
+          />
+        ) : (
+          <span className="truncate" title={`${track.name}. Double-click to rename.`} onDoubleClick={onStartRename}>
+            {track.name}
+          </span>
+        )}
+        {!renaming && (
+          <span className="ml-auto shrink-0 text-[10px] text-slate-500 tabular-nums">
+            {clips} {clips === 1 ? 'clip' : 'clips'}
+          </span>
+        )}
+        <button
+          type="button"
+          aria-label={`${track.name}: track menu`}
+          title="Add audio, add a track, rename, move or delete"
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            onMenu(r.left, r.bottom + 4);
+          }}
+          className="shrink-0 w-5 h-5 rounded-md flex items-center justify-center text-slate-500 hover:text-slate-100 hover:bg-slate-800 cursor-default"
+        >
+          <MoreHorizontal className="w-3.5 h-3.5" />
+        </button>
+      </span>
+      {caption && (
+        <span className="block text-[10px] text-slate-500 truncate" title={caption}>
+          {caption}
+        </span>
+      )}
+      <span className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-pressed={monitor.muted}
+          aria-label={`Mute ${track.name}`}
+          title="Mute: don't hear this track here. The Dub + tracks file keeps it."
+          onClick={() => onMonitor({ muted: !monitor.muted })}
+          className={toggle(monitor.muted, 'border-rose-500 bg-rose-500 text-white')}
+        >
+          M
+        </button>
+        <button
+          type="button"
+          aria-pressed={monitor.solo}
+          aria-label={`Solo ${track.name}`}
+          title="Solo: hear only the soloed tracks, with the dub. The Dub + tracks file keeps every track."
+          onClick={() => onMonitor({ solo: !monitor.solo })}
+          className={toggle(monitor.solo, 'border-amber-400 bg-amber-400 text-amber-950')}
+        >
+          S
+        </button>
+        <input
+          type="range"
+          min={MIN_SPEAKER_DB}
+          max={MAX_SPEAKER_DB}
+          step={0.5}
+          value={db}
+          aria-label={`${track.name} level`}
+          aria-valuetext={formatLevel(db)}
+          title={`${track.name}'s level, heard here and in the Dub + tracks file. Double-click for 0 dB.`}
+          onChange={(e) => setDb(Number(e.target.value))}
+          onPointerUp={(e) => commit(Number(e.currentTarget.value))}
+          onKeyUp={(e) => commit(Number(e.currentTarget.value))}
+          onDoubleClick={() => {
+            setDb(0);
+            commit(0);
+          }}
+          className={`flex-1 min-w-0 h-1 accent-indigo-400 cursor-default transition-opacity ${heard ? '' : 'opacity-40'}`}
+        />
+        <span className="w-[3.25rem] text-right font-mono text-[10.5px] text-slate-400 tabular-nums">{formatLevel(db)}</span>
+      </span>
+    </div>
+  );
+};
+
 export const SyncEditTimeline: React.FC<{
   bank: SyncBank;
   bankBlob: Blob | null | undefined;
   baseReport: SyncReport;
   edits: SyncEdits | null | undefined;
-  onChange: (edits: SyncEdits, label: string) => void;
+  /** Edits made, with a name for the history; `tracks` when the tracks changed too, in the same step. */
+  onChange: (edits: SyncEdits, label: string, tracks?: AudioTrack[]) => void;
+  /** Tracks of outside audio under the dub: files dropped on the timeline. Without it, no tracks. */
+  audio?: AudioTrackLanes;
   /**
    * The project's one history: when given, Undo, Redo and History here step
    * through every change to the project (takes, voice changes, Sync, the
@@ -1056,6 +1240,7 @@ export const SyncEditTimeline: React.FC<{
   baseReport,
   edits,
   onChange,
+  audio,
   projectHistory,
   status,
   live = false,
@@ -1100,13 +1285,13 @@ export const SyncEditTimeline: React.FC<{
     lastSent.current = edits;
     setHistory({ entries: [{ label: 'After Sync again', edits: edits ?? {} }], at: 0 });
   }, [edits]);
-  const commit = (next: SyncEdits, label: string) => {
+  const commit = (next: SyncEdits, label: string, tracks?: AudioTrack[]) => {
     lastSent.current = next;
     setHistory((h) => {
       const entries = [...h.entries.slice(0, h.at + 1), { label, edits: next }].slice(-100);
       return { entries, at: entries.length - 1 };
     });
-    onChange(next, label);
+    onChange(next, label, tracks);
   };
   const goTo = (index: number) => {
     const entry = history.entries[index];
@@ -1139,6 +1324,24 @@ export const SyncEditTimeline: React.FC<{
   }, [bankBlob]);
   const bankPeaks = usePeaks(bankBuffer);
   const sourcePeaks = usePeaks(sourceBuffer);
+  // Each file on a track, its peaks worked out once per decoded buffer.
+  const peaksOfBuffer = useRef(new WeakMap<AudioBuffer, PeakData | null>());
+  const filePeaks = useMemo(() => {
+    const out: Record<string, PeakData | null> = {};
+    for (const [id, buffer] of Object.entries(audio?.buffers ?? {})) {
+      if (!peaksOfBuffer.current.has(buffer)) {
+        let peaks: PeakData | null = null;
+        try {
+          peaks = buffer.duration > 0 ? computePeaks(buffer) : null;
+        } catch {
+          peaks = null;
+        }
+        peaksOfBuffer.current.set(buffer, peaks);
+      }
+      out[id] = peaksOfBuffer.current.get(buffer) ?? null;
+    }
+    return out;
+  }, [audio?.buffers]);
 
   const unitIndexByKey = useMemo(() => new Map(baseReport.units.map((unit, n) => [unit.key, n])), [baseReport]);
   // Measured on the committed edits: a drag moves its parts on every frame, and how they land is worked out once, when it is dropped.
@@ -1146,18 +1349,35 @@ export const SyncEditTimeline: React.FC<{
   const unitByKey = useMemo(() => new Map(measured.units.map((unit) => [unit.key, unit])), [measured]);
   const tolerance = baseReport.tolerance;
 
-  // The bank's lines, then the original once for each clip of it on the dub.
+  // The bank's lines, then the original once for each clip of it on the dub, then each file once for each clip of it on a track.
   const sourceSeconds = sourceBuffer?.duration || sourceTotal;
-  const lines = useMemo(() => [...bank.lines, ...originalLines(view, sourceSeconds, rate)], [bank, view, sourceSeconds, rate]);
+  const tracks = useMemo(() => audio?.tracks ?? [], [audio?.tracks]);
+  const trackFiles = useMemo(() => audio?.files ?? {}, [audio?.files]);
+  const trackIds = useMemo(() => new Set(tracks.map((track) => track.id)), [tracks]);
+  const lines = useMemo(
+    () => [
+      ...bank.lines,
+      ...originalLines(view, sourceSeconds, rate),
+      ...audioLines(view, trackFiles, rate).filter((line) => trackIds.has(trackOfLane(line.speaker) ?? '')),
+    ],
+    [bank, view, sourceSeconds, rate, trackFiles, trackIds]
+  );
 
-  // With several speakers: a lane for each, in the order they first speak, and one for clips of the original.
+  // With several speakers: a lane for each, in the order they first speak, and one for clips of the original. Then a lane for each track.
   const multi = Boolean(speakerLanes);
-  const laneNames = useMemo(
+  const baseLanes = useMemo(
     () => (multi ? [...new Set(bank.lines.filter((line) => !line.original).map((line) => line.speaker || 'Speaker')), ORIGINAL_SPEAKER] : ['']),
     [multi, bank]
   );
+  const laneNames = useMemo(() => [...baseLanes, ...tracks.map((track) => trackLane(track.id))], [baseLanes, tracks]);
+  /** One lane or several: with tracks, the one dub lane is a lane among others. */
+  const laned = laneNames.length > 1;
+  const laneHeights = useMemo(() => laneNames.map((_, n) => (!multi && n === 0 ? DUB_LANE_PX : LANE_PX)), [laneNames, multi]);
+  const laneTops = useMemo(() => laneHeights.map((_, n) => laneHeights.slice(0, n).reduce((sum, h) => sum + h, 0)), [laneHeights]);
+  const lanesHeight = laneHeights.reduce((sum, h) => sum + h, 0);
   const laneIndex = useMemo(() => new Map(laneNames.map((name, n) => [name, n])), [laneNames]);
   const laneOfChunk = (chunk: Chunk) => laneIndex.get(chunk.lane) ?? 0;
+  const trackById = useMemo(() => new Map(tracks.map((track) => [track.id, track])), [tracks]);
 
   const chunks: Chunk[] = useMemo(() => {
     const out: Chunk[] = [];
@@ -1165,24 +1385,27 @@ export const SyncEditTimeline: React.FC<{
     lines.forEach((line, n) => {
       const parts = [...partsOf(view, line, rate)].sort((a, b) => a.start - b.start);
       const original = Boolean(line.original);
+      const fileId = view[line.key]?.audio?.file;
+      const file = fileId ? { id: fileId, name: trackFiles[fileId]?.name ?? 'Audio' } : undefined;
       const unitIndex = original ? -1 : unitIndexByKey.get(line.key) ?? n;
-      // A clip of the original is O1, O2… in the order they were made.
-      const name = original ? `O${++clips}` : `${unitIndex + 1}`;
+      // A clip of the original is O1, O2… in the order they were made; a clip on a track goes by its file's name.
+      const name = file ? file.name : original ? `O${++clips}` : `${unitIndex + 1}`;
       parts.forEach((part, k) =>
         out.push({
           key: line.key,
           line: n,
           original,
+          file,
           unit: original ? undefined : unitByKey.get(line.key),
           unitIndex,
           part,
-          label: `${name}${parts.length > 1 ? 'abcdefghijklmnopqrstuvwxyz'[k] ?? `.${k + 1}` : ''}`,
-          lane: !multi ? '' : original ? ORIGINAL_SPEAKER : line.speaker || 'Speaker',
+          label: `${name}${parts.length > 1 ? `${file ? ' ' : ''}${'abcdefghijklmnopqrstuvwxyz'[k] ?? `.${k + 1}`}` : ''}`,
+          lane: file ? line.speaker : !multi ? '' : original ? ORIGINAL_SPEAKER : line.speaker || 'Speaker',
         })
       );
     });
     return out.sort((a, b) => a.part.start - b.part.start);
-  }, [lines, view, rate, unitIndexByKey, unitByKey, multi]);
+  }, [lines, view, rate, unitIndexByKey, unitByKey, multi, trackFiles]);
 
   const total = useMemo(() => Math.max(sourceTotal, ...chunks.map((c) => partEnd(c.part)), 1), [sourceTotal, chunks]);
   const zoom = useTimelineZoom(total, currentTime, { wheelScrollsTime: true });
@@ -1337,8 +1560,11 @@ export const SyncEditTimeline: React.FC<{
   /** The lane under `clientY`: always 0 with one dub lane. */
   const laneAt = (clientY: number) => {
     const r = laneRef.current?.getBoundingClientRect();
-    if (!multi || !r) return 0;
-    return clamp(Math.floor((clientY - r.top) / LANE_PX), 0, laneNames.length - 1);
+    if (!laned || !r) return 0;
+    const y = clientY - r.top;
+    let n = 0;
+    while (n < laneNames.length - 1 && y >= laneTops[n + 1]) n++;
+    return n;
   };
   const timeAt = (clientX: number) => {
     const r = laneRef.current?.getBoundingClientRect();
@@ -1422,6 +1648,9 @@ export const SyncEditTimeline: React.FC<{
     return d;
   };
 
+  /** What a ripple pushes along: the dub's lanes together, each track on its own. */
+  const rippleScope = (c: Chunk) => (isTrackLane(c.lane) ? c.lane : 'dub');
+
   /**
    * Moves a part by `delta` seconds. Without `rippled` it goes where it is
    * sent, as in REAPER, over its neighbours if need be (stopping only at
@@ -1438,7 +1667,7 @@ export const SyncEditTimeline: React.FC<{
     const d = Math.max(delta, lo - start);
     let next = replacePart(base, chunk, { ...chunk.part, start: start + d });
     for (const other of among) {
-      if (other.part.id === chunk.part.id || other.part.start <= start + 1e-9) continue;
+      if (other.part.id === chunk.part.id || other.part.start <= start + 1e-9 || rippleScope(other) !== rippleScope(chunk)) continue;
       const parts = partsOf(next, lineOf(other), rate).map((part) => (part.id === other.part.id ? { ...part, start: Math.max(0, part.start + d) } : part));
       next = withParts(next, other.key, parts);
     }
@@ -1454,7 +1683,8 @@ export const SyncEditTimeline: React.FC<{
     if (movers.length === 1) return shifted(base, movers[0], delta, rippled, among);
     const first = Math.min(...movers.map((c) => c.part.start));
     const ids = new Set(movers.map((c) => c.part.id));
-    const moving = rippled ? among.filter((c) => ids.has(c.part.id) || c.part.start > first + 1e-9) : movers;
+    const scopes = new Set(movers.map(rippleScope));
+    const moving = rippled ? among.filter((c) => ids.has(c.part.id) || (c.part.start > first + 1e-9 && scopes.has(rippleScope(c)))) : movers;
     const movingIds = new Set(moving.map((c) => c.part.id));
     const staying = among.filter((c) => !movingIds.has(c.part.id));
     let low = -first;
@@ -1814,6 +2044,9 @@ export const SyncEditTimeline: React.FC<{
       const delta = dt + (hit?.delta ?? 0);
       const result = shiftedMany(base, d.group, delta, d.rippled, d.among);
       next = result.edits;
+      // Clips on tracks go up or down onto the track under the pointer; lines of the dub stay on their lane.
+      const overTrack = d.group.every((c) => c.file) ? trackOfLane(laneNames[laneAt(e.clientY)] ?? '') : null;
+      if (overTrack && d.group.some((c) => trackOfLane(c.lane) !== overTrack)) next = toTrack(next, d.group, overTrack);
       if (hit && !result.blocked) snapped = hit;
       const unit = baseReport.units[chunk.unitIndex];
       const newPart = partsOf(next, line, rate).find((p) => p.id === part.id) ?? part;
@@ -1824,8 +2057,9 @@ export const SyncEditTimeline: React.FC<{
         ? d.among.find((o) => !groupIds.has(o.part.id) && !o.part.muted && o.lane === chunk.lane &&
             (Math.abs(partEnd(o.part) - newPart.start) < 1e-6 || Math.abs(o.part.start - partEnd(newPart)) < 1e-6))
         : undefined;
-      d.label = zone === 'copy' ? `Copy ${groupName(d.group)}` : `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}`;
-      text = `${zone === 'copy' ? 'copy ' : ''}Δ ${formatShift(result.moved)}${several}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${
+      const toName = overTrack && d.group.some((c) => trackOfLane(c.lane) !== overTrack) ? trackById.get(overTrack)?.name : undefined;
+      d.label = `${zone === 'copy' ? `Copy ${groupName(d.group)}` : `${d.rippled ? 'Ripple move' : 'Move'} ${groupName(d.group)}`}${toName ? ` to ${toName}` : ''}`;
+      text = `${zone === 'copy' ? 'copy ' : ''}Δ ${formatShift(result.moved)}${several}${toName ? ` · to ${toName}` : ''}${unit ? ` · line ${chunk.label} vs original ${formatShift(onsetNow - unit.srcStart)}` : ''}${
         against ? ` · against ${against.original ? 'clip' : 'line'} ${against.label}` : snapped ? ` · snap: ${snapped.label}` : ''
       }`;
     } else if (zone === 'slip') {
@@ -2223,7 +2457,7 @@ export const SyncEditTimeline: React.FC<{
     },
     align: () => {
       if (!current) return say('Pick a line to align.');
-      if (current.original) return say('A clip of the original has no line of the script to align to.');
+      if (current.original) return say(current.file ? 'A clip on a track has no line of the script to align to.' : 'A clip of the original has no line of the script to align to.');
       const unit = baseReport.units[current.unitIndex];
       const line = lineOf(current);
       const parts = partsOf(committed, line, rate);
@@ -2255,7 +2489,7 @@ export const SyncEditTimeline: React.FC<{
     lock: () => {
       if (group.length === 0) return say('Pick a line to lock or unlock.');
       const keys = [...new Set(group.filter((c) => !c.original).map((c) => c.key))];
-      if (keys.length === 0) return say('A clip of the original always stays where you put it.');
+      if (keys.length === 0) return say('A clip always stays where you put it: Sync never moves it.');
       const locked = keys.some((key) => !(committed[key]?.locked ?? false));
       const next = { ...committed };
       for (const c of group) if (!c.original) next[c.key] = { parts: committed[c.key]?.parts ?? syncedParts(lineOf(c), rate), locked };
@@ -2288,8 +2522,11 @@ export const SyncEditTimeline: React.FC<{
     },
     resetAll: () => {
       if (!hasEdits(committed)) return;
-      commit({}, 'Reset all edits');
+      // The clips on tracks are not edits of the dub: they stay.
+      const kept = audioClipsOf(committed);
+      commit(kept, 'Reset all edits');
       setSelected(null);
+      if (hasEdits(kept)) say('The dub is as Sync placed it. The clips on your tracks stay; delete a track to take its clips off.');
     },
     nudge: (seconds: number) => {
       if (group.length === 0) return;
@@ -2351,7 +2588,7 @@ export const SyncEditTimeline: React.FC<{
    */
   const setGroupRate = (wanted: number) => {
     const dubbed = group.filter((c) => !c.original);
-    if (dubbed.length === 0) return say('Only clips of the original are picked: they keep their own speed.');
+    if (dubbed.length === 0) return say('Only clips are picked: they keep their own speed.');
     const target = clamp(wanted, MIN_EDIT_RATE, MAX_EDIT_RATE);
     let held = 0;
     const next = changeAll(committed, dubbed, (p) => {
@@ -2485,10 +2722,228 @@ export const SyncEditTimeline: React.FC<{
       !several && { label: 'Start, speed, gain, fades…', shortcut: 'F2', icon: <SlidersHorizontal className={icon} />, run: () => openProps(current.part.id) },
       'rule',
       (dub || several) && { label: several ? 'Reset these lines' : 'Reset line', icon: <RotateCcw className={icon} />, run: act.reset },
-      { label: dub || several ? 'Remove' : 'Take off the dub', shortcut: 'Del', icon: <Trash2 className={icon} />, run: act.remove },
+      { label: dub || several ? 'Remove' : current.file ? 'Remove clip' : 'Take off the dub', shortcut: 'Del', icon: <Trash2 className={icon} />, run: act.remove },
     ];
     const list = entries.filter(Boolean) as MenuEntry[];
     return list.filter((entry, n) => entry !== 'rule' || (n > 0 && n < list.length - 1 && list[n - 1] !== 'rule'));
+  };
+
+  // ---- Tracks of outside audio ----
+
+  /*
+   * Files dropped on the timeline go on a track: dropped on a track's lane,
+   * on that track where they were let go; anywhere else, on a new track
+   * under the others. Several files go end to end. Snap on, the drop lands
+   * on the playhead, an original line's start or a clip's edge when near one.
+   * Nothing is done to a file: it plays as it is, at whatever gain and fades
+   * the user gives it, and Sync never moves it.
+   */
+  const latest = useRef({ committed, tracks });
+  latest.current = { committed, tracks };
+  const [renamingTrack, setRenamingTrack] = useState<string | null>(null);
+  const [trackMenu, setTrackMenu] = useState<{ x: number; y: number; track: string | null } | null>(null);
+  const trackMenuRef = useRef<HTMLDivElement>(null);
+  useDismiss(trackMenu !== null, trackMenuRef, () => setTrackMenu(null));
+  const fileInput = useRef<HTMLInputElement>(null);
+  /** Where the file picker's files go: a track (null for a new one at `index`) at a time. */
+  const fileTarget = useRef<{ track: string | null; at: number; index: number }>({ track: null, at: 0, index: 0 });
+  const [fileDrop, setFileDrop] = useState<{ track: string | null; at: number; snapped: string | null } | null>(null);
+  const [importing, setImporting] = useState<string | null>(null);
+
+  const trackName = () => {
+    let n = tracks.length + 1;
+    while (tracks.some((track) => track.name === `Track ${n}`)) n++;
+    return `Track ${n}`;
+  };
+  const trackColor = (among: AudioTrack[] = tracks) =>
+    TRACK_COLORS.find((color) => !among.some((track) => track.color === color)) ?? TRACK_COLORS[among.length % TRACK_COLORS.length];
+  const clipsOn = (trackId: string, edits: SyncEdits = committed) =>
+    Object.entries(edits).filter(([key, edit]) => isAudioClip(key) && edit.audio?.track === trackId);
+
+  const addTrack = (index: number) => {
+    const track: AudioTrack = { id: newTrackId(), name: trackName(), color: trackColor(), gainDb: 0 };
+    commit(committed, `Add ${track.name}`, [...tracks.slice(0, index), track, ...tracks.slice(index)]);
+    setRenamingTrack(track.id);
+  };
+  const renameTrack = (id: string, name: string | null) => {
+    setRenamingTrack(null);
+    const track = trackById.get(id);
+    const clean = name?.trim().slice(0, 60);
+    if (!track || !clean || clean === track.name) return;
+    commit(committed, `Rename ${track.name} to ${clean}`, tracks.map((t) => (t.id === id ? { ...t, name: clean } : t)));
+  };
+  const moveTrack = (id: string, by: -1 | 1) => {
+    const from = tracks.findIndex((t) => t.id === id);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= tracks.length) return;
+    const next = [...tracks];
+    [next[from], next[to]] = [next[to], next[from]];
+    commit(committed, `Move ${tracks[from].name} ${by < 0 ? 'up' : 'down'}`, next);
+  };
+  const deleteTrack = (id: string) => {
+    const track = trackById.get(id);
+    if (!track) return;
+    const gone = new Set(clipsOn(id).map(([key]) => key));
+    const next = Object.fromEntries(Object.entries(committed).filter(([key]) => !gone.has(key)));
+    commit(next, `Delete ${track.name}`, tracks.filter((t) => t.id !== id));
+    setSelectedIds((ids) => ids.filter((pid) => !chunks.some((c) => c.part.id === pid && gone.has(c.key))));
+    say(`${track.name} deleted${gone.size > 0 ? `, with its ${gone.size === 1 ? 'clip' : `${gone.size} clips`}` : ''}. Undo brings it back.`);
+  };
+  const setTrackLevel = (id: string, db: number) => {
+    const track = trackById.get(id);
+    if (!track) return;
+    commit(committed, `Set the level of ${track.name}`, tracks.map((t) => (t.id === id ? { ...t, gainDb: clamp(db, MIN_SPEAKER_DB, MAX_SPEAKER_DB) } : t)));
+  };
+
+  const isAudioFile = (file: File) => file.type.startsWith('audio/') || AUDIO_FILE_NAME.test(file.name);
+  const baseName = (name: string) => name.replace(/\.[^.]+$/, '').trim() || 'Track';
+
+  /** Puts `files` on track `trackId` (null: a new track at `index`) from `at`, end to end. */
+  const addAudio = async (files: File[], at: number, trackId: string | null, index = tracks.length) => {
+    if (!audio) return;
+    const wanted = files.filter(isAudioFile);
+    if (wanted.length === 0) {
+      say(files.length > 0 ? `${files[0].name} is not an audio file. Drop a WAV, MP3, FLAC, M4A or OGG.` : 'Drop an audio file.');
+      return;
+    }
+    setImporting(wanted.length === 1 ? wanted[0].name : `${wanted.length} files`);
+    let infos: AudioFileInfo[] = [];
+    try {
+      infos = await audio.onImport(wanted);
+    } finally {
+      setImporting(null);
+    }
+    if (infos.length === 0) return;
+    // Read again after the wait: an edit made meanwhile stays.
+    const { committed: base, tracks: nowTracks } = latest.current;
+    let list = nowTracks;
+    let id = trackId && nowTracks.some((t) => t.id === trackId) ? trackId : null;
+    if (!id) {
+      const track: AudioTrack = { id: newTrackId(), name: baseName(infos[0].name), color: trackColor(nowTracks), gainDb: 0 };
+      list = [...nowTracks.slice(0, index), track, ...nowTracks.slice(index)];
+      id = track.id;
+    }
+    let next = base;
+    let t = Math.max(0, at);
+    const ids: string[] = [];
+    for (const info of infos) {
+      const key = `${AUDIO_CLIP_PREFIX}${Date.now().toString(36)}${(partCounter++).toString(36)}`;
+      const part: SyncEditPart = { id: newPartId(key), start: t, from: 0, to: info.duration, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false };
+      next = { ...next, [key]: { audio: { file: info.id, track: id }, parts: [part], locked: true } };
+      ids.push(part.id);
+      t += info.duration;
+    }
+    const name = list.find((track) => track.id === id)?.name ?? 'the track';
+    const what = infos.length === 1 ? infos[0].name : `${infos.length} files`;
+    commit(next, `Add ${what} to ${name}`, list === nowTracks ? undefined : list);
+    setSelectedIds(ids);
+    // Said plainly when the file's rate or channels differ from the dub's: that is how the mixed file will have it.
+    const differ = infos.find((info) => info.sampleRate !== rate || info.channels > 1);
+    const note = differ
+      ? ` ${differ.name} is ${differ.sampleRate / 1000} kHz ${differ.channels > 1 ? 'stereo' : 'mono'}: the Dub + tracks file has it at ${rate / 1000} kHz mono, as the dub is.`
+      : '';
+    say(`${what} on ${name} at ${formatTime(Math.max(0, at))}.${note}`);
+  };
+
+  /** Where files dragged over the timeline would go, from the pointer. */
+  const dropTarget = (clientX: number, clientY: number): { track: string | null; at: number; snapped: string | null } => {
+    const r = laneRef.current?.getBoundingClientRect();
+    const inside = Boolean(r && clientX >= r.left && clientX <= r.right);
+    const overLanes = Boolean(r && inside && clientY >= r.top && clientY <= r.bottom);
+    const lane = overLanes ? laneNames[laneAt(clientY)] : undefined;
+    const track = lane ? trackOfLane(lane) : null;
+    const raw = inside ? Math.max(0, timeAt(clientX)) : currentTime;
+    const hit = inside ? snapNear([{ t: raw, kinds: ['playhead', 'edge', 'start'] }], new Set()) : null;
+    return { track, at: Math.max(0, raw + (hit?.delta ?? 0)), snapped: inside ? hit?.label ?? null : 'playhead' };
+  };
+  const draggingFiles = (e: React.DragEvent) => Boolean(audio) && [...e.dataTransfer.types].includes('Files');
+  const onFileDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    const next = dropTarget(e.clientX, e.clientY);
+    setFileDrop((was) => (was && was.track === next.track && Math.abs(was.at - next.at) < 1e-4 && was.snapped === next.snapped ? was : next));
+  };
+  const onFileDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!draggingFiles(e)) return;
+    // Only leaving the editor ends it, not moving from one of its children to another.
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileDrop(null);
+  };
+  const onFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!draggingFiles(e)) return;
+    e.preventDefault();
+    const target = dropTarget(e.clientX, e.clientY);
+    setFileDrop(null);
+    void addAudio([...e.dataTransfer.files], target.at, target.track);
+  };
+  /** Opens the file picker for audio to go on `track` (null: a new one at `index`) at the playhead. */
+  const pickAudio = (track: string | null, index = tracks.length) => {
+    fileTarget.current = { track, at: currentTime, index };
+    fileInput.current?.click();
+  };
+
+  /** What a track's menu offers; on the dub's own lanes, only adding. */
+  const trackMenuEntries = (id: string | null): MenuEntry[] => {
+    const icon = 'w-3.5 h-3.5';
+    const index = id ? tracks.findIndex((t) => t.id === id) : -1;
+    if (!id || index < 0) {
+      return [
+        { label: 'Add audio…', icon: <FileAudio className={icon} />, run: () => pickAudio(null) },
+        { label: 'Add track', icon: <Plus className={icon} />, run: () => addTrack(tracks.length) },
+      ];
+    }
+    const list: MenuEntry[] = [
+      { label: 'Add audio…', icon: <FileAudio className={icon} />, run: () => pickAudio(id) },
+      { label: 'Add track below', icon: <Plus className={icon} />, run: () => addTrack(index + 1) },
+      { label: 'Add track above', icon: <ArrowUp className={icon} />, run: () => addTrack(index) },
+      { label: 'Rename', shortcut: 'F2', icon: <Pencil className={icon} />, run: () => setRenamingTrack(id) },
+      'rule',
+    ];
+    if (index > 0) list.push({ label: 'Move up', icon: <ArrowUp className={icon} />, run: () => moveTrack(id, -1) });
+    if (index < tracks.length - 1) list.push({ label: 'Move down', icon: <ArrowDown className={icon} />, run: () => moveTrack(id, 1) });
+    list.push('rule', { label: 'Delete track', shortcut: 'Del', icon: <Trash2 className={icon} />, run: () => deleteTrack(id), danger: true });
+    return list.filter((entry, n) => entry !== 'rule' || (n > 0 && n < list.length - 1 && list[n - 1] !== 'rule'));
+  };
+  const trackEntries = trackMenu ? trackMenuEntries(trackMenu.track) : [];
+  const closeTrackMenu = () => {
+    setTrackMenu(null);
+    rootRef.current?.focus({ preventScroll: true });
+  };
+  useLayoutEffect(() => {
+    const box = trackMenuRef.current;
+    if (!trackMenu || !box) return;
+    const r = box.getBoundingClientRect();
+    box.style.left = `${clamp(trackMenu.x, 8, Math.max(8, window.innerWidth - r.width - 8))}px`;
+    box.style.top = `${trackMenu.y + r.height > window.innerHeight - 8 ? Math.max(8, trackMenu.y - r.height) : trackMenu.y}px`;
+    box.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+  }, [trackMenu]);
+
+  /**
+   * A clip on a track dragged up or down onto another track's lane: the parts
+   * being moved go there. A part of a split clip moved alone becomes a clip
+   * of its own, so its other parts stay on their track.
+   */
+  const toTrack = (base: SyncEdits, movers: Chunk[], trackId: string): SyncEdits => {
+    let next = base;
+    const byKey = new Map<string, Set<string>>();
+    for (const c of movers) {
+      if (!c.file || trackOfLane(c.lane) === trackId) continue;
+      if (!byKey.has(c.key)) byKey.set(c.key, new Set());
+      byKey.get(c.key)!.add(c.part.id);
+    }
+    for (const [key, ids] of byKey) {
+      const edit = next[key];
+      if (!edit?.audio) continue;
+      const moving = edit.parts.filter((part) => ids.has(part.id));
+      const staying = edit.parts.filter((part) => !ids.has(part.id));
+      if (staying.length === 0) {
+        next = { ...next, [key]: { ...edit, audio: { ...edit.audio, track: trackId } } };
+      } else {
+        const newKey = `${AUDIO_CLIP_PREFIX}${Date.now().toString(36)}${(partCounter++).toString(36)}`;
+        next = { ...next, [key]: { ...edit, parts: staying }, [newKey]: { audio: { ...edit.audio, track: trackId }, parts: moving, locked: true } };
+      }
+    }
+    return next;
   };
 
   // ---- Clips of the original ----
@@ -2515,7 +2970,7 @@ export const SyncEditTimeline: React.FC<{
     const start = Math.max(0, at);
     const end = start + length;
     // With several speakers a clip of the original goes on its own lane, so only other clips share it.
-    const playing = chunks.filter((c) => !c.part.muted && (!multi || c.lane === ORIGINAL_SPEAKER));
+    const playing = chunks.filter((c) => !c.part.muted && (multi ? c.lane === ORIGINAL_SPEAKER : !c.file));
     const over = playing
       .filter((c) => c.part.start < end - 1e-6 && partEnd(c.part) > start + 1e-6)
       .map((c) => `${c.original ? 'clip' : 'line'} ${c.label}`);
@@ -2752,24 +3207,33 @@ export const SyncEditTimeline: React.FC<{
   const draggedOver = drag.current?.zone === 'move' ? overlapsOf(new Set(drag.current.group.map((c) => c.part.id))) : [];
   /** A part's colour: its speaker's with several speakers, else its line's; a clip of the original the Original lane's. */
   const laneHue = (chunk: Chunk) =>
-    chunk.original ? ORIGINAL_HUE : speakerLanes ? speakerLanes.colors[chunk.lane] ?? hueOf(laneOfChunk(chunk)) : hueOf(chunk.unitIndex);
+    chunk.file ? trackById.get(trackOfLane(chunk.lane) ?? '')?.color ?? TRACK_COLORS[0] : chunk.original ? ORIGINAL_HUE : speakerLanes ? speakerLanes.colors[chunk.lane] ?? hueOf(laneOfChunk(chunk)) : hueOf(chunk.unitIndex);
   /** Lanes the listener does not hear now: muted, or left out by another lane's solo. */
   const silencedLanes = useMemo(() => {
-    if (!speakerLanes) return new Set<string>();
-    const speakers = laneNames.filter((name) => name !== ORIGINAL_SPEAKER);
-    const soloing = speakers.some((name) => speakerLanes.monitor[name]?.solo);
-    return new Set(speakers.filter((name) => speakerLanes.monitor[name]?.muted || (soloing && !speakerLanes.monitor[name]?.solo)));
-  }, [speakerLanes, laneNames]);
+    const out = new Set<string>();
+    if (speakerLanes) {
+      const speakers = baseLanes.filter((name) => name !== ORIGINAL_SPEAKER);
+      const soloing = speakers.some((name) => speakerLanes.monitor[name]?.solo);
+      speakers.filter((name) => speakerLanes.monitor[name]?.muted || (soloing && !speakerLanes.monitor[name]?.solo)).forEach((name) => out.add(name));
+    }
+    // A track's solo leaves out the other tracks, not the dub.
+    const monitor = audio?.monitor ?? {};
+    const soloingTracks = tracks.some((track) => monitor[track.id]?.solo);
+    for (const track of tracks) if (monitor[track.id]?.muted || (soloingTracks && !monitor[track.id]?.solo)) out.add(trackLane(track.id));
+    return out;
+  }, [speakerLanes, baseLanes, tracks, audio?.monitor]);
   const spoken = measured.units.filter((u) => u.placedStart !== null && onScreen(Math.min(u.srcStart, u.placedStart as number), Math.max(u.srcEnd, u.placedEnd as number)));
-  const editedCount = Object.keys(committed).filter((key) => !isOriginalClip(key)).length;
-  const originalCount = Object.keys(committed).length - editedCount;
+  const editedCount = Object.keys(committed).filter((key) => !isClip(key)).length;
+  const originalCount = Object.keys(committed).filter(isOriginalClip).length;
+  /** Overlaps between lines of the dub; clips on a track playing over each other are the user's to cross. */
+  const dubOverlaps = overlaps.filter((o) => !o.a.file);
   const inSync = measured.summary.inSync;
   const lineCount = measured.units.filter((u) => !u.silent || isEdited(committed, u.key)).length;
   const originalSpans = useMemo(
     () => baseReport.units.map((unit, n) => ({ from: unit.srcStart, to: unit.srcEnd, color: hueOf(n) })),
     [baseReport]
   );
-  const statusColor = (chunk: Chunk) => (chunk.original ? ORIGINAL_HUE : landing(chunk.unit, tolerance).color);
+  const statusColor = (chunk: Chunk) => (chunk.original ? laneHue(chunk) : landing(chunk.unit, tolerance).color);
   const driftY = (offset: number) => 50 - clamp(offset / 0.6, -1, 1) * 40;
   const laneCursor = blade || rangeTool ? 'crosshair' : drag.current ? ZONE_CURSOR[drag.current.zone] : hover ? ZONE_CURSOR[hover.zone] : 'default';
   /** A cut being pointed at or rolled lights the edge across it too, so both parts read as one cut. */
@@ -2807,6 +3271,9 @@ export const SyncEditTimeline: React.FC<{
       ref={rootRef}
       tabIndex={0}
       onKeyDown={onKeyDown}
+      onDragOver={audio ? onFileDragOver : undefined}
+      onDragLeave={audio ? onFileDragLeave : undefined}
+      onDrop={audio ? onFileDrop : undefined}
       aria-label="Edit timing"
       className="flex flex-col gap-3 rounded-xl border border-edge bg-slate-950/70 p-3 focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/60"
     >
@@ -2824,9 +3291,9 @@ export const SyncEditTimeline: React.FC<{
         <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
           {inSync} of {lineCount} in sync
         </span>
-        {overlaps.length > 0 && (
+        {dubOverlaps.length > 0 && (
           <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300" title="Lines playing over each other, marked red on the lane. Both are heard there.">
-            {overlaps.length} overlap{overlaps.length === 1 ? '' : 's'}
+            {dubOverlaps.length} overlap{dubOverlaps.length === 1 ? '' : 's'}
           </span>
         )}
         <span aria-live="polite" className="flex items-center gap-1.5 text-[11.5px] text-slate-400">
@@ -3065,7 +3532,11 @@ export const SyncEditTimeline: React.FC<{
         ) : current ? (
           <>
             <span className="text-[13px] font-semibold text-slate-100 whitespace-nowrap">{current.original ? `Clip ${current.label}` : `Line ${current.label}`}</span>
-            {current.original ? (
+            {current.file ? (
+              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: withAlpha(laneHue(current), 0.14), color: laneHue(current) }}>
+                {trackById.get(trackOfLane(current.lane) ?? '')?.name ?? 'Track'}
+              </span>
+            ) : current.original ? (
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-cyan-400/12 text-cyan-300 whitespace-nowrap">original voice</span>
             ) : (
               <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${currentLanding.chip}`}>{currentLanding.label}</span>
@@ -3083,7 +3554,11 @@ export const SyncEditTimeline: React.FC<{
                 Not locked
               </span>
             )}
-            {current.original ? (
+            {current.file ? (
+              <span className="flex-1 min-w-[8rem] truncate text-[12px] text-slate-300" title="Its edges trim it into more of the file; Alt + Shift + drag slips which stretch it plays; drag it up or down onto another track.">
+                {current.file.name} from <span className="font-mono">{formatTime(current.part.from)}</span> to <span className="font-mono">{formatTime(current.part.to)}</span>
+              </span>
+            ) : current.original ? (
               <span className="flex-1 min-w-[8rem] truncate text-[12px] text-slate-300" title="Its edges trim it into more of the original; Alt + Shift + drag slips which stretch it plays; Alt + drag copies it.">
                 The original from <span className="font-mono">{formatTime(current.part.from)}</span> to <span className="font-mono">{formatTime(current.part.to)}</span>
               </span>
@@ -3099,7 +3574,7 @@ export const SyncEditTimeline: React.FC<{
                 <Play className="w-3.5 h-3.5" />
               </IconButton>
               {current.original ? (
-                <IconButton label="Take off the dub" shortcut="Del" onClick={act.remove}>
+                <IconButton label={current.file ? 'Remove clip' : 'Take off the dub'} shortcut="Del" onClick={act.remove}>
                   <Trash2 className="w-3.5 h-3.5" />
                 </IconButton>
               ) : (
@@ -3126,7 +3601,8 @@ export const SyncEditTimeline: React.FC<{
           </>
         ) : (
           <p className="text-[12.5px] text-slate-400">
-            <span className="font-medium text-slate-200">Click a line to pick it</span> · right-click it for everything it can do · double-click it for its start, speed, gain and fades.{' '}
+            <span className="font-medium text-slate-200">Click a line to pick it</span> · right-click it for everything it can do · double-click it for its start, speed, gain and fades.
+            {audio && ' Drop audio files here for a track of music or effects.'}{' '}
             <button type="button" onClick={() => setShowHelp(true)} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-default">
               How editing works
             </button>
@@ -3135,7 +3611,7 @@ export const SyncEditTimeline: React.FC<{
       </section>
 
       {/* The lanes */}
-      <div className={`grid ${renderTrackHead ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-edge overflow-hidden bg-slate-900/50`}>
+      <div className={`grid ${renderTrackHead || laned ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-edge overflow-hidden bg-slate-900/50`}>
         <div className="flex flex-col text-[11px] text-slate-400 border-r border-edge">
           <div className="h-6 px-2 flex items-center font-mono text-[11px] font-semibold text-slate-200 tabular-nums border-b border-edge">{formatTime(currentTime)}</div>
           {renderTrackHead ? (
@@ -3159,9 +3635,10 @@ export const SyncEditTimeline: React.FC<{
               )}
             </div>
           )}
+          <div className="flex flex-col border-b border-edge" style={{ height: laned ? lanesHeight : DUB_LANE_PX }}>
           {speakerLanes ? (
-            <div className="flex flex-col border-b border-edge">
-              {laneNames.map((name) => (
+            <div className="flex flex-col" onContextMenu={audio ? (e) => (e.preventDefault(), setTrackMenu({ x: e.clientX, y: e.clientY, track: null })) : undefined}>
+              {baseLanes.map((name) => (
                 <SpeakerLaneHead
                   key={name}
                   name={name}
@@ -3173,12 +3650,46 @@ export const SyncEditTimeline: React.FC<{
               ))}
             </div>
           ) : renderTrackHead ? (
-            <div className="h-[4.5rem] px-2 flex items-center border-b border-edge">{renderTrackHead('synth', `${targetLanguage} dub`, 'bg-indigo-400')}</div>
+            <div
+              className="h-[4.5rem] px-2 flex items-center"
+              onContextMenu={audio ? (e) => (e.preventDefault(), setTrackMenu({ x: e.clientX, y: e.clientY, track: null })) : undefined}
+            >
+              {renderTrackHead('synth', `${targetLanguage} dub`, 'bg-indigo-400')}
+            </div>
           ) : (
-            <div className="h-[4.5rem] px-2 flex items-center gap-1.5 border-b border-edge">
+            <div
+              className="h-[4.5rem] px-2 flex items-center gap-1.5"
+              onContextMenu={audio ? (e) => (e.preventDefault(), setTrackMenu({ x: e.clientX, y: e.clientY, track: null })) : undefined}
+            >
               <span className="w-2 h-2 rounded-sm bg-indigo-400" /> <span className="truncate">{targetLanguage} dub</span>
             </div>
           )}
+          {/* Tracks of outside audio, under the dub */}
+          {tracks.map((track, n) => {
+            const own = chunks.filter((c) => c.file && c.lane === trackLane(track.id));
+            const first = own[0]?.file && trackFiles[own[0].file.id];
+            const caption = first
+              ? `${first.name} · ${first.sampleRate / 1000} kHz ${first.channels > 1 ? 'stereo' : 'mono'}${new Set(own.map((c) => c.file!.id)).size > 1 ? ' · and more' : ''}`
+              : 'Drop audio on this lane';
+            return (
+              <TrackLaneHead
+                key={track.id}
+                track={track}
+                clips={own.filter((c) => !c.part.muted).length}
+                caption={caption}
+                heard={!silencedLanes.has(trackLane(track.id))}
+                monitor={audio?.monitor[track.id] ?? { muted: false, solo: false }}
+                renaming={renamingTrack === track.id}
+                onMonitor={(patch) => audio?.onMonitor(track.id, patch)}
+                onLevel={(db) => setTrackLevel(track.id, db)}
+                onRename={(name) => renameTrack(track.id, name)}
+                onStartRename={() => setRenamingTrack(track.id)}
+                onMenu={(x, y) => setTrackMenu({ x, y, track: track.id })}
+                height={laneHeights[baseLanes.length + n]}
+              />
+            );
+          })}
+          </div>
           <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-edge">Script</div>
           <div className="h-10 px-2 flex items-center text-[10.5px] text-slate-500">Start drift</div>
         </div>
@@ -3274,8 +3785,8 @@ export const SyncEditTimeline: React.FC<{
           {speakerLanes && (
             <div className="relative h-14 border-b border-edge bg-slate-950/40 overflow-hidden" aria-hidden="true">
               <div ref={zoom.strip} className="absolute inset-0">
-              {visible.map((chunk) => {
-                const row = 44 / laneNames.length;
+              {visible.filter((chunk) => !chunk.file).map((chunk) => {
+                const row = 44 / baseLanes.length;
                 return (
                   <span
                     key={chunk.part.id}
@@ -3297,8 +3808,8 @@ export const SyncEditTimeline: React.FC<{
           {/* The dub, editable */}
           <div
             ref={laneRef}
-            className={`relative ${speakerLanes ? '' : 'h-[4.5rem]'} border-b border-edge bg-slate-950/70 overflow-hidden touch-none`}
-            style={{ cursor: laneCursor, ...(speakerLanes && { height: laneNames.length * LANE_PX }) }}
+            className={`relative ${laned ? '' : 'h-[4.5rem]'} border-b border-edge bg-slate-950/70 overflow-hidden touch-none`}
+            style={{ cursor: laneCursor, ...(laned && { height: lanesHeight }) }}
             onPointerDown={onLanePointerDown}
             onPointerMove={onLanePointerMove}
             onContextMenu={onLaneContextMenu}
@@ -3320,13 +3831,13 @@ export const SyncEditTimeline: React.FC<{
               else endDrag();
             }}
           >
-            {speakerLanes &&
+            {laned &&
               laneNames.map((name, n) => (
                 <span
                   key={name}
                   aria-hidden="true"
-                  className={`absolute left-0 right-0 pointer-events-none ${n > 0 ? 'border-t border-edge/80' : ''} ${silencedLanes.has(name) ? 'bg-slate-950/60' : ''}`}
-                  style={{ top: n * LANE_PX, height: LANE_PX }}
+                  className={`absolute left-0 right-0 pointer-events-none ${n > 0 ? 'border-t border-edge/80' : ''} ${silencedLanes.has(name) ? 'bg-slate-950/60' : isTrackLane(name) ? 'bg-slate-900/40' : ''}`}
+                  style={{ top: laneTops[n], height: laneHeights[n] }}
                 />
               ))}
             <div ref={zoom.strip} className="absolute inset-0">
@@ -3340,11 +3851,12 @@ export const SyncEditTimeline: React.FC<{
                   chunk={chunk}
                   line={chunk.original ? undefined : lineOf(chunk)}
                   rate={rate}
-                  data={chunk.original ? sourcePeaks : bankPeaks}
+                  data={chunk.file ? filePeaks[chunk.file.id] ?? null : chunk.original ? sourcePeaks : bankPeaks}
                   bankOffset={chunk.original ? 0 : lineOf(chunk).bankStart / rate}
                   left={pct(part.start)}
                   width={Math.max(0.15, (partLength(part) / windowSeconds) * 100)}
-                  laneTop={speakerLanes ? laneOfChunk(chunk) * LANE_PX + 5 : undefined}
+                  laneTop={laned ? laneTops[laneOfChunk(chunk)] + 5 : undefined}
+                  laneHeight={laneHeights[laneOfChunk(chunk)]}
                   hue={laneHue(chunk)}
                   color={statusColor(chunk)}
                   chosen={part.id === selected}
@@ -3362,11 +3874,12 @@ export const SyncEditTimeline: React.FC<{
             {carry && (
               <span
                 aria-hidden="true"
-                className={`absolute ${speakerLanes ? '' : 'top-1.5 bottom-1.5'} rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.home ? 'border-cyan-200 bg-cyan-300/25' : 'border-cyan-300 bg-cyan-300/15'}`}
+                className={`absolute ${laned ? '' : 'top-1.5 bottom-1.5'} rounded-md border-2 border-dashed pointer-events-none z-20 ${carry.home ? 'border-cyan-200 bg-cyan-300/25' : 'border-cyan-300 bg-cyan-300/15'}`}
                 style={{
                   left: `${pct(carry.start)}%`,
                   width: `${Math.max(0.15, (carry.length / windowSeconds) * 100)}%`,
-                  ...(speakerLanes && { top: (laneNames.length - 1) * LANE_PX + 5, height: LANE_PX - 10 }),
+                  // The clips of the original's lane with several speakers, else the one dub lane.
+                  ...(laned && { top: laneTops[multi ? laneIndex.get(ORIGINAL_SPEAKER) ?? 0 : 0] + 5, height: laneHeights[multi ? laneIndex.get(ORIGINAL_SPEAKER) ?? 0 : 0] - 10 }),
                 }}
               />
             )}
@@ -3381,23 +3894,23 @@ export const SyncEditTimeline: React.FC<{
                 <span
                   key={`${o.a.part.id}|${o.b.part.id}`}
                   title={`${o.a.original ? 'Clip' : 'Line'} ${o.a.label} and ${o.b.original ? 'clip' : 'line'} ${o.b.label} play over each other for ${(o.to - o.from).toFixed(2)} s`}
-                  className={`absolute ${speakerLanes ? '' : 'top-1 bottom-1'} border-x-2 border-rose-400 bg-rose-500/35 pointer-events-none z-20`}
+                  className={`absolute ${laned ? '' : 'top-1 bottom-1'} border-x-2 border-rose-400 bg-rose-500/35 pointer-events-none z-20`}
                   style={{
                     left: `${pct(o.from)}%`,
                     width: `${Math.max(0.15, ((o.to - o.from) / windowSeconds) * 100)}%`,
                     backgroundImage: 'repeating-linear-gradient(135deg, rgba(251,113,133,0.55) 0 4px, transparent 4px 8px)',
-                    ...(speakerLanes && { top: o.lane * LANE_PX + 4, height: LANE_PX - 8 }),
+                    ...(laned && { top: laneTops[o.lane] + 4, height: laneHeights[o.lane] - 8 }),
                   }}
                 />
               ))}
             {band && (
               <span
                 aria-hidden="true"
-                className={`absolute ${speakerLanes ? '' : 'top-0 bottom-0'} border border-dashed border-indigo-300/80 bg-indigo-400/10 pointer-events-none z-20`}
+                className={`absolute ${laned ? '' : 'top-0 bottom-0'} border border-dashed border-indigo-300/80 bg-indigo-400/10 pointer-events-none z-20`}
                 style={{
                   left: `${pct(band.from)}%`,
                   width: `${((band.to - band.from) / windowSeconds) * 100}%`,
-                  ...(speakerLanes && { top: band.laneFrom * LANE_PX, height: (band.laneTo - band.laneFrom + 1) * LANE_PX }),
+                  ...(laned && { top: laneTops[band.laneFrom], height: laneTops[band.laneTo] + laneHeights[band.laneTo] - laneTops[band.laneFrom] }),
                 }}
               />
             )}
@@ -3407,6 +3920,21 @@ export const SyncEditTimeline: React.FC<{
             )}
             </div>
             {!bankPeaks && bankBlob && <span className="absolute right-2 bottom-1 text-[10px] text-slate-500 pointer-events-none">Drawing the waveforms…</span>}
+            {/* Files dragged over: the track they would go on, and where */}
+            {fileDrop && (
+              <>
+                {fileDrop.track && laneIndex.has(trackLane(fileDrop.track)) && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute left-0 right-0 z-30 pointer-events-none bg-indigo-400/15 border-y-2 border-indigo-400/70"
+                    style={{ top: laneTops[laneIndex.get(trackLane(fileDrop.track)) as number], height: laneHeights[laneIndex.get(trackLane(fileDrop.track)) as number] }}
+                  />
+                )}
+                {onScreen(fileDrop.at, fileDrop.at) && (
+                  <span aria-hidden="true" className="absolute top-0 bottom-0 z-30 border-l-2 border-indigo-300 pointer-events-none" style={{ left: `${pct(fileDrop.at)}%` }} />
+                )}
+              </>
+            )}
           </div>
 
           {/* Script */}
@@ -3449,6 +3977,39 @@ export const SyncEditTimeline: React.FC<{
             <div ref={zoom.strip} className="absolute inset-0 z-20 pointer-events-none">
               <span aria-hidden="true" className="absolute top-6 bottom-0 border-l border-dashed border-amber-300" style={{ left: `${pct(snapLine)}%` }} />
             </div>
+          )}
+          {/* Files dragged over the timeline: where they go, said in a line, and the room for a new track under the lanes */}
+          {(fileDrop || importing) && (
+            <>
+              {fileDrop && !fileDrop.track && laneRef.current && (
+                <div
+                  aria-hidden="true"
+                  className="absolute left-0 right-0 bottom-0 z-30 pointer-events-none border-2 border-dashed border-indigo-400/80 bg-indigo-400/10 flex items-center justify-center text-[11.5px] font-medium text-indigo-100"
+                  style={{ top: laneRef.current.offsetTop + laneRef.current.offsetHeight }}
+                >
+                  New track
+                </div>
+              )}
+              <span
+                aria-live="polite"
+                className="absolute z-40 left-2 top-7 flex items-center gap-1.5 text-[11.5px] rounded-md px-2.5 py-1.5 bg-slate-800 border border-slate-500 text-slate-100 shadow-xl pointer-events-none"
+              >
+                {importing ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-300" /> Reading {importing}…
+                  </>
+                ) : fileDrop ? (
+                  <>
+                    <FileAudio className="w-3.5 h-3.5 text-indigo-300" />
+                    {fileDrop.track ? `On ${trackById.get(fileDrop.track)?.name ?? 'the track'}` : 'On a new track'}
+                    <span className="text-slate-400">
+                      · at {formatTime(fileDrop.at)}
+                      {fileDrop.snapped ? ` (${fileDrop.snapped})` : ''}
+                    </span>
+                  </>
+                ) : null}
+              </span>
+            </>
           )}
           <Playhead ref={playheadRef(0)} cap className="z-[25]" />
           {hud && (
@@ -3739,6 +4300,80 @@ export const SyncEditTimeline: React.FC<{
           )}
         </span>
       </div>
+
+      {audio && (
+        <input
+          ref={fileInput}
+          type="file"
+          accept="audio/*,.wav,.mp3,.flac,.ogg,.opus,.m4a,.aac,.aif,.aiff"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = [...(e.currentTarget.files ?? [])];
+            e.currentTarget.value = '';
+            const { track, at, index } = fileTarget.current;
+            if (files.length > 0) void addAudio(files, at, track, index);
+          }}
+        />
+      )}
+
+      {/* A track's menu, or Add on the dub's lanes */}
+      {trackMenu &&
+        createPortal(
+          <div
+            ref={trackMenuRef}
+            role="menu"
+            aria-label={trackMenu.track ? `${trackById.get(trackMenu.track)?.name ?? 'Track'}: track menu` : 'Tracks'}
+            className="fixed z-[70] w-56 rounded-xl border border-slate-700 bg-slate-900 p-1 shadow-xl shadow-black/50"
+            style={{ left: trackMenu.x, top: trackMenu.y }}
+            onContextMenu={(e) => e.preventDefault()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              const items = [...(trackMenuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+              const at = items.indexOf(document.activeElement as HTMLElement);
+              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+              } else if (e.key === 'Escape' || e.key === 'Tab') {
+                e.preventDefault();
+                closeTrackMenu();
+              } else {
+                const pressed = e.key === 'Delete' || e.key === 'Backspace' ? 'del' : e.key.toLowerCase();
+                const entry = trackEntries.find((x) => x !== 'rule' && x.shortcut?.toLowerCase() === pressed);
+                if (entry && entry !== 'rule') {
+                  e.preventDefault();
+                  closeTrackMenu();
+                  entry.run();
+                }
+              }
+            }}
+          >
+            <div className="px-2.5 pt-1 pb-1.5 text-[11px] text-slate-500 truncate">
+              {trackMenu.track ? trackById.get(trackMenu.track)?.name : 'Tracks'}
+            </div>
+            {trackEntries.map((entry, n) =>
+              entry === 'rule' ? (
+                <div key={`rule-${n}`} role="separator" className="my-1 mx-1.5 h-px bg-slate-800" />
+              ) : (
+                <button
+                  key={entry.label}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeTrackMenu();
+                    entry.run();
+                  }}
+                  className={`w-full h-7 px-2.5 rounded-md flex items-center gap-2.5 text-left text-[12.5px] hover:bg-slate-800 focus:bg-slate-800 focus:outline-none cursor-default ${entry.danger ? 'text-rose-300' : 'text-slate-200'}`}
+                >
+                  <span className={entry.danger ? 'text-rose-300' : 'text-slate-400'}>{entry.icon}</span>
+                  {entry.label}
+                  {entry.shortcut && <kbd className="ml-auto font-mono text-[10.5px] text-slate-500">{entry.shortcut}</kbd>}
+                </button>
+              )
+            )}
+          </div>,
+          document.body
+        )}
 
       {/* The line's right-click menu */}
       {menu &&

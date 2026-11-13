@@ -115,3 +115,37 @@ test('an edit render the app aborted keeps no audio on the server', async () => 
     await close();
   }
 });
+
+test('a clip from a track renders as its track, with a stem of its own', async () => {
+  const { local, close } = await listen();
+  const sampleRate = 8000;
+  const tone = (amp) => {
+    const out = Buffer.alloc(sampleRate * 2);
+    for (let i = 0; i < sampleRate; i++) out.writeInt16LE(Math.round(amp * Math.sin(i / 10)), i * 2);
+    return out;
+  };
+  const put = (id, samples) => fetch(`${local}/api/sync/edit/banks/${id}`, { method: 'PUT', headers: { 'content-type': 'audio/wav' }, body: pcmToWav(samples, { sampleRate }) });
+  try {
+    assert.equal((await put('track-test-dub', tone(6000))).status, 200);
+    assert.equal((await put('original-track-test-clips', tone(3000))).status, 200);
+    const reply = await fetch(`${local}/api/sync/edit/render`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        bankId: 'track-test-dub',
+        sampleRate,
+        lines: [{ bankStart: 0, length: sampleRate, speaker: 'Narrator' }],
+        original: { bankId: 'original-track-test-clips', lines: [{ bankStart: 0, length: sampleRate, speaker: 'Music' }] },
+        parts: [{ line: 0, from: 0, to: sampleRate, startSample: 0 }, { line: 1, from: 0, to: sampleRate, startSample: sampleRate / 2 }],
+        sourceDuration: 2,
+        multiSpeaker: true,
+        peak: 'float',
+      }),
+    });
+    assert.equal(reply.status, 200);
+    const { stems } = await reply.json();
+    assert.deepEqual(stems.map((stem) => stem.speaker).sort(), ['Music', 'Narrator']);
+  } finally {
+    await close();
+  }
+});
