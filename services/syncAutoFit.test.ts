@@ -199,6 +199,22 @@ test('a typical rate never switches the length preset', async () => {
   assert.ok(result.outcome.changes.every((change) => change.key !== 'preset' && change.key !== 'maxPauseTake'));
 });
 
+test('a length picked by hand stays: Fit tunes gaps and pauses on it, never the length', async () => {
+  // 11 characters at 10 a second over 0.9 s spoken: about 22% longer, which Auto makes Very long.
+  const picked = options({ preset: 'long', join: syncJoinPreset('long'), lengthAuto: false });
+  const result = (await autoFitForSync(request(cues(12, 11), { options: picked })))!;
+  assert.equal(result.outcome.presetTo, 'long');
+  assert.ok(result.outcome.changes.every((change) => change.key !== 'preset'));
+  assert.ok(result.outcome.ratio! > 1.15, 'the length is still measured and shown');
+  assert.equal(result.options.fitted?.preset ?? result.options.preset, 'long');
+  assert.notEqual(result.options.join.maxVoiceSpeed, syncJoinPreset('vlong').maxVoiceSpeed);
+  // Nor is the length swapped after voicing.
+  assert.equal(await refitRequestFor(picked, request(cues(12, 11))), null);
+  // Auto (the default, and lengthAuto: true) picks it.
+  const auto = (await autoFitForSync(request(cues(12, 11), { options: { ...picked, lengthAuto: true } })))!;
+  assert.equal(auto.outcome.presetTo, 'vlong');
+});
+
 test('turned off, Sync runs with the settings as they are', async () => {
   assert.equal(await autoFitForSync(request(cues(12, 11), { options: options({ fitOnSync: false }) })), null);
 });

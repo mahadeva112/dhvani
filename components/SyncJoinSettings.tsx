@@ -565,6 +565,29 @@ export const JOIN_SECTION_INFO: Record<SyncJoinSection, { description: string; t
 export const applyJoinPreset = (o: SyncOptions, preset: SyncJoinPreset, screen: SyncScreen): SyncOptions =>
   preset === 'custom' ? { ...o, preset, screen } : { ...o, preset, screen, join: syncJoinPreset(preset, screen), ...presetExtras(screen) };
 
+/** True while Sync picks the dub length itself when pressed: Auto, with Fit on Sync on, and not the user's own Custom. */
+export const isAutoLength = (o: SyncOptions) => o.fitOnSync !== false && o.lengthAuto !== false && !isOwnCustom(o);
+
+/** A length picked by hand: that preset, which Sync then keeps (Auto off). */
+export const pickLengthByHand = (o: SyncOptions, preset: SyncJoinPreset): SyncOptions => ({
+  ...applyJoinPreset(o, preset, o.screen ?? 'any'),
+  lengthAuto: false,
+});
+
+/**
+ * Auto: Sync picks the length when pressed, so Fit on Sync goes on with it.
+ * The user's own Custom settings go back to the length they came from, since
+ * Sync's fit leaves Custom alone.
+ */
+export const pickAutoLength = (o: SyncOptions): SyncOptions => ({
+  ...(isOwnCustom(o) ? applyJoinPreset(o, lengthPresetOf(o), o.screen ?? 'any') : o),
+  lengthAuto: true,
+  fitOnSync: true,
+});
+
+/** The Auto choice beside the length presets. */
+export const AUTO_LENGTH_HINT = 'Sync measures the video when you press it (no credit) and picks the length that suits the dub.';
+
 /** A length preset's name, without "(recommended)". */
 export const presetName = (preset: SyncJoinPreset) => (SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === preset)?.label ?? 'Custom').replace(' (recommended)', '');
 
@@ -693,12 +716,20 @@ export const JoinPresetPicker: React.FC<{
   // Settings Fit to this video left show as the length they started from, fitted; Custom is only the user's own.
   const fittedFrom = options.preset === 'custom' && !isOwnCustom(options) ? lengthPresetOf(options) : null;
   const lengthNow: SyncJoinPreset = fittedFrom ?? options.preset;
-  const pickLength = (preset: string) => onOptionsChange((o) => applyJoinPreset(o, preset as SyncJoinPreset, o.screen ?? 'any'));
+  const auto = isAutoLength(options);
+  const pickLength = (preset: string) =>
+    onOptionsChange((o) => (preset === 'auto' ? pickAutoLength(o) : pickLengthByHand(o, preset as SyncJoinPreset)));
+  const lengthChoices = [
+    { id: 'auto', label: 'Auto', sub: auto ? `now ${presetName(lengthNow).replace(' dub', '')}` : 'picks when you Sync', hint: AUTO_LENGTH_HINT },
+    ...SYNC_JOIN_PRESET_OPTIONS,
+  ];
   const pickScreen = (next: string) =>
     onOptionsChange((o) =>
       o.preset === 'custom' && isOwnCustom(o) ? { ...o, screen: next as SyncScreen } : applyJoinPreset(o, lengthPresetOf(o), next as SyncScreen)
     );
-  const hint = fittedFrom
+  const hint = auto
+    ? `${AUTO_LENGTH_HINT} Now ${presetName(lengthNow)}${fittedFrom ? ', fitted' : ''}. Picking a length keeps that one.`
+    : fittedFrom
     ? `${presetName(fittedFrom)}, with Fit to this video's changes on it. Picking a length puts the preset back as it is.`
     : [SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === options.preset)?.hint, SYNC_SCREEN_OPTIONS.find((s) => s.id === screen)?.hint].filter(Boolean).join(' ');
   return (
@@ -707,14 +738,14 @@ export const JoinPresetPicker: React.FC<{
         <span className="text-[11.5px] text-slate-400">By how long the dub runs</span>
         <ChoiceRow
           label="Line joins by the dub's length"
-          choices={SYNC_JOIN_PRESET_OPTIONS}
-          value={lengthNow}
-          suggested={suggestion?.preset}
+          choices={lengthChoices}
+          value={auto ? 'auto' : lengthNow}
+          suggested={auto ? undefined : suggestion?.preset}
           disabled={disabled}
           onPick={pickLength}
         />
       </div>
-      {suggestion && suggestion.preset !== lengthNow && (
+      {!auto && suggestion && suggestion.preset !== lengthNow && (
         <div className="flex flex-wrap items-center gap-2.5 rounded-lg border border-amber-400/35 bg-amber-400/10 px-3 py-2 text-[12px] text-amber-100">
           <Ruler className="w-3.5 h-3.5 text-amber-300 shrink-0" />
           <span>

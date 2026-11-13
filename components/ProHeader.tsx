@@ -24,7 +24,7 @@ import { CenteredPanel } from './CenteredPanel';
 import { STEP_HEADER_SLOT_ID } from './stepHeaderSlot';
 import { HubMeter, HubSegmented, HubSelect, HubSwitch, ToolsHub, type ToolsHubItem } from './ToolsHub';
 import { readOptions, rememberSyncOptions } from './SyncPanel';
-import { applyJoinPreset, joinPresetOf } from './SyncJoinSettings';
+import { isAutoLength, joinPresetOf, pickAutoLength, pickLengthByHand } from './SyncJoinSettings';
 import { SYNC_JOIN_PRESET_OPTIONS, SYNC_PRECISION_OPTIONS, SYNC_SCREEN_OPTIONS, type SyncJoinPreset, type SyncOptions, type SyncScreen } from '../services/syncService';
 import type { VoiceExpression } from '../services/elevenLabsService';
 import { projectName } from '../services/projects';
@@ -501,13 +501,13 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
         },
         {
           label: 'Line joins',
-          help: SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === sync.preset)?.sub,
+          help: isAutoLength(sync) ? 'Sync picks it from the video' : SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === sync.preset)?.sub,
           control: (
             <HubSelect
               label="Line joins"
-              value={sync.preset}
-              options={SYNC_JOIN_PRESET_OPTIONS}
-              onChange={(preset) => changeSync((o) => applyJoinPreset(o, preset, o.screen))}
+              value={isAutoLength(sync) ? 'auto' : sync.preset}
+              options={[{ id: 'auto' as const, label: 'Auto' }, ...SYNC_JOIN_PRESET_OPTIONS]}
+              onChange={(preset) => changeSync((o) => (preset === 'auto' ? pickAutoLength(o) : pickLengthByHand(o, preset)))}
             />
           ),
         },

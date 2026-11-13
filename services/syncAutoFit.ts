@@ -12,7 +12,9 @@
  * and as proposed, and the proposal goes in only when it leaves no fewer cues
  * in sync. Otherwise the settings stay and the panel says why.
  *
- * Never touched: a preset the user set to Custom themselves, and the
+ * Never touched: a preset the user set to Custom themselves, a length they
+ * picked by hand instead of Auto (`lengthAuto: false`; only gaps and pauses
+ * are fitted on it), and the
  * settings that voice lines again (REVOICE_KEYS). Line grouping
  * changes which text each clip is voiced from, and that text is part of the
  * key a voiced clip is kept under (server/lib/syncDub.js `cacheKey`), so on a
@@ -179,8 +181,10 @@ export const autoFitForSync = async (request: AutoFitRequest): Promise<{ options
     const fromSync =
       (source.rateMeasured && source.rateSample !== true) ||
       Object.values(source.speakerRates ?? {}).some((rate) => rate && rate.sample !== true && rate.lines >= 5);
-    const heldFromShort = trusted && band === 'short' && !fromSync;
-    const preset: LengthPreset = heldFromShort ? 'natural' : band;
+    // A length the user picked by hand stays: the fit only tunes gaps and pauses on it.
+    const byHand = options.lengthAuto === false;
+    const heldFromShort = !byHand && trusted && band === 'short' && !fromSync;
+    const preset: LengthPreset = byHand ? fromPreset : heldFromShort ? 'natural' : band;
 
     // 2. That preset, with Fit's gaps and pauses measured on top of it.
     const start = syncJoinPreset(preset, screen);
@@ -188,7 +192,9 @@ export const autoFitForSync = async (request: AutoFitRequest): Promise<{ options
     const join: SyncJoinSettings = { ...fitted.join };
     REVOICE_KEYS.forEach((key) => ((join as unknown as Record<string, unknown>)[key] = options.join[key]));
     const reasons = new Map(fitted.changes.map((change) => [change.key, change.reason]));
-    const presetReason = heldFromShort
+    const presetReason = byHand
+      ? `Part of ${presetLabel[preset]}, the length you picked.`
+      : heldFromShort
       ? `At the voice's sample read the dub runs ${lengthWords(ratio!)}; Short waits until Sync has measured the voiced lines.`
       : trusted
         ? `The dub runs ${lengthWords(ratio!)}, which is ${presetLabel[preset]}.`
@@ -290,13 +296,14 @@ export const canUndoAutoFit = (options: Pick<SyncOptions, 'join'>, outcome: Auto
  * For Sync to fit the settings again once the lines are voiced: each band's
  * preset with Fit's measured gaps on it (the server adds the band's pause
  * moves, and keeps grouping and the settings that voice lines again). None
- * for the user's own Custom settings, or with Fit on Sync turned off.
+ * for the user's own Custom settings, a length picked by hand, or with Fit on
+ * Sync turned off.
  */
 export const refitRequestFor = async (
   options: SyncOptions,
   { segments, source, fit }: Pick<AutoFitRequest, 'segments' | 'source' | 'fit'>
 ): Promise<SyncRefitRequest | null> => {
-  if (options.fitOnSync === false || isOwnCustom(options)) return null;
+  if (options.fitOnSync === false || options.lengthAuto === false || isOwnCustom(options)) return null;
   try {
     const screen = options.screen ?? 'any';
     const bands: LengthPreset[] = ['short', 'natural', 'long', 'vlong'];

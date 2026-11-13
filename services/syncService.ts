@@ -163,6 +163,12 @@ export interface SyncOptions {
   /** Fit to this video when Sync is pressed (services/syncAutoFit.ts). On unless turned off. */
   fitOnSync?: boolean;
   /**
+   * Dub length on Auto: Sync's fit picks the length preset from the video
+   * when pressed. On unless the user picked a length by hand; then Sync
+   * keeps that length (Fit may still tune gaps and pauses on it).
+   */
+  lengthAuto?: boolean;
+  /**
    * The join settings Fit to this video left, and the length preset it
    * started from. While `join` still equals them, a Custom preset is Fit's,
    * not the user's own, and the next Sync may fit it again.
