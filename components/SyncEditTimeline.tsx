@@ -10,6 +10,9 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
+  ClipboardPaste,
+  Copy,
+  CopyPlus,
   FileAudio,
   Flag,
   FoldHorizontal,
@@ -879,7 +882,8 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
       ['Shift + Z', 'Whole track, and back'],
       ['Scroll  Ctrl + scroll', 'Move, zoom'],
       ['Ctrl + Z  Ctrl + Shift + Z', 'Undo, redo'],
-      ['Ctrl + C  Ctrl + V', 'Copy the original onto the dub'],
+      ['Ctrl + C  Ctrl + V', 'Copy the picked lines or clips, paste at the playhead (a picked stretch of the original goes on the dub)'],
+      ['Ctrl + D', 'Duplicate the picked lines or clips, right after them'],
     ],
   },
   {
@@ -2784,6 +2788,11 @@ export const SyncEditTimeline: React.FC<{
         icon: currentLocked && !several ? <LockOpen className={icon} /> : <Lock className={icon} />,
         run: act.lock,
       },
+      'rule',
+      { label: 'Copy', shortcut: 'Ctrl + C', icon: <Copy className={icon} />, run: () => copyParts() },
+      { label: 'Duplicate', shortcut: 'Ctrl + D', icon: <CopyPlus className={icon} />, run: duplicate },
+      clipboard.current !== null && { label: 'Paste', shortcut: 'Ctrl + V', icon: <ClipboardPaste className={icon} />, run: paste },
+      'rule',
       { label: 'Nudge 10 ms earlier', shortcut: ',', icon: <ArrowLeft className={icon} />, run: () => act.nudge(-0.01) },
       { label: 'Nudge 10 ms later', shortcut: '.', icon: <ArrowRight className={icon} />, run: () => act.nudge(0.01) },
       'rule',
@@ -3152,7 +3161,16 @@ export const SyncEditTimeline: React.FC<{
    * the picked stretch and Ctrl + V puts it at the playhead.
    */
   const [pick, setPick] = useState<{ from: number; to: number } | null>(null);
-  const clipboard = useRef<{ from: number; to: number } | null>(null);
+  /** What Ctrl + C copied: a stretch of the original, or picked lines and clips (each part as it was, with its line's key). */
+  const clipboard = useRef<{ kind: 'original'; from: number; to: number } | { kind: 'parts'; items: { key: string; part: SyncEditPart }[] } | null>(null);
+  /** Which was picked last, a stretch of the original or lines: what Ctrl + C copies when both are. */
+  const lastPicked = useRef<'original' | 'parts'>('parts');
+  useEffect(() => {
+    if (pick) lastPicked.current = 'original';
+  }, [pick]);
+  useEffect(() => {
+    if (selectedIds.length > 0) lastPicked.current = 'parts';
+  }, [selectedIds]);
   const originalDrag = useRef<{ kind: 'pick' | 'carry'; t0: number; grab: number; moved: boolean } | null>(null);
   /** Where a carried stretch would land, while it is over the dub lane. */
   const [carry, setCarry] = useState<{ start: number; length: number; home: boolean } | null>(null);
@@ -3189,15 +3207,61 @@ export const SyncEditTimeline: React.FC<{
 
   const copyPick = () => {
     if (!pick) return false;
-    clipboard.current = pick;
+    clipboard.current = { kind: 'original', from: pick.from, to: pick.to };
     say(`Copied ${(pick.to - pick.from).toFixed(2)} s of the original. Ctrl + V puts it on the dub at the playhead.`);
     return true;
   };
-  const pasteOriginal = () => {
+
+  /*
+   * Copy, paste and duplicate, as in DaVinci Resolve and REAPER: Ctrl + C
+   * copies the picked lines and clips, Ctrl + V puts them at the playhead
+   * (the first of them there, the rest as far after it as they were), and
+   * Ctrl + D puts a copy right after them. A pasted line is a copy of it, as
+   * an Alt + drag makes: it plays where it is put, and the line is still
+   * measured where its own parts are. Nothing makes room for a copy: where
+   * it plays over another line both are heard, and the overlap is drawn.
+   */
+  const copyParts = () => {
+    if (group.length === 0) return false;
+    clipboard.current = { kind: 'parts', items: group.map((c) => ({ key: c.key, part: c.part })) };
+    say(`Copied ${groupName(group)}. Ctrl + V puts ${group.length === 1 ? 'it' : 'them'} at the playhead, Ctrl + D right after.`);
+    return true;
+  };
+  /** Copies of `items` with their first at `at`, the rest as far after it as they were; those whose line or clip is gone are left out. */
+  const placeCopies = (items: { key: string; part: SyncEditPart }[], at: number, label: string) => {
+    const known = new Set(lines.map((line) => line.key));
+    const usable = items.filter((item) => known.has(item.key));
+    if (usable.length === 0) return say(items.length > 0 ? 'What was copied is no longer on the timeline.' : 'Pick a line or a clip, then Ctrl + C.');
+    const first = Math.min(...usable.map((item) => item.part.start));
+    const shift = Math.max(0, at) - first;
+    let next = committed;
+    const ids: string[] = [];
+    for (const { key, part } of usable) {
+      const line = lines.find((l) => l.key === key)!;
+      const copy: SyncEditPart = { ...part, id: newPartId(key), start: Math.max(0, part.start + shift), copy: true };
+      next = withParts(next, key, [...partsOf(next, line, rate), copy]);
+      ids.push(copy.id);
+    }
+    const what = usable.length === 1 ? (isClip(usable[0].key) ? 'a clip' : 'a line') : `${usable.length} parts`;
+    commit(next, `${label} ${what} at ${formatTime(Math.max(0, at))}`);
+    setSelectedIds(ids);
+    say(`${label === 'Paste' ? 'Pasted' : 'Duplicated'} ${what} at ${formatTime(Math.max(0, at))}. Drag to move ${ids.length === 1 ? 'it' : 'them'}; Del takes ${ids.length === 1 ? 'it' : 'them'} off.`);
+  };
+  const copy = () => (lastPicked.current === 'original' && pick ? copyPick() : copyParts() || copyPick());
+  const paste = () => {
     const copied = clipboard.current;
-    if (!copied) return say('Drag across the original to pick a stretch, then Ctrl + C to copy it.');
+    if (!copied) return say('Pick lines or clips (or drag across the original), then Ctrl + C to copy.');
+    if (copied.kind === 'parts') return placeCopies(copied.items, currentTime, 'Paste');
     const place = placeOriginal(currentTime, copied.to - copied.from);
     putOriginal(copied.from, place.length, place.start, place.over);
+  };
+  const duplicate = () => {
+    if (group.length === 0) return say('Pick a line or a clip to duplicate it.');
+    placeCopies(
+      group.map((c) => ({ key: c.key, part: c.part })),
+      Math.max(...group.map((c) => partEnd(c.part))),
+      'Duplicate'
+    );
   };
 
   /**
@@ -3332,8 +3396,9 @@ export const SyncEditTimeline: React.FC<{
     if (key === 'Escape' && cancelDrag()) {
       // The drag is over; the lines are back.
     } else if (tighten && !mod && (key === 'Enter' || key === 'Escape')) (key === 'Enter' ? applyTighten : closeTighten)();
-    else if (mod && lower === 'c') done = copyPick();
-    else if (mod && lower === 'v') pasteOriginal();
+    else if (mod && lower === 'c') done = copy();
+    else if (mod && lower === 'v') paste();
+    else if (mod && lower === 'd') duplicate();
     else if (mod && lower === 'z') (e.shiftKey ? act.redo : act.undo)();
     else if (mod && lower === 'y') act.redo();
     else if (mod && lower === 'a') act.selectAll();
