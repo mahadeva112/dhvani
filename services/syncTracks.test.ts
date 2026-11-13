@@ -91,7 +91,7 @@ test('the synced dub is rendered without the clips on tracks', () => {
   assert.deepEqual(Object.keys(withoutAudioClips(edits)), ['l1']);
   assert.deepEqual(Object.keys(audioClipsOf(edits)), [clipKey]);
   // The render payload and the clips of the original never pick up a clip on a track.
-  assert.equal(renderPayload(b, edits).length, 1);
+  assert.equal(renderPayload(b, edits).parts.length, 1);
   assert.deepEqual(originalParts(edits, 60), []);
 });
 

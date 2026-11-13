@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendManyToBank, appendToBank, carryTakes, compactBank, fitTakeToParts, knownWords, sayWords, syncTakeOf, syncTakeWords, phraseLine, phraseOf, pickedTakes, placeTakeChunks, putTake, takeFit, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
+import { appendManyToBank, appendToBank, carryCopyAudio, carryTakes, compactBank, fitTakeToParts, knownWords, sayWords, syncTakeOf, syncTakeWords, phraseLine, phraseOf, pickedTakes, placeTakeChunks, putTake, takeFit, takeOnCopy, takeWav, takesOf, type SyncTake } from './syncTakes.ts';
 import type { SyncBank, SyncBankLine } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService.ts';
-import { measureEdits, partEnd, partsOf, spokenSpan, type SyncEditPart } from './syncEditModel.ts';
+import { measureEdits, partEnd, partsOf, renderPayload, spokenSpan, type SyncEditPart } from './syncEditModel.ts';
 
 const RATE = 1000;
 
@@ -192,6 +192,65 @@ test("a take plays whole at its own length, not cut at the old take's chunks; Sy
     back.bank.lines[0].chunks,
     chunks.map((c) => ({ ...c, startSample: c.startSample + 500 }))
   );
+});
+
+test('retaking a line leaves its Alt + drag copy playing what it played', () => {
+  const bank: SyncBank = { bankId: 'b', sampleRate: RATE, float: false, lines: [line('1')], speakerGains: {} };
+  const base = { tolerance: 0.15, join: { maxLateStart: 1, flagJoin: 0.05 }, units: [unit('1', 2.1, 3)], summary: {} } as unknown as SyncReport;
+  const own: SyncEditPart = { id: '1#0', start: 2, from: 0, to: 1, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false };
+  const copy: SyncEditPart = { ...own, id: '1#copy', start: 9, from: 0.2, to: 0.6, copy: true };
+  const out = putTake({ bank, edits: { '1': { locked: false, parts: [own, copy] } }, baseReport: base, key: '1', take: take({}) });
+  assert.equal(out.bank.lines[0].bankStart, 2000, 'the line plays the new take');
+  const parts = out.edits?.['1'].parts ?? [];
+  assert.equal(parts.length, 2);
+  assert.deepEqual(parts[0], { ...own, start: 2.05, to: 0.9 }, 'the line itself is the new take, whole, its first word where it was');
+  assert.deepEqual(parts[1], { ...copy, audio: { bankStart: 0, length: 1000, lead: 0.1, speech: 0.8, gain: 1 } }, 'the copy keeps the old samples');
+});
+
+test('a take used on a copy goes on the copy alone, cut at the words it had', () => {
+  // The copy plays words 2 and 3 of the line (0.3 to 0.7 s), from 9 s.
+  const copy: SyncEditPart = { id: '1#copy', start: 9, from: 0.3, to: 0.7, rate: 1, gainDb: -2, fadeIn: 0, fadeOut: 0, muted: false, copy: true };
+  const oldWords = [{ start: 0.1, end: 0.25 }, { start: 0.35, end: 0.45 }, { start: 0.5, end: 0.65 }, { start: 0.75, end: 0.9 }];
+  const newWords = oldWords.map((w) => ({ start: w.start + 0.1, end: w.end + 0.1 }));
+  const fresh = take({ bankStart: 2000, length: 1000, lead: 0.2, speech: 0.8 });
+  const fitted = takeOnCopy({ key: '1', copy, take: fresh, sampleRate: RATE, firstWord: 9.05, oldWords, newWords });
+  assert.equal(fitted.id, '1#copy');
+  assert.equal(fitted.copy, true);
+  assert.equal(fitted.gainDb, -2);
+  assert.deepEqual(fitted.audio, { bankStart: 2000, length: 1000, lead: 0.2, speech: 0.8, gain: 1 });
+  assert.ok(Math.abs(fitted.from - 0.4) < 1e-9 && Math.abs(fitted.to - 0.8) < 1e-9, 'the same two words, in the new take');
+  assert.ok(Math.abs(fitted.start - 9) < 1e-9, 'its first word where the copy had it');
+  // Words not known: the whole take, its first word where the copy's was.
+  const whole = takeOnCopy({ key: '1', copy, take: fresh, sampleRate: RATE, firstWord: 9.05 });
+  assert.deepEqual([whole.from, whole.to, whole.start], [0, 1, 9.05 - 0.2]);
+});
+
+test('a copy with samples of its own renders and is measured from them', () => {
+  const bank: SyncBank = { bankId: 'b', sampleRate: RATE, float: false, lines: [line('1')], speakerGains: {} };
+  const own: SyncEditPart = { id: '1#0', start: 2, from: 0, to: 1, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false };
+  const copy: SyncEditPart = { ...own, id: '1#copy', start: 9, from: 0, to: 0.5, copy: true, audio: { bankStart: 3000, length: 500, lead: 0.2, speech: 0.2, gain: 0.5 } };
+  const payload = renderPayload(bank, { '1': { locked: false, parts: [own, copy] } });
+  assert.equal(payload.lines.length, 2, 'a line of its own for the copy');
+  assert.deepEqual(payload.lines[1], { bankStart: 3000, length: 500, gain: 0.5, speaker: 'Speaker' });
+  assert.deepEqual(payload.parts.map((p) => [p.line, p.from, p.to]), [[0, 0, 1000], [1, 0, 500]]);
+  assert.deepEqual(spokenSpan(line('1'), [{ ...own, muted: true }, copy]), { start: 9.2, end: 9.4 });
+});
+
+test('Light export and Sync again keep the samples a copy plays of its own', async () => {
+  const blob = wav(Array.from({ length: 80 }, (_, i) => i));
+  const bank: SyncBank = { bankId: 'old', sampleRate: RATE, float: false, lines: [line('a', { bankStart: 40, length: 10 })], speakerGains: {} };
+  const own: SyncEditPart = { id: 'a#0', start: 2, from: 0, to: 0.01, rate: 1, gainDb: 0, fadeIn: 0, fadeOut: 0, muted: false };
+  const copy: SyncEditPart = { ...own, id: 'a#copy', copy: true, audio: { bankStart: 60, length: 5, lead: 0, speech: 0.005, gain: 1 } };
+  const edits = { a: { locked: true, parts: [own, copy] } };
+  const light = await compactBank(bank, blob, null, 'light', edits);
+  assert.deepEqual(await samplesOf(light.bankBlob), [...Array.from({ length: 10 }, (_, i) => 40 + i), 60, 61, 62, 63, 64]);
+  assert.equal(light.edits?.a.parts[1].audio?.bankStart, 10);
+
+  const carried = await carryCopyAudio({ edits, priorBank: bank, priorBankBlob: blob, bank: { ...bank, bankId: 'new' }, bankBlob: wav([7, 7, 7]), bankId: 'grown' });
+  assert.deepEqual(await samplesOf(carried.bankBlob), [7, 7, 7, 60, 61, 62, 63, 64]);
+  assert.equal(carried.bank.bankId, 'grown');
+  assert.equal(carried.edits?.a.parts[1].audio?.bankStart, 3);
+  assert.equal(carried.edits?.a.parts[0], own, 'the line itself is left as it is');
 });
 
 test('how a take fits: cut off first, then too long, then ending early', () => {

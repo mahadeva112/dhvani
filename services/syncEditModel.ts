@@ -76,6 +76,21 @@ export interface SyncEditPart {
   muted: boolean;
   /** An Alt + drag copy in Edit timing: it plays, but the line is measured where its own parts are. */
   copy?: boolean;
+  /**
+   * A copy's own samples, once they differ from its line's take: the copy was
+   * retaken on its own, or the line was retaken and the copy kept what it
+   * played. `from` and `to` are then seconds into these samples.
+   */
+  audio?: PartAudio;
+}
+
+/** Samples in the bank a copy plays in place of its line's take, as a take is kept. */
+export interface PartAudio {
+  bankStart: number;
+  length: number;
+  lead: number;
+  speech: number;
+  gain: number;
 }
 
 /** What the user did to one line. `parts` empty: the line was removed. */
@@ -253,6 +268,51 @@ export const syncedParts = (line: SyncBankLine, sampleRate: number): SyncEditPar
 export const partsOf = (edits: SyncEdits | null | undefined, line: SyncBankLine, sampleRate: number): SyncEditPart[] =>
   edits?.[line.key]?.parts ?? syncedParts(line, sampleRate);
 
+/** The samples a line plays now, as a copy keeps them. */
+export const audioOfLine = (line: Pick<SyncBankLine, 'bankStart' | 'length' | 'lead' | 'speech' | 'gain'>): PartAudio => ({
+  bankStart: line.bankStart,
+  length: line.length,
+  lead: line.lead,
+  speech: line.speech,
+  gain: line.gain,
+});
+
+/** The line as `part` plays it: its take, or a copy's own samples. */
+export const partLine = (line: SyncBankLine, part: Pick<SyncEditPart, 'audio'>): SyncBankLine => (part.audio ? { ...line, ...part.audio } : line);
+
+/** The copies among a line's parts, each keeping what it plays now: those still playing the line's take get `line`'s samples. */
+export const keptCopies = (parts: SyncEditPart[] | null | undefined, line: SyncBankLine): SyncEditPart[] =>
+  (parts ?? []).filter((part) => part.copy).map((part) => (part.audio ? part : { ...part, audio: audioOfLine(line) }));
+
+/**
+ * The edits with every copy's own samples moved: `move` gives a bankStart's
+ * new place (or the samples now there), or null when its samples are gone
+ * (the copy then goes too).
+ */
+export const moveCopyAudio = (
+  edits: SyncEdits | null | undefined,
+  move: (bankStart: number) => number | Partial<PartAudio> | null
+): SyncEdits | null => {
+  if (!edits) return edits ?? null;
+  let changed = false;
+  const out: SyncEdits = {};
+  for (const [key, edit] of Object.entries(edits)) {
+    if (!Array.isArray(edit?.parts) || !edit.parts.some((part) => part.audio)) {
+      out[key] = edit;
+      continue;
+    }
+    const parts = edit.parts.flatMap((part) => {
+      if (!part.audio) return [part];
+      const to = move(part.audio.bankStart);
+      if (to === part.audio.bankStart) return [part];
+      changed = true;
+      return to === null ? [] : [{ ...part, audio: { ...part.audio, ...(typeof to === 'number' ? { bankStart: to } : to) } }];
+    });
+    out[key] = { ...edit, parts };
+  }
+  return changed ? out : edits;
+};
+
 /** Seconds a part takes on the timeline. */
 export const partLength = (part: SyncEditPart) => (part.to - part.from) / part.rate;
 export const partEnd = (part: SyncEditPart) => part.start + partLength(part);
@@ -279,11 +339,13 @@ export const spokenSpan = (line: SyncBankLine, parts: SyncEditPart[]): { start: 
 };
 
 const wordSpan = (line: SyncBankLine, parts: SyncEditPart[]): { start: number; end: number } | null => {
-  const first = line.lead;
-  const last = line.lead + line.speech;
   let start = Infinity;
   let end = -Infinity;
   for (const part of parts) {
+    // A copy with samples of its own has its words where those have them.
+    const own = part.audio ?? line;
+    const first = own.lead;
+    const last = own.lead + own.speech;
     if (part.muted || part.to <= first || part.from >= last) continue;
     start = Math.min(start, partTime(part, Math.max(part.from, first)));
     end = Math.max(end, partTime(part, Math.min(part.to, last)));
@@ -448,22 +510,42 @@ export const rebaseEdits = (
     const shift = now.startSample / rate - heldAt;
     out[key] = {
       locked: true,
-      parts: edit.parts.map((part) => ({ ...part, start: part.start + shift, from: part.from + shiftInside, to: part.to + shiftInside })),
+      // A copy with samples of its own keeps them as they are (the caller carries them to the new bank).
+      parts: edit.parts.map((part) => ({ ...part, start: part.start + shift, ...(!part.audio && { from: part.from + shiftInside, to: part.to + shiftInside }) })),
     };
   }
   return { edits: out, dropped };
 };
 
-/** The parts the server renders: every part that plays, in samples, by bank line. */
+/**
+ * What the server renders: the bank's lines, then one line for each stretch
+ * of samples a copy plays of its own, and every part that plays, in samples,
+ * by line.
+ */
 export const renderPayload = (bank: SyncBank, edits: SyncEdits | null | undefined) => {
   const rate = bank.sampleRate;
-  return bank.lines.flatMap((line, index) =>
-    partsOf(edits, line, rate)
+  const lines: { bankStart: number; length: number; maxStartShift?: number; gain: number; speaker: string }[] = bank.lines.map(
+    ({ bankStart, length, maxStartShift, gain, speaker }) => ({ bankStart, length, maxStartShift, gain, speaker })
+  );
+  const own = new Map<string, number>();
+  const lineFor = (index: number, part: SyncEditPart) => {
+    if (!part.audio) return index;
+    const { bankStart, length, gain } = part.audio;
+    const id = `${bank.lines[index].speaker}\u0000${bankStart}:${length}:${gain}`;
+    if (!own.has(id)) {
+      own.set(id, lines.length);
+      lines.push({ bankStart, length, gain, speaker: bank.lines[index].speaker });
+    }
+    return own.get(id) as number;
+  };
+  const parts = bank.lines.flatMap((base, index) =>
+    partsOf(edits, base, rate)
       .filter((part) => !part.muted)
       .map((part) => {
+        const line = partLine(base, part);
         const from = Math.max(0, Math.min(line.length - 1, Math.round(part.from * rate)));
         return {
-          line: index,
+          line: lineFor(index, part),
           from,
           to: Math.max(from + 1, Math.min(line.length, Math.round(part.to * rate))),
           startSample: Math.max(0, Math.round(part.start * rate)),
@@ -474,6 +556,7 @@ export const renderPayload = (bank: SyncBank, edits: SyncEdits | null | undefine
         };
       })
   );
+  return { lines, parts };
 };
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));

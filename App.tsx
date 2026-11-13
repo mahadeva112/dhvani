@@ -228,8 +228,8 @@ import {
   type HistoryState,
   type ProjectHistory,
 } from './services/projectHistory';
-import { audioParts, hasEdits, isClip, lockedLines, measureEdits, originalParts, partEnd, partsOf, rebaseEdits, renderSyncEdits, SyncEdits, withoutAudioClips, type AudioFileInfo, type AudioFileRecord, type AudioTrack, type SyncBank, type SyncBankLine } from './services/syncEditService';
-import { alignTakeWords, carryTakes, fitTakeToParts, knownWords, phraseLine, phraseOf, pickedTakes, sayWords, placeTakeChunks, placeTakeLikeSync, putTake, SYNC_TAKE_ID, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
+import { audioParts, hasEdits, isClip, lockedLines, measureEdits, moveCopyAudio, originalParts, partLine, spokenSpan, partEnd, partsOf, rebaseEdits, renderSyncEdits, SyncEdits, withoutAudioClips, type AudioFileInfo, type AudioFileRecord, type AudioTrack, type SyncBank, type SyncBankLine } from './services/syncEditService';
+import { alignTakeWords, carryCopyAudio, carryTakes, fitTakeToParts, knownWords, phraseLine, phraseOf, pickedTakes, sayWords, placeTakeChunks, placeTakeLikeSync, putTake, SYNC_TAKE_ID, takeOnCopy, takesOf, TAKES_PER_ASK, voiceTakes, type SyncTake, type TakeAsk } from './services/syncTakesService';
 import { readRetakePlacement } from './services/retakePlacement';
 import { dotsToPauses, stripPauses } from './server/lib/linePauses.js';
 import { stripTags, tagsOf } from './server/lib/lineTags.js';
@@ -3125,7 +3125,7 @@ export default function App() {
       const rebased = rebaseEdits(priorEdits, priorBank, placedBank);
       // Lines Sync changed lines only held are let go again; one voiced differently was placed afresh.
       const held = fresh ? [] : activeJob.syncHeldLines || [];
-      const keptEdits = releaseLines(rebased.edits, held, placedBank) ?? {};
+      let keptEdits = releaseLines(rebased.edits, held, placedBank) ?? {};
       const heldPlain = (key: string) => {
         const line = priorBank?.lines.find((l) => l.key === key);
         const edit = priorEdits?.[key];
@@ -3133,7 +3133,6 @@ export default function App() {
       };
       const moved = rebased.dropped.filter((key) => held.includes(key) && heldPlain(key));
       const dropped = rebased.dropped.filter((key) => !moved.includes(key));
-      const edited = hasEdits(keptEdits);
       if (report.audioDebug) {
         const { lines, ...format } = report.audioDebug;
         console.info('[sync audio]', format);
@@ -3161,8 +3160,22 @@ export default function App() {
             console.warn('The takes could not be kept with the new sync:', err);
             return null;
           });
-      const bank = carried?.bank ?? placedBank;
-      const bankBlob = carried?.bankBlob ?? placedBankBlob;
+      // Copies on locked lines that play samples of their own bring them along too.
+      const withCopies = await carryCopyAudio({
+        edits: keptEdits,
+        priorBank,
+        priorBankBlob: activeJob.syncBankBlob,
+        bank: carried?.bank ?? placedBank,
+        bankBlob: carried?.bankBlob ?? placedBankBlob,
+        bankId: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `bank-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`,
+      }).catch((err) => {
+        console.warn('The copies could not keep their own takes with the new sync:', err);
+        return null;
+      });
+      keptEdits = withCopies ? withCopies.edits ?? {} : moveCopyAudio(keptEdits, () => null) ?? {};
+      const edited = hasEdits(keptEdits);
+      const bank = withCopies?.bank ?? carried?.bank ?? placedBank;
+      const bankBlob = withCopies?.bankBlob ?? carried?.bankBlob ?? placedBankBlob;
       // Lines kept as a voice-changed take stay so; a speaker dubbed in another voice since is no longer changed.
       const keptTakes = fresh ? null : carried ? carried.takes : keptVoiceTakes(bank, report, activeJob.syncTakes);
       // From scratch, what was kept for the dub before goes: retakes, take choices, places on the dub lane.
@@ -3501,14 +3514,77 @@ export default function App() {
    * script and the report too, so the line isn't left waiting for Sync. A
    * locked line stays locked.
    */
-  const handleUseSyncTake = (key: string, takeId: string) => {
+  const handleUseSyncTake = (key: string, takeId: string, copy?: string) => {
     const job = activeJob;
     if (!job || syncTakesBusy?.jobId === job.id) return;
+    if (copy) {
+      void putTakeOnCopy(job, key, takeId, copy);
+      return;
+    }
     const put = takeInDub(job, key, takeId);
     if (!put) return;
     updateJob(job.id, put.updates);
     scheduleSyncEditRender(job.id, put.render, 0);
     if (!put.placed) void placeUsedTake({ ...job, ...put.updates }, key, takeId, job);
+  };
+
+  /**
+   * A take on one Alt + drag copy of a line (Edit timing, the copy picked):
+   * only the copy plays it, cut at the words it had, its first word where it
+   * was (takeOnCopy); the line keeps its take. Words not known yet are timed
+   * by forced alignment first; if that fails the copy plays the whole take.
+   */
+  const putTakeOnCopy = async (job: BatchJob, key: string, takeId: string, copyId: string) => {
+    const bank = job.syncBank;
+    const base = job.syncBaseReport;
+    if (!bank || !base) return;
+    const rate = bank.sampleRate;
+    const line = bank.lines.find((l) => l.key === key);
+    const n = base.units.findIndex((u) => u.key === key);
+    const unit = base.units[n];
+    const copy = job.syncEdits?.[key]?.parts.find((part) => part.copy && part.id === copyId);
+    if (!line || !unit || !copy) return;
+    const list = takesOf(job.syncTakes, line, unit, rate);
+    const take = list.takes.find((t) => t.id === takeId);
+    if (!take) return;
+    const played = partLine(line, copy);
+    // What the copy plays now: a take of its own, or the line's.
+    const oldTake = list.takes.find((t) => (copy.audio ? t.bankStart === copy.audio.bankStart && t.length === copy.audio.length : t.id === list.active));
+    if (copy.audio && oldTake?.id === takeId) return;
+    let oldWords = oldTake ? knownWords(oldTake, unit, rate) : null;
+    let newWords = knownWords(take, unit, rate);
+    const oldText = oldTake?.text ?? unit.text;
+    const pairs = sayWords(oldText).length > 0 && sayWords(oldText).length === sayWords(take.text).length;
+    if (pairs && (!oldWords || !newWords) && job.syncBankBlob) {
+      const spoken = <W extends { text: string }>(words: W[]) => words.filter((w) => /[\p{L}\p{N}]/u.test(w.text));
+      try {
+        oldWords ??= spoken(await alignTakeWords(bank, job.syncBankBlob, played, oldText, { apiKey: elApiKey }));
+        newWords ??= spoken(await alignTakeWords(bank, job.syncBankBlob, { ...line, bankStart: take.bankStart, length: take.length }, take.text, { apiKey: elApiKey }));
+      } catch (err: any) {
+        if (err?.code === 'cancelled') return;
+        console.warn('The words of the copy could not be timed; it plays the whole take:', err);
+      }
+    }
+    const part = takeOnCopy({
+      key,
+      copy,
+      take,
+      sampleRate: rate,
+      firstWord: spokenSpan(line, [copy])?.start ?? copy.start,
+      oldWords: pairs ? oldWords : null,
+      newWords: pairs ? newWords : null,
+    });
+    // Anything done meanwhile stays: the copy must still be there, in the same bank.
+    const now = queueRef.current.find((j) => j.id === job.id);
+    const parts = now?.syncEdits?.[key]?.parts;
+    if (!now?.syncBank || !now.syncBaseReport || now.syncBank.bankId !== bank.bankId || !parts?.some((p) => p.id === copyId)) return;
+    const edits: SyncEdits = { ...now.syncEdits, [key]: { ...now.syncEdits![key], parts: parts.map((p) => (p.id === copyId ? part : p)) } };
+    updateJob(job.id, { syncEdits: edits, syncReport: measureEdits(now.syncBaseReport, now.syncBank, edits) }, { label: `Line ${n + 1}: copy retaken` });
+    scheduleSyncEditRender(
+      job.id,
+      { bank: now.syncBank, bankBlob: now.syncBankBlob, baseReport: now.syncBaseReport, edits, sourceDuration: sourceDurationOf(now), source: now.audioBuffer },
+      0
+    );
   };
 
   /**
@@ -3565,7 +3641,9 @@ export default function App() {
         const fit = fitTakeToParts({ key, oldParts, oldWords, newWords, takeSeconds: take.length / bank.sampleRate, prevEnd: prev?.end ?? null, nextStart: next?.start ?? null, cuts: take.gaps });
         const now = stillAsPut();
         if (!fit || !now?.syncBank || !now.syncBaseReport || now.syncEdits?.[key] !== job.syncEdits?.[key]) return;
-        const edits: SyncEdits = { ...(now.syncEdits ?? {}), [key]: { locked: Boolean(now.syncEdits?.[key]?.locked), parts: fit.parts } };
+        // Copies keep what they play (putTake gave them their own samples).
+        const copies = now.syncEdits?.[key]?.parts.filter((part) => part.copy) ?? [];
+        const edits: SyncEdits = { ...(now.syncEdits ?? {}), [key]: { locked: Boolean(now.syncEdits?.[key]?.locked), parts: [...fit.parts, ...copies] } };
         // The words go with the takes, so neither is aligned again.
         const pairs = (words: { start: number; end: number }[]): [number, number][] => words.map((w) => [w.start, w.end]);
         const nowKept = now.syncTakes?.[key];
@@ -3672,7 +3750,9 @@ export default function App() {
           cuts: take.gaps,
         });
         if (fit) {
-          edits = { ...(edits ?? {}), [key]: { locked: Boolean(edits?.[key]?.locked), parts: fit.parts } };
+          // Copies keep what they play (putTake gave them their own samples).
+          const copies = edits?.[key]?.parts.filter((part) => part.copy) ?? [];
+          edits = { ...(edits ?? {}), [key]: { locked: Boolean(edits?.[key]?.locked), parts: [...fit.parts, ...copies] } };
           placed = true;
         }
       }
@@ -4643,14 +4723,27 @@ export default function App() {
         }
       : undefined;
     // Edits stay exactly as they were: each line is as long as before, so they fit it.
-    updateJob(jobId, { syncBank: put.bank, syncBankBlob: put.bankBlob, syncTakes: put.takes, ...(remembered && { syncChangedVoices: remembered }) });
+    // Copies that kept the line's old samples as their own play the changed ones too.
+    const changedAt = new Map<number, { bankStart: number; gain: number }>();
+    now.syncBank.lines.forEach((line, n) => {
+      const next = put.bank.lines[n];
+      if (next && next.key === line.key && next.bankStart !== line.bankStart) changedAt.set(line.bankStart, { bankStart: next.bankStart, gain: next.gain });
+    });
+    const edits = changedAt.size > 0 ? moveCopyAudio(now.syncEdits, (bankStart) => changedAt.get(bankStart) ?? bankStart) : now.syncEdits || null;
+    updateJob(jobId, {
+      syncBank: put.bank,
+      syncBankBlob: put.bankBlob,
+      syncTakes: put.takes,
+      ...(edits !== (now.syncEdits || null) && { syncEdits: edits }),
+      ...(remembered && { syncChangedVoices: remembered }),
+    });
     scheduleSyncEditRender(
       jobId,
       {
         bank: put.bank,
         bankBlob: put.bankBlob,
         baseReport: now.syncBaseReport,
-        edits: now.syncEdits || null,
+        edits,
         sourceDuration: sourceDurationOf(now),
         source: now.audioBuffer,
       },
@@ -4716,14 +4809,18 @@ export default function App() {
         syncBankBlob: changed.bankBlob,
         syncTakes: { ...(now.syncTakes || {}), [key]: { takes: [...kept.takes, next], active: inPlace ? next.id : kept.active } },
       };
+      // Copies playing this take as their own play it in the new voice.
+      const copyEdits = moveCopyAudio(now.syncEdits, (bankStart) => (bankStart === take.bankStart ? { bankStart: next.bankStart, gain: next.gain } : bankStart));
+      const copiesMoved = copyEdits !== (now.syncEdits ?? null);
+      if (copiesMoved) voiced.syncEdits = copyEdits;
       // The take in the dub but moved since (another take's place): it goes in as a take is used.
       const put = !inPlace && kept.active === takeId ? takeInDub(voiced, key, next.id) : null;
-      updateJob(job.id, { syncBank: voiced.syncBank, syncBankBlob: voiced.syncBankBlob, syncTakes: voiced.syncTakes, ...put?.updates });
+      updateJob(job.id, { syncBank: voiced.syncBank, syncBankBlob: voiced.syncBankBlob, syncTakes: voiced.syncTakes, ...(copiesMoved && { syncEdits: copyEdits }), ...put?.updates });
       if (put) scheduleSyncEditRender(job.id, put.render, 0);
-      else if (inPlace) {
+      else if (inPlace || copiesMoved) {
         scheduleSyncEditRender(
           job.id,
-          { bank, bankBlob: changed.bankBlob, baseReport: now.syncBaseReport, edits: now.syncEdits || null, sourceDuration: sourceDurationOf(now), source: now.audioBuffer },
+          { bank, bankBlob: changed.bankBlob, baseReport: now.syncBaseReport, edits: copyEdits, sourceDuration: sourceDurationOf(now), source: now.audioBuffer },
           0
         );
       }

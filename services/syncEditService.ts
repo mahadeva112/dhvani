@@ -82,7 +82,9 @@ const clipsRender = async (
   bank: SyncBank,
   edits: SyncEdits | null | undefined,
   source: AudioBuffer | null | undefined,
-  audio?: TrackAudio | null
+  audio?: TrackAudio | null,
+  /** How many lines the dub renders (the bank's, and copies' own samples): the clips are numbered after them. */
+  dubLines = bank.lines.length
 ) => {
   const rate = bank.sampleRate;
   type Clip = { part: SyncEditPart; buffer: AudioBuffer | null | undefined; speaker: string; gainDb: number };
@@ -119,7 +121,7 @@ const clipsRender = async (
     blob: () => floatWav(samples, rate),
     lines,
     parts: clips.map(({ part, gainDb }, n) => ({
-      line: bank.lines.length + n,
+      line: dubLines + n,
       from: 0,
       to: lines[n].length,
       startSample: Math.max(0, Math.round(part.start * rate)),
@@ -167,15 +169,16 @@ export const renderSyncEdits = async (
   },
   { signal }: { signal?: AbortSignal } = {}
 ): Promise<SyncEditRender> => {
-  const original = await clipsRender(bank, edits, source, tracks);
+  const dub = renderPayload(bank, edits);
+  const original = await clipsRender(bank, edits, source, tracks, dub.lines.length);
   // With tracks the file is a mix of several sources: one stem each, kept at full precision so nothing clips.
   const several = Boolean(report.mix) || Boolean(tracks);
   const body = {
     bankId: bank.bankId,
     sampleRate: bank.sampleRate,
-    lines: bank.lines.map(({ bankStart, length, maxStartShift, gain, speaker }) => ({ bankStart, length, maxStartShift, gain, speaker })),
+    lines: dub.lines,
     speakerGains: bank.speakerGains,
-    parts: [...renderPayload(bank, edits), ...(original?.parts ?? [])],
+    parts: [...dub.parts, ...(original?.parts ?? [])],
     ...(original && { original: { bankId: original.bankId, lines: original.lines } }),
     sourceDuration,
     edgeFade: report.join?.edgeFade ?? 0,

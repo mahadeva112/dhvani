@@ -154,7 +154,8 @@ const newBankId = () =>
 export const lightJob = async (job: BatchJob, bankId = newBankId()): Promise<BatchJob> => {
   // A bank not in the form takes use (an old one) goes as it is, with all its takes.
   const compact =
-    job.syncBank && job.syncBankBlob ? await compactBank(job.syncBank, job.syncBankBlob, job.syncTakes, bankId).catch(() => null) : null;
+    job.syncBank && job.syncBankBlob ? await compactBank(job.syncBank, job.syncBankBlob, job.syncTakes, bankId, job.syncEdits).catch(() => null) : null;
+  const edits = compact ? compact.edits : job.syncEdits;
   return {
     ...job,
     file: null as unknown as File,
@@ -166,7 +167,7 @@ export const lightJob = async (job: BatchJob, bankId = newBankId()): Promise<Bat
     // Tracks of outside audio are the full project's: their files stay out, and so do their clips.
     syncAudioTracks: null,
     syncAudioFiles: null,
-    syncEdits: job.syncEdits && hasEdits(withoutAudioClips(job.syncEdits)) ? withoutAudioClips(job.syncEdits) : null,
+    syncEdits: edits && hasEdits(withoutAudioClips(edits)) ? withoutAudioClips(edits) : null,
     ...(compact && { syncBank: compact.bank, syncBankBlob: compact.bankBlob, syncTakes: compact.takes }),
   };
 };

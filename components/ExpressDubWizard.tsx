@@ -169,7 +169,7 @@ import { CueEditButtons, CueEditNotice, PickableWords, useCueEditing, useReviewU
 import { reviewHistoryLabels } from '../services/reviewHistory';
 import { HistoryMenu, type ProjectHistoryView } from './HistoryMenu';
 import { SyncEditTimeline, type AudioTrackLanes, type SyncEditStatus } from './SyncEditTimeline';
-import { isClip, type AudioTrack, type SyncEdits } from '../services/syncEditService';
+import { isClip, partLine, spokenSpan, type AudioTrack, type SyncEdits } from '../services/syncEditService';
 import { alignTakeWords, firstWordAt, takesOf, type TakeAsk } from '../services/syncTakesService';
 import { TakesPanel } from './TakesPanel';
 import { PageScrollLock } from './usePageScrollLock';
@@ -477,7 +477,8 @@ interface ExpressDubWizardProps {
   /** Voices new takes of a synced line now, of the whole line or of some of its words (TakesPanel). */
   onVoiceSyncTakes?: (unit: SyncUnitReport, options: TakeAsk) => void;
   /** Puts one of a line's takes in the dub. */
-  onUseSyncTake?: (key: string, takeId: string) => void;
+  /** `copy`: put the take on that Alt + drag copy of the line only; the line keeps its take. */
+  onUseSyncTake?: (key: string, takeId: string, copy?: string) => void;
   /** Drops a line's takes but Sync's own and the one in the dub. */
   onClearSyncTakes?: (key: string) => void;
   /** The voice a speaker was changed into by the voice changer, while their retakes are changed into it; null otherwise. */
@@ -798,6 +799,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   /** Edit timing: the line whose takes are open under the timeline. */
   const [timingTakesKey, setTimingTakesKey] = useState<string | null>(null);
   const [timingTakesPhrase, setTimingTakesPhrase] = useState<{ from: number; to: number } | null>(null);
+  /** The Alt + drag copy of that line being retaken on its own, or null for the line itself. */
+  const [timingTakesCopy, setTimingTakesCopy] = useState<string | null>(null);
   /** The retake window holds edited words not yet voiced. */
   const [timingTakesDirty, setTimingTakesDirty] = useState(false);
   useEffect(() => {
@@ -4019,22 +4022,31 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 unit: SyncUnitReport,
                 close: () => void,
                 initialPhrase?: { from: number; to: number } | null,
-                inWindow?: { onDirtyChange: (dirty: boolean) => void; pro?: boolean }
+                inWindow?: { onDirtyChange: (dirty: boolean) => void; pro?: boolean; copy?: string | null }
               ) => {
                 const line = takesBank.lines.find((l) => l.key === unit.key);
                 const n = takesBase.units.findIndex((u) => u.key === unit.key);
                 if (!line || n === -1) {
                   return <p className="text-[12px] text-slate-400">This line has no take in the dub. Sync again to voice it.</p>;
                 }
+                // An Alt + drag copy retaken on its own: the take it plays is the one in the dub here, and a take used goes on it alone.
+                const copyPart = inWindow?.copy ? activeJob.syncEdits?.[unit.key]?.parts.find((part) => part.copy && part.id === inWindow.copy) ?? null : null;
+                const listed = takesOf(activeJob.syncTakes, line, takesBase.units[n]);
+                const lineTakes = copyPart?.audio ? { ...listed, active: listed.takes.find((t) => t.bankStart === copyPart.audio!.bankStart)?.id ?? '' } : listed;
+                const playedLine = copyPart ? partLine(line, copyPart) : line;
                 return (
                   <TakesPanel
-                    key={`${activeJob.id}:${unit.key}`}
+                    key={`${activeJob.id}:${unit.key}:${copyPart?.id ?? ''}`}
                     unit={unit}
                     initialPhrase={initialPhrase}
                     locked={Boolean(activeJob.syncEdits?.[unit.key]?.locked ?? line.locked)}
                     lineNumber={segments.findIndex((seg) => String(seg.id) === unit.key) + 1}
-                    lineTakes={takesOf(activeJob.syncTakes, line, takesBase.units[n])}
-                    firstWord={firstWordAt(line, activeJob.syncEdits, takesBank.sampleRate)}
+                    lineTakes={lineTakes}
+                    firstWord={
+                      copyPart
+                        ? spokenSpan(line, [copyPart])?.start ?? copyPart.start
+                        : firstWordAt(line, activeJob.syncEdits, takesBank.sampleRate)
+                    }
                     nextStart={takesBase.units[n + 1]?.srcStart ?? null}
                     tolerance={takesBase.tolerance}
                     bankBlob={activeJob.syncBankBlob}
@@ -4049,7 +4061,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onVoice={(options) => onVoiceSyncTakes(unit, options)}
                     onSuggestWording={suggestTakeWording(unit)}
                     onUse={(takeId) => {
-                      onUseSyncTake(unit.key, takeId);
+                      onUseSyncTake(unit.key, takeId, copyPart?.id);
                       // In the retake window, using a take is the end of it: the take is in the timeline.
                       if (inWindow) close();
                     }}
@@ -4067,7 +4079,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     onForgetChangedVoice={onForgetChangedVoice && (() => onForgetChangedVoice(line.speaker))}
                     onAlignWords={
                       activeJob.syncBankBlob && !syncPendingLines.includes(unit.key)
-                        ? () => alignTakeWords(takesBank, activeJob.syncBankBlob!, line, unit.text, { apiKey: elApiKey || undefined })
+                        ? () => alignTakeWords(takesBank, activeJob.syncBankBlob!, playedLine, unit.text, { apiKey: elApiKey || undefined })
                         : undefined
                     }
                   />
@@ -4572,12 +4584,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onMarkersChange={onUpdateJobFields && ((markers) => onUpdateJobFields({ syncMarkers: markers.length > 0 ? markers : null }))}
                   onOpenTakes={
                     renderTakes
-                      ? (key, phrase, follow) => {
+                      ? (key, phrase, follow, copy) => {
                           // Following the picked line moves an open window only; it never opens one.
                           if (follow && timingTakesKey === null) return;
                           // Nor does it leave edited words that are not voiced yet.
-                          if (follow && (key === timingTakesKey || timingTakesDirty)) return;
+                          if (follow && ((key === timingTakesKey && (copy ?? null) === timingTakesCopy) || timingTakesDirty)) return;
                           setTimingTakesKey(key);
+                          setTimingTakesCopy(copy ?? null);
                           setTimingTakesPhrase(phrase ?? null);
                         }
                       : undefined
@@ -4590,6 +4603,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     <>
                       <Mic className="w-3.5 h-3.5 text-indigo-300" aria-hidden="true" />
                       Retake · line {String(segments.findIndex((seg) => String(seg.id) === timingTakesUnit.key) + 1).padStart(2, '0')}
+                      {timingTakesCopy && <span className="text-slate-400 font-normal">· the copy only</span>}
                     </>
                   }
                   // Always the full window: tags, styles, stability and more takes beside the words.
@@ -4601,7 +4615,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     setTimingTakesDirty(false);
                   }}
                 >
-                  {renderTakes(timingTakesUnit, () => { setTimingTakesKey(null); setTimingTakesDirty(false); }, timingTakesPhrase, { onDirtyChange: setTimingTakesDirty, pro: true })}
+                  {renderTakes(timingTakesUnit, () => { setTimingTakesKey(null); setTimingTakesDirty(false); }, timingTakesPhrase, { onDirtyChange: setTimingTakesDirty, pro: true, copy: timingTakesCopy })}
                 </FloatingWindow>
               )}
               {report && syncedPlayer && (

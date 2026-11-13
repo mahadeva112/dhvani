@@ -74,6 +74,7 @@ const rememberMorePauses = (value: { more: MorePauses; breaths: boolean }) => {
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import {
   syncedParts,
+  partLine,
   hasEdits,
   isEdited,
   isAudioClip,
@@ -1256,7 +1257,8 @@ export const SyncEditTimeline: React.FC<{
   speakerLanes?: SpeakerLanes;
   /** Opens the takes of a line (TakesPanel): new readings of it, voiced now, to pick from. */
   /** Opens the retake window on a line; with `follow`, only moves an open window to it. */
-  onOpenTakes?: (key: string, phrase?: { from: number; to: number }, follow?: boolean) => void;
+  /** `copy`: the Alt + drag copy picked, retaken on its own; the line itself doesn't change. */
+  onOpenTakes?: (key: string, phrase?: { from: number; to: number }, follow?: boolean, copy?: string) => void;
   elApiKey?: string;
   takesUnavailableKeys?: string[];
   /** The editor's own markers with notes; Shift + M adds one at the playhead. */
@@ -1542,19 +1544,23 @@ export const SyncEditTimeline: React.FC<{
   const current = chunkOf(selected);
   /** Every picked part, in timeline order. */
   const group = chunks.filter((c) => selectedSet.has(c.part.id));
-  const lineOf = (chunk: Chunk) => lines[chunk.line];
+  /** The line as the chunk plays it: its take, or a copy's own samples. */
+  const lineOf = (chunk: Chunk) => partLine(lines[chunk.line], chunk.part);
   const lineSeconds = (chunk: Chunk) => lineOf(chunk).length / rate;
   // A picked part that went away (undo, reset) is no longer picked.
   useEffect(() => {
     const still = selectedIds.filter((id) => chunks.some((c) => c.part.id === id));
     if (still.length !== selectedIds.length) setSelectedIds(still);
   }, [selectedIds, chunks]);
-  // An open retake window follows the picked line of the dub. T or Takes opens it; selecting a range opens it with the words picked.
-  const pickedLineKey = group.length === 1 && current && !current.original ? current.key : null;
+  /** An Alt + drag copy is retaken on its own: its id goes with the line's key. */
+  const copyIdOf = (chunk: Chunk) => (chunk.part.copy ? chunk.part.id : undefined);
+  // An open retake window follows the picked line of the dub, or the picked copy. T or Takes opens it; selecting a range opens it with the words picked.
+  const pickedLine = group.length === 1 && current && !current.original ? current : null;
+  const pickedLineKey = pickedLine ? `${pickedLine.key}\u0000${copyIdOf(pickedLine) ?? ''}` : null;
   useEffect(() => {
-    if (pickedLineKey && !rangeTool) onOpenTakes?.(pickedLineKey, undefined, true);
+    if (pickedLine && !rangeTool) onOpenTakes?.(pickedLine.key, undefined, true, copyIdOf(pickedLine));
   }, [pickedLineKey]);
-  const openTakes = () => (current && !current.original ? onOpenTakes?.(current.key, undefined, false) : say('Pick a line of the dub to retake it'));
+  const openTakes = () => (current && !current.original ? onOpenTakes?.(current.key, undefined, false, copyIdOf(current)) : say('Pick a line of the dub to retake it'));
   /** How the picked parts are named in the history: "line 4", "clip O1", or "3 lines". */
   const groupName = (list: Chunk[]) => (list.length === 1 ? `${list[0].original ? 'clip' : 'line'} ${list[0].label}` : `${list.length} lines`);
 
@@ -2284,7 +2290,7 @@ export const SyncEditTimeline: React.FC<{
           if (!picked) throw new Error('No complete words in this range. Widen it or pick words in Takes.');
           setTakeRange({ from: picked.start, to: picked.end });
           setRangeWords({ key: range.chunk.key, from: picked.from, to: picked.to, text: picked.text });
-          onOpenTakes?.(range.chunk.key, { from: picked.from, to: picked.to });
+          onOpenTakes?.(range.chunk.key, { from: picked.from, to: picked.to }, false, copyIdOf(range.chunk));
         })
         .catch(err => {
           if (!controller.signal.aborted) { setTakeRange(null); say(err?.message || 'Could not match words. Open Takes to pick them manually.'); }
@@ -2341,7 +2347,7 @@ export const SyncEditTimeline: React.FC<{
     picked: string[];
     listening: boolean;
   } | null>(null);
-  /** Each line's words as forced alignment hears them, by line key, for this bank. */
+  /** Each line's words as forced alignment hears them, for this bank: by line key, and a copy with samples of its own by those. */
   const [tightenWords, setTightenWords] = useState<Record<string, TakeWord[] | 'loading' | 'failed'>>({});
   const tightenRequest = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -2350,6 +2356,9 @@ export const SyncEditTimeline: React.FC<{
     setTighten(null);
   }, [bank]);
   useEffect(() => () => tightenRequest.current?.abort(), []);
+
+  /** Where a part's words are kept in tightenWords: its line's, unless it is a copy with samples of its own. */
+  const wordsKey = (chunk: Chunk) => (chunk.part.audio ? `${chunk.key}@${chunk.part.audio.bankStart}` : chunk.key);
 
   /** The line's samples as decoded, and their rate. */
   const lineSamples = (chunk: Chunk) => {
@@ -2375,7 +2384,7 @@ export const SyncEditTimeline: React.FC<{
     let waiting = 0;
     let failed = 0;
     for (const chunk of tightenTargets) {
-      const words = tightenWords[chunk.key];
+      const words = tightenWords[wordsKey(chunk)];
       if (tighten.checkWords && words === 'failed') { failed++; continue; }
       if (tighten.checkWords && !Array.isArray(words)) { waiting++; continue; }
       const audio = lineSamples(chunk);
@@ -2418,16 +2427,17 @@ export const SyncEditTimeline: React.FC<{
 
   const askWords = (targets: Chunk[]) => {
     if (!bankBlob) return;
-    const missing = [...new Map(targets.filter((c) => c.unit && tightenWords[c.key] === undefined).map((c) => [c.key, c])).values()];
+    const missing = [...new Map(targets.filter((c) => c.unit && tightenWords[wordsKey(c)] === undefined).map((c) => [wordsKey(c), c])).values()];
     if (missing.length === 0) return;
     tightenRequest.current?.abort();
     const controller = new AbortController();
     tightenRequest.current = controller;
-    setTightenWords((w) => ({ ...w, ...Object.fromEntries(missing.map((c) => [c.key, 'loading' as const])) }));
+    setTightenWords((w) => ({ ...w, ...Object.fromEntries(missing.map((c) => [wordsKey(c), 'loading' as const])) }));
     for (const chunk of missing) {
+      const at = wordsKey(chunk);
       void alignTakeWords(bank, bankBlob, lineOf(chunk), chunk.unit!.text, { apiKey: elApiKey, signal: controller.signal })
-        .then((words) => !controller.signal.aborted && setTightenWords((w) => ({ ...w, [chunk.key]: words })))
-        .catch(() => !controller.signal.aborted && setTightenWords((w) => ({ ...w, [chunk.key]: 'failed' })));
+        .then((words) => !controller.signal.aborted && setTightenWords((w) => ({ ...w, [at]: words })))
+        .catch(() => !controller.signal.aborted && setTightenWords((w) => ({ ...w, [at]: 'failed' })));
     }
   };
 
@@ -2519,7 +2529,10 @@ export const SyncEditTimeline: React.FC<{
     },
     join: () => {
       if (!current) return say('Pick a part of a split line first.');
-      const later = chunks.filter((c) => c.key === current.key && c.part.start > current.part.start).sort((a, b) => a.part.start - b.part.start)[0];
+      // Only parts playing the same samples join: a copy retaken on its own is another take.
+      const later = chunks
+        .filter((c) => c.key === current.key && c.part.start > current.part.start && c.part.audio?.bankStart === current.part.audio?.bankStart)
+        .sort((a, b) => a.part.start - b.part.start)[0];
       if (!later) return say('This line has no later part to join it to.');
       const joined: SyncEditPart = { ...current.part, to: Math.max(current.part.to, later.part.to), fadeOut: later.part.fadeOut };
       const end = joined.start + partLength(joined);

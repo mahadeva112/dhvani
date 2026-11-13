@@ -1,4 +1,4 @@
-import { basePart, measureEdits, partsOf, partTime, spokenSpan, syncedParts, type SyncBank, type SyncBankLine, type SyncEditPart, type SyncEdits } from './syncEditModel.ts';
+import { basePart, keptCopies, measureEdits, moveCopyAudio, partsOf, partTime, spokenSpan, syncedParts, type SyncBank, type SyncBankLine, type SyncEditPart, type SyncEdits } from './syncEditModel.ts';
 import type { SyncReport, SyncUnitReport } from './syncService';
 
 /**
@@ -252,8 +252,10 @@ export const compactBank = async (
   bank: SyncBank,
   bankBlob: Blob,
   takes: SyncTakes | null | undefined,
-  bankId: string
-): Promise<{ bank: SyncBank; bankBlob: Blob; takes: SyncTakes | null }> => {
+  bankId: string,
+  /** The edits, for the samples copies play of their own: kept too, and the edits pointed at their new place. */
+  edits?: SyncEdits | null
+): Promise<{ bank: SyncBank; bankBlob: Blob; takes: SyncTakes | null; edits: SyncEdits | null }> => {
   await samplesIn(bankBlob, bank.float);
   const kept: SyncTakes = {};
   for (const [key, line] of Object.entries(takes || {})) {
@@ -263,6 +265,7 @@ export const compactBank = async (
   const spans = [
     ...bank.lines.filter((l) => !l.original),
     ...Object.values(kept).flatMap((line) => line.takes),
+    ...Object.values(edits ?? {}).flatMap((edit) => (Array.isArray(edit?.parts) ? edit.parts : []).flatMap((part) => (part.audio ? [part.audio] : []))),
   ]
     .filter((s) => s.length > 0)
     .map((s) => ({ start: s.bankStart, end: s.bankStart + s.length }))
@@ -296,7 +299,60 @@ export const compactBank = async (
     bank: { ...bank, bankId, lines: bank.lines.map((l) => (l.original ? l : { ...l, bankStart: moved(l.bankStart) })) },
     bankBlob: blob,
     takes: Object.keys(kept).length ? kept : null,
+    edits: moveCopyAudio(edits, moved),
   };
+};
+
+/**
+ * After a Sync: the samples copies play of their own (locked lines keep their
+ * copies) copied from the last bank to the end of the new one, as they are,
+ * and the edits pointed at them there, the bank under `bankId` when it grew.
+ * Copies whose samples can't come (banks in another format) go.
+ */
+export const carryCopyAudio = async ({
+  edits,
+  priorBank,
+  priorBankBlob,
+  bank,
+  bankBlob,
+  bankId,
+}: {
+  edits: SyncEdits | null | undefined;
+  priorBank: SyncBank | null | undefined;
+  priorBankBlob: Blob | null | undefined;
+  bank: SyncBank;
+  bankBlob: Blob;
+  bankId: string;
+}): Promise<{ edits: SyncEdits | null; bank: SyncBank; bankBlob: Blob }> => {
+  const spans = new Map<number, number>();
+  for (const edit of Object.values(edits ?? {})) {
+    for (const part of Array.isArray(edit?.parts) ? edit.parts : []) if (part.audio) spans.set(part.audio.bankStart, Math.max(spans.get(part.audio.bankStart) ?? 0, part.audio.length));
+  }
+  if (spans.size === 0) return { edits: edits ?? null, bank, bankBlob };
+  const joinable = Boolean(priorBank && priorBankBlob && priorBank.sampleRate === bank.sampleRate && priorBank.float === bank.float);
+  if (!joinable) return { edits: moveCopyAudio(edits, () => null), bank, bankBlob };
+  const priorLength = await samplesIn(priorBankBlob!, priorBank!.float);
+  let at = await samplesIn(bankBlob, bank.float);
+  const copies: { from: number; length: number }[] = [];
+  const moved = new Map<number, number>();
+  for (const [from, length] of spans) {
+    if (from < 0 || length <= 0 || from + length > priorLength) continue;
+    moved.set(from, at);
+    copies.push({ from, length });
+    at += length;
+  }
+  const next = moveCopyAudio(edits, (bankStart) => moved.get(bankStart) ?? null);
+  if (copies.length === 0) return { edits: next, bank, bankBlob };
+  const bytes = bank.float ? 4 : 2;
+  const blob = new Blob(
+    [
+      wavHeader(at * bytes, bank.sampleRate, bank.float),
+      bankBlob.slice(HEADER_BYTES),
+      ...copies.map((c) => priorBankBlob!.slice(HEADER_BYTES + c.from * bytes, HEADER_BYTES + (c.from + c.length) * bytes)),
+    ],
+    { type: 'audio/wav' }
+  );
+  return { edits: next, bank: { ...bank, bankId }, bankBlob: blob };
 };
 
 /** A take's id at its new place in the bank: ids end in the take's bankStart, so they stay unique there. */
@@ -493,8 +549,12 @@ export const putTake = ({
   const nextEdits: SyncEdits = { ...(edits ?? {}) };
   const before = edits?.[key];
   delete nextEdits[key];
-  const gainDb = before?.parts[0]?.gainDb ?? 0;
-  if (before && (before.locked || gainDb !== 0)) nextEdits[key] = { locked: before.locked, parts: [{ ...basePart(line, rate), gainDb }] };
+  const gainDb = before?.parts.find((part) => !part.copy)?.gainDb ?? 0;
+  // Alt + drag copies are not the line: each keeps playing what it played.
+  const copies = keptCopies(before?.parts, old);
+  if (before && (before.locked || gainDb !== 0 || copies.length > 0)) {
+    nextEdits[key] = { locked: before.locked, parts: [{ ...basePart(line, rate), gainDb }, ...copies] };
+  }
   const cleanEdits = Object.keys(nextEdits).length > 0 ? nextEdits : null;
   return { bank: nextBank, edits: cleanEdits, baseReport: measureTake(baseReport, nextBank, key, take) };
 };
@@ -575,8 +635,10 @@ export const placeTakeChunks = ({
   const old = bank.lines[index];
   const before = edits?.[key];
   if (!old || old.bankStart !== take.bankStart || old.length !== take.length || before?.locked) return null;
-  // Only a take still as it went in: one part, the whole take, nothing changed but its gain.
-  if (before && (before.parts.length !== 1 || before.parts[0].from !== 0 || Math.abs(before.parts[0].to - old.length / rate) > 1e-6 || before.parts[0].rate !== 1)) return null;
+  // Only a take still as it went in: one part, the whole take, nothing changed but its gain. Copies are not the line.
+  const own = before?.parts.filter((part) => !part.copy) ?? [];
+  const copies = keptCopies(before?.parts, old);
+  if (before && (own.length !== 1 || own[0].from !== 0 || Math.abs(own[0].to - old.length / rate) > 1e-6 || own[0].rate !== 1)) return null;
   const valid = chunks.filter((c) => Number.isInteger(c.from) && Number.isInteger(c.to) && Number.isInteger(c.startSample) && c.from >= 0 && c.to <= old.length && c.to > c.from && c.startSample >= 0);
   if (valid.length === 0 || valid.length !== chunks.length) return null;
   const { maxStartShift: _shift, ...rest } = old;
@@ -584,8 +646,8 @@ export const placeTakeChunks = ({
   const nextBank = { ...bank, lines: bank.lines.map((l, n) => (n === index ? line : l)) };
   const nextEdits: SyncEdits = { ...(edits ?? {}) };
   delete nextEdits[key];
-  const gainDb = before?.parts[0]?.gainDb ?? 0;
-  if (gainDb !== 0) nextEdits[key] = { locked: false, parts: syncedParts(line, rate).map((part) => ({ ...part, gainDb })) };
+  const gainDb = own[0]?.gainDb ?? 0;
+  if (gainDb !== 0 || copies.length > 0) nextEdits[key] = { locked: false, parts: [...syncedParts(line, rate).map((part) => ({ ...part, gainDb })), ...copies] };
   return {
     bank: nextBank,
     edits: Object.keys(nextEdits).length > 0 ? nextEdits : null,
@@ -608,6 +670,53 @@ export const pickedTakes = (bank: SyncBank | null | undefined, takes: SyncTakes 
     lines[line.key] = { bankStart: take.bankStart, length: take.length, lead: take.lead, speech: take.speech, cutOff: take.cutOff };
   }
   return Object.keys(lines).length > 0 ? { bankId: bank.bankId, lines } : undefined;
+};
+
+/* ---------- A take on one Alt + drag copy ---------- */
+
+/**
+ * An Alt + drag copy playing `take` instead, on its own: the line and its
+ * other parts keep theirs. With both takes' words known (`oldWords` for what
+ * the copy plays now), the copy is cut at the same words of the new take, its
+ * first word where it was (fitTakeToParts); without, the whole take plays, its
+ * first word at `firstWord`. Its gain, fades and mute stay; it plays at the
+ * speed it was voiced.
+ */
+export const takeOnCopy = ({
+  key,
+  copy,
+  take,
+  sampleRate,
+  firstWord,
+  oldWords,
+  newWords,
+}: {
+  key: string;
+  copy: SyncEditPart;
+  take: SyncTake;
+  sampleRate: number;
+  firstWord: number;
+  oldWords?: SpokenWord[] | null;
+  newWords?: SpokenWord[] | null;
+}): SyncEditPart => {
+  const audio = { bankStart: take.bankStart, length: take.length, lead: take.lead, speech: take.speech, gain: take.gain };
+  const seconds = take.length / sampleRate;
+  if (oldWords?.length && newWords?.length) {
+    const fit = fitTakeToParts({ key, oldParts: [{ ...copy, copy: false }], oldWords, newWords, takeSeconds: seconds, cuts: take.gaps });
+    if (fit?.parts.length === 1) return { ...fit.parts[0], id: copy.id, copy: true, audio };
+  }
+  const half = seconds / 2;
+  return {
+    ...copy,
+    start: Math.max(0, firstWord - take.lead),
+    from: 0,
+    to: seconds,
+    rate: 1,
+    fadeIn: Math.min(copy.fadeIn, half),
+    fadeOut: Math.min(copy.fadeOut, half),
+    copy: true,
+    audio,
+  };
 };
 
 /* ---------- A used take where the old take's parts were ---------- */

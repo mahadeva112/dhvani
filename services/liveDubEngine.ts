@@ -1,5 +1,5 @@
 import type { SyncBank, SyncEditPart, SyncEdits } from './syncEditService';
-import { syncedParts } from './syncEditModel.ts';
+import { partLine, syncedParts } from './syncEditModel.ts';
 
 /**
  * Live playback for Edit timing, the way a DAW plays its clips: the synced
@@ -102,15 +102,17 @@ export const liveClips = (
       original: true,
     });
   }
-  for (const line of bank.lines) {
-    if (silenced.has(line.speaker)) continue;
-    const lineGain = Number.isFinite(line.gain) ? line.gain : 1;
-    const speakerGain = multiSpeaker ? (Number.isFinite(bank.speakerGains?.[line.speaker]) ? bank.speakerGains[line.speaker] : 1) : 1;
-    const seconds = line.length / rate;
+  for (const base of bank.lines) {
+    if (silenced.has(base.speaker)) continue;
+    const speakerGain = multiSpeaker ? (Number.isFinite(bank.speakerGains?.[base.speaker]) ? bank.speakerGains[base.speaker] : 1) : 1;
     // A line nobody edited plays as Sync placed it: whole, or as its chunks (syncEditModel's syncedParts).
-    const parts: SyncEditPart[] = edits?.[line.key]?.parts ?? syncedParts(line, rate);
+    const parts: SyncEditPart[] = edits?.[base.key]?.parts ?? syncedParts(base, rate);
     for (const part of parts) {
       if (part.muted) continue;
+      // A copy with samples of its own plays those.
+      const line = partLine(base, part);
+      const lineGain = Number.isFinite(line.gain) ? line.gain : 1;
+      const seconds = line.length / rate;
       const from = Math.max(0, Math.min(seconds, part.from));
       const to = Math.max(from, Math.min(seconds, part.to));
       if (to - from <= 0) continue;
