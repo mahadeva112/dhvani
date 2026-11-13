@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { FlowArrow } from './FlowArrow';
 import { Check, ChevronRight, Loader2, RotateCcw, Ruler, X } from 'lucide-react';
 import {
   fitJoinSettings,
@@ -392,7 +393,7 @@ export const FitCard: React.FC<{
                 <span className="block text-[11.5px] text-slate-400">{change.reason}</span>
               </span>
               <span className="shrink-0 tabular-nums text-[12px] text-indigo-300">
-                {fitValue(change.key, change.from)} → {fitValue(change.key, change.to)}
+                {fitValue(change.key, change.from)} <FlowArrow className="mx-0.5" /> {fitValue(change.key, change.to)}
               </span>
             </li>
           ))}

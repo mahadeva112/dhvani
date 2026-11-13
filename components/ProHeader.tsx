@@ -1,3 +1,4 @@
+import { FlowArrow } from './FlowArrow';
 import React from 'react';
 import {
   Keyboard,
@@ -675,13 +676,11 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
               <span className="min-w-0">
                 <span className="block text-[13px] font-semibold text-slate-100 truncate max-w-[16rem]">{projectName(activeJob)}</span>
                 <span className="flex items-center gap-1.5 text-[11.5px] text-slate-400 whitespace-nowrap">
-                  <span className="hidden sm:inline truncate">
-                    {[
-                      `${sourceLanguage || 'Auto'} → ${targetLanguage || DEFAULT_TARGET_LANGUAGE}`,
-                      mediaDuration ? formatClock(mediaDuration) : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
+                  <span className="hidden sm:inline-flex items-center gap-1 min-w-0 truncate">
+                    {sourceLanguage || 'Auto'}
+                    <FlowArrow />
+                    {targetLanguage || DEFAULT_TARGET_LANGUAGE}
+                    {mediaDuration ? <span className="text-slate-500">· {formatClock(mediaDuration)}</span> : null}
                   </span>
                   {statusPill}
                 </span>

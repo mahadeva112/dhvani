@@ -2656,13 +2656,35 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     Nothing is sent to ElevenLabs until you press Transcribe audio: set the language and speakers first.
                   </p>
                 ) : (
-                  <div className="flex justify-between text-[11px] text-slate-500">
-                    <span>Transcribe</span>
-                    <span aria-hidden="true">→</span>
-                    <span>Word timings</span>
-                    <span aria-hidden="true">→</span>
-                    <span>Translate or your script</span>
-                  </div>
+                  // What transcribing starts: three small steps, ticked once done, the next one lit.
+                  <ol aria-label="What happens next" className="flex items-start pt-0.5">
+                    {['Transcribe', 'Word timings', 'Translate or your script'].map((label, i) => {
+                      const done = transcribed && i < 2;
+                      const next = transcribed ? i === 2 : i === 0;
+                      return (
+                        <li key={label} className="relative flex-1 flex flex-col items-center gap-1 text-center">
+                          {i > 0 && (
+                            <span
+                              aria-hidden="true"
+                              className={`absolute top-[9px] right-1/2 w-full h-px ${transcribed && i < 3 ? 'bg-emerald-500/40' : 'bg-slate-700'}`}
+                            />
+                          )}
+                          <span
+                            className={`relative w-[18px] h-[18px] rounded-full border flex items-center justify-center font-mono text-[10px] ${
+                              done
+                                ? 'border-emerald-500/60 bg-emerald-950 text-emerald-300'
+                                : next
+                                  ? 'border-indigo-400/70 bg-indigo-950 text-indigo-200'
+                                  : 'border-slate-700 bg-slate-900 text-slate-500'
+                            }`}
+                          >
+                            {done ? <Check className="w-2.5 h-2.5" strokeWidth={3} /> : i + 1}
+                          </span>
+                          <span className={`text-[11px] leading-tight ${done ? 'text-slate-400' : next ? 'text-slate-200' : 'text-slate-500'}`}>{label}</span>
+                        </li>
+                      );
+                    })}
+                  </ol>
                 )}
               </div>
             </aside>

@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { FlowArrow } from './FlowArrow';
 import {
   X,
   FileAudio,
@@ -435,7 +436,7 @@ export const BatchQueueModal: React.FC<BatchQueueModalProps> = ({
                         {length > 0 && <span className="font-mono tabular-nums">{formatLength(length)}</span>}
                         {length > 0 && <span className="text-slate-600">·</span>}
                         <span>
-                          {job.detectedLanguage || job.sourceLanguage || 'Auto'} → {job.language}
+                          {job.detectedLanguage || job.sourceLanguage || 'Auto'} <FlowArrow className="mx-0.5" /> {job.language}
                         </span>
                         {when && <span className="text-slate-600">·</span>}
                         {when && <span>{when}</span>}

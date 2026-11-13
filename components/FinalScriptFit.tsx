@@ -1,4 +1,5 @@
 import React from 'react';
+import { FlowArrow } from './FlowArrow';
 import { Loader2 } from 'lucide-react';
 import { wantsChange } from '../services/syncService';
 import type { SyncPreview, SyncPreviewUnit } from '../services/syncService';
@@ -260,9 +261,9 @@ export const ScriptFitStrip: React.FC<{
           <button
             type="button"
             onClick={onShowFix}
-            className="h-7 px-2.5 rounded-lg border border-slate-600 hover:bg-slate-800 text-[12.5px] font-medium text-slate-100 cursor-default"
+            className="h-7 px-2.5 inline-flex items-center gap-1.5 rounded-lg border border-slate-600 hover:bg-slate-800 text-[12.5px] font-medium text-slate-100 cursor-default"
           >
-            Show {linesToFix} to fix →
+            Show {linesToFix} to fix <FlowArrow className="text-slate-300" />
           </button>
         )}
       </span>

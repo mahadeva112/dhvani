@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { FlowArrow } from './FlowArrow';
 import { X, Copy, Check, Trash2, RefreshCw, ArrowRight, AlertCircle } from 'lucide-react';
 import {
   INDIC_LANGUAGES,
@@ -516,7 +517,7 @@ export const PhoneticKeyboardModal: React.FC<PhoneticKeyboardModalProps> = ({
                       customWordList.map((w) => (
                         <div key={w.roman} className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-[9px] bg-slate-900 border border-edge">
                           <span className="font-mono text-[12.5px] text-slate-400">{w.roman}</span>
-                          <span className="text-[11px] text-slate-600">→</span>
+                          <FlowArrow />
                           <span className="text-[15px] text-slate-100 min-w-0 truncate">{w.native}</span>
                           <button
                             type="button"

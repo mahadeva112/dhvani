@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { FlowArrow } from './FlowArrow';
 import { ArrowDownToLine, Minus, Plus, Scissors, Search, Trash2, Undo2, WrapText } from 'lucide-react';
 import type { EditedSubtitle } from '../types';
 import {
@@ -191,7 +192,7 @@ function SubtitleCard({
               return true;
             }}
           />
-          →
+          <FlowArrow />
           <StampField
             value={cue.end}
             label={`Subtitle ${n} end`}

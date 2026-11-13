@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { FlowArrow } from './FlowArrow';
 import { ChevronRight, ListChecks, Ruler, Undo2, X } from 'lucide-react';
 import type { SyncJoinSettings } from '../services/syncService';
 import type { AutoFitChange, AutoFitOutcome } from '../services/syncAutoFit';
@@ -89,7 +90,7 @@ const ChangeRow: React.FC<{ change: AutoFitChange; quiet?: boolean }> = ({ chang
       {!quiet && <span className="block text-[11.5px] text-slate-400 mt-0.5">{change.reason}</span>}
     </span>
     <span className="tabular-nums text-[12.5px] text-indigo-200 whitespace-nowrap self-start">
-      {valueOf(change.key, change.from)} <span className="text-slate-500">→</span> {valueOf(change.key, change.to)}
+      {valueOf(change.key, change.from)} <FlowArrow className="mx-0.5" /> {valueOf(change.key, change.to)}
     </span>
   </li>
 );
@@ -172,7 +173,7 @@ const WhatChangedWindow: React.FC<AutoFitPanelProps & { onClose: () => void }> =
           )}
           {outcome.inSync && !outcome.afterVoicing && (
             <p className="text-[12.5px] text-slate-300">
-              Sync preview: <b className="tabular-nums">{outcome.inSync.before}</b> → <b className="tabular-nums">{outcome.inSync.after}</b> of{' '}
+              Sync preview: <b className="tabular-nums">{outcome.inSync.before}</b> <FlowArrow className="mx-0.5" /> <b className="tabular-nums">{outcome.inSync.after}</b> of{' '}
               {plural(outcome.inSync.cues, 'cue')} in sync (an estimate from the text, before voicing).
             </p>
           )}

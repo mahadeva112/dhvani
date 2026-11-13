@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { FlowArrow } from './FlowArrow';
 import {
   AlertTriangle,
   Check,
@@ -757,7 +758,11 @@ const GlossaryPanel: React.FC<GlossaryPanelProps> = ({
                   >
                     {term.policy === 'keep' ? 'Keep as written' : 'Approved rendering'}
                   </span>
-                  {term.target && <span className="text-[13px] text-slate-300">→ {term.target}</span>}
+                  {term.target && (
+                    <span className="inline-flex items-center gap-1.5 text-[13px] text-slate-300">
+                      <FlowArrow /> {term.target}
+                    </span>
+                  )}
                   {term.forbidden && term.forbidden.length > 0 && (
                     <span className="text-[11.5px] text-rose-300">not {term.forbidden.join(', ')}</span>
                   )}
