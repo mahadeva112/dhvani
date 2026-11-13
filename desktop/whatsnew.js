@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.76',
+    changes: [
+      'Solo in Edit timing works as in a DAW: with a track or a speaker soloed, only what is soloed is heard. The other tracks, the dub, the original and its clips go quiet; the files keep everything.',
+    ],
+  },
+  {
     version: '1.4.75',
     changes: [
       '“Dub + tracks” can be saved as MP3 too (320 kbps), next to the WAV.',
