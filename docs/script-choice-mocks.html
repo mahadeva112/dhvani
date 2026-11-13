@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Script Choice Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  // Graphite, as index.css swaps it.
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#111214; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .scroll::-webkit-scrollbar { width:8px } .scroll::-webkit-scrollbar-thumb { background:#34363c; border-radius:8px } .scroll::-webkit-scrollbar-track { background:transparent }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg) } }
+  .sw { width:30px; height:17px; border-radius:999px; background:#34363c; position:relative; flex-shrink:0; transition:background .15s; }
+  .sw::after { content:''; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:#ececef; transition:left .15s; }
+  .sw.on { background:#5866e0; } .sw.on::after { left:15px; }
+  .pop { box-shadow: 0 18px 40px -12px rgba(0,0,0,.7); }
+  .fill-in { animation: fillin .35s ease; } @keyframes fillin { from { opacity:0; transform:translateY(2px) } to { opacity:1; transform:none } }
+  select { cursor:default; }
+  button { cursor:default; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<!-- Switchers -->
+<div class="max-w-[90rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<div class="max-w-[90rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">অবস্থা</span>
+  <span id="stateSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<p id="note" class="max-w-[90rem] mx-auto mb-4 text-[13.5px] text-slate-300 leading-relaxed"></p>
+
+<div class="max-w-[90rem] mx-auto">
+  <!-- App bar and steps, for context -->
+  <div class="flex flex-wrap items-center gap-2 mb-3 text-[13px] min-h-[36px]">
+    <span class="text-slate-500">1 Source &amp; voice</span><span class="text-slate-600">›</span>
+    <span class="text-slate-100 font-semibold">2 Review</span><span class="text-slate-600">›</span>
+    <span class="text-slate-500">3 Dub</span>
+    <div class="flex-1"></div>
+    <span class="text-slate-500 text-[12px]">sadhguru_energy_talk.mp4</span>
+  </div>
+
+  <!-- Review player (only the original lane while no script exists) -->
+  <div id="player" class="mb-4 bg-slate-900/90 border border-edge rounded-2xl px-4 py-3"></div>
+
+  <div id="main"></div>
+</div>
+
+<script>
+const ICON = {
+  languages: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/>',
+  paste: '<path d="M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2M16 4h2a2 2 0 0 1 2 2v2M11 14h10"/><path d="m17 10 4 4-4 4"/>',
+  zap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+  scissors: '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  arrow: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  gauge: '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  spin: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m17 8-5-5-5 5"/><path d="M12 3v12"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  sliders: '<path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  pen: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
+  list: '<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
+};
+const ic = (n, c = 'w-4 h-4') => `<svg class="${c} shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
+
+// Transcript: start, length, English, Hindi (used by the translating / paste previews).
+const T = [
+  [0.0,3.1,'Thank you all for coming this evening.','आज शाम आप सब के आने के लिए धन्यवाद।'],
+  [3.4,4.2,'What we call life is just a certain amount of energy.','जिसे हम जीवन कहते हैं, वह बस कुछ ऊर्जा है।'],
+  [7.9,2.6,'How you use it is up to you.','आप उसे कैसे इस्तेमाल करें, यह आप पर है।'],
+  [10.8,3.8,'Most people spend it on things that do not matter.','ज़्यादातर लोग उसे ऐसी चीज़ों पर खर्च करते हैं जो मायने नहीं रखतीं।'],
+  [14.9,2.2,'Then they wonder where it went.','फिर सोचते हैं कि वह कहाँ गई।'],
+  [17.4,3.5,'If you sit quietly for a few minutes every day,','अगर आप रोज़ कुछ मिनट शांति से बैठें,'],
+  [21.1,3.0,'you will see how much is wasted.','तो देखेंगे कि कितना बर्बाद होता है।'],
+  [24.5,1.6,'Just watch.','बस देखिए।'],
+  [26.4,4.4,'Do not try to fix anything in the beginning.','शुरुआत में कुछ भी ठीक करने की कोशिश मत कीजिए।'],
+  [31.0,2.9,'Watching itself will change things.','देखना ही चीज़ों को बदल देगा।'],
+  [34.2,3.6,'This is not a belief, this is something you can try.','यह कोई मान्यता नहीं, यह आप आज़मा सकते हैं।'],
+  [38.1,2.4,'Try it for thirty days.','तीस दिन आज़माइए।'],
+  [40.8,4.0,'If nothing changes, you can throw it away.','अगर कुछ न बदले, तो छोड़ दीजिए।'],
+  [45.1,3.3,'But I know it will change.','पर मैं जानता हूँ कि बदलेगा।'],
+  [48.7,2.8,'Because that is the nature of life.','क्योंकि जीवन का स्वभाव यही है।'],
+  [51.8,3.9,'It responds to attention.','वह ध्यान का जवाब देता है।'],
+];
+const ESTIMATED = new Set([7]);
+const LANGS = ['Hindi','Bangla','Tamil','Telugu','Marathi','Gujarati','Kannada','Malayalam','English'];
+const STYLES = [['sadhguru','Sadhguru'],['natural','Natural Spoken'],['my_ashram','Ashram talks (mine)']];
+const fmt = (s) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toFixed(1).padStart(4, '0')}`; };
+const LEN = '0:56';
+
+const MOCKS = {
+  A: { label: 'Mock A · দুটো কার্ড, যার যার বোতাম', note: 'এখনকার layout রাখা (বাঁয়ে transcript, ডানে পাশের অংশ), কিন্তু radio + নিচের Continue নেই। প্রতিটা পথ একটা কার্ড, তার নিজের বোতাম। Translate কার্ডের ভিতরেই style আর voice-speed; Fast টা মূল বোতামের পাশে ছোট। Paste কার্ডে Ctrl+V-র জায়গা — পেস্ট করলেই এখনকার align window খোলে।' },
+  B: { label: 'Mock B · পাশাপাশি কলাম', note: 'পুরো চওড়া একটা টেবিল: English | Hindi। Hindi কলাম ফাঁকা থাকে, উপরের বারে Translate (▾ তে Fast) আর Paste script। Translate চললে Hindi কলাম লাইন ধরে ভরে ওঠে — দেখা যায় script কোথায় বসবে। পরে Review-এ যাওয়ার সময় চেহারা প্রায় একই থাকে।' },
+  C: { label: 'Mock C · মাঝখানে শুরু', note: 'একটা শান্ত শুরু-পাতা: উপরে "Transcript ready", বড় করে "Dub into Hindi", তারপর দুটো বড় টাইল — "Translate for me" / "I have a Hindi script"। নতুনদের জন্য সবচেয়ে সহজ। Transcript নিচে, ৬ লাইন দেখায়, "Show all" এ খোলে।' },
+  D: { label: 'Mock D · ট্যাব + সরাসরি paste', note: 'ডানে দুটো ট্যাব: Translate | My script। My script-এ পেস্ট-বক্স এখানেই — পেস্ট করলেই বাঁয়ের transcript-এর প্রতিটা লাইনের নিচে Hindi লাইন সবুজে দেখায় (জোড়া মেলানোর আগাম দেখা)। Translate ট্যাবে style তালিকা, Full / Fast বেছে নেওয়া, voice-speed — একটাই বোতাম। "Try sample" চাপলে পেস্টের নমুনা দেখবে।' },
+};
+const STATES = { ready: 'তৈরি', translating: 'Translate চলছে · 42%', noengine: 'Engine নেই', same: 'একই ভাষা (English)' };
+
+const S = { mock: 'A', state: 'ready', lang: 'Hindi', style: 'sadhguru', fit: true, fast: false, menu: false, showAll: false, tab: 'translate', pasted: '' };
+try { const saved = JSON.parse(localStorage.getItem('scriptChoiceMock') || '{}'); if (saved.mock) S.mock = saved.mock; } catch {}
+
+const target = () => (S.state === 'same' ? 'English' : S.lang);
+const same = () => S.state === 'same';
+const busy = () => S.state === 'translating';
+const noEngine = () => S.state === 'noengine';
+const styleName = () => STYLES.find(([id]) => id === S.style)[1];
+const DONE = 7; // lines filled while "translating"
+
+// ---------- shared pieces ----------
+function renderPlayer() {
+  let bars = '';
+  let seed = 7;
+  for (let i = 0; i < 220; i++) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const t = (i / 220) * 56;
+    const inCue = T.some(([s, d]) => t >= s && t <= s + d);
+    const h = inCue ? 18 + (seed / 233280) * 70 : 4 + (seed / 233280) * 8;
+    bars += `<span style="height:${h}%" class="flex-1 rounded-sm ${i === 38 ? 'bg-slate-100' : i < 38 ? 'bg-slate-400' : 'bg-slate-600'}"></span>`;
+  }
+  const cues = T.map(([s, d], i) => `<span title="${i + 1}" class="absolute top-0 bottom-0 rounded-[3px] ${i === 1 ? 'bg-indigo-500/45' : 'bg-slate-700/70'}" style="left:${(s / 56) * 100}%;width:${(d / 56) * 100}%"></span>`).join('');
+  document.getElementById('player').innerHTML = `
+    <div class="flex items-center gap-3">
+      <button class="w-9 h-9 rounded-full bg-slate-100 text-slate-900 flex items-center justify-center">${ic('play', 'w-4 h-4 ml-0.5')}</button>
+      <span class="mono text-[12px] text-slate-300">0:09.6 <span class="text-slate-500">/ ${LEN}</span></span>
+      <span class="text-[11.5px] text-slate-500">Original</span>
+      <div class="flex-1"></div>
+      <span class="text-[11.5px] text-slate-500">Dub lane appears once there's a script</span>
+    </div>
+    <div class="mt-2 h-12 flex items-center gap-[2px]">${bars}</div>
+    <div class="mt-1 relative h-2">${cues}</div>`;
+}
+
+function langSelect(cls = '') {
+  return `<div class="relative ${cls}">
+    <select data-act="lang" ${busy() || same() ? 'disabled' : ''} class="appearance-none w-full h-9 bg-slate-950 border border-edge hover:border-slate-600 rounded-lg pl-2.5 pr-8 text-[13px] font-medium text-slate-100 focus:outline-none focus:border-indigo-500 disabled:opacity-60">
+      ${LANGS.map((l) => `<option ${l === target() ? 'selected' : ''} class="bg-slate-900">${l}</option>`).join('')}
+    </select>
+    <span class="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500">${ic('chev')}</span>
+  </div>`;
+}
+
+const chip = (txt, tone) => {
+  const tones = { amber: 'bg-amber-500/15 text-amber-300', green: 'bg-emerald-500/15 text-emerald-300', grey: 'bg-slate-800 text-slate-300' };
+  return `<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-full ${tones[tone]}">${txt}</span>`;
+};
+
+const toolBtn = (icon, label, title) =>
+  `<button ${busy() ? 'disabled' : ''} title="${title}" class="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12px] font-medium text-slate-200 disabled:opacity-40">${ic(icon, 'w-3.5 h-3.5 text-slate-400')}${label}</button>`;
+
+function transcriptHead(extra = '') {
+  return `<div class="flex flex-wrap items-center gap-2.5 px-4 py-3 border-b border-edge">
+    ${ic('file', 'w-4 h-4 text-slate-400')}
+    <h2 class="text-[14px] font-semibold text-slate-100">Transcript</h2>
+    <span class="text-xs text-slate-400 mono">${T.length} segments · ${LEN} · English</span>
+    ${extra}
+    <div class="ml-auto flex items-center gap-2">
+      ${toolBtn('scissors', 'Edit segments', 'Split or merge segments before you translate. Optional. Or play to a point and press S.')}
+      ${toolBtn('download', 'Export', 'Save the transcript as SRT, VTT, TXT or a script file')}
+    </div>
+  </div>`;
+}
+
+function timeCell(i) {
+  const [s, d] = T[i];
+  const est = ESTIMATED.has(i);
+  return `<span class="mono text-[11px] ${est ? 'text-amber-300' : 'text-slate-400'}">${fmt(s)}–${fmt(s + d)}${est ? '<span class="block text-[9.5px] font-sans font-semibold text-amber-300/80">estimated</span>' : ''}</span>`;
+}
+
+function pastedLines() {
+  return S.pasted.split('\n').map((l) => l.trim()).filter(Boolean);
+}
+
+function transcriptRows({ limit = T.length, preview = false } = {}) {
+  const lines = preview ? pastedLines() : [];
+  return T.slice(0, limit).map(([, , en], i) => {
+    const on = i === 1;
+    const p = lines[i];
+    return `<li><button class="w-full grid grid-cols-[2rem_7.5rem_minmax(0,1fr)] gap-2.5 items-baseline px-4 py-2.5 text-left ${on ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'}" title="Play from here">
+      <span class="mono text-[11px] text-slate-500">${String(i + 1).padStart(2, '0')}</span>
+      ${timeCell(i)}
+      <span class="min-w-0">
+        <span class="block text-[13px] leading-snug text-slate-200">${en}</span>
+        ${preview && p ? `<span class="fill-in block mt-1 text-[13px] leading-snug text-emerald-200/90">${p}</span>` : ''}
+        ${preview && S.pasted && !p ? `<span class="block mt-1 text-[11.5px] italic text-amber-300/80">No line for this cue yet</span>` : ''}
+      </span>
+    </button></li>`;
+  }).join('');
+}
+
+function transcriptCard({ cls = '', preview = false } = {}) {
+  return `<section class="flex flex-col min-h-0 bg-slate-900/90 border border-edge rounded-2xl overflow-hidden ${cls}">
+    ${transcriptHead(preview && S.pasted ? `<span class="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">Preview of your script</span>` : '')}
+    <ol class="flex-1 min-h-0 overflow-y-auto scroll divide-y divide-slate-800/70">${transcriptRows({ preview })}</ol>
+  </section>`;
+}
+
+function engineLine() {
+  if (noEngine()) {
+    return `<div class="flex items-start gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-[12px] text-amber-200">
+      ${ic('alert', 'w-4 h-4 mt-px text-amber-300')}
+      <span class="flex-1">No translation engine is set up. Add one, or use your own script.</span>
+      <button class="px-2 py-0.5 rounded-md border border-amber-500/40 text-[11.5px] font-medium text-amber-200 hover:bg-amber-500/10">API settings</button>
+    </div>`;
+  }
+  return '';
+}
+
+function fitRow(compact = false) {
+  if (same()) return '';
+  return `<button data-act="fit" ${busy() ? 'disabled' : ''} class="w-full flex items-start gap-2.5 text-left disabled:opacity-60">
+    <span class="sw ${S.fit ? 'on' : ''} mt-0.5"></span>
+    <span class="min-w-0 flex-1">
+      <span class="flex items-center gap-1.5 text-[12.5px] font-medium text-slate-100">Fit to the voice's speed</span>
+      ${compact ? '' : `<span class="block text-[11px] text-slate-500 leading-snug mt-0.5">Priya speaks ${target()} at 4.6 syllables/s. Each line is sized to what she can say in the speaker's time.</span>`}
+    </span>
+  </button>`;
+}
+
+function progress(label = 'Translating') {
+  return `<div class="flex flex-col gap-2">
+    <div class="flex items-center gap-2 text-[12.5px] text-slate-200">${ic('spin', 'w-4 h-4 spin text-indigo-300')}<span>${label} · ${DONE} of ${T.length} lines</span><span class="ml-auto mono text-slate-400">42%</span></div>
+    <div class="h-1.5 rounded-full bg-slate-800 overflow-hidden"><div class="h-full bg-indigo-500" style="width:42%"></div></div>
+    <button data-act="cancel" class="h-9 flex items-center justify-center gap-2 rounded-xl border border-slate-700 hover:bg-slate-800 text-slate-200 text-[13px] font-medium" title="Stop the translation. Nothing it did is applied; the transcript stays as it is.">${ic('x')} Cancel translation</button>
+  </div>`;
+}
+
+const primary = (label, { icon = 'arrow', after = true, disabled = false, act = '', cls = 'h-11' } = {}) =>
+  `<button data-act="${act}" ${disabled ? 'disabled' : ''} class="${cls} px-4 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold disabled:bg-slate-800 disabled:text-slate-500 active:translate-y-px">${after ? '' : ic(icon)}<span>${label}</span>${after ? ic(icon) : ''}</button>`;
+const secondary = (label, { icon = '', disabled = false, act = '', cls = 'h-11', title = '' } = {}) =>
+  `<button data-act="${act}" title="${title}" ${disabled ? 'disabled' : ''} class="${cls} px-3.5 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-100 text-sm font-medium disabled:text-slate-500 disabled:hover:bg-slate-900 active:translate-y-px">${icon ? ic(icon) : ''}<span>${label}</span></button>`;
+
+const translateLabel = () => (same() ? `Use the ${target()} transcript` : `Translate to ${target()}`);
+const sendsLine = () => (same() ? 'Nothing is sent anywhere.' : `Sends ${T.length} lines to Your gateway — gpt-4.1.`);
+
+// ---------- Mock A ----------
+function mockA() {
+  const tDisabled = busy() || noEngine();
+  const translateCard = `
+    <div class="rounded-xl border ${busy() ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-edge'} bg-slate-950/40 p-3.5 flex flex-col gap-3">
+      <div class="flex items-start gap-2.5">
+        <span class="w-8 h-8 rounded-lg bg-indigo-500/15 text-indigo-300 flex items-center justify-center">${ic('languages')}</span>
+        <div class="min-w-0 flex-1">
+          <div class="text-[13.5px] font-semibold text-slate-100">${same() ? 'Use the transcript as the script' : 'Translate automatically'}</div>
+          <div class="text-[12px] text-slate-400 mt-0.5 leading-snug">${same() ? `It's already in ${target()}, so it's used as-is.` : `Each line written in ${target()}, on the transcript's timestamps.`}</div>
+        </div>
+        ${same() ? chip('No credits used', 'green') : chip('Uses credits', 'amber')}
+      </div>
+      ${same() ? '' : `
+      <div class="flex items-center gap-2 px-2.5 py-2 rounded-lg bg-slate-900 border border-edge">
+        <span class="text-[11.5px] text-slate-500 w-10">Style</span>
+        <span class="text-[12.5px] font-semibold text-slate-100 flex-1 truncate">${styleName()}</span>
+        <span class="text-[11px] text-slate-500 truncate hidden 2xl:inline">Your gateway — gpt-4.1</span>
+        <button data-act="cycleStyle" ${busy() ? 'disabled' : ''} class="px-2 py-0.5 rounded-md border border-edge hover:bg-slate-800 text-[11.5px] text-slate-200 disabled:opacity-40">Change</button>
+      </div>
+      ${fitRow(true)}`}
+      ${engineLine()}
+      ${busy() ? progress() : `
+      <div class="flex gap-2">
+        ${primary(translateLabel(), { disabled: tDisabled, cls: 'h-10 flex-1' })}
+        ${same() ? '' : secondary('Fast', { icon: 'zap', disabled: tDisabled, cls: 'h-10', title: 'Translation only. Skips meaning, length and term checks.' })}
+      </div>
+      <p class="-mt-1 text-[11px] text-slate-500">${sendsLine()}</p>`}
+    </div>`;
+  const pasteCard = `
+    <div class="rounded-xl border border-edge bg-slate-950/40 p-3.5 flex flex-col gap-3 ${busy() ? 'opacity-50 pointer-events-none' : ''}">
+      <div class="flex items-start gap-2.5">
+        <span class="w-8 h-8 rounded-lg bg-emerald-500/15 text-emerald-300 flex items-center justify-center">${ic('paste')}</span>
+        <div class="min-w-0 flex-1">
+          <div class="text-[13.5px] font-semibold text-slate-100">Use my ${target()} script</div>
+          <div class="text-[12px] text-slate-400 mt-0.5 leading-snug">Matched to the lines by meaning. Your words stay as written.</div>
+        </div>
+      </div>
+      <button class="w-full rounded-xl border-[1.5px] border-dashed border-slate-700 hover:border-slate-500 hover:bg-slate-900/60 px-3 py-4 flex flex-col items-center gap-1.5 text-center">
+        <span class="text-[13px] font-medium text-slate-200">Press <span class="mono text-[11px] px-1.5 py-0.5 rounded border border-slate-600">Ctrl+V</span> to paste</span>
+        <span class="text-[11.5px] text-slate-500">or drop a file · <span class="text-indigo-300">Open file</span> (.txt, .docx, script file)</span>
+      </button>
+      <div class="flex flex-wrap gap-1.5">${chip('Not translated', 'green')}${chip('Keeps timestamps', 'grey')}${chip('No credits', 'grey')}</div>
+    </div>`;
+  return `<div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_25rem] gap-4 lg:h-[640px]">
+    ${transcriptCard({ cls: 'h-[60vh] lg:h-auto' })}
+    <aside class="bg-slate-900/90 border border-edge rounded-2xl flex flex-col min-h-0 overflow-hidden">
+      <div class="px-4 pt-4 pb-3 flex items-center gap-2 border-b border-edge">
+        <div class="min-w-0 flex-1">
+          <h2 class="text-[15px] font-semibold text-slate-100">Get the ${target()} script</h2>
+          <p class="text-[12px] text-slate-400 mt-0.5">Transcript ready. Nothing translated yet.</p>
+        </div>
+      </div>
+      <div class="px-4 py-3 flex items-center gap-2">
+        <span class="text-xs text-slate-400 shrink-0">Dub into</span>${langSelect('flex-1 min-w-0')}
+      </div>
+      <div class="px-4 pb-4 flex flex-col gap-2 overflow-y-auto scroll min-h-0">
+        ${translateCard}
+        <div class="flex items-center gap-3 text-[11px] text-slate-600 my-0.5"><span class="flex-1 h-px bg-slate-800"></span>or<span class="flex-1 h-px bg-slate-800"></span></div>
+        ${pasteCard}
+      </div>
+    </aside>
+  </div>`;
+}
+
+// ---------- Mock B ----------
+function mockB() {
+  const tDisabled = busy() || noEngine();
+  const menu = S.menu && !same() ? `
+    <div class="pop absolute right-0 top-full mt-1.5 w-72 z-20 rounded-xl border border-edge bg-slate-900 p-1.5">
+      <button data-act="pickFull" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-slate-800 flex gap-2.5">
+        <span class="mt-0.5 text-indigo-300">${ic(S.fast ? 'languages' : 'check')}</span>
+        <span><span class="block text-[13px] font-medium text-slate-100">Translate</span><span class="block text-[11.5px] text-slate-500">Checks meaning, length and terms</span></span>
+      </button>
+      <button data-act="pickFast" class="w-full text-left px-2.5 py-2 rounded-lg hover:bg-slate-800 flex gap-2.5">
+        <span class="mt-0.5 text-indigo-300">${ic(S.fast ? 'check' : 'zap')}</span>
+        <span><span class="block text-[13px] font-medium text-slate-100">Fast translate</span><span class="block text-[11.5px] text-slate-500">Translation only. Run the full one later if a line needs it.</span></span>
+      </button>
+    </div>` : '';
+  const split = busy()
+    ? `<div class="flex items-center gap-2.5 min-w-[17rem]">
+         ${ic('spin', 'w-4 h-4 spin text-indigo-300')}
+         <div class="flex-1"><div class="text-[12.5px] text-slate-200">Translating · ${DONE} of ${T.length}</div><div class="h-1 mt-1 rounded-full bg-slate-800 overflow-hidden"><div class="h-full bg-indigo-500" style="width:42%"></div></div></div>
+         <button data-act="cancel" class="h-9 px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px]">${ic('x', 'w-3.5 h-3.5')}Cancel</button>
+       </div>`
+    : `<div class="relative flex">
+         <button ${tDisabled ? 'disabled' : ''} class="h-9 pl-3.5 pr-3 flex items-center gap-2 rounded-l-xl ${same() ? 'rounded-r-xl' : ''} bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold disabled:bg-slate-800 disabled:text-slate-500">${ic(S.fast && !same() ? 'zap' : 'languages')}${S.fast && !same() ? `Fast translate to ${target()}` : translateLabel()}</button>
+         ${same() ? '' : `<button data-act="menu" ${tDisabled ? 'disabled' : ''} class="h-9 w-8 flex items-center justify-center rounded-r-xl bg-indigo-600 hover:bg-indigo-500 border-l border-indigo-400/40 text-white disabled:bg-slate-800 disabled:text-slate-500" title="Translate or Fast translate">${ic('chev')}</button>`}
+         ${menu}
+       </div>`;
+  const rows = T.map(([, , en, hi], i) => {
+    const filled = busy() && i < DONE;
+    const next = busy() && i === DONE;
+    return `<li class="grid grid-cols-[2.25rem_7.5rem_minmax(0,1fr)_minmax(0,1fr)] gap-3 items-baseline px-4 py-2.5 ${i === 1 ? 'bg-indigo-500/10' : 'hover:bg-slate-800/40'}">
+      <span class="mono text-[11px] text-slate-500">${String(i + 1).padStart(2, '0')}</span>
+      ${timeCell(i)}
+      <span class="text-[13px] leading-snug text-slate-200">${en}</span>
+      <span class="text-[13px] leading-snug border-l border-slate-800 pl-3 min-h-[1.2em]">${
+        same() ? `<span class="text-slate-400">${en}</span>`
+        : filled ? `<span class="fill-in text-slate-100">${hi}</span>`
+        : next ? `<span class="inline-flex items-center gap-1.5 text-[12px] text-indigo-300">${ic('spin', 'w-3.5 h-3.5 spin')}writing…</span>`
+        : `<span class="block h-[9px] mt-1 rounded bg-slate-800/80" style="width:${40 + ((i * 37) % 45)}%"></span>`
+      }</span>
+    </li>`;
+  }).join('');
+  return `<section class="bg-slate-900/90 border border-edge rounded-2xl flex flex-col lg:h-[640px] overflow-hidden">
+    <!-- Script bar -->
+    <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-edge bg-slate-950/40">
+      <div class="flex items-center gap-2">
+        <span class="text-[13px] text-slate-400">Dub into</span>${langSelect('w-36')}
+      </div>
+      ${same() ? chip('Already in English · No credits', 'green') : `
+      <button data-act="cycleStyle" ${busy() ? 'disabled' : ''} class="h-9 px-2.5 flex items-center gap-2 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12.5px] disabled:opacity-50" title="Translation style · Your gateway — gpt-4.1">
+        <span class="text-slate-500">Style</span><span class="font-semibold text-slate-100">${styleName()}</span>${ic('chev', 'w-3.5 h-3.5 text-slate-500')}
+      </button>
+      <button data-act="fit" ${busy() ? 'disabled' : ''} class="h-9 px-2.5 flex items-center gap-2 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12.5px] disabled:opacity-50" title="Priya speaks ${target()} at 4.6 syllables/s. Each line is sized to what she can say in the speaker's time.">
+        <span class="sw ${S.fit ? 'on' : ''}"></span><span class="text-slate-200">Fit to voice speed</span>
+      </button>`}
+      <div class="flex-1"></div>
+      ${noEngine() ? `<span class="flex items-center gap-1.5 text-[12px] text-amber-300">${ic('alert', 'w-3.5 h-3.5')}No translation engine · <button class="underline underline-offset-2">API settings</button></span>` : ''}
+      ${split}
+      <span class="text-[11px] text-slate-600">or</span>
+      ${secondary(`Paste ${target()} script`, { icon: 'paste', disabled: busy(), cls: 'h-9 text-[13px]', title: 'Paste a script you already have. Not translated; timestamps kept.' })}
+    </div>
+    <!-- Column heads -->
+    <div class="grid grid-cols-[2.25rem_7.5rem_minmax(0,1fr)_minmax(0,1fr)] gap-3 items-center px-4 py-2 border-b border-edge text-[11px] uppercase tracking-wide text-slate-500">
+      <span>#</span><span>Time</span>
+      <span class="flex items-center gap-2">English · spoken
+        <span class="ml-auto flex gap-1.5 normal-case tracking-normal">
+          <button ${busy() ? 'disabled' : ''} title="Split or merge segments before you translate" class="h-7 px-2 flex items-center gap-1 rounded-md border border-edge text-[11.5px] text-slate-300 hover:bg-slate-800 disabled:opacity-40">${ic('scissors', 'w-3 h-3')}Edit segments</button>
+          <button ${busy() ? 'disabled' : ''} class="h-7 px-2 flex items-center gap-1 rounded-md border border-edge text-[11.5px] text-slate-300 hover:bg-slate-800 disabled:opacity-40">${ic('download', 'w-3 h-3')}Export</button>
+        </span>
+      </span>
+      <span class="pl-3">${target()} · dub script ${busy() ? '' : same() ? '' : '<span class="normal-case tracking-normal text-slate-600 ml-1">— empty until you translate or paste</span>'}</span>
+    </div>
+    <ol class="flex-1 min-h-0 overflow-y-auto scroll divide-y divide-slate-800/70 h-[60vh] lg:h-auto">${rows}</ol>
+    <div class="px-4 py-2 border-t border-edge text-[11.5px] text-slate-500 flex gap-3">
+      <span class="mono">${T.length} segments · ${LEN}</span><span class="flex-1"></span><span>${same() ? 'Nothing is sent anywhere.' : busy() ? 'Lines appear as they arrive. Cancel keeps none of them.' : sendsLine()}</span>
+    </div>
+  </section>`;
+}
+
+// ---------- Mock C ----------
+function mockC() {
+  const tDisabled = busy() || noEngine();
+  const limit = S.showAll ? T.length : 6;
+  const tileT = `
+    <div class="rounded-2xl border ${busy() ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-edge hover:border-slate-600'} bg-slate-950/50 p-5 flex flex-col gap-3">
+      <span class="w-10 h-10 rounded-xl bg-indigo-500/15 text-indigo-300 flex items-center justify-center">${ic('languages', 'w-5 h-5')}</span>
+      <div>
+        <div class="text-[16px] font-semibold text-slate-100">${same() ? 'Use the transcript' : 'Translate for me'}</div>
+        <div class="text-[12.5px] text-slate-400 mt-1 leading-snug">${same() ? `The transcript is already ${target()}. Nothing is sent.` : `Every line written in ${target()}, sized for Priya's speed, on the same timestamps.`}</div>
+      </div>
+      ${same() ? '' : `<div class="flex flex-wrap items-center gap-1.5 text-[11.5px]">
+        <span class="px-2 py-0.5 rounded-md bg-slate-900 border border-edge text-slate-300">${styleName()} style</span>
+        <span class="px-2 py-0.5 rounded-md bg-slate-900 border border-edge text-slate-300">${S.fit ? 'Fit to voice speed' : 'Not fitted to voice'}</span>
+        <button data-act="cycleStyle" ${busy() ? 'disabled' : ''} class="text-indigo-300 hover:text-indigo-200 px-1">Change</button>
+      </div>`}
+      ${engineLine()}
+      <div class="mt-auto pt-1 flex flex-col gap-2">
+        ${busy() ? progress() : `${primary(translateLabel(), { disabled: tDisabled, cls: 'h-11 w-full' })}
+        ${same() ? '' : `<div class="flex items-center justify-between text-[11.5px]"><span class="text-slate-500">${chip('Uses translation credits', 'amber')}</span><button ${tDisabled ? 'disabled' : ''} class="text-slate-400 hover:text-slate-200 inline-flex items-center gap-1 disabled:opacity-40" title="Translation only. Skips meaning, length and term checks.">${ic('zap', 'w-3.5 h-3.5')}Fast translate</button></div>`}`}
+      </div>
+    </div>`;
+  const tileP = `
+    <div class="rounded-2xl border border-edge hover:border-slate-600 bg-slate-950/50 p-5 flex flex-col gap-3 ${busy() ? 'opacity-50 pointer-events-none' : ''}">
+      <span class="w-10 h-10 rounded-xl bg-emerald-500/15 text-emerald-300 flex items-center justify-center">${ic('paste', 'w-5 h-5')}</span>
+      <div>
+        <div class="text-[16px] font-semibold text-slate-100">I have a ${target()} script</div>
+        <div class="text-[12.5px] text-slate-400 mt-1 leading-snug">Paste it or open the file. It's matched to the lines by meaning — your words stay exactly as written.</div>
+      </div>
+      <div class="flex flex-wrap gap-1.5">${chip('Not translated', 'green')}${chip('Keeps timestamps', 'grey')}</div>
+      <div class="mt-auto pt-1 flex flex-col gap-2">
+        ${secondary('Paste script', { icon: 'paste', cls: 'h-11 w-full' })}
+        <div class="flex items-center justify-between text-[11.5px]"><span class="text-slate-500">.txt · .docx · script file</span><button class="text-slate-400 hover:text-slate-200 inline-flex items-center gap-1">${ic('upload', 'w-3.5 h-3.5')}Open a file</button></div>
+      </div>
+    </div>`;
+  return `<div class="flex flex-col gap-4">
+    <section class="bg-slate-900/90 border border-edge rounded-2xl px-5 sm:px-8 py-6">
+      <div class="max-w-[54rem] mx-auto">
+        <div class="flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+          <span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center">${ic('check', 'w-3 h-3')}</span>
+          <span class="text-slate-200 font-medium">Transcript ready</span>
+          <span class="mono">· ${T.length} segments · ${LEN} · English heard</span>
+          <span class="ml-auto text-slate-500">Nothing is translated until you click.</span>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <h2 class="text-[22px] font-semibold text-slate-100">Dub into</h2>
+          ${langSelect('w-48 [&_select]:h-11 [&_select]:text-[16px]')}
+        </div>
+        <div class="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">${tileT}${tileP}</div>
+      </div>
+    </section>
+    <section class="bg-slate-900/90 border border-edge rounded-2xl overflow-hidden">
+      ${transcriptHead('<span class="text-[11.5px] text-slate-500">Check it, split or merge before you choose. Optional.</span>')}
+      <ol class="divide-y divide-slate-800/70">${transcriptRows({ limit })}</ol>
+      <button data-act="showAll" class="w-full py-2.5 border-t border-edge text-[12.5px] text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 flex items-center justify-center gap-1.5">
+        ${S.showAll ? 'Show less' : `Show all ${T.length} lines`}<span class="${S.showAll ? 'rotate-180' : ''}">${ic('chev', 'w-3.5 h-3.5')}</span>
+      </button>
+    </section>
+  </div>`;
+}
+
+// ---------- Mock D ----------
+function mockD() {
+  const tDisabled = busy() || noEngine();
+  const tab = (id, label, icon) => `<button data-act="tab" data-tab="${id}" ${busy() && id !== 'translate' ? 'disabled' : ''} class="flex-1 h-8 flex items-center justify-center gap-1.5 rounded-lg text-[12.5px] font-medium disabled:opacity-40 ${S.tab === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'}">${ic(icon, 'w-3.5 h-3.5')}${label}</button>`;
+  const translateBody = same()
+    ? `<div class="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[12.5px] text-emerald-200 leading-snug">The transcript is already in ${target()}. It's used as the script. Nothing is sent and no credits are used.</div>`
+    : `
+      <div>
+        <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Style</div>
+        <div class="flex flex-col gap-1">
+          ${STYLES.map(([id, name]) => `<button data-act="style" data-style="${id}" ${busy() ? 'disabled' : ''} class="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border text-left disabled:opacity-60 ${S.style === id ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-transparent hover:bg-slate-800/50'}">
+            <span class="w-[14px] h-[14px] rounded-full border-[1.5px] flex items-center justify-center ${S.style === id ? 'border-indigo-400' : 'border-slate-600'}">${S.style === id ? '<span class="w-[6px] h-[6px] rounded-full bg-indigo-400"></span>' : ''}</span>
+            <span class="text-[13px] text-slate-100 flex-1">${name}</span>
+            ${id.startsWith('my_') ? '<span class="text-[10.5px] text-slate-500">Your prompt</span>' : ''}
+          </button>`).join('')}
+          <button class="self-start px-2.5 py-1 text-[11.5px] text-indigo-300 hover:text-indigo-200 inline-flex items-center gap-1">${ic('pen', 'w-3 h-3')}Edit prompts</button>
+        </div>
+      </div>
+      <div>
+        <div class="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">Checks</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button data-act="pickFull" ${busy() ? 'disabled' : ''} class="p-2 rounded-lg border text-left ${!S.fast ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-edge hover:bg-slate-800/50'}">
+            <span class="block text-[12.5px] font-medium text-slate-100">Full</span><span class="block text-[11px] text-slate-500 leading-snug">Meaning, length, terms</span></button>
+          <button data-act="pickFast" ${busy() ? 'disabled' : ''} class="p-2 rounded-lg border text-left ${S.fast ? 'border-indigo-500/70 bg-indigo-500/10' : 'border-edge hover:bg-slate-800/50'}">
+            <span class="flex items-center gap-1 text-[12.5px] font-medium text-slate-100">${ic('zap', 'w-3 h-3')}Fast</span><span class="block text-[11px] text-slate-500 leading-snug">Translation only</span></button>
+        </div>
+      </div>
+      <div class="p-2.5 rounded-xl bg-slate-950/60 border border-edge">${fitRow()}</div>
+      ${engineLine()}`;
+  const lines = pastedLines();
+  const pasteBody = `
+      <div class="relative">
+        <textarea data-act="paste" rows="9" placeholder="Paste your ${target()} script here (Ctrl+V).\nOne line per thought is best — line breaks are kept." class="w-full resize-none rounded-xl bg-slate-950 border border-edge focus:border-indigo-500 focus:outline-none px-3 py-2.5 text-[13px] leading-relaxed text-slate-100 placeholder:text-slate-600">${S.pasted}</textarea>
+      </div>
+      <div class="flex items-center gap-2">
+        <button class="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12px] text-slate-200">${ic('upload', 'w-3.5 h-3.5 text-slate-400')}Open file</button>
+        <button data-act="sample" class="h-8 px-2.5 rounded-lg text-[12px] text-slate-400 hover:text-slate-200">${S.pasted ? 'Clear' : 'Try sample'}</button>
+        <span class="ml-auto text-[11.5px] mono ${lines.length && lines.length !== T.length ? 'text-amber-300' : 'text-slate-500'}">${lines.length} lines · ${T.length} cues</span>
+      </div>
+      ${lines.length ? `<div class="p-2.5 rounded-xl ${lines.length === T.length ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-200' : 'bg-amber-500/10 border border-amber-500/25 text-amber-200'} text-[12px] leading-snug">
+        ${lines.length === T.length ? 'One line for each cue. The preview on the left shows where each will go; matching by meaning fine-tunes it.' : `${T.length - lines.length} cues have no line yet. Matching by meaning pairs them by length; you can fix any pair after.`}
+      </div>` : `<div class="text-[11.5px] text-slate-500 leading-snug">Nothing is translated. The transcript's timestamps are kept and your words stay exactly as written.</div>`}`;
+  const footer = S.tab === 'translate'
+    ? (busy() ? progress(S.fast ? 'Fast translating' : 'Translating') : `${primary(S.fast && !same() ? `Fast translate to ${target()}` : translateLabel(), { disabled: tDisabled, cls: 'h-11 w-full' })}
+       <p class="text-[11.5px] text-slate-500 text-center">${same() ? 'Nothing is sent anywhere.' : `${chip('Uses credits', 'amber')} <span class="ml-1">${sendsLine()}</span>`}</p>`)
+    : `${primary('Match to the cues', { icon: 'arrow', disabled: !lines.length, cls: 'h-11 w-full' })}
+       <p class="text-[11.5px] text-slate-500 text-center">Opens the matching window to check each pair.</p>`;
+  return `<div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_25rem] gap-4 lg:h-[640px]">
+    ${transcriptCard({ cls: 'h-[60vh] lg:h-auto', preview: S.tab === 'custom' })}
+    <aside class="bg-slate-900/90 border border-edge rounded-2xl flex flex-col min-h-0 overflow-hidden">
+      <div class="px-4 pt-4 pb-3 flex items-center gap-2">
+        <h2 class="text-[15px] font-semibold text-slate-100 flex-1">${target()} script</h2>
+        <span class="text-xs text-slate-400">Dub into</span>${langSelect('w-32')}
+      </div>
+      <div class="px-4 pb-3">
+        <div class="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">${tab('translate', same() ? 'Use transcript' : 'Translate', 'languages')}${tab('custom', 'My script', 'paste')}</div>
+      </div>
+      <div class="px-4 pb-4 flex flex-col gap-3.5 overflow-y-auto scroll min-h-0">${S.tab === 'translate' ? translateBody : pasteBody}</div>
+      <div class="mt-auto px-4 py-4 border-t border-edge bg-slate-950/60 flex flex-col gap-2">${footer}</div>
+    </aside>
+  </div>`;
+}
+
+// ---------- wiring ----------
+function render() {
+  try { localStorage.setItem('scriptChoiceMock', JSON.stringify({ mock: S.mock })); } catch {}
+  document.getElementById('mockSeg').innerHTML = Object.entries(MOCKS).map(([k, m]) =>
+    `<button data-mock="${k}" class="px-3 py-1 ${S.mock === k ? 'bg-slate-800 text-slate-100' : 'hover:text-slate-200'}">${m.label}</button>`).join('');
+  document.getElementById('stateSeg').innerHTML = Object.entries(STATES).map(([k, l]) =>
+    `<button data-state="${k}" class="px-3 py-1 ${S.state === k ? 'bg-slate-800 text-slate-100' : 'hover:text-slate-200'}">${l}</button>`).join('');
+  document.getElementById('note').textContent = MOCKS[S.mock].note;
+  document.getElementById('main').innerHTML = { A: mockA, B: mockB, C: mockC, D: mockD }[S.mock]();
+}
+
+document.addEventListener('click', (e) => {
+  const m = e.target.closest('[data-mock]');
+  if (m) { S.mock = m.dataset.mock; S.menu = false; return render(); }
+  const st = e.target.closest('[data-state]');
+  if (st) { S.state = st.dataset.state; S.menu = false; if (S.state !== 'same' && S.lang === 'English') S.lang = 'Hindi'; if (S.state === 'translating') S.tab = 'translate'; return render(); }
+  const a = e.target.closest('[data-act]');
+  if (!a || a.disabled) { if (S.menu) { S.menu = false; render(); } return; }
+  const act = a.dataset.act;
+  if (act === 'fit') S.fit = !S.fit;
+  else if (act === 'menu') { S.menu = !S.menu; return render(); }
+  else if (act === 'pickFast') S.fast = true;
+  else if (act === 'pickFull') S.fast = false;
+  else if (act === 'cycleStyle') S.style = STYLES[(STYLES.findIndex(([id]) => id === S.style) + 1) % STYLES.length][0];
+  else if (act === 'style') S.style = a.dataset.style;
+  else if (act === 'cancel') S.state = 'ready';
+  else if (act === 'showAll') S.showAll = !S.showAll;
+  else if (act === 'tab') S.tab = a.dataset.tab;
+  else if (act === 'sample') S.pasted = S.pasted ? '' : T.slice(0, 14).map((r) => r[3]).join('\n');
+  else return;
+  S.menu = false;
+  render();
+});
+document.addEventListener('change', (e) => {
+  if (e.target.dataset.act === 'lang') { S.lang = e.target.value; if (S.lang === 'English') S.state = 'same'; render(); }
+});
+document.addEventListener('input', (e) => {
+  if (e.target.dataset.act !== 'paste') return;
+  S.pasted = e.target.value;
+  const pos = e.target.selectionStart;
+  render();
+  const ta = document.querySelector('textarea[data-act="paste"]');
+  if (ta) { ta.focus(); ta.setSelectionRange(pos, pos); }
+});
+
+renderPlayer();
+render();
+</script>
+</body>
+</html>

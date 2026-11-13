@@ -103,7 +103,7 @@ import type { MixerLevels, MixerTrack, TrackLevel } from './useTrackMixer';
 import { useFavoriteVoices } from '../services/favoriteVoicesService';
 import { PhoneticSmartTextarea } from './PhoneticSmartTextarea';
 import { SrtExportModal } from './SrtExportModal';
-import { CustomScriptAlignModal } from './CustomScriptAlignModal';
+import { CustomScriptAlignModal, type ScriptHandOff } from './CustomScriptAlignModal';
 import { TranslationPromptModal } from './TranslationPromptModal';
 import { QaCockpit } from './QaCockpit';
 import { SyncResultsPanel, SyncSettingsDialog, SyncSettingsPanel, SyncStatusBar, useSyncOptions } from './SyncPanel';
@@ -778,6 +778,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     if (isSrtModalOpen && isPlaying) onTogglePlay();
   }, [isSrtModalOpen]);
   const [isAlignModalOpen, setIsAlignModalOpen] = useState<boolean>(false);
+  /** A script pasted or dropped on the script choice, for the paste window to start from. */
+  const [alignHandOff, setAlignHandOff] = useState<ScriptHandOff | null>(null);
   /** Dub step: the player's lanes are the Edit timing timeline. */
   const [editingTiming, setEditingTiming] = useState(false);
   /** A line picked in the Dub player to work on in the line list; n changes on every pick. */
@@ -3166,7 +3168,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 else if (onRetranslateSegments) await onRetranslateSegments(customPrompt || '');
               }}
               onFastTranslate={onTranslateTranscript ? () => onTranslateTranscript({ fast: true }) : undefined}
-              onUseOwnScript={() => setIsAlignModalOpen(true)}
+              onUseOwnScript={(script) => {
+                setAlignHandOff(script ? { ...script, n: Date.now() } : null);
+                setIsAlignModalOpen(true);
+              }}
               onSeek={seekSource}
               activeSegmentId={activeSegmentId}
               onExport={onExportTranscript}
@@ -5248,7 +5253,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
       {/* Custom Script Paste & Alignment Modal */}
       <CustomScriptAlignModal
         isOpen={isAlignModalOpen}
-        onClose={() => setIsAlignModalOpen(false)}
+        onClose={() => {
+          setIsAlignModalOpen(false);
+          setAlignHandOff(null);
+        }}
+        incoming={alignHandOff}
         segments={segments}
         targetLanguage={targetLanguage}
         audioDuration={activeJob?.audioBuffer?.duration}

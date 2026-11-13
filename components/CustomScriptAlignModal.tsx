@@ -19,6 +19,13 @@ import { PageScrollLock } from './usePageScrollLock';
 
 export type AlignmentStrategy = 'ai' | 'line' | 'proportional' | 'sentence';
 
+/** Text pasted or a file dropped outside the window, handed in as it opens. */
+export interface ScriptHandOff {
+  text?: string;
+  file?: File;
+  n: number;
+}
+
 interface CustomScriptAlignModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -27,6 +34,8 @@ interface CustomScriptAlignModalProps {
   /** Seconds of this project's audio, to tell when a script file was timed on other audio. */
   audioDuration?: number;
   onApplyAlignedScript: (alignedSegments: { id: string | number; textTarget: string }[]) => void;
+  /** A script pasted or dropped before the window opened; it fills the paste box. n changes per hand-off. */
+  incoming?: ScriptHandOff | null;
 }
 
 const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
@@ -124,6 +133,7 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
   targetLanguage,
   audioDuration,
   onApplyAlignedScript,
+  incoming = null,
 }) => {
   const [pastedText, setPastedText] = useState<string>('');
   // A script file opened from disk; it stands in for the paste box.
@@ -446,6 +456,23 @@ export const CustomScriptAlignModal: React.FC<CustomScriptAlignModalProps> = ({
     setPastedText(text);
     resetFit();
   };
+
+  // A paste or file handed in from outside fills the box once, after the open reset above.
+  const handedIn = useRef<number | null>(null);
+  useEffect(() => {
+    if (!isOpen) {
+      handedIn.current = null;
+      return;
+    }
+    if (!incoming || handedIn.current === incoming.n) return;
+    handedIn.current = incoming.n;
+    if (incoming.file) void openFile(incoming.file);
+    else if (incoming.text?.trim()) {
+      setOpened(null);
+      acceptPaste(incoming.text);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, incoming]);
 
   const updateTexts = (texts: string[], touched: number[]) =>
     setDraft((rows) =>
