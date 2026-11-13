@@ -24,6 +24,13 @@ test('a muted speaker, or one left out by a solo, is not heard', () => {
   assert.deepEqual([...silencedSpeakers(['Asha'], {})], []);
 });
 
+test('a solo on another lane, like a track, leaves out every speaker not soloed', () => {
+  assert.deepEqual([...silencedSpeakers(['Asha', 'Ravi'], {}, true)], ['Asha', 'Ravi']);
+  assert.deepEqual([...silencedSpeakers(['Asha', 'Ravi'], { Ravi: { muted: false, solo: true } }, true)], ['Asha']);
+  // Two tracks, one soloed while a speaker is soloed: the other track stays out too.
+  assert.deepEqual([...silencedSpeakers(['music', 'room'], { music: { muted: false, solo: true } }, true)], ['room']);
+});
+
 test('the live dub leaves out silenced speakers and plays a new level at once', () => {
   const all = liveClips(withSpeakerLevels(bank, {}), null, true);
   const louder = liveClips(withSpeakerLevels(bank, { Ravi: 6 }), null, true);

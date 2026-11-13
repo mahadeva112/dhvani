@@ -40,8 +40,17 @@ export const withSpeakerLevels = (bank: SyncBank, levels: Record<string, number>
   return { ...bank, speakerGains };
 };
 
-/** The speakers a listener doesn't hear: muted, or left out by another speaker's solo. */
-export const silencedSpeakers = (speakers: string[], monitor: Record<string, SpeakerMonitor> | null | undefined): Set<string> => {
-  const soloing = speakers.some((speaker) => monitor?.[speaker]?.solo);
-  return new Set(speakers.filter((speaker) => monitor?.[speaker]?.muted || (soloing && !monitor?.[speaker]?.solo)));
+/**
+ * The lanes a listener doesn't hear: muted, or left out by a solo. As in a
+ * DAW, a solo anywhere in Edit timing (`soloElsewhere`: on a lane not in
+ * `names`, such as a track when these are speakers) leaves out every lane
+ * that isn't soloed.
+ */
+export const silencedSpeakers = (
+  names: string[],
+  monitor: Record<string, SpeakerMonitor> | null | undefined,
+  soloElsewhere = false
+): Set<string> => {
+  const soloing = soloElsewhere || names.some((name) => monitor?.[name]?.solo);
+  return new Set(names.filter((name) => monitor?.[name]?.muted || (soloing && !monitor?.[name]?.solo)));
 };

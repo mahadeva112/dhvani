@@ -1627,10 +1627,8 @@ export default function App() {
     () => (activeJob?.syncBank ? withSpeakerLevels(activeJob.syncBank, activeJob.syncSpeakerLevels) : null),
     [activeJob?.syncBank, activeJob?.syncSpeakerLevels]
   );
-  const liveSilenced = useMemo(
-    () => (liveBank && activeJob?.syncBaseReport?.mix ? silencedSpeakers([...new Set(liveBank.lines.map((line) => line.speaker))], speakerMonitor) : new Set<string>()),
-    [liveBank, activeJob?.syncBaseReport, speakerMonitor]
-  );
+  const liveSpeakers = useMemo(() => (liveBank ? [...new Set(liveBank.lines.map((line) => line.speaker))] : []), [liveBank]);
+  const liveMulti = Boolean(activeJob?.syncBaseReport?.mix);
   /*
    * Tracks of outside audio under the dub in Edit timing: each file decoded
    * once for the open project, to play live and to draw; a track's mute and
@@ -1663,12 +1661,26 @@ export default function App() {
       live = false;
     };
   }, [activeJob?.syncAudioFiles]);
-  /** The tracks not heard now: muted, or left out by a solo on another track. */
+  /*
+   * Solo works as in a DAW: once a speaker's lane or a track is soloed, only
+   * what is soloed is heard. The other speakers, the other tracks, the clips
+   * of the original, and the original itself go quiet (listening only).
+   */
+  const speakerSoloed = liveMulti && liveSpeakers.some((speaker) => speakerMonitor[speaker]?.solo);
+  const trackSoloed = (activeJob?.syncAudioTracks || []).some((track) => trackMonitor[track.id]?.solo);
+  const soloing = speakerSoloed || trackSoloed;
+  const soloingRef = useRef(soloing);
+  soloingRef.current = soloing;
+  /** The speakers not heard now: muted, or left out by a solo. With one speaker it has no lane of its own, so only a solo leaves it out. */
+  const liveSilenced = useMemo(
+    () => (liveMulti ? silencedSpeakers(liveSpeakers, speakerMonitor, trackSoloed) : new Set<string>(trackSoloed ? liveSpeakers : [])),
+    [liveMulti, liveSpeakers, speakerMonitor, trackSoloed]
+  );
+  /** The tracks not heard now: muted, or left out by a solo. */
   const silencedTracks = useMemo(() => {
     const tracks = activeJob?.syncAudioTracks || [];
-    const soloing = tracks.some((track) => trackMonitor[track.id]?.solo);
-    return new Set(tracks.filter((track) => trackMonitor[track.id]?.muted || (soloing && !trackMonitor[track.id]?.solo)).map((track) => track.id));
-  }, [activeJob?.syncAudioTracks, trackMonitor]);
+    return silencedSpeakers(tracks.map((track) => track.id), trackMonitor, speakerSoloed);
+  }, [activeJob?.syncAudioTracks, trackMonitor, speakerSoloed]);
   const liveTrackParts = (edits: SyncEdits | null | undefined, tracks: AudioTrack[] | null | undefined, silenced: Set<string>) =>
     audioParts(edits, tracks, trackFiles)
       .filter(({ track }) => !silenced.has(track))
@@ -1679,14 +1691,15 @@ export default function App() {
         ? liveClips(
             liveBank,
             activeJob?.syncEdits,
-            Boolean(activeJob?.syncBaseReport?.mix),
-            activeJob ? originalParts(activeJob.syncEdits, sourceDurationOf(activeJob)) : [],
+            liveMulti,
+            // The clips of the original have no solo of their own: a solo anywhere leaves them out.
+            activeJob && !soloing ? originalParts(activeJob.syncEdits, sourceDurationOf(activeJob)) : [],
             liveSilenced,
             liveTrackParts(activeJob?.syncEdits, activeJob?.syncAudioTracks, silencedTracks)
           )
         : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [liveDub, liveBank, activeJob?.syncEdits, activeJob?.syncBaseReport, activeJob?.audioBuffer, liveSilenced, activeJob?.syncAudioTracks, silencedTracks, trackFiles]
+    [liveDub, liveBank, activeJob?.syncEdits, activeJob?.syncBaseReport, activeJob?.audioBuffer, liveSilenced, activeJob?.syncAudioTracks, silencedTracks, trackFiles, soloing]
   );
   const liveDubClipsRef = useRef(liveDubClips);
   liveDubClipsRef.current = liveDubClips;
@@ -1696,6 +1709,7 @@ export default function App() {
     multiSpeaker: boolean;
     sourceDuration: number;
     silenced: Set<string>;
+    soloing: boolean;
     trackParts: (edits: SyncEdits) => ReturnType<typeof liveTrackParts>;
   } | null>(null);
   liveDubInputRef.current = activeJob && liveBank
@@ -1704,6 +1718,7 @@ export default function App() {
         multiSpeaker: Boolean(activeJob.syncBaseReport?.mix),
         sourceDuration: sourceDurationOf(activeJob),
         silenced: liveSilenced,
+        soloing,
         trackParts: (edits) => liveTrackParts(edits, activeJob.syncAudioTracks, silencedTracks),
       }
     : null;
@@ -1717,7 +1732,9 @@ export default function App() {
     const input = liveDubInputRef.current;
     if (!engine || !input) return;
     engine.setClips(
-      edits ? liveClips(input.bank, edits, input.multiSpeaker, originalParts(edits, input.sourceDuration), input.silenced, input.trackParts(edits)) : liveDubClipsRef.current
+      edits
+        ? liveClips(input.bank, edits, input.multiSpeaker, input.soloing ? [] : originalParts(edits, input.sourceDuration), input.silenced, input.trackParts(edits))
+        : liveDubClipsRef.current
     );
   }, []);
 
@@ -2097,14 +2114,15 @@ export default function App() {
    */
   const lastLiveRef = useRef(liveDub);
   useEffect(() => {
-    mixer.setLive(liveDub, () => playModeRef.current === 'synth');
+    // The original is only the clock with the dub soloed in the player, or with anything soloed in Edit timing.
+    mixer.setLive(liveDub, () => playModeRef.current === 'synth' || soloingRef.current);
     if (lastLiveRef.current === liveDub) return;
     lastLiveRef.current = liveDub;
     if (!isPlayingRef.current) return;
     const at = sourceAudioRef.current?.currentTime ?? currentTimeRef.current;
     pauseAll();
     startPlayback(playModeRef.current, at);
-  }, [liveDub, mixer.setLive, pauseAll, startPlayback]);
+  }, [liveDub, soloing, mixer.setLive, pauseAll, startPlayback]);
 
   useEffect(() => {
     if (!liveDub || !editTimingAudio) return;

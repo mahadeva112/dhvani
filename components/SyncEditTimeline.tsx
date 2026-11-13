@@ -104,7 +104,7 @@ import {
   SyncEditPart,
   SyncEdits,
 } from '../services/syncEditService';
-import { MAX_SPEAKER_DB, MIN_SPEAKER_DB, type SpeakerMonitor } from '../services/speakerLevels';
+import { MAX_SPEAKER_DB, MIN_SPEAKER_DB, silencedSpeakers, type SpeakerMonitor } from '../services/speakerLevels';
 import { HistoryMenu, type ProjectHistoryView } from './HistoryMenu';
 import { PageScrollLock } from './usePageScrollLock';
 
@@ -1045,7 +1045,7 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
           type="button"
           aria-pressed={monitor.solo}
           aria-label={`Solo ${name}`}
-          title={`Solo: hear only the soloed speakers. The file keeps everyone.${listenNote}`}
+          title={`Solo: hear only what is soloed, speakers and tracks; the original and everything else go quiet. The file keeps everyone.${listenNote}`}
           onClick={() => lanes.onMonitor(name, { solo: !monitor.solo })}
           className={toggle(monitor.solo, 'border-amber-400 bg-amber-400 text-amber-950')}
         >
@@ -1185,7 +1185,7 @@ const TrackLaneHead: React.FC<{
           type="button"
           aria-pressed={monitor.solo}
           aria-label={`Solo ${track.name}`}
-          title="Solo: hear only the soloed tracks, with the dub. The Dub + tracks file keeps every track."
+          title="Solo: hear only what is soloed, tracks and speakers; the dub, the original and everything else go quiet. The Dub + tracks file keeps every track."
           onClick={() => onMonitor({ solo: !monitor.solo })}
           className={toggle(monitor.solo, 'border-amber-400 bg-amber-400 text-amber-950')}
         >
@@ -3485,16 +3485,16 @@ export const SyncEditTimeline: React.FC<{
     chunk.file ? trackById.get(trackOfLane(chunk.lane) ?? '')?.color ?? TRACK_COLORS[0] : chunk.original ? ORIGINAL_HUE : speakerLanes ? speakerLanes.colors[chunk.lane] ?? hueOf(laneOfChunk(chunk)) : hueOf(chunk.unitIndex);
   /** Lanes the listener does not hear now: muted, or left out by another lane's solo. */
   const silencedLanes = useMemo(() => {
-    const out = new Set<string>();
-    if (speakerLanes) {
-      const speakers = baseLanes.filter((name) => name !== ORIGINAL_SPEAKER);
-      const soloing = speakers.some((name) => speakerLanes.monitor[name]?.solo);
-      speakers.filter((name) => speakerLanes.monitor[name]?.muted || (soloing && !speakerLanes.monitor[name]?.solo)).forEach((name) => out.add(name));
-    }
-    // A track's solo leaves out the other tracks, not the dub.
+    // As in a DAW: a solo anywhere, on a speaker or a track, leaves out every lane that isn't soloed.
     const monitor = audio?.monitor ?? {};
-    const soloingTracks = tracks.some((track) => monitor[track.id]?.solo);
-    for (const track of tracks) if (monitor[track.id]?.muted || (soloingTracks && !monitor[track.id]?.solo)) out.add(trackLane(track.id));
+    const speakers = speakerLanes ? baseLanes.filter((name) => name !== ORIGINAL_SPEAKER) : [];
+    const speakerSoloed = speakers.some((name) => speakerLanes?.monitor[name]?.solo);
+    const trackSoloed = tracks.some((track) => monitor[track.id]?.solo);
+    const out = new Set<string>();
+    if (speakerLanes) silencedSpeakers(speakers, speakerLanes.monitor, trackSoloed).forEach((name) => out.add(name));
+    // The clips of the original, and with one speaker the dub's lane, have no solo of their own.
+    if (speakerSoloed || trackSoloed) out.add(speakerLanes ? ORIGINAL_SPEAKER : '');
+    silencedSpeakers(tracks.map((track) => track.id), monitor, speakerSoloed).forEach((id) => out.add(trackLane(id)));
     return out;
   }, [speakerLanes, baseLanes, tracks, audio?.monitor]);
   const spoken = measured.units.filter((u) => u.placedStart !== null && onScreen(Math.min(u.srcStart, u.placedStart as number), Math.max(u.srcEnd, u.placedEnd as number)));
