@@ -111,7 +111,7 @@ import { DubSettingsCard } from './DubSettingsCard';
 import { SyncProgressPage, useSyncPageView, useSyncRun } from './SyncProgressPage';
 import { SyncAlignmentView } from './SyncAlignmentView';
 import { LinePair } from './LinePair';
-import { applyJoinPreset, describeChange, joinPresetLabel, presetName } from './SyncJoinSettings';
+import { describeChange, joinPresetLabel, pickLengthByHand, presetName } from './SyncJoinSettings';
 import { presetSuggestion, type SyncJoinPreset } from '../services/syncPresets';
 import { lineTextNow } from '../services/syncPending';
 import {
@@ -3978,7 +3978,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         const lengthSuggestion = presetSuggestion(report?.units);
         const syncWithPreset = (preset: Exclude<SyncJoinPreset, 'custom'>) => {
           // A preset picked by hand is the user's choice: Sync runs with it as it is, no fit on top.
-          const next = applyJoinPreset(syncOptions, preset, syncOptions.screen ?? 'any');
+          const next = pickLengthByHand(syncOptions, preset);
           setAutoFit(null);
           setSyncOptions(next);
           onSyncDub?.({ ...next, matchLoudness: dubMatchLoudness });
@@ -4110,43 +4110,37 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             note: "Near where the original speaker's lips close.",
             action: null,
           });
+        const fitParts = fitSummary
+          ? [
+              { n: fitSummary.fits - fitSummary.short, label: 'fit', c: 'bg-emerald-400' },
+              { n: fitSummary.short, label: 'end early', c: 'bg-sky-400' },
+              { n: fitSummary.tight, label: 'tight', c: 'bg-amber-400' },
+              { n: fitSummary.long, label: 'too long', c: 'bg-rose-400' },
+            ].filter((part) => part.n > 0)
+          : [];
         const readySummary = (
-          <div className="flex flex-col gap-3">
+          <>
             {fitSummary ? (
-              <div>
-                <p className="flex items-baseline gap-1.5">
-                  <span className="text-[28px] leading-none font-semibold tabular-nums text-slate-50">{fitSummary.fits + fitSummary.tight}</span>
-                  <span className="text-[13px] text-slate-400">of {fitSummary.lines} lines likely fit</span>
-                  {syncPreview.loading && <Loader2 className="w-3.5 h-3.5 text-slate-500 animate-spin ml-auto self-center" aria-label="Updating" />}
+              <div
+                className="w-56 shrink-0"
+                title={[
+                  fitParts.map((part) => `${part.n} ${part.label}`).join(', '),
+                  `Estimated in Review: ${estimateBasis(linePreview!, rateBasis, expertBasis, mainPace?.lines)}.`,
+                  `${dubCharacterCount.toLocaleString()} characters · ${segments.length.toLocaleString()} cues · ${formatClock(sourceLength || totalLength)}`,
+                ].join('\n')}
+              >
+                <p className="flex items-baseline gap-1.5 text-[12.5px]">
+                  <span className="font-semibold text-slate-100">Likely to fit</span>
+                  {syncPreview.loading && <Loader2 className="w-3 h-3 text-slate-500 animate-spin self-center" aria-label="Updating" />}
+                  <span className="ml-auto font-mono tabular-nums text-slate-300">
+                    {fitSummary.fits + fitSummary.tight} / {fitSummary.lines}
+                  </span>
                 </p>
-                <div className="flex h-2 mt-3 mb-2 gap-[3px] rounded overflow-hidden" aria-hidden>
-                  {[
-                    { n: fitSummary.fits - fitSummary.short, c: 'bg-emerald-400' },
-                    { n: fitSummary.short, c: 'bg-sky-400' },
-                    { n: fitSummary.tight, c: 'bg-amber-400' },
-                    { n: fitSummary.long, c: 'bg-rose-400' },
-                  ]
-                    .filter((part) => part.n > 0)
-                    .map((part) => (
-                      <i key={part.c} className={`block h-full ${part.c}`} style={{ flex: part.n }} />
-                    ))}
+                <div className="flex h-1.5 mt-1.5 gap-[2px] rounded overflow-hidden bg-slate-800" aria-hidden>
+                  {fitParts.map((part) => (
+                    <i key={part.c} className={`block h-full ${part.c}`} style={{ flex: part.n }} />
+                  ))}
                 </div>
-                <p className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] text-slate-400">
-                  {[
-                    { n: fitSummary.fits - fitSummary.short, label: 'fit', c: 'bg-emerald-400' },
-                    { n: fitSummary.short, label: 'end early', c: 'bg-sky-400' },
-                    { n: fitSummary.tight, label: 'tight', c: 'bg-amber-400' },
-                    { n: fitSummary.long, label: 'too long', c: 'bg-rose-400' },
-                  ]
-                    .filter((part) => part.n > 0)
-                    .map((part) => (
-                      <span key={part.label} className="flex items-center gap-1.5">
-                        <span className={`w-[7px] h-[7px] rounded-full ${part.c}`} />
-                        {part.n} {part.label}
-                      </span>
-                    ))}
-                </p>
-                <p className="mt-1.5 text-[11px] text-slate-500">Estimated in Review: {estimateBasis(linePreview!, rateBasis, expertBasis, mainPace?.lines)}.</p>
               </div>
             ) : (
               <p className="flex items-center gap-2 text-xs text-slate-400" role="status">
@@ -4159,26 +4153,23 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 )}
               </p>
             )}
-            <ul className="border-t border-edge">
-              {readyRows.map((row) => (
-                <li key={row.key} className="flex items-center gap-2.5 py-2.5 border-b border-edge">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${row.dot}`} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[13px] font-semibold text-slate-100">{row.title}</span>
-                    {row.note && <span className="block text-[11.5px] text-slate-500">{row.note}</span>}
-                  </span>
-                  {row.action && (
-                    <button type="button" onClick={row.action.go} className="text-[12.5px] font-semibold text-indigo-300 hover:text-indigo-200 cursor-default">
-                      {row.action.label}
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-            <p className="text-[11.5px] text-slate-500 tabular-nums">
-              {dubCharacterCount.toLocaleString()} characters · {segments.length.toLocaleString()} cues · {formatClock(sourceLength || totalLength)}
-            </p>
-          </div>
+            <span aria-hidden className="hidden md:block w-px h-8 bg-edge" />
+            {readyRows.map((row) => (
+              <span key={row.key} title={row.note ?? undefined} className="flex items-center gap-2 text-[12.5px]">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${row.dot}`} />
+                <span className="font-semibold text-slate-100 whitespace-nowrap">{row.title}</span>
+                {row.action && (
+                  <button
+                    type="button"
+                    onClick={row.action.go}
+                    className="h-6 px-2 rounded-md border border-slate-700 text-[11.5px] font-semibold text-slate-200 hover:bg-slate-800 cursor-default"
+                  >
+                    {row.action.label}
+                  </button>
+                )}
+              </span>
+            ))}
+          </>
         );
 
         // Before a sync, the preset the estimate suits: the lines as read against the original's.
@@ -4300,6 +4291,69 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </button>
             )}
           </>
+        );
+
+        /** Ready to dub and the button: a row under the Dub settings before the first sync, the rail after. */
+        const syncPanel = (
+          <SyncSettingsPanel
+            variant={report ? 'rail' : 'bar'}
+            summary={readySummary}
+            options={syncOptions}
+            onOptionsChange={setSyncOptions}
+            multiSpeaker={multiSpeaker}
+            synced={Boolean(report)}
+            hasDub={hasDub}
+            isSyncing={isSyncing}
+            waitingFor={syncWaitingFor}
+            isCancelling={isCancellingSync}
+            interrupted={Boolean(activeJob?.syncInterrupted)}
+            blockedReason={blockedReason}
+            pendingCount={syncPendingLines.length}
+            previewShown={!report && Boolean(linePreview)}
+            previewLongCount={linePreview?.summary.long ?? 0}
+            previewShortCount={linePreview?.summary.short ?? 0}
+            lineCount={report ? report.units.length : syncPreview.preview?.summary.lines}
+            presetSuggestion={lengthSuggestion}
+            onSync={runSync}
+            onSyncFromScratch={runSyncFromScratch}
+            onSyncChangedOnly={runSyncChangedOnly}
+            onCancel={() => onCancelSync?.()}
+            onBack={() => {
+              setStepOverride(2);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+            costNote={`Uses about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`}
+            extras={dubExtras}
+            onDownloadWav={report ? onDownloadWav : undefined}
+            onDownloadMp3={report ? onDownloadMp3 : undefined}
+            onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
+            openRequest={syncSettingsRequest + cardSettingsRequest}
+            fitSource={fitSource}
+            subtitles={
+              report && syncedCues && syncedCues.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setIsSrtModalOpen(true)}
+                  disabled={isSyncing}
+                  className="w-full flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800/60 hover:border-slate-600 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-default"
+                >
+                  <span className="w-11 h-11 rounded-[10px] flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-300">
+                    <Sliders className="w-5 h-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[14.5px] font-semibold text-slate-100">Export subtitles</span>
+                    <span className="block text-[12px] text-slate-400 truncate">
+                      {subtitleLanguage} · timed to {subtitleTimingLabel}
+                    </span>
+                    <span className="block text-[11.5px] text-slate-500 truncate">
+                      {srtOptions.maxLinesPerCue} line, {srtOptions.maxWordsPerLine} words max · .srt or .vtt
+                    </span>
+                  </span>
+                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                </button>
+              )
+            }
+          />
         );
 
         // The review video floats over the page, so it stays in view wherever the page is scrolled.
@@ -4688,12 +4742,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             </section>
           )}
 
-          {/* Before the first sync: the Dub settings and Ready to dub, one window high. Once synced: the lines, and the rail. */}
+          {/* Before the first sync: the Dub settings with Ready to dub under it, one window high. Once synced: the lines, and the rail. */}
           <div
             className={`grid grid-cols-1 gap-4 ${
               report
                 ? 'lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] items-start lg:items-stretch'
-                : `lg:grid-cols-[minmax(0,1fr)_20rem] 2xl:grid-cols-[minmax(0,1fr)_22rem] items-stretch ${hasDub ? '' : 'xl:h-[calc(100vh-7rem)] xl:min-h-[600px]'}`
+                : `items-stretch ${hasDub ? '' : 'xl:h-[calc(100vh-7rem)] xl:min-h-[600px]'}`
             }`}
           >
             <div className="flex flex-col gap-4 min-w-0 min-h-0">
@@ -4757,8 +4811,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 />
               )}
               {!report && dubSettingsCard}
+              {!report && syncPanel}
             </div>
 
+            {report && (
             <div className="flex flex-col gap-4 min-w-0 min-h-0">
               {/* Voice, once synced: folded to one line until wanted. Before the first sync it is on the Dub settings card. */}
               {report && (
@@ -5077,66 +5133,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 )}
               </aside>
               )}
-              <SyncSettingsPanel
-                variant={report ? 'rail' : 'ready'}
-                summary={readySummary}
-                options={syncOptions}
-                onOptionsChange={setSyncOptions}
-                multiSpeaker={multiSpeaker}
-                synced={Boolean(report)}
-                hasDub={hasDub}
-                isSyncing={isSyncing}
-                waitingFor={syncWaitingFor}
-                isCancelling={isCancellingSync}
-                interrupted={Boolean(activeJob?.syncInterrupted)}
-                blockedReason={blockedReason}
-                pendingCount={syncPendingLines.length}
-                previewShown={!report && Boolean(linePreview)}
-                previewLongCount={linePreview?.summary.long ?? 0}
-                previewShortCount={linePreview?.summary.short ?? 0}
-                lineCount={report ? report.units.length : syncPreview.preview?.summary.lines}
-                presetSuggestion={lengthSuggestion}
-                onSync={runSync}
-                onSyncFromScratch={runSyncFromScratch}
-                onSyncChangedOnly={runSyncChangedOnly}
-                onCancel={() => onCancelSync?.()}
-                onBack={() => {
-                  setStepOverride(2);
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
-                costNote={`Uses about ${dubCharacterCount.toLocaleString()} ElevenLabs characters.`}
-                extras={dubExtras}
-                onDownloadWav={report ? onDownloadWav : undefined}
-                onDownloadMp3={report ? onDownloadMp3 : undefined}
-                onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
-                openRequest={syncSettingsRequest + cardSettingsRequest}
-                fitSource={fitSource}
-                subtitles={
-                  report && syncedCues && syncedCues.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setIsSrtModalOpen(true)}
-                      disabled={isSyncing}
-                      className="w-full flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800/60 hover:border-slate-600 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-default"
-                    >
-                      <span className="w-11 h-11 rounded-[10px] flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-300">
-                        <Sliders className="w-5 h-5" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[14.5px] font-semibold text-slate-100">Export subtitles</span>
-                        <span className="block text-[12px] text-slate-400 truncate">
-                          {subtitleLanguage} · timed to {subtitleTimingLabel}
-                        </span>
-                        <span className="block text-[11.5px] text-slate-500 truncate">
-                          {srtOptions.maxLinesPerCue} line, {srtOptions.maxWordsPerLine} words max · .srt or .vtt
-                        </span>
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-                    </button>
-                  )
-                }
-              />
+              {syncPanel}
             </div>
+            )}
           </div>
 
           {/* Full voice library, opened from Change */}

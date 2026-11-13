@@ -1,0 +1,729 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dub Settings Pro</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  // Graphite, as index.css swaps it.
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#111214; font-family: Inter, system-ui, "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .scroll::-webkit-scrollbar { width:8px } .scroll::-webkit-scrollbar-thumb { background:#34363c; border-radius:8px } .scroll::-webkit-scrollbar-track { background:transparent }
+  .hidden2 { display:none !important; }
+  /* Slider: a thin track, the filled part in indigo, a tick where the default sits. */
+  .rng { -webkit-appearance:none; appearance:none; width:100%; height:18px; background:transparent; cursor:default; }
+  .rng::-webkit-slider-runnable-track { height:4px; border-radius:4px; background:linear-gradient(to right,#5866e0 0,#5866e0 var(--p),#34363c var(--p)); }
+  .rng::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; margin-top:-5px; border-radius:50%; background:#ececef; border:2px solid #5866e0; box-shadow:0 1px 4px rgba(0,0,0,.5); }
+  .rng:disabled::-webkit-slider-runnable-track { background:#34363c; }
+  .rng:disabled::-webkit-slider-thumb { border-color:#5a5d66; background:#8b8e98; }
+  .rngwrap { position:relative; }
+  .rngwrap .deftick { position:absolute; top:2px; width:2px; height:14px; border-radius:2px; background:#5a5d66; transform:translateX(-1px); pointer-events:none; }
+  .row .reset1 { opacity:0; transition:opacity .12s; }
+  .row:hover .reset1 { opacity:1; }
+  .flash { animation: flash 1s ease; }
+  @keyframes flash { 0%,40% { background:rgba(88,102,224,.14) } 100% { background:transparent } }
+  .pop { box-shadow: 0 18px 40px -12px rgba(0,0,0,.7); }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<!-- Mock switcher and notes -->
+<div class="max-w-[90rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex rounded-lg border border-edge overflow-hidden">
+    <button data-mock="A" class="px-3 py-1">Mock A · তিন কলাম console</button>
+    <button data-mock="B" class="px-3 py-1">Mock B · বাঁয়ে section তালিকা</button>
+    <button data-mock="C" class="px-3 py-1">Mock C · দেখতে সহজ, ভিতরে advanced</button>
+  </span>
+  <span id="mockNote" class="ml-1"></span>
+</div>
+<div class="max-w-[90rem] mx-auto mb-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-300 font-medium">Ready to dub</span>
+  <span id="readySeg" class="inline-flex rounded-lg border border-edge overflow-hidden">
+    <button data-ready="now" class="px-3 py-1">এখন · ডান পাশে</button>
+    <button data-ready="bar" class="px-3 py-1">1 · নিচে এক সারি</button>
+    <button data-ready="top" class="px-3 py-1">2 · উপরে বোতাম</button>
+    <button data-ready="nav" class="px-3 py-1">3 · বাঁয়ের তালিকার নিচে</button>
+  </span>
+  <span id="readyNote" class="ml-1"></span>
+</div>
+
+<div class="max-w-[90rem] mx-auto">
+  <!-- Step bar, for context; in layout 2 it carries Dub & sync -->
+  <div class="flex flex-wrap items-center gap-2 mb-3 text-[13px] min-h-[36px]">
+    <span class="text-slate-500">1 Source &amp; voice</span><span class="text-slate-600">›</span>
+    <span class="text-slate-500">2 Review</span><span class="text-slate-600">›</span>
+    <span class="text-slate-100 font-semibold">3 Dub</span>
+    <div class="flex-1"></div>
+    <div id="topReady" class="hidden2 flex items-center gap-2">
+      <div class="relative">
+        <button id="topPill" class="h-9 pl-3 pr-2.5 rounded-xl border border-edge bg-slate-900 hover:bg-slate-800 inline-flex items-center gap-2.5 text-[12.5px]">
+          <span class="w-20 h-1.5 rounded-full bg-slate-800 overflow-hidden flex"><span class="bg-emerald-500/80" style="width:85%"></span><span class="bg-amber-400/80" style="width:10%"></span><span class="bg-rose-500/80" style="width:5%"></span></span>
+          <span><b class="mono font-semibold text-slate-100">41/48</b> <span class="text-slate-400">likely to fit</span></span>
+          <span class="inline-flex items-center gap-1 px-1.5 h-5 rounded-md bg-amber-400/15 text-amber-300 text-[11px] font-semibold">2 to check</span>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="text-slate-500"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div id="topPop" class="hidden2 pop absolute right-0 top-11 z-30 w-80 rounded-2xl border border-slate-700 bg-slate-950 p-4"></div>
+      </div>
+      <button class="h-9 px-3 rounded-xl border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] text-slate-300">Script and tools</button>
+      <button class="h-9 px-5 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold">Dub &amp; sync</button>
+    </div>
+  </div>
+
+  <div id="grid" class="grid grid-cols-1 gap-4 lg:h-[calc(100vh-12.5rem)] lg:min-h-[620px]">
+    <div class="flex flex-col min-h-0 min-w-0">
+      <section id="card" aria-label="Dub settings" class="flex-1 flex flex-col min-h-0 bg-slate-900/90 border border-edge rounded-2xl overflow-hidden"></section>
+      <div id="barReady" class="hidden2 shrink-0 mt-3"></div>
+    </div>
+
+    <!-- Ready to dub as it is now -->
+    <aside id="aside" class="flex flex-col min-h-0 bg-slate-900/90 border border-edge rounded-2xl overflow-hidden">
+      <div class="px-5 py-3.5 border-b border-edge">
+        <h2 class="text-[15px] font-semibold">Ready to dub</h2>
+        <p class="text-xs text-slate-400">48 lines · 6:12 · Hindi</p>
+      </div>
+      <div class="flex-1 min-h-0 overflow-y-auto scroll px-5 py-4 space-y-4 text-[13px]">
+        <div>
+          <div class="flex items-baseline justify-between"><span class="font-semibold">Likely to fit</span><span class="mono text-slate-300">41 / 48</span></div>
+          <div class="mt-2 h-2 rounded-full bg-slate-800 overflow-hidden flex"><span class="bg-emerald-500/80" style="width:85%"></span><span class="bg-amber-400/80" style="width:10%"></span><span class="bg-rose-500/80" style="width:5%"></span></div>
+          <p class="mt-1.5 text-xs text-slate-500">est. from the script, before any voice</p>
+        </div>
+        <div class="flex items-center gap-3 py-2 border-t border-edge/70"><span class="flex-1"><b class="font-semibold">5 long lines</b><br><span class="text-xs text-slate-500">read over their slot by 0.4–1.2 s</span></span><button class="h-7 px-2.5 rounded-lg border border-slate-700 text-xs font-semibold">Fix</button></div>
+        <div class="flex items-center gap-3 py-2 border-t border-edge/70"><span class="flex-1"><b class="font-semibold">QA</b><br><span class="text-xs text-slate-500">2 notes</span></span><button class="h-7 px-2.5 rounded-lg border border-slate-700 text-xs font-semibold">Open</button></div>
+        <div class="flex items-center gap-3 py-2 border-t border-edge/70"><span class="flex-1"><b class="font-semibold">Lip closures</b><br><span class="text-xs text-slate-500">none on close-ups</span></span></div>
+      </div>
+      <div class="px-5 py-4 border-t border-edge space-y-2">
+        <button class="w-full h-10 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-[13.5px] font-semibold">Dub &amp; sync</button>
+        <button class="w-full h-8 rounded-xl border border-slate-700 text-[12.5px] text-slate-300">Script and tools</button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+/* ---------- The settings: one list, both mocks draw from it ---------- */
+const ms = (v) => `${Math.round(v * 1000)} ms`;
+const pct = (v) => `${Math.round(v * 100)}%`;
+const x2 = (v) => v.toFixed(2);
+const db = (v) => `${v} dB`;
+
+const S = {
+  // Voice
+  model:      { label:'Model', type:'select', def:'v4', value:'v4', choices:[['v4','Eleven v4'],['v3','Eleven v3'],['v2','Multilingual v2'],['flash','Flash v2.5 · 0.5× credits']],
+                note:() => S.model.value==='v4'||S.model.value==='v3' ? 'Reads tags; speed is ignored, so a faster read is a pace direction.' : 'Takes a speed setting; no tags.' },
+  expression: { label:'Expression', type:'seg', def:'off', value:'neutral', choices:[['off','Off'],['neutral','Neutral'],['natural','Natural'],['expressive','Expressive']],
+                note:() => ({off:"The script as written, in the voice's own settings.",neutral:"Calm and steady in the speaker's own voice. No tags.",natural:'Follows how the original speaker spoke: pace and pauses, calm tags only.',expressive:'Adds emotion tags guessed from the script. Can sound dramatic.'})[S.expression.value] },
+  stability:  { label:'Stability', type:'slider', def:0.5, value:0.6, min:0, max:1, step:0.05, fmt:x2, ends:['Creative','Robust'] },
+  similarity: { label:'Similarity', type:'slider', def:0.75, value:0.75, min:0, max:1, step:0.05, fmt:x2, ends:['Low','High'] },
+  style:      { label:'Style exaggeration', type:'slider', def:0, value:0, min:0, max:1, step:0.05, fmt:x2, ends:['None','Exaggerated'] },
+  boost:      { label:'Speaker boost', type:'switch', def:true, value:true, note:"Brighter, closer voice; a little slower to voice." },
+
+  // Placement
+  length:     { label:'Dub length', type:'seg', def:'natural', value:'natural', suggested:'long', choices:[['short','Short'],['natural','Natural'],['long','Long'],['vlong','Very long']],
+                note:() => 'The dub reads about 12% longer than the original, est.' },
+  screen:     { label:'On screen', type:'seg', def:'any', value:'any', choices:[['any','Any'],['narration','Narration'],['camera','On-camera']],
+                note:() => ({any:'No extra rule on top of the length.',narration:'After a long pause every paragraph starts on time.',camera:'Lines start within 200 ms, with tight joins.'})[S.screen.value] },
+  voicing:    { label:'How to voice', type:'seg', def:'lines', value:'lines', choices:[['lines','Line by line'],['continuous','One read']],
+                note:() => S.voicing.value==='lines' ? 'Each line for its own slot: the best timing.' : 'One take, then each line cut from it: the most natural flow.' },
+  precision:  { label:'Timing', type:'seg', def:'phrase', value:'phrase', choices:[['loose','Loose'],['phrase','Phrase'],['lipsync','Close-up']],
+                note:() => `Each line starts within ±${({loose:300,phrase:150,lipsync:80})[S.precision.value]} ms of the original.` },
+  chunkSync:  { label:'Chunk sync', type:'switch', def:true, value:true, note:"Splits each line where it goes quiet and places every chunk on the original's words", fine:['chunkGapShare','maxChunkGap'] },
+  joinSpoken: { label:'Close up chunks', type:'switch', def:true, value:true, parent:'chunkSync', note:'Chunks the original says in one go play back to back' },
+  chunkGapShare: { label:'Shrink a pause to', type:'slider', def:0.5, value:0.5, min:0, max:1, step:0.05, fmt:pct, parent:'chunkSync' },
+  maxChunkGap:   { label:'Longest a chunk may wait', type:'slider', def:1, value:1, min:0.2, max:3, step:0.05, fmt:ms, parent:'chunkSync' },
+
+  // Pauses
+  matchPauses: { label:'Match source pauses', type:'switch', def:true, value:true, note:'Pause only where the original speaker paused', fine:['unmatchedPause'] },
+  unmatchedPause: { label:'Cut such a pause to', type:'slider', def:0.12, value:0.12, min:0, max:0.5, step:0.01, fmt:ms, parent:'matchPauses' },
+  cutAtSource: { label:"Cut at the original's pauses", type:'switch', def:true, value:true, parent:'chunkSync', note:'Where the voice read on, each part starts where the speaker starts again', fine:['sourceCutMin','sourceCutInsert'] },
+  sourceCutMin:    { label:'Pauses of the original from', type:'slider', def:0.3, value:0.3, min:0.1, max:1.5, step:0.05, fmt:ms, parent:'cutAtSource' },
+  sourceCutInsert: { label:'Most silence a cut adds', type:'slider', def:0.4, value:0.4, min:0, max:1, step:0.05, fmt:ms, parent:'cutAtSource' },
+  tighten:     { label:'Tighten silences', type:'switch', def:true, value:true, note:'A long line loses room-tone silence; words are never cut', fine:['tightMinPause','tightMargin'] },
+  tightMinPause: { label:'Shortest pause left', type:'slider', def:0.15, value:0.15, min:0.05, max:0.5, step:0.01, fmt:ms, parent:'tighten' },
+  tightMargin:   { label:'Silence kept around words', type:'slider', def:0.04, value:0.04, min:0, max:0.2, step:0.01, fmt:ms, parent:'tighten' },
+
+  // Long lines
+  speedFit:  { label:'Read faster', type:'seg', def:'off', value:'off', choices:[['off','Off'],['ask','Ask'],['auto','Auto']], fine:['maxSpeed'],
+               note:() => `A calm, quicker pace direction, up to ${S.maxSpeed.value.toFixed(2)}×` },
+  maxSpeed:  { label:'Fastest read', type:'slider', def:1.15, value:1.15, min:1, max:1.3, step:0.01, fmt:(v)=>`${v.toFixed(2)}×`, parentSeg:'speedFit' },
+  bestTakes: { label:'Best of three takes', type:'seg', def:'off', value:'off', choices:[['off','Off'],['ask','Ask'],['auto','Auto']], fine:['maxRevoice'],
+               note:() => 'Voiced twice more; the take that fits best is kept' },
+  maxRevoice:{ label:'Lines voiced again per sync, at most', type:'slider', def:20, value:20, min:0, max:100, step:1, fmt:(v)=>`${v}`, parentSeg:'bestTakes' },
+
+  // Sound
+  loudness:  { label:'Even out loudness', type:'switch', def:true, value:true, note:'Every line at one level' },
+  breaths:   { label:'Remove breaths', type:'switch', def:true, value:true, note:'Silences the breaths before, between and after the words', fine:['breathReduction'] },
+  breathReduction: { label:'Breath reduction', type:'slider', def:1, value:1, min:0, max:1, step:0.05, fmt:pct, parent:'breaths' },
+  quality:   { label:'File', type:'seg', def:'pcm_48000', value:'pcm_48000', choices:[['pcm_48000','WAV 48 kHz'],['mp3_192','MP3 192'],['mp3_128','MP3 128']],
+               note:() => ({pcm_48000:'Lossless, as ElevenLabs voices it. Pro plan or above.',mp3_192:'Creator plan or above.',mp3_128:'Every ElevenLabs plan.'})[S.quality.value] },
+
+  // Fine tuning (today only in All sync settings)
+  gateOpen:  { label:'Gate threshold', type:'slider', def:-40, value:-40, min:-60, max:-20, step:1, fmt:db, parent:'chunkSync' },
+  gateHyst:  { label:'Hysteresis', type:'slider', def:-15, value:-15, min:-30, max:0, step:1, fmt:db, parent:'chunkSync' },
+  leadPad:   { label:'Leading pad', type:'slider', def:0.01, value:0.01, min:0, max:0.1, step:0.005, fmt:ms, parent:'chunkSync' },
+  trailPad:  { label:'Trailing pad', type:'slider', def:0.02, value:0.02, min:0, max:0.1, step:0.005, fmt:ms, parent:'chunkSync' },
+  minGap:    { label:'Minimum gap between lines', type:'slider', def:0.18, value:0.18, min:0, max:0.6, step:0.01, fmt:ms },
+  speakerGap:{ label:'Gap at a speaker change', type:'slider', def:0.25, value:0.25, min:0, max:0.8, step:0.01, fmt:ms },
+  crossfade: { label:'Splice crossfade', type:'slider', def:0.005, value:0.005, min:0, max:0.03, step:0.001, fmt:ms },
+  tailHold:  { label:'Tail hold', type:'slider', def:0.05, value:0.05, min:0, max:0.2, step:0.005, fmt:ms },
+  maxLate:   { label:'Latest a line may start', type:'slider', def:0.3, value:0.3, min:0, max:1, step:0.01, fmt:ms },
+};
+
+const GROUPS = [
+  { id:'voice', name:'Voice', icon:'mic', ids:['model','expression','stability','similarity','style','boost'] },
+  { id:'place', name:'Placement', icon:'align', ids:['length','screen','voicing','precision','chunkSync','joinSpoken'] },
+  { id:'pause', name:'Pauses', icon:'pause', ids:['matchPauses','cutAtSource','tighten'] },
+  { id:'long',  name:'Long lines', icon:'gauge', ids:['speedFit','bestTakes'] },
+  { id:'sound', name:'Sound', icon:'vol', ids:['loudness','breaths','quality'] },
+  { id:'fine',  name:'Fine tuning', icon:'sliders', ids:['gateOpen','gateHyst','leadPad','trailPad','minGap','speakerGap','crossfade','tailHold','maxLate'] },
+];
+const ALL_IDS = GROUPS.flatMap((g) => g.ids.flatMap((id) => [id, ...(S[id].fine || [])]));
+
+const ICONS = {
+  mic:'<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/>',
+  align:'<path d="M3 6h7M14 6h7M3 12h11M18 12h3M3 18h4M11 18h10"/>',
+  pause:'<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
+  gauge:'<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+  vol:'<path d="M11 5 6 9H2v6h4l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>',
+  sliders:'<path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>',
+  reset:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  chev:'<path d="m9 6 6 6-6 6"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>',
+  play:'<path d="M7 4v16l13-8Z" fill="currentColor"/>',
+  win:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/>',
+};
+const icon = (n, s = 15, extra = '') => `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${ICONS[n]}</svg>`;
+
+/* ---------- State helpers ---------- */
+const changed = (id) => S[id].value !== S[id].def;
+const offByParent = (id) => {
+  const s = S[id];
+  if (s.parent && (!S[s.parent].value || offByParent(s.parent))) return true;
+  if (s.parentSeg && S[s.parentSeg].value === 'off') return true;
+  return false;
+};
+const groupChanged = (g) => g.ids.flatMap((id) => [id, ...(S[id].fine || [])]).filter(changed).length;
+const totalChanged = () => ALL_IDS.filter(changed).length;
+const noteOf = (id) => (typeof S[id].note === 'function' ? S[id].note() : S[id].note || '');
+const label = (id, v) => (S[id].choices || []).find((c) => c[0] === v)?.[1] ?? v;
+
+let mock = 'B';
+const open = new Set(); // Mock A: which fine-tuning drawers are open
+let activeSection = 'voice';
+let query = '';
+
+/* ---------- Controls ---------- */
+const dot = (id) => (changed(id) ? `<span class="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="Changed from the default"></span>` : '');
+const resetOne = (id) =>
+  changed(id) ? `<button data-reset="${id}" class="reset1 w-6 h-6 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 flex items-center justify-center shrink-0" title="Back to the default: ${S[id].type==='slider' ? S[id].fmt(S[id].def) : S[id].type==='switch' ? (S[id].def?'On':'Off') : label(id,S[id].def)}">${icon('reset',13)}</button>` : '<span class="w-6 shrink-0"></span>';
+
+function seg(id, dense) {
+  const s = S[id], dis = offByParent(id);
+  return `<div role="radiogroup" aria-label="${s.label}" class="inline-flex shrink-0 gap-0.5 p-[3px] rounded-[11px] bg-slate-950 border border-edge ${dis ? 'opacity-50' : ''}">${s.choices
+    .map(([v, l]) => {
+      const on = v === s.value;
+      return `<button data-seg="${id}" data-v="${v}" ${dis ? 'disabled' : ''} role="radio" aria-checked="${on}" class="relative rounded-lg font-semibold whitespace-nowrap ${dense ? 'px-2.5 py-[3px] text-xs' : 'px-3 py-[5px] text-[12.5px]'} ${on ? 'bg-slate-800 text-white shadow-[0_2px_8px_rgba(0,0,0,.35)]' : 'text-slate-400 hover:text-slate-200'}">${l}${s.suggested === v && !on ? '<span class="absolute top-[3px] right-[3px] w-[5px] h-[5px] rounded-full bg-amber-400"></span>' : ''}</button>`;
+    })
+    .join('')}</div>`;
+}
+function sw(id) {
+  const s = S[id], dis = offByParent(id);
+  return `<button data-sw="${id}" ${dis ? 'disabled' : ''} role="switch" aria-checked="${s.value}" aria-label="${s.label}" class="relative w-[34px] h-5 rounded-full shrink-0 transition-colors ${dis ? 'opacity-40' : ''} ${s.value ? 'bg-indigo-500' : 'bg-slate-700'}"><span class="absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${s.value ? 'left-[17px]' : 'left-[3px]'}"></span></button>`;
+}
+function sel(id) {
+  const s = S[id];
+  return `<select data-sel="${id}" class="max-w-[14rem] h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-[10px] px-2.5 text-[12.5px] font-semibold text-slate-100 focus:outline-none focus:border-indigo-500">${s.choices
+    .map(([v, l]) => `<option value="${v}" ${v === s.value ? 'selected' : ''} class="bg-slate-900">${l}</option>`)
+    .join('')}</select>`;
+}
+function slider(id, labelW = '9.5rem') {
+  const s = S[id], dis = offByParent(id);
+  const p = ((s.value - s.min) / (s.max - s.min)) * 100;
+  const d = ((s.def - s.min) / (s.max - s.min)) * 100;
+  return `<div class="row grid items-center gap-3 py-1 ${dis ? 'opacity-45' : ''}" style="grid-template-columns:${labelW} minmax(0,1fr) 4rem 1.5rem" data-row="${id}" ${s.ends ? `title="${s.ends[0]} ↔ ${s.ends[1]}"` : ''}>
+    <span class="flex items-center gap-1.5 text-[12.5px] font-semibold text-slate-200 truncate">${s.label}${dot(id)}</span>
+    <span class="rngwrap"><span class="deftick" style="left:calc(7px + (100% - 14px) * ${d / 100})" title="Default ${s.fmt(s.def)}"></span><input type="range" class="rng" data-rng="${id}" min="${s.min}" max="${s.max}" step="${s.step}" value="${s.value}" style="--p:${p}%" ${dis ? 'disabled' : ''} aria-label="${s.label}"></span>
+    <span class="mono text-xs text-slate-300 text-right" data-out="${id}">${s.fmt(s.value)}</span>
+    ${resetOne(id)}
+  </div>`;
+}
+function control(id, dense) {
+  const t = S[id].type;
+  return t === 'seg' ? seg(id, dense) : t === 'switch' ? sw(id) : t === 'select' ? sel(id) : '';
+}
+
+/* ---------- Small visuals ---------- */
+// Timing: how wide the window is that each line may start in.
+function timingViz() {
+  const w = { loose: 300, phrase: 150, lipsync: 80 }[S.precision.value];
+  const pctW = (w / 300) * 50;
+  return `<div class="mt-1.5 flex items-center gap-2 text-[10.5px] text-slate-500">
+    <span class="relative flex-1 h-3.5 rounded bg-slate-950 border border-edge overflow-hidden">
+      <span class="absolute inset-y-0 bg-indigo-500/25 border-x border-indigo-400/60" style="left:${50 - pctW}%;right:${50 - pctW}%"></span>
+      <span class="absolute inset-y-0 left-1/2 w-px bg-slate-200"></span>
+    </span>
+    <span class="mono w-14 text-right">±${w} ms</span></div>`;
+}
+// Dub length: how the dub's read compares with the original, against each length's room.
+function lengthViz() {
+  const room = { short: 0, natural: 6, long: 14, vlong: 24 }[S.length.value];
+  const need = 12;
+  return `<div class="mt-1.5 flex items-center gap-2 text-[10.5px] text-slate-500">
+    <span class="relative flex-1 h-3.5 rounded bg-slate-950 border border-edge overflow-hidden">
+      <span class="absolute inset-y-0 left-0 bg-slate-700/70" style="width:${100 / 1.3}%"></span>
+      <span class="absolute inset-y-0 bg-indigo-500/35" style="left:${100 / 1.3}%;width:${(room / 100) * (100 / 1.3)}%"></span>
+      <span class="absolute inset-y-0 w-0.5 ${need > room ? 'bg-amber-400' : 'bg-emerald-400'}" style="left:${(100 + need) / 1.3}%"></span>
+    </span>
+    <span class="w-28 text-right ${need > room ? 'text-amber-300' : 'text-emerald-300'}">${need > room ? 'reads +12%, room ' + room + '%' : 'fits: +12% of ' + room + '%'}</span></div>`;
+}
+
+/* ---------- The voice, at the top of Voice ---------- */
+function voiceHero(compact) {
+  const bars = [4,9,6,12,8,14,10,6,11,7,13,9,5,10,8,12,6,9,4,7];
+  return `<div class="flex items-center gap-3 ${compact ? 'py-2.5' : 'py-3'} border-b border-edge/70">
+      <span class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/40 to-slate-800 border border-edge flex items-center justify-center text-[13px] font-bold">AR</span>
+      <div class="min-w-0 flex-1">
+        <div class="text-[13.5px] font-semibold truncate">Aarav · calm narrator</div>
+        <div class="text-[11.5px] text-slate-500 truncate">Hindi · male · reads 5.8 syllables/s</div>
+      </div>
+      ${compact ? `<button class="w-8 h-8 rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center shrink-0" title="Play the voice's sample">${icon('play', 11)}</button>` : ''}
+      <button class="${compact ? 'hidden' : ''} h-8 pl-2 pr-2.5 rounded-full border border-slate-700 text-slate-300 hover:bg-slate-800 inline-flex items-center gap-2" title="Play the voice's sample">
+        <span class="w-5 h-5 rounded-full bg-slate-800 flex items-center justify-center">${icon('play', 10)}</span>
+        <span class="flex items-end gap-[2px] h-3.5">${bars.map((h) => `<span class="w-[2px] rounded bg-slate-500" style="height:${h}px"></span>`).join('')}</span>
+      </button>
+      <button class="h-8 px-3 rounded-[10px] border border-slate-700 text-[12.5px] font-semibold text-slate-200 hover:bg-slate-800">Change</button>
+    </div>
+    <div class="flex flex-wrap items-center gap-1.5 pt-2 pb-1">
+      ${['Aarav', 'Meera', 'Kabir', 'Ishaan'].map((n, i) => `<button class="px-2.5 py-0.5 rounded-full border text-[11.5px] ${i === 0 ? 'border-indigo-500 bg-indigo-500/15 text-slate-100' : 'border-slate-700 text-slate-400 hover:text-slate-200'}">${n}</button>`).join('')}
+    </div>`;
+}
+
+/* ---------- Mock A: three columns, every setting in view, fine tuning in drawers ---------- */
+function rowA(id) {
+  const s = S[id];
+  const dis = offByParent(id);
+  const nested = s.parent && S[s.parent].type === 'switch' && !S[s.parent].fine?.includes(id);
+  const hasFine = (s.fine || []).length > 0;
+  const isOpen = open.has(id);
+  const fineChanged = (s.fine || []).some(changed);
+  const extra = id === 'precision' ? timingViz() : id === 'length' ? lengthViz() : '';
+  const badge = id === 'length' && S.length.value !== 'long' ? '<span class="text-[10.5px] font-semibold text-amber-300">● Long suggested</span>' : '';
+  return `<div class="${nested ? 'ml-3 pl-3 border-l border-edge' : ''}">
+    <div class="row py-[7px] border-b border-edge/60 ${dis ? 'opacity-50' : ''}" data-row="${id}">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <div class="min-w-[9rem] flex-1">
+        <div class="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100 whitespace-nowrap">${s.label}${dot(id)}${badge}
+          ${hasFine ? `<button data-drawer="${id}" class="ml-0.5 inline-flex items-center gap-0.5 text-[11px] font-medium ${fineChanged ? 'text-amber-300' : 'text-slate-500'} hover:text-slate-200" title="Fine-tune">${icon('chev', 12, `style="transform:rotate(${isOpen ? 90 : 0}deg);transition:transform .15s"`)}${fineChanged ? 'tuned' : ''}</button>` : ''}
+        </div>
+        <div class="text-[11.5px] text-slate-500 leading-snug">${noteOf(id)}</div>
+      </div>
+      ${control(id, true)}
+      </div>
+      ${extra}
+    </div>
+    ${hasFine && isOpen ? `<div class="mt-1 mb-2 ml-3 pl-3 border-l border-indigo-500/40">${s.fine.map((f) => slider(f, '8.5rem')).join('')}</div>` : ''}
+  </div>`;
+}
+function capA(g) {
+  const n = groupChanged(g);
+  return `<div class="flex items-center gap-2 mt-4 mb-1 first:mt-3">
+    <span class="w-6 h-6 rounded-md bg-slate-800 text-slate-300 flex items-center justify-center">${icon(g.icon, 13)}</span>
+    <span class="flex-1 text-[11px] uppercase tracking-[.09em] font-semibold text-slate-400">${g.name}</span>
+    ${n ? `<button data-resetgroup="${g.id}" class="text-[11px] text-amber-300/90 hover:text-amber-200">${n} changed · reset</button>` : ''}
+  </div>`;
+}
+function renderA() {
+  const g = Object.fromEntries(GROUPS.map((x) => [x.id, x]));
+  const n = totalChanged();
+  const chips = [
+    ['Voice', `Aarav · ${label('model', S.model.value).split(' ·')[0]} · ${label('expression', S.expression.value)}`],
+    ['Length', label('length', S.length.value)],
+    ['Timing', `±${{ loose: 300, phrase: 150, lipsync: 80 }[S.precision.value]} ms`],
+    ['Chunks', S.chunkSync.value ? 'On' : 'Off'],
+    ['File', label('quality', S.quality.value)],
+  ];
+  return `
+  <div class="flex items-center gap-4 px-5 py-3 border-b border-edge">
+    <div class="min-w-0 flex-1">
+      <h2 class="text-[15px] font-semibold">Dub settings</h2>
+      <p class="text-xs text-slate-400">Every setting Dub &amp; sync uses. Changes apply to the next Dub &amp; sync.</p>
+    </div>
+    ${n ? `<span class="inline-flex items-center gap-1.5 text-[12px] text-amber-300"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>${n} changed</span>
+    <button data-resetall class="h-8 px-3 rounded-[10px] border border-slate-700 text-[12.5px] font-semibold text-slate-300 hover:bg-slate-800 inline-flex items-center gap-1.5">${icon('reset', 13)} Reset all</button>` : '<span class="text-[12px] text-slate-500">All defaults</span>'}
+  </div>
+  <div class="flex flex-wrap items-center gap-1.5 px-5 py-2 border-b border-edge bg-slate-950/40">
+    ${chips.map(([k, v]) => `<span class="inline-flex items-center gap-1.5 h-6 px-2 rounded-md bg-slate-800/70 text-[11.5px]"><span class="text-slate-500">${k}</span><span class="text-slate-200 font-medium">${v}</span></span>`).join('')}
+  </div>
+  <div id="scrollA" class="flex-1 min-h-0 overflow-y-auto scroll px-5 pb-4 grid grid-cols-1 xl:grid-cols-3 gap-x-7">
+    <div class="min-w-0">
+      ${capA(g.voice)}
+      ${voiceHero(true)}
+      ${rowA('model')}${rowA('expression')}
+      <div class="flex items-center gap-2 mt-3 mb-0.5"><span class="flex-1 text-[10.5px] uppercase tracking-[.09em] font-semibold text-slate-500">Voice settings</span></div>
+      ${slider('stability', '8.5rem')}${slider('similarity', '8.5rem')}${slider('style', '8.5rem')}
+      ${rowA('boost')}
+    </div>
+    <div class="min-w-0">
+      ${capA(g.place)}
+      ${['length', 'screen', 'voicing', 'precision', 'chunkSync', 'joinSpoken'].map(rowA).join('')}
+    </div>
+    <div class="min-w-0">
+      ${capA(g.pause)}
+      ${['matchPauses', 'cutAtSource', 'tighten'].map(rowA).join('')}
+      ${capA(g.long)}
+      ${['speedFit', 'bestTakes'].map(rowA).join('')}
+      ${capA(g.sound)}
+      ${['loudness', 'breaths', 'quality'].map(rowA).join('')}
+    </div>
+  </div>
+  <div class="flex items-center gap-3 px-5 py-2.5 border-t border-edge text-xs text-slate-500">
+    <span class="min-w-0 flex-1 truncate">Gate levels, pads, gaps and fades: All sync settings.</span>
+    <button class="h-8 px-3 flex items-center gap-1.5 rounded-[10px] border border-slate-700 text-[12.5px] font-semibold text-slate-200 hover:bg-slate-800">${icon('sliders', 13)} All sync settings</button>
+  </div>`;
+}
+
+/* ---------- Mock B: section list on the left, every setting on the right ---------- */
+const SUMMARY = {
+  voice: () => `Aarav · ${label('model', S.model.value).split(' ·')[0]} · ${label('expression', S.expression.value)}`,
+  place: () => `${label('length', S.length.value)} · ${label('precision', S.precision.value)} · chunks ${S.chunkSync.value ? 'on' : 'off'}`,
+  pause: () => `${[S.matchPauses.value, S.cutAtSource.value && S.chunkSync.value, S.tighten.value].filter(Boolean).length} of 3 on`,
+  long:  () => `Faster ${S.speedFit.value} · best of 3 ${S.bestTakes.value}`,
+  sound: () => `${label('quality', S.quality.value)} · breaths ${S.breaths.value ? 'out' : 'kept'}`,
+  fine:  () => `gate ${S.gateOpen.value} dB · gap ${ms(S.minGap.value)}`,
+};
+const matches = (id) => !query || (S[id].label + ' ' + noteOf(id)).toLowerCase().includes(query);
+function rowB(id, showFine = true) {
+  const s = S[id];
+  if (s.type === 'slider') return matches(id) ? slider(id, '13rem') : '';
+  const fine = showFine ? s.fine || [] : [];
+  const show = matches(id) || fine.some(matches);
+  if (!show) return '';
+  const dis = offByParent(id);
+  const nested = s.parent && S[s.parent].type === 'switch';
+  const extra = id === 'precision' ? timingViz() : id === 'length' ? lengthViz() : '';
+  const badge = id === 'length' && S.length.value !== 'long' ? '<span class="text-[10.5px] font-semibold text-amber-300">● Long suggested</span>' : '';
+  return `<div class="${nested ? 'ml-4 pl-4 border-l border-edge' : ''}">
+    <div class="row flex items-center gap-4 py-2.5 border-b border-edge/60 ${dis ? 'opacity-50' : ''}" data-row="${id}">
+      <div class="min-w-0 flex-1">
+        <div class="flex items-center gap-1.5 text-[13px] font-semibold text-slate-100">${s.label}${dot(id)}${badge}</div>
+        <div class="text-xs text-slate-500">${noteOf(id)}</div>
+        ${extra ? `<div class="max-w-md">${extra}</div>` : ''}
+      </div>
+      ${control(id, false)}
+      ${resetOne(id)}
+    </div>
+    ${fine.length ? `<div class="py-1 ml-4 pl-4 border-l border-indigo-500/30">${fine.map((f) => (matches(f) || matches(id) ? slider(f, '13rem') : '')).join('')}</div>` : ''}
+  </div>`;
+}
+function sectionB(g) {
+  const body = g.id === 'voice'
+    ? `${matches('model') || !query ? voiceHero(false) : ''}${rowB('model')}${rowB('expression')}${rowB('stability')}${rowB('similarity')}${rowB('style')}${rowB('boost')}`
+    : g.id === 'fine'
+      ? `<p class="text-xs text-slate-500 mb-1.5">What the All sync settings window held. Chunk settings grey out with Chunk sync off.</p>${g.ids.map(rowB).join('')}`
+      : g.ids.map(rowB).join('');
+  if (query && !body.replace(/<[^>]+>/g, '').trim()) return '';
+  const n = groupChanged(g);
+  return `<section data-section="${g.id}" class="pt-5 first:pt-3">
+    <div class="sticky top-0 z-10 -mx-6 px-6 py-2 bg-slate-900/95 backdrop-blur flex items-center gap-2 border-b border-edge">
+      <span class="w-6 h-6 rounded-md bg-slate-800 text-slate-300 flex items-center justify-center">${icon(g.icon, 13)}</span>
+      <h3 class="flex-1 text-[13.5px] font-semibold">${g.name}</h3>
+      ${n ? `<button data-resetgroup="${g.id}" class="text-[11.5px] text-amber-300/90 hover:text-amber-200 inline-flex items-center gap-1">${icon('reset', 12)} Reset ${n}</button>` : ''}
+    </div>
+    ${body}
+  </section>`;
+}
+function renderB() {
+  const n = totalChanged();
+  return `
+  <div class="flex items-center gap-4 px-5 py-3 border-b border-edge">
+    <div class="min-w-0 flex-1">
+      <h2 class="text-[15px] font-semibold">Dub settings</h2>
+      <p class="text-xs text-slate-400">Every setting Dub &amp; sync uses, the fine ones included. Changes apply to the next Dub &amp; sync.</p>
+    </div>
+    ${n ? `<button data-resetall class="h-8 px-3 rounded-[10px] border border-slate-700 text-[12.5px] font-semibold text-slate-300 hover:bg-slate-800 inline-flex items-center gap-1.5">${icon('reset', 13)} Reset all ${n}</button>` : ''}
+    <button class="h-8 w-8 rounded-[10px] border border-slate-700 text-slate-300 hover:bg-slate-800 flex items-center justify-center" title="Open in its own window">${icon('win', 14)}</button>
+  </div>
+  <div class="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[15rem_minmax(0,1fr)]">
+    <nav class="hidden md:flex flex-col min-h-0 border-r border-edge bg-slate-950/40 p-3 gap-1">
+      <label class="relative mb-2 block">
+        <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500">${icon('search', 13)}</span>
+        <input id="find" value="${query}" placeholder="Find a setting" class="w-full h-8 pl-8 pr-2 rounded-[10px] bg-slate-950 border border-edge text-[12.5px] placeholder:text-slate-600 focus:outline-none focus:border-indigo-500">
+      </label>
+      ${GROUPS.map((g) => {
+        const on = g.id === activeSection, c = groupChanged(g);
+        return `<button data-goto="${g.id}" class="text-left rounded-xl px-2.5 py-2 flex items-start gap-2.5 ${on ? 'bg-slate-800 shadow-[0_2px_8px_rgba(0,0,0,.3)]' : 'hover:bg-slate-800/50'}">
+          <span class="mt-0.5 ${on ? 'text-indigo-300' : 'text-slate-500'}">${icon(g.icon, 14)}</span>
+          <span class="min-w-0 flex-1"><span class="flex items-center gap-1.5 text-[13px] font-semibold ${on ? 'text-white' : 'text-slate-300'}">${g.name}${c ? `<span class="ml-auto text-[10.5px] px-1.5 rounded-full bg-amber-400/15 text-amber-300">${c}</span>` : ''}</span>
+          <span class="block text-[11px] text-slate-500 truncate">${SUMMARY[g.id]()}</span></span>
+        </button>`;
+      }).join('')}
+      <div class="flex-1"></div>
+      ${readyMode === 'nav' ? readyNavHtml() : ''}
+      <p class="${readyMode === 'nav' ? 'hidden' : ''} px-2 text-[11px] text-slate-600 leading-snug"><span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 align-middle mr-1"></span>changed from the default. The tick on a slider is the default.</p>
+    </nav>
+    <div id="scrollB" class="min-h-0 overflow-y-auto scroll px-6 pb-8">
+      ${GROUPS.map(sectionB).join('') || '<p class="py-10 text-center text-sm text-slate-500">No setting matches.</p>'}
+    </div>
+  </div>`;
+}
+
+/* ---------- Mock C: one calm list; each part shows its main choice, More opens the rest ---------- */
+const C_SECTIONS = [
+  { g: 'voice', main: ['model', 'expression'], more: ['stability', 'similarity', 'style', 'boost'],
+    say: () => `${SUMMARY.voice()}.` },
+  { g: 'place', main: ['length', 'precision'], more: ['screen', 'voicing', 'chunkSync', 'joinSpoken'],
+    say: () => `Lines start within ±${{ loose: 300, phrase: 150, lipsync: 80 }[S.precision.value]} ms; ${S.chunkSync.value ? "placed in chunks on the original's words" : 'each line placed whole'}.` },
+  { g: 'pause', main: ['matchPauses', 'tighten'], more: ['cutAtSource'],
+    say: () => `${SUMMARY.pause()}. Words are never cut.` },
+  { g: 'long', main: ['speedFit'], more: ['bestTakes'],
+    say: () => (S.speedFit.value === 'off' && S.bestTakes.value === 'off' ? 'A line that runs long is left for you in Review.' : 'A line that runs long is voiced again to fit.') },
+  { g: 'sound', main: ['quality'], more: ['loudness', 'breaths'],
+    say: () => `${label('quality', S.quality.value)}; ${S.loudness.value ? 'one level' : 'levels as voiced'}; breaths ${S.breaths.value ? 'removed' : 'kept'}.` },
+  { g: 'fine', main: [], more: GROUPS.find((x) => x.id === 'fine').ids,
+    say: () => 'Gate levels, pads, gaps and fades. Rarely needed.' },
+];
+const openC = new Set();
+// What sits behind More: the extra rows, and the fine sliders of the main ones.
+const hiddenOf = (c) => [...c.main.flatMap((id) => S[id].fine || []), ...c.more.flatMap((id) => [id, ...(S[id].fine || [])])];
+const valueText = (id) => { const s = S[id]; return s.type === 'slider' ? s.fmt(s.value) : s.type === 'switch' ? (s.value ? 'On' : 'Off') : label(id, s.value); };
+function sectionC(c) {
+  const g = GROUPS.find((x) => x.id === c.g);
+  const hidden = hiddenOf(c);
+  const hiddenChanged = hidden.filter(changed);
+  const isOpen = openC.has(c.g);
+  const n = groupChanged(g);
+  const mainFine = c.main.flatMap((id) => S[id].fine || []);
+  return `<div class="rounded-2xl border border-edge bg-slate-950/35 mb-3 overflow-hidden">
+    <div class="grid grid-cols-1 lg:grid-cols-[14rem_minmax(0,1fr)] gap-x-8 px-4 py-3">
+      <div class="pb-2 lg:pb-0 lg:pt-2.5">
+        <div class="flex items-center gap-2">
+          <span class="w-7 h-7 rounded-lg bg-slate-800 text-slate-300 flex items-center justify-center">${icon(g.icon, 14)}</span>
+          <h3 class="text-[14px] font-semibold">${g.name}</h3>
+          ${n ? `<button data-resetgroup="${g.id}" class="ml-auto lg:ml-1 text-[11px] text-amber-300/90 hover:text-amber-200 inline-flex items-center gap-1" title="Back to the defaults">${icon('reset', 11)}${n}</button>` : ''}
+        </div>
+        <p class="mt-1.5 text-[12px] leading-snug text-slate-400">${c.say()}</p>
+      </div>
+      <div class="min-w-0 [&>div:last-child_.row]:border-b-0">
+        ${c.g === 'voice' ? `<div class="-mt-1">${voiceHero(false)}</div>` : ''}
+        ${c.main.map((id) => rowB(id, false)).join('')}
+      </div>
+    </div>
+    <button data-more="${c.g}" class="w-full flex items-center gap-2 px-4 py-2 border-t border-edge/70 text-left text-[12px] ${isOpen ? 'bg-slate-800/40' : 'hover:bg-slate-800/30'}">
+      <span class="text-slate-500">${icon('chev', 13, `style="transform:rotate(${isOpen ? 90 : 0}deg);transition:transform .15s"`)}</span>
+      <span class="font-semibold text-slate-300">${isOpen ? 'Less' : c.g === 'fine' ? 'Show fine tuning' : 'More'}</span>
+      <span class="text-slate-500">${hidden.length} settings</span>
+      <span class="flex-1 min-w-0 flex flex-wrap gap-1 justify-end">${!isOpen ? hiddenChanged.slice(0, 4).map((id) => `<span class="inline-flex items-center gap-1 h-5 px-1.5 rounded bg-amber-400/10 text-amber-200/90 text-[11px]"><span class="w-1 h-1 rounded-full bg-amber-400"></span>${S[id].label} ${valueText(id)}</span>`).join('') : ''}</span>
+    </button>
+    ${isOpen ? `<div class="px-4 pb-3 pt-1 border-t border-edge/70 lg:pl-[calc(14rem+3rem)]">
+        ${mainFine.length ? `<div class="pt-1 pb-1">${mainFine.map((f) => slider(f, '13rem')).join('')}</div>` : ''}
+        ${c.more.map((id) => rowB(id, true)).join('')}
+      </div>` : ''}
+  </div>`;
+}
+function renderC() {
+  const n = totalChanged();
+  return `
+  <div class="flex items-center gap-4 px-5 py-3 border-b border-edge">
+    <div class="min-w-0 flex-1">
+      <h2 class="text-[15px] font-semibold">Dub settings</h2>
+      <p class="text-xs text-slate-400">The choice that matters most in each part is out front. More opens the rest, down to gate levels and fades.</p>
+    </div>
+    ${n ? `<span class="inline-flex items-center gap-1.5 text-[12px] text-amber-300"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>${n} changed</span>
+    <button data-resetall class="h-8 px-3 rounded-[10px] border border-slate-700 text-[12.5px] font-semibold text-slate-300 hover:bg-slate-800 inline-flex items-center gap-1.5">${icon('reset', 13)} Reset all</button>` : '<span class="text-[12px] text-slate-500">All defaults</span>'}
+    <button data-allopen class="h-8 px-3 rounded-[10px] border border-slate-700 text-[12.5px] font-semibold text-slate-300 hover:bg-slate-800">${openC.size === C_SECTIONS.length ? 'Close all' : 'Open all'}</button>
+  </div>
+  <div id="scrollC" class="flex-1 min-h-0 overflow-y-auto scroll px-5 pt-4 pb-2">
+    ${C_SECTIONS.map(sectionC).join('')}
+  </div>
+  <div class="px-5 py-2.5 border-t border-edge text-xs text-slate-500">Changes apply to the next Dub &amp; sync. An amber dot is a setting changed from its default; the tick on a slider is the default.</div>`;
+}
+
+/* ---------- Ready to dub: three places for it ---------- */
+let readyMode = 'bar';
+const fitBar = (h = 'h-1.5') => `<span class="block ${h} rounded-full bg-slate-800 overflow-hidden flex"><span class="bg-emerald-500/80" style="width:85%"></span><span class="bg-amber-400/80" style="width:10%"></span><span class="bg-rose-500/80" style="width:5%"></span></span>`;
+const smallBtn = (t) => `<button class="h-6 px-2 rounded-md border border-slate-700 text-[11.5px] font-semibold text-slate-200 hover:bg-slate-800">${t}</button>`;
+
+// 1: one row under the settings.
+function readyBarHtml() {
+  return `<div class="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 rounded-2xl border border-edge bg-slate-900/90">
+    <div class="w-52 shrink-0">
+      <div class="flex items-baseline justify-between text-[12.5px]"><span class="font-semibold">Likely to fit</span><span class="mono text-slate-300">41 / 48</span></div>
+      <div class="mt-1.5">${fitBar()}</div>
+    </div>
+    <span class="hidden md:block w-px h-8 bg-edge"></span>
+    <div class="flex items-center gap-2 text-[12.5px]"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><b class="font-semibold">5 long lines</b><span class="text-slate-500 hidden xl:inline">over by 0.4–1.2 s</span>${smallBtn('Fix')}</div>
+    <div class="flex items-center gap-2 text-[12.5px]"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><b class="font-semibold">QA</b><span class="text-slate-500">2 notes</span>${smallBtn('Open')}</div>
+    <div class="flex items-center gap-2 text-[12.5px] text-slate-500"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Lip closures: none</div>
+    <div class="flex-1"></div>
+    <span class="text-[11.5px] text-slate-500 hidden 2xl:inline">48 lines · 6:12 · Hindi</span>
+    <button class="h-9 px-3 rounded-xl border border-slate-700 text-[12.5px] text-slate-300 hover:bg-slate-800">Script and tools</button>
+    <button class="h-10 px-6 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-[13.5px] font-semibold">Dub &amp; sync</button>
+  </div>`;
+}
+// 2: the details behind the pill in the step bar.
+function readyPopHtml() {
+  return `<div class="flex items-baseline justify-between"><span class="text-[13px] font-semibold">Ready to dub</span><span class="text-[11.5px] text-slate-500">48 lines · 6:12 · Hindi</span></div>
+    <div class="mt-3 flex items-baseline justify-between text-[12.5px]"><span class="font-semibold">Likely to fit</span><span class="mono text-slate-300">41 / 48</span></div>
+    <div class="mt-1.5">${fitBar('h-2')}</div>
+    <p class="mt-1 text-[11px] text-slate-500">est. from the script, before any voice</p>
+    <div class="mt-3 divide-y divide-edge/70 text-[12.5px]">
+      <div class="flex items-center gap-2 py-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span class="flex-1"><b class="font-semibold">5 long lines</b> <span class="text-slate-500">over by 0.4–1.2 s</span></span>${smallBtn('Fix')}</div>
+      <div class="flex items-center gap-2 py-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span class="flex-1"><b class="font-semibold">QA</b> <span class="text-slate-500">2 notes</span></span>${smallBtn('Open')}</div>
+      <div class="flex items-center gap-2 py-2 text-slate-500"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Lip closures: none on close-ups</div>
+    </div>`;
+}
+// 3: at the foot of Mock B's section list, in the room it leaves.
+function readyNavHtml() {
+  return `<div class="rounded-xl border border-edge bg-slate-900 p-3">
+    <div class="flex items-baseline justify-between text-[12.5px]"><span class="font-semibold">Ready to dub</span><span class="mono text-slate-300">41/48</span></div>
+    <div class="mt-1.5">${fitBar()}</div>
+    <p class="mt-1 text-[10.5px] text-slate-500">likely to fit, est. · 6:12 · Hindi</p>
+    <div class="mt-2 space-y-1 text-[12px]">
+      <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span class="flex-1">5 long lines</span><button class="text-indigo-300 hover:text-indigo-200 text-[11.5px] font-semibold">Fix</button></div>
+      <div class="flex items-center gap-2"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span><span class="flex-1">QA · 2 notes</span><button class="text-indigo-300 hover:text-indigo-200 text-[11.5px] font-semibold">Open</button></div>
+      <div class="flex items-center gap-2 text-slate-500"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Lip closures: none</div>
+    </div>
+    <button class="mt-3 w-full h-9 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white text-[13px] font-semibold">Dub &amp; sync</button>
+    <button class="mt-1.5 w-full h-7 rounded-lg text-[12px] text-slate-400 hover:text-slate-200 hover:bg-slate-800">Script and tools</button>
+  </div>`;
+}
+const READY_NOTES = {
+  now: 'এখনকার মতো: ডান পাশে ২০–২২ rem-এর আলাদা কার্ড, মাঝখানটা ফাঁকা।',
+  bar: 'ডানের কার্ড নেই। Settings পুরো চওড়া; নিচে এক সারিতে fit, long lines, QA, lip closures আর Dub & sync। সব কিছু সবসময় চোখের সামনে।',
+  top: 'সবচেয়ে কম জায়গা। Step bar-এর ডানে fit-এর ছোট pill ("2 to check"), Script and tools আর Dub & sync। Pill চাপলে খুঁটিনাটি popover-এ। Settings পুরো উচ্চতা আর চওড়া পায়।',
+  nav: 'শুধু Mock B-তে। বাঁয়ের section তালিকার নিচে যে ফাঁকা জায়গা ছিল, সেখানেই Ready to dub আর Dub & sync। কোনো নতুন জায়গা নেয় না।',
+};
+function applyReady() {
+  if (readyMode === 'nav' && mock !== 'B') readyMode = 'bar';
+  document.getElementById('aside').classList.toggle('hidden2', readyMode !== 'now');
+  const grid = document.getElementById('grid');
+  ['lg:grid-cols-[minmax(0,1fr)_20rem]', '2xl:grid-cols-[minmax(0,1fr)_22rem]'].forEach((c) => grid.classList.toggle(c, readyMode === 'now'));
+  const bar = document.getElementById('barReady');
+  bar.classList.toggle('hidden2', readyMode !== 'bar');
+  if (readyMode === 'bar') bar.innerHTML = readyBarHtml();
+  document.getElementById('topReady').classList.toggle('hidden2', readyMode !== 'top');
+  document.getElementById('topPop').innerHTML = readyPopHtml();
+  document.querySelectorAll('#readySeg button').forEach((b) => {
+    const on = b.dataset.ready === readyMode;
+    b.className = `px-3 py-1 ${on ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'}`;
+  });
+  document.getElementById('readyNote').textContent = READY_NOTES[readyMode];
+}
+document.getElementById('readySeg').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ready]');
+  if (!b) return;
+  readyMode = b.dataset.ready;
+  if (readyMode === 'nav') mock = 'B';
+  render();
+});
+document.getElementById('topPill').addEventListener('click', (e) => {
+  e.stopPropagation();
+  document.getElementById('topPop').classList.toggle('hidden2');
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#topPop')) document.getElementById('topPop').classList.add('hidden2');
+});
+
+/* ---------- Render and events ---------- */
+const card = document.getElementById('card');
+const NOTES = {
+  A: 'Simple নেই। সব সেটিং এক নজরে, তিন কলামে (Voice | Placement | Pauses, long lines, sound)। উপরে এক লাইনের summary, বদলানো সেটিং-এ amber বিন্দু, কলাম ধরে reset। Switch-এর পাশের › খুললে তার সূক্ষ্ম slider (যেমন Fastest read 1.15×) সেখানেই। Timing আর Dub length-এ ছোট ছবি।',
+  C: 'একটাই view, কোনো Simple/Pro বোতাম নেই। প্রতিটা ভাগে (Voice, Placement, Pauses, Long lines, Sound) সবচেয়ে দরকারি সেটিং সামনে, বাঁ পাশে সহজ ভাষায় এক লাইনে কী হবে। More চাপলে সেই ভাগের বাকি সব, সূক্ষ্ম slider পর্যন্ত। ভিতরে কিছু বদলালে বন্ধ অবস্থাতেও More-এর পাশে amber চিপে দেখায় (যেমন Stability 0.60)। সবার নিচে Fine tuning — All sync settings window-এর সব।',
+  B: 'Simple নেই। বাঁয়ে section তালিকা আর খোঁজ, প্রতিটায় এক লাইনের সারাংশ আর কতগুলো বদলেছে। ডানে সব সেটিং একটানা, সূক্ষ্ম slider সবসময় খোলা। নতুন "Fine tuning" section-এ All sync settings window-এর gate, pad, gap, fade — তাই আলাদা window লাগে না। ⧉ দিয়ে চাইলে বড় window-এ।',
+};
+function render() {
+  const sc = document.getElementById('scroll' + mock);
+  const top = sc ? sc.scrollTop : 0;
+  card.innerHTML = mock === 'A' ? renderA() : mock === 'B' ? renderB() : renderC();
+  const sc2 = document.getElementById('scroll' + mock);
+  if (sc2) sc2.scrollTop = top;
+  document.querySelectorAll('#mockSeg button').forEach((b) => {
+    const on = b.dataset.mock === mock;
+    b.className = `px-3 py-1 ${on ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'}`;
+  });
+  document.getElementById('mockNote').textContent = NOTES[mock];
+  applyReady();
+  if (mock === 'B') wireB();
+}
+function wireB() {
+  const sc = document.getElementById('scrollB');
+  sc.addEventListener('scroll', () => {
+    const secs = [...sc.querySelectorAll('[data-section]')];
+    let cur = secs[0]?.dataset.section;
+    for (const s of secs) if (s.offsetTop - sc.offsetTop - 40 <= sc.scrollTop) cur = s.dataset.section;
+    if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 4) cur = secs[secs.length - 1]?.dataset.section;
+    if (cur && cur !== activeSection) {
+      activeSection = cur;
+      document.querySelectorAll('[data-goto]').forEach((b) => {
+        const on = b.dataset.goto === cur;
+        b.classList.toggle('bg-slate-800', on);
+        b.classList.toggle('hover:bg-slate-800/50', !on);
+      });
+    }
+  });
+  const find = document.getElementById('find');
+  if (find) find.addEventListener('input', (e) => {
+    query = e.target.value.trim().toLowerCase();
+    const pos = e.target.selectionStart;
+    render();
+    const f = document.getElementById('find');
+    f.focus(); f.setSelectionRange(pos, pos);
+  });
+}
+
+document.getElementById('mockSeg').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mock]');
+  if (b) { mock = b.dataset.mock; render(); }
+});
+card.addEventListener('click', (e) => {
+  const t = e.target.closest('button');
+  if (!t || t.disabled) return;
+  const d = t.dataset;
+  if (d.seg) S[d.seg].value = d.v;
+  else if (d.sw) S[d.sw].value = !S[d.sw].value;
+  else if (d.reset) S[d.reset].value = S[d.reset].def;
+  else if (d.drawer) open.has(d.drawer) ? open.delete(d.drawer) : open.add(d.drawer);
+  else if (d.more) openC.has(d.more) ? openC.delete(d.more) : openC.add(d.more);
+  else if ('allopen' in d) openC.size === C_SECTIONS.length ? openC.clear() : C_SECTIONS.forEach((c) => openC.add(c.g));
+  else if (d.resetgroup) GROUPS.find((g) => g.id === d.resetgroup).ids.flatMap((id) => [id, ...(S[id].fine || [])]).forEach((id) => (S[id].value = S[id].def));
+  else if ('resetall' in d) ALL_IDS.forEach((id) => (S[id].value = S[id].def));
+  else if (d.goto) {
+    const sc = document.getElementById('scrollB');
+    const sec = sc.querySelector(`[data-section="${d.goto}"]`);
+    if (sec) { sc.scrollTo({ top: sec.offsetTop - sc.offsetTop, behavior: 'smooth' }); sec.classList.remove('flash'); void sec.offsetWidth; sec.classList.add('flash'); }
+    return;
+  } else return;
+  render();
+});
+card.addEventListener('change', (e) => {
+  if (e.target.dataset.sel) { S[e.target.dataset.sel].value = e.target.value; render(); }
+  if (e.target.dataset.rng) render();
+});
+card.addEventListener('input', (e) => {
+  const id = e.target.dataset.rng;
+  if (!id) return;
+  const s = S[id];
+  s.value = parseFloat(e.target.value);
+  e.target.style.setProperty('--p', `${((s.value - s.min) / (s.max - s.min)) * 100}%`);
+  const out = card.querySelector(`[data-out="${id}"]`);
+  if (out) out.textContent = s.fmt(s.value);
+});
+render();
+</script>
+</body>
+</html>

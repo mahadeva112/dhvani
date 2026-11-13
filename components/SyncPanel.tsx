@@ -171,6 +171,8 @@ export const readOptions = (value?: unknown): SyncOptions => {
       suggestLonger: saved.suggestLonger === true,
       matchLoudness: saved.matchLoudness === true,
       fitOnSync: saved.fitOnSync !== false,
+      // Auto unless a length was picked by hand.
+      ...(saved.lengthAuto === false && { lengthAuto: false }),
       // What Fit to this video left, kept while the join still is it: then Custom is Fit's, not the user's.
       ...(fittedOf(saved.fitted, preset ?? null, join) && { fitted: fittedOf(saved.fitted, preset ?? null, join)! }),
       ...(typeof saved.fitUndone === 'string' && { fitUndone: saved.fitUndone }),
@@ -515,11 +517,11 @@ export interface SyncSettingsPanelProps {
   /** Lines the sync voices, from the last sync or the preview: what Verify actual word timing sends, one request each. */
   lineCount?: number;
   /**
-   * 'ready' before the first sync: the card is "Ready to dub", as tall as the
-   * settings beside it, with `summary` in place of the settings chips (the
-   * settings themselves sit on the Dub settings card) and the tools under the button.
+   * 'bar' before the first sync: "Ready to dub" as one row under the Dub
+   * settings card, with `summary` (the fit and what is left to look at), the
+   * tools in a menu, and the button. The settings themselves sit on the card.
    */
-  variant?: 'rail' | 'ready';
+  variant?: 'rail' | 'bar';
   summary?: React.ReactNode;
 }
 
@@ -1129,7 +1131,7 @@ export const SyncSettingsDialog: React.FC<{
  * window high: they open over the card, above the button. A click in a menu
  * one of them opens (Save script's, in a portal) leaves them open.
  */
-const ReadyTools: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const ReadyTools: React.FC<{ children: React.ReactNode; bar?: boolean }> = ({ children, bar = false }) => {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -1150,7 +1152,11 @@ const ReadyTools: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return (
     <div ref={box} className="relative">
       {open && (
-        <div className="absolute bottom-full inset-x-0 mb-2 z-30 flex flex-col gap-1.5 p-2.5 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl shadow-black/60">
+        <div
+          className={`absolute bottom-full mb-2 z-30 flex flex-col gap-1.5 p-2.5 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl shadow-black/60 ${
+            bar ? 'right-0 w-80' : 'inset-x-0'
+          }`}
+        >
           {children}
         </div>
       )}
@@ -1158,7 +1164,9 @@ const ReadyTools: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((now) => !now)}
-        className="w-full h-8 flex items-center justify-center gap-1.5 rounded-lg text-[12.5px] font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default"
+        className={`flex items-center justify-center gap-1.5 text-[12.5px] font-medium text-slate-300 hover:text-slate-100 hover:bg-slate-800 cursor-default ${
+          bar ? 'h-9 px-3 rounded-xl border border-slate-700 whitespace-nowrap' : 'w-full h-8 rounded-lg'
+        }`}
       >
         Script and tools <ChevronUp className={`w-3.5 h-3.5 transition-transform ${open ? '' : 'rotate-180'}`} />
       </button>
@@ -1199,7 +1207,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   variant = 'rail',
   summary,
 }) => {
-  const ready = variant === 'ready';
+  const bar = variant === 'bar';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingMp3, setSavingMp3] = useState(false);
   // Only a request made while the rail is on screen opens it, not one left from before the Dub step.
@@ -1223,21 +1231,112 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
     ...(options.verifyWords ? ['Verifies word timing'] : []),
   ];
 
+  const footNote = waitingFor
+    ? `Waits for “${waitingFor}” to finish dubbing, then starts on its own with the voice set now.`
+    : isSyncing
+      ? 'You can move to another step while this runs.'
+      : synced && pendingCount > 0
+        ? `Voices only the ${pendingCount === 1 ? 'changed line' : `${pendingCount} changed lines`} again.`
+        : synced
+          ? 'Places every line again with these settings; a new voice or voice setting voices them again.'
+          : [
+              previewShown && (previewLongCount > 0 || previewShortCount > 0)
+                ? `${previewNote(previewLongCount, previewShortCount)} You can dub anyway.`
+                : options.voicing === 'continuous' && !multiSpeaker
+                  ? 'Reads the script in one take, then cuts each line from it and places it on the original.'
+                  : hasDub
+                    ? 'Voices every line again and places it on the original.'
+                    : 'Voices every line and places it on the original.',
+              costNote,
+            ]
+              .filter(Boolean)
+              .join(' ');
+
+  const settingsWindow = settingsOpen && (
+    <SyncSettingsWindow
+      options={options}
+      onOptionsChange={onOptionsChange}
+      multiSpeaker={multiSpeaker}
+      isSyncing={isSyncing}
+      synced={synced}
+      blockedReason={blockedReason}
+      previewShown={previewShown}
+      lineCount={lineCount}
+      fitSource={fitSource}
+      fitted={fitted}
+      onFitted={setFitted}
+      onSync={onSync}
+      onClose={closeSettings}
+      presetSuggestion={presetSuggestion}
+    />
+  );
+
+  if (bar) {
+    // Before the first sync: one row under the Dub settings card.
+    const barNote =
+      blockedReason && !isSyncing
+        ? blockedReason
+        : interrupted && !isSyncing
+          ? 'The last dub stopped before it finished. The lines it voiced are kept: resuming voices only the rest.'
+          : footNote;
+    return (
+      <section aria-label="Ready to dub" className="shrink-0 flex flex-wrap items-center gap-x-5 gap-y-2.5 px-4 py-2.5 bg-slate-900/90 border border-edge rounded-2xl">
+        {summary}
+        <div className="flex-1 min-w-[1rem]" />
+        <div className="flex items-center gap-2.5 min-w-0 ml-auto">
+          {/* The usual note is the button's tooltip; only what stops or changes the dub is spelled out. */}
+          {(blockedReason || interrupted) && !isSyncing && (
+            <span className="max-w-[18rem] text-[11.5px] leading-snug text-right text-amber-300" title={barNote}>
+              {barNote}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onBack}
+            className="h-9 px-2.5 flex items-center gap-1 rounded-xl text-[12.5px] text-slate-400 hover:text-slate-200 hover:bg-slate-800 cursor-default"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Review
+          </button>
+          {extras && <ReadyTools bar>{extras}</ReadyTools>}
+          {isSyncing ? (
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isCancelling}
+              className="h-10 px-5 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[13px] font-medium text-slate-200 disabled:opacity-50 cursor-default"
+            >
+              <X className="w-4 h-4" /> {waitingFor ? 'Take out of the line' : isCancelling ? 'Cancelling…' : 'Cancel sync'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onSync}
+              disabled={Boolean(blockedReason)}
+              title={barNote}
+              className="h-10 px-6 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
+            >
+              {interrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+              {interrupted ? 'Resume dub' : 'Dub & sync'}
+            </button>
+          )}
+        </div>
+        {settingsWindow}
+      </section>
+    );
+  }
+
   return (
   <aside
-    aria-label={ready ? 'Ready to dub' : 'Sync settings'}
-    className={`flex flex-col bg-slate-900/90 border border-edge rounded-2xl overflow-hidden ${ready ? 'min-h-0 lg:sticky lg:top-4 xl:static xl:h-full' : 'lg:sticky lg:top-4'}`}
+    aria-label="Sync settings"
+    className="flex flex-col bg-slate-900/90 border border-edge rounded-2xl overflow-hidden lg:sticky lg:top-4"
   >
     <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
-      <h2 className="text-[15px] font-semibold text-slate-100">{ready ? 'Ready to dub' : 'Sync settings'}</h2>
+      <h2 className="text-[15px] font-semibold text-slate-100">Sync settings</h2>
       <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-default">
         <ArrowLeft className="w-3 h-3" /> Review
       </button>
     </div>
 
-    {ready ? (
-      summary && <div className="px-4 sm:px-5 py-3 min-h-0 overflow-y-auto">{summary}</div>
-    ) : (
     <div className="px-4 sm:px-5 py-4">
       <div className="flex flex-col gap-3 rounded-xl border border-edge bg-slate-950/40 p-3.5">
         <div className="flex flex-wrap gap-1.5">
@@ -1266,26 +1365,8 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         {previewShown && <span className="text-[11.5px] text-slate-500 text-center">The preview follows any change you make.</span>}
       </div>
     </div>
-    )}
 
-    {settingsOpen && (
-      <SyncSettingsWindow
-        options={options}
-        onOptionsChange={onOptionsChange}
-        multiSpeaker={multiSpeaker}
-        isSyncing={isSyncing}
-        synced={synced}
-        blockedReason={blockedReason}
-        previewShown={previewShown}
-        lineCount={lineCount}
-        fitSource={fitSource}
-        fitted={fitted}
-        onFitted={setFitted}
-        onSync={onSync}
-        onClose={closeSettings}
-        presetSuggestion={presetSuggestion}
-      />
-    )}
+    {settingsWindow}
 
     {synced && (onDownloadWav || onDownloadMp3 || onOpenVoiceChanger) && (
       <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
@@ -1337,7 +1418,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
       </div>
     )}
 
-    {extras && !ready && (
+    {extras && (
       <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
         <span className={sectionLabel}>Script and tools</span>
         {extras}
@@ -1373,28 +1454,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           <span className="text-slate-400">The lines it voiced are kept: with the same voice and settings, resuming voices only the rest.</span>
         </p>
       ) : (
-        <p className="text-center text-[11.5px] text-slate-500">
-          {waitingFor
-            ? `Waits for “${waitingFor}” to finish dubbing, then starts on its own with the voice set now.`
-            : isSyncing
-            ? 'You can move to another step while this runs.'
-            : synced && pendingCount > 0
-              ? `Voices only the ${pendingCount === 1 ? 'changed line' : `${pendingCount} changed lines`} again.`
-              : synced
-                ? 'Places every line again with these settings; a new voice or voice setting voices them again.'
-                : [
-                    previewShown && (previewLongCount > 0 || previewShortCount > 0)
-                      ? `${previewNote(previewLongCount, previewShortCount)} You can dub anyway.`
-                      : options.voicing === 'continuous' && !multiSpeaker
-                        ? 'Reads the script in one take, then cuts each line from it and places it on the original.'
-                        : hasDub
-                          ? 'Voices every line again and places it on the original.'
-                          : 'Voices every line and places it on the original.',
-                    costNote,
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-        </p>
+        <p className="text-center text-[11.5px] text-slate-500">{footNote}</p>
       )}
       {synced && pendingCount > 0 && !isSyncing && !interrupted && !blockedReason && onSyncChangedOnly && (
         <button
@@ -1416,7 +1476,6 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
           <RotateCcw className="w-3.5 h-3.5" /> Sync from scratch…
         </button>
       )}
-      {ready && extras && <ReadyTools>{extras}</ReadyTools>}
     </div>
   </aside>
   );
