@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.71',
+    changes: [
+      'Review shows far more of your script: the line you hear sits in the play row with how it fits its room and the fixes, Split and Undo are in the player, Speakers is a thin line under the wave (the rest in its own window), and each dub box is only as tall as its words. The dub lane draws each line’s room.',
+      'Picking a dub language no longer translates by itself, and a running translation has a Cancel button. Arrows between values are drawn instead of typed.',
+    ],
+  },
+  {
     version: '1.4.70',
     changes: [
       'Review is calmer: the dub line is the biggest text, counts, the fit meter and the wording buttons show only on the line you are in (or on every line with ⋯ → Detailed), and a line that needs work gets a coloured edge and a few words. The side panel is gone: Translation and Tools open in a window, Continue to dub sits under the list.',
