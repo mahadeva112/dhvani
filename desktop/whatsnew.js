@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.72',
+    changes: [
+      'Dub length is on Auto by default: Sync picks Short, Natural, Long or Very long from the video when you press Dub & sync. A length you pick yourself stays.',
+      'Dub settings is one card in three columns, with Ready to dub as a single row under it. After transcription, Translate and Paste a script are two cards, each with its own button.',
+    ],
+  },
+  {
     version: '1.4.71',
     changes: [
       'Review shows far more of your script: the line you hear sits in the play row with how it fits its room and the fixes, Split and Undo are in the player, Speakers is a thin line under the wave (the rest in its own window), and each dub box is only as tall as its words. The dub lane draws each line’s room.',
