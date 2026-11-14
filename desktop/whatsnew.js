@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.79',
+    changes: [
+      'Your projects are safer: closing Dhvani or restarting into an update now waits until every project has finished saving.',
+      'If one project can’t be opened, all your other projects still open as usual, and that one stays on your computer untouched.',
+    ],
+  },
+  {
     version: '1.4.78',
     changes: [
       'In Edit timing, drag the bottom edge of any track to make it taller or shorter; double-click the edge to put it back. Each project keeps its own sizes.',
