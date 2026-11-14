@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.80',
+    changes: [
+      'Retake now always opens the line you picked, and its window can be sized from any edge or corner (double-click its title to fill the screen).',
+      'The Tags button opens and closes the tag list; Edit timing’s tools are tidy icons with their name and shortcut on hover.',
+    ],
+  },
+  {
     version: '1.4.79',
     changes: [
       'Your projects are safer: closing Dhvani or restarting into an update now waits until every project has finished saving.',
