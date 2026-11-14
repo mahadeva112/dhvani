@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.77',
+    changes: [
+      'Tools and settings is a simple list: click a tool and its window opens straight away. Every tool window now looks the same, and one opened from the list has a Tools button to go back to it.',
+      'Once a dub is synced, the Dub page gives the timeline the room: what needs checking sits in one row above the lanes, and Voice, Sync settings, Sync again, Subtitles, Script and Save the dub sit in one row under the player.',
+    ],
+  },
+  {
     version: '1.4.76',
     changes: [
       'Solo in Edit timing works as in a DAW: with a track or a speaker soloed, only what is soloed is heard. The other tracks, the dub, the original and its clips go quiet; the files keep everything.',
