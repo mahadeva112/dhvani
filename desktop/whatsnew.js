@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.81',
+    changes: [
+      'In the Voice window, Change now opens the voice list in front of the window instead of behind it.',
+    ],
+  },
+  {
     version: '1.4.80',
     changes: [
       'Retake now always opens the line you picked, and its window can be sized from any edge or corner (double-click its title to fill the screen).',
