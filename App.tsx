@@ -754,6 +754,8 @@ export default function App() {
   const [dubQualityNotices, setDubQualityNotices] = useState<Record<string, string | null>>({});
   /** The last save to this computer that failed, until one succeeds or the user closes the notice. */
   const [saveFailure, setSaveFailure] = useState<{ jobId: string; message: string } | null>(null);
+  /** Projects on this computer that could not be read at start: left on disk untouched, the rest opened. */
+  const [unreadableProjects, setUnreadableProjects] = useState<string[]>([]);
   /** The synced line whose takes are being voiced (one at a time). */
   const [syncTakesBusy, setSyncTakesBusy] = useState<{ jobId: string; key: string } | null>(null);
   // Sync again asked for on a dub with unlocked hand edits: waits for the user to lock them or let them go.
@@ -1169,8 +1171,9 @@ export default function App() {
   useEffect(() => {
     const loadStorage = async () => {
       try {
-        const stored = await getAllJobsFromStorage();
-        if (stored && stored.length > 0) {
+        const { jobs: stored, unreadable } = await getAllJobsFromStorage();
+        if (unreadable.length > 0) setUnreadableProjects(unreadable);
+        if (stored.length > 0) {
           const saved = stored.map(reviveSavedJob);
           saved.sort(byNewest);
           setQueue(saved);
@@ -5097,6 +5100,31 @@ export default function App() {
               Open API settings
             </button>
           )}
+        </div>
+      )}
+
+      {/* Projects that could not be read at start: still on this computer, nothing deleted; the rest are open as usual. */}
+      {unreadableProjects.length > 0 && (
+        <div
+          className="px-4 sm:px-6 lg:px-8 py-2.5 bg-amber-500/10 border-b border-amber-500/30 text-xs sm:text-[13px] flex flex-wrap sm:flex-nowrap items-center gap-x-3 gap-y-2"
+          role="alert"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <p className="min-w-0 flex-1 text-slate-200 leading-snug">
+            <span className="font-semibold">
+              {unreadableProjects.length === 1 ? '1 project' : `${unreadableProjects.length} projects`} could not be opened.
+            </span>{' '}
+            <span className="text-slate-400">
+              {unreadableProjects.length === 1 ? 'It is' : 'They are'} still on this computer and nothing was deleted; your other projects are here as usual.
+            </span>
+          </p>
+          <button
+            type="button"
+            onClick={() => setUnreadableProjects([])}
+            className="shrink-0 px-2 py-1.5 rounded-lg text-slate-400 hover:text-slate-200 text-xs cursor-default"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 

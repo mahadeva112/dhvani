@@ -113,6 +113,42 @@ const canSelfUpdate = () => {
 
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const INSTALL_NOTICE_MS = 1500;
+/** The longest the window waits for the page to finish saving projects before it closes anyway. */
+const SAVE_WAIT_MS = 60_000;
+/** Set once the page has finished its saves for this close, so the window may go. */
+let savesFlushed = false;
+/** A quit was asked for (not only the window closed): once the saves are done, the app quits, on macOS too. */
+let quitRequested = false;
+
+/**
+ * Waits until the page has finished writing projects to this computer
+ * (services/pendingSaves.ts), so closing or installing an update never cuts a
+ * save short. A page without the hook (the loading screen) has nothing to save.
+ */
+const waitForPageSaves = async () => {
+  const contents = mainWindow?.webContents;
+  if (!contents || contents.isDestroyed()) return;
+  const started = Date.now();
+  let timer;
+  try {
+    const finished = await Promise.race([
+      contents.executeJavaScript('window.__dhvaniWhenSaved ? window.__dhvaniWhenSaved() : true', true).then(() => true),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), SAVE_WAIT_MS);
+      }),
+    ]);
+    const waited = Date.now() - started;
+    if (!finished) appendLog(`[close] projects were still saving after ${SAVE_WAIT_MS / 1000} s; closing anyway
+`);
+    else if (waited > 300) appendLog(`[close] waited ${waited} ms for projects to finish saving
+`);
+  } catch (err) {
+    appendLog(`[close] could not ask the page about its saves: ${err?.message || err}
+`);
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 let autoUpdater = null;
 
@@ -323,7 +359,12 @@ const setupAutoUpdates = () => {
     // Silent reinstall into the same folder, then relaunch. The pause lets the
     // page show that DHVANI is about to close; the installer shows its own
     // "Updating DHVANI" box until the new version opens (desktop/installer.nsh).
-    setTimeout(() => autoUpdater.quitAndInstall(true, true), INSTALL_NOTICE_MS);
+    // Every project the page is still writing is finished first.
+    setTimeout(async () => {
+      await waitForPageSaves();
+      savesFlushed = true;
+      autoUpdater.quitAndInstall(true, true);
+    }, INSTALL_NOTICE_MS);
   });
   ipcMain.handle('updates:show-download', () => downloadedFile && shell.showItemInFolder(downloadedFile));
 
@@ -788,6 +829,8 @@ const watchForFreezes = (win) => {
 };
 
 const createWindow = () => {
+  // A window opened again (macOS keeps the app running) waits for its own saves when it closes.
+  savesFlushed = false;
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 940,
@@ -850,6 +893,17 @@ const createWindow = () => {
   });
 
   watchForFreezes(mainWindow);
+
+  // Closing (or quitting, or installing an update on close) waits for projects still being saved.
+  mainWindow.on('close', (event) => {
+    if (savesFlushed) return;
+    event.preventDefault();
+    waitForPageSaves().then(() => {
+      savesFlushed = true;
+      if (quitRequested) app.quit();
+      else mainWindow?.close();
+    });
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -1176,6 +1230,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   isQuitting = true;
+  quitRequested = true;
   if (backend) {
     backend.kill('SIGTERM');
     // If it has not gone in two seconds, stop waiting.

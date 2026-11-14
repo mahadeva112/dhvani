@@ -1,4 +1,5 @@
 import { BatchJob } from "../types";
+import { trackSave } from "./pendingSaves";
 
 const DB_NAME = "DhvaniDB";
 const STORE_NAME = "jobs";
@@ -42,7 +43,9 @@ const openDB = (): Promise<IDBDatabase> => {
  * Saves or updates a job in IndexedDB.
  * We must strip non-serializable fields like AudioBuffers and object URLs (which are useless after reload).
  */
-export const saveJobToStorage = async (job: BatchJob): Promise<void> => {
+export const saveJobToStorage = (job: BatchJob): Promise<void> => trackSave(writeJob(job));
+
+const writeJob = async (job: BatchJob): Promise<void> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const transaction = db.transaction([STORE_NAME], "readwrite");
@@ -62,26 +65,51 @@ export const saveJobToStorage = async (job: BatchJob): Promise<void> => {
 
     const request = store.put(serializableJob);
 
-    request.onsuccess = () => resolve();
-    request.onerror = () => reject(request.error);
+    // Saved only once the transaction completes: a put that succeeded can still be lost if it is cut short.
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error ?? request.error);
+    transaction.onabort = () => reject(transaction.error ?? request.error);
   });
 };
 
-/**
- * Retrieves all jobs from IndexedDB.
- */
-export const getAllJobsFromStorage = async (): Promise<BatchJob[]> => {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], "readonly");
-    const store = transaction.objectStore(STORE_NAME);
-    const request = store.getAll();
+/** Every project that can be read, and the ids of any that could not (left on disk untouched). */
+export interface StoredJobs {
+  jobs: BatchJob[];
+  unreadable: string[];
+}
 
-    request.onsuccess = () => {
-      resolve(request.result as BatchJob[]);
-    };
-    request.onerror = () => reject(request.error);
-  });
+/**
+ * Retrieves all jobs from IndexedDB. Read together when it can be; when one
+ * project cannot be read (a file of its audio lost), all of them would fail
+ * together, so they are then read one at a time and only that one is left out.
+ * Nothing is ever deleted here.
+ */
+export const getAllJobsFromStorage = async (): Promise<StoredJobs> => {
+  const db = await openDB();
+  const read = <T>(run: (store: IDBObjectStore) => IDBRequest<T>) =>
+    new Promise<T>((resolve, reject) => {
+      const request = run(db.transaction([STORE_NAME], "readonly").objectStore(STORE_NAME));
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  try {
+    return { jobs: await read((store) => store.getAll() as IDBRequest<BatchJob[]>), unreadable: [] };
+  } catch (err) {
+    console.warn("Projects could not be read together; reading them one at a time:", err);
+  }
+  const keys = await read((store) => store.getAllKeys());
+  const jobs: BatchJob[] = [];
+  const unreadable: string[] = [];
+  for (const key of keys) {
+    try {
+      const job = await read((store) => store.get(key) as IDBRequest<BatchJob | undefined>);
+      if (job) jobs.push(job);
+    } catch (err) {
+      console.warn(`Project ${String(key)} could not be read:`, err);
+      unreadable.push(String(key));
+    }
+  }
+  return { jobs, unreadable };
 };
 
 /**
@@ -133,7 +161,7 @@ export const getHistoryBank = async (jobId: string, epoch: string): Promise<Hist
 export const saveHistoryBank = async (jobId: string, bank: HistoryBank): Promise<void> => {
   const kept = await getHistoryBank(jobId, bank.epoch);
   if (kept && kept.kind === bank.kind && kept.blob.size >= bank.blob.size) return;
-  await historyRequest("readwrite", (store) => store.put({ id: historyKey(jobId, bank.epoch), jobId, ...bank }));
+  await trackSave(historyRequest("readwrite", (store) => store.put({ id: historyKey(jobId, bank.epoch), jobId, ...bank })));
 };
 
 /** Lets go of the banks of `epochs`. */
@@ -182,7 +210,7 @@ export const getReviewVideo = async (jobId: string): Promise<File | null> => {
 
 /** Keeps a copy of `file` as project `jobId`'s review video, in place of any before. */
 export const saveReviewVideo = async (jobId: string, file: File): Promise<void> => {
-  await reviewVideoRequest("readwrite", (store) => store.put({ id: jobId, file, name: file.name }));
+  await trackSave(reviewVideoRequest("readwrite", (store) => store.put({ id: jobId, file, name: file.name })));
 };
 
 /** Lets go of project `jobId`'s review video. */
