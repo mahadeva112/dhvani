@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, History } from 'lucide-react';
 
 /** The project's one history as the Undo buttons and History lists show it (services/projectHistory.ts). */
@@ -28,11 +29,39 @@ const clock = (time: number) => {
 export function HistoryMenu({ history, className = '', compact = false }: { history: ProjectHistoryView; className?: string; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLOListElement>(null);
+  // Where the list sits on screen: under the button, held inside the card the button is in (the
+  // timeline's, marked data-menu-bounds), or the window where there is none. It is drawn on the
+  // page itself, not inside the row, so it never widens the page or gets cut off.
+  const [place, setPlace] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!open) return setPlace(null);
+    const measure = () => {
+      const button = ref.current?.getBoundingClientRect();
+      if (!button) return;
+      const width = menuRef.current?.offsetWidth ?? 320;
+      const card = ref.current?.closest('[data-menu-bounds]')?.getBoundingClientRect();
+      const minLeft = Math.max(8, (card?.left ?? 0) + 8);
+      const maxRight = Math.min(window.innerWidth - 8, (card?.right ?? window.innerWidth) - 8);
+      const floor = Math.min(window.innerHeight - 8, (card?.bottom ?? window.innerHeight) - 8);
+      const top = button.bottom + 6;
+      // As tall as the card leaves under the button; a long history scrolls inside it.
+      setPlace({ left: Math.max(minLeft, Math.min(button.left, maxRight - width)), top, maxHeight: Math.max(140, floor - top) });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [open, history.entries.length]);
   useEffect(() => {
     if (!open) return;
     const away = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!ref.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     window.addEventListener('mousedown', away);
     return () => window.removeEventListener('mousedown', away);
@@ -56,9 +85,11 @@ export function HistoryMenu({ history, className = '', compact = false }: { hist
         {count > 0 && <span className="font-mono text-[10.5px] text-slate-500 tabular-nums">{count}</span>}
         <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
       </button>
-      {open && (
+      {open && createPortal(
         <div
-          className="absolute left-0 top-full z-50 mt-1.5 w-80 rounded-xl border border-slate-700 bg-slate-900 p-1.5 shadow-xl shadow-black/50"
+          ref={menuRef}
+          style={{ position: 'fixed', left: place?.left ?? 8, top: place?.top, maxHeight: place?.maxHeight, visibility: place ? 'visible' : 'hidden' }}
+          className="z-[70] w-80 max-w-[calc(100vw-1rem)] flex flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-900 p-1.5 shadow-xl shadow-black/50"
           onKeyDown={(e) => {
             if (e.key !== 'Escape') return;
             e.stopPropagation();
@@ -69,7 +100,7 @@ export function HistoryMenu({ history, className = '', compact = false }: { hist
             <span className="text-[12.5px] font-semibold text-slate-100">History</span>
             <span className="text-[10.5px] text-slate-500">click a step to go back to it</span>
           </div>
-          <ol ref={listRef} className="flex flex-col-reverse gap-0.5 max-h-80 overflow-y-auto">
+          <ol ref={listRef} className="flex flex-col-reverse gap-0.5 min-h-0 max-h-80 overflow-y-auto">
             {history.entries.map((entry, n) => (
               <li key={n}>
                 <button
@@ -93,7 +124,8 @@ export function HistoryMenu({ history, className = '', compact = false }: { hist
               </li>
             ))}
           </ol>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

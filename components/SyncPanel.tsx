@@ -1203,6 +1203,24 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   const bar = variant === 'bar';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingMp3, setSavingMp3] = useState(false);
+  /** The menu under Sync again's arrow, and where on the window it opened. */
+  const syncMenu = useRef<HTMLDetailsElement>(null);
+  const [syncMenuPlace, setSyncMenuPlace] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+  useEffect(() => {
+    if (!syncMenuPlace) return;
+    const shut = (e: Event) => {
+      if (e.type === 'mousedown' && syncMenu.current?.contains(e.target as Node)) return;
+      syncMenu.current?.removeAttribute('open');
+    };
+    window.addEventListener('mousedown', shut);
+    window.addEventListener('scroll', shut, true);
+    window.addEventListener('resize', shut);
+    return () => {
+      window.removeEventListener('mousedown', shut);
+      window.removeEventListener('scroll', shut, true);
+      window.removeEventListener('resize', shut);
+    };
+  }, [syncMenuPlace]);
   /** The Save the dub window: every file the dub can be saved as, with what each is. */
   const [saveOpen, setSaveOpen] = useState(false);
   /** Which Dub + tracks file is being mixed, if one is. */
@@ -1448,6 +1466,7 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
         ? 'The last dub stopped before it finished. The lines it voiced are kept: resuming voices only the rest.'
         : footNote;
   const hot = !blockedReason && (pendingCount > 0 || interrupted);
+  // The menu under Sync again's arrow: placed on the window when it opens, shut by a click anywhere else or a scroll.
   const closeMenu = (e: React.MouseEvent) => (e.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open');
   const menuItem = 'w-full flex items-start gap-2 px-2.5 py-2 rounded-lg text-left hover:bg-slate-800 cursor-default';
   const showChangedOnly = synced && pendingCount > 0 && !interrupted && !blockedReason && onSyncChangedOnly;
@@ -1506,7 +1525,23 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
             {synced && pendingCount > 0 && !interrupted && <span className="tabular-nums opacity-90">· {pendingCount} changed</span>}
           </button>
           {(showChangedOnly || showFromScratch) && (
-            <details className="relative">
+            <details
+              ref={syncMenu}
+              onToggle={(e) => {
+                const box = e.currentTarget;
+                if (!box.open) return setSyncMenuPlace(null);
+                // Beside the button, held inside the card it is in (the timeline's, marked data-menu-bounds): above the button when the card has no room below.
+                const button = box.getBoundingClientRect();
+                const card = box.closest('[data-menu-bounds]')?.getBoundingClientRect();
+                const width = 288;
+                const height = 140;
+                const minLeft = Math.max(8, (card?.left ?? 0) + 8);
+                const maxRight = Math.min(window.innerWidth - 8, (card?.right ?? window.innerWidth) - 8);
+                const floor = Math.min(window.innerHeight - 8, (card?.bottom ?? window.innerHeight) - 8);
+                const left = Math.max(minLeft, Math.min(button.right - width, maxRight - width));
+                setSyncMenuPlace(button.bottom + 6 + height <= floor ? { left, top: button.bottom + 6 } : { left, bottom: window.innerHeight - button.top + 6 });
+              }}
+            >
               <summary
                 aria-label="Other ways to sync"
                 title="Other ways to sync"
@@ -1516,7 +1551,10 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
               >
                 <ChevronDown className="w-3.5 h-3.5" />
               </summary>
-              <div className="absolute right-0 top-full mt-1.5 z-30 w-72 p-1 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60">
+              <div
+                style={{ position: 'fixed', left: syncMenuPlace?.left ?? 8, top: syncMenuPlace?.top, bottom: syncMenuPlace?.bottom, visibility: syncMenuPlace ? 'visible' : 'hidden' }}
+                className="z-[70] w-72 max-w-[calc(100vw-1rem)] p-1 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60"
+              >
                 {showChangedOnly && (
                   <button
                     type="button"

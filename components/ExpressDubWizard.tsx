@@ -4563,7 +4563,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           {report && !isSyncing && autoFitPanel}
           {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
           {hasDub && (
-            <section aria-label="Player" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
+            <section aria-label="Player" data-menu-bounds="" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
               {report && canEditTiming && !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport) && (
                 <div className="flex flex-wrap items-center gap-2">
                   {/* How the sync went on the left; undo, history and Edit timing on the right. What syncs and saves is in the dock under the timeline. */}
