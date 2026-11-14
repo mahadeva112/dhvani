@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>After Dub Expert Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#232a36; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .card { background:#131418; border:1px solid #26282e; border-radius:16px; }
+  .pane { background:#111216; border:1px solid #232a36; border-radius:12px; display:flex; flex-direction:column; min-width:0; min-height:0; overflow:hidden; }
+  .phead { height:32px; flex-shrink:0; display:flex; align-items:center; gap:6px; padding:0 8px 0 10px; border-bottom:1px solid #232a36; background:#0f1013; }
+  .ptitle { font-size:11px; letter-spacing:.06em; text-transform:uppercase; font-weight:600; color:#94a3b8; }
+  .btn { height:30px; padding:0 11px; border:1px solid #334155; border-radius:9px; background:transparent; color:#e2e8f0; font-size:12px; font-weight:500; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; cursor:default; }
+  .btn:hover { background:#1e293b; }
+  .btn.sm { height:26px; padding:0 9px; font-size:11.5px; border-radius:8px; }
+  .btn.pri { background:#6366f1; border-color:#6366f1; color:#fff; font-weight:600; }
+  .btn.amb { background:#f59e0b; border-color:#f59e0b; color:#0b0c0f; font-weight:600; }
+  .grp { display:inline-flex; gap:2px; padding:2px; border-radius:11px; background:#0b0c10; border:1px solid #232a36; }
+  .tb { position:relative; height:28px; min-width:28px; padding:0 6px; border-radius:8px; display:inline-flex; align-items:center; justify-content:center; gap:5px; font-size:12px; color:#cbd5e1; cursor:default; }
+  .tb:hover { background:#1e293b; color:#fff; }
+  .tb.on { background:#312e81; color:#e0e7ff; }
+  .tb .tip { display:none; position:absolute; top:calc(100% + 6px); left:50%; transform:translateX(-50%); z-index:60; white-space:nowrap; background:#020617; border:1px solid #334155; border-radius:8px; padding:4px 8px; font-size:11px; color:#e2e8f0; font-weight:400; }
+  .tb:hover .tip { display:block; }
+  .ws { height:28px; padding:0 9px; border-radius:8px; display:inline-flex; align-items:center; gap:6px; font-size:12px; color:#94a3b8; cursor:default; border:1px solid transparent; }
+  .ws:hover { background:#1a1d24; color:#e2e8f0; }
+  .ws.on { color:#e0e7ff; background:#1e1b4b; border-color:#4338ca; }
+  kbd { border:1px solid #475569; background:#1e293b; border-radius:4px; padding:0 4px; font-family:ui-monospace,monospace; font-size:10.5px; color:#e2e8f0; }
+  .field { height:26px; display:inline-flex; align-items:center; gap:4px; border:1px solid #232a36; background:#0b0c10; border-radius:6px; padding:0 6px; }
+  .seg { display:inline-flex; gap:2px; padding:2px; border-radius:10px; background:#0b0c0f; border:1px solid #26282e; }
+  .seg span { padding:3px 9px; border-radius:7px; font-size:12px; color:#94a3b8; cursor:default; white-space:nowrap; }
+  .seg span.on { background:#24262d; color:#f1f5f9; }
+  .tab { padding:6px 14px; font-size:13px; color:#94a3b8; cursor:default; }
+  .tab.on { background:#1e2230; color:#f1f5f9; }
+  .clip { position:absolute; top:4px; bottom:4px; border-radius:3px; overflow:hidden; cursor:default; }
+  .clip.pick { box-shadow:0 0 0 2px #f1f5f9; z-index:3; }
+  .scroll::-webkit-scrollbar { width:9px; height:9px; } .scroll::-webkit-scrollbar-thumb { background:#2a2d35; border-radius:8px; }
+  textarea { resize:none; }
+  .lbl { font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; font-weight:600; color:#64748b; }
+  .feat td { padding:4px 6px; vertical-align:top; border-top:1px solid #1d2028; }
+  .hatch { background-image: repeating-linear-gradient(135deg, #f59e0b55 0 4px, transparent 4px 8px); }
+  .hatchR { background-image: repeating-linear-gradient(135deg, #fb718555 0 4px, transparent 4px 8px); }
+  .step { border:1px solid #232a36; border-radius:10px; background:#0f1014; }
+  .step.go { border-color:#6366f180; background:#6366f10f; }
+  .num { width:18px; height:18px; border-radius:999px; display:inline-flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:700; background:#1e293b; color:#cbd5e1; flex-shrink:0; }
+  .step.go .num { background:#6366f1; color:#fff; }
+  /* DaVinci-style splitters: drag to resize, double-click to reset */
+  .split { position:relative; flex-shrink:0; z-index:20; }
+  .split.x { width:8px; cursor:col-resize; } .split.y { height:8px; cursor:row-resize; }
+  .split::after { content:''; position:absolute; border-radius:2px; background:#232a36; transition:background .12s; }
+  .split.x::after { top:0; bottom:0; left:3.5px; width:1px; } .split.y::after { left:0; right:0; top:3.5px; height:1px; }
+  .split:hover::after, .split.drag::after { background:#818cf8; }
+  .split.x:hover::after, .split.x.drag::after { width:2px; left:3px; } .split.y:hover::after, .split.y.drag::after { height:2px; top:3px; }
+  .split .grip { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:flex; gap:2px; pointer-events:none; }
+  .split.x .grip { flex-direction:column; }
+  .split .grip i { width:3px; height:3px; border-radius:9px; background:#475569; }
+  .split:hover .grip i, .split.drag .grip i { background:#c7d2fe; }
+  .lrz { position:absolute; left:0; right:0; bottom:-3px; height:6px; cursor:row-resize; z-index:7; }
+  .lrz:hover, .lrz.drag { background:#818cf855; }
+  .meter { background:linear-gradient(to top,#22c55e 0%,#22c55e 65%,#eab308 82%,#ef4444 100%); }
+  body.dragging, body.dragging * { user-select:none !important; }
+</style>
+</head>
+<body>
+<div class="max-w-[1720px] mx-auto px-4 py-5">
+  <div class="flex flex-wrap items-center gap-3 mb-3">
+    <h1 class="text-[17px] font-semibold mr-2">ডাবের পর: ৪টা expert মক, DaVinci-র মতো</h1>
+    <div id="tabs" class="flex rounded-xl overflow-hidden border edge"></div>
+    <label class="flex items-center gap-2 text-[12.5px] text-slate-400"><input type="checkbox" id="notice" checked> খবরের সারি</label>
+    <span class="text-[12px] text-slate-500">প্যানেলের মাঝের দাগ টানো · দুবার ক্লিক করলে আগের মাপে ফেরে · লেনের নিচের কিনারা টানলে লেন উঁচু-নিচু হয়</span>
+  </div>
+  <p id="note" class="text-[13.5px] text-slate-300 mb-3 max-w-[120rem] leading-relaxed"></p>
+  <div class="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_22rem] items-start">
+    <div><div id="frame" class="rounded-2xl border edge overflow-hidden relative flex flex-col bg-[#0b0c0f]" style="height:940px"></div></div>
+    <aside class="card p-3">
+      <div class="flex items-center justify-between mb-1"><h2 class="text-[14px] font-semibold">Dub পাতার সব ফিচার</h2><span id="hgt" class="mono text-[11.5px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300"></span></div>
+      <p class="text-[12px] text-slate-500 mb-2">এই মকে কোনটা কোথায় (Every line তালিকা শুধু Index-এর ভেতরে, পাতায় নয়)</p>
+      <table class="feat w-full text-[12px]"><tbody id="feat"></tbody></table>
+    </aside>
+  </div>
+</div>
+
+<script>
+// ---------- icons ----------
+const ICON = {
+  play: '<path d="M7 5v14l11-7z" fill="currentColor" stroke="none"/>', prev: '<path d="M18 6v12L9 12zM6 6v12"/>', next: '<path d="M6 6v12l9-6zM18 6v12"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  chevR: '<path d="M9 6l6 6-6 6"/>', chevL: '<path d="M15 6l-6 6 6 6"/>', down: '<path d="M6 9l6 6 6-6"/>', up: '<path d="M6 15l6-6 6 6"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>', refresh: '<path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4"/>',
+  list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>', info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>', undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>', redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>', pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/>', target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/>', range: '<path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3"/>', blade: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.1 15.9M14.5 14.5L20 20M8.1 8.1L12 12"/>',
+  magnet: '<path d="M6 15V9a6 6 0 0 1 12 0v6M6 15h4M14 15h4M6 19h4v-4M14 19h4v-4"/>', ripple: '<path d="M4 12h12M12 6l6 6-6 6M20 5v14"/>', flag: '<path d="M5 21V4h11l-2 4 2 4H5"/>',
+  zin: '<circle cx="11" cy="11" r="7"/><path d="M8 11h6M11 8v6M20 20l-4-4"/>', zout: '<circle cx="11" cy="11" r="7"/><path d="M8 11h6M20 20l-4-4"/>', full: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  split: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M12 5v14"/>', join: '<path d="M9 17H7a5 5 0 0 1 0-10h2M15 7h2a5 5 0 0 1 0 10h-2M8 12h8"/>',
+  align: '<path d="M4 3v18M8 7h12M8 12h8M8 17h10"/>', mute: '<path d="M11 5L6 9H2v6h4l5 4zM22 9l-6 6M16 9l6 6"/>', scissors: '<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.1 8.1L20 20M8.1 15.9L20 4" stroke-dasharray="3 2"/>',
+  fold: '<path d="M2 12h6M22 12h-6M5 9l3 3-3 3M19 9l-3 3 3 3M12 3v18"/>', sliders: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/>',
+  q: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7M12 17h.01"/>', wave: '<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 7v10"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>', folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5.5 5.5 0 0 1 3.5 6"/>', gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>',
+  dl: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>', video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>', pop: '<path d="M14 4h6v6M20 4l-8 8M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  max: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>', min: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>', index: '<path d="M4 5h16M4 10h10M4 15h16M4 20h10"/>',
+  insp: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>', mixer: '<path d="M6 4v16M12 4v16M18 4v16"/><rect x="4" y="13" width="4" height="3" rx="1"/><rect x="10" y="7" width="4" height="3" rx="1"/><rect x="16" y="11" width="4" height="3" rx="1"/>',
+  bulb: '<path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/>',
+};
+const I = (n, c = 'w-3.5 h-3.5') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
+
+// ---------- data: the screenshot's dub, two speakers ----------
+const L = [
+  { t: 1.2, o: 5.4, d: 5.3, off: 0.02, sp: 1, dub: 'आज हम एक ऐसे इंसान की बात करेंगे।', src: 'Today we talk about one such person.' },
+  { t: 7.4, o: 6.8, d: 6.6, off: -0.05, sp: 1, dub: 'जिसके पास सब कुछ था, फिर भी वह शांत था।', src: 'He had everything, and still he was calm.' },
+  { t: 15.0, o: 6.1, d: 6.0, off: 0.04, sp: 2, dub: 'वह राजा था, पर राजा जैसा बर्ताव नहीं करता था?', src: 'He was a king, but did not act like one?' },
+  { t: 22.3, o: 8.1, d: 8.3, off: 0.0, sp: 1, st: 'long', by: 0.18, dub: 'बेहद काबिल इंसान, और एक महान भक्त, वह बहुत गुणी है। वह शिव को पूजता है, उन्हें प्रसन्न करता है।', src: 'very capable man, and a great devotee. Many, many things. He worships Shiva and pleases him in many ways.' },
+  { t: 31.5, o: 5.0, d: 4.9, off: 0.03, sp: 2, dub: 'लोग उसके पास सलाह लेने आते थे?', src: 'People came to him for advice?' },
+  { t: 37.6, o: 6.4, d: 6.3, off: -0.02, sp: 1, dub: 'हर बात को वह ध्यान से सुनता था।', src: 'He listened to everything with care.' },
+  { t: 45.2, o: 5.6, d: 5.6, off: 0.0, sp: 1, dub: 'गुस्सा उसे छू भी नहीं पाता था।', src: 'Anger could not even touch him.' },
+  { t: 52.0, o: 6.9, d: 6.9, off: 0.01, sp: 1, dub: 'उसकी ताकत उसकी शांति में थी।', src: 'His strength was in his calm.', speed: 'Read 1.04× faster to fit' },
+  { t: 59.8, o: 5.5, d: 5.4, off: 0.05, sp: 2, dub: 'और यही उसे सबसे अलग बनाता था?', src: 'And that is what set him apart?' },
+  { t: 66.1, o: 4.4, d: 5.47, off: -0.0, sp: 1, st: 'over', by: 0.87, dub: 'वह रावण जितना बलवान न हो, पर वह संतुलित है, समचित्त है.........', src: "He may not be as strong as Ravana, but he's balanced." },
+  { t: 70.7, o: 2.6, d: 0, off: null, sp: 1, st: 'silent', dub: 'समचित्त है समचित्त है.........', src: 'Equanimity.' },
+  { t: 75.0, o: 6.0, d: 5.9, off: 0.02, sp: 1, dub: 'जीवन में ऐसा संतुलन ही असली शक्ति है।', src: 'Such balance in life is real power.' },
+  { t: 82.4, o: 5.6, d: 5.5, off: -0.03, sp: 2, dub: 'हम सब इसे अपने भीतर ला सकते हैं?', src: 'We can all bring this into ourselves?' },
+  { t: 89.0, o: 3.4, d: 3.3, off: 0.0, sp: 1, dub: 'बस थोड़ा रुककर देखना होगा।', src: 'We only need to pause and look.' },
+];
+const SPAN = 94, REVIEW = [3, 10, 9];
+const MARKERS = [{ t: 33, n: 'Check name' }, { t: 61, n: 'Music swell' }];
+const SUGG = [{ text: 'बेहद काबिल, महान भक्त, बहुत गुणी। वह शिव को पूजता है, उन्हें प्रसन्न करता है।', s: 7.6, back: 'Very capable, a great devotee, very virtuous. He worships Shiva and pleases him.' },
+  { text: 'काबिल इंसान, महान भक्त और गुणी। शिव को पूजता है, प्रसन्न करता है।', s: 6.9, back: 'A capable man, a great devotee and virtuous. Worships Shiva, pleases him.' }];
+
+// ---------- state + panel sizes ----------
+const DEF = { e1top: 360, e1vid: 560, e2l: 250, e2r: 400, e2mix: 190, e3top: 96, e3cap: 150, e3r: 380, e4r: 400, e4b: 280, lo: 64, l1: 92, l2: 72, lm: 56 };
+const LIM = { e1top: [160, 640], e1vid: [260, 900], e2l: [180, 420], e2r: [300, 620], e2mix: [110, 360], e3top: [64, 220], e3cap: [96, 300], e3r: [300, 620], e4r: [300, 640], e4b: [160, 520], lo: [36, 220], l1: [40, 260], l2: [40, 260], lm: [32, 200] };
+const SZ = { ...DEF };
+const S = { view: 'E1', pick: 3, tab: 'line', sugg: false, box: false, win: null, ltab: 'review', retakeN: 3, lineN: 3, notice: true, max: null,
+  panels: { E1: { video: true, insp: true }, E2: { index: true, insp: true, mixer: true, video: false }, E3: { insp: true, video: false }, E4: { insp: true, takes: false, video: true } } };
+
+// ---------- helpers ----------
+const clock = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+const offs = (o) => (o === null ? 'silent' : `${o >= 0 ? '+' : '−'}${Math.abs(o).toFixed(2)} s`);
+const prob = (i) => Boolean(L[i].st);
+const reason = (l) => l.st === 'long' ? `Runs ${l.by.toFixed(2)} s longer than the original line had` : l.st === 'silent' ? 'The voice returned no audio for this line' : l.st === 'over' ? `Runs ${l.by.toFixed(2)} s into the next line` : 'In sync';
+const flagTxt = (l) => l.st === 'long' ? `Too long +${(l.d - l.o).toFixed(1)}` : l.st === 'silent' ? 'No audio' : `⇥ ${l.by.toFixed(1)} s`;
+const flagCls = (l) => l.st === 'silent' ? 'bg-rose-500/20 text-rose-200 border-rose-400/60' : 'bg-amber-500/20 text-amber-100 border-amber-400/60';
+const segCls = (l) => l.st === 'silent' ? 'hatchR border-rose-400/70' : 'bg-amber-400/70 border-amber-300';
+const reasonCls = (l) => l.st === 'silent' ? 'text-rose-300' : l.st ? 'text-amber-300' : 'text-slate-500';
+function rnd(seed) { let a = seed * 9301 + 49297; return () => { a = (a * 9301 + 49297) % 233280; return a / 233280; }; }
+function wave(seed, fill, n = 80) { const r = rnd(seed + 7); let d = ''; for (let k = 0; k < n; k++) { const env = Math.sin((k / n) * Math.PI) * 0.55 + 0.45; const h = (1 + r() * 8.5) * env; d += `M${k} ${10 - h}h0.7v${2 * h}h-0.7z`; } return `<svg viewBox="0 0 ${n} 20" preserveAspectRatio="none" class="absolute inset-0 w-full h-full"><path d="${d}" fill="${fill}"/></svg>`; }
+const DUBC = ['#818cf8', '#2dd4bf', '#38bdf8', '#a78bfa'];
+const tb = (icon, name, key, on = false, act = '') => `<span class="tb ${on ? 'on' : ''}" ${act ? `data-act="${act}"` : ''}>${I(icon, 'w-4 h-4')}<span class="tip">${name}${key ? ` <kbd>${key}</kbd>` : ''}</span></span>`;
+const splitter = (key, dir, sign = 1) => `<div class="split ${dir}" data-split="${key}" data-dir="${dir}" data-sign="${sign}" title="Drag to resize · double-click to reset"><span class="grip"><i></i><i></i><i></i></span></div>`;
+const px = (k) => `var(--${k})`;
+function badge(l) { const warm = l.st === 'over' || l.st === 'silent'; return `<span class="mono shrink-0 text-[11px] px-2 py-0.5 rounded-md ${warm ? 'bg-amber-500/15 text-amber-300' : 'bg-slate-800 text-slate-300'}">${offs(l.off)}</span>`; }
+function bars(l) { if (l.st === 'silent') return ''; const m = Math.max(l.o, l.d); const c = l.st === 'long' ? 'bg-amber-400' : 'bg-indigo-400/80'; return `<span class="shrink-0 flex items-center gap-2"><span class="flex flex-col gap-1 w-20"><span class="h-1 rounded bg-slate-500" style="width:${(l.o / m) * 100}%"></span><span class="h-1 rounded ${c}" style="width:${(l.d / m) * 100}%"></span></span>${l.st === 'long' ? `<span class="mono text-[11px] text-amber-300">+${(l.d - l.o).toFixed(1)} s</span>` : ''}</span>`; }
+const pane = (id, title, right, body, cls = '') => `<section class="pane ${cls}" data-pane="${id}"><div class="phead"><span class="ptitle">${title}</span><span class="flex-1"></span>${right}<span class="tb" data-act="max:${id}" style="height:24px;min-width:24px">${I(S.max === id ? 'min' : 'max', 'w-3.5 h-3.5')}<span class="tip">${S.max === id ? 'Back to the layout' : 'Fill the page'} <kbd>Shift + F</kbd></span></span></div>${body}</section>`;
+
+// ---------- app bar: steps, panel toggles (DaVinci-style), Voices / Sync / Export ----------
+function appBar() {
+  const P = S.panels[S.view];
+  const wsList = { E1: [['video', 'video', 'Video', 'V'], ['insp', 'insp', 'Inspector', 'I']], E2: [['index', 'index', 'Index', 'X'], ['insp', 'insp', 'Inspector', 'I'], ['mixer', 'mixer', 'Mixer', 'K'], ['video', 'video', 'Video', 'V']], E3: [['insp', 'insp', 'Inspector', 'I'], ['video', 'video', 'Video', 'V']], E4: [['video', 'video', 'Video', 'V'], ['insp', 'insp', 'Inspector', 'I'], ['takes', 'mic', 'Takes', 'T']] }[S.view];
+  return `<header class="h-12 shrink-0 flex items-center gap-2 px-3 border-b edge bg-[#0b0c0f] whitespace-nowrap overflow-hidden">
+    <span class="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-500 flex items-center justify-center text-white">${I('wave', 'w-4 h-4')}</span>
+    <span class="text-[13px] font-semibold mr-1">Dhvani</span>
+    <span class="flex items-center gap-1 rounded-full border edge bg-[#111216] p-1">${[['1', 'Source & voice'], ['2', 'Review'], ['3', 'Dub']].map(([n, s]) => `<span class="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[12px] ${s === 'Dub' ? 'bg-slate-800 text-slate-100' : 'text-slate-400'}"><span class="w-4 h-4 rounded-full text-[10px] flex items-center justify-center ${s === 'Dub' ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-300'}" title="${s}">${n}</span>${s === 'Dub' ? s : ''}</span>`).join('')}</span>
+    <span class="ml-1 flex items-center gap-1.5 text-[12px] cursor-default" title="12 of 14 in sync · 2 outside tolerance · 1 too long for its slot · drift under 0.1 s"><span class="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 font-semibold">3 to listen</span><span class="mono text-slate-400">12/14</span></span>
+    <span class="flex-1"></span>
+    <span class="flex items-center gap-1 pr-2 mr-1 border-r edge">${wsList.map(([k, ic, n, key]) => `<span class="ws ${P[k] ? 'on' : ''}" data-act="panel:${k}" title="${n} (${key})">${I(ic, 'w-3.5 h-3.5')} ${n}</span>`).join('')}</span>
+    <span class="btn sm" data-act="win:voices">${I('users', 'w-3.5 h-3.5')} Voices</span>
+    <span class="btn sm" data-act="win:sync">${I('gear', 'w-3.5 h-3.5')} Sync settings</span>
+    <span class="inline-flex"><span class="btn sm pri rounded-r-none">${I('refresh', 'w-3.5 h-3.5')} Sync again</span><span class="btn sm pri rounded-l-none border-l border-indigo-400/50 px-1.5" data-act="win:syncmenu">${I('down', 'w-3 h-3')}</span></span>
+    <span class="btn sm" data-act="win:export">${I('dl', 'w-3.5 h-3.5')} Export ${I('down', 'w-3 h-3')}</span>
+    <span class="tb">${I('folder', 'w-4 h-4')}<span class="tip">Projects</span></span><span class="tb">${I('menu', 'w-4 h-4')}<span class="tip">Menu</span></span>
+  </header>`;
+}
+/** Every notice in one row; × hides it. */
+function noticeRow() {
+  if (!S.notice) return '';
+  return `<div class="h-[34px] shrink-0 mx-2 mt-2 flex items-center gap-2.5 rounded-lg border border-indigo-500/35 bg-indigo-950/25 px-3 text-[12px] overflow-hidden whitespace-nowrap">
+    <span class="flex items-center gap-1.5 text-indigo-200">${I('bulb', 'w-3.5 h-3.5')} Natural suits it better than Tight</span><span class="btn sm">Keep Tight</span><span class="btn sm pri">Sync with Natural</span>
+    <span class="w-px h-4 bg-slate-700"></span><span class="text-slate-300">Fit set gaps, pauses</span><span class="text-indigo-300 cursor-default">What changed</span><span class="text-indigo-300 cursor-default">Undo</span>
+    <span class="w-px h-4 bg-slate-700"></span><span class="text-indigo-200">${I('refresh', 'w-3 h-3 inline')} 2 lines changed</span><span class="btn sm">${I('lock', 'w-3 h-3')} Changed only</span>
+    <span class="w-px h-4 bg-slate-700"></span><span class="text-amber-200 cursor-default" data-act="pick:9">1 take to choose</span><span class="text-rose-300 cursor-default" data-act="pick:10">1 line has no audio</span>
+    <span class="flex-1"></span><span class="tb" data-act="notice" style="height:22px;min-width:22px">${I('x', 'w-3.5 h-3.5')}<span class="tip">Hide until something new</span></span>
+  </div>`;
+}
+/** Transport, undo, the to-listen bar, zoom and wave height. */
+function transport({ listen = true } = {}) {
+  const k = REVIEW.indexOf(S.pick);
+  return `<div class="h-10 shrink-0 flex items-center gap-2 px-2 border-b edge bg-[#0f1013] overflow-hidden">
+    <span class="grp">${tb('prev', 'Previous line', '←')}<span class="tb" style="background:#6366f1;color:#fff">${I('play', 'w-4 h-4')}<span class="tip">Play <kbd>Space</kbd></span></span>${tb('next', 'Next line', '→')}</span>
+    <span class="mono text-[12.5px] text-slate-200">${clock(L[S.pick].t)}</span><span class="mono text-[11px] text-slate-500">/ 1:34.0</span>
+    <span class="seg"><span class="on">1×</span><span>0.75×</span></span>
+    <span class="w-px h-5 bg-slate-800"></span>
+    <span class="btn sm">${I('reset', 'w-3 h-3')} Undo voice change</span>
+    <span class="grp">${tb('undo', 'Undo', 'Ctrl + Z')}${tb('redo', 'Redo', 'Ctrl + Shift + Z')}${tb('history', 'History', '')}</span>
+    ${listen ? `<span class="flex items-center gap-2 rounded-lg border border-amber-400/35 bg-amber-500/[0.07] pl-2.5 pr-1 h-7">
+      <span class="text-[12px] text-amber-200 whitespace-nowrap">${k >= 0 ? `<span class="mono">${k + 1}</span> of ` : ''}3 to listen</span>
+      <span class="flex gap-1">${REVIEW.map((i) => `<span data-act="pick:${i}" title="${clock(L[i].t)} · ${flagTxt(L[i])}" class="h-3 w-6 rounded-[3px] border ${segCls(L[i])} ${S.pick === i ? 'ring-2 ring-white/80' : 'opacity-80'} cursor-default"></span>`).join('')}</span>
+      <span class="tb" style="height:22px;min-width:22px" data-act="nextmark">${I('chevR', 'w-3.5 h-3.5')}<span class="tip">Next mark <kbd>N</kbd></span></span></span>` : ''}
+    <span class="flex-1"></span>
+    <span class="grp items-center"><span class="text-[11px] text-slate-500 px-1.5">Wave</span>${['×1', '×2', '×4'].map((w) => `<span class="tb ${w === '×2' ? 'on' : ''}">${w}</span>`).join('')}</span>
+    <span class="grp">${tb('zout', 'Zoom out', '−')}${tb('zin', 'Zoom in', '=')}${tb('full', 'Whole track', 'Shift + Z')}</span>
+    ${tb('q', 'Shortcuts, and how editing works', '?')}
+  </div>`;
+}
+/** Edit timing's tools, always on the timeline. */
+const tools = () => `<div class="h-10 shrink-0 flex items-center gap-1.5 px-2 border-b edge bg-[#0f1013] overflow-hidden">
+  <span class="grp">${tb('range', 'Select range', 'Drag')}${tb('blade', 'Blade', 'B')}${tb('magnet', 'Snap', 'N', true)}${tb('ripple', 'Ripple', 'Shift + drag')}${tb('flag', 'Marker', 'Shift + M')}</span>
+  <span class="grp">${tb('split', 'Split', 'S')}${tb('join', 'Join', 'G')}${tb('align', 'Align', 'A')}${tb('mute', 'Mute', 'M')}${tb('lock', 'Lock', 'L')}${tb('scissors', 'Split at pauses', 'D')}${tb('fold', 'Tighten', 'Q')}${tb('mic', 'Takes', 'T', false, 'takes')}</span>
+  <span class="flex-1 text-right text-[11.5px] text-slate-500 truncate">Edge = trim · corner = fade · top = gain · right-click for everything</span>
+  <span class="text-[11px] text-slate-400 flex items-center gap-1.5 whitespace-nowrap">${I('check', 'w-3.5 h-3.5 text-emerald-400')} Audio up to date</span>
+  <span class="btn sm">${I('reset', 'w-3 h-3')} Reset all edits</span>
+</div>`;
+
+// ---------- the timeline: lanes resize by their bottom edge ----------
+function timeline({ from = 0, to = SPAN, small = false } = {}) {
+  const span = to - from, p = (t) => ((t - from) / span) * 100;
+  const inView = (l) => l.t + l.o > from && l.t < to;
+  const orig = L.filter(inView).map((l) => `<div class="clip" style="left:${p(l.t)}%;width:${(l.o / span) * 100}%;background:#22d3ee22;border:1px solid #22d3ee88" data-act="pick:${L.indexOf(l)}">${wave(L.indexOf(l), '#22d3eecc')}</div>`).join('');
+  const flags = L.map((l, i) => prob(i) && inView(l) ? `<span data-act="pick:${i}" title="${reason(l)}" class="absolute top-[3px] h-[18px] px-1.5 rounded-[4px] border text-[10.5px] font-medium leading-[16px] whitespace-nowrap cursor-default ${flagCls(l)} ${S.pick === i ? 'ring-2 ring-white/80' : ''}" style="left:${p(l.t)}%">${flagTxt(l)}</span>` : '').join('');
+  const markers = MARKERS.filter((m) => m.t > from && m.t < to).map((m) => `<span class="absolute top-[4px] flex items-center gap-1 text-[10.5px] text-sky-200 whitespace-nowrap" style="left:${p(m.t)}%"><span class="w-2 h-2 rotate-45 bg-sky-400"></span>${m.n}</span>`).join('');
+  const lane = (sp) => {
+    const rooms = L.map((l, i) => {
+      if (l.sp !== sp || !prob(i) || l.st === 'silent' || !inView(l)) return '';
+      const over = l.st === 'long' ? l.d - l.o : l.by;
+      return `<div class="absolute top-[2px] bottom-[2px] rounded-[3px] border border-dashed border-slate-400/50 bg-slate-400/[0.06] pointer-events-none" style="left:${p(l.t)}%;width:${(l.o / span) * 100}%"></div><div class="absolute top-[2px] bottom-[2px] hatch pointer-events-none z-[4]" style="left:${p(l.t + l.o)}%;width:${(Math.max(over, 0.35) / span) * 100}%"></div>`;
+    }).join('');
+    const clips = L.map((l, i) => {
+      if (l.sp !== sp || !inView(l)) return '';
+      const pk = S.pick === i ? ' pick' : '';
+      if (l.st === 'silent') return `<div class="clip${pk} hatchR" style="left:${p(l.t)}%;width:${(l.o / span) * 100}%;border:1.5px dashed #fb7185" data-act="pick:${i}"></div>`;
+      const c = DUBC[i % 4];
+      return `<div class="clip${pk}" style="left:${p(l.t + (l.off || 0))}%;width:${(l.d / span) * 100}%;background:${c}2e;border:1px solid ${c}aa" data-act="pick:${i}">${wave(i + 40, c)}<span class="absolute right-1 top-1 w-1.5 h-1.5 rounded-full bg-amber-400"></span></div>`;
+    }).join('');
+    return rooms + clips;
+  };
+  const music = [[0, 44], [52, 92]].filter(([a, b]) => b > from && a < to).map(([a, b], k) => `<div class="clip" style="left:${p(a)}%;width:${((b - a) / span) * 100}%;background:#f472b622;border:1px solid #f472b680">${wave(90 + k, '#f472b6aa', 160)}</div>`).join('');
+  const step = span > 60 ? 10 : 5;
+  const ticks = Array.from({ length: Math.ceil(span / step) + 1 }, (_, k) => from - (from % step) + k * step).filter((t) => t >= from && t <= to).map((t) => `<span class="absolute top-0 h-full border-l edge pl-1 text-[10px] mono text-slate-500" style="left:${p(t)}%">${clock(t).replace('.0', '')}</span>`).join('');
+  const head = (color, name, sub, ms) => `<div class="h-full px-2 flex flex-col justify-center gap-1 min-w-0 overflow-hidden">
+      <span class="flex items-center gap-1.5 text-[11.5px] text-slate-200 min-w-0"><span class="w-2 h-2 rounded-sm shrink-0" style="background:${color}"></span><span class="truncate">${name}</span><span class="ml-auto text-[10px] text-slate-500 shrink-0">${sub}</span></span>
+      ${ms ? `<span class="flex items-center gap-1"><span class="w-5 h-5 rounded border border-slate-700 text-[10px] flex items-center justify-center text-slate-400">M</span><span class="w-5 h-5 rounded border border-slate-700 text-[10px] flex items-center justify-center text-slate-400">S</span><span class="flex-1 h-1 rounded bg-slate-700"><span class="block h-1 w-2/3 rounded bg-indigo-400"></span></span><span class="mono text-[10px] text-slate-400">0.0</span></span>` : ''}</div>`;
+  const W = small ? '9rem' : '12.5rem';
+  const row = (h, left, right, rz) => `<div class="relative flex border-b edge shrink-0" style="height:${h}"><div class="shrink-0 border-r edge bg-[#0f1013]" style="width:${W}">${left}</div><div class="relative flex-1 min-w-0" data-act="none">${right}</div>${rz ? `<div class="lrz" data-split="${rz}" data-dir="y" data-sign="1" title="Drag to make this lane taller or shorter"></div>` : ''}</div>`;
+  const ph = p(L[S.pick].t);
+  return `<div class="relative flex-1 min-h-0 flex flex-col bg-[#0e0f13]">
+    <div class="scroll flex-1 min-h-0 overflow-y-auto relative" data-lanes="1">
+      ${row('22px', `<div class="h-full px-2 flex items-center mono text-[11px] font-semibold text-slate-200">${clock(L[S.pick].t)}</div>`, ticks)}
+      ${row('22px', `<div class="h-full px-2 flex items-center text-[10.5px] text-slate-400">Markers</div>`, markers)}
+      ${row(px('lo'), head('#22d3ee', 'Original', I('lock', 'w-3 h-3 inline'), false), orig, 'lo')}
+      ${row('24px', `<div class="h-full px-2 flex items-center text-[10.5px] text-slate-400">Sync check<span class="ml-auto text-amber-300 mono">3</span></div>`, flags)}
+      ${row(px('l1'), head('#818cf8', 'Speaker 1', '10 lines', true), lane(1), 'l1')}
+      ${row(px('l2'), head('#2dd4bf', 'Speaker 2', '4 lines', true), lane(2), 'l2')}
+      ${row(px('lm'), head('#f472b6', 'Music', 'track', true), music, 'lm')}
+      <div class="absolute top-0 bottom-0 w-px bg-rose-500 pointer-events-none z-[6]" style="left:calc(${W} + (100% - ${W}) * ${Math.min(Math.max(ph, 0), 100) / 100})"></div>
+    </div>
+    <div class="relative h-4 shrink-0 bg-[#0b0c10] border-t edge">${L.map((l, i) => `<span class="absolute top-[4px] bottom-[4px] rounded-[1px]" style="left:${(l.t / SPAN) * 100}%;width:${(l.o / SPAN) * 100}%;background:${prob(i) ? '#f59e0b' : '#475569'}"></span>`).join('')}<span class="absolute top-0 bottom-0 rounded-sm border border-indigo-200/70 bg-indigo-200/10" style="left:${(from / SPAN) * 100}%;width:${(span / SPAN) * 100}%" title="Drag to move along"></span></div>
+  </div>`;
+}
+
+// ---------- inspector: picked line (props + ladder), takes, mixer ----------
+const field = (label, v, unit) => `<span class="flex flex-col gap-0.5 text-[10.5px] text-slate-500">${label}<span class="field"><span class="mono text-[12px] text-slate-100">${v}</span><span class="text-[10px] text-slate-500">${unit}</span></span></span>`;
+function shortenBox(l) {
+  const opts = S.sugg ? `<div class="mb-2 flex flex-col gap-1">${SUGG.map((o, k) => `<div class="flex items-start gap-2 rounded-md border ${k === 0 ? 'border-indigo-500 bg-indigo-500/10' : 'edge'} px-2 py-1.5"><span class="mt-1 w-3 h-3 rounded-full border ${k === 0 ? 'border-indigo-400 bg-indigo-400' : 'border-slate-500'}"></span><span class="flex-1 min-w-0"><span class="block text-[12.5px]">${o.text}</span><span class="block text-[11.5px] text-slate-500">${o.back}</span></span><span class="mono text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 whitespace-nowrap">${o.s} s · fits</span></div>`).join('')}</div>` : '';
+  return `<div class="mt-2 rounded-lg border edge bg-[#0d0f13] p-2.5"><div class="lbl mb-1">${S.sugg ? 'Suggested shorter line' : 'Shorten this line'}</div>${opts}
+    <textarea rows="2" class="w-full rounded-md bg-[#15171c] border edge px-2 py-1.5 text-[13px]">${S.sugg ? SUGG[0].text : l.dub}</textarea>
+    <div class="mt-1.5 flex flex-wrap items-center gap-1.5"><span class="btn sm ${S.sugg ? 'pri' : ''}">${I('mic', 'w-3 h-3')} Voice and use · ${S.sugg ? 74 : 95} chars</span><span class="btn sm">${I('check', 'w-3 h-3')} Use this line</span><span class="btn sm">${I('copy', 'w-3 h-3')} Copy</span><span class="btn sm" data-act="sugg">${I('refresh', 'w-3 h-3')} Suggest 2</span>
+      <span class="text-[11.5px] text-slate-500 mono">${S.sugg ? 29 : 34} / 34 syllables</span><span class="text-[11.5px] px-1.5 py-0.5 rounded ${S.sugg ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}">${S.sugg ? 'about 7.6 s of 8.1 s · fits' : 'about 8.3 s of 8.1 s · still long'}</span></div></div>`;
+}
+const pills = () => `<span class="flex items-center gap-1">${[1, 2, 3].map((k) => `<span data-act="lineN:${k}" class="h-6 w-6 rounded-full border text-[11px] flex items-center justify-center cursor-default ${S.lineN === k ? 'border-indigo-400 bg-indigo-500/20 text-indigo-100' : 'border-slate-700 text-slate-400'}">${k}</span>`).join('')}</span>`;
+function steps(i) {
+  const l = L[i];
+  const retake = { t: 'Retake', k: '', txt: `Voiced ${S.lineN === 1 ? 'once' : S.lineN + ' times'} at the next Sync; the best fit is kept`, b: `${pills()}<span class="btn sm">${I('mic', 'w-3 h-3')} Retake</span>` };
+  const shorten = { t: l.st === 'silent' ? 'Change the words' : 'Shorten the words', k: 'E', txt: 'Last: the script and subtitles change too', b: `<span class="btn sm ${S.box ? 'border-amber-400/60 text-amber-200' : ''}" data-act="box">${I('pen', 'w-3 h-3')} Shorten ${I(S.box ? 'up' : 'down', 'w-3 h-3')}</span>` };
+  if (l.st === 'silent') return [retake, { t: 'Voice takes now', k: 'T', txt: 'Hear new takes side by side and pick one', b: `<span class="btn sm" data-act="takes">${I('mic', 'w-3 h-3')} Takes</span>` }, shorten];
+  const take = l.st === 'over' ? { t: 'Better-fitting take ready', k: '', txt: 'Take 2 ends 0.1 s before the next line', b: `<span class="btn sm">${I('play', 'w-3 h-3')}</span><span class="btn sm pri">Use it</span><span class="btn sm">Keep old</span>`, go: true }
+    : { t: 'Use a take that fits', k: 'T', txt: 'Only 1 take so far, and it runs long', b: `<span class="btn sm" data-act="takes">${I('mic', 'w-3 h-3')} Takes</span>` };
+  const room = l.st === 'over' ? { t: 'Move it earlier', k: 'A', txt: '0.4 s free before it: drag it left, or Align', b: `<span class="btn sm">${I('align', 'w-3 h-3')} Align</span>` }
+    : { t: 'Give it more room', k: '', txt: '0.6 s free before the next line: drag its right edge', b: `<span class="btn sm">${I('target', 'w-3 h-3')} Show</span>` };
+  return [take, retake, { t: 'Tighten silences', k: 'Q', txt: `${l.st === 'over' ? '0.5' : '0.3'} s of pauses inside this line`, b: `<span class="btn sm">${I('play', 'w-3 h-3')} Listen</span><span class="btn sm">${I('fold', 'w-3 h-3')} Tighten</span>` }, room, shorten];
+}
+function ladder(i, wide = false) {
+  if (!prob(i)) return `<p class="mt-3 text-[12px] text-emerald-300 flex items-center gap-1.5">${I('check', 'w-3.5 h-3.5')} In sync. Nothing to fix.</p>`;
+  const st = steps(i), box = S.box && L[i].st !== 'silent' ? shortenBox(L[i]) : '';
+  if (wide) return `<div class="mt-2.5"><div class="lbl mb-1.5">Ways to fix it · least change first</div><div class="grid gap-2" style="grid-template-columns:repeat(${st.length},minmax(0,1fr))">${st.map((s, k) => `<div class="step ${s.go ? 'go' : ''} p-2 flex flex-col gap-1.5"><div class="flex items-center gap-1.5"><span class="num">${k + 1}</span><span class="text-[12px] font-medium truncate">${s.t}</span>${s.k ? `<kbd class="ml-auto">${s.k}</kbd>` : ''}</div><p class="text-[11px] text-slate-500 leading-snug flex-1">${s.txt}</p><div class="flex flex-wrap items-center gap-1">${s.b}</div></div>`).join('')}</div>${box}</div>`;
+  return `<div class="mt-3"><div class="lbl mb-1.5">Ways to fix it · least change first</div><div class="flex flex-col gap-1.5">${st.map((s, k) => `<div class="step ${s.go ? 'go' : ''} px-2.5 py-2"><div class="flex flex-wrap items-center gap-2"><span class="num">${k + 1}</span><span class="text-[12.5px] font-medium">${s.t}</span>${s.k ? `<kbd>${s.k}</kbd>` : ''}<span class="flex-1"></span><span class="flex items-center gap-1">${s.b}</span></div><p class="text-[11px] text-slate-500 mt-0.5 pl-[26px]">${s.txt}</p></div>`).join('')}</div>${box}</div>`;
+}
+function lineBlock(i) {
+  const l = L[i];
+  return `<div class="flex items-center gap-2 mb-1.5">${badge(l)}<span class="mono text-[11.5px] text-slate-500">${clock(l.t)}</span><span class="text-[11px] text-slate-500">· Speaker ${l.sp} · line ${i + 1} of 14</span><span class="flex-1"></span>${bars(l)}</div>
+    <p class="text-[14px] leading-snug">${l.dub}</p><p class="text-[12px] text-slate-500 mt-0.5">${l.src}</p>
+    <p class="text-[11.5px] mt-1 ${reasonCls(l)}">${reason(l)}</p>${l.speed ? `<p class="text-[11.5px] mt-1 text-indigo-300">${l.speed}</p>` : ''}
+    <div class="mt-2 flex flex-wrap items-end gap-2">${field('Start', l.t.toFixed(3), 's')}${field('Speed', '100', '%')}${field('Gain', '0.0', 'dB')}${field('Fade in', '0', 'ms')}${field('Fade out', '0', 'ms')}
+      <span class="btn sm">${I('lock', 'w-3 h-3')} Locked</span></div>
+    <div class="mt-2 flex flex-wrap gap-1.5"><span class="btn sm">${I('play', 'w-3 h-3')} Listen <kbd>/</kbd></span>${l.st === 'silent' ? '' : `<span class="btn sm" data-act="takes">${I('mic', 'w-3 h-3')} Takes <kbd>T</kbd></span>`}<span class="btn sm">${I('align', 'w-3 h-3')} Align</span><span class="btn sm">${I('reset', 'w-3 h-3')} Reset line</span></div>`;
+}
+function takesBody() {
+  const l = L[S.pick], words = l.dub.split(' ');
+  return `<div class="relative h-14 rounded-md bg-[#0b0c10] border edge overflow-hidden">${wave(S.pick + 40, '#818cf8', 120)}</div>
+    <div class="mt-1.5 flex flex-wrap gap-1">${words.map((w, k) => `<span class="text-[12.5px] px-1 rounded ${k > 1 && k < 4 ? 'bg-indigo-500/25 text-indigo-100' : 'text-slate-300'}">${w}</span>`).join('')}</div>
+    <div class="mt-2 flex flex-wrap items-center gap-2"><span class="text-[11.5px] text-slate-400">Say instead</span><span class="field flex-1 min-w-[10rem] text-[12.5px] text-slate-500">काबिल इंसान</span><span class="btn sm">[calm]</span><span class="btn sm pri">${I('mic', 'w-3 h-3')} Retake words</span></div>
+    <div class="mt-2 flex flex-col">${[['Take 1', '8.3 s', 'in the dub', true], ['Take 2', '7.9 s', 'fits', false], ['Take 3', '8.0 s', 'fits', false]].map(([n, s, t, on]) => `<div class="flex items-center gap-2 py-1 border-t edge"><span class="tb" style="height:24px;min-width:24px">${I('play', 'w-3 h-3')}</span><span class="text-[12.5px] w-14">${n}</span><span class="mono text-[11.5px] text-slate-400 w-12">${s}</span><span class="text-[11.5px] ${on ? 'text-indigo-300' : 'text-emerald-300'}">${t}</span><span class="flex-1"></span>${on ? '' : '<span class="btn sm">Use</span><span class="btn sm">Place ▾</span>'}</div>`).join('')}</div>
+    <div class="mt-2 grid grid-cols-2 gap-2 text-[11.5px]"><span class="flex flex-col gap-1 text-slate-500">Tags<span class="flex flex-wrap gap-1">${['[calm]', '[warm]', '[slow]', '[whispers]'].map((t) => `<span class="px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">${t}</span>`).join('')}</span></span>
+      <span class="flex flex-col gap-1 text-slate-500">Stability<span class="seg"><span>Creative</span><span class="on">Natural</span><span>Robust</span></span></span></div>
+    <div class="mt-2 flex items-center gap-2"><span class="btn sm">${I('mic', 'w-3 h-3')} More takes</span>${pills()}<span class="text-[11px] text-slate-500">voicings of this line</span></div>`;
+}
+function mixerBody(horizontal = false) {
+  const ch = [['Original', '#22d3ee', -6, 0.55], ['Speaker 1', '#818cf8', 0, 0.75], ['Speaker 2', '#2dd4bf', 1.5, 0.7], ['Music', '#f472b6', -9, 0.4], ['Dub', '#e2e8f0', 0, 0.8]];
+  const strip = ([n, c, db, m]) => `<div class="flex flex-col items-center gap-1.5 w-[74px] shrink-0 rounded-lg border edge bg-[#0d0e12] py-2">
+      <span class="flex items-center gap-1 text-[11px] text-slate-200"><span class="w-2 h-2 rounded-sm" style="background:${c}"></span>${n}</span>
+      <div class="flex-1 min-h-[40px] flex items-end gap-1.5"><span class="w-1.5 h-full rounded bg-slate-800 relative overflow-hidden"><span class="absolute bottom-0 inset-x-0 meter" style="height:${m * 100}%"></span></span><span class="w-1.5 h-full rounded bg-slate-800 relative overflow-hidden"><span class="absolute bottom-0 inset-x-0 meter" style="height:${(m - 0.06) * 100}%"></span></span>
+        <span class="w-4 h-full relative"><span class="absolute left-1/2 -translate-x-1/2 w-0.5 h-full bg-slate-700"></span><span class="absolute left-0 w-4 h-2 rounded-sm bg-slate-300" style="bottom:${50 + db * 3}%"></span></span></div>
+      <span class="mono text-[10.5px] text-slate-400">${db > 0 ? '+' : ''}${db.toFixed(1)} dB</span>
+      <span class="flex gap-1"><span class="w-5 h-5 rounded border border-slate-700 text-[10px] flex items-center justify-center text-slate-400">M</span><span class="w-5 h-5 rounded border border-slate-700 text-[10px] flex items-center justify-center text-slate-400">S</span></span></div>`;
+  return `<div class="flex-1 min-h-0 flex gap-3 p-2.5 overflow-auto scroll">
+    <div class="flex gap-2 h-full">${ch.map(strip).join('')}</div>
+    <div class="flex flex-col gap-2 text-[12px] min-w-[15rem]">
+      <div class="rounded-lg border edge bg-[#0d0e12] p-2.5"><div class="lbl mb-1">Mix check</div><p class="text-slate-300">Mix peak −1.2 dBFS · loudness −16 LUFS</p><p class="text-slate-500 text-[11.5px] mt-0.5">One gain per speaker, so every voice sits at one level.</p>
+        <label class="mt-1.5 flex items-center gap-2 text-slate-300"><span class="w-7 h-4 rounded-full bg-indigo-500 relative"><span class="absolute right-0.5 top-0.5 w-3 h-3 rounded-full bg-white"></span></span> Even out speakers</label></div>
+      <div class="rounded-lg border edge bg-[#0d0e12] p-2.5"><div class="lbl mb-1">Stems</div><div class="flex flex-wrap gap-1.5"><span class="btn sm">${I('dl', 'w-3 h-3')} Speaker 1</span><span class="btn sm">${I('dl', 'w-3 h-3')} Speaker 2</span></div><p class="text-[11px] text-slate-500 mt-1">Levels here are for listening; the dub file is unchanged.</p></div>
+    </div></div>`;
+}
+function inspector(tabs = ['line', 'takes']) {
+  const names = { line: 'Line', takes: 'Takes', mixer: 'Mixer', index: 'Index' };
+  if (!tabs.includes(S.tab)) S.tab = tabs[0];
+  const head = `<span class="seg">${tabs.map((t) => `<span data-act="tab:${t}" class="${S.tab === t ? 'on' : ''}">${names[t]}${t === 'takes' ? ' <kbd>T</kbd>' : ''}</span>`).join('')}</span>`;
+  const body = S.tab === 'takes' ? `<div class="scroll flex-1 min-h-0 overflow-y-auto p-3">${takesBody()}</div>` : S.tab === 'mixer' ? mixerBody() : S.tab === 'index' ? indexBody() : `<div class="scroll flex-1 min-h-0 overflow-y-auto p-3">${lineBlock(S.pick)}${ladder(S.pick)}</div>`;
+  return pane('insp', 'Inspector', head, body);
+}
+function indexBody() {
+  return `<div class="scroll flex-1 min-h-0 overflow-y-auto p-2.5 flex flex-col gap-3">
+    <div><div class="flex items-center gap-2 mb-1"><span class="lbl">To listen · 3</span><span class="flex-1"></span><span class="tb" style="height:22px;min-width:22px" data-act="nextmark">${I('chevR', 'w-3.5 h-3.5')}<span class="tip">Next mark <kbd>N</kbd></span></span></div>
+      ${REVIEW.map((i) => `<div data-act="pick:${i}" class="flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-default ${S.pick === i ? 'bg-[#1a1d27] shadow-[inset_2px_0_0_#818cf8]' : 'hover:bg-[#17191e]'}"><span class="mono text-[11px] text-slate-500 w-10">${clock(L[i].t)}</span><span class="flex-1 min-w-0 truncate text-[12.5px]">${L[i].dub}</span><span class="text-[10.5px] px-1.5 rounded border ${flagCls(L[i])}">${flagTxt(L[i])}</span></div>`).join('')}</div>
+    <div><div class="lbl mb-1">Markers · 2</div>${MARKERS.map((m) => `<div class="flex items-center gap-2 px-2 py-1 text-[12.5px]"><span class="w-2 h-2 rotate-45 bg-sky-400"></span><span class="mono text-[11px] text-slate-500 w-10">${clock(m.t)}</span>${m.n}</div>`).join('')}</div>
+    <div class="mt-auto flex flex-col gap-1.5"><span class="btn sm justify-center" data-act="win:lines">${I('list', 'w-3 h-3')} All 14 lines, tabs and Retake these…</span><p class="text-[11px] text-slate-500">Every line lives only in this window now, not under the timeline.</p></div>
+  </div>`;
+}
+function videoPane() {
+  const l = L[S.pick];
+  return pane('video', 'Review video', `<span class="tb" style="height:24px;min-width:24px">${I('pop', 'w-3.5 h-3.5')}<span class="tip">Pop out into its own window</span></span>`,
+    `<div class="flex-1 min-h-0 flex items-center justify-center bg-black p-2"><div class="relative h-full max-w-full aspect-video rounded-md overflow-hidden bg-gradient-to-br from-slate-800 via-slate-900 to-black flex items-end justify-center">
+      <span class="absolute inset-0 flex items-center justify-center text-slate-600">${I('video', 'w-10 h-10')}</span>
+      <span class="relative mb-3 mx-4 px-2 py-1 rounded bg-black/70 text-[13px] text-white text-center leading-snug">${l.dub}</span></div></div>`);
+}
+const timelinePane = (opts) => pane('timeline', 'Timeline', `<span class="text-[11px] text-slate-500">14 lines edited by hand · 12 of 14 in sync</span>`, `${tools()}${timeline(opts)}`);
+
+// ---------- E1 · Resolve Edit: video + inspector on top, timeline below ----------
+function viewE1() {
+  const P = S.panels.E1;
+  if (S.max) return maxed();
+  const top = P.video || P.insp ? `<div class="flex min-h-0 shrink-0" style="height:${px('e1top')}">
+      ${P.video ? `<div class="flex min-h-0 shrink-0" style="width:${P.insp ? px('e1vid') : '100%'}">${videoPane()}</div>` : ''}
+      ${P.video && P.insp ? splitter('e1vid', 'x') : ''}
+      ${P.insp ? `<div class="flex-1 min-w-0 flex min-h-0">${inspector(['line', 'takes', 'mixer', 'index'])}</div>` : ''}
+    </div>${splitter('e1top', 'y')}` : '';
+  return `${transport()}<div class="flex-1 min-h-0 flex flex-col p-2">${top}<div class="flex-1 min-h-0 flex">${timelinePane()}</div></div>`;
+}
+// ---------- E2 · Fairlight: index | timeline + mixer | inspector ----------
+function viewE2() {
+  const P = S.panels.E2;
+  if (S.max) return maxed();
+  const left = P.index ? `<div class="flex min-h-0 shrink-0" style="width:${px('e2l')}">${pane('index', 'Index', '', indexBody())}</div>${splitter('e2l', 'x')}` : '';
+  const right = P.insp ? `${splitter('e2r', 'x', -1)}<div class="flex min-h-0 shrink-0" style="width:${px('e2r')}">${inspector(['line', 'takes'])}</div>` : '';
+  const mixer = P.mixer ? `${splitter('e2mix', 'y', -1)}<div class="flex min-h-0 shrink-0" style="height:${px('e2mix')}">${pane('mixer', 'Mixer', '<span class="text-[11px] text-slate-500">levels for listening</span>', mixerBody())}</div>` : '';
+  return `${transport()}<div class="relative flex-1 min-h-0 flex p-2">${left}<div class="flex-1 min-w-0 flex flex-col min-h-0"><div class="flex-1 min-h-0 flex">${timelinePane()}</div>${mixer}</div>${right}${P.video ? pipVideo() : ''}</div>`;
+}
+// ---------- E3 · Cut page: whole-dub overview, caption band, zoomed timeline ----------
+function viewE3() {
+  const P = S.panels.E3;
+  if (S.max) return maxed();
+  const l = L[S.pick], prev = L[S.pick - 1], next = L[S.pick + 1];
+  const from = Math.max(0, Math.min(SPAN - 40, l.t - 14)), to = from + 40;
+  const overview = `<div class="flex min-h-0 shrink-0" style="height:${px('e3top')}">${pane('overview', 'Whole dub', '<span class="text-[11px] text-slate-500">drag the box to move along</span>', `<div class="relative flex-1 min-h-0 bg-[#0e0f13] mx-2 my-1.5 rounded">
+      ${[['#22d3ee', 0], ['#818cf8', 1], ['#2dd4bf', 2]].map(([c, r]) => L.filter((x) => r === 0 || x.sp === r).map((x) => `<span class="absolute rounded-[1px]" style="top:${8 + r * 30}%;height:22%;left:${(x.t / SPAN) * 100}%;width:${(x.o / SPAN) * 100}%;background:${c}${x.st === 'silent' && r ? '00' : '88'};${x.st === 'silent' && r ? 'outline:1px dashed #fb7185' : ''}"></span>`).join('')).join('')}
+      ${REVIEW.map((i) => `<span data-act="pick:${i}" class="absolute -top-0.5 w-0 h-0 border-x-[6px] border-x-transparent border-t-[8px] cursor-default ${L[i].st === 'silent' ? 'border-t-rose-400' : 'border-t-amber-400'}" style="left:calc(${(L[i].t / SPAN) * 100}% - 6px)"></span>`).join('')}
+      <span class="absolute top-0 bottom-0 rounded border-2 border-white/80 bg-white/5" style="left:${(from / SPAN) * 100}%;width:${(40 / SPAN) * 100}%"></span></div>`)}</div>${splitter('e3top', 'y')}`;
+  const st = prob(S.pick) ? steps(S.pick) : [];
+  const cap = `<div class="flex min-h-0 shrink-0" style="height:${px('e3cap')}">${pane('caption', 'Now playing', `<span class="text-[11px] text-slate-500">${badge(l)} ${clock(l.t)} · Speaker ${l.sp}</span>`, `<div class="scroll flex-1 min-h-0 overflow-y-auto px-4 py-2.5">
+      <div class="grid grid-cols-[1fr_2.6fr_1fr] gap-4 items-center"><p class="text-right text-[12px] text-slate-500 line-clamp-2 cursor-default" data-act="${prev ? 'pick:' + (S.pick - 1) : ''}">${prev ? prev.dub : ''}</p>
+        <div class="text-center"><p class="text-[17px] leading-snug">${l.dub}</p><p class="text-[12px] text-slate-400 mt-0.5">${l.src}</p><p class="text-[11.5px] mt-1 ${reasonCls(l)}">${reason(l)}</p></div>
+        <p class="text-[12px] text-slate-500 line-clamp-2 cursor-default" data-act="${next ? 'pick:' + (S.pick + 1) : ''}">${next ? next.dub : ''}</p></div>
+      <div class="mt-2 flex flex-wrap justify-center gap-1.5"><span class="btn sm">${I('play', 'w-3 h-3')} Listen <kbd>/</kbd></span>${l.st === 'silent' ? '' : `<span class="btn sm" data-act="takes">${I('mic', 'w-3 h-3')} Takes <kbd>T</kbd></span>`}${st.map((s, k) => `<span class="btn sm ${s.go ? 'border-indigo-500/60' : ''}"><span class="num" style="width:16px;height:16px">${k + 1}</span>${s.t}</span>`).join('')}</div></div>`)}</div>${splitter('e3cap', 'y')}`;
+  const right = P.insp ? `${splitter('e3r', 'x', -1)}<div class="flex min-h-0 shrink-0" style="width:${px('e3r')}">${inspector(['line', 'takes', 'mixer', 'index'])}</div>` : '';
+  return `${transport()}<div class="relative flex-1 min-h-0 flex p-2"><div class="flex-1 min-w-0 flex flex-col min-h-0">${overview}${cap}<div class="flex-1 min-h-0 flex">${timelinePane({ from, to })}</div></div>${right}${P.video ? pipVideo() : ''}</div>`;
+}
+// ---------- E4 · Focus: timeline fills; inspector, takes and video dock over it ----------
+function viewE4() {
+  const P = S.panels.E4;
+  if (S.max) return maxed();
+  const right = P.insp ? `${splitter('e4r', 'x', -1)}<div class="flex min-h-0 shrink-0" style="width:${px('e4r')}">${inspector(['line', 'mixer', 'index'])}</div>` : '';
+  const bottom = P.takes ? `${splitter('e4b', 'y', -1)}<div class="flex min-h-0 shrink-0" style="height:${px('e4b')}">${pane('takes', `Takes · line ${S.pick + 1}`, '<span class="text-[11px] text-slate-500">the Takes panel Edit timing has</span>', `<div class="scroll flex-1 min-h-0 overflow-y-auto p-3">${takesBody()}</div>`)}</div>` : '';
+  const pip = P.video ? pipVideo() : '';
+  return `${transport()}<div class="relative flex-1 min-h-0 flex p-2"><div class="flex-1 min-w-0 flex flex-col min-h-0"><div class="flex-1 min-h-0 flex">${timelinePane()}</div>${bottom}</div>${right}${pip}</div>`;
+}
+const pipVideo = () => `<div class="absolute z-[15] right-4 bottom-12 w-[300px] h-[190px] flex shadow-2xl shadow-black/70 overflow-hidden rounded-xl" style="resize:both;min-width:200px;min-height:130px">${videoPane()}</div>`;
+function maxed() {
+  const m = S.max;
+  const el = m === 'timeline' ? timelinePane() : m === 'video' ? videoPane() : m === 'insp' ? inspector(['line', 'takes', 'mixer', 'index']) : m === 'mixer' ? pane('mixer', 'Mixer', '', mixerBody()) : m === 'index' ? pane('index', 'Index', '', indexBody()) : m === 'takes' ? pane('takes', 'Takes', '', `<div class="scroll flex-1 min-h-0 overflow-y-auto p-3">${takesBody()}</div>`) : timelinePane();
+  return `${transport()}<div class="flex-1 min-h-0 flex p-2">${el}</div>`;
+}
+
+// ---------- centred windows (as in the app) ----------
+function windows() {
+  if (!S.win) return '';
+  const wrap = (title, body, w = '44rem') => `<div class="absolute inset-0 z-40 bg-black/55 flex items-center justify-center p-8" data-act="win:">
+    <div class="card w-full max-h-full flex flex-col" style="max-width:${w}" data-stop="1"><div class="flex items-center gap-2 px-4 py-3 border-b edge"><h3 class="text-[15px] font-semibold">${title}</h3><span class="flex-1"></span><span class="tb" data-act="win:">${I('x', 'w-4 h-4')}</span></div><div class="scroll overflow-y-auto p-4 flex flex-col gap-3 text-[12.5px]">${body}</div></div></div>`;
+  const row = (a, b) => `<div class="flex items-center gap-3 py-1.5 border-b edge"><span class="text-slate-300 w-44 shrink-0">${a}</span><span class="flex flex-wrap items-center gap-1.5 text-slate-400">${b}</span></div>`;
+  if (S.win === 'voices') return wrap('Voices', `<div class="lbl">Voice and delivery</div>${row('Speaker 1', '<span class="btn sm">Rachel ▾</span><span class="seg"><span>Off</span><span>Neutral</span><span class="on">Natural</span><span>Expressive</span></span>')}${row('Speaker 2', '<span class="btn sm">Aarav ▾</span><span class="seg"><span>Off</span><span class="on">Neutral</span><span>Natural</span><span>Expressive</span></span>')}${row('Model', '<span class="btn sm">Eleven v3 ▾</span><span class="btn sm">Voice settings</span>')}
+    <div class="lbl mt-2">Cast</div>${row('Speaker 1 · Swami', 'Male · Indian · 10 lines')}${row('Speaker 2', 'Male · Indian · 4 lines')}
+    <div class="lbl mt-2">Change the voice</div>${row('Change the voice, keep the timing', '<span class="btn sm">Line by line</span><span class="btn sm">Whole dub…</span>')}<p class="text-slate-500">A change applies when you sync again.</p>`);
+  if (S.win === 'sync') return wrap('Sync settings', `${row('Dub length', '<span class="seg"><span class="on">Auto</span><span>Tight</span><span>Natural</span></span>')}${row('Chunk sync', 'On · cut at source pauses · close up chunks: Picked lines')}${row('Match source pauses', 'On')}${row('Tighten silences', 'On · alignment check On')}${row('Grouping', 'Fit to this video')}${row('Audio quality', 'WAV 48 kHz')}${row('Even out loudness', 'On')}<p class="text-slate-500">A change applies when you sync again.</p>`, '40rem');
+  if (S.win === 'syncmenu') return wrap('Sync again', `<div class="flex flex-col gap-2"><span class="btn justify-start">${I('refresh', 'w-3.5 h-3.5')} Sync again · voices only changed and retaken lines</span><span class="btn justify-start">${I('lock', 'w-3.5 h-3.5')} Changed lines only · every other line stays where it is</span><span class="btn justify-start">From scratch… · every line voiced again</span></div>`, '30rem');
+  if (S.win === 'export') return wrap('Export', `<div class="lbl">Dub audio</div>${row('Synced dub', '<span class="btn sm">WAV 48 kHz</span><span class="btn sm">MP3 320 kbps</span>')}${row('Dub + tracks', '<span class="btn sm">WAV 32-bit float</span>')}${row('Stems', '<span class="btn sm">Speaker 1</span><span class="btn sm">Speaker 2</span>')}
+    <div class="lbl mt-2">Subtitles</div>${row('Hindi · timed to the dub', '<span class="btn sm">SRT</span><span class="btn sm">VTT</span><span class="btn sm">Edit & export</span>')}
+    <div class="lbl mt-2">Script</div>${row('Hindi script', '<span class="seg"><span class="on">Lines in the dub</span><span>Every cue</span></span><span class="btn sm">Save</span><span class="btn sm">Copy</span>')}
+    ${row('Mix check', 'Mix peak −1.2 dBFS')}<p class="text-slate-500">The project file (.dhvani, whole or Light) stays in Projects.</p>`);
+  if (S.win === 'lines') {
+    const TABS = [['review', 'Worth a listen', 3], ['long', 'Too long', 1], ['edited', 'Hand edits', 14], ['all', 'Every line', 14]];
+    const rows = S.ltab === 'review' ? REVIEW : S.ltab === 'long' ? [3] : L.map((_, i) => i);
+    return wrap('Lines', `<div class="flex flex-wrap items-center gap-2"><span class="seg">${TABS.map(([id, t, n]) => `<span data-act="ltab:${id}" class="${S.ltab === id ? 'on' : ''}">${t} · ${n}</span>`).join('')}</span><span class="text-indigo-300 cursor-default flex items-center gap-1">${I('mic', 'w-3 h-3')} ${S.ltab === 'all' ? 'Retake all 13' : 'Retake these 2'}</span><span class="flex-1"></span><span class="text-slate-500">2 outside tolerance · 1 too long for their slot</span></div>
+      <p class="text-slate-400">All 14 lines were cut from the continuous read, so they keep its flow. 1 suggestion was held back: it changed the meaning.</p>
+      <ul class="divide-y divide-[#1d2028]">${rows.map((i) => `<li data-act="pick:${i}" class="flex items-center gap-2 py-2 cursor-default"><span class="mono text-[11px] text-slate-500 w-10">${clock(L[i].t)}</span><span class="flex-1 min-w-0 truncate">${L[i].dub}</span>${prob(i) ? `<span class="text-[10.5px] px-1.5 rounded border ${flagCls(L[i])}">${flagTxt(L[i])}</span>` : ''}</li>`).join('')}</ul>`, '58rem');
+  }
+  return '';
+}
+
+// ---------- shell ----------
+const VIEWS = {
+  E1: { f: viewE1, note: '<b>E1 · Resolve Edit পাতা।</b> ওপরে বাঁয়ে Review video, ডানে Inspector (Line · Takes · Mixer), নিচে পুরো চওড়া Timeline, তাতে Edit timing-এর সব টুল সবসময় থাকে, আলাদা mode নয়। ভিডিও আর Inspector-এর মাঝের দাগ টানলে চওড়া বদলায়, ওপর আর Timeline-এর মাঝের দাগ টানলে উচ্চতা বদলায়। ওপরের <b>Video / Inspector</b> বোতামে প্যানেল লুকোনো যায়, তখন Timeline সেই জায়গাও পায়। প্রতিটা প্যানেলের ⤢ চাপলে সেটা পুরো পাতা জুড়ে খোলে।' },
+  E2: { f: viewE2, note: '<b>E2 · Fairlight (শব্দের কাজের পাতা)।</b> মাঝখানে Timeline সবচেয়ে বড়। বাঁয়ে <b>Index</b>: শোনার মতো ৩টা লাইন, Markers, আর পুরো Lines উইন্ডো খোলার বোতাম। ডানে <b>Inspector</b>: Line আর Takes। নিচে <b>Mixer</b>: প্রতি বক্তার fader, M/S, মিটার, Mix check, Even out speakers, Stems। তিনটে দাগই টানা যায়, তিনটে প্যানেলই ওপরের বোতামে লুকোনো যায়।' },
+  E3: { f: viewE3, note: '<b>E3 · Cut পাতা।</b> ওপরে পুরো ডাবের ছোট মানচিত্র: সমস্যার জায়গায় ত্রিভুজ, সাদা বাক্সে এখন কোন অংশ দেখছ। তার নিচে <b>Now playing</b> ব্যান্ড: লাইনটা বড় করে, দুপাশে আগের আর পরের লাইন, আর ঠিক করার ধাপগুলো। সবচেয়ে নিচে বড় করা Timeline (৪০ সেকেন্ড)। ডানে Inspector, চারটে ট্যাবে। মানচিত্র, ব্যান্ড আর Inspector-এর দাগ টেনে মাপ বদলানো যায়।' },
+  E4: { f: viewE4, note: '<b>E4 · Focus।</b> Timeline প্রায় পুরো পাতা জুড়ে। Inspector ডানে আটকানো, তার বাঁদিকের দাগ টেনে চওড়া বদলায়। <b>Takes</b> (<kbd>T</kbd>) নিচে একটা ড্রয়ারে খোলে, ওপরের দাগ টেনে উঁচু-নিচু করা যায়। Review video ভাসমান ছোট জানালা, কোণ ধরে টেনে বড় করা যায়। সব প্যানেল লুকোলে পুরো পাতা শুধু লেন।' },
+};
+const FEAT = [
+  ['Sync result: verdict + সব সংখ্যা (hover)', { E1: 'app bar', E2: 'app bar', E3: 'app bar', E4: 'app bar' }],
+  ['খবর: preset পরামর্শ, Fit-এর ফল, 2 changed, take to choose, no audio', { E1: 'এক সারি', E2: 'এক সারি', E3: 'এক সারি', E4: 'এক সারি' }],
+  ['⏮ ▶ ⏭, সময়, 1× / 0.75×', { E1: 'transport', E2: 'transport', E3: 'transport', E4: 'transport' }],
+  ['Undo voice change, Undo/Redo/History', { E1: 'transport', E2: 'transport', E3: 'transport', E4: 'transport' }],
+  ['3 to listen + Next mark N', { E1: 'transport', E2: 'transport + Index', E3: 'transport + মানচিত্র', E4: 'transport' }],
+  ['Select range, Blade, Snap, Ripple, Marker', { E1: 'Timeline টুল', E2: 'Timeline টুল', E3: 'Timeline টুল', E4: 'Timeline টুল' }],
+  ['Split, Join, Align, Mute, Lock, Split at pauses, Tighten, Takes', { E1: 'Timeline টুল', E2: 'Timeline টুল', E3: 'Timeline টুল', E4: 'Timeline টুল' }],
+  ['Markers', { E1: 'Markers সারি', E2: 'সারি + Index', E3: 'সারি + Index ট্যাব', E4: 'সারি + Index ট্যাব' }],
+  ['Original, Sync check, বক্তার লেন (M/S/level), ট্র্যাক', { E1: 'Timeline', E2: 'Timeline', E3: 'Timeline', E4: 'Timeline' }],
+  ['Wave ×1/×2/×4, zoom, Whole track, ছোট মানচিত্র', { E1: 'transport + নিচে', E2: 'transport + নিচে', E3: 'মানচিত্র প্যানেল', E4: 'transport + নিচে' }],
+  ['বাছা লাইন: Start, Speed, Gain, Fades, Lock, Align, Reset', { E1: 'Inspector → Line', E2: 'Inspector → Line', E3: 'Inspector → Line', E4: 'Inspector → Line' }],
+  ['লাইন, কারণ, বার, ঠিক করার ৫ ধাপ, Shorten বক্স', { E1: 'Inspector → Line', E2: 'Inspector → Line', E3: 'ব্যান্ড + Inspector', E4: 'Inspector → Line' }],
+  ['Takes: wave + শব্দ, Say instead, takes, Use, Place, tags, stability, More takes', { E1: 'Inspector → Takes', E2: 'Inspector → Takes', E3: 'Inspector → Takes', E4: 'নিচের ড্রয়ার' }],
+  ['Review video (pop out)', { E1: 'ভিডিও প্যানেল', E2: 'Video বোতাম → ভাসমান', E3: 'Video বোতাম → ভাসমান', E4: 'ভাসমান জানালা' }],
+  ['Speakers: fader, Mix check, Even out speakers, Stems', { E1: 'Inspector → Mixer', E2: 'Mixer প্যানেল', E3: 'Inspector → Mixer', E4: 'Inspector → Mixer' }],
+  ['Voices: Voice and delivery, Cast, Change the voice', { E1: 'Voices উইন্ডো', E2: 'Voices উইন্ডো', E3: 'Voices উইন্ডো', E4: 'Voices উইন্ডো' }],
+  ['Sync settings, Sync again ▾ (Changed only, From scratch)', { E1: 'app bar', E2: 'app bar', E3: 'app bar', E4: 'app bar' }],
+  ['Export ▾: WAV/MP3, Dub + tracks, stems, Subtitles, Script', { E1: 'Export উইন্ডো', E2: 'Export উইন্ডো', E3: 'Export উইন্ডো', E4: 'Export উইন্ডো' }],
+  ['Lines: tabs, Retake these/all, notes, every line', { E1: 'Inspector → Index → উইন্ডো', E2: 'Index → উইন্ডো', E3: 'Index ট্যাব → উইন্ডো', E4: 'Index ট্যাব → উইন্ডো' }],
+  ['প্যানেল টেনে ছোট-বড়, দুবার ক্লিকে ফেরে, ⤢ পুরো পাতা', { E1: '২টা দাগ + লেন', E2: '৩টা দাগ + লেন', E3: '৩টা দাগ + লেন', E4: '২টা দাগ + লেন + ভিডিওর কোণ' }],
+];
+function render() {
+  document.getElementById('tabs').innerHTML = Object.keys(VIEWS).map((k) => `<span data-act="view:${k}" class="tab ${S.view === k ? 'on' : ''}">${k}</span>`).join('');
+  document.getElementById('note').innerHTML = VIEWS[S.view].note;
+  const fr = document.getElementById('frame');
+  fr.innerHTML = appBar() + noticeRow() + `<div class="flex-1 min-h-0 flex flex-col">${VIEWS[S.view].f()}</div>` + windows();
+  for (const [k, v] of Object.entries(SZ)) fr.style.setProperty(`--${k}`, `${v}px`);
+  document.getElementById('feat').innerHTML = FEAT.map(([f, m]) => `<tr><td class="text-emerald-400">${I('check', 'w-3.5 h-3.5')}</td><td class="text-slate-300">${f}</td><td class="text-slate-400 text-right">${m[S.view]}</td></tr>`).join('');
+  measure();
+}
+function measure() { const el = document.querySelector('#frame [data-lanes]'); document.getElementById('hgt').textContent = el ? `timeline ${Math.round(el.getBoundingClientRect().height)} px` : ''; }
+function nextMark() { const k = REVIEW.indexOf(S.pick); S.pick = REVIEW[(k + 1) % REVIEW.length]; S.box = S.sugg = false; }
+
+// clicks
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-act]');
+  if (!a) return;
+  const stop = e.target.closest('[data-stop]');
+  if (stop && a.contains(stop)) return;
+  const [n, v] = a.dataset.act.split(':');
+  if (n === 'view') { S.view = v; S.max = null; S.win = null; S.box = S.sugg = false; }
+  else if (n === 'pick') { const i = +v; if (i !== S.pick) { S.box = S.sugg = false; } S.pick = i; if (S.tab === 'mixer' || S.tab === 'index') S.tab = 'line'; }
+  else if (n === 'panel') { S.panels[S.view][v] = !S.panels[S.view][v]; S.max = null; }
+  else if (n === 'max') S.max = S.max === v ? null : v;
+  else if (n === 'tab') S.tab = v; else if (n === 'ltab') S.ltab = v; else if (n === 'lineN') S.lineN = +v;
+  else if (n === 'win') S.win = v || null;
+  else if (n === 'takes') { if (S.view === 'E4') S.panels.E4.takes = !S.panels.E4.takes; else S.tab = S.tab === 'takes' ? 'line' : 'takes'; }
+  else if (n === 'nextmark') nextMark();
+  else if (n === 'notice') S.notice = false;
+  else if (['sugg', 'box'].includes(n)) S[n] = !S[n];
+  else return;
+  e.stopPropagation();
+  render();
+});
+// keys
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest('textarea,input')) return;
+  const k = e.key.toLowerCase();
+  if (k === 'n') nextMark();
+  else if (k === 't') { if (S.view === 'E4') S.panels.E4.takes = !S.panels.E4.takes; else S.tab = S.tab === 'takes' ? 'line' : 'takes'; }
+  else if (k === 'e') S.box = !S.box;
+  else if (k === 'i' && 'insp' in S.panels[S.view]) S.panels[S.view].insp = !S.panels[S.view].insp;
+  else if (k === 'escape') { S.win = null; S.max = null; }
+  else return;
+  render();
+});
+// DaVinci-style dragging: splitters and lane edges
+let drag = null;
+document.addEventListener('pointerdown', (e) => {
+  const s = e.target.closest('[data-split]');
+  if (!s) return;
+  e.preventDefault();
+  const key = s.dataset.split;
+  drag = { key, el: s, dir: s.dataset.dir === 'x' ? 'x' : 'y', sign: +s.dataset.sign || 1, start: s.dataset.dir === 'x' ? e.clientX : e.clientY, v: SZ[key] };
+  s.classList.add('drag'); document.body.classList.add('dragging');
+  document.body.style.cursor = drag.dir === 'x' ? 'col-resize' : 'row-resize';
+});
+document.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const d = (drag.dir === 'x' ? e.clientX : e.clientY) - drag.start;
+  const [lo, hi] = LIM[drag.key];
+  SZ[drag.key] = Math.round(Math.min(hi, Math.max(lo, drag.v + d * drag.sign)));
+  document.getElementById('frame').style.setProperty(`--${drag.key}`, `${SZ[drag.key]}px`);
+  measure();
+});
+document.addEventListener('pointerup', () => { if (!drag) return; drag.el.classList.remove('drag'); document.body.classList.remove('dragging'); document.body.style.cursor = ''; drag = null; });
+document.addEventListener('dblclick', (e) => { const s = e.target.closest('[data-split]'); if (!s) return; SZ[s.dataset.split] = DEF[s.dataset.split]; render(); });
+document.getElementById('notice').addEventListener('change', (e) => { S.notice = e.target.checked; render(); });
+window.addEventListener('resize', measure);
+render();
+</script>
+</body>
+</html>

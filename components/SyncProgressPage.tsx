@@ -350,7 +350,7 @@ export const SyncProgressPage: React.FC<SyncProgressPageProps> = ({
               {done.summary.inSync} of {done.summary.lines} lines in sync
               {done.summary.exceeded > 0 && `; ${done.summary.exceeded} run long`}
               {done.summary.short > 0 && `; ${done.summary.short} end early`}.{' '}
-              {done.summary.exceeded + done.summary.short > 0 ? 'They are listed under Worth a listen.' : ''}
+              {done.summary.exceeded + done.summary.short > 0 ? 'They are marked on the dub lane.' : ''}
             </p>
           )}
         </div>

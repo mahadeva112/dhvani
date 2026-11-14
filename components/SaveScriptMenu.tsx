@@ -1,10 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Check, ChevronDown, Download } from 'lucide-react';
+import React, { useState } from 'react';
+import { ChevronRight, Download, FileText, X } from 'lucide-react';
 import type { TargetScriptFormat } from '../services/srtService';
+import { CenteredPanel } from './CenteredPanel';
 
 const FORMATS: { id: TargetScriptFormat; tag: string; title: string; hint: string }[] = [
-  { id: 'json', tag: 'JSON', title: 'Script file', hint: 'Opens under Paste script on any computer' },
+  { id: 'json', tag: 'JSON', title: 'Script file', hint: "With each line's time. Opens under Paste script on any computer." },
   { id: 'dialogue', tag: 'TXT', title: 'Dialogue', hint: 'The lines only, for reading' },
   { id: 'timecoded', tag: 'TXT', title: 'Timecoded', hint: 'Each line with its time' },
   { id: 'bilingual', tag: 'TXT', title: 'Bilingual', hint: 'The original above each line' },
@@ -25,113 +25,71 @@ interface SaveScriptMenuProps {
   onScopeChange?: (scope: ScriptScope) => void;
   /** Lines the synced dub left out, for the choice's hint. */
   removedCount?: number;
+  /** A small "Script" button, for a row of buttons, in place of the full row. */
+  compact?: boolean;
 }
 
 /**
- * The script's row in the Dub step's downloads, as a split button: the row
- * saves the script file, the arrow offers every other format.
+ * The script's row in the Dub step's downloads. It opens a window in the
+ * middle of the screen, like Save the dub: every format the script saves as,
+ * and, once synced, whether the text formats follow the dub.
  */
-export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, disabled, scope, onScopeChange, removedCount = 0 }) => {
+export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, disabled, scope, onScopeChange, removedCount = 0, compact = false }) => {
   const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  // Where the menu sits on screen. It's drawn on the page, outside the
-  // panel's scroll box, so the panel can't cut it off.
-  const [place, setPlace] = useState<{ right: number; top?: number; bottom?: number } | null>(null);
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const measure = () => {
-      const button = rootRef.current?.getBoundingClientRect();
-      if (!button) return;
-      const height = menuRef.current?.offsetHeight ?? 280;
-      const right = Math.max(8, window.innerWidth - button.right);
-      // Opens below, or above when there isn't room below.
-      if (button.bottom + 6 + height <= window.innerHeight - 8 || button.top - 6 - height < 8) {
-        setPlace({ right, top: button.bottom + 6 });
-      } else {
-        setPlace({ right, bottom: window.innerHeight - button.top + 6 });
-      }
-    };
-    measure();
-    window.addEventListener('resize', measure);
-    window.addEventListener('scroll', measure, true);
-    return () => {
-      window.removeEventListener('resize', measure);
-      window.removeEventListener('scroll', measure, true);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
-
-  const save = (format: TargetScriptFormat) => {
-    setOpen(false);
-    onSave(format);
-  };
 
   return (
-    <div ref={rootRef} className="relative min-w-0">
-      <div
-        className={`grid grid-cols-[minmax(0,1fr)_2.5rem] rounded-xl border border-edge overflow-hidden ${disabled ? 'opacity-45' : ''}`}
-      >
+    <>
+      {compact ? (
         <button
           type="button"
-          onClick={() => save('json')}
+          onClick={() => setOpen(true)}
           disabled={disabled}
-          title="Save the script file, with each line's time, to open under Paste script on another computer"
-          className="flex items-center gap-3 p-2.5 min-w-0 text-left hover:bg-slate-800/50 transition-colors disabled:cursor-not-allowed cursor-default"
+          aria-haspopup="dialog"
+          title={`Save the ${title}: script file, text, Word or spreadsheet`}
+          className="h-9 px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 text-[12.5px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 whitespace-nowrap transition-colors disabled:opacity-40 cursor-default"
         >
-          <span className="w-9 h-9 rounded-lg flex items-center justify-center font-mono text-[9.5px] font-semibold shrink-0 bg-indigo-500/15 text-indigo-300">
-            JSON
+          <FileText className="w-3.5 h-3.5" /> Script
+        </button>
+      ) : (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+        aria-haspopup="dialog"
+        className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-edge bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
+      >
+        <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-[13px] truncate">Save the {title}</span>
+          <span className="block text-[11.5px] text-slate-500 truncate">Script file, text, Word, spreadsheet</span>
+        </span>
+        <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+      </button>
+      )}
+
+      <CenteredPanel open={open && !disabled} onClose={() => setOpen(false)} label={`Save the ${title}`} className="max-w-[30rem]">
+        <header className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-edge">
+          <span className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-300">
+            <FileText className="w-[18px] h-[18px]" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block text-[13px] font-semibold text-slate-100 truncate">{title}</span>
-            <span className="block text-[11.5px] text-slate-400 truncate">Script file · other formats in the arrow</span>
+            <h2 className="text-[15px] font-semibold text-slate-100 truncate">Save the {title}</h2>
+            <p className="text-[12px] text-slate-400">Pick a format. Each one saves on its own.</p>
           </span>
-          <Download className="w-4 h-4 text-slate-500 shrink-0" />
-        </button>
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          disabled={disabled}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-label="Other formats"
-          title="Other formats"
-          className={`flex items-center justify-center border-l border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 transition-colors disabled:cursor-not-allowed cursor-default ${
-            open ? 'bg-slate-800/60 text-slate-100' : ''
-          }`}
-        >
-          <ChevronDown className={`w-4 h-4 transition-transform ${open ? 'rotate-180' : ''}`} />
-        </button>
-      </div>
-
-      {open && createPortal(
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label="Save script as"
-          style={{ position: 'fixed', right: place?.right ?? 8, top: place?.top, bottom: place?.bottom, visibility: place ? 'visible' : 'hidden' }}
-          className="z-[60] w-72 max-w-[calc(100vw-1rem)] p-1 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl animate-in fade-in duration-100"
-        >
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label="Close"
+            className="w-8 h-8 rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </header>
+        <div className="px-5 py-4 flex flex-col gap-4">
           {scope && onScopeChange && (
-            <div className="px-1.5 pt-1.5 pb-2 mb-1 border-b border-edge">
-              <div role="group" aria-label="Which lines" className="flex p-0.5 gap-0.5 rounded-lg bg-slate-950 border border-edge">
+            <div className="flex flex-col gap-2">
+              <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Which lines</span>
+              <div role="group" aria-label="Which lines" className="flex p-0.5 gap-0.5 rounded-xl bg-slate-950 border border-edge">
                 {([
                   ['heard', 'As heard in the dub'],
                   ['full', 'Full script'],
@@ -141,7 +99,7 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
                     type="button"
                     aria-pressed={scope === id}
                     onClick={() => onScopeChange(id)}
-                    className={`flex-1 px-2 py-1 rounded-md text-[11.5px] font-medium transition-colors cursor-default ${
+                    className={`flex-1 px-2 py-1.5 rounded-lg text-[12.5px] font-medium transition-colors cursor-default ${
                       scope === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -149,42 +107,33 @@ export const SaveScriptMenu: React.FC<SaveScriptMenuProps> = ({ onSave, title, d
                   </button>
                 ))}
               </div>
-              <p className="text-[11px] text-slate-400 leading-snug mt-1.5 px-0.5">
+              <p className="text-[11.5px] text-slate-400 leading-snug">
                 {scope === 'heard'
                   ? `${removedCount > 0 ? `Leaves out ${removedCount} ${removedCount === 1 ? 'cue' : 'cues'} removed in Edit timing; times` : 'Times'} as in the synced dub. The script file is always whole.`
                   : 'Every cue at its time in the original, removed ones too.'}
               </p>
             </div>
           )}
-          {FORMATS.map((f, i) => (
-            <React.Fragment key={f.id}>
-              {i === 1 && <div className="h-px bg-slate-800 mx-1.5 my-1" />}
+          <div className="flex flex-col gap-2">
+            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Format</span>
+            {FORMATS.map((f) => (
               <button
+                key={f.id}
                 type="button"
-                role="menuitem"
-                onClick={() => save(f.id)}
-                className={`w-full grid grid-cols-[2.75rem_minmax(0,1fr)_1rem] items-center gap-2.5 px-2 py-1.5 rounded-lg text-left transition-colors cursor-default ${
-                  i === 0 ? 'bg-indigo-500/10 hover:bg-indigo-500/15' : 'hover:bg-slate-800'
-                }`}
+                onClick={() => onSave(f.id)}
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-edge bg-slate-950/60 hover:bg-slate-800 hover:border-slate-600 text-left transition-colors cursor-default"
               >
-                <span
-                  className={`font-mono text-[10.5px] font-semibold text-center py-0.5 rounded-md ${
-                    i === 0 ? 'bg-indigo-500/20 text-indigo-300' : 'bg-slate-800 text-slate-400'
-                  }`}
-                >
-                  {f.tag}
+                <span className="shrink-0 w-11 text-center font-mono text-[10.5px] py-0.5 rounded-md bg-slate-800 text-slate-300">{f.tag}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13.5px] text-slate-100">{f.title}</span>
+                  <span className="block text-[11.5px] text-slate-400 leading-snug">{f.hint}</span>
                 </span>
-                <span className="min-w-0">
-                  <span className="block text-[12.5px] font-medium text-slate-100">{f.title}</span>
-                  <span className="block text-[11px] text-slate-400 leading-snug">{f.hint}</span>
-                </span>
-                {i === 0 ? <Check className="w-3.5 h-3.5 text-indigo-300" aria-label="Default" /> : <span />}
+                <Download className="w-4 h-4 text-slate-500 shrink-0" />
               </button>
-            </React.Fragment>
-          ))}
-        </div>,
-        document.body
-      )}
-    </div>
+            ))}
+          </div>
+        </div>
+      </CenteredPanel>
+    </>
   );
 };

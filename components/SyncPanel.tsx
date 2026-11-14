@@ -6,9 +6,9 @@ import {
   Bookmark,
   Check,
   ChevronRight,
+  ChevronDown,
   ChevronUp,
   Combine,
-  Copy,
   Download,
   Flag,
   ListMusic,
@@ -33,7 +33,6 @@ import {
   X,
 } from 'lucide-react';
 import {
-  LineSuggestion,
   SYNC_JOIN_PRESETS,
   SYNC_SCREEN_OPTIONS,
   syncJoinPreset,
@@ -52,8 +51,6 @@ import {
 import type { DubProgress } from '../services/elevenLabsService';
 import { apiGetAudio } from '../services/apiClient';
 import type { presetSuggestion } from '../services/syncPresets';
-import { isShort, LINE_OPTIONS, MAX_TRIED, MeaningWarning } from './SyncPreviewPanel';
-import { timeLine } from '../services/speechTiming';
 import {
   FitCard,
   FitOnSyncToggle,
@@ -79,8 +76,7 @@ import { SyncSettingsDiagram } from './SyncSettingsDiagram';
 import { SyncPresetLibrary } from './SyncPresetLibrary';
 import { reportError } from '../services/errorPopup';
 import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
-import { dotsToPauses, stripPauses } from '../server/lib/linePauses.js';
-import { PhoneticTextarea } from './review/PhoneticTextarea';
+import { CenteredPanel } from './CenteredPanel';
 import { PageScrollLock } from './usePageScrollLock';
 
 /**
@@ -284,7 +280,18 @@ export const SyncStatusBar: React.FC<{
   presetNow: string;
   presetSuggestion?: PresetSuggestion | null;
   onUsePreset?: (preset: Exclude<SyncJoinPreset, 'custom'>) => void;
-}> = ({ report, handEdits = 0, presetNow, presetSuggestion, onUsePreset }) => {
+  /** Moves the player to a time: where a line with no audio is. */
+  onGoTo?: (time: number) => void;
+  /** What the mix of the speakers leaves to look at; nothing when it is fine. */
+  mixWarnings?: string[];
+  /** At the right end: subtitles, the script, Save the dub. */
+  actions?: React.ReactNode;
+  /** One part alone: the badge and counts with no bar around them, or the bar with only its notices. */
+  part?: 'status' | 'notices';
+}> = ({ report, handEdits = 0, presetNow, presetSuggestion, onUsePreset, onGoTo, mixWarnings = [], actions, part }) => {
+  // Lines the voice returned no audio for: they have no clip on the lanes, so this bar is where they show.
+  const silentLines = useMemo(() => report.units.filter((unit) => unit.silent), [report]);
+  const stepAt = useRef<Record<string, number>>({});
   const { inSync, lines, exceeded, maxError, p90Error } = report.summary;
   const short = report.summary.short ?? 0;
   const conflicts = report.summary.timingConflicts ?? 0;
@@ -312,7 +319,7 @@ export const SyncStatusBar: React.FC<{
         : `${lines - inSync} of ${lines} lines are off their timing`;
   const detail = [
     exceeded > 0 && maxLate > report.tolerance
-      ? `Long lines push the ones after them, so the dub drifts up to ${maxLate.toFixed(2)} s late. Shorten the long lines below, then sync again.`
+      ? `Long lines push the ones after them, so the dub drifts up to ${maxLate.toFixed(2)} s late. Shorten the long lines in their retake window, then sync again.`
       : allInSync
         ? 'Every line starts where the original line does.'
         : '',
@@ -321,6 +328,25 @@ export const SyncStatusBar: React.FC<{
   ]
     .filter(Boolean)
     .join(' ');
+  // Lines to look at, each counted once, by what is wrong with it.
+  const offTiming = report.units.filter((u) => !u.silent && !u.exceeded && !u.short && !u.inSync);
+  const toCheck = report.units.filter((u) => u.silent || u.exceeded || u.short || !u.inSync).length;
+  /** Moves the player to the next line of a kind, round and round. */
+  const stepTo = (key: string, units: SyncUnitReport[]) =>
+    onGoTo && units.length > 0
+      ? () => {
+          const n = stepAt.current[key] ?? 0;
+          stepAt.current[key] = n + 1;
+          onGoTo(units[n % units.length].srcStart);
+        }
+      : undefined;
+  const longLines = report.units.filter((u) => u.exceeded);
+  const earlyLines = report.units.filter((u) => u.short && !u.exceeded);
+  const goTitle = (what: string) => `${what} Click to go to ${onGoTo ? 'the next one' : 'them'}.`;
+  const counts = [
+    { label: 'Off timing', n: offTiming.length, go: stepTo('off', offTiming), title: goTitle('Lines that start early or late.') },
+    { label: 'No audio', n: silentLines.length, go: stepTo('silent', silentLines), title: goTitle('The voice returned no audio for these lines, so the dub is silent there.') },
+  ].filter((c) => c.n > 0);
   const precision = SYNC_PRECISION_OPTIONS.find((o) => o.id === report.precision)?.label;
   const stats: { label: string; value: React.ReactNode; tone?: string }[] = [
     {
@@ -328,7 +354,7 @@ export const SyncStatusBar: React.FC<{
       value: (
         <>
           {inSync}
-          <span className="text-[13px] text-slate-500"> / {lines}</span>
+          <span className="text-[12px] text-slate-500"> / {lines}</span>
         </>
       ),
       tone: allInSync ? 'text-emerald-300' : undefined,
@@ -353,43 +379,79 @@ export const SyncStatusBar: React.FC<{
     }),
     ...(precision ? [{ label: 'Precision', value: precision.replace(' (', ' ').replace(')', '') }] : []),
   ];
-
-  return (
-    <section
-      aria-label="Sync result"
-      className="flex flex-wrap items-center gap-x-5 gap-y-3 rounded-2xl border border-edge bg-slate-900/90 px-4 sm:px-5 py-3"
-    >
+  // 'status': the badge, what the sync came to and its numbers, to sit on the row over the timeline.
+  const status = (
+    <>
+      {/* One badge, then only the kinds of line there are to check. The whole report is the badge's tooltip. */}
       <span
+        title={[headline + '.', detail, `${inSync} of ${lines} lines in sync · 90% start within ${p90Error.toFixed(2)} s · worst line ${maxError.toFixed(2)} s`]
+          .filter(Boolean)
+          .join(' ')}
         className={`shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-semibold ${
-          allInSync ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-400/12 text-amber-300'
+          toCheck === 0 ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-400/12 text-amber-300'
         }`}
       >
-        {allInSync ? <Check className="w-3.5 h-3.5" /> : <span className="w-2 h-2 rounded-full bg-amber-400" />}
-        {allInSync ? 'In sync' : 'Needs a fix'}
+        {toCheck === 0 ? <Check className="w-3.5 h-3.5" /> : <span className="w-2 h-2 rounded-full bg-amber-400" />}
+        {toCheck === 0 ? 'In sync' : `${toCheck} to check`}
       </span>
-      <div
-        className="min-w-[16rem] flex-1 basis-[18rem]"
-        title={`${
-          report.summary.chunkSync
-            ? `Each line is split where it goes quiet into ${report.summary.chunks ?? 0} chunks in all, and every chunk is placed on the original's words.`
-            : "Each line is placed near its original timing; a long line can move the lines around it."
-        } Sync does not stretch the voice. A line that cannot meet its timing is flagged below, never left out.${
-          handEdits > 0 ? ' Your hand edits in Edit timing are in this dub, and Sync again keeps every locked line where you put it.' : ''
-        }`}
-      >
-        <h2 className={`text-[15px] font-semibold leading-snug ${allInSync ? 'text-slate-100' : 'text-amber-50'}`}>{headline}</h2>
-        {detail && <p className="text-[11.5px] text-slate-400 leading-snug">{detail}</p>}
+      {counts.length > 0 && (
+        <span className="flex flex-wrap items-center gap-x-2 text-[12.5px] text-slate-300">
+          {counts.map((c, i) => (
+            <React.Fragment key={c.label}>
+              {i > 0 && <span className="text-slate-600">·</span>}
+              {c.go ? (
+                <button type="button" onClick={c.go} title={c.title} className="hover:text-white hover:underline underline-offset-2 cursor-default">
+                  {c.label} <span className="font-semibold tabular-nums text-amber-300">{c.n}</span>
+                </button>
+              ) : (
+                <span title={c.title}>
+                  {c.label} <span className="font-semibold tabular-nums text-amber-300">{c.n}</span>
+                </span>
+              )}
+            </React.Fragment>
+          ))}
+        </span>
+      )}
+      <div className="min-w-0">
+        <h2 className={`text-[13.5px] font-semibold leading-snug ${allInSync ? 'text-slate-100' : 'text-amber-50'}`}>{headline}</h2>
+        {detail && <p className="text-[11px] text-slate-400 leading-snug">{detail}</p>}
       </div>
-      <dl className="flex flex-wrap gap-y-2">
+      <dl className="flex flex-wrap gap-y-1.5">
         {stats.map((s) => (
-          <div key={s.label} className="flex flex-col px-3.5 border-l border-edge">
-            <dt className="text-[11px] text-slate-400 whitespace-nowrap">{s.label}</dt>
-            <dd className={`text-[17px] font-semibold tabular-nums leading-tight ${s.tone || 'text-slate-100'}`}>{s.value}</dd>
+          <div key={s.label} className="flex flex-col px-3 border-l border-edge">
+            <dt className="text-[10.5px] text-slate-400 whitespace-nowrap">{s.label}</dt>
+            <dd className={`text-[15px] font-semibold tabular-nums leading-tight ${s.tone || 'text-slate-100'}`}>{s.value}</dd>
           </div>
         ))}
       </dl>
+    </>
+  );
+  if (part === 'status') return status;
+  // 'notices': a bar only while there is something to say: a length that suits another preset, or the mix.
+  if (part === 'notices' && !offerPreset && mixWarnings.length === 0) return null;
+  return (
+    <section
+      aria-label="Sync result"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border border-edge bg-slate-900/90 px-4 py-2"
+    >
+      {part !== 'notices' && status}
+      {part === 'notices' && offerPreset && (
+        <p className="min-w-[14rem] flex-1 text-[12.5px] text-slate-200">
+          {presetName(offerPreset.preset)} suits this dub's length better than {presetNow}.
+        </p>
+      )}
+      {mixWarnings.length > 0 && (
+        <ul className="basis-full flex flex-col gap-1">
+          {mixWarnings.map((text) => (
+            <li key={text} className="flex items-start gap-2 text-[12px] text-amber-200">
+              <TriangleAlert className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+              <span>{text}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       {offerPreset && (
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setKept(true)}
@@ -408,37 +470,9 @@ export const SyncStatusBar: React.FC<{
           )}
         </div>
       )}
+      {actions && <div className="ml-auto flex flex-wrap items-center gap-2">{actions}</div>}
     </section>
   );
-};
-
-/** Why a line is worth a listen, or null when it landed cleanly. */
-const reviewReason = (unit: SyncUnitReport, tolerance: number): string | null => {
-  if (unit.silent) return 'The voice returned no audio for this line';
-  if (unit.timingConflict) return unit.timingConflict;
-  if (unit.cutOff)
-    return `The voice stops before the last word is finished${unit.retakes ? `, in all ${unit.retakes + 1} takes` : ''}: retake it or reword the line`;
-  if (unit.exceeded && unit.deepCut)
-    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Fewer words would cut over a third of it and lose what it says: give it more time in Edit timing, or join it with the line beside it`;
-  if (unit.exceeded && unit.cutCheckError)
-    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Its silences were not tightened, as its words could not be timed: ${unit.cutCheckError}`;
-  if (unit.exceeded && unit.speedFitUnsupported)
-    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had. Its voice's model takes neither a speed nor a pace direction, so it couldn't be read faster: shorten it, or voice the dub with Multilingual v2`;
-  if (unit.exceeded && unit.speedFit)
-    return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had, even read ${unit.speedFit.toFixed(2)}× faster: shorten it`;
-  if (unit.exceeded) return `Runs ${unit.exceededBy.toFixed(2)} s longer than the original line had`;
-  if (unit.short)
-    return `Ends ${unit.shortBy.toFixed(1)} s before the original speaker stops: ${unit.speech.toFixed(1)} s said, ${(unit.srcEnd - unit.srcStart).toFixed(1)} s spoken`;
-  if (unit.overrun !== null && unit.overrun > tolerance) return `Runs ${unit.overrun.toFixed(2)} s into the next line`;
-  if (unit.tightJoin && unit.joinAfter !== null)
-    return `Only ${Math.max(0, Math.round(unit.joinAfter * 1000))} ms before the next line starts: it may sound cut off`;
-  if (unit.late && unit.offset !== null) return `Starts ${unit.offset.toFixed(2)} s late: the line before it runs long`;
-  if (unit.offset !== null && Math.abs(unit.offset) > tolerance) return unit.offset > 0 ? 'Starts late: the line before it runs long' : 'Starts early to make room';
-  if (unit.takeFit?.used) return `A new take was put in to fit (${unit.takeFit.saved.toFixed(2)} s shorter): listen to it, or use the first take`;
-  if (unit.wordTiming?.status === 'unavailable') return `Word timing not verified: ${unit.wordTiming.reason || 'check again after Sync'}`;
-  if (unit.wordTiming?.boundaryMismatch) return `An internal cue boundary is off by ${(unit.wordTiming.boundaryMaxError ?? 0).toFixed(2)} s: review this phrase's pacing`;
-  if (unit.wordTiming?.endMismatch) return `The measured last word ends ${Math.abs(unit.wordTiming.endError ?? 0).toFixed(2)} s ${(unit.wordTiming.endError ?? 0) < 0 ? 'before' : 'after'} the source line: review its wording or take`;
-  return null;
 };
 
 /** What the preview still expects, under the Sync button: lines likely too long, and lines likely to end early. */
@@ -462,6 +496,14 @@ const VOICING_OPTIONS: { id: SyncVoicing; label: string; detail: string }[] = [
 const sectionLabel ='text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
 const downloadRow =
   'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-edge bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
+
+/** A file in the Save the dub window: its format, what it is, and the save mark. */
+const saveRow =
+  'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-edge bg-slate-950/60 hover:bg-slate-800 hover:border-slate-600 text-left transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
+
+/** A button on the player's row, once synced: Voice, the settings, Cancel. */
+const syncAction =
+  'h-8 px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 whitespace-nowrap transition-colors disabled:opacity-40 cursor-default';
 
 type PresetSuggestion = NonNullable<ReturnType<typeof presetSuggestion>>;
 
@@ -506,6 +548,9 @@ export interface SyncSettingsPanelProps {
   onDownloadMp3?: () => Promise<void>;
   /** Saves the synced dub with the tracks of outside audio mixed in, as WAV or MP3; absent without tracks. */
   onDownloadWithTracks?: (format: 'wav' | 'mp3') => Promise<void>;
+  /** A dub of several speakers: each speaker's own track, the same length as the dub. */
+  stems?: { speaker: string; color?: string }[];
+  onDownloadStem?: (speaker: string) => void;
   /** Opens the voice changer on the synced dub; absent before the first sync. */
   onOpenVoiceChanger?: () => void;
   /** The subtitles section: downloads and settings, built by the step. */
@@ -523,7 +568,12 @@ export interface SyncSettingsPanelProps {
    * settings card, with `summary` (the fit and what is left to look at), the
    * tools in a menu, and the button. The settings themselves sit on the card.
    */
-  variant?: 'rail' | 'bar';
+  variant?: 'bar' | 'save' | 'sync';
+  /** 'sync': opens the Voice and delivery window; `voiceWarn` is what there is to look at in it, if anything. */
+  onOpenVoice?: () => void;
+  voiceWarn?: string | null;
+  /** 'save': more files, at the foot of the Save the dub window. */
+  saveExtras?: React.ReactNode;
   summary?: React.ReactNode;
 }
 
@@ -616,9 +666,10 @@ const splitLabel = (label: string) => {
 
 /**
  * Every sync setting, in a window of its own opened from the Dub step's rail.
- * It fills the screen: a grouped list of sections on the left, every one in
- * view, the chosen one on the right, and what the sync will use in a row of
- * chips along the top. Changes apply as they are made, so the preview follows them.
+ * It opens in the middle of the screen like the other tool windows: a grouped
+ * list of sections on the left, each with what it is set to and an amber dot
+ * when changed, and the chosen one on the right. Changes apply as they are
+ * made, so the preview follows them.
  */
 const SyncSettingsWindow: React.FC<{
   options: SyncOptions;
@@ -1200,6 +1251,8 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   onDownloadWav,
   onDownloadMp3,
   onDownloadWithTracks,
+  stems = [],
+  onDownloadStem,
   onOpenVoiceChanger,
   subtitles,
   multiSpeaker = false,
@@ -1207,12 +1260,17 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
   lineCount,
   openRequest = 0,
   presetSuggestion,
-  variant = 'rail',
+  variant = 'bar',
+  onOpenVoice,
+  voiceWarn = null,
+  saveExtras,
   summary,
 }) => {
   const bar = variant === 'bar';
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [savingMp3, setSavingMp3] = useState(false);
+  /** The Save the dub window: every file the dub can be saved as, with what each is. */
+  const [saveOpen, setSaveOpen] = useState(false);
   /** Which Dub + tracks file is being mixed, if one is. */
   const [mixingTracks, setMixingTracks] = useState<'wav' | 'mp3' | null>(null);
   // Only a request made while the rail is on screen opens it, not one left from before the Dub step.
@@ -1330,183 +1388,245 @@ export const SyncSettingsPanel: React.FC<SyncSettingsPanelProps> = ({
     );
   }
 
-  return (
-  <aside
-    aria-label="Sync settings"
-    className="flex flex-col bg-slate-900/90 border border-edge rounded-2xl overflow-hidden lg:sticky lg:top-4"
-  >
-    <div className="flex items-center justify-between px-4 sm:px-5 pt-4">
-      <h2 className="text-[15px] font-semibold text-slate-100">Sync settings</h2>
-      <button type="button" onClick={onBack} className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-default">
-        <ArrowLeft className="w-3 h-3" /> Review
-      </button>
-    </div>
-
-    <div className="px-4 sm:px-5 py-4">
-      <div className="flex flex-col gap-3 rounded-xl border border-edge bg-slate-950/40 p-3.5">
-        <div className="flex flex-wrap gap-1.5">
-          {chips.map((chip) => (
-            <span key={chip} className="px-2 py-0.5 rounded-md border border-slate-700/80 text-[11.5px] text-slate-300">
-              {chip}
-            </span>
-          ))}
-          {fittedNow && (
-            <span title="Set by Fit to this video" className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-500/15 text-[11.5px] text-indigo-300">
-              <Ruler className="w-3 h-3" /> Fitted
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          aria-haspopup="dialog"
-          className="h-9 flex items-center justify-center gap-2 rounded-lg border border-slate-700 text-[13px] font-medium text-slate-200 hover:bg-slate-800 hover:border-slate-600 transition-colors cursor-default"
-        >
-          <SlidersHorizontal className="w-4 h-4" /> Open sync settings
-          <span className={`ml-1 px-1.5 py-px rounded-md text-[10.5px] font-medium ${changed ? 'bg-amber-400/15 text-amber-300' : 'bg-slate-800 text-slate-400'}`}>
-            {changed ? `${changed} changed` : 'Defaults'}
-          </span>
-        </button>
-        {previewShown && <span className="text-[11.5px] text-slate-500 text-center">The preview follows any change you make.</span>}
-      </div>
-    </div>
-
-    {settingsWindow}
-
-    {synced && (onDownloadWav || onDownloadMp3 || onOpenVoiceChanger) && (
-      <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
-        <span className={sectionLabel}>Synced dub</span>
-        {onDownloadWav && (
-          <button type="button" onClick={onDownloadWav} disabled={isSyncing} className={downloadRow}>
-            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
-            <span className="flex-1 text-[13px]">Synced dub</span>
-            <Download className="w-4 h-4 text-slate-500" />
-          </button>
-        )}
-        {onDownloadMp3 && (
+  if (variant === 'save') {
+    // Once synced, in the status bar: what the dub is saved as. Subtitles and the script come as buttons before it.
+    return (
+      <>
+        {subtitles}
+        {extras}
+        {(onDownloadWav || onDownloadMp3) && (
           <button
             type="button"
-            onClick={() => {
-              setSavingMp3(true);
-              onDownloadMp3().finally(() => setSavingMp3(false));
-            }}
-            disabled={isSyncing || savingMp3}
-            className={downloadRow}
-            title="An MP3 copy at 320 kbps, at the dub's own sample rate. The dub itself stays WAV."
+            onClick={() => setSaveOpen(true)}
+            disabled={isSyncing}
+            aria-haspopup="dialog"
+            className="h-9 px-4 flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold whitespace-nowrap transition-colors disabled:bg-slate-800 disabled:text-slate-500 cursor-default active:translate-y-px"
           >
-            <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">MP3</span>
-            <span className="flex-1 text-[13px]">{savingMp3 ? 'Making the MP3…' : 'Synced dub'}</span>
-            {savingMp3 ? (
-              <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
-            ) : (
-              <Download className="w-4 h-4 text-slate-500" />
-            )}
+            <Download className="w-4 h-4" /> Save the dub
           </button>
         )}
-        {onDownloadWithTracks &&
-          (['wav', 'mp3'] as const).map((format) => (
+    <CenteredPanel open={saveOpen && !isSyncing} onClose={() => setSaveOpen(false)} label="Save the dub" className="max-w-[30rem]">
+      <header className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-edge">
+        <span className="w-9 h-9 rounded-[10px] flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-300">
+          <Download className="w-[18px] h-[18px]" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <h2 className="text-[15px] font-semibold text-slate-100">Save the dub</h2>
+          <p className="text-[12px] text-slate-400">Pick a file. Each one saves on its own.</p>
+        </span>
+        <button
+          type="button"
+          onClick={() => setSaveOpen(false)}
+          aria-label="Close"
+          className="w-8 h-8 rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </header>
+      <div className="px-5 py-4 flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <span className={sectionLabel}>The dub</span>
+          {onDownloadWav && (
+            <button type="button" onClick={onDownloadWav} className={saveRow}>
+              <span className="shrink-0 w-10 text-center font-mono text-[10.5px] py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13.5px] text-slate-100">Synced dub</span>
+                <span className="block text-[11.5px] text-slate-400 leading-snug">The dub itself, as Sync made it.</span>
+              </span>
+              <Download className="w-4 h-4 text-slate-500 shrink-0" />
+            </button>
+          )}
+          {onDownloadMp3 && (
             <button
-              key={format}
               type="button"
               onClick={() => {
-                setMixingTracks(format);
-                onDownloadWithTracks(format).finally(() => setMixingTracks(null));
+                setSavingMp3(true);
+                onDownloadMp3().finally(() => setSavingMp3(false));
               }}
-              disabled={isSyncing || mixingTracks !== null}
-              className={downloadRow}
-              title={
-                format === 'wav'
-                  ? "The dub with the tracks you added in Edit timing mixed in, at the dub's own rate, as a 32-bit float WAV so nothing clips. Muted or soloed tracks are still in it."
-                  : "The same mix as an MP3 at 320 kbps, at the dub's own rate. An MP3 can't hold peaks above 0 dB, so if the mix goes over, the WAV keeps them and the MP3 clips there."
-              }
+              disabled={savingMp3}
+              className={saveRow}
             >
-              <span className="font-mono text-[10.5px] px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300">{format.toUpperCase()}</span>
-              <span className="flex-1 text-[13px]">
-                {mixingTracks === format ? (format === 'mp3' ? 'Making the MP3…' : 'Mixing the tracks in…') : 'Dub + tracks'}
+              <span className="shrink-0 w-10 text-center font-mono text-[10.5px] py-0.5 rounded-md bg-slate-800 text-slate-300">MP3</span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13.5px] text-slate-100">{savingMp3 ? 'Making the MP3…' : 'Synced dub'}</span>
+                <span className="block text-[11.5px] text-slate-400 leading-snug">A smaller copy at 320 kbps, at the dub's own sample rate. The dub itself stays WAV.</span>
               </span>
-              {mixingTracks === format ? <Loader2 className="w-4 h-4 text-slate-500 animate-spin" /> : <Download className="w-4 h-4 text-slate-500" />}
+              {savingMp3 ? <Loader2 className="w-4 h-4 text-slate-500 animate-spin shrink-0" /> : <Download className="w-4 h-4 text-slate-500 shrink-0" />}
             </button>
-          ))}
-        {onOpenVoiceChanger && (
-          <button type="button" onClick={onOpenVoiceChanger} disabled={isSyncing} className={downloadRow}>
-            <AudioWaveform className="w-4 h-4 text-slate-400 shrink-0" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-[13px]">Change the voice</span>
-              <span className="block text-[11.5px] text-slate-500 truncate">Keeps the timing; Sync again re-voices it</span>
-            </span>
-            <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-          </button>
+          )}
+        </div>
+        {onDownloadWithTracks && (
+          <div className="flex flex-col gap-2">
+            <span className={sectionLabel}>With the tracks you added</span>
+            {(['wav', 'mp3'] as const).map((format) => (
+              <button
+                key={format}
+                type="button"
+                onClick={() => {
+                  setMixingTracks(format);
+                  onDownloadWithTracks(format).finally(() => setMixingTracks(null));
+                }}
+                disabled={mixingTracks !== null}
+                className={saveRow}
+              >
+                <span className="shrink-0 w-10 text-center font-mono text-[10.5px] py-0.5 rounded-md bg-slate-800 text-slate-300">{format.toUpperCase()}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13.5px] text-slate-100">
+                    {mixingTracks === format ? (format === 'mp3' ? 'Making the MP3…' : 'Mixing the tracks in…') : 'Dub + tracks'}
+                  </span>
+                  <span className="block text-[11.5px] text-slate-400 leading-snug">
+                    {format === 'wav'
+                      ? 'The dub with your Edit timing tracks mixed in, as a 32-bit float WAV so nothing clips. Muted or soloed tracks are still in it.'
+                      : "The same mix at 320 kbps. An MP3 can't hold peaks above 0 dB: if the mix goes over, it clips there and the WAV does not."}
+                  </span>
+                </span>
+                {mixingTracks === format ? <Loader2 className="w-4 h-4 text-slate-500 animate-spin shrink-0" /> : <Download className="w-4 h-4 text-slate-500 shrink-0" />}
+              </button>
+            ))}
+          </div>
         )}
+        {onDownloadStem && stems.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <span className={sectionLabel}>Each speaker alone</span>
+            <p className="-mt-1 text-[11.5px] text-slate-400 leading-snug">Every track is the same length as the dub, so they line up at 0:00 in an editor.</p>
+            {stems.map((stem) => (
+              <button key={stem.speaker} type="button" onClick={() => onDownloadStem(stem.speaker)} className={saveRow}>
+                <span className="shrink-0 w-10 text-center font-mono text-[10.5px] py-0.5 rounded-md bg-slate-800 text-slate-300">WAV</span>
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: stem.color ?? '#64748b' }} />
+                <span className="min-w-0 flex-1 text-[13.5px] text-slate-100 truncate">{stem.speaker}</span>
+                <Download className="w-4 h-4 text-slate-500 shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+        {saveExtras && <div className="flex flex-col gap-2">{saveExtras}</div>}
       </div>
-    )}
+    </CenteredPanel>
+      </>
+    );
+  }
 
-    {subtitles && (
-      <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
-        <span className={sectionLabel}>Subtitles</span>
-        {subtitles}
-      </div>
-    )}
-
-    {extras && (
-      <div className="px-4 sm:px-5 pb-4 flex flex-col gap-2">
-        <span className={sectionLabel}>Script and tools</span>
-        {extras}
-      </div>
-    )}
-
-    <div className="mt-auto px-4 sm:px-5 py-4 border-t border-edge bg-slate-950/60 flex flex-col gap-2">
+  // Once synced, on the player's row: the voice, the settings and Sync again, for the next Sync.
+  const syncNote =
+    blockedReason && !isSyncing
+      ? blockedReason
+      : interrupted && !isSyncing
+        ? 'The last dub stopped before it finished. The lines it voiced are kept: resuming voices only the rest.'
+        : footNote;
+  const hot = !blockedReason && (pendingCount > 0 || interrupted);
+  const closeMenu = (e: React.MouseEvent) => (e.currentTarget.closest('details') as HTMLDetailsElement | null)?.removeAttribute('open');
+  const menuItem = 'w-full flex items-start gap-2 px-2.5 py-2 rounded-lg text-left hover:bg-slate-800 cursor-default';
+  const showChangedOnly = synced && pendingCount > 0 && !interrupted && !blockedReason && onSyncChangedOnly;
+  const showFromScratch = synced && !interrupted && !blockedReason && onSyncFromScratch;
+  return (
+    <>
+      {(blockedReason || interrupted) && !isSyncing && (
+        <span className="max-w-[16rem] truncate text-[11.5px] text-amber-300" title={syncNote}>
+          {syncNote}
+        </span>
+      )}
+      {onOpenVoice && (
+        <button
+          type="button"
+          onClick={onOpenVoice}
+          aria-haspopup="dialog"
+          title={voiceWarn || 'Voice and delivery: the voices, model, expression and audio quality the next Sync uses'}
+          className={`relative ${syncAction}`}
+        >
+          <Mic className="w-3.5 h-3.5" /> Voice
+          {voiceWarn && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setSettingsOpen(true)}
+        aria-haspopup="dialog"
+        aria-label="Sync settings"
+        title={`Sync settings: ${chips.join(' · ')}${changed ? ` · ${changed} changed from the defaults` : ''}`}
+        className={`relative ${syncAction}`}
+      >
+        <Settings2 className="w-3.5 h-3.5" />
+        {changed > 0 && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
+      </button>
       {isSyncing ? (
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isCancelling}
-          className="h-11 flex items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-sm font-medium text-slate-200 disabled:opacity-50 cursor-default"
-        >
-          <X className="w-4 h-4" /> {waitingFor ? 'Take out of the line' : isCancelling ? 'Cancelling…' : 'Cancel sync'}
+        <button type="button" onClick={onCancel} disabled={isCancelling} className={syncAction}>
+          <X className="w-3.5 h-3.5" /> {waitingFor ? 'Take out of the line' : isCancelling ? 'Cancelling…' : 'Cancel sync'}
         </button>
       ) : (
-        <button
-          type="button"
-          onClick={onSync}
-          disabled={Boolean(blockedReason)}
-          className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
-        >
-          {synced || interrupted ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-          {interrupted ? 'Resume dub' : synced ? 'Sync again' : 'Dub & sync'}
-        </button>
+        <div className="flex">
+          <button
+            type="button"
+            onClick={onSync}
+            disabled={Boolean(blockedReason)}
+            title={syncNote}
+            className={`h-8 px-3 flex items-center gap-1.5 text-xs font-medium whitespace-nowrap transition-colors disabled:opacity-40 cursor-default ${
+              showChangedOnly || showFromScratch ? 'rounded-l-lg' : 'rounded-lg'
+            } ${
+              hot
+                ? 'bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-600'
+                : 'border border-slate-700 text-slate-200 hover:text-white hover:bg-slate-800'
+            }`}
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            {interrupted ? 'Resume dub' : 'Sync again'}
+            {synced && pendingCount > 0 && !interrupted && <span className="tabular-nums opacity-90">· {pendingCount} changed</span>}
+          </button>
+          {(showChangedOnly || showFromScratch) && (
+            <details className="relative">
+              <summary
+                aria-label="Other ways to sync"
+                title="Other ways to sync"
+                className={`list-none h-8 w-7 flex items-center justify-center rounded-r-lg border border-l-0 cursor-default [&::-webkit-details-marker]:hidden ${
+                  hot ? 'border-indigo-600 bg-indigo-600 hover:bg-indigo-500 text-white' : 'border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+              </summary>
+              <div className="absolute right-0 top-full mt-1.5 z-30 w-72 p-1 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/60">
+                {showChangedOnly && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      closeMenu(e);
+                      onSyncChangedOnly!();
+                    }}
+                    title={CHANGED_ONLY_HINT}
+                    className={menuItem}
+                  >
+                    <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0 text-indigo-300" />
+                    <span>
+                      <span className="block text-[12.5px] font-medium text-slate-100">
+                        Sync {pendingCount === 1 ? 'the changed line' : `the ${pendingCount} changed lines`} only
+                      </span>
+                      <span className="block text-[11px] text-slate-400 leading-snug">Every other line stays where it is.</span>
+                    </span>
+                  </button>
+                )}
+                {showFromScratch && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      closeMenu(e);
+                      onSyncFromScratch!();
+                    }}
+                    className={menuItem}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 mt-0.5 shrink-0 text-rose-300" />
+                    <span>
+                      <span className="block text-[12.5px] font-medium text-slate-100">Sync from scratch…</span>
+                      <span className="block text-[11px] text-slate-400 leading-snug">
+                        Voices every line again: hand edits, locks and picked takes go. Asks first.
+                      </span>
+                    </span>
+                  </button>
+                )}
+              </div>
+            </details>
+          )}
+        </div>
       )}
-      {blockedReason && !isSyncing ? (
-        <p className="text-center text-[11.5px] text-amber-300">{blockedReason}</p>
-      ) : interrupted && !isSyncing ? (
-        <p role="status" className="text-center text-[11.5px] text-amber-300">
-          The last dub stopped before it finished.{' '}
-          <span className="text-slate-400">The lines it voiced are kept: with the same voice and settings, resuming voices only the rest.</span>
-        </p>
-      ) : (
-        <p className="text-center text-[11.5px] text-slate-500">{footNote}</p>
-      )}
-      {synced && pendingCount > 0 && !isSyncing && !interrupted && !blockedReason && onSyncChangedOnly && (
-        <button
-          type="button"
-          onClick={onSyncChangedOnly}
-          title={CHANGED_ONLY_HINT}
-          className="h-9 flex items-center justify-center gap-2 rounded-xl border border-indigo-500/50 text-[13px] text-indigo-100 hover:bg-indigo-500/15 cursor-default"
-        >
-          <Lock className="w-3.5 h-3.5" /> Sync {pendingCount === 1 ? 'the changed line' : `the ${pendingCount} changed lines`} only
-        </button>
-      )}
-      {synced && !isSyncing && !interrupted && !blockedReason && onSyncFromScratch && (
-        <button
-          type="button"
-          onClick={onSyncFromScratch}
-          title="Voices every line again and places it afresh: hand edits, locks, picked takes and places on the dub lane go. Asks first."
-          className="self-center h-7 px-2.5 flex items-center gap-1.5 rounded-lg text-[12px] text-slate-400 hover:text-rose-200 hover:bg-rose-500/10 cursor-default"
-        >
-          <RotateCcw className="w-3.5 h-3.5" /> Sync from scratch…
-        </button>
-      )}
-    </div>
-  </aside>
+      {settingsWindow}
+    </>
   );
 };
 
@@ -1546,49 +1666,12 @@ export interface SyncResultsPanelProps {
   pendingLines?: string[];
   /** Syncs only the changed lines: every other line is locked where it is for that Sync. */
   onSyncChangedOnly?: () => void;
-  /** Puts a new wording of a line into the script: voiced into the dub now with `applyVoicesNow`, else on the next Sync. */
-  onApplyLine?: (unit: SyncUnitReport, text: string) => void;
-  /** A new wording is voiced and put in the dub at once, as a take, rather than waiting for Sync again. */
-  applyVoicesNow?: boolean;
-  /** The line whose takes are being voiced, if any: one at a time. */
-  takesBusyKey?: string | null;
-  /** Asks for a new take of a line, `takes` of them voiced at the next Sync. */
-  onRetakeLine?: (unit: SyncUnitReport, takes: number) => void;
-  /** Asks for a new take of every line in `units` at once. */
-  onRetakeLines?: (units: SyncUnitReport[], takes: number) => void;
-  /**
-   * The takes panel of a line (TakesPanel), shown under its row: new takes
-   * voiced at once and one picked. With it, a row's Retake opens the panel
-   * instead of waiting for the next Sync.
-   */
-  renderTakes?: (unit: SyncUnitReport, close: () => void) => React.ReactNode;
-  /** Keys of lines locked in Edit timing: Sync keeps their take, so they aren't retaken. */
-  lockedKeys?: string[];
-  /**
-   * Other wordings of a line that is too long (shorter) or ends early (fuller),
-   * different from `avoid`, each of a different kind; empty when the text model had nothing usable.
-   */
-  onSuggestLine?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion[]>;
   /** The original and the synced dub, drawn behind the lines of the alignment view. */
   sourceBuffer?: AudioBuffer | null;
   dubBuffer?: AudioBuffer | null;
   /** One continuous read: its progress while the script is voiced in one take, before the lines are placed. */
   reading?: DubProgress | null;
-  /** Keys of lines changed by hand in Edit timing, for the Hand edits tab. */
-  editedKeys?: string[];
-  /**
-   * A line picked in the player to work on here: the list shows it, scrolls to
-   * it, and opens its takes or puts the cursor in its wording. `n` changes on
-   * every pick, so picking the same line again does it again.
-   */
-  focusLine?: { key: string; mode: 'takes' | 'words'; n: number } | null;
 }
-
-/** Which lines the list shows: those worth a listen, one kind of them, or every line. */
-type LineFilter = 'review' | 'long' | 'early' | 'edited' | 'all';
-
-/** Takes a retake may voice of each line, the best fitting one kept (MAX_RETAKE_TAKES in server/lib/syncDub.js). */
-const RETAKE_TAKE_COUNTS = [1, 2, 3];
 
 /** The Dub step's main panel: what the dub will take, its progress, then how every line landed. */
 export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
@@ -1616,88 +1699,15 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   onListen,
   pendingLines = [],
   onSyncChangedOnly,
-  onApplyLine,
-  applyVoicesNow = false,
-  takesBusyKey = null,
-  onRetakeLine,
-  onRetakeLines,
-  renderTakes,
-  lockedKeys = [],
-  onSuggestLine,
   sourceBuffer,
   dubBuffer,
   reading = null,
-  editedKeys = [],
-  focusLine = null,
 }) => {
-  const review = useMemo(() => {
-    if (!report) return [];
-    return report.units
-      .map((unit) => ({ unit, reason: reviewReason(unit, report.tolerance) }))
-      .filter((row): row is { unit: SyncUnitReport; reason: string } => Boolean(row.reason))
-      .sort(
-        (a, b) =>
-          Number(b.unit.exceeded) - Number(a.unit.exceeded) ||
-          Number(b.unit.short) - Number(a.unit.short) ||
-          Number(a.unit.inSync) - Number(b.unit.inSync) ||
-          b.unit.shortBy - a.unit.shortBy ||
-          b.unit.exceededBy - a.unit.exceededBy ||
-          Math.abs(b.unit.offset ?? 99) - Math.abs(a.unit.offset ?? 99)
-      );
-  }, [report]);
-  /** Worth a listen by default; Every line lists them all in order, since any line can be retaken. */
-  const [filter, setFilter] = useState<LineFilter>('review');
-  const showAll = filter === 'all';
-  const allRows = useMemo(
-    () => (report ? report.units.map((unit) => ({ unit, reason: reviewReason(unit, report.tolerance) ?? 'In sync' })) : []),
-    [report]
+  /** Lines Sync made a new take for (a better fit, or one read faster): to choose, to take back, or why it was not used. */
+  const offers = useMemo(
+    () => (report ? report.units.filter((unit) => (unit.takeFit || unit.takeRejected) && !pendingLines.includes(unit.key)) : []),
+    [report, pendingLines]
   );
-  const rows = useMemo(() => {
-    if (filter === 'all') return allRows;
-    if (filter === 'long') return review.filter((row) => row.unit.exceeded);
-    if (filter === 'early') return review.filter((row) => row.unit.short && !row.unit.exceeded);
-    if (filter === 'edited') return allRows.filter((row) => editedKeys.includes(row.unit.key));
-    return review;
-  }, [filter, allRows, review, editedKeys]);
-  const tabs: { id: LineFilter; label: string; count: number }[] = [
-    { id: 'review', label: 'Worth a listen', count: review.length },
-    { id: 'long', label: 'Too long', count: review.filter((row) => row.unit.exceeded).length },
-    { id: 'early', label: 'End early', count: review.filter((row) => row.unit.short && !row.unit.exceeded).length },
-    { id: 'edited', label: 'Hand edits', count: allRows.filter((row) => editedKeys.includes(row.unit.key)).length },
-    { id: 'all', label: 'Every line', count: allRows.length },
-  ];
-  // A tab with nothing in it is left out, except the one open and the first and last.
-  const shownTabs = tabs.filter((tab) => tab.count > 0 || tab.id === filter || tab.id === 'review' || tab.id === 'all');
-  /** The listed lines a retake would voice again: not silent, not already waiting for Sync, not locked. */
-  const retakeable = useMemo(
-    () => rows.map((row) => row.unit).filter((unit) => !unit.silent && !pendingLines.includes(unit.key) && !lockedKeys.includes(unit.key)),
-    [rows, pendingLines, lockedKeys]
-  );
-  /** The retake of every listed line waits for a yes: it costs `retakeTakes` voicings of each. */
-  const [confirmRetake, setConfirmRetake] = useState(false);
-  /** Takes voiced of each retaken line; one unless the user asks for more. */
-  const [retakeTakes, setRetakeTakes] = useState(1);
-  useEffect(() => setConfirmRetake(false), [filter, report]);
-  const retakeChars = retakeable.reduce((sum, unit) => sum + unit.text.length, 0);
-  /** The line whose takes are open under its row. */
-  const [takesKey, setTakesKey] = useState<string | null>(null);
-  const listRef = useRef<HTMLUListElement>(null);
-  // A line picked in the player: show it in the list, bring it into view, then open its takes or its wording.
-  useEffect(() => {
-    if (!focusLine || !report) return;
-    const listed = rows.some((row) => row.unit.key === focusLine.key);
-    if (!listed) setFilter(review.some((row) => row.unit.key === focusLine.key) ? 'review' : 'all');
-    if (focusLine.mode === 'takes' && renderTakes) setTakesKey(focusLine.key);
-    // After the list has rendered with the line in it.
-    const timer = window.setTimeout(() => {
-      const row = listRef.current?.querySelector<HTMLElement>(`[data-line-key="${CSS.escape(focusLine.key)}"]`);
-      row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      if (focusLine.mode === 'words') row?.querySelector<HTMLTextAreaElement>('textarea')?.focus({ preventScroll: true });
-    }, 60);
-    return () => window.clearTimeout(timer);
-    // Only a new pick moves the list, not the list changing under it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusLine?.n]);
 
   const step = progress?.step ?? 1;
   const stepDetail = (phase: string) => {
@@ -1715,10 +1725,21 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
   const fraction = syncFraction(progress);
   const idle = !report && !isSyncing;
   const precisionLabel = report ? SYNC_PRECISION_OPTIONS.find((o) => o.id === report.precision)?.label : undefined;
+  // Once synced, the status bar and the player say how it went: this panel is only what is left to act on or know.
+  const nothingToShow =
+    Boolean(report) &&
+    !isSyncing &&
+    offers.length === 0 &&
+    pendingLines.length === 0 &&
+    report!.summary.wordTimingMeasured === undefined &&
+    !(report!.summary.fromDub ?? 0) &&
+    !(report!.summary.meaningRejected ?? 0) &&
+    !report!.summary.suggestionError;
+  if (nothingToShow) return null;
 
   return (
-    <section aria-label="Sync" className={`${report ? 'lg:flex-1' : ''} bg-slate-900/90 border border-edge rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0`}>
-      {/* Once synced, the result is the status bar over the player and the lines are the panel; this heading is for before and during a sync. */}
+    <section aria-label="Sync" className={`bg-slate-900/90 border border-edge rounded-2xl p-4 sm:p-5 flex flex-col gap-4 min-w-0`}>
+      {/* Once synced, the result is the status bar over the player; this heading is for before and during a sync. */}
       {!(report && !isSyncing) && (
       <div>
         <div className="flex flex-wrap items-center gap-2.5">
@@ -1743,7 +1764,7 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           <Lock className="w-3 h-3 shrink-0" />
           {report?.summary.chunkSync
             ? `Each line is split where it goes quiet into ${report.summary.chunks ?? 0} chunks in all, and every chunk is placed on the original's words; pauses shrink between words first, sentence ends last. Sync does not stretch the voice.`
-            : 'Each line is placed near its original timing; a long line can move the lines around it. Sync does not stretch the voice.'} Breath reduction, loudness matching and fades follow the options you choose. A line that cannot meet Strict timing or a protected pause is flagged below, never left out.
+            : 'Each line is placed near its original timing; a long line can move the lines around it. Sync does not stretch the voice.'} Breath reduction, loudness matching and fades follow the options you choose. A line that cannot meet Strict timing or a protected pause is flagged, never left out.
           {handEdits > 0 && ' Your hand edits in Edit timing are in this dub: there, only the speed, level and fades you set change a line, and Sync again keeps every locked line where you put it.'}
         </p>
       </div>
@@ -1858,8 +1879,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
           {(report.summary.meaningRejected ?? 0) > 0 && (
             <p className="text-xs text-slate-400">
               {report.summary.meaningRejected === 1 ? '1 suggestion was' : `${report.summary.meaningRejected} suggestions were`} held back: every
-              wording the text model offered changed the meaning of the original line. Edit {report.summary.meaningRejected === 1 ? 'that line' : 'those lines'}{' '}
-              yourself, or press Suggest {LINE_OPTIONS} to try again.
+              wording the text model offered changed the meaning of the original line. Reword {report.summary.meaningRejected === 1 ? 'that line' : 'those lines'}{' '}
+              yourself in the retake window.
             </p>
           )}
           {report.summary.suggestionError && (
@@ -1869,96 +1890,8 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
             </p>
           )}
 
-          <div className="flex flex-col lg:flex-1 lg:min-h-0">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h3 className="text-[15px] font-semibold text-slate-100 mr-1">Lines</h3>
-              <div role="tablist" aria-label="Which lines" className="flex flex-wrap gap-0.5 p-0.5 rounded-xl bg-slate-950 border border-edge">
-                {shownTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={filter === tab.id}
-                    onClick={() => setFilter(tab.id)}
-                    title={tab.id === 'all' ? 'Every line, to listen to or retake any of them' : undefined}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium tabular-nums transition-colors cursor-default ${
-                      filter === tab.id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    {tab.label} · {tab.count}
-                  </button>
-                ))}
-              </div>
-              {onRetakeLines && retakeable.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => setConfirmRetake(true)}
-                  aria-expanded={confirmRetake}
-                  className="flex items-center gap-1 text-xs text-indigo-300 hover:text-indigo-200 cursor-default"
-                  title={`Voices ${showAll ? 'every line' : 'every line listed here'} again at the next Sync. You pick how many takes of each; with more than one, the take that fits its slot best is kept.`}
-                >
-                  <Mic className="w-3 h-3" /> {showAll ? `Retake all ${retakeable.length}` : `Retake these ${retakeable.length}`}
-                </button>
-              )}
-              <span className="flex-1" />
-              <span className="text-xs text-slate-500">
-                {review.length === 0
-                  ? 'Every line landed within tolerance.'
-                  : `${review.filter((r) => !r.unit.inSync).length} outside tolerance · ${report.summary.exceeded} too long for their slot${
-                      report.summary.short ? ` · ${report.summary.short} end early` : ''
-                    }${report.summary.tightJoins ? ` · ${report.summary.tightJoins} tight ${report.summary.tightJoins === 1 ? 'join' : 'joins'}` : ''}${
-                      report.summary.cutOff ? ` · ${report.summary.cutOff} cut off` : ''
-                    }`}
-              </span>
-            </div>
-            {confirmRetake && onRetakeLines && retakeable.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-950/20 px-3.5 py-2.5" role="alertdialog" aria-label="Retake lines">
-                <span className="flex-1 min-w-[16rem] text-[12.5px] text-slate-200">
-                  Retake {retakeable.length} lines?{' '}
-                  {retakeTakes === 1
-                    ? `Each is voiced once: about ${retakeChars.toLocaleString()} characters of voicing.`
-                    : `Each is voiced ${retakeTakes} times and the take that fits its slot best is kept: about ${(retakeChars * retakeTakes).toLocaleString()} characters of voicing (${retakeTakes} × ${retakeChars.toLocaleString()}).`}
-                  {lockedKeys.some((key) => rows.some((row) => row.unit.key === key)) && ' Lines locked in Edit timing keep their take.'}
-                  {(report.summary.fromDub ?? 0) > 0 && ' Retaken lines are voiced on their own, not cut from the continuous read.'}
-                </span>
-                <div className="flex items-center gap-1.5" role="group" aria-label="Takes of each line">
-                  <span className="text-[11.5px] text-slate-400 mr-1">Takes</span>
-                  {RETAKE_TAKE_COUNTS.map((n) => (
-                    <button
-                      key={n}
-                      type="button"
-                      onClick={() => setRetakeTakes(n)}
-                      aria-pressed={retakeTakes === n}
-                      title={n === 1 ? 'Voice each line once' : `Voice each line ${n} times and keep the take that fits best`}
-                      className={`h-7 w-8 rounded-full border text-[11.5px] tabular-nums cursor-default ${
-                        retakeTakes === n ? 'border-amber-400/70 bg-amber-500/15 text-amber-100' : 'border-slate-700 text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      {n}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onRetakeLines(retakeable, retakeTakes);
-                    setConfirmRetake(false);
-                  }}
-                  className="h-8 px-3.5 flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-semibold cursor-default"
-                >
-                  <Mic className="w-3.5 h-3.5" /> Retake {retakeable.length} lines
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmRetake(false)}
-                  className="h-8 px-3 rounded-lg border border-slate-700 hover:bg-slate-800 text-xs text-slate-200 cursor-default"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
             {pendingLines.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 px-3.5 py-2.5">
+              <div className="flex flex-wrap items-center gap-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 px-3.5 py-2.5">
                 <span className="flex-1 min-w-0 text-[12.5px] text-slate-200">
                   {pendingLines.length === 1 ? '1 line changed.' : `${pendingLines.length} lines changed.`} Sync again voices only{' '}
                   {pendingLines.length === 1 ? 'that line' : 'those lines'} and places everything again; every other line is reused.
@@ -1984,52 +1917,28 @@ export const SyncResultsPanel: React.FC<SyncResultsPanelProps> = ({
                 )}
               </div>
             )}
-            {rows.length > 0 && (
-              // On wide screens the list takes the height the page row has (the rail sets it) and scrolls inside it.
-              <div className="mt-2 relative lg:flex-1 lg:min-h-[28rem]">
-              <ul
-                ref={listRef}
-                className="max-h-[36rem] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto custom-scrollbar divide-y divide-slate-800 border-y border-edge"
-              >
-                {rows.map(({ unit, reason }) => (
-                  <ReviewRow
-                    key={unit.index}
-                    unit={unit}
-                    reason={reason}
-                    pending={pendingLines.includes(unit.key)}
-                    onListen={onListen}
-                    onApply={onApplyLine}
-                    applyVoicesNow={applyVoicesNow}
-                    voicing={takesBusyKey === unit.key}
-                    takesBusy={Boolean(takesBusyKey)}
-                    onRetake={onRetakeLine && ((unit) => onRetakeLine(unit, retakeTakes))}
-                    retakeTakes={retakeTakes}
-                    onSuggest={onSuggestLine}
-                    takesOpen={takesKey === unit.key}
-                    onToggleTakes={renderTakes && (() => setTakesKey((key) => (key === unit.key ? null : unit.key)))}
-                    takes={renderTakes && takesKey === unit.key ? renderTakes(unit, () => setTakesKey(null)) : null}
-                    onUseTake={onUseTake}
-                    onKeepTake={onKeepTake}
-                  />
+          {offers.length > 0 && (
+            <div>
+              <h3 className="text-[13px] font-semibold text-slate-100">New takes from Sync</h3>
+              <ul className="divide-y divide-slate-800">
+                {offers.map((unit) => (
+                  <li key={unit.key} className="py-2.5">
+                    <p className="text-[13px] text-slate-100 leading-snug">
+                      <span className="font-mono text-[11.5px] text-slate-500 tabular-nums mr-2">{formatClock(unit.srcStart)}</span>
+                      {unit.text}
+                    </p>
+                    <TakeOffer unit={unit} pending={false} onListen={onListen} onUse={onUseTake} onKeep={onKeepTake} />
+                  </li>
                 ))}
               </ul>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
     </section>
   );
 };
 
-/**
- * One line worth a listen: the dub line over the original line, why it was
- * flagged, and what the user can do about it. A line too long for its slot
- * gets an editable shorter wording (the suggestion, when there is one) to put
- * into the script, and a line that ends early a fuller one; any line can be
- * retaken. Neither is heard until the next
- * Sync, so the row shows it is waiting for one.
- */
 /** What a new take of a line is: "Take 2 of 3", "Read 1.12× faster", "Read with a calm pace". */
 const takeWhat = (fit: NonNullable<SyncUnitReport['takeFit']>) =>
   fit.kind === 'take' ? `Take ${fit.take ?? 2} of 3` : fit.speed ? `Read ${fit.speed.toFixed(2)}× faster` : 'Read with a calm, faster pace';
@@ -2132,373 +2041,4 @@ const TakeOffer: React.FC<{
   );
 };
 
-/**
- * A line's length against the original's, as two bars on one scale: the
- * original line (grey) over the dub line, amber when it runs long and sky when
- * it ends early, with how much.
- */
-const LengthBars: React.FC<{ unit: SyncUnitReport }> = ({ unit }) => {
-  if (unit.placedStart === null || unit.placedEnd === null) return null;
-  const original = Math.max(0, unit.srcEnd - unit.srcStart);
-  const dub = Math.max(0, unit.placedEnd - unit.placedStart);
-  const scale = Math.max(original, dub) || 1;
-  const tone = unit.exceeded ? 'bg-amber-400' : unit.short ? 'bg-sky-400' : 'bg-indigo-400/70';
-  const label = unit.exceeded ? `+${unit.exceededBy.toFixed(1)} s` : unit.short ? `−${unit.shortBy.toFixed(1)} s` : null;
-  return (
-    <span
-      className="shrink-0 hidden sm:flex items-center gap-2 mt-1"
-      title={`Original line ${original.toFixed(1)} s · dub line ${dub.toFixed(1)} s`}
-    >
-      <span className="w-28 flex flex-col gap-[3px]" aria-hidden="true">
-        <span className="h-[5px] rounded-full bg-slate-600" style={{ width: `${(original / scale) * 100}%` }} />
-        <span className={`h-[5px] rounded-full ${tone}`} style={{ width: `${(dub / scale) * 100}%` }} />
-      </span>
-      <span className={`w-12 font-mono text-[11.5px] tabular-nums ${unit.exceeded ? 'text-amber-300' : 'text-sky-300'}`}>{label}</span>
-    </span>
-  );
-};
-
-const ReviewRow: React.FC<{
-  unit: SyncUnitReport;
-  reason: string;
-  pending: boolean;
-  onListen: (time: number) => void;
-  onApply?: (unit: SyncUnitReport, text: string) => void;
-  /** The wording is voiced into the dub when applied; `voicing` while this line's take is on its way. */
-  applyVoicesNow?: boolean;
-  voicing?: boolean;
-  /** Some line's takes are being voiced: one request at a time. */
-  takesBusy?: boolean;
-  onRetake?: (unit: SyncUnitReport) => void;
-  /** Takes a row's Retake voices at the next Sync. */
-  retakeTakes?: number;
-  onSuggest?: (unit: SyncUnitReport, avoid: string[]) => Promise<LineSuggestion[]>;
-  /** The takes panel: a toggle in the row, and the panel under it while open. */
-  takesOpen?: boolean;
-  onToggleTakes?: () => void;
-  takes?: React.ReactNode;
-  onUseTake?: (unit: SyncUnitReport) => void;
-  onKeepTake?: (unit: SyncUnitReport) => void;
-}> = ({
-  unit,
-  reason,
-  pending,
-  onListen,
-  onApply,
-  applyVoicesNow = false,
-  voicing = false,
-  takesBusy = false,
-  onRetake,
-  retakeTakes = 1,
-  onSuggest,
-  takesOpen = false,
-  onToggleTakes,
-  takes,
-  onUseTake,
-  onKeepTake,
-}) => {
-  const [draft, setDraft] = useState(unit.suggestion || unit.text);
-  const [suggested, setSuggested] = useState(Boolean(unit.suggestion));
-  const [copied, setCopied] = useState(false);
-  const [asking, setAsking] = useState(false);
-  const [askError, setAskError] = useState<string | null>(null);
-  // What the meaning check found in the shown suggestion, when it did not pass it.
-  const [issues, setIssues] = useState<string[] | null>(null);
-  // The shown suggestion translated back into English, without the original line in view.
-  const [says, setSays] = useState<string | null>(null);
-  // Syllables the shown shorter suggestion still runs past its target, when no wording fit.
-  const [over, setOver] = useState<number | null>(unit.suggestionOver ?? null);
-  // The wordings the last request brought, best fit first, to pick from.
-  const [options, setOptions] = useState<LineSuggestion[]>([]);
-  // Wordings already offered for this line, so another try reads differently.
-  const tried = useRef<string[]>([]);
-  useEffect(() => {
-    setDraft(unit.suggestion || unit.text);
-    setSuggested(Boolean(unit.suggestion));
-    setIssues(null);
-    setSays(null);
-    setOver(unit.suggestionOver ?? null);
-    setOptions([]);
-    tried.current = unit.suggestion ? [unit.suggestion] : [];
-  }, [unit.suggestion, unit.suggestionOver, unit.text]);
-  const changed = draft.trim() !== '' && draft.trim() !== unit.text.trim();
-  const fuller = unit.short && !unit.exceeded;
-  // The line's own voiced rate, to estimate how long a new wording takes: in syllables, which is how
-  // long a line takes to say (one syllable can be three or four characters in an Indian script).
-  const spoken = unit.srcEnd - unit.srcStart;
-  const lineSyllables = useMemo(() => timeLine(unit.text, 1).syllables, [unit.text]);
-  const bySyllables = lineSyllables > 0;
-  const secondsOf = (text: string) =>
-    bySyllables
-      ? (timeLine(text, 1).syllables * unit.speech) / lineSyllables
-      : unit.text.trim().length > 0
-        ? (text.trim().length * unit.speech) / unit.text.trim().length
-        : 0;
-  const draftSyllables = timeLine(draft, 1).syllables;
-  const draftSeconds = secondsOf(draft);
-  // What a shorter wording has to fit in: the line's speech, less what it ran past its slot.
-  const room = Math.max(0, unit.speech - unit.exceededBy);
-  /** Whether a wording, as estimated, does what this line needs: fits its time, or fills the original speech. */
-  const fitsLine = (seconds: number) => (fuller ? !isShort(seconds, spoken) : seconds <= room);
-  const pick = (line: LineSuggestion) => {
-    setDraft(line.text);
-    setSuggested(true);
-    setIssues(line.issues ?? null);
-    setSays(line.backTranslation ?? null);
-    setOver(line.over ?? null);
-  };
-  const tryAnother = async () => {
-    if (!onSuggest || asking) return;
-    setAsking(true);
-    setAskError(null);
-    try {
-      const lines = await onSuggest(unit, tried.current);
-      if (lines.length > 0) {
-        tried.current = [...tried.current, ...lines.map((l) => l.text)].slice(-MAX_TRIED);
-        // Best fit first: wordings that keep the meaning and do what the line needs, then the closest of the rest.
-        const rank = (l: LineSuggestion) => (l.issues ? 2 : fitsLine(secondsOf(l.text)) ? 0 : 1);
-        const sorted = [...lines].sort((a, b) => rank(a) - rank(b) || (fuller ? 0 : secondsOf(a.text) - secondsOf(b.text)));
-        setOptions(sorted);
-        pick(sorted[0]);
-      } else setAskError(`No usable ${fuller ? 'fuller' : 'shorter'} wording came back. Try again, or edit it yourself.`);
-    } catch (err: any) {
-      setAskError(null);
-      reportError(err, { title: 'No new wordings', safe: 'The line is unchanged — you can still edit it yourself.' });
-    } finally {
-      setAsking(false);
-    }
-  };
-  const copy = () =>
-    navigator.clipboard
-      ?.writeText(draft)
-      .then(() => {
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
-      })
-      .catch(() => {});
-
-  return (
-    <li className="py-3" data-line-key={unit.key}>
-      <div className="flex items-start gap-3">
-      <span
-        className={`shrink-0 mt-0.5 font-mono text-[11px] px-2 py-0.5 rounded-md tabular-nums ${
-          unit.inSync ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/15 text-amber-300'
-        }`}
-      >
-        {unit.offset === null ? 'silent' : formatOffset(unit.offset)}
-      </span>
-      <span className="shrink-0 mt-0.5 font-mono text-[11.5px] text-slate-500 tabular-nums w-14">{formatClock(unit.srcStart)}</span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start gap-3">
-          <p className="flex-1 min-w-0 text-[13.5px] text-slate-100 leading-snug">{unit.text}</p>
-          <LengthBars unit={unit} />
-        </div>
-        {unit.sourceText && <p className="text-[12px] text-slate-500 leading-snug mt-0.5">{unit.sourceText}</p>}
-        <p className={`text-[11.5px] mt-1 ${unit.exceeded ? 'text-amber-300' : unit.short ? 'text-sky-300' : 'text-slate-400'}`}>{reason}</p>
-        {unit.speedFit && !unit.takeFit && <p className="text-[11.5px] mt-1 text-indigo-300">Read {unit.speedFit.toFixed(2)}× faster to fit: its words ran longer than the original line had, even with every pause shrunk</p>}
-        <TakeOffer unit={unit} pending={pending} onListen={onListen} onUse={onUseTake} onKeep={onKeepTake} />
-        {unit.wordTiming?.status === 'measured' && <p className="text-[11.5px] mt-1 text-indigo-300">Measured words · start {formatOffset(unit.wordTiming.startError ?? 0)} · end {formatOffset(unit.wordTiming.endError ?? 0)}{unit.wordTiming.boundaryMaxError != null && ` · internal boundary ${unit.wordTiming.boundaryMaxError.toFixed(2)} s`}</p>}
-
-        {pending ? (
-          <p className="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300">
-            <RefreshCw className="w-3 h-3" /> Changed. Sync again to hear it.
-          </p>
-        ) : (
-          (unit.exceeded || unit.short) &&
-          onApply && (
-            <div className="mt-2 rounded-lg border border-edge bg-slate-950/60 p-2.5">
-              <label className="block text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1" htmlFor={`sync-line-${unit.key}`}>
-                {suggested
-                  ? fuller
-                    ? 'Suggested fuller line'
-                    : 'Suggested shorter line'
-                  : draft.trim() !== unit.text.trim()
-                    ? 'Your wording'
-                    : fuller
-                      ? 'Make this line fuller'
-                      : 'Shorten this line'}
-              </label>
-              {options.length > 1 && (
-                <div role="radiogroup" aria-label="Suggested wordings" className="mb-2 flex flex-col gap-1">
-                  {options.map((option, i) => {
-                    const picked = suggested && option.text === draft;
-                    const seconds = secondsOf(option.text);
-                    const good = !option.issues && fitsLine(seconds);
-                    return (
-                      <button
-                        key={option.text}
-                        type="button"
-                        role="radio"
-                        aria-checked={picked}
-                        onClick={() => pick(option)}
-                        className={`flex items-start gap-2 rounded-md border px-2 py-1.5 text-left cursor-default ${
-                          picked ? 'border-indigo-500 bg-indigo-500/10' : 'border-edge hover:bg-slate-800/70'
-                        }`}
-                      >
-                        <span
-                          className={`shrink-0 mt-0.5 w-4 h-4 rounded-full border text-[9.5px] font-semibold flex items-center justify-center tabular-nums ${
-                            picked ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-slate-600 text-slate-400'
-                          }`}
-                        >
-                          {i + 1}
-                        </span>
-                        <span className="flex-1 min-w-0">
-                          <span className="block text-[13px] text-slate-100 leading-snug">{option.text}</span>
-                          {option.backTranslation && <span className="block mt-0.5 text-[11.5px] text-slate-500 leading-snug">Says: {option.backTranslation}</span>}
-                        </span>
-                        <span className="shrink-0 flex flex-col items-end gap-0.5">
-                          <span
-                            className={`text-[10.5px] font-semibold px-1.5 rounded tabular-nums ${good ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}
-                            title="Estimated from how fast this voice said the line"
-                          >
-                            ≈{seconds.toFixed(1)} s · {fitsLine(seconds) ? (fuller ? 'fills' : 'fits') : fuller ? 'ends early' : 'long'}
-                          </span>
-                          {bySyllables && <span className="text-[10.5px] text-slate-500 tabular-nums">{timeLine(option.text, 1).syllables} syllables</span>}
-                          {option.issues && <span className="text-[10.5px] text-amber-300">check meaning</span>}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-              {suggested && issues && <MeaningWarning issues={issues} />}
-              {/* The server aims a little under the slot, so a wording it marks long may still fit as estimated here: only say so when both agree. */}
-              {suggested && !fuller && over != null && over > 0 && !fitsLine(draftSeconds) && (
-                <p className="mb-1 text-[11.5px] text-amber-300 leading-snug">
-                  Still about {over} syllable{over === 1 ? '' : 's'} long: no wording fit, so this is the closest. Trim a word or two.
-                </p>
-              )}
-              {suggested && says && (
-                <p className="mb-1 text-[11.5px] text-slate-500 leading-snug" title="This wording translated back into English, without the original line in view">
-                  Says: {says}
-                </p>
-              )}
-              <PhoneticTextarea
-                id={`sync-line-${unit.key}`}
-                value={draft}
-                onChange={(text) => {
-                  setDraft(text);
-                  setSuggested(false);
-                  setIssues(null);
-                  setOver(null);
-                }}
-                rows={2}
-                className="w-full resize-y bg-slate-900 border border-edge rounded-md px-2 py-1.5 text-[13px] text-slate-100 leading-snug focus:outline-none focus:border-indigo-500"
-              />
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                {applyVoicesNow ? (
-                  <button
-                    type="button"
-                    onClick={() => onApply(unit, draft)}
-                    disabled={!changed || takesBusy}
-                    className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
-                    title={
-                      takesBusy && !voicing
-                        ? 'Another line is being voiced: one at a time'
-                        : 'Voices one take in these words now and puts it in the dub, where the line is. The script takes the words. No Sync again needed.'
-                    }
-                  >
-                    {voicing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5" />}
-                    {voicing ? 'Voicing take…' : `Voice and use · ${stripPauses(dotsToPauses(draft.trim())).length.toLocaleString()} chars`}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onApply(unit, draft)}
-                    disabled={!changed}
-                    className="h-7 px-2.5 flex items-center gap-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
-                    title="Put this wording into the script. Sync again to voice it."
-                  >
-                    <Check className="w-3.5 h-3.5" /> Use this line
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={copy}
-                  className="h-7 px-2 flex items-center gap-1 rounded-md border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
-                >
-                  {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  {copied ? 'Copied' : 'Copy'}
-                </button>
-                {onSuggest && unit.targetChars != null && (
-                  <button
-                    type="button"
-                    onClick={tryAnother}
-                    disabled={asking}
-                    className="h-7 px-2 flex items-center gap-1 rounded-md border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 disabled:opacity-60 cursor-default"
-                  >
-                    {asking ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    {asking ? 'Asking…' : suggested ? `${LINE_OPTIONS} more` : `Suggest ${LINE_OPTIONS}`}
-                  </button>
-                )}
-                <span className="text-[11px] text-slate-500 tabular-nums">
-                  {bySyllables ? `${draftSyllables} / ${lineSyllables} syllables` : `${draft.trim().length} / ${unit.text.trim().length} characters`}
-                </span>
-                {!fuller && unit.exceeded && draftSeconds > 0 && (
-                  <span
-                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-md tabular-nums ${
-                      draftSeconds <= room ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
-                    }`}
-                    title="Estimated from how fast this voice said the line"
-                  >
-                    about {draftSeconds.toFixed(1)} s of {room.toFixed(1)} s · {draftSeconds <= room ? 'fits' : 'still long'}
-                  </span>
-                )}
-                {fuller && draftSeconds > 0 && (
-                  <span
-                    className={`text-[11px] font-semibold px-2 py-0.5 rounded-md tabular-nums ${
-                      isShort(draftSeconds, spoken) ? 'bg-sky-500/15 text-sky-300' : 'bg-emerald-500/15 text-emerald-300'
-                    }`}
-                    title="Estimated from how fast this voice said the line"
-                  >
-                    about {draftSeconds.toFixed(1)} s of {spoken.toFixed(1)} s · {isShort(draftSeconds, spoken) ? 'still ends early' : 'fills'}
-                  </span>
-                )}
-              </div>
-              {askError && <p className="mt-1.5 text-[11.5px] text-rose-300">{askError}</p>}
-            </div>
-          )
-        )}
-      </div>
-      <div className="shrink-0 flex flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={() => onListen(Math.max(0, unit.srcStart - 0.6))}
-          className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 cursor-default"
-        >
-          <Play className="w-3 h-3 fill-current" /> Listen
-        </button>
-        {onToggleTakes && !unit.silent ? (
-          <button
-            type="button"
-            onClick={onToggleTakes}
-            aria-expanded={takesOpen}
-            className={`flex items-center gap-1 h-7 px-2.5 rounded-lg border text-xs cursor-default ${
-              takesOpen ? 'border-indigo-400/70 bg-indigo-500/15 text-indigo-100' : 'border-edge bg-slate-950/60 hover:bg-slate-800 text-slate-200'
-            }`}
-            title="Voice new takes of this line now, hear them side by side and pick one"
-          >
-            <Mic className="w-3 h-3" /> Takes
-          </button>
-        ) : onRetake && !unit.silent && (
-          <button
-            type="button"
-            onClick={() => onRetake(unit)}
-            disabled={pending}
-            className="flex items-center gap-1 h-7 px-2.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
-            title={
-              retakeTakes === 1
-                ? 'Voices this line again (one voicing of the line). Sync again to hear it.'
-                : `Voices this line ${retakeTakes} times and keeps the take that fits its slot best (${retakeTakes} voicings of the line). Sync again to hear it.`
-            }
-          >
-            <Mic className="w-3 h-3" /> Retake
-          </button>
-        )}
-      </div>
-      </div>
-      {takes && <div className="mt-3">{takes}</div>}
-    </li>
-  );
-};
 

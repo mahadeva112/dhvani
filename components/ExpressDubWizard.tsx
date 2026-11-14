@@ -8,11 +8,9 @@ import {
   ArrowRight,
   Loader2,
   RotateCcw,
-  Plus,
   Download,
   Check,
   AlertCircle,
-  Headphones,
   Edit3,
   Globe,
   Mic,
@@ -55,7 +53,7 @@ import { projectFileStem } from '../services/projects';
 import { useVoiceMatches } from '../services/useVoiceMatches';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker, SPEAKER_COLORS } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
-import { SpeakerBar, SpeakerStrip, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MainVoiceRole, MixPeakChoice, MixChecks, StemDownloads } from './SpeakerPanel';
+import { SpeakerBar, SpeakerStrip, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MainVoiceRole, MixPeakChoice, StemDownloads, mixWarnings } from './SpeakerPanel';
 import { retranslateCues, translationFraction, type RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import { scrollWithin } from './scrollWithin';
@@ -366,6 +364,79 @@ export const stepForJob = (job: BatchJob | null): number =>
     : job.syncedAudioUrl || job.synthesizedAudioUrl || job.synthAudioBuffer
       ? 3
       : 2;
+
+/** A heading over one part of the Voice and delivery panel. */
+const voiceSection = 'text-[10.5px] uppercase tracking-wider font-semibold text-slate-500';
+
+/** One setting of the Voice and delivery panel: its name and what the picked choice does on the left, the control on the right. */
+const VoiceRow: React.FC<{ label: React.ReactNode; hint?: React.ReactNode; warn?: React.ReactNode; children: React.ReactNode }> = ({
+  label,
+  hint,
+  warn,
+  children,
+}) => (
+  <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5">
+    <div className="min-w-[10rem] flex-1">
+      <span className="block text-[12.5px] font-medium text-slate-200">{label}</span>
+      {hint && <span className="block text-[11px] text-slate-500 leading-snug">{hint}</span>}
+      {warn && (
+        <span role="status" className="block text-[11px] text-amber-300/90 leading-snug">
+          {warn}
+        </span>
+      )}
+    </div>
+    <div className="shrink-0 max-w-full">{children}</div>
+  </div>
+);
+
+/** Choices side by side, one picked. */
+const VoiceSeg = <T extends string>({
+  label,
+  value,
+  choices,
+  onPick,
+  disabled,
+}: {
+  label: string;
+  value: T;
+  choices: { id: T; label: string; off?: boolean; title?: string }[];
+  onPick: (id: T) => void;
+  disabled?: boolean;
+}) => (
+  <div role="radiogroup" aria-label={label} className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
+    {choices.map((c) => (
+      <button
+        key={c.id}
+        type="button"
+        role="radio"
+        aria-checked={value === c.id}
+        onClick={() => onPick(c.id)}
+        disabled={disabled || c.off}
+        title={c.title}
+        className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
+          value === c.id ? 'bg-slate-800 text-slate-100' : c.off ? 'text-slate-600' : 'text-slate-400 hover:text-slate-200'
+        }`}
+      >
+        {c.label}
+      </button>
+    ))}
+  </div>
+);
+
+/** An on/off switch. */
+const VoiceSwitch: React.FC<{ label: string; on: boolean; onChange: (on: boolean) => void; disabled?: boolean }> = ({ label, on, onChange, disabled }) => (
+  <button
+    type="button"
+    role="switch"
+    aria-checked={on}
+    aria-label={label}
+    disabled={disabled}
+    onClick={() => onChange(!on)}
+    className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-default disabled:opacity-60 ${on ? 'bg-indigo-500' : 'bg-slate-700'}`}
+  >
+    <span className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${on ? 'left-[17px]' : 'left-[3px]'}`} />
+  </button>
+);
 
 interface ExpressDubWizardProps {
   /** The step on screen, owned by App so the header can show and change it. */
@@ -789,14 +860,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [alignHandOff, setAlignHandOff] = useState<ScriptHandOff | null>(null);
   /** Dub step: the player's lanes are the Edit timing timeline. */
   const [editingTiming, setEditingTiming] = useState(false);
-  /** A line picked in the Dub player to work on in the line list; n changes on every pick. */
-  const [focusLine, setFocusLine] = useState<{ key: string; mode: 'takes' | 'words'; n: number } | null>(null);
   /** A local video to watch the dub against; it is only looked at, never part of the project. */
   const reviewVideo = useReviewVideo(activeJob?.id);
   /** The floating video's ✕ hides it; a new video shows again. */
   const [reviewVideoHidden, setReviewVideoHidden] = useState(false);
   useEffect(() => setReviewVideoHidden(false), [reviewVideo.video]);
-  /** Edit timing: the line whose takes are open under the timeline. */
+  /** Dub step, once synced: the Voice and delivery window, from the Voice button on the player's row. */
+  const [voiceOpen, setVoiceOpen] = useState(false);
+  /** The line whose retake window is open: from Edit timing, or from the line picked in the synced player. */
   const [timingTakesKey, setTimingTakesKey] = useState<string | null>(null);
   const [timingTakesPhrase, setTimingTakesPhrase] = useState<{ from: number; to: number } | null>(null);
   /** The Alt + drag copy of that line being retaken on its own, or null for the line itself. */
@@ -806,8 +877,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   useEffect(() => {
     if (!editingTiming) setTimingTakesKey(null);
   }, [editingTiming]);
-  /** Dub step, once synced: the voice panel unfolded to change the voice before syncing again. */
-  const [voicePanelOpen, setVoicePanelOpen] = useState(false);
   const [srtOptions, setSrtOptions] = useState<SrtOptions>(() => {
     try {
       const saved = localStorage.getItem('dhvani_srt_options');
@@ -1857,11 +1926,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     .join(' ');
   const fixCueIds = useMemo(() => new Set(fixCueKey.split(' ')), [fixCueKey]);
   const linesToFixCount = (linePreview?.units || []).filter(needsFix).length;
-  /** After a sync, the voice panel unfolds and comes into view. */
-  const openVoicePanel = () => {
-    setVoicePanelOpen(true);
-    document.getElementById('dub-voice')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   const filteredSegments = useMemo(() => {
     return segments.filter((seg) => {
@@ -4096,7 +4160,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             key: 'long',
             dot: fitSummary.long > 0 ? 'bg-rose-400' : 'bg-emerald-400',
             title: fitSummary.long > 0 ? `${fitSummary.long} ${fitSummary.long === 1 ? 'line runs' : 'lines run'} long` : 'Every line should fit',
-            note: fitSummary.long > 0 ? `Longest +${fitSummary.maxOverflow.toFixed(1)} s. They show in Worth a listen.` : 'Once Sync places it.',
+            note: fitSummary.long > 0 ? `Longest +${fitSummary.maxOverflow.toFixed(1)} s. They are marked on the dub lane.` : 'Once Sync places it.',
             action:
               linesToFixCount > 0
                 ? {
@@ -4274,7 +4338,27 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           />
         );
 
-        /** Files and tools under the settings: the script, a dub from before, and the other studios. */
+        /** A dub from before Sync: the continuous read, and its speakers' tracks. */
+        const legacySaves =
+          legacyDub && (onDownloadWav || (multiSpeaker && activeJob.dubStems?.length && onDownloadStem)) ? (
+            <>
+              {onDownloadWav && (
+                <button
+                  type="button"
+                  onClick={onDownloadWav}
+                  className={`${railButton} w-full`}
+                  title="The script read in one take, before its lines are placed on the original"
+                >
+                  <Download className="w-3.5 h-3.5" /> Continuous read, not synced (WAV)
+                </button>
+              )}
+              {multiSpeaker && activeJob.dubStems && activeJob.dubStems.length > 0 && onDownloadStem && (
+                <StemDownloads stems={activeJob.dubStems} speakers={speakers} onDownload={onDownloadStem} />
+              )}
+            </>
+          ) : null;
+
+        /** Files under the settings: the script, and a dub from before. Text to speech and New dub are in the app bar. */
         const dubExtras = (
           <>
             <SaveScriptMenu
@@ -4285,32 +4369,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onScopeChange={setScriptScope}
               removedCount={removedCueIds.size}
             />
-            {legacyDub && onDownloadWav && (
-              <button
-                type="button"
-                onClick={onDownloadWav}
-                className={`${railButton} w-full`}
-                title="The script read in one take, before its lines are placed on the original"
-              >
-                <Download className="w-3.5 h-3.5" /> Continuous read, not synced (WAV)
-              </button>
-            )}
-            {legacyDub && multiSpeaker && activeJob.dubStems && activeJob.dubStems.length > 0 && onDownloadStem && (
-              <StemDownloads stems={activeJob.dubStems} speakers={speakers} onDownload={onDownloadStem} />
-            )}
+            {legacySaves}
             {!report && onOpenVoiceChanger && (
               <button type="button" onClick={onOpenVoiceChanger} className={`${railButton} w-full`}>
                 <AudioWaveform className="w-3.5 h-3.5" /> Voice changer
-              </button>
-            )}
-            {onOpenTextToSpeech && (
-              <button type="button" onClick={onOpenTextToSpeech} className={`${railButton} w-full`}>
-                <Speech className="w-3.5 h-3.5" /> Text to speech
-              </button>
-            )}
-            {onResetSession && (
-              <button type="button" onClick={onResetSession} className={`${railButton} w-full`}>
-                <Plus className="w-3.5 h-3.5" /> Start a new dub
               </button>
             )}
           </>
@@ -4319,7 +4381,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         /** Ready to dub and the button: a row under the Dub settings before the first sync, the rail after. */
         const syncPanel = (
           <SyncSettingsPanel
-            variant={report ? 'rail' : 'bar'}
+            variant="bar"
             summary={readySummary}
             options={syncOptions}
             onOptionsChange={setSyncOptions}
@@ -4350,6 +4412,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             onDownloadWav={report ? onDownloadWav : undefined}
             onDownloadMp3={report ? onDownloadMp3 : undefined}
             onDownloadWithTracks={report && activeJob.syncAudioTracks?.length ? onDownloadWithTracks : undefined}
+            stems={
+              report && multiSpeaker && activeJob.syncedStems
+                ? activeJob.syncedStems.map((stem) => ({ speaker: stem.speaker, color: speakers.find((sp) => sp.name === stem.speaker)?.color }))
+                : undefined
+            }
+            onDownloadStem={report ? onDownloadStem : undefined}
             onOpenVoiceChanger={report ? onOpenVoiceChanger : undefined}
             openRequest={syncSettingsRequest + cardSettingsRequest}
             fitSource={fitSource}
@@ -4359,26 +4427,44 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   type="button"
                   onClick={() => setIsSrtModalOpen(true)}
                   disabled={isSyncing}
-                  className="w-full flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800/60 hover:border-slate-600 text-left transition-colors disabled:opacity-45 disabled:cursor-not-allowed cursor-default"
+                  title="Export subtitles: .srt or .vtt, timed to the dub or the original"
+                  className="h-9 px-3 flex items-center gap-1.5 rounded-lg border border-slate-700 text-[12.5px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 whitespace-nowrap transition-colors disabled:opacity-40 cursor-default"
                 >
-                  <span className="w-11 h-11 rounded-[10px] flex items-center justify-center shrink-0 bg-indigo-500/15 text-indigo-300">
-                    <Sliders className="w-5 h-5" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[14.5px] font-semibold text-slate-100">Export subtitles</span>
-                    <span className="block text-[12px] text-slate-400 truncate">
-                      {subtitleLanguage} · timed to {subtitleTimingLabel}
-                    </span>
-                    <span className="block text-[11.5px] text-slate-500 truncate">
-                      {srtOptions.maxLinesPerCue} line, {srtOptions.maxWordsPerLine} words max · .srt or .vtt
-                    </span>
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                  <Sliders className="w-3.5 h-3.5" /> Subtitles
                 </button>
               )
             }
           />
         );
+
+        /** Speakers sharing one voice sound alike: said on the Voice button. */
+        const voiceWarn =
+          multiSpeaker && new Set(speakers.map((sp) => activeJob.cast?.[sp.name]?.voiceId || elVoiceId)).size < speakers.length
+            ? 'Some speakers share one voice, so they will sound alike. Open Voice to give each their own.'
+            : null;
+        /** Once synced, on the player's row: Voice, the Sync settings, Sync again. */
+        const syncActions = report
+          ? React.cloneElement(syncPanel, { variant: 'sync', onOpenVoice: () => setVoiceOpen(true), voiceWarn })
+          : null;
+        /** Once synced, in the status bar: Subtitles, Script, Save the dub. */
+        const saveActions = report
+          ? React.cloneElement(syncPanel, {
+              variant: 'save',
+              openRequest: 0,
+              saveExtras: legacySaves,
+              extras: (
+                <SaveScriptMenu
+                  compact
+                  title={`${targetLanguage} script`}
+                  onSave={handleExportTargetScript}
+                  disabled={segments.length === 0}
+                  scope={syncedCues ? scriptScope : undefined}
+                  onScopeChange={setScriptScope}
+                  removedCount={removedCueIds.size}
+                />
+              ),
+            })
+          : null;
 
         // The review video floats over the page, so it stays in view wherever the page is scrolled.
         const reviewClock = { currentTime: sourceClockTime, isPlaying, getLiveTime: getSourceLiveTime, playbackRate };
@@ -4469,6 +4555,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               presetNow={joinPresetLabel(syncOptions)}
               presetSuggestion={lengthSuggestion}
               onUsePreset={syncWithPreset}
+              onGoTo={seekSource}
+              mixWarnings={multiSpeaker && activeJob.syncMix ? mixWarnings(activeJob.syncMix) : undefined}
+              part="notices"
             />
           )}
           {report && !isSyncing && autoFitPanel}
@@ -4477,25 +4566,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             <section aria-label="Player" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
               {report && canEditTiming && !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport) && (
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Player</span>
-                  <span className="hidden md:flex items-center gap-1.5 text-[11px] text-slate-500">
-                    <Headphones className="w-3.5 h-3.5" /> Levels are for listening; the dub file is unchanged
-                  </span>
-                  {!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm('Undo the voice change? The dub goes back to the voice it had before, with its timing edits, and the new voice is thrown away.')) onUndoVoiceChange();
-                      }}
-                      title="Put back the dub from before the voice change, so its timing can be edited again"
-                      className="ml-auto h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" /> Undo voice change
-                    </button>
-                  )}
+                  {/* How the sync went on the left; undo, history and Edit timing on the right. What syncs and saves is in the dock under the timeline. */}
+                  <SyncStatusBar part="status" report={report} presetNow={joinPresetLabel(syncOptions)} presetSuggestion={lengthSuggestion} onGoTo={seekSource} />
+                  <span className="flex-1" />
                   {projectHistory && (
                     <div
-                      className={`${!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange ? '' : 'ml-auto '}flex items-center gap-1`}
+                      className="flex items-center gap-1"
                       role="group"
                       aria-label="Undo and history"
                     >
@@ -4522,6 +4598,18 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       {projectHistory.entries.length > 1 && <HistoryMenu history={projectHistory} />}
                     </div>
                   )}
+                  {!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm('Undo the voice change? The dub goes back to the voice it had before, with its timing edits, and the new voice is thrown away.')) onUndoVoiceChange();
+                      }}
+                      title="Put back the dub from before the voice change, so its timing can be edited again"
+                      className="h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Undo voice change
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingTiming(true)}
@@ -4533,7 +4621,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                           ? 'The voice change replaced the whole file: undo it, or Sync again, to edit the timing'
                           : 'Sync again to edit the timing of this dub'
                     }
-                    className={`${projectHistory || (!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange) ? '' : 'ml-auto '}h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5`}
+                    className={`h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5`}
                   >
                     <Pencil className="w-3.5 h-3.5" /> Edit timing
                   </button>
@@ -4597,7 +4685,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   }
                 />
               )}
-              {report && editingTiming && renderTakes && timingTakesUnit && (
+              {report && renderTakes && timingTakesUnit && (
                 <FloatingWindow
                   title={
                     <>
@@ -4640,8 +4728,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onPrevLine={prevCue}
                   onNextLine={nextCue}
                   transportExtras={playerExtras}
-                  onWorkOnLine={(unit, mode) => setFocusLine((now) => ({ key: unit.key, mode, n: (now?.n ?? 0) + 1 }))}
-                  canOpenTakes={Boolean(renderTakes)}
+                  onOpenTakes={
+                    renderTakes
+                      ? (unit) => {
+                          setTimingTakesKey(unit.key);
+                          setTimingTakesCopy(null);
+                          setTimingTakesPhrase(null);
+                        }
+                      : undefined
+                  }
                   sourceLanguage={subtitleSourceLanguage}
                   dubLanguage={targetLanguage}
                   onSeekTrack={(track, t) => {
@@ -4686,7 +4781,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 {activeCue ? (
                   <LinePair source={getSourceText(activeCue)} dub={getTargetText(activeCue)} sourceLanguage={subtitleSourceLanguage} dubLanguage={targetLanguage} />
                 ) : (
-                  <span className="text-xs text-slate-500">Press play, or Listen on a line below.</span>
+                  <span className="text-xs text-slate-500">Press play.</span>
                 )}
               </span>
               {!report && (
@@ -4715,6 +4810,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               {playerExtras}
               </div>
               )}
+              {/* The dock, once synced: what the next Sync uses on the left, what the dub is saved as on the right. */}
+              {report && !isSyncing && (
+                <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-edge">
+                  {syncActions}
+                  <span className="flex-1 min-w-[1rem]" />
+                  {saveActions}
+                </div>
+              )}
             </section>
           )}
           {hasDub && reviewVideo.video && !reviewVideoHidden && (
@@ -4735,45 +4838,11 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             />
           )}
 
-          {multiSpeaker && report && (
-            <section aria-label="Speakers" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-1">Cast</span>
-                {speakers.map((s) => (
-                  <SpeakerChip
-                    key={s.name}
-                    speaker={s}
-                    name={s.name}
-                    suffix={
-                      (availableVoices.find((v) => v.voice_id === (activeJob.cast?.[s.name]?.voiceId || elVoiceId))?.name || '')
-                        .split(/\s+[-–—|]\s+/)[0] || undefined
-                    }
-                  />
-                ))}
-                <button type="button" onClick={openVoicePanel} className="ml-auto text-xs text-slate-400 hover:text-slate-200 cursor-default">
-                  Change voices
-                </button>
-              </div>
-              {report && activeJob.syncMix ? (
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                  <MixChecks mix={activeJob.syncMix} synced />
-                  {activeJob.syncedStems && activeJob.syncedStems.length > 0 && onDownloadStem && (
-                    <StemDownloads stems={activeJob.syncedStems} speakers={speakers} onDownload={onDownloadStem} />
-                  )}
-                </div>
-              ) : (
-                <p className="text-[12px] text-slate-400">
-                  Each speaker is voiced with their own voice and placed on their own lines. Where two people talk at once in the original, the dub keeps that overlap.
-                </p>
-              )}
-            </section>
-          )}
-
-          {/* Before the first sync: the Dub settings with Ready to dub under it, one window high. Once synced: the lines, and the rail. */}
+          {/* Before the first sync: the Dub settings with Ready to dub under it, one window high. Once synced: what is left to act on, then voice and Sync side by side. */}
           <div
             className={`grid grid-cols-1 gap-4 ${
               report
-                ? 'lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_25rem] items-start lg:items-stretch'
+                ? 'items-start'
                 : `items-stretch ${hasDub ? '' : 'xl:h-[calc(100vh-7rem)] xl:min-h-[600px]'}`
             }`}
           >
@@ -4804,364 +4873,300 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   dubBuffer={report ? activeJob.syncedAudioBuffer : null}
                   pendingLines={syncPendingLines}
                   onSyncChangedOnly={runSyncChangedOnly}
-                  onApplyLine={
-                    onApplySyncLine &&
-                    ((unit, text) => {
-                      rememberChoice(activeJob?.id, { from: unit.text, to: text });
-                      onApplySyncLine(unit, text);
-                    })
-                  }
-                  applyVoicesNow={Boolean(renderTakes)}
-                  takesBusyKey={syncTakesBusy}
-                  onRetakeLine={onRetakeSyncLines && ((unit, takes) => onRetakeSyncLines([unit], takes))}
-                  onRetakeLines={onRetakeSyncLines}
                   onUseTake={onUseOfferedTake}
                   onKeepTake={onKeepOfferedTake}
-                  renderTakes={renderTakes}
-                  lockedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => !isClip(key) && activeJob.syncEdits?.[key]?.locked)}
-                  editedKeys={Object.keys(activeJob.syncEdits || {}).filter((key) => !isClip(key))}
-                  focusLine={focusLine}
-                  onSuggestLine={(unit, avoid) =>
-                    unit.targetChars == null
-                      ? Promise.resolve([])
-                      : (unit.short && !unit.exceeded ? suggestLongerLine : suggestShorterLine)({
-                          text: unit.text,
-                          sourceText: unit.sourceText,
-                          language: targetLanguage,
-                          targetChars: unit.targetChars,
-                          avoid,
-                          context: lineContextOf(unit.cueIds, unit.speaker),
-                          examples: choicesFor(activeJob?.id, unit.text),
-                          count: LINE_OPTIONS,
-                        })
-                  }
                 />
               )}
               {!report && dubSettingsCard}
               {!report && syncPanel}
             </div>
 
+            {/* Voice, once synced: a window from the Voice button on the player's row. Before the first sync it is on the Dub settings card. */}
             {report && (
-            <div className="flex flex-col gap-4 min-w-0 min-h-0">
-              {/* Voice, once synced: folded to one line until wanted. Before the first sync it is on the Dub settings card. */}
-              {report && (
-              <aside id="dub-voice" aria-label="Voice and delivery" className="flex flex-col bg-slate-900/90 border border-edge rounded-2xl overflow-hidden scroll-mt-4">
-                <div className="flex items-center justify-between gap-2 px-4 sm:px-5 pt-4">
-                  <h2 className="text-[15px] font-semibold text-slate-100">Voice and delivery</h2>
-                  {report && (
+              <CenteredPanel open={voiceOpen} onClose={() => setVoiceOpen(false)} label="Voice and delivery" className="max-w-[44rem]" layerClassName="z-40">
+                <div className="flex items-center gap-3 px-4 sm:px-5 pt-4 pb-3">
+                  <span className="min-w-0 flex-1">
+                    <h2 className="text-[15px] font-semibold text-slate-100">Voice and delivery</h2>
+                    <p className="text-[12px] text-slate-400">A change applies the next time you sync.</p>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setVoiceOpen(false)}
+                    aria-label="Close"
+                    className="w-8 h-8 rounded-full text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Who speaks: the cast, then the main voice on a line like theirs. */}
+                <div className="px-4 sm:px-5 py-3.5 border-t border-edge flex flex-col gap-2">
+                  <span className={voiceSection}>{multiSpeaker ? 'Voices' : 'Voice'}</span>
+                  {multiSpeaker && onCastChange && (
+                    <CastCard
+                      speakers={speakers}
+                      cast={activeJob.cast}
+                      mainVoiceId={elVoiceId}
+                      availableVoices={availableVoices}
+                      disabled={isSyncing}
+                      onPick={(speaker) => {
+                        setCastPickFor(speaker);
+                        setIsVoicePickerOpen(true);
+                      }}
+                      onUseMain={(speaker) => onCastChange(speaker, null)}
+                      rates={speakerVoiceRates}
+                      mainRate={voiceRate}
+                    />
+                  )}
+                  <div
+                    className="flex items-center gap-2 py-1"
+                    title={multiSpeaker ? 'The main voice speaks for anyone in the cast without a voice of their own.' : undefined}
+                  >
+                    {multiSpeaker && (
+                      <>
+                        <span className="w-2 h-2 rounded-full shrink-0 border border-slate-500" />
+                        <span className="w-28 shrink-0 text-[13px] text-slate-200">Main voice</span>
+                      </>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} compact />
+                    </div>
                     <button
                       type="button"
-                      onClick={() => setVoicePanelOpen((open) => !open)}
-                      aria-expanded={voicePanelOpen}
-                      className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 cursor-default"
+                      onClick={() => {
+                        setCastPickFor(null);
+                        setIsVoicePickerOpen(true);
+                      }}
+                      className="px-2.5 py-0.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0"
                     >
-                      {voicePanelOpen ? 'Hide' : 'Change'}
-                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${voicePanelOpen ? 'rotate-180' : ''}`} />
+                      Change
                     </button>
+                  </div>
+                  {favoriteVoices.length > 0 && (
+                    <div role="group" aria-label="Favourite voices" className="flex flex-wrap gap-1.5">
+                      {favoriteVoices.slice(0, 4).map((fav) => {
+                        const on = fav.id === elVoiceId;
+                        const name = (fav.name || fav.id).split(/\s+[-–—|]\s+/)[0];
+                        return (
+                          <button
+                            key={fav.id}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => onElVoiceIdChange(fav.id)}
+                            className={`flex items-center gap-1.5 pl-1 pr-2.5 py-0.5 rounded-full border text-xs transition-colors cursor-default ${
+                              on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-edge text-slate-300 hover:bg-slate-800/60'
+                            }`}
+                            title={fav.name}
+                          >
+                            <span className="w-5 h-5 rounded-full bg-slate-700 text-white text-[10px] font-semibold flex items-center justify-center">
+                              {name.charAt(0).toUpperCase()}
+                            </span>
+                            <span className="truncate max-w-[7rem]">{name}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
-                {report && !voicePanelOpen ? (
-                  <p className="px-4 sm:px-5 pt-1 pb-4 text-xs text-slate-400">
-                    {[voiceShortName, ttsModelName, multiSpeaker && `${speakers.length} speakers`].filter(Boolean).join(' · ')}. A change applies when you sync
-                    again.
-                  </p>
-                ) : (
-                  <>
-                    {multiSpeaker && onCastChange && (
-                      <div className="px-4 sm:px-5 pt-4 flex flex-col gap-2">
-                        <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Cast</span>
-                        <CastCard
-                          speakers={speakers}
-                          cast={activeJob.cast}
-                          mainVoiceId={elVoiceId}
-                          availableVoices={availableVoices}
-                          disabled={isSyncing}
-                          onPick={(speaker) => {
-                            setCastPickFor(speaker);
-                            setIsVoicePickerOpen(true);
-                          }}
-                          onUseMain={(speaker) => onCastChange(speaker, null)}
-                          rates={speakerVoiceRates}
-                          mainRate={voiceRate}
-                        />
-                      </div>
-                    )}
 
-                    <div className="px-4 sm:px-5 py-4 flex flex-col gap-2.5">
-                      <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{multiSpeaker ? 'Main voice' : 'Voice'}</span>
-                      {multiSpeaker && (
-                        <span className="-mt-1 text-[11px] text-slate-500 leading-snug">Speaks for anyone in the cast without a voice of their own.</span>
-                      )}
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 min-w-0">
-                          <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
-                        </div>
+                {/* How it is voiced and written out: every setting one row, the name left and the control right. */}
+                <div className="px-4 sm:px-5 py-3.5 border-t border-edge flex flex-col gap-3">
+                  <span className={voiceSection}>Delivery</span>
+                  <VoiceRow label="Model">
+                    {voiceEngine === 'elevenlabs' && elModelId && onElModelIdChange && elModels.length > 0 ? (
+                      <select
+                        id="dub-el-model"
+                        aria-label="Model"
+                        value={elModelId}
+                        onChange={(e) => onElModelIdChange(e.target.value)}
+                        disabled={isSyncing}
+                        className="max-w-[14rem] h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
+                      >
+                        {!elModels.some((m) => m.model_id === elModelId) && (
+                          <option value={elModelId} className="bg-slate-900">{ttsModelName}</option>
+                        )}
+                        {elModels.map((m) => (
+                          <option key={m.model_id} value={m.model_id} className="bg-slate-900">
+                            {m.name}
+                            {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-200">{ttsModelName}</span>
+                    )}
+                  </VoiceRow>
+                  {onVoiceExpressionChange && (() => {
+                    // Tags are written for one continuous read on a model that performs them; anything else is Neutral (or Off).
+                    const cartesia = voiceEngine === 'cartesia';
+                    const takesCues =
+                      (cartesia ? cartesiaTakesControls(cartesiaModelId) : Boolean(elModelId && performsAudioTags(elModelId))) && !multiSpeaker;
+                    const current: VoiceExpression = takesCues || voiceExpression === 'off' ? voiceExpression : 'neutral';
+                    const notTagged = multiSpeaker
+                      ? 'Natural and Expressive are for a dub in one voice.'
+                      : cartesia
+                        ? 'Natural and Expressive need a Sonic 3 model.'
+                        : 'Natural and Expressive need Eleven v3 or v4.';
+                    return (
+                      <VoiceRow
+                        label="Expression"
+                        hint={
+                          current === 'off'
+                            ? "The script as written, in the voice's own settings. Nothing added."
+                            : current === 'natural'
+                              ? cartesia
+                                ? 'Follows how the original speaker spoke: each line gets one mild emotion, like calm or curious.'
+                                : 'Follows how the original speaker spoke: their pace and pauses, with calm tags only.'
+                              : current === 'expressive'
+                                ? cartesia
+                                  ? 'The voice takes its emotion from the words. Can sound dramatic.'
+                                  : 'Adds emotion tags guessed from the script. Can sound dramatic.'
+                                : takesCues
+                                  ? "Calm and steady in the speaker's own voice. No tags, one tone throughout."
+                                  : `Calm and steady in the speaker's own voice. ${notTagged}`
+                        }
+                      >
+                        <VoiceSeg<VoiceExpression>
+                          label="Expression"
+                          value={current}
+                          onPick={onVoiceExpressionChange}
+                          disabled={isSyncing}
+                          choices={[
+                            { id: 'off', label: 'Off' },
+                            { id: 'neutral', label: 'Neutral' },
+                            { id: 'natural', label: 'Natural', off: !takesCues, title: takesCues ? undefined : notTagged },
+                            { id: 'expressive', label: 'Expressive', off: !takesCues, title: takesCues ? undefined : notTagged },
+                          ]}
+                        />
+                      </VoiceRow>
+                    );
+                  })()}
+                  {onDubMatchLoudnessChange && (
+                    <VoiceRow
+                      label={multiSpeaker ? 'Even out speakers' : 'Even out loudness'}
+                      hint={
+                        dubMatchLoudness
+                          ? multiSpeaker
+                            ? 'One gain per speaker: every voice at one level, its own dynamics kept.'
+                            : 'Every line is brought to one level.'
+                          : multiSpeaker
+                            ? 'Every line exactly as voiced.'
+                            : 'Each line keeps exactly the level it was voiced at.'
+                      }
+                    >
+                      <VoiceSwitch
+                        label={multiSpeaker ? 'Even out speakers' : 'Even out loudness'}
+                        on={dubMatchLoudness}
+                        onChange={onDubMatchLoudnessChange}
+                        disabled={isSyncing}
+                      />
+                    </VoiceRow>
+                  )}
+                  {onDubAudioQualityChange && (
+                    <VoiceRow label="Audio quality" hint={DUB_AUDIO_QUALITIES.find((q) => q.id === dubAudioQuality)?.hint} warn={dubQualityNotice}>
+                      <VoiceSeg
+                        label="Audio quality"
+                        value={dubAudioQuality}
+                        onPick={onDubAudioQualityChange}
+                        disabled={isSyncing}
+                        choices={DUB_AUDIO_QUALITIES.map((q) => ({
+                          id: q.id,
+                          label: q.id === 'pcm_48000' ? 'WAV 48 kHz' : q.id === 'mp3_44100_192' ? 'MP3 192' : 'MP3 128',
+                          title: `${q.label}. ${q.hint}`,
+                        }))}
+                      />
+                    </VoiceRow>
+                  )}
+                  {multiSpeaker && onMixPeakChange && <MixPeakChoice value={mixPeak} onChange={onMixPeakChange} disabled={isSyncing} />}
+                </div>
+
+                {/* The voice's own sliders, two by two. */}
+                {showVoiceSliders && (
+                  <div className="px-4 sm:px-5 py-3.5 border-t border-edge flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={voiceSection}>Voice settings</span>
+                      <span className="flex-1 min-w-0 text-[11px] text-slate-500 truncate">
+                        {elVoiceSettings ? 'Yours' : "The voice's own"}
+                      </span>
+                      {elVoiceSettings && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setCastPickFor(null);
-                            setIsVoicePickerOpen(true);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0"
+                          onClick={() => onElVoiceSettingsChange?.(null)}
+                          disabled={isSyncing}
+                          title="Back to the voice's own ElevenLabs settings"
+                          className="shrink-0 text-[11px] text-indigo-400 hover:text-indigo-300 cursor-default"
                         >
-                          Change
+                          Use the voice's own
                         </button>
-                      </div>
-                      {favoriteVoices.length > 0 && (
-                        <div role="group" aria-label="Favourite voices" className="flex flex-wrap gap-1.5">
-                          {favoriteVoices.slice(0, 4).map((fav) => {
-                            const on = fav.id === elVoiceId;
-                            const name = (fav.name || fav.id).split(/\s+[-–—|]\s+/)[0];
-                            return (
-                              <button
-                                key={fav.id}
-                                type="button"
-                                aria-pressed={on}
-                                onClick={() => onElVoiceIdChange(fav.id)}
-                                className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border text-xs transition-colors cursor-default ${
-                                  on ? 'border-indigo-500 bg-indigo-950/40 text-slate-100' : 'border-edge text-slate-300 hover:bg-slate-800/60'
-                                }`}
-                                title={fav.name}
-                              >
-                                <span className="w-5 h-5 rounded-full bg-slate-700 text-white text-[10px] font-semibold flex items-center justify-center">
-                                  {name.charAt(0).toUpperCase()}
-                                </span>
-                                <span className="truncate max-w-[7rem]">{name}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
                       )}
-                      {voiceEngine === 'elevenlabs' && elModelId && onElModelIdChange && elModels.length > 0 ? (
-                        <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
-                          <label htmlFor="dub-el-model">Model</label>
-                          <select
-                            id="dub-el-model"
-                            value={elModelId}
-                            onChange={(e) => onElModelIdChange(e.target.value)}
-                            disabled={isSyncing}
-                            title={hasDub ? 'A new model applies the next time you sync.' : undefined}
-                            className="min-w-0 max-w-[65%] h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 truncate focus:outline-none focus:border-indigo-500 cursor-default disabled:opacity-60"
-                          >
-                            {!elModels.some((m) => m.model_id === elModelId) && (
-                              <option value={elModelId} className="bg-slate-900">{ttsModelName}</option>
-                            )}
-                            {elModels.map((m) => (
-                              <option key={m.model_id} value={m.model_id} className="bg-slate-900">
-                                {m.name}
-                                {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      ) : (
-                        <div className="flex justify-between text-xs text-slate-400">
-                          <span>Model</span>
-                          <span className="text-slate-200 font-medium truncate ml-3">{ttsModelName}</span>
-                        </div>
-                      )}
-                      {onVoiceExpressionChange && (() => {
-                        // Tags are written for one continuous read on a model that performs them; anything else is Neutral (or Off).
-                        const cartesia = voiceEngine === 'cartesia';
-                        const takesCues =
-                          (cartesia ? cartesiaTakesControls(cartesiaModelId) : Boolean(elModelId && performsAudioTags(elModelId))) && !multiSpeaker;
-                        const current: VoiceExpression = takesCues || voiceExpression === 'off' ? voiceExpression : 'neutral';
-                        const notTagged = multiSpeaker
-                          ? 'Natural and Expressive are for a dub in one voice.'
-                          : cartesia
-                            ? 'Natural and Expressive need a Sonic 3 model.'
-                            : 'Natural and Expressive need Eleven v3 or v4.';
-                        return (
-                          <div className="flex flex-col gap-1.5">
-                            <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
-                              <span id="dub-voice-expression">Expression</span>
-                              <div
-                                role="group"
-                                aria-labelledby="dub-voice-expression"
-                                title={hasDub ? 'Applies the next time you sync.' : undefined}
-                                className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5"
-                              >
-                                {([
-                                  { id: 'off', label: 'Off' },
-                                  { id: 'neutral', label: 'Neutral' },
-                                  { id: 'natural', label: 'Natural' },
-                                  { id: 'expressive', label: 'Expressive' },
-                                ] as const).map((m) => {
-                                  const off = (m.id === 'natural' || m.id === 'expressive') && !takesCues;
-                                  return (
-                                    <button
-                                      key={m.id}
-                                      type="button"
-                                      aria-pressed={current === m.id}
-                                      onClick={() => onVoiceExpressionChange(m.id)}
-                                      disabled={isSyncing || off}
-                                      title={off ? notTagged : undefined}
-                                      className={`px-2 py-1 rounded-lg text-xs font-medium transition-colors cursor-default ${
-                                        current === m.id ? 'bg-slate-800 text-slate-100' : off ? 'text-slate-600' : 'text-slate-400 hover:text-slate-200'
-                                      }`}
-                                    >
-                                      {m.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                            <span className="text-[11px] text-slate-500 leading-snug">
-                              {current === 'off'
-                                ? "The script as written, in the voice's own settings. Nothing added."
-                                : current === 'natural'
-                                ? cartesia
-                                  ? 'Follows how the original speaker spoke: each line gets one mild emotion, like calm or curious.'
-                                  : 'Follows how the original speaker spoke: their pace and pauses, with calm tags only.'
-                                : current === 'expressive'
-                                  ? cartesia
-                                    ? 'The voice takes its emotion from the words. Can sound dramatic.'
-                                    : 'Adds emotion tags guessed from the script. Can sound dramatic.'
-                                  : takesCues
-                                    ? "Calm and steady in the speaker's own voice. No tags, one tone throughout."
-                                    : `Calm and steady in the speaker's own voice. ${notTagged}`}
-                            </span>
-                          </div>
-                        );
-                      })()}
-                      {onDubMatchLoudnessChange && (
-                        <label className="flex items-start gap-2.5 text-xs cursor-default" title={hasDub ? 'Applies the next time you sync.' : undefined}>
+                      <ResetDefaultsButton
+                        onClick={() => onElVoiceSettingsChange?.({ ...DEFAULT_VOICE_SETTINGS })}
+                        disabled={isSyncing || isElevenLabsDefault(shownVoiceSettings)}
+                      />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                      {[
+                        {
+                          key: 'stability' as const,
+                          label: 'Stability',
+                          full: 'Stability',
+                          ends: elModelId && performsAudioTags(elModelId) ? ['Creative', 'Robust'] : ['More variable', 'More stable'],
+                        },
+                        { key: 'similarity_boost' as const, label: 'Similarity', full: 'Similarity', ends: ['Low', 'High'] },
+                        { key: 'style' as const, label: 'Style', full: 'Style exaggeration', ends: ['None', 'Exaggerated'] },
+                      ].map((s) => (
+                        // One line a setting: its name, the slider, the value. What the two ends mean is on hover.
+                        <label key={s.key} className="flex items-center gap-2.5 min-w-0" title={`${s.full}: ${s.ends[0]} (0) to ${s.ends[1]} (1)`}>
+                          <span className="w-[4.25rem] shrink-0 text-[12.5px] font-medium text-slate-200">{s.label}</span>
                           <input
-                            type="checkbox"
-                            checked={dubMatchLoudness}
-                            onChange={(e) => onDubMatchLoudnessChange(e.target.checked)}
+                            type="range"
+                            min={0}
+                            max={1}
+                            step={0.05}
+                            value={shownVoiceSettings[s.key] ?? 0}
                             disabled={isSyncing}
-                            className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-default"
+                            onChange={(e) => onElVoiceSettingsChange?.({ ...shownVoiceSettings, [s.key]: parseFloat(e.target.value) })}
+                            aria-label={s.full}
+                            className="flex-1 min-w-0 accent-indigo-500 cursor-default disabled:opacity-60"
                           />
-                          <span className="flex flex-col gap-0.5">
-                            <span className="text-slate-200 font-medium">{multiSpeaker ? 'Even out speakers' : 'Even out loudness'}</span>
-                            <span className="text-[11px] text-slate-500 leading-snug">
-                              {multiSpeaker
-                                ? 'One gain per speaker, so every voice sits at one level and keeps its own dynamics. Off: every line exactly as voiced.'
-                                : 'Brings every line to one level. Off: each line keeps exactly the level it was voiced at.'}
-                            </span>
+                          <span className="w-8 shrink-0 text-right font-mono text-xs text-slate-300 tabular-nums">
+                            {(shownVoiceSettings[s.key] ?? 0).toFixed(2)}
                           </span>
                         </label>
-                      )}
-                      {onDubAudioQualityChange && (
-                        <fieldset className="flex flex-col gap-1.5 pt-1" disabled={isSyncing} title={hasDub ? 'Applies the next time you sync.' : undefined}>
-                          <legend className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">Audio quality</legend>
-                          {DUB_AUDIO_QUALITIES.map((q) => (
-                            <label key={q.id} className="flex items-start gap-2.5 text-xs cursor-default">
-                              <input
-                                type="radio"
-                                name="dub-audio-quality"
-                                checked={dubAudioQuality === q.id}
-                                onChange={() => onDubAudioQualityChange(q.id)}
-                                className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-default"
-                              />
-                              <span className="flex flex-col gap-0.5">
-                                <span className="text-slate-200 font-medium">{q.label}</span>
-                                <span className="text-[11px] text-slate-500 leading-snug">{q.hint}</span>
-                              </span>
-                            </label>
-                          ))}
-                          {dubQualityNotice && (
-                            <p role="status" className="text-[11px] text-amber-300/90 leading-snug">
-                              {dubQualityNotice}
-                            </p>
-                          )}
-                        </fieldset>
-                      )}
-                      {multiSpeaker && onMixPeakChange && (
-                        <div className="pt-1" title={hasDub ? 'Applies the next time you sync.' : undefined}>
-                          <MixPeakChoice value={mixPeak} onChange={onMixPeakChange} disabled={isSyncing} />
-                        </div>
-                      )}
-                      {showVoiceSliders && (
-                        <div className="flex flex-col gap-3 pt-1">
-                          <div className="flex items-center justify-between -mb-1">
-                            <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice settings</span>
-                            <ResetDefaultsButton
-                              onClick={() => onElVoiceSettingsChange?.({ ...DEFAULT_VOICE_SETTINGS })}
-                              disabled={isSyncing || isElevenLabsDefault(shownVoiceSettings)}
-                            />
-                          </div>
-                          {[
-                            {
-                              key: 'stability' as const,
-                              label: 'Stability',
-                              ends: elModelId && performsAudioTags(elModelId) ? ['Creative', 'Robust'] : ['More variable', 'More stable'],
-                            },
-                            { key: 'similarity_boost' as const, label: 'Similarity', ends: ['Low', 'High'] },
-                            { key: 'style' as const, label: 'Style Exaggeration', ends: ['None', 'Exaggerated'] },
-                          ].map((s) => (
-                            <div key={s.key}>
-                              <div className="flex items-baseline justify-between gap-3">
-                                <span className="text-[13px] font-semibold text-slate-100">{s.label}</span>
-                                <span className="font-mono text-xs text-slate-300 tabular-nums">{(shownVoiceSettings[s.key] ?? 0).toFixed(2)}</span>
-                              </div>
-                              <input
-                                type="range"
-                                min={0}
-                                max={1}
-                                step={0.05}
-                                value={shownVoiceSettings[s.key] ?? 0}
-                                disabled={isSyncing}
-                                onChange={(e) =>
-                                  onElVoiceSettingsChange?.({ ...shownVoiceSettings, [s.key]: parseFloat(e.target.value) })
-                                }
-                                aria-label={s.label}
-                                className="w-full mt-1.5 accent-indigo-500 cursor-default disabled:opacity-60"
-                              />
-                              <div className="flex justify-between text-[10.5px] text-slate-500">
-                                <span>{s.ends[0]}</span>
-                                <span>{s.ends[1]}</span>
-                              </div>
-                            </div>
-                          ))}
-                          <div className="flex items-center gap-3">
-                            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-100">Speaker boost</span>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={shownVoiceSettings.use_speaker_boost !== false}
-                              aria-label="Speaker boost"
-                              disabled={isSyncing}
-                              onClick={() =>
-                                onElVoiceSettingsChange?.({
-                                  ...shownVoiceSettings,
-                                  use_speaker_boost: shownVoiceSettings.use_speaker_boost === false,
-                                })
-                              }
-                              className={`relative w-[34px] h-5 rounded-full shrink-0 transition-colors cursor-default disabled:opacity-60 ${
-                                shownVoiceSettings.use_speaker_boost !== false ? 'bg-indigo-500' : 'bg-slate-700'
-                              }`}
-                            >
-                              <span
-                                className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${
-                                  shownVoiceSettings.use_speaker_boost !== false ? 'left-[17px]' : 'left-[3px]'
-                                }`}
-                              />
-                            </button>
-                          </div>
-                          <p className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                            <span>{elVoiceSettings ? 'Your settings. They apply the next time you sync.' : "The voice's own ElevenLabs settings."}</span>
-                            {elVoiceSettings && (
-                              <button
-                                type="button"
-                                onClick={() => onElVoiceSettingsChange?.(null)}
-                                disabled={isSyncing}
-                                className="shrink-0 text-indigo-400 hover:text-indigo-300 cursor-default"
-                              >
-                                Reset
-                              </button>
-                            )}
-                          </p>
-                        </div>
-                      )}
+                      ))}
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="flex-1 min-w-0 text-[12.5px] font-medium text-slate-200">Speaker boost</span>
+                        <VoiceSwitch
+                          label="Speaker boost"
+                          on={shownVoiceSettings.use_speaker_boost !== false}
+                          onChange={(on) => onElVoiceSettingsChange?.({ ...shownVoiceSettings, use_speaker_boost: on })}
+                          disabled={isSyncing}
+                        />
+                      </div>
                     </div>
-                  </>
+                  </div>
                 )}
-              </aside>
-              )}
-              {syncPanel}
-            </div>
+                {onOpenVoiceChanger && (
+                  <div className="px-4 sm:px-5 py-3.5 border-t border-edge">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVoiceOpen(false);
+                        onOpenVoiceChanger();
+                      }}
+                      disabled={isSyncing}
+                      className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-edge bg-slate-950/60 hover:bg-slate-800 text-left text-slate-200 transition-colors disabled:opacity-40 cursor-default"
+                    >
+                      <AudioWaveform className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13px]">Change the voice of this dub</span>
+                        <span className="block text-[11.5px] text-slate-500 truncate">Keeps the timing, without syncing again</span>
+                      </span>
+                      <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                    </button>
+                  </div>
+                )}
+              </CenteredPanel>
             )}
           </div>
 

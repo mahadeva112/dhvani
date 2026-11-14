@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Paste Script Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  // Graphite, as index.css swaps it.
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#111214; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .scroll::-webkit-scrollbar { width:8px; height:8px } .scroll::-webkit-scrollbar-thumb { background:#34363c; border-radius:8px } .scroll::-webkit-scrollbar-track { background:transparent }
+  .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg) } }
+  .shimmer { background: linear-gradient(90deg, #1d1f23 0%, #2a2c31 50%, #1d1f23 100%); background-size: 200% 100%; animation: sh 1.4s linear infinite; }
+  @keyframes sh { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+  .pop { box-shadow: 0 24px 60px -16px rgba(0,0,0,.75); }
+  .kbd { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; padding:1px 5px; border-radius:5px; border:1px solid #34363c; border-bottom-width:2px; color:#c6c8ce; background:#18191c; }
+  .cut { width:9px; cursor:col-resize; display:flex; justify-content:center; }
+  .cut::before { content:''; width:2px; height:100%; border-radius:2px; background:#5a5d66; }
+  .cut:hover::before, .cut.on::before { background:#a5adf5; }
+  button { cursor:default; }
+  [contenteditable]:focus { outline:none; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[92rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<div class="max-w-[92rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">অবস্থা</span>
+  <span id="stateSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<p id="note" class="max-w-[92rem] mx-auto mb-4 text-[13.5px] text-slate-300 leading-relaxed"></p>
+
+<div class="max-w-[92rem] mx-auto" id="main"></div>
+
+<script>
+const ICON = {
+  paste: '<path d="M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2M16 4h2a2 2 0 0 1 2 2v2M11 14h10"/><path d="m17 10 4 4-4 4"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  folder: '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  spin: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  left: '<path d="m15 18-6-6 6-6"/>',
+  right: '<path d="m9 18 6-6-6-6"/>',
+  up: '<path d="m18 15-6-6-6 6"/>',
+  down: '<path d="m6 9 6 6 6-6"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  pen: '<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
+  merge: '<path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.17 2.87L4 22"/><path d="m20 22-5-5"/>',
+  zoomIn: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M11 8v6"/><path d="M8 11h6"/>',
+  zoomOut: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><path d="M8 11h6"/>',
+  undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>',
+  keyboard: '<path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/>',
+};
+const ic = (n, c = 'w-4 h-4') => `<svg class="${c} shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
+
+// Cues: start, length, English, Hindi as the match placed it.
+const T = [
+  [0.0,3.1,'Thank you all for coming this evening.','आज शाम आप सब के आने के लिए धन्यवाद।'],
+  [3.4,4.2,'What we call life is just a certain amount of energy.','जिसे हम जीवन कहते हैं, वह बस कुछ ऊर्जा है।'],
+  [7.9,2.6,'How you use it is up to you.','आप उसे कैसे इस्तेमाल करें, यह आप पर है।'],
+  [10.8,3.2,'Most people spend it on things that do not matter.','ज़्यादातर लोग उसे ऐसी चीज़ों पर खर्च करते हैं जो बिल्कुल भी मायने नहीं रखतीं।'],
+  [14.3,2.2,'Then they wonder where it went.','फिर सोचते हैं कि वह कहाँ गई।'],
+  [17.4,3.5,'If you sit quietly for a few minutes every day,','अगर आप रोज़ कुछ मिनट शांति से बैठें,'],
+  [21.1,3.0,'you will see how much is wasted.','तो देखेंगे कि कितना बर्बाद होता है।'],
+  [24.5,1.6,'Just watch.','बस देखिए। शुरुआत में'],
+  [26.4,4.4,'Do not try to fix anything in the beginning.','कुछ भी ठीक करने की कोशिश मत कीजिए।'],
+  [31.0,2.9,'Watching itself will change things.','देखना ही चीज़ों को बदल देगा।'],
+  [34.2,3.6,'This is not a belief, this is something you can try.','यह कोई मान्यता नहीं, यह आप आज़मा सकते हैं।'],
+  [38.1,2.4,'Try it for thirty days.','तीस दिन आज़माइए।'],
+  [40.8,4.0,'If nothing changes, you can throw it away.','अगर कुछ न बदले, तो छोड़ दीजिए।'],
+  [45.1,3.3,'But I know it will change.',''],
+  [48.7,2.8,'Because that is the nature of life.','क्योंकि जीवन का स्वभाव यही है।'],
+  [51.8,3.9,'It responds to attention.','वह ध्यान का जवाब देता है।'],
+];
+const LEN = 56;
+// Pasted script: one paragraph line per entry, with the cues the match gave it.
+const LINES = [[0,1],[2,3,4],[5,6,7],[8,9,10],[11,12],[14,15]];
+const LINE_TEXT = LINES.map((cues) => cues.map((c) => T[c][3]).join(' ').replace('बस देखिए। शुरुआत में कुछ', 'बस देखिए। शुरुआत में कुछ'));
+const GROUP = ['#7b86ec','#5fb3c9','#a98be0','#6fa8dc','#c48bb5','#8fa3b8'];
+const groupOf = (c) => LINES.findIndex((l) => l.includes(c));
+const FLAG = {
+  7: { label: 'Estimated', tone: 'amber', hint: 'এই cue-র জন্য AI-র উত্তর কাজে লাগানো যায়নি, তাই length দিয়ে বসানো। "शुरुआत में" সম্ভবত পরের cue-র।' },
+  12: { label: 'Check', tone: 'amber', hint: 'মানের কিছু অংশ হয়তো নেই, বা পাশের cue-তে।' },
+  13: { label: 'Not in script', tone: 'rose', hint: 'আপনার script-এ এই English-এর কিছু নেই, তাই cue ফাঁকা রাখা হলো — ভরানো হয়নি।' },
+};
+const FAST = 18;
+const cps = (c) => (T[c][3] ? T[c][3].length / T[c][1] : 0);
+const isFast = (c) => cps(c) > FAST;
+const toCheck = (c) => Boolean(FLAG[c]) || isFast(c);
+const CHECK = T.map((_, c) => c).filter(toCheck);
+const fmt = (s) => { const m = Math.floor(s / 60); return `${m}:${(s % 60).toFixed(1).padStart(4, '0')}`; };
+const nn = (c) => String(c + 1).padStart(2, '0');
+const words = (s) => s.split(/\s+/).filter(Boolean);
+const totalWords = LINE_TEXT.reduce((n, l) => n + words(l).length, 0);
+const MATCHING_DONE = 9;
+
+const MOCKS = {
+  A: { label: 'Mock A · তিন প্যানেল aligner', note: 'বাঁয়ে আপনার script — প্রতিটা পেস্ট-করা লাইনের পাশে রঙিন দাগ আর কোন cue-তে গেল (→ 03–05)। ডানে ঘন টেবিল: # · সময় · দৈর্ঘ্য · English · Hindi · cps মিটার · অবস্থা; একই script-লাইনের cue গুলো বাঁয়ে একই রঙের বন্ধনীতে। Script-লাইনে হোভার করলে তার cue গুলো জ্বলে ওঠে। উপরের টুলবারে split-এর পথ (segmented), cue range, ফিল্টার চিপ। বাছা সারিতে ছোট টুলবার: শব্দ আগের/পরের cue-তে, Mark checked। নিচে স্ট্যাটাস বার + কীবোর্ড শর্টকাট। কিছুই translate বা rewrite হয় না।' },
+  B: { label: 'Mock B · টাইমলাইন + inspector', note: 'DAW-এর মতো: উপরে আসল audio-র wave আর cue ব্লক, ঠিক তার নিচে "Your script" লেন — script একটানা স্ট্রিপ, প্রতিটা cue-র চওড়ায় কাটা। দুই ব্লকের মাঝের দাগ টেনে শব্দ এদিক-ওদিক সরে (শুধু শব্দের ফাঁকে স্ন্যাপ করে)। নিচে বাছা cue-র বড় inspector: শব্দগুলো চিপ হিসেবে, প্রথম/শেষ শব্দ পাশের cue-তে দেওয়ার বোতাম, cps গজ, কেন ফ্ল্যাগ। ডানে "To check" কিউ — J/K দিয়ে একটা একটা করে। Script নিজে উপরে এক লাইনের চিপে ভাঁজ করা।' },
+};
+const STATES = { empty: 'পেস্টের আগে', matching: 'মেলানো চলছে · 56%', matched: 'মেলানো হয়েছে' };
+
+const S = { mock: 'A', state: 'matched', pick: 7, filter: 'all', hoverLine: null, way: 'ai', zoom: 1 };
+try { const saved = JSON.parse(localStorage.getItem('pasteScriptMock') || '{}'); Object.assign(S, saved); } catch {}
+const save = () => { try { localStorage.setItem('pasteScriptMock', JSON.stringify({ mock: S.mock, state: S.state })); } catch {} };
+
+const WAYS = [['ai','By meaning'],['line','Line per cue'],['sentence','By sentence'],['length','By length']];
+const tone = (t) => t === 'rose' ? 'bg-rose-500/15 text-rose-300' : t === 'amber' ? 'bg-amber-500/15 text-amber-300' : 'bg-emerald-500/15 text-emerald-300';
+const placed = (c) => S.state === 'matched' || (S.state === 'matching' && c < MATCHING_DONE);
+const filled = () => T.filter((r, c) => placed(c) && r[3]).length;
+
+function seg(el, opts, cur, key) {
+  el.innerHTML = Object.entries(opts).map(([k, v]) => {
+    const label = typeof v === 'string' ? v : v.label;
+    return `<button data-k="${k}" class="px-2.5 py-1 ${k === cur ? 'bg-slate-800 text-slate-100' : 'hover:bg-slate-900 text-slate-400'}">${label}</button>`;
+  }).join('');
+  el.querySelectorAll('button').forEach((b) => (b.onclick = () => { S[key] = b.dataset.k; save(); render(); }));
+}
+
+// ---------- shared pieces ----------
+function header(extra = '') {
+  return `
+  <div class="flex items-center gap-3 px-5 py-3 border-b border-edge">
+    <div class="w-[34px] h-[34px] rounded-[9px] bg-slate-100 text-slate-950 flex items-center justify-center">${ic('paste','w-[17px] h-[17px]')}</div>
+    <div class="min-w-0 flex-1">
+      <h2 class="text-[16px] font-semibold leading-tight">Paste your own script</h2>
+      <p class="text-[12px] text-slate-400 mt-0.5">Each part goes to the cue it translates, word for word as you wrote it. Nothing is translated; timing doesn't change.</p>
+    </div>
+    ${extra}
+    <span class="hidden md:inline text-[12px] text-slate-500 mono">Hindi · ${T.length} cues · 0:56</span>
+    <button class="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800">${ic('x')}</button>
+  </div>`;
+}
+
+function footer() {
+  const done = S.state === 'matched';
+  return `
+  <div class="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-2.5 border-t border-edge text-[11.5px]">
+    <span class="flex items-center gap-1.5 text-slate-400"><span class="kbd">J</span><span class="kbd">K</span> next / previous to check</span>
+    <span class="hidden lg:flex items-center gap-1.5 text-slate-400"><span class="kbd">Alt</span><span class="kbd">←</span><span class="kbd">→</span> move a word</span>
+    <span class="hidden lg:flex items-center gap-1.5 text-slate-400"><span class="kbd">Space</span> play cue</span>
+    <span class="hidden xl:flex items-center gap-1.5 text-slate-400"><span class="kbd">Ctrl</span><span class="kbd">Enter</span> match</span>
+    <div class="flex-1"></div>
+    <span class="text-slate-500 hidden md:inline">Replaces the Hindi in all ${T.length} cues · undo keeps it</span>
+    <button class="h-[34px] px-3.5 rounded-[9px] border border-edge bg-slate-950/60 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200">Cancel</button>
+    <button class="h-[34px] px-4 rounded-[9px] text-[12.5px] font-semibold ${done ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-slate-800 text-slate-500'}">Use this script</button>
+  </div>`;
+}
+
+function stats() {
+  if (S.state !== 'matched') return '';
+  const f = filled();
+  return `
+    <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold ${f === T.length ? tone('ok') : tone('amber')}">${f} / ${T.length} filled</span>
+    <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold ${tone('amber')}">${CHECK.length} to check</span>
+    <span class="px-2 py-0.5 rounded-full text-[11px] font-semibold ${tone('ok')}">${ic('check','w-3 h-3 inline -mt-px')} Every word placed</span>`;
+}
+
+function cpsMeter(c, wide = false) {
+  const v = cps(c);
+  if (!T[c][3] || !placed(c)) return `<span class="mono text-[10.5px] text-slate-600">—</span>`;
+  const pct = Math.min(100, (v / 24) * 100);
+  const bad = v > FAST;
+  const mark = (FAST / 24) * 100;
+  return `<span class="flex items-center gap-1.5 ${wide ? 'w-full' : 'w-[78px]'}">
+    <span class="relative flex-1 h-[5px] rounded-full bg-slate-800 overflow-hidden">
+      <span class="absolute inset-y-0 left-0 rounded-full ${bad ? 'bg-rose-400' : v > 14 ? 'bg-amber-300/80' : 'bg-emerald-400/80'}" style="width:${pct}%"></span>
+      <span class="absolute inset-y-0 w-px bg-slate-400/60" style="left:${mark}%"></span>
+    </span>
+    <span class="mono text-[10.5px] ${bad ? 'text-rose-300' : 'text-slate-400'} w-[24px] text-right">${v.toFixed(0)}</span>
+  </span>`;
+}
+
+function statusPill(c) {
+  if (!placed(c)) return S.state === 'matching' ? `<span class="w-3.5 h-3.5 text-slate-500">${c === MATCHING_DONE ? ic('spin','w-3.5 h-3.5 spin') : ''}</span>` : '';
+  const f = FLAG[c];
+  if (f) return `<span title="${f.hint}" class="mono text-[10.5px] px-1.5 py-px rounded-full whitespace-nowrap cursor-help ${tone(f.tone)}">${f.label}</span>`;
+  if (isFast(c)) return `<span class="mono text-[10.5px] px-1.5 py-px rounded-full whitespace-nowrap ${tone('rose')}">Too fast</span>`;
+  return `<span class="text-emerald-400/80">${ic('check','w-3.5 h-3.5')}</span>`;
+}
+
+function emptyPaste(big) {
+  return `
+  <div class="flex flex-col gap-2.5 ${big ? 'p-5' : ''}">
+    <div class="flex-1 min-h-[14rem] rounded-xl border-2 border-dashed border-slate-700 bg-slate-950/40 flex flex-col items-center justify-center gap-3 text-center p-6">
+      <div class="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center text-slate-300">${ic('paste','w-5 h-5')}</div>
+      <div>
+        <p class="text-[14px] font-semibold">Paste or drop your Hindi script</p>
+        <p class="text-[12px] text-slate-400 mt-1 max-w-[22rem]">Paragraphs, one line per cue, an .srt, or a script Dhvani saved. Your line breaks are kept as anchors.</p>
+      </div>
+      <div class="flex gap-2">
+        <button class="h-[32px] px-3 flex items-center gap-1.5 rounded-[9px] border border-slate-700 bg-slate-900 hover:bg-slate-800 text-[12px] font-medium">${ic('paste','w-3.5 h-3.5 text-slate-400')} Paste <span class="kbd ml-1">Ctrl V</span></button>
+        <button class="h-[32px] px-3 flex items-center gap-1.5 rounded-[9px] border border-slate-700 bg-slate-900 hover:bg-slate-800 text-[12px] font-medium">${ic('folder','w-3.5 h-3.5 text-slate-400')} Open file</button>
+      </div>
+    </div>
+    <div class="flex flex-wrap gap-1.5 text-[11px] text-slate-500">
+      <span class="px-2 py-0.5 rounded-full border border-edge">.txt</span>
+      <span class="px-2 py-0.5 rounded-full border border-edge">.srt / .vtt</span>
+      <span class="px-2 py-0.5 rounded-full border border-edge">.dhvani.json · placed by time</span>
+    </div>
+  </div>`;
+}
+
+// ---------- Mock A ----------
+function mockA() {
+  const empty = S.state === 'empty';
+  const matching = S.state === 'matching';
+  const filters = [['all', `All ${T.length}`], ['check', `To check ${CHECK.length}`], ['fast', `Too fast ${T.filter((_, c) => isFast(c)).length}`], ['empty', 'Empty 1']];
+  const rows = T.map((r, c) => c).filter((c) => {
+    if (S.state !== 'matched' || S.filter === 'all') return true;
+    if (S.filter === 'check') return toCheck(c);
+    if (S.filter === 'fast') return isFast(c);
+    return !T[c][3];
+  });
+
+  const toolbar = `
+  <div class="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-edge bg-slate-950/40 text-[12px]">
+    <span class="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-0.5">Split</span>
+    <span class="inline-flex rounded-[9px] border border-edge overflow-hidden" id="ways">
+      ${WAYS.map(([id, l]) => `<button data-w="${id}" class="px-2.5 h-[28px] ${S.way === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-900'}">${l}${id === 'ai' ? ' <span class="text-[10px] text-indigo-300 ml-0.5">●</span>' : ''}</button>`).join('')}
+    </span>
+    <span class="w-px h-5 bg-edge mx-1"></span>
+    <span class="text-slate-400">Cues</span>
+    <span class="mono h-[28px] px-2 flex items-center rounded-[8px] border border-edge bg-slate-950/60">1</span>
+    <span class="text-slate-500">–</span>
+    <span class="mono h-[28px] px-2 flex items-center rounded-[8px] border border-edge bg-slate-950/60">${T.length}</span>
+    <button class="h-[28px] px-3 rounded-[8px] border ${empty ? 'border-edge text-slate-600' : 'border-slate-600 bg-slate-800 hover:bg-slate-700 text-slate-100'} font-semibold flex items-center gap-1.5">
+      ${matching ? ic('spin','w-3.5 h-3.5 spin') + ' Matching… 56%' : S.state === 'matched' ? 'Match again' : 'Match to the English'}
+    </button>
+    ${matching ? '<button class="h-[28px] px-2.5 rounded-[8px] border border-edge text-slate-300 hover:bg-slate-800">Stop</button>' : ''}
+    <div class="flex-1"></div>
+    ${S.state === 'matched' ? `<span class="inline-flex rounded-[9px] border border-edge overflow-hidden" id="filters">
+      ${filters.map(([id, l]) => `<button data-f="${id}" class="px-2.5 h-[28px] ${S.filter === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:bg-slate-900'}">${l}</button>`).join('')}
+    </span>` : ''}
+  </div>`;
+
+  const scriptPane = empty ? emptyPaste(false) : `
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Your script</span>
+      <span class="text-[11px] text-slate-500 mono">${totalWords} words · ${LINES.length} lines · plain text</span>
+    </div>
+    <div class="flex flex-col gap-1" id="scriptLines">
+      ${LINES.map((cues, l) => {
+        const done = S.state === 'matched' || cues.every((c) => c < MATCHING_DONE);
+        const hot = S.hoverLine === l || (S.hoverLine === null && cues.includes(S.pick) && S.state === 'matched');
+        return `<div data-l="${l}" class="group relative flex gap-2.5 pl-3 pr-2 py-2 rounded-[9px] border ${hot ? 'border-slate-600 bg-slate-800/60' : 'border-transparent hover:bg-slate-800/40'}">
+          <span class="absolute left-0 top-2 bottom-2 w-[3px] rounded-full" style="background:${done ? GROUP[l] : '#34363c'}"></span>
+          <span class="mono text-[10.5px] text-slate-500 pt-0.5 w-4">${l + 1}</span>
+          <span class="flex-1 min-w-0 text-[13.5px] leading-relaxed ${done ? 'text-slate-200' : 'text-slate-400'}">${LINE_TEXT[l]}</span>
+          <span class="mono text-[10.5px] pt-1 whitespace-nowrap ${done ? 'text-slate-400' : 'text-slate-600'}">${done ? `→ ${nn(cues[0])}${cues.length > 1 ? '–' + nn(cues[cues.length - 1]) : ''}` : '…'}</span>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="mt-3 flex items-center gap-2 text-[11.5px] text-slate-500">
+      <button class="hover:text-slate-200 flex items-center gap-1">${ic('pen','w-3 h-3')} Edit paste</button>
+      <span>·</span><button class="hover:text-slate-200">Clear</button>
+    </div>
+    ${S.state === 'matched' ? `
+    <div class="mt-4 p-3 rounded-[11px] border border-edge bg-slate-950/50 text-[11.5px] text-slate-300 leading-relaxed">
+      <div class="font-semibold text-slate-200 mb-1">What the match did</div>
+      Your 6 lines went to 15 cues; no line was cut except where it ran over several cues. Cue 14 has English your script doesn't say, so it was left empty.
+    </div>` : ''}`;
+
+  const head = `
+    <div class="grid grid-cols-[10px_30px_62px_40px_minmax(0,1fr)_minmax(0,1.25fr)_86px_92px] gap-x-2.5 px-3 py-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 border-b border-edge sticky top-0 bg-[#141518] z-10">
+      <span></span><span>#</span><span>Start</span><span>Len</span><span>English</span><span>Hindi</span><span>cps</span><span class="text-right">State</span>
+    </div>`;
+  const table = rows.map((c, i) => {
+    const r = T[c];
+    const g = groupOf(c);
+    const on = placed(c);
+    const pick = S.pick === c && S.state === 'matched';
+    const hot = S.hoverLine !== null && LINES[S.hoverLine].includes(c);
+    const prevSame = i > 0 && groupOf(rows[i - 1]) === g && rows[i - 1] === c - 1;
+    const nextSame = i < rows.length - 1 && groupOf(rows[i + 1]) === g && rows[i + 1] === c + 1;
+    const f = FLAG[c];
+    const border = !on ? '' : f?.tone === 'rose' || isFast(c) ? 'shadow-[inset_2px_0_0_#fb7185]' : f ? 'shadow-[inset_2px_0_0_#fcd34d]' : '';
+    const hindi = !on
+      ? (S.state === 'matching' ? `<span class="block h-[18px] w-[85%] rounded shimmer mt-0.5"></span>` : `<span class="text-slate-600 italic">${S.state === 'empty' ? 'empty' : ''}</span>`)
+      : r[3] ? r[3].replace('शुरुआत में', '<span class="underline decoration-amber-300/70 decoration-dotted underline-offset-4">शुरुआत में</span>') : '<span class="text-slate-600 italic">empty</span>';
+    return `
+    <div data-c="${c}" class="row grid grid-cols-[10px_30px_62px_40px_minmax(0,1fr)_minmax(0,1.25fr)_86px_92px] gap-x-2.5 items-start px-3 py-[7px] border-b border-edge/70 ${pick ? 'bg-indigo-500/[.07]' : hot ? 'bg-slate-800/50' : 'hover:bg-slate-800/30'} ${border}">
+      <span class="relative self-stretch">
+        ${g >= 0 && on ? `<span class="absolute left-[3px] w-[3px] ${prevSame ? '-top-[8px]' : 'top-[5px]'} ${nextSame ? '-bottom-[8px]' : 'bottom-[5px]'} rounded-full" style="background:${GROUP[g]}"></span>` : ''}
+      </span>
+      <span class="mono text-[11px] text-slate-500 pt-px">${nn(c)}</span>
+      <span class="mono text-[11px] text-slate-500 pt-px">${fmt(r[0])}</span>
+      <span class="mono text-[11px] text-slate-500 pt-px">${r[1].toFixed(1)}</span>
+      <span class="text-[12.5px] text-slate-400 leading-snug">${r[2]}</span>
+      <span class="text-[13.5px] leading-snug ${pick ? 'text-slate-50' : 'text-slate-200'}" ${pick ? 'contenteditable="true"' : ''}>${hindi}</span>
+      <span class="pt-1">${cpsMeter(c)}</span>
+      <span class="flex justify-end pt-px">${statusPill(c)}</span>
+    </div>
+    ${pick ? `
+    <div class="px-3 py-2 border-b border-edge bg-indigo-500/[.07] flex flex-wrap items-center gap-1.5 text-[11.5px]">
+      <span class="w-[10px]"></span><span class="w-[30px]"></span>
+      <button class="h-[26px] px-2 flex items-center gap-1 rounded-[7px] border border-edge bg-slate-900 hover:bg-slate-800 text-slate-200">${ic('play','w-3 h-3')} Play</button>
+      <button class="h-[26px] px-2 flex items-center gap-1 rounded-[7px] border border-edge bg-slate-900 hover:bg-slate-800 text-slate-200">${ic('up','w-3 h-3')} First word to ${nn(c - 1)}</button>
+      <button class="h-[26px] px-2 flex items-center gap-1 rounded-[7px] border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200">${ic('down','w-3 h-3')} "शुरुआत में" to ${nn(c + 1)}</button>
+      <button class="h-[26px] px-2 flex items-center gap-1 rounded-[7px] border border-edge bg-slate-900 hover:bg-slate-800 text-slate-200">${ic('check','w-3 h-3')} Mark checked</button>
+      <span class="text-slate-400 ml-1 flex items-center gap-1.5">${ic('alert','w-3.5 h-3.5 text-amber-300')} ${FLAG[c]?.hint || ''}</span>
+    </div>` : ''}`;
+  }).join('');
+
+  return `
+  <section class="pop rounded-[16px] bg-slate-900 border border-slate-700/80 overflow-hidden">
+    ${header(`<span class="hidden lg:flex items-center gap-1.5 mr-2">${stats()}</span>`)}
+    ${toolbar}
+    <div class="grid lg:grid-cols-[23rem_minmax(0,1fr)] h-[34rem]">
+      <div class="px-4 py-3.5 border-b lg:border-b-0 lg:border-r border-edge overflow-y-auto scroll">${scriptPane}</div>
+      <div class="overflow-auto scroll bg-[#141518] min-w-0">
+        <div class="min-w-[52rem]">${head}${table}</div>
+      </div>
+    </div>
+    ${footer()}
+  </section>`;
+}
+
+// ---------- Mock B ----------
+function wave(c0, c1, h) {
+  let bars = '';
+  let seed = 11;
+  const n = 360;
+  for (let i = 0; i < n; i++) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const t = (i / n) * LEN;
+    const inCue = T.some(([s, d]) => t >= s && t <= s + d);
+    const v = inCue ? 0.25 + (seed / 233280) * 0.75 : 0.04 + (seed / 233280) * 0.08;
+    bars += `<span class="flex-1 rounded-full ${inCue ? 'bg-slate-400/60' : 'bg-slate-600/40'}" style="height:${Math.round(v * h)}px"></span>`;
+  }
+  return bars;
+}
+
+function mockB() {
+  const empty = S.state === 'empty';
+  const matching = S.state === 'matching';
+  const W = 1500 * S.zoom; // timeline px
+  const px = (s) => (s / LEN) * W;
+  const p = S.pick;
+  const pr = T[p];
+
+  const scriptChip = empty ? '' : `
+  <div class="flex flex-wrap items-center gap-2 px-5 py-2 border-b border-edge bg-slate-950/40 text-[12px]">
+    <span class="flex items-center gap-2 h-[30px] pl-2 pr-1 rounded-[9px] border border-edge bg-slate-900">
+      ${ic('file','w-3.5 h-3.5 text-slate-400')}
+      <span class="text-slate-200 font-medium">Your script</span>
+      <span class="mono text-[11px] text-slate-500">${totalWords} words · ${LINES.length} lines</span>
+      <button class="h-[22px] px-2 rounded-[6px] hover:bg-slate-800 text-slate-300">Edit</button>
+    </span>
+    <span class="flex items-center gap-1.5 h-[30px] px-2.5 rounded-[9px] border border-edge bg-slate-900 text-slate-300">Split: <span class="text-slate-100 font-medium">By meaning</span> ${ic('down','w-3 h-3 text-slate-500')}</span>
+    <span class="flex items-center gap-1.5 h-[30px] px-2.5 rounded-[9px] border border-edge bg-slate-900 text-slate-300">Cues <span class="mono text-slate-100">1–${T.length}</span></span>
+    <button class="h-[30px] px-3 rounded-[9px] border border-slate-600 bg-slate-800 hover:bg-slate-700 font-semibold flex items-center gap-1.5">${matching ? ic('spin','w-3.5 h-3.5 spin') + ' Matching… 56%' : S.state === 'matched' ? 'Match again' : 'Match to the English'}</button>
+    ${matching ? '<button class="h-[30px] px-2.5 rounded-[9px] border border-edge text-slate-300 hover:bg-slate-800">Stop</button>' : ''}
+    <div class="flex-1"></div>
+    <span class="flex items-center gap-1.5">${stats()}</span>
+  </div>`;
+
+  if (empty) {
+    return `
+    <section class="pop rounded-[16px] bg-slate-900 border border-slate-700/80 overflow-hidden">
+      ${header()}
+      <div class="grid lg:grid-cols-[minmax(0,1fr)_20rem]">
+        ${emptyPaste(true)}
+        <div class="p-5 border-t lg:border-t-0 lg:border-l border-edge text-[12px] text-slate-400 flex flex-col gap-3">
+          <span class="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Split</span>
+          ${WAYS.map(([id, l], i) => `<div class="flex items-start gap-2"><span class="mt-0.5 w-[14px] h-[14px] rounded-full border-[1.5px] ${i === 0 ? 'border-indigo-400' : 'border-slate-600'} flex items-center justify-center">${i === 0 ? '<span class="w-[6px] h-[6px] rounded-full bg-indigo-400"></span>' : ''}</span><span><span class="text-slate-200 font-medium">${l}</span>${i === 0 ? '<span class="block text-[11px]">Lines go to the cues they translate; a line is cut only where it runs over several cues.</span>' : ''}</span></div>`).join('')}
+          <div class="mt-2 p-3 rounded-[10px] border border-edge text-[11.5px] leading-relaxed">After you paste, the script appears under the waveform, cut at each cue. Drag a cut to move words.</div>
+        </div>
+      </div>
+      <div class="px-5 pb-5">
+        <div class="rounded-xl border border-edge bg-[#141518] p-3">
+          <div class="flex items-end gap-px h-[54px]">${wave(0, T.length, 50)}</div>
+          <div class="mt-2 h-[44px] rounded-lg border border-dashed border-slate-700 flex items-center justify-center text-[12px] text-slate-500">Your script will sit here, under each cue</div>
+        </div>
+      </div>
+      ${footer()}
+    </section>`;
+  }
+
+  const ruler = Array.from({ length: Math.floor(LEN / 5) + 1 }, (_, i) => i * 5)
+    .map((s) => `<span class="absolute top-0 mono text-[10px] text-slate-500 pl-1 border-l border-slate-700 h-[14px]" style="left:${px(s)}px">${fmt(s).slice(0, -2)}</span>`).join('');
+
+  const cueBlocks = T.map((r, c) => `
+    <div data-c="${c}" class="blk absolute top-0 bottom-0 rounded-[6px] border ${c === p && S.state === 'matched' ? 'border-indigo-400 bg-indigo-500/15' : 'border-slate-600/70 bg-slate-700/25 hover:bg-slate-700/40'}" style="left:${px(r[0])}px;width:${px(r[1]) - 2}px">
+      <span class="absolute top-1 left-1.5 mono text-[10px] ${c === p ? 'text-indigo-200' : 'text-slate-400'}">${nn(c)}</span>
+    </div>`).join('');
+
+  const scriptBlocks = T.map((r, c) => {
+    const on = placed(c);
+    const f = FLAG[c];
+    const fast = isFast(c);
+    const col = !on ? '' : f?.tone === 'rose' || fast ? 'border-rose-500/60 bg-rose-500/10' : f ? 'border-amber-400/60 bg-amber-500/10' : 'border-slate-600/60 bg-slate-800/70';
+    const g = groupOf(c);
+    const next = T[c + 1];
+    const touching = next && groupOf(c + 1) === g && g >= 0;
+    const body = !on
+      ? `<span class="absolute inset-1 rounded shimmer"></span>`
+      : r[3]
+        ? `<span class="block text-[12.5px] leading-snug text-slate-100 line-clamp-3">${r[3]}</span>`
+        : `<span class="text-[11px] italic text-rose-300/80">Not in script</span>`;
+    return `
+      <div data-c="${c}" class="blk absolute top-0 bottom-0 rounded-[6px] border px-1.5 py-1 overflow-hidden ${col} ${c === p && on ? 'ring-2 ring-indigo-400/70' : ''}" style="left:${px(r[0])}px;width:${px(r[1]) - 2}px">
+        ${g >= 0 && on ? `<span class="absolute left-0 right-0 top-0 h-[2px]" style="background:${GROUP[g]}"></span>` : ''}
+        ${body}
+      </div>
+      ${on && touching ? `<div class="cut absolute top-1 bottom-1 ${c === p ? 'on' : ''}" title="Drag to move words between ${nn(c)} and ${nn(c + 1)}" style="left:${(px(r[0] + r[1]) + px(next[0])) / 2 - 4.5}px"></div>` : ''}`;
+  }).join('');
+
+  const playX = px(pr[0] + 0.6);
+  const timeline = `
+  <div class="px-5 pt-3 pb-2">
+    <div class="flex items-center gap-2 mb-2 text-[11.5px] text-slate-400">
+      <button class="w-[26px] h-[26px] rounded-[7px] border border-edge flex items-center justify-center hover:bg-slate-800">${ic('play','w-3 h-3')}</button>
+      <span class="mono text-slate-300">${fmt(pr[0] + 0.6)}</span>
+      <div class="flex-1"></div>
+      <span class="hidden sm:flex items-center gap-3 mr-2">
+        ${LINES.map((_, l) => `<span class="flex items-center gap-1"><span class="w-2.5 h-[3px] rounded-full" style="background:${GROUP[l]}"></span><span class="mono text-[10.5px]">L${l + 1}</span></span>`).join('')}
+      </span>
+      <button id="zo" class="w-[26px] h-[26px] rounded-[7px] border border-edge flex items-center justify-center hover:bg-slate-800">${ic('zoomOut','w-3.5 h-3.5')}</button>
+      <button id="zi" class="w-[26px] h-[26px] rounded-[7px] border border-edge flex items-center justify-center hover:bg-slate-800">${ic('zoomIn','w-3.5 h-3.5')}</button>
+    </div>
+    <div class="rounded-xl border border-edge bg-[#141518] overflow-x-auto scroll" id="tl">
+      <div class="relative" style="width:${W + 90}px">
+        <div class="absolute left-0 top-0 bottom-0 w-[84px] bg-[#141518] border-r border-edge z-20 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+          <div class="h-[18px]"></div>
+          <div class="h-[64px] flex items-center px-2.5">Original</div>
+          <div class="h-[66px] flex items-center px-2.5 leading-tight">Your<br>script</div>
+        </div>
+        <div class="ml-[88px] relative">
+          <div class="relative h-[18px]">${ruler}</div>
+          <div class="relative h-[64px] border-t border-edge">
+            <div class="absolute inset-x-0 top-[6px] bottom-[6px] flex items-center gap-px opacity-90">${wave(0, T.length, 46)}</div>
+            <div class="absolute inset-x-0 top-[4px] bottom-[4px]">${cueBlocks}</div>
+          </div>
+          <div class="relative h-[66px] border-t border-edge">
+            <div class="absolute inset-x-0 top-[5px] bottom-[5px]">${scriptBlocks}</div>
+          </div>
+          <div class="absolute top-0 bottom-0 w-px bg-indigo-300 z-10" style="left:${playX}px"><span class="absolute -top-0 -left-[4px] w-[9px] h-[9px] rotate-45 bg-indigo-300"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  // Inspector for the picked cue.
+  const pw = words(pr[3]);
+  const f = FLAG[p];
+  const inspector = S.state !== 'matched' ? `
+    <div class="flex-1 flex items-center justify-center text-[12.5px] text-slate-500 p-6">${matching ? `${ic('spin','w-4 h-4 spin mr-2')} Reading your script — cues 01–${nn(MATCHING_DONE - 1)} placed, the rest are on their way.` : ''}</div>` : `
+    <div class="flex-1 min-w-0 p-4 flex flex-col gap-3">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="mono text-[12px] px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-200">Cue ${nn(p)}</span>
+        <span class="mono text-[11.5px] text-slate-400">${fmt(pr[0])} → ${fmt(pr[0] + pr[1])} · ${pr[1].toFixed(1)} s</span>
+        ${f ? `<span class="mono text-[10.5px] px-2 py-0.5 rounded-full ${tone(f.tone)}">${f.label}</span>` : isFast(p) ? `<span class="mono text-[10.5px] px-2 py-0.5 rounded-full ${tone('rose')}">Too fast</span>` : `<span class="mono text-[10.5px] px-2 py-0.5 rounded-full ${tone('ok')}">OK</span>`}
+        <span class="text-[11px] text-slate-500">from script line L${groupOf(p) + 1}</span>
+        <div class="flex-1"></div>
+        <button class="h-[28px] px-2 rounded-[8px] border border-edge hover:bg-slate-800 text-[11.5px] flex items-center gap-1">${ic('play','w-3 h-3')} Play <span class="kbd ml-1">Space</span></button>
+      </div>
+      <p class="text-[13px] text-slate-400">${pr[2]}</p>
+      <div class="flex items-stretch gap-2">
+        <button class="w-[30px] rounded-[8px] border border-edge hover:bg-slate-800 flex flex-col items-center justify-center text-slate-400" title="Give the first word to cue ${nn(p - 1)}">${ic('left','w-3.5 h-3.5')}<span class="mono text-[9.5px] mt-0.5">${nn(p - 1)}</span></button>
+        <div class="flex-1 min-w-0 rounded-[10px] border border-slate-700 bg-slate-950/60 px-3 py-2.5 flex flex-wrap gap-1.5 items-center" contenteditable="false">
+          ${pr[3] ? pw.map((w, i) => {
+            const stray = p === 7 && i >= pw.length - 2;
+            return `<span class="px-1.5 py-0.5 rounded-[6px] text-[15px] leading-snug ${stray ? 'bg-amber-500/15 text-amber-200 ring-1 ring-amber-400/50' : 'hover:bg-slate-800 text-slate-100'}">${w}</span>`;
+          }).join('') : '<span class="text-slate-600 italic text-[13px]">Empty — type here, or pull a word in from a neighbour.</span>'}
+          <button class="ml-auto text-slate-500 hover:text-slate-200" title="Edit as text">${ic('pen','w-3.5 h-3.5')}</button>
+        </div>
+        <button class="w-[30px] rounded-[8px] border ${p === 7 ? 'border-amber-500/50 bg-amber-500/10 text-amber-200' : 'border-edge text-slate-400'} hover:bg-slate-800 flex flex-col items-center justify-center" title="Give the last word to cue ${nn(p + 1)}">${ic('right','w-3.5 h-3.5')}<span class="mono text-[9.5px] mt-0.5">${nn(p + 1)}</span></button>
+      </div>
+      <div class="grid sm:grid-cols-[minmax(0,1fr)_14rem] gap-3 items-start">
+        <div class="text-[12px] text-slate-300 leading-relaxed flex gap-2">
+          ${f ? `${ic('alert', `w-3.5 h-3.5 mt-0.5 ${f.tone === 'rose' ? 'text-rose-300' : 'text-amber-300'}`)}<span>${f.hint}${p === 7 ? ' <span class="text-slate-400">Suggested: give <b class="text-amber-200">शुरुआत में</b> to cue 09 — the English "in the beginning" is there.</span>' : ''}</span>` : '<span class="text-slate-500">Nothing to check on this cue.</span>'}
+        </div>
+        <div class="flex flex-col gap-1">
+          <div class="flex justify-between text-[10.5px] text-slate-500"><span>Pace</span><span class="mono">${cps(p).toFixed(1)} chars/s · limit ${FAST}</span></div>
+          ${cpsMeter(p, true)}
+        </div>
+      </div>
+      <div class="flex flex-wrap gap-1.5">
+        ${p === 7 ? `<button class="h-[30px] px-3 rounded-[8px] bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-100 text-[12px] font-medium">Move "शुरुआत में" to 09</button>` : ''}
+        <button class="h-[30px] px-3 rounded-[8px] border border-edge hover:bg-slate-800 text-[12px] flex items-center gap-1.5">${ic('check','w-3.5 h-3.5')} Mark checked <span class="kbd">C</span></button>
+        <button class="h-[30px] px-3 rounded-[8px] border border-edge hover:bg-slate-800 text-[12px] flex items-center gap-1.5">${ic('undo','w-3.5 h-3.5')} As matched</button>
+      </div>
+    </div>`;
+
+  const queue = `
+    <div class="w-full lg:w-[19rem] shrink-0 border-t lg:border-t-0 lg:border-l border-edge flex flex-col">
+      <div class="flex items-center justify-between px-3.5 py-2.5 border-b border-edge">
+        <span class="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">To check</span>
+        <span class="flex items-center gap-1 text-[11px] text-slate-500"><span class="kbd">K</span><span class="kbd">J</span></span>
+      </div>
+      <div class="flex-1 overflow-y-auto scroll p-1.5 flex flex-col gap-1">
+        ${S.state !== 'matched' ? '<p class="text-[12px] text-slate-500 p-2">Cues that need a look will gather here.</p>' : CHECK.map((c) => {
+          const f = FLAG[c] || { label: 'Too fast', tone: 'rose' };
+          return `<button data-c="${c}" class="q text-left px-2.5 py-2 rounded-[9px] border ${c === p ? 'border-indigo-400/60 bg-indigo-500/10' : 'border-transparent hover:bg-slate-800/60'}">
+            <span class="flex items-center gap-2">
+              <span class="mono text-[11px] text-slate-400">${nn(c)}</span>
+              <span class="mono text-[10px] px-1.5 py-px rounded-full ${tone(f.tone)}">${f.label}</span>
+              <span class="flex-1"></span><span class="mono text-[10.5px] text-slate-500">${fmt(T[c][0])}</span>
+            </span>
+            <span class="block text-[12px] text-slate-300 mt-1 truncate">${T[c][3] || T[c][2]}</span>
+          </button>`;
+        }).join('')}
+      </div>
+      ${S.state === 'matched' ? `<div class="px-3.5 py-2.5 border-t border-edge text-[11.5px] text-slate-400">0 of ${CHECK.length} checked</div>` : ''}
+    </div>`;
+
+  return `
+  <section class="pop rounded-[16px] bg-slate-900 border border-slate-700/80 overflow-hidden">
+    ${header()}
+    ${scriptChip}
+    ${timeline}
+    <div class="mx-5 mb-4 rounded-xl border border-edge bg-[#141518] flex flex-col lg:flex-row min-h-[17rem]">
+      ${inspector}
+      ${queue}
+    </div>
+    ${footer()}
+  </section>`;
+}
+
+function render() {
+  seg(document.getElementById('mockSeg'), MOCKS, S.mock, 'mock');
+  seg(document.getElementById('stateSeg'), STATES, S.state, 'state');
+  document.getElementById('note').textContent = MOCKS[S.mock].note;
+  const main = document.getElementById('main');
+  const tl = document.getElementById('tl');
+  const scrollX = tl ? tl.scrollLeft : null;
+  main.innerHTML = S.mock === 'A' ? mockA() : mockB();
+
+  main.querySelectorAll('[data-w]').forEach((b) => (b.onclick = () => { S.way = b.dataset.w; render(); }));
+  main.querySelectorAll('[data-f]').forEach((b) => (b.onclick = () => { S.filter = b.dataset.f; render(); }));
+  main.querySelectorAll('.row, .blk, .q').forEach((r) => (r.onclick = (e) => {
+    if (e.target.closest('[contenteditable="true"]')) return;
+    if (S.state !== 'matched') return;
+    S.pick = Number(r.dataset.c); render();
+  }));
+  main.querySelectorAll('[data-l]').forEach((l) => {
+    l.onmouseenter = () => { if (S.state === 'empty') return; S.hoverLine = Number(l.dataset.l); render(); };
+    l.onmouseleave = () => { S.hoverLine = null; render(); };
+  });
+  const zi = document.getElementById('zi'), zo = document.getElementById('zo');
+  if (zi) zi.onclick = () => { S.zoom = Math.min(3, S.zoom + 0.5); render(); };
+  if (zo) zo.onclick = () => { S.zoom = Math.max(0.6, S.zoom - 0.4); render(); };
+  const tl2 = document.getElementById('tl');
+  if (tl2) {
+    if (scrollX !== null) tl2.scrollLeft = scrollX;
+    else tl2.scrollLeft = Math.max(0, (T[S.pick][0] / LEN) * 1500 * S.zoom - 300);
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest && e.target.closest('[contenteditable="true"]')) return;
+  if (S.state !== 'matched') return;
+  const i = CHECK.indexOf(S.pick);
+  if (e.key === 'j' || e.key === 'J') { S.pick = CHECK[(i + 1) % CHECK.length]; render(); }
+  if (e.key === 'k' || e.key === 'K') { S.pick = CHECK[(i - 1 + CHECK.length) % CHECK.length]; render(); }
+});
+
+render();
+</script>
+</body>
+</html>

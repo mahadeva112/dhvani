@@ -706,7 +706,7 @@ export const lineNote = (unit: SyncPreviewUnit, state: LineFixState, direction: 
         : state.kind === 'kept'
           ? longer
             ? `Kept. The dub goes quiet for about ${unit.underflow.toFixed(1)} s while the original speaker is still talking.`
-            : 'Kept. Sync shortens the pauses inside it first; if it is still long, the next line starts late and shows in Worth a listen.'
+            : 'Kept. Sync shortens the pauses inside it first; if it is still long, the next line starts late and is marked on the dub lane.'
           : longer
             ? `About ${unit.estimate.toFixed(1)} s of speech${readNote(unit)}; the original speaker talks for ${unit.spoken.toFixed(1)} s`
             : `About ${unit.estimate.toFixed(1)} s of speech${readNote(unit)} for a ${unit.slot.toFixed(1)} s slot`,

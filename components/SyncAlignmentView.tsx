@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CircleHelp, Mic, Pencil } from 'lucide-react';
+import { CircleHelp, Mic } from 'lucide-react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import { LINE_HUES, hueOf, withAlpha } from './lineColors';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
@@ -59,10 +59,8 @@ export const SyncAlignmentView: React.FC<{
   onNextLine?: () => void;
   /** More of the player's controls, after the legend: speed, video. */
   transportExtras?: React.ReactNode;
-  /** The picked-out line's actions: work on it in the line list. */
-  onWorkOnLine?: (unit: SyncUnitReport, mode: 'takes' | 'words') => void;
-  /** Whether a line's takes can be opened (Takes shows only then). */
-  canOpenTakes?: boolean;
+  /** Opens the picked-out line's retake window: new takes, or other words. Takes shows only with it. */
+  onOpenTakes?: (unit: SyncUnitReport) => void;
   /** A click on a lane: with this, the player decides (a lane not being heard starts that track there). */
   onSeekTrack?: (track: 'source' | 'synth', time: number) => void;
   /** The languages of the original and the dub, for the picked-out line's tags. */
@@ -82,8 +80,7 @@ export const SyncAlignmentView: React.FC<{
   onPrevLine,
   onNextLine,
   transportExtras,
-  onWorkOnLine,
-  canOpenTakes = false,
+  onOpenTakes,
   onSeekTrack,
   sourceLanguage,
   dubLanguage,
@@ -321,16 +318,11 @@ export const SyncAlignmentView: React.FC<{
           <span className="flex-1 min-w-0 flex items-center gap-3 text-[12px]" aria-live="polite">
             {focus ? (
               <>
-                <LinePair source={focus.sourceText} dub={focus.text} sourceLanguage={sourceLanguage} dubLanguage={dubLanguage} />
+                <LinePair large source={focus.sourceText} dub={focus.text} sourceLanguage={sourceLanguage} dubLanguage={dubLanguage} />
                 <span className="flex items-center gap-2 shrink-0">
-                  {onWorkOnLine && canOpenTakes && !focus.silent && (
-                    <button type="button" onClick={() => onWorkOnLine(focus, 'takes')} className={lineAction} title="Open this line's takes in the list below">
+                  {onOpenTakes && !focus.silent && (
+                    <button type="button" onClick={() => onOpenTakes(focus)} className={lineAction} title="Retake this line, or change its words, in the retake window">
                       <Mic className="w-3 h-3" /> Takes
-                    </button>
-                  )}
-                  {onWorkOnLine && (focus.exceeded || focus.short) && (
-                    <button type="button" onClick={() => onWorkOnLine(focus, 'words')} className={lineAction} title="Reword this line in the list below">
-                      <Pencil className="w-3 h-3" /> Edit words
                     </button>
                   )}
                 </span>

@@ -562,28 +562,17 @@ export const CastCard: React.FC<{
         const voiceId = own || mainVoiceId;
         const name = voiceName(voiceId, availableVoices);
         return (
-          <div key={s.name} className="flex items-center gap-2 py-1.5 border-t border-edge first:border-t-0">
+          // One line a speaker: who, how much of the speech, the voice, and whether it is their own.
+          <div key={s.name} className="flex items-center gap-2 py-1">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-            <span className="w-24 shrink-0 min-w-0" title={`${s.name}: ${pct(s.share)} of the speech, ${linesWord(s.cues)}`}>
-              <span className="block truncate text-[13px] text-slate-200">{s.name}</span>
-              <span className="block text-[10.5px] text-slate-500 font-mono tabular-nums truncate">
-                {pct(s.share)} · {linesWord(s.cues)}
-              </span>
-              <span className="block h-1 mt-1 rounded-full bg-slate-800 overflow-hidden" aria-hidden="true">
-                <span className="block h-full rounded-full" style={{ width: `${Math.max(2, s.share * 100)}%`, backgroundColor: s.color }} />
-              </span>
+            <span className="w-28 shrink-0 min-w-0 flex items-baseline gap-1.5" title={`${s.name}: ${pct(s.share)} of the speech, ${linesWord(s.cues)}`}>
+              <span className="truncate text-[13px] text-slate-200">{s.name}</span>
+              <span className="shrink-0 text-[10.5px] text-slate-500 font-mono tabular-nums">{pct(s.share)}</span>
             </span>
-            <span
-              className="w-6 h-6 rounded-full flex items-center justify-center text-[10.5px] font-semibold shrink-0"
-              style={{ backgroundColor: `${s.color}26`, color: s.color }}
-            >
-              {name.charAt(0).toUpperCase()}
-            </span>
-            <span className="flex-1 min-w-0">
-              <span className="block text-[12.5px] text-slate-100 truncate" title={name}>
-                {name}
-              </span>
-              <span className="block text-[10.5px] text-slate-500 tabular-nums">
+            <span className="flex-1 min-w-0 truncate text-[12.5px] text-slate-100" title={name}>
+              {name}
+              <span className="text-[11px] text-slate-500 tabular-nums">
+                {' · '}
                 {own ? 'Own voice' : 'Main voice'}
                 {rateNote(own ? rates?.[s.name] : mainRate)}
               </span>
@@ -605,7 +594,7 @@ export const CastCard: React.FC<{
               onClick={() => onPick(s.name)}
               disabled={disabled}
               data-index={n}
-              className="px-2.5 py-1 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0 disabled:opacity-40"
+              className="px-2.5 py-0.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 cursor-default shrink-0 disabled:opacity-40"
             >
               Change
             </button>
@@ -626,42 +615,49 @@ export const CastCard: React.FC<{
   );
 };
 
+const MIX_PEAK_CHOICES: { mode: MixPeakMode; label: string; hint: string }[] = [
+  { mode: 'float', label: '32-bit float', hint: 'The mix is kept exactly as summed. Nothing is turned down, and nothing clips.' },
+  { mode: 'lower', label: 'Lower the mix', hint: 'Only if it goes over full scale, by one gain for the whole dub. The report says how much.' },
+];
+
 /** How a mix that peaks above full scale is written. */
 export const MixPeakChoice: React.FC<{ value: MixPeakMode; onChange: (mode: MixPeakMode) => void; disabled?: boolean }> = ({
   value,
   onChange,
   disabled,
 }) => (
-  <fieldset className="flex flex-col gap-1.5" disabled={disabled}>
-    <legend className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mb-1.5">When speakers overlap</legend>
-    {(
-      [
-        { mode: 'float', label: 'Keep 32-bit float', hint: 'The mix is kept exactly as summed. Nothing is turned down, and nothing clips.' },
-        { mode: 'lower', label: 'Lower the whole mix', hint: 'Only if it goes over full scale, by one gain for the whole dub. The report says how much.' },
-      ] as const
-    ).map((o) => (
-      <label key={o.mode} className="flex items-start gap-2.5 text-xs cursor-default">
-        <input
-          type="radio"
-          name="dub-mix-peak"
-          checked={value === o.mode}
-          onChange={() => onChange(o.mode)}
-          className="mt-0.5 w-3.5 h-3.5 accent-indigo-500 cursor-default"
-        />
-        <span className="flex flex-col gap-0.5">
-          <span className="text-slate-200 font-medium">{o.label}</span>
-          <span className="text-[11px] text-slate-500 leading-snug">{o.hint}</span>
-        </span>
-      </label>
-    ))}
+  // One row: the name and the picked choice's note on the left, the two choices side by side on the right.
+  <fieldset className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 min-w-0" disabled={disabled}>
+    <div className="min-w-[10rem] flex-1">
+      <legend className="float-left w-full text-[12.5px] font-medium text-slate-200">When speakers overlap</legend>
+      <span className="block clear-both text-[11px] text-slate-500 leading-snug">{MIX_PEAK_CHOICES.find((o) => o.mode === value)?.hint}</span>
+    </div>
+    <div role="radiogroup" aria-label="When speakers overlap" className="shrink-0 flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
+      {MIX_PEAK_CHOICES.map((o) => (
+        <button
+          key={o.mode}
+          type="button"
+          role="radio"
+          aria-checked={value === o.mode}
+          onClick={() => onChange(o.mode)}
+          title={o.hint}
+          className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
+            value === o.mode ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
   </fieldset>
 );
 
-/** What mixing the speakers did, stated plainly. */
-export const MixChecks: React.FC<{ mix: DubMixReport; synced?: boolean }> = ({ mix, synced = false }) => {
+const ok = 'text-emerald-400';
+const warn = 'text-amber-400';
+
+/** What mixing the speakers did, as rows: fine (ok) or to look at (warn). */
+const mixRows = (mix: DubMixReport, synced: boolean): { tone: string; text: string }[] => {
   const gains = Object.entries(mix.gains || {}).filter(([, db]) => Math.abs(db) >= 0.1);
-  const ok = 'text-emerald-400';
-  const warn = 'text-amber-400';
   const rows: { tone: string; text: string }[] = [
     {
       tone: ok,
@@ -690,6 +686,18 @@ export const MixChecks: React.FC<{ mix: DubMixReport; synced?: boolean }> = ({ m
   } else if (mix.peakDb !== null) {
     rows.push({ tone: ok, text: `Peaks at ${mix.peakDb.toFixed(1)} dBFS. Nothing goes over full scale.` });
   }
+  return rows;
+};
+
+/** Only what the mix of a synced dub leaves to look at: a speaker over their own line, a peak over full scale. */
+export const mixWarnings = (mix: DubMixReport): string[] =>
+  mixRows(mix, true)
+    .filter((row) => row.tone === warn)
+    .map((row) => row.text);
+
+/** What mixing the speakers did, stated plainly. */
+export const MixChecks: React.FC<{ mix: DubMixReport; synced?: boolean }> = ({ mix, synced = false }) => {
+  const rows = mixRows(mix, synced);
   return (
     <ul className="flex flex-col gap-1">
       {rows.map((row, i) => (

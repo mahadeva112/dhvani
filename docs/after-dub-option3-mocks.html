@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Option 3 Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#232a36; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .card { background:#11141b; border:1px solid #232a36; border-radius:16px; }
+  .btn { height:30px; padding:0 10px; border:1px solid #232a36; border-radius:9px; background:#151922; color:#cbd5e1; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .ibtn { height:30px; width:30px; border:1px solid #232a36; border-radius:9px; background:#151922; color:#cbd5e1; display:inline-flex; align-items:center; justify-content:center; }
+  .pri { background:#4f46e5; border-color:#6366f1; color:#fff; font-weight:600; }
+  .chip { font-size:11.5px; padding:1px 8px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .kb { font-family: ui-monospace, Consolas, monospace; font-size:10px; padding:0 4px; border-radius:4px; border:1px solid #334155; color:#94a3b8; line-height:15px; }
+  .ms { font-size:10px; width:20px; height:18px; border:1px solid #334155; border-radius:5px; color:#94a3b8; display:inline-flex; align-items:center; justify-content:center; }
+  .lbl { font-size:10.5px; text-transform:uppercase; letter-spacing:.06em; font-weight:600; color:#64748b; }
+  .dl { width:100%; display:flex; align-items:center; gap:10px; height:38px; padding:0 12px; border:1px solid #232a36; border-radius:10px; background:#0f131b; color:#e2e8f0; font-size:13px; }
+  .fmt { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; padding:1px 6px; border-radius:6px; background:#1e293b; color:#cbd5e1; }
+  .ta { background:#0c0f15; border:1px solid #2a3240; border-radius:8px; color:#f1f5f9; }
+  .playhead { position:absolute; top:0; bottom:0; width:1.5px; background:#f8fafc; left:50.6%; z-index:3; }
+  #stage { width:1905px; transform-origin: top left; background:#0a0c11; position:relative; overflow:hidden; border-radius:10px; }
+  .row.pick { background:#151a26; box-shadow: inset 2px 0 0 #818cf8; }
+  .new { box-shadow: 0 0 0 2px #22d3ee88; }
+  .add { box-shadow: 0 0 0 2px #f59e0bcc; }
+  .fold { position:absolute; left:0; right:0; top:974px; bottom:0; background:repeating-linear-gradient(135deg, #06080dcc 0 14px, #06080daa 14px 28px); z-index:40; pointer-events:none; }
+  .fold span { position:absolute; left:24px; top:10px; font-size:13px; color:#fbbf24; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-3 sm:p-5">
+
+<div class="max-w-[1905px] mx-auto">
+  <div class="flex flex-wrap items-center gap-2 mb-2 text-[13px]">
+    <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+    <div id="tabs" class="inline-flex flex-wrap rounded-lg border edge overflow-hidden"></div>
+    <label class="ml-2 inline-flex items-center gap-1.5 text-slate-400"><input id="marks" type="checkbox" checked /> যা সরল, নীল দাগে দেখাও</label>
+    <label class="ml-2 inline-flex items-center gap-1.5 text-slate-400"><input id="adds" type="checkbox" checked /> <span class="text-amber-300">যা আগে বাদ পড়েছিল, হলুদ দাগে</span></label>
+    <label id="altWrap" class="ml-2 inline-flex items-center gap-1.5 text-slate-400">দেখাও: <select id="alt" class="bg-[#11141b] border edge rounded-md px-2 py-0.5 text-slate-200"></select></label>
+  </div>
+  <p id="count" class="text-[13px] text-slate-300 mb-1.5"></p>
+  <p id="note" class="text-[13.5px] text-slate-300 mb-3 max-w-[100rem] leading-relaxed"></p>
+  <div id="wrap" style="position:relative">
+    <div id="stage"></div>
+  </div>
+  <p class="text-[12px] text-slate-500 mt-2">ফ্রেমটা তোমার স্ক্রিনের মাপ (1905 × 974) ছোট করে দেখানো। হলুদ রেখা = স্ক্রিনের নিচের কিনারা; তার নিচের দাগকাটা অংশ দেখতে স্ক্রল করতে হয়। উপরের সংখ্যা: list-এর কতগুলো লাইন পুরো দেখা যায়, আর Sync again / WAV / Subtitles স্ক্রল ছাড়া দেখা যায় কি না। "আজ"-এর মাপ কোড থেকে নেওয়া (আনুমানিক), কারণ এই ব্রাউজারে তোমার কোনো project নেই।</p>
+</div>
+
+<script>
+// ---------------- data: one 2-speaker Hindi dub, 26 lines, 12 worth a listen ----------------
+const LINES = [
+  [0.0,2.2,1,"I don't know how Vicky Yash became Ravana.","पता नहीं यश रावण कैसे बन गए।",'ok'],
+  [2.3,1.6,1,"I know him very well.","मैं उन्हें बहुत अच्छी तरह जानता हूँ।",'long'],
+  [4.6,1.9,2,"There was a question whether anyone could play Ravana at all.","सवाल था कि रावण को कोई निभा भी सकता है या नहीं।",'late'],
+  [6.8,2.6,1,"He was a scholar, a great devotee of Shiva.","वह विद्वान था, शिव का बड़ा भक्त।",'ok'],
+  [9.6,3.1,1,"People only remember the ten heads.","लोग बस दस सिर याद रखते हैं।",'early'],
+  [12.9,1.4,1,"But that is not the whole story.","पर पूरी कहानी यह नहीं है।",'tight'],
+  [14.5,2.8,2,"So what made him fall?","तो आख़िर उसका पतन किसने किया, यह सवाल है?",'long'],
+  [17.6,2.2,1,"His own desire, nothing else.","उसकी अपनी इच्छा, और कुछ नहीं।",'take'],
+  [20.0,3.4,1,"Ram did not defeat him, he defeated himself.","राम ने उसे नहीं हराया, उसने खुद को हराया।",'ok'],
+  [23.6,1.9,1,"That is what the story is really about.","कहानी असल में इसी के बारे में है।",'words'],
+  [25.8,2.4,1,"Every one of us carries a Ravana.","हम सब के भीतर एक रावण है।",'ok'],
+  [28.4,1.6,1,"The question is who wins.","सवाल यह है कि आख़िर में जीतता कौन है।",'long'],
+  [30.3,2.9,2,"And how do you make sure it is Ram?","और यह कैसे पक्का करें कि जीत राम की हो?",'ok'],
+  [33.5,2.0,1,"You don't fight the Ravana.","आप रावण से लड़ते नहीं।",'early'],
+  [35.7,3.0,1,"You simply stop feeding him.","आप बस उसे खिलाना बंद कर देते हैं।",'tight'],
+  [39.0,1.8,1,"That is all.","बस इतना ही।",'ok'],
+  [41.1,2.6,1,"It sounds simple, but it is a life's work.","सुनने में आसान है, पर यह पूरी ज़िंदगी का काम है।",'late'],
+  [44.0,2.1,2,"Thank you for being here.","यहाँ आने के लिए धन्यवाद।",'ok'],
+  [46.3,2.4,1,"Let us sit for a few minutes.","चलिए कुछ मिनट बैठते हैं।",'words'],
+  [49.0,2.0,1,"Close your eyes.","आँखें बंद कर लीजिए।",'ok'],
+  [51.4,2.6,1,"Just watch your breath.","बस अपनी साँस को देखिए।",'ok'],
+  [54.3,2.2,1,"Don't try to change it.","उसे बदलने की कोशिश मत कीजिए।",'ok'],
+  [56.8,3.0,1,"Let it come, let it go.","उसे आने दीजिए, जाने दीजिए।",'ok'],
+  [60.2,2.4,2,"Thank you.","धन्यवाद।",'ok'],
+  [63.0,2.2,1,"See you tomorrow.","कल मिलते हैं।",'ok'],
+  [65.5,2.0,1,"Namaskaram.","नमस्कारम्।",'ok'],
+];
+const ORDER = { long:0, early:1 };
+const REVIEW = LINES.map((l,i)=>i).filter(i=>LINES[i][5]!=='ok')
+  .sort((a,b)=>((ORDER[LINES[a][5]] ?? 2) - (ORDER[LINES[b][5]] ?? 2)) || a-b);
+const PICK = 6; // line 07, picked in the player
+const HUES = ['#4f9fbf','#c0607f','#8b7fd6','#b39a5c','#5fb38a','#c27a4a'];
+const fmt = (t) => `${Math.floor(t/60)}:${(t%60).toFixed(1).padStart(4,'0')}`;
+const NEW = () => document.getElementById('marks').checked ? 'new' : '';
+const ADD = () => document.getElementById('adds').checked ? 'add' : '';
+const ALT = () => +(document.getElementById('alt').value || 0);
+const num = (i) => String(i+1).padStart(2,'0');
+const OFFSET = { long:'+0.42', early:'−0.02', late:'+0.31', tight:'+0.04', take:'+0.01', words:'+0.06' };
+const offTone = { long:'bg-amber-500/15 text-amber-300', early:'bg-sky-500/15 text-sky-300', late:'bg-amber-500/15 text-amber-300' };
+const REASON = {
+  long:'Runs 0.42 s longer than the original line had, even read 1.10× faster: shorten it',
+  early:'Ends 0.9 s before the original speaker stops: 1.8 s said, 2.7 s spoken',
+  late:'Starts 0.31 s late: the line before it runs long',
+  tight:'Only 60 ms before the next line starts: it may sound cut off',
+  take:'A new take was put in to fit (0.22 s shorter): listen to it, or use the first take',
+  words:'The measured last word ends 0.18 s after the source line: review its wording or take',
+};
+const SHORT = { long:'Too long +0.42 s', early:'Ends early 0.9 s', late:'Late 0.31 s', tight:'Tight join', take:'New take in', words:'Word timing' };
+const shortTone = { long:'bg-rose-500/15 text-rose-300', early:'bg-sky-500/15 text-sky-300', late:'bg-amber-500/15 text-amber-300', tight:'bg-amber-500/15 text-amber-300', take:'bg-indigo-500/15 text-indigo-300', words:'bg-slate-700/60 text-slate-300' };
+const reasonTone = (k) => k==='long' ? 'text-amber-300' : k==='early' ? 'text-sky-300' : 'text-slate-400';
+
+// ---------------- icons (plain action icons) ----------------
+const P = {
+  play:'<path d="M7 5l12 7-12 7z" fill="currentColor" stroke="none"/>',
+  mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  dl:'<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  undo:'<path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>',
+  redo:'<path d="M15 14l5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>',
+  hist:'<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  pen:'<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  cut:'<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M8.5 8.5L20 20M8.5 15.5L20 4"/>',
+  mag:'<path d="M6 3v8a6 6 0 0 0 12 0V3h-4v8a2 2 0 0 1-4 0V3z"/>',
+  flag:'<path d="M5 21V4h11l-2 4 2 4H5"/>',
+  lock:'<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+  re:'<path d="M20 11a8 8 0 0 0-14-5L4 8M4 4v4h4M4 13a8 8 0 0 0 14 5l2-2M20 20v-4h-4"/>',
+  sl:'<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  dn:'<path d="M6 9l6 6 6-6"/>',
+  rt:'<path d="M9 6l6 6-6 6"/>',
+  ar:'<path d="M5 12h14M13 6l6 6-6 6"/>',
+  al:'<path d="M19 12H5M11 6l-6 6 6 6"/>',
+  vid:'<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/>',
+  q:'<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6M12 17h.01"/>',
+  ok:'<path d="M5 12l5 5 9-10"/>',
+  wave:'<path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/>',
+  prev:'<path d="M18 6l-8 6 8 6zM6 6v12"/>',
+  next:'<path d="M6 6l8 6-8 6zM18 6v12"/>',
+  range:'<path d="M4 8V4h4M16 4h4v4M20 16v4h-4M8 20H4v-4"/>',
+  rip:'<path d="M4 12h11M11 7l5 5-5 5M20 5v14"/>',
+  aln:'<path d="M5 4v16M9 8h11M9 16h7"/>',
+  join:'<path d="M3 12h7M14 12h7M10 7v10M14 7v10"/>',
+  users:'<circle cx="9" cy="8" r="3"/><path d="M3 20a6 6 0 0 1 12 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 20a5 5 0 0 1 5.5-4.5"/>',
+  file:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
+  cc:'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 12h4M13 12h4M7 15.5h8"/>',
+  head:'<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/>',
+  x:'<path d="M6 6l12 12M18 6L6 18"/>',
+  dots:'<circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  speech:'<path d="M4 5h16v11H9l-5 4z"/>',
+  copy:'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V4h12"/>',
+  sync:'<path d="M4 7h12M12 3l4 4-4 4M20 17H8M12 13l-4 4 4 4"/>',
+};
+const I = (n, c='w-3.5 h-3.5') => `<svg class="${c} inline-block shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${P[n]}</svg>`;
+const ARR = I('ar','w-3.5 h-3.5');
+
+// ---------------- shared pieces (as the app draws them today) ----------------
+const appBar = (extra='') => `
+<div class="h-[57px] flex items-center gap-3 px-5 border-b edge bg-[#0a0c11] shrink-0">
+  <div class="w-8 h-8 rounded-lg bg-indigo-600"></div>
+  <div class="leading-tight"><div class="font-semibold text-[15px]">Dhvani</div><div class="text-[11px] text-slate-500">Dubbing studio</div></div>
+  <div class="ml-6 leading-tight"><div class="text-[13px] font-semibold">Ravana could not defeat Ram</div><div class="text-[11.5px] text-slate-400">English ${I('ar','w-3 h-3')} Hindi · 1:17 <span class="text-emerald-400">✓ Dubbed</span></div></div>
+  <div class="mx-auto flex items-center gap-1 rounded-full border edge px-2 py-1 text-[13px]">
+    <span class="px-3 text-slate-400">✓ Source &amp; voice</span>
+    <span class="px-3 text-slate-400">✓ Review</span>
+    <span class="px-3 py-0.5 rounded-full bg-slate-800 font-semibold">③ Dub</span>
+  </div>
+  ${extra}
+  <span class="btn">Tools</span><span class="btn">● Online</span><span class="btn">Projects 13</span><span class="btn">⚙</span><span class="btn bg-slate-100 !text-slate-900">${I('plus')} New dub</span>
+</div>`;
+
+const stat = (label, value, tone='text-slate-100') => `<div class="flex flex-col px-3.5 border-l edge"><span class="text-[11px] text-slate-400 whitespace-nowrap">${label}</span><span class="text-[17px] font-semibold tabular-nums leading-tight ${tone}">${value}</span></div>`;
+const STATS = () => stat('In sync','20<span class="text-[13px] text-slate-500"> / 26</span>') + stat('90% start within','0.09 s') + stat('Worst line','0.62 s','text-amber-300')
+  + stat('Too long','3','text-amber-300') + stat('End early','2','text-sky-300') + stat('Hand edits','4') + stat('Best of 3 takes','1','text-indigo-200') + stat('Precision','Word');
+const statusBarToday = () => `
+<section class="card flex items-center gap-x-5 px-5 py-3">
+  <span class="shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-semibold bg-amber-400/10 text-amber-300"><span class="w-2 h-2 rounded-full bg-amber-400"></span>Needs a fix</span>
+  <div class="flex-1 min-w-[16rem]"><h2 class="text-[15px] font-semibold text-amber-50 leading-snug">3 lines are too long for their slot</h2><p class="text-[11.5px] text-slate-400 leading-snug">Long lines push the ones after them, so the dub drifts up to 0.62 s late. Shorten the long lines below, then sync again.</p></div>
+  <div class="flex">${STATS()}</div>
+</section>`;
+
+const trackHead = (name, color, sub='') => `
+  <div class="flex items-center gap-1.5 text-[11.5px]"><span class="w-2 h-2 rounded-sm" style="background:${color}"></span><span class="font-medium text-slate-200 truncate">${name}</span>${sub?`<span class="text-[10.5px] text-slate-500 truncate">${sub}</span>`:''}<span class="ml-auto ms">M</span><span class="ms">S</span></div>
+  <div class="flex items-center gap-1.5"><span class="h-1 flex-1 rounded bg-slate-700 relative"><i class="absolute left-0 top-0 bottom-0 w-[72%] rounded bg-slate-400"></i></span><span class="mono text-[10px] text-slate-500">0.0 dB</span></div>`;
+const ruler = () => { let s=''; for (let t=0;t<=30;t+=2) s += `<span class="absolute top-0 h-full border-l border-slate-700/70 pl-1 mono text-[10px] text-slate-500 leading-[24px]" style="left:${t/30*100}%">0:${String(t).padStart(2,'0')}</span>`; return s; };
+const markersRow = () => `
+  <div class="h-[20px] border-r border-b edge bg-[#11141b] px-2.5 flex items-center text-[10.5px] text-slate-500">Markers</div>
+  <div class="h-[20px] border-b edge relative bg-[#0d1016]"><span class="absolute top-[3px] text-[10px] px-1.5 rounded bg-amber-500/20 text-amber-200" style="left:31%">⚑ check breath</span><span class="absolute top-[3px] text-[10px] px-1.5 rounded bg-amber-500/20 text-amber-200" style="left:77%">⚑ tone</span></div>`;
+function lanes({ rows=[['Original','#22d3ee','src'],['Synced','#818cf8','dub']], h=76, headW=200, markers=false } = {}){
+  return `<div class="rounded-xl border edge bg-[#0b0e14] overflow-hidden">
+   <div class="grid" style="grid-template-columns:${headW}px minmax(0,1fr)">
+     <div class="h-[26px] border-r border-b edge bg-[#11141b] px-2.5 flex items-center mono text-[10.5px] text-slate-500">1:17.0 in all</div>
+     <div class="h-[26px] border-b edge bg-[#0f131a] relative overflow-hidden">${ruler()}<span class="playhead"></span></div>
+     ${markers ? markersRow() : ''}
+     ${rows.map(([name,color,kind,sub]) => `
+       <div class="border-r border-b edge bg-[#11141b] flex" style="height:${h}px"><span class="w-1 shrink-0" style="background:${color}"></span><div class="flex-1 min-w-0 px-2.5 py-1.5 flex flex-col justify-center gap-1.5">${trackHead(name,color,sub)}</div></div>
+       <div class="border-b edge relative" style="height:${h}px"><canvas data-wave="${kind}" data-h="${h}" class="absolute inset-0 w-full h-full"></canvas><span class="playhead"></span></div>`).join('')}
+     <div class="border-r edge bg-[#11141b]"></div>
+     <div class="p-1 bg-[#0a0d12]"><canvas data-wave="mini" data-h="14" class="w-full h-[14px] block"></canvas></div>
+   </div></div>`;
+}
+const zoomCtl = (cls='') => `<span class="inline-flex items-center gap-1 ${cls}"><span class="ibtn">−</span><span class="w-24 h-1 rounded bg-slate-700 relative"><i class="absolute left-0 top-0 bottom-0 w-[38%] rounded bg-slate-400"></i></span><span class="ibtn">+</span><span class="btn mono">30 s</span><span class="btn">Whole</span></span>`;
+const tBtns = () => `<span class="ibtn !rounded-full">${I('prev')}</span><span class="w-10 h-10 rounded-full bg-slate-100 text-slate-950 flex items-center justify-center">${I('play','w-4 h-4')}</span><span class="ibtn !rounded-full">${I('next')}</span><span class="mono text-[13.5px]">0:15.2 <span class="text-slate-500">/ 1:17.0</span></span>`;
+const linePair = (i=PICK) => `<span class="flex-1 min-w-0 flex flex-col leading-snug"><span class="text-[11.5px] text-slate-500 truncate"><span class="kb mr-1.5">EN</span>${LINES[i][3]}</span><span class="text-[13px] text-slate-100 truncate"><span class="kb mr-1.5">HI</span>${LINES[i][4]}</span></span>`;
+const extrasToday = () => `<span class="btn mono">1× ${I('dn','w-3 h-3')}</span><span class="btn">${I('vid')} Add video</span><span class="ibtn !rounded-full">${I('q')}</span>`;
+const transportToday = () => `<div class="flex items-center gap-2.5 h-[44px]">${tBtns()}${linePair()}<span class="btn">${I('mic')} Takes</span><span class="btn">${I('pen')} Edit words</span>${extrasToday()}</div>`;
+
+const playerToday = () => `
+<section class="card px-4 py-3 flex flex-col gap-3">
+  <div class="flex items-center gap-2 h-8">
+    <span class="lbl">Player</span><span class="flex items-center gap-1.5 text-[11px] text-slate-500">${I('head')} Levels are for listening; the dub file is unchanged</span>
+    <span class="ml-auto ibtn">${I('undo','w-4 h-4')}</span><span class="ibtn">${I('redo','w-4 h-4')}</span><span class="btn">${I('hist')} History ${I('dn','w-3 h-3')}</span>
+    <span class="btn">${I('pen')} Edit timing</span>
+  </div>
+  <div class="flex items-center gap-2 h-8">${zoomCtl()}<span class="btn">Follow</span></div>
+  ${lanes()}
+  ${transportToday()}
+</section>`;
+
+const castChips = () => `<span class="chip text-indigo-200 border-indigo-500/60 bg-indigo-500/10">● Speaker 1 · Swami</span><span class="chip text-teal-200 border-teal-500/60 bg-teal-500/10">● Speaker 2 · Arjun</span>`;
+const mixChecks = () => `
+  <ul class="flex flex-col gap-1.5 text-[12px] text-slate-300">
+    <li class="flex gap-2"><span class="text-emerald-400">${I('ok')}</span>Every line as voiced, with one gain per speaker: Speaker 1 +1.2 dB, Speaker 2 −0.8 dB.</li>
+    <li class="flex gap-2"><span class="text-emerald-400">${I('ok')}</span>2 speakers, one track each in Stems.</li>
+    <li class="flex gap-2"><span class="text-emerald-400">${I('ok')}</span>No one talks over themself. 2 overlaps from the original kept.</li>
+    <li class="flex gap-2"><span class="text-emerald-400">${I('ok')}</span>Peaks at −1.2 dBFS. Nothing goes over full scale.</li>
+  </ul>`;
+const stems = () => `<div class="flex flex-col gap-2"><span class="lbl">Stems</span>
+  <span class="dl"><span class="fmt">WAV</span><span class="flex-1">Speaker 1</span>${I('dl','w-4 h-4 text-slate-500')}</span>
+  <span class="dl"><span class="fmt">WAV</span><span class="flex-1">Speaker 2</span>${I('dl','w-4 h-4 text-slate-500')}</span></div>`;
+const speakersToday = () => `
+<section class="card px-4 py-3 flex flex-col gap-3">
+  <div class="flex items-center gap-2"><span class="lbl mr-1">Cast</span>${castChips()}<span class="ml-auto text-[12px] text-slate-400">Change voices</span></div>
+  <div class="grid gap-3" style="grid-template-columns:minmax(0,1fr) 18rem">${mixChecks()}${stems()}</div>
+</section>`;
+
+// one row of the line list, as the app draws it today: long and early lines carry their wording box open
+const lengthBars = (k) => `<span class="shrink-0 w-24 flex flex-col gap-[3px] mt-1"><i class="h-[4px] rounded bg-slate-600 w-[80%]"></i><i class="h-[4px] rounded ${k==='long'?'bg-amber-400 w-full':k==='early'?'bg-sky-400 w-[50%]':'bg-indigo-400 w-[76%]'}"></i></span>`;
+const wordingBox = (i) => `
+  <div class="mt-2 rounded-lg border edge bg-[#0c0f15] p-2.5">
+    <div class="lbl mb-1">${LINES[i][5]==='long'?'Shorter line':'Fuller line'}</div>
+    <div class="ta px-2 py-1.5 text-[13px]">${LINES[i][4]}</div>
+    <div class="mt-1.5 flex items-center gap-2"><span class="btn pri !h-7 !text-[12px]">${I('mic')} Voice it now</span><span class="btn !h-7 !text-[11.5px]">Suggest 3</span><span class="btn !h-7 !text-[11.5px]">${I('copy')} Copy</span></div>
+  </div>`;
+const takeOffer = () => `<div class="mt-2 flex items-center gap-2 rounded-lg border border-indigo-500/40 bg-indigo-950/30 px-2.5 py-1.5 text-[12px]"><span class="flex-1 text-slate-200">Take 2 of 3 is in the dub · 0.22 s shorter</span><span class="btn !h-7">${I('play','w-3 h-3')} First take</span><span class="btn !h-7">Keep</span></div>`;
+const rowToday = (i) => { const l = LINES[i], k = l[5]; return `
+  <li class="row py-3 border-b edge flex items-start gap-3">
+    <span class="shrink-0 mt-0.5 mono text-[11px] px-2 py-0.5 rounded-md ${offTone[k]||'bg-slate-800 text-slate-300'}">${OFFSET[k]}</span>
+    <span class="shrink-0 mt-0.5 mono text-[11.5px] text-slate-500 w-14">${fmt(l[0])}</span>
+    <div class="min-w-0 flex-1">
+      <div class="flex items-start gap-3"><p class="flex-1 text-[13.5px] text-slate-100 leading-snug">${l[4]}</p>${lengthBars(k)}</div>
+      <p class="text-[12px] text-slate-500 leading-snug mt-0.5">${l[3]}</p>
+      <p class="text-[11.5px] mt-1 ${reasonTone(k)}">${REASON[k]}</p>
+      ${k==='take' ? takeOffer() : ''}${(k==='long'||k==='early') ? wordingBox(i) : ''}
+    </div>
+    <div class="shrink-0 flex items-center gap-1.5"><span class="btn !h-7 !text-[12px]">${I('play','w-3 h-3')} Listen</span><span class="btn !h-7 !text-[12px]">${I('mic')} Takes</span><span class="btn !h-7 !text-[12px]">${I('mic')} Retake</span></div>
+  </li>`; };
+const lineTabs = (cls='') => `<div class="inline-flex gap-0.5 p-0.5 rounded-xl bg-[#0a0c11] border edge ${cls}">
+  ${[['Worth a listen',12,1],['Too long',3],['End early',2],['Hand edits',4],['Every line',26]].map(([t,n,on])=>`<span class="px-2.5 py-1 rounded-lg text-[12px] tabular-nums ${on?'bg-slate-800 text-slate-100':'text-slate-400'}">${t} · ${n}</span>`).join('')}</div>`;
+const linesToday = () => `
+<section class="card p-5 flex flex-col min-h-0">
+  <p class="text-[12px] text-slate-400 mb-3">Actual word timing: 24 measured · 2 unavailable · 1 internal cue mismatches · 2 line endings to review. Single-cue lines have no internal boundary comparison. This does not verify visual lip-sync.</p>
+  <div class="flex flex-wrap items-center gap-2">
+    <h3 class="text-[15px] font-semibold mr-1">Lines</h3>${lineTabs()}
+    <span class="text-[12px] text-indigo-300 flex items-center gap-1">${I('mic','w-3 h-3')} Retake these 12</span>
+    <span class="flex-1"></span><span class="text-[12px] text-slate-500">6 outside tolerance · 3 too long for their slot · 2 end early · 2 tight joins</span>
+  </div>
+  <div class="relative flex-1 mt-2 min-h-[448px]"><ul data-list class="absolute inset-0 overflow-hidden border-y edge">${REVIEW.map(rowToday).join('')}</ul></div>
+</section>`;
+const railToday = () => `
+<aside class="card overflow-hidden flex flex-col">
+  <div class="flex items-center justify-between px-5 pt-4"><h2 class="text-[15px] font-semibold">Sync settings</h2><span class="text-[12px] text-slate-400">${I('al','w-3 h-3')} Review</span></div>
+  <div class="px-5 py-4"><div class="flex flex-col gap-3 rounded-xl border edge bg-[#0c0f15] p-3.5">
+    <div class="flex flex-wrap gap-1.5">${['Line by line','Word precision','Joins: Natural','Suggestions on','Verifies word timing'].map(c=>`<span class="px-2 py-0.5 rounded-md border border-slate-700 text-[11.5px] text-slate-300">${c}</span>`).join('')}</div>
+    <span class="h-9 flex items-center justify-center gap-2 rounded-lg border border-slate-700 text-[13px] text-slate-200">${I('sl','w-4 h-4')} Open sync settings <span class="px-1.5 rounded-md text-[10.5px] bg-amber-400/15 text-amber-300">2 changed</span></span>
+  </div></div>
+  <div class="px-5 pb-4 flex flex-col gap-2"><span class="lbl">Synced dub</span>
+    <span class="dl" data-k="wav"><span class="fmt">WAV</span><span class="flex-1">Synced dub</span>${I('dl','w-4 h-4 text-slate-500')}</span>
+    <span class="dl"><span class="fmt">MP3</span><span class="flex-1">Synced dub</span>${I('dl','w-4 h-4 text-slate-500')}</span>
+    <span class="dl !h-auto py-2">${I('wave','w-4 h-4 text-slate-400')}<span class="flex-1"><span class="block">Change the voice</span><span class="block text-[11.5px] text-slate-500">Keeps the timing; Sync again re-voices it</span></span>${I('rt','w-4 h-4 text-slate-500')}</span>
+  </div>
+  <div class="px-5 pb-4 flex flex-col gap-2"><span class="lbl">Subtitles</span>
+    <span class="flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-700 bg-[#0f131b]" data-k="srt"><span class="w-11 h-11 rounded-[10px] flex items-center justify-center bg-indigo-500/15 text-indigo-300">${I('sl','w-5 h-5')}</span><span class="flex-1"><span class="block text-[14.5px] font-semibold">Export subtitles</span><span class="block text-[12px] text-slate-400">Hindi · timed to the dub</span><span class="block text-[11.5px] text-slate-500">1 line, 7 words max · .srt or .vtt</span></span>${I('rt','w-4 h-4 text-slate-500')}</span>
+  </div>
+  <div class="px-5 pb-4 flex flex-col gap-2"><span class="lbl">Script and tools</span>
+    <span class="dl">${I('file','w-4 h-4 text-slate-400')}<span class="flex-1">Hindi script</span>${I('dn','w-4 h-4 text-slate-500')}</span>
+    <span class="dl">${I('speech','w-4 h-4 text-slate-400')}<span class="flex-1">Text to speech</span></span>
+    <span class="dl">${I('plus','w-4 h-4 text-slate-400')}<span class="flex-1">Start a new dub</span></span>
+  </div>
+  <div class="mt-auto px-5 py-4 border-t edge bg-[#0a0c11] flex flex-col gap-2">
+    <span class="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 text-white text-sm font-semibold" data-k="sync">${I('re','w-4 h-4')} Sync again</span>
+    <p class="text-center text-[11.5px] text-slate-500">Places every line again with these settings; a new voice or voice setting voices them again.</p>
+    <span class="self-center text-[12px] text-slate-400 flex items-center gap-1.5">${I('undo')} Sync from scratch…</span>
+  </div>
+</aside>`;
+const voiceFolded = () => `<aside class="card px-5 py-4"><div class="flex items-center justify-between"><h2 class="text-[15px] font-semibold">Voice and delivery</h2><span class="text-[12px] text-slate-400">Change ${I('dn','w-3 h-3')}</span></div><p class="pt-1 text-[12px] text-slate-400">Swami · Eleven v3 · 2 speakers. A change applies when you sync again.</p></aside>`;
+
+// ---------------- new pieces for the mocks ----------------
+const verdictChip = (txt='Needs a fix') => `<span class="shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-full text-[12px] font-semibold bg-amber-400/10 text-amber-300"><span class="w-2 h-2 rounded-full bg-amber-400"></span>${txt}</span>`;
+const miniStats = () => `<span class="mono text-[12px] text-slate-300 whitespace-nowrap"><b class="text-slate-100">20</b>/26 in sync · 90% ≤ 0.09 s · worst <b class="text-amber-300">0.62 s</b> · <b class="text-slate-100">4</b> hand edits · 1 best of 3</span>`;
+const undoGroup = (n='') => `<span class="inline-flex gap-1"><span class="ibtn" title="Undo (Ctrl+Z)">${I('undo','w-4 h-4')}</span><span class="ibtn">${I('redo','w-4 h-4')}</span><span class="btn">${I('hist')}${n} ${I('dn','w-3 h-3')}</span></span>`;
+const compactRow = (i, pick=false) => { const l = LINES[i], k = l[5]; return `
+  <li class="row h-[46px] px-4 flex items-center gap-3 border-b edge ${pick?'pick':''}">
+    <span class="shrink-0 mono text-[11px] text-slate-500 w-6">${num(i)}</span>
+    <span class="shrink-0 mono text-[11.5px] text-slate-500 w-12">${fmt(l[0])}</span>
+    <span class="w-2 h-2 rounded-full shrink-0 ${l[2]===1?'bg-indigo-400':'bg-teal-400'}"></span>
+    <span class="w-[36%] min-w-0 truncate text-[13.5px] text-slate-100">${l[4]}</span>
+    <span class="flex-1 min-w-0 truncate text-[12px] text-slate-500">${l[3]}</span>
+    <span class="shrink-0 text-[11px] px-1.5 rounded ${shortTone[k]}">${SHORT[k]}</span>
+    <span class="shrink-0 flex items-center gap-1 ${pick?'':'opacity-40'}"><span class="ibtn !h-7 !w-7">${I('play','w-3 h-3')}</span><span class="ibtn !h-7 !w-7" title="Takes (R)">${I('mic')}</span><span class="ibtn !h-7 !w-7" title="Words (E)">${I('pen')}</span></span>
+  </li>`; };
+const lineCard = (cls='') => { const l = LINES[PICK]; return `
+  <div class="flex-1 min-w-0 flex items-center gap-3 rounded-xl border border-amber-500/40 bg-amber-950/15 px-3 py-1.5 ${cls}">
+    <span class="mono text-[11px] text-indigo-300 bg-indigo-500/10 px-1.5 rounded">07</span><span class="w-2 h-2 rounded-full bg-teal-400"></span>
+    <span class="min-w-0 flex-1 flex flex-col leading-snug"><span class="text-[13.5px] text-slate-100 truncate">${l[4]}</span><span class="text-[11.5px] text-slate-500 truncate">${l[3]}</span></span>
+    <span class="text-[11.5px] text-amber-300 max-w-[19rem] leading-snug">Runs 0.42 s longer than its slot, even 1.10× faster</span>
+    <span class="btn !h-7">${I('mic')} Takes <span class="kb">R</span></span><span class="btn !h-7">${I('re')} Retake</span><span class="btn !h-7">${I('pen')} Words <span class="kb">E</span></span>
+  </div>`; };
+const exportButton = () => `<span class="btn pri ${NEW()}">${I('dl')} Export ${I('dn','w-3 h-3')}</span>`;
+const voiceChip = () => `<span class="btn ${NEW()}">${I('users')} Voices · Swami, Arjun · v3 ${I('dn','w-3 h-3')}</span>`;
+const syncAgainSplit = (cls='') => `<span class="inline-flex ${cls}" data-k="sync"><span class="btn pri !rounded-r-none">${I('re')} Sync again</span><span class="btn pri !rounded-l-none !px-1.5 border-l !border-l-indigo-400">${I('dn','w-3 h-3')}</span></span>`;
+const castStrip = (cls='') => `<div class="flex items-center gap-2 h-[40px] px-4 rounded-xl border edge bg-[#11141b] ${cls}"><span class="lbl mr-1">Cast</span>${castChips()}<span class="text-[12px] text-slate-400 ml-2 flex items-center gap-1.5"><span class="text-emerald-400">${I('ok')}</span>Mix: one gain per speaker · 2 overlaps kept · peaks −1.2 dBFS</span><span class="ml-auto text-[12px] text-slate-400">Change voices</span></div>`;
+
+// The one Export window (B and D): every file the dub makes, in one place.
+const exportWindow = () => `
+<div class="absolute inset-0 z-30 bg-[#05070bcc] flex items-start justify-center pt-[110px]">
+  <div class="w-[760px] rounded-2xl border border-slate-700 bg-[#11141b] shadow-2xl">
+    <div class="flex items-center px-5 h-[52px] border-b edge"><h2 class="text-[15px] font-semibold flex items-center gap-2">${I('dl','w-4 h-4 text-indigo-300')} Export</h2><span class="ml-3 text-[12px] text-slate-500">Hindi · 1:17 · 26 lines · 4 hand edits in it</span><span class="ml-auto ibtn">${I('x')}</span></div>
+    <div class="p-5 grid grid-cols-2 gap-5">
+      <div class="flex flex-col gap-2"><span class="lbl">Dub audio</span>
+        <span class="dl" data-k="wav"><span class="fmt">WAV</span><span class="flex-1">Synced dub <span class="text-slate-500 text-[11.5px]">48 kHz</span></span>${I('dl','w-4 h-4 text-slate-500')}</span>
+        <span class="dl"><span class="fmt">MP3</span><span class="flex-1">Synced dub <span class="text-slate-500 text-[11.5px]">320 kbps copy</span></span>${I('dl','w-4 h-4 text-slate-500')}</span>
+      </div>
+      ${stems().replace('Stems','Stems · one track each speaker')}
+      <div class="flex flex-col gap-2"><span class="lbl">Subtitles</span>
+        <span class="dl !h-auto py-2.5" data-k="srt">${I('cc','w-4 h-4 text-indigo-300')}<span class="flex-1"><span class="block">Hindi · timed to the dub</span><span class="block text-[11.5px] text-slate-500">1 line, 7 words max · .srt or .vtt</span></span><span class="text-[12px] text-indigo-300 flex items-center gap-1">Edit &amp; export ${I('rt','w-3 h-3')}</span></span>
+      </div>
+      <div class="flex flex-col gap-2"><span class="lbl">Script</span>
+        <span class="dl">${I('file','w-4 h-4 text-slate-400')}<span class="flex-1">Hindi script <span class="text-slate-500 text-[11.5px]">dialogue · lines in the dub</span></span>${I('dn','w-4 h-4 text-slate-500')}</span>
+        <span class="dl">${I('copy','w-4 h-4 text-slate-400')}<span class="flex-1">Copy the script</span></span>
+      </div>
+      <div class="col-span-2 rounded-xl border edge bg-[#0c0f15] p-3"><div class="lbl mb-2">Mix check</div>${mixChecks()}</div>
+    </div>
+    <p class="px-5 pb-4 text-[11.5px] text-slate-500">The project file (.dhvani, whole or Light) stays where it is, in Projects.</p>
+  </div>
+</div>`;
+
+// ================= the mocks =================
+const ALTS5 = ['শুধু পাতা','Lines জানালা','Takes জানালা','Export জানালা','Sync again ▾ মেনু'];
+const MOCKS = {
+  P3: {
+    label: 'আগের পথ ৩', alts: ['শুধু পাতা','Lines জানালা','Takes জানালা','Export জানালা'],
+    note: 'তুলনার জন্য: আগের পথ ৩, যেমন বানিয়েছিলাম। নিচের পাঁচটা এর নতুন নকশা, সব feature রেখে।',
+    html: () => path3Page(ALT()),
+  },
+  S1: {
+    label: 'S1 · স্টুডিও', alts: ALTS5,
+    note: 'S1 · স্টুডিও — DAW-র কনসোলের মতো। Timeline কার্ডের মাথায় এক সারিতে তিন দল: বাঁয়ে শোনা (⏮ ▶ ⏭, সময়), মাঝে editing (Undo voice change, Undo/Redo/History, Edit timing), ডানে দেখা (1×, Video, zoom, ?)। Sync-এর রিপোর্ট wave-এর উপর আঁকা নয়: Original আর Synced-এর মাঝখানে নিজের একটা "Sync check" সারিতে রঙিন পতাকা (Too long, Ends early, Late, Tight join, New take, Word timing, No audio), তাই wave পরিষ্কার থাকে। নিচে teleprompter: আগের লাইন ছোট, এখনকারটা বড়, পরেরটা ছোট; বাঁয়ে লাইনের নম্বর, বক্তা, কেন দেখার মতো; ডানে Takes (R), Retake, Edit timing আর রঙের মানে। উপরের সারিতে "12 to listen ▾" (hover-এ সব সংখ্যা, চাপলে Lines জানালা), Next mark (N), Voices, Sync settings, Sync again ▾; খবর সারি timeline-এর মাথায়। কোনো feature বাদ নেই: Lines জানালা (ট্যাব, Retake these 12, Notes, পুরো list), Takes জানালা, Export জানালা আর Sync again ▾ মেনু উপরের "দেখাও" ড্রপডাউনে খুলে দেখো।',
+    html: () => s1(ALT()),
+  },
+  S2: {
+    label: 'S2 · ডানে ইস্যু রেল', alts: ALTS5,
+    note: 'S2 · ডানে ইস্যু রেল — বড় timeline, আর ডানে সরু (340 px) একটা রেল: উপরে "12 to listen" আর ধরন অনুযায়ী রঙিন বার, তারপর খবরগুলো ছোট কার্ডে (preset পরামর্শ, Fit-এর ফল, 2 lines changed, 1 take to choose, 1 line has no audio), তারপর দেখার মতো লাইনগুলো এক লাইনের চিপে (রং, নম্বর, হিন্দি, ধরন) — ক্লিক করলে timeline সেখানে যায়। রেলের নিচে "All lines" (পুরো Lines জানালা) আর Retake these 12। এটা পুরো list নয়, শুধু সূচি, তাই পাতা শোনার জন্যই থাকে। Synced lane-এ রঙিন ফ্রেম আর লেবেল। timeline-এর নিচে এখন-বাজা লাইন আর Takes/Retake/Edit timing। কোনো feature বাদ নেই: Lines জানালা (ট্যাব, Retake these 12, Notes, পুরো list), Takes জানালা, Export জানালা আর Sync again ▾ মেনু উপরের "দেখাও" ড্রপডাউনে খুলে দেখো।',
+    html: () => s2(ALT()),
+  },
+  S3: {
+    label: 'S3 · পুরো ডাবের মানচিত্র', alts: ALTS5,
+    note: 'S3 · পুরো ডাবের মানচিত্র — উপরে পুরো 1:17-এর একটা মানচিত্র: প্রতিটা লাইন তার রঙে, দেখার মতো লাইনের উপরে রঙিন ত্রিভুজ, No audio লাল দাগকাটা, আর সাদা বাক্সে এখন কোন অংশ বড় করে দেখছ — টেনে সরানো যায়, তাই আলাদা scrollbar লাগে না। মানচিত্রের মাথায় খবর সারি। নিচে বড় করা lanes (রঙিন ফ্রেম আর লেবেল)। সবচেয়ে নিচে দুটো কার্ড: বাঁয়ে play আর এখন-বাজা লাইন, ডানে বাছা লাইনের কেন দেখার মতো আর Takes/Retake/Edit timing। পুরো ডাবে কোথায় সমস্যা জমেছে এক নজরে বোঝা যায়। কোনো feature বাদ নেই: Lines জানালা (ট্যাব, Retake these 12, Notes, পুরো list), Takes জানালা, Export জানালা আর Sync again ▾ মেনু উপরের "দেখাও" ড্রপডাউনে খুলে দেখো।',
+    html: () => s3(ALT()),
+  },
+  S4: {
+    label: 'S4 · সিনেমা ক্যাপশন', alts: ALTS5,
+    note: 'S4 · সিনেমা ক্যাপশন — উপরে একটা অন্ধকার ব্যান্ডে এখন-বাজা লাইন বড় করে, সিনেমার subtitle-এর মতো মাঝখানে: হিন্দি বড়, ইংরেজি নিচে, দুই পাশে আগের আর পরের লাইন ছোট করে; নিচে কেন দেখার মতো আর Takes/Retake/Edit timing। তার নিচে খবর সারি, তারপর lanes: দেখার মতো লাইনের নিচে রঙিন রেখা আর মাথায় রঙিন বিন্দু (ফ্রেম নয়, তাই wave ঢাকে না; ধরন hover-এ)। play-এর বোতামগুলো lanes-এর নিচে মাঝখানে একটা pill-এ, মিডিয়া প্লেয়ারের মতো। কোনো feature বাদ নেই: Lines জানালা (ট্যাব, Retake these 12, Notes, পুরো list), Takes জানালা, Export জানালা আর Sync again ▾ মেনু উপরের "দেখাও" ড্রপডাউনে খুলে দেখো।',
+    html: () => s4(ALT()),
+  },
+  S5: {
+    label: 'S5 · শান্ত', alts: ALTS5.concat(['Notices খোলা']),
+    note: 'S5 · শান্ত — চোখে সবচেয়ে কম জিনিস। উপরে বাঁয়ে "12 to listen" আর একটা ভাগ-করা বার: প্রতিটা ভাগ একটা দেখার মতো লাইন, তার ধরনের রঙে (No audio দাগকাটা); ভাগে ক্লিক করলে সেই লাইনে যায়, N পরেরটায়। ডানে "Notices 5" (খবরগুলো একটা ছোট প্যানেলে; ড্রপডাউনে "Notices খোলা"), Voices, Sync settings, Sync again। lanes সবচেয়ে বড় (প্রতিটা 250 px); দেখার মতো লাইন নরম রঙিন আভায়, মাথায় সরু রঙিন রেখা। editing বোতাম শুধু আইকনে, নাম hover-এ। নিচে HUD: play, এখন-বাজা লাইন, কেন দেখার মতো, Takes/Retake/Edit timing। ঝুঁকি: খবরগুলো বোতামের পেছনে, তাই preset পরামর্শ চোখ এড়াতে পারে — বোতামে amber বিন্দু থাকে। কোনো feature বাদ নেই: Lines জানালা (ট্যাব, Retake these 12, Notes, পুরো list), Takes জানালা, Export জানালা আর Sync again ▾ মেনু উপরের "দেখাও" ড্রপডাউনে খুলে দেখো।',
+    html: () => s5(ALT()),
+  },
+};
+
+// A's list row: no wording box until the row is opened; one line of reason
+function rowA(i){ const l = LINES[i], k = l[5]; return `
+  <li class="row px-4 py-2.5 border-b edge flex items-start gap-3">
+    <span class="shrink-0 mt-0.5 mono text-[11px] px-2 py-0.5 rounded-md ${offTone[k]||'bg-slate-800 text-slate-300'}">${OFFSET[k]}</span>
+    <span class="shrink-0 mt-0.5 mono text-[11.5px] text-slate-500 w-12">${fmt(l[0])}</span>
+    <div class="min-w-0 flex-1"><p class="text-[13.5px] text-slate-100 leading-snug truncate">${l[4]}</p><p class="text-[12px] text-slate-500 leading-snug truncate">${l[3]}</p><p class="text-[11.5px] mt-0.5 ${reasonTone(k)} truncate">${REASON[k]}</p></div>
+    <div class="shrink-0 flex items-center gap-1.5"><span class="btn !h-7 !text-[12px]">${I('play','w-3 h-3')} Listen</span><span class="btn !h-7 !text-[12px]">${I('mic')} Takes</span><span class="btn !h-7 !text-[12px]">${I('mic')} Retake</span>${(k==='long'||k==='early')?`<span class="btn !h-7 !text-[12px] ${NEW()}">${I('pen')} Words</span>`:''}</div>
+  </li>`; }
+
+// ---- C, C2, C+ and the two C+ variants share these pieces ----
+const VERDICT_TIP = '3 lines are too long for their slot. Long lines push the ones after them, so the dub drifts up to 0.62 s late.';
+const STATS_TIP = '20 of 26 in sync · 90% start within 0.09 s · worst line 0.62 s · 4 hand edits · best of 3: 1 to choose';
+function syncControlsC(o){ return `${voiceChip()}<span class="btn ${ADD()}">${I('sl')} Sync settings · Natural <span class="text-indigo-300">${I('aln','w-3 h-3')} Fitted</span> <span class="px-1.5 rounded text-[10.5px] bg-amber-400/15 text-amber-300">2 changed</span></span>
+          <span class="relative inline-flex ${ADD()} rounded-lg" data-k="sync"><span class="btn pri !rounded-r-none">${I('re')} Sync again <span class="text-[11px] font-normal text-indigo-100">· 2 changed</span></span><span class="btn pri !rounded-l-none !px-1.5 border-l !border-l-indigo-400">${I('dn','w-3 h-3')}</span>${o.menu ? syncMenuC() : ''}</span>`; }
+function stepBarC(o){ return `
+        <div class="flex items-center gap-2 h-[40px] shrink-0 ${NEW()} rounded-lg">
+          ${o.c2 ? '' : `<span class="inline-flex p-0.5 rounded-xl border edge bg-[#0a0c11] text-[13px]"><span class="px-3.5 py-1 rounded-lg ${o.exportPage?'text-slate-400':'bg-slate-800 font-semibold'}">${I('pen')} Fix the dub <span class="text-amber-300 text-[11.5px] ml-1">12 to listen</span></span><span class="px-3.5 py-1 rounded-lg ${o.exportPage?'bg-slate-800 font-semibold':'text-slate-400'}">${I('dl')} Export</span></span>`}
+          <span class="ml-3 rounded-full ${ADD()}" title="${VERDICT_TIP}">${verdictChip('3 too long')}</span><span class="mono text-[12px] text-slate-300 whitespace-nowrap"><b class="text-slate-100">20</b>/26 in sync · 90% ≤ 0.09 s · worst <b class="text-amber-300">0.62 s</b> · <b class="text-slate-100">4</b> hand edits · <span class="${ADD()} rounded px-1 text-amber-300">best of 3: 1 to choose</span></span>
+          <span class="ml-auto"></span>${syncControlsC(o)}
+        </div>`; }
+function noticeC(){ return `
+        <div class="flex items-center gap-3 h-[36px] px-3 shrink-0 rounded-xl border border-amber-500/30 bg-amber-950/15 text-[12.5px] ${ADD()}">
+          <span class="text-amber-200">The dub runs 6% longer than the original.</span><span class="text-slate-400">Natural suits it better than Tight.</span><span class="btn !h-7">Keep Tight</span><span class="btn !h-7 !bg-amber-500 !text-amber-950 !border-amber-400 font-semibold">${I('re')} Sync again with Natural</span>
+          <span class="w-px h-5 bg-slate-700 mx-1"></span><span class="text-slate-300 flex items-center gap-1.5">${I('aln','w-3.5 h-3.5 text-indigo-300')} Fit to this video set gaps and pauses</span><span class="text-indigo-300">What changed</span><span class="text-indigo-300">Undo</span><span class="text-indigo-300">Use grouping</span><span class="text-slate-400">Turn off</span><span class="ml-auto ibtn !h-7 !w-7">${I('x')}</span>
+        </div>`; }
+function playerCardC(o){
+  const edit = `<span class="btn border-dashed ${ADD()}" title="Only after a voice change">${I('undo')} Undo voice change</span>${undoGroup(' 37')}<span class="btn">${I('pen')} Edit timing</span><span class="btn mono">1×</span><span class="btn">${I('vid')} Video</span>${zoomCtl()}`;
+  const head = o.tidy
+    ? `<div class="flex items-center gap-2 px-4 h-[46px] border-b edge text-[12px] ${NEW()}"><span class="rounded-full" title="${VERDICT_TIP}\n${STATS_TIP}">${verdictChip('3 too long · 20/26')}</span>${edit}<span class="ml-auto"></span>${syncControlsC(o)}</div>`
+    : `<div class="flex items-center gap-2.5 px-4 h-[42px] border-b edge text-[12px]"><span class="mono text-slate-300">0:15.2</span><span class="text-slate-500" title="Levels are for listening; the dub file is unchanged">Original over the synced dub · levels for listening</span><span class="ml-auto"></span>${edit}</div>`;
+  const hint = o.pass
+    ? `<span class="inline-flex items-center gap-1.5 h-[30px] px-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-[12px] shrink-0 ${NEW()}"><span class="text-emerald-300">● Original</span><i class="block w-10 h-1 rounded bg-emerald-400"></i>${I('ar','w-3 h-3 text-slate-400')}<span class="text-slate-300">Dub</span><i class="block w-10 h-1 rounded bg-slate-700"></i></span><span class="inline-flex items-center gap-1 text-[11px] text-slate-400 shrink-0 ${NEW()}"><span class="kb">N</span> next <span class="kb ml-1">Enter</span> OK <span class="kb ml-1">R</span> takes <span class="kb ml-1">E</span> words <span class="kb ml-1">Esc</span> stop</span>`
+    : `<span class="text-[11.5px] text-slate-500">Click a line on a lane to open it on the right</span>`;
+  return `
+        <section class="card overflow-hidden shrink-0">${head}
+          <div class="px-3 pt-3">${lanes()}</div>
+          <div class="flex items-center gap-2.5 px-4 h-[50px]">${tBtns()}${linePair()}${hint}<span class="ibtn">${I('q')}</span></div>
+        </section>`; }
+// The listen pass: 4 lines heard and OK'd (2, 5, 9, 14), line 02 left for later, line 07 playing now
+const PASS = [[1,'later'],[6,'now'],[11,''],[4,''],[13,''],[7,''],[16,''],[18,'']];
+const passTag = { now:'<span class="shrink-0 w-14 text-[10.5px] text-emerald-300 font-semibold">▶ Now</span>', later:'<span class="shrink-0 w-14 text-[10.5px] text-slate-400">↷ Later</span>', '':'<span class="shrink-0 w-14"></span>' };
+function listSectionC(o){
+  const tabs = o.pass
+    ? `<div class="inline-flex gap-0.5 p-0.5 rounded-xl bg-[#0a0c11] border edge">${[['To listen',8,1],['Heard',4],['Too long',3],['End early',2],['Hand edits',4],['Every line',26]].map(([t,n,on])=>`<span class="px-2.5 py-1 rounded-lg text-[12px] tabular-nums ${on?'bg-slate-800 text-slate-100':'text-slate-400'} ${t==='Heard'?NEW():''}">${t} · ${n}</span>`).join('')}</div>`
+    : lineTabs();
+  const pass = o.pass
+    ? `<span class="inline-flex items-center gap-2 h-[30px] px-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 text-[12px] shrink-0 ${NEW()}"><b class="text-emerald-200">Listen pass</b><span class="mono text-slate-200">4 / 12</span><span class="w-16 h-1 rounded bg-slate-700 relative"><i class="absolute left-0 top-0 bottom-0 w-1/3 rounded bg-emerald-400"></i></span></span>`
+    : o.passEntry ? `<span class="btn !border-emerald-500/50 !text-emerald-200 shrink-0 ${NEW()}">${I('play','w-3 h-3')} Listen pass <span class="kb">N</span></span>` : '';
+  const slim = o.tidy
+    ? `<div class="flex items-center gap-2 h-[34px] px-4 border-b edge bg-[#0f131b] text-[12px] shrink-0 whitespace-nowrap ${NEW()}">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span><span class="text-amber-200">Natural suits it better than Tight</span><span class="btn !h-6">Keep</span><span class="btn !h-6 !bg-amber-500 !text-amber-950 !border-amber-400 font-semibold">Sync with Natural</span>
+        <span class="w-px h-4 bg-slate-700 shrink-0"></span><span class="text-slate-300">Fit set gaps, pauses</span><span class="text-indigo-300">Changes</span><span class="text-indigo-300">Undo</span><span class="text-indigo-300">Grouping</span><span class="text-slate-400">Off</span>
+        <span class="w-px h-4 bg-slate-700 shrink-0"></span><span class="text-slate-200">2 lines changed</span><span class="btn !h-6">${I('lock','w-3 h-3')} Changed only</span>
+        <span class="w-px h-4 bg-slate-700 shrink-0"></span><span class="text-amber-300">1 take to choose</span>
+        <span class="ml-auto ibtn !h-6 !w-6 shrink-0">${I('x','w-3 h-3')}</span></div>`
+    : `<div class="flex items-center gap-2 h-[36px] px-4 border-b edge bg-indigo-950/30 text-[12px] shrink-0 ${ADD()}"><span class="text-slate-200">2 lines changed. Sync again voices only those; every other line is reused.</span><span class="ml-auto btn !h-6">${I('lock','w-3 h-3')} Changed only</span></div>`;
+  const rows = o.pass
+    ? PASS.map(([i,s])=>compactRow(i, s==='now').replace('<span class="shrink-0 mono text-[11px] text-slate-500 w-6">', passTag[s] + '<span class="shrink-0 mono text-[11px] text-slate-500 w-6">')).join('')
+    : REVIEW.map(i=>compactRow(i, i===PICK)).join('');
+  return `
+          <section class="card flex flex-col min-h-0 overflow-hidden">
+            <div class="flex items-center gap-2 px-4 h-[46px] border-b edge shrink-0">${pass}${tabs}<span class="text-[12px] text-indigo-300 flex items-center gap-1 ml-1 whitespace-nowrap">${I('mic','w-3 h-3')} Retake these ${o.pass?8:12}</span><span class="ml-auto btn ${ADD()}">${I('q')} Notes 3</span></div>
+            ${slim}
+            <ul data-list class="flex-1 min-h-0 overflow-hidden">${rows}</ul>
+          </section>`; }
+function cPage(o){
+  const inspector = o.pass ? inspectorC().replace('<span class="ml-auto text-[11px] px-1.5 rounded', `<span class="text-[11px] text-emerald-300 ${NEW()} rounded px-1"><span class="kb">Enter</span> OK, next line</span><span class="ml-auto text-[11px] px-1.5 rounded`) : inspectorC();
+  return `${appBar(o.c2 ? exportButton() : '')}
+      <div class="h-[917px] px-[30px] pt-3 pb-3 flex flex-col gap-2.5 relative">
+        ${o.tidy && !o.editing ? '' : stepBarC(o)}
+        ${o.exportPage ? exportPageC() : o.editing ? editingC() : `
+        ${o.tidy ? '' : noticeC()}
+        ${playerCardC(o)}
+        <div class="flex-1 min-h-0 grid gap-2.5" style="grid-template-columns:${o.noInspector ? 'minmax(0,1fr)' : 'minmax(0,1fr) 560px'}">
+          ${listSectionC(o)}
+          ${o.noInspector ? '' : inspector}
+        </div>`}
+        ${o.voices ? voicesWindowC() : ''}${o.exportWin ? exportWindowC2() : ''}${o.takesWin ? takesWindow() : ''}
+      </div>`; }
+
+function exportWindowC2(){ return exportWindow().replace('<span class="lbl">Script</span>', `<span class="lbl">Script</span><span class="inline-flex p-0.5 rounded-xl border edge bg-[#0a0c11] self-start text-[12px]"><span class="px-2.5 py-1 rounded-lg bg-slate-800">Lines in the dub</span><span class="px-2.5 py-1 text-slate-400">Every cue</span></span>`); }
+
+function editingC(){
+  const tools = [['range','Select range','Drag'],['cut','Blade','B'],['mag','Snap','N'],['rip','Ripple','Shift + drag'],['flag','Marker','Shift + M']];
+  return `
+  <section class="card overflow-hidden shrink-0 ${NEW()}">
+    <div class="flex items-center gap-2 px-4 h-[44px] border-b edge text-[12px]">
+      <h3 class="text-[13.5px] font-semibold mr-1">Edit timing</h3>
+      <span class="chip border-transparent bg-amber-400/10 text-amber-300">4 lines edited by hand</span><span class="chip border-transparent bg-emerald-500/15 text-emerald-300">20 of 26 in sync</span><span class="chip border-transparent bg-rose-500/15 text-rose-300">1 overlap</span>
+      <span class="text-slate-400 flex items-center gap-1">${I('ok','w-3.5 h-3.5 text-emerald-400')} Audio up to date</span>
+      <span class="ml-auto"></span>
+      <span class="inline-flex gap-0.5 p-0.5 rounded-xl border edge bg-[#0a0c11]">${tools.map(([n,t,k],j)=>`<span class="ibtn !border-0 ${j===2?'!bg-slate-700 !text-white':'!bg-transparent'}" title="${t} (${k})">${I(n,'w-4 h-4')}</span>`).join('')}</span>
+      ${undoGroup(' 37')}${zoomCtl()}<span class="btn">${I('undo')} Reset all edits</span><span class="btn pri">${I('ok')} Done</span>
+    </div>
+    <div class="px-3 pt-2.5 flex flex-col gap-2">
+      <div class="flex items-center gap-3 rounded-xl border edge bg-[#0c0f15] px-3 h-[36px] text-[12px]"><span class="mono text-indigo-300 bg-indigo-500/10 px-1.5 rounded">07</span><span class="truncate text-slate-200 max-w-[24rem]">${LINES[PICK][4]}</span><span class="text-slate-400">Speed <b class="text-slate-200">1.00×</b></span><span class="text-slate-400">Level <b class="text-slate-200">0 dB</b></span><span class="text-slate-400">Fades <b class="text-slate-200">20 / 40 ms</b></span><span class="text-slate-500 flex items-center gap-1">${I('lock','w-3 h-3')} Locked</span><span class="ml-auto text-amber-300">Runs 0.42 s past its slot</span></div>
+      ${lanes({ rows:[['Original','#22d3ee','src'],['Speaker 1','#818cf8','spk1','Swami'],['Speaker 2','#2dd4bf','spk2','Arjun']], h:58, markers:true })}
+    </div>
+    <div class="flex items-center gap-2.5 px-4 h-[50px]">${tBtns()}
+      <span class="inline-flex gap-1 ml-2">${[['cut','Split','S'],['join','Join','G'],['aln','Align','A'],['lock','Lock','L']].map(([n,t,k])=>`<span class="btn !px-2" title="${t}">${I(n)}<span class="kb">${k}</span></span>`).join('')}<span class="btn">Split at pauses <span class="kb">D</span></span><span class="btn">Tighten <span class="kb">Q</span></span><span class="btn">${I('mic')} Retake <span class="kb">R</span></span></span>
+      <span class="ml-auto btn mono">1×</span><span class="btn">${I('vid')} Video</span><span class="ibtn">${I('q')}</span>
+    </div>
+  </section>
+  <div class="flex-1 min-h-0 grid gap-2.5" style="grid-template-columns:minmax(0,1fr) 560px">
+    <section class="card flex flex-col min-h-0 overflow-hidden">
+      <div class="flex items-center gap-2 px-4 h-[46px] border-b edge shrink-0">${lineTabs()}<span class="text-[12px] text-indigo-300 flex items-center gap-1 ml-1">${I('mic','w-3 h-3')} Retake these 12</span><span class="ml-auto btn">${I('q')} Notes 3</span></div>
+      <ul data-list class="flex-1 min-h-0 overflow-hidden">${REVIEW.map(i=>compactRow(i, i===PICK)).join('')}</ul>
+    </section>
+    ${takesD().replace('Takes · line 07</span>', 'Takes · line 07</span><span class="text-[11px] text-slate-500">here, not in a floating window</span>').replace('<span class="ml-auto text-[12px] text-slate-400">Place', '<span class="ml-auto text-[12px] text-slate-400">Tags · Styles · Stability ▾</span><span class="text-[12px] text-slate-400">Place')}
+  </div>`;
+}
+
+
+const SILENT = 3; // option 3 shows line 04 as one the voice returned no audio for
+function takesWindow(){ const l = LINES[PICK]; const words = l[4].split(' '); return `
+  <div class="absolute inset-0 z-30 bg-[#05070bcc] flex items-start justify-center pt-[90px]">
+    <div class="w-[920px] rounded-2xl border border-slate-700 bg-[#11141b] shadow-2xl">
+      <div class="flex items-center gap-2 px-5 h-[50px] border-b edge"><span class="text-[14px] font-semibold flex items-center gap-1.5">${I('mic','w-4 h-4 text-indigo-300')} Retake · line 07</span><span class="text-[12px] text-slate-500">Speaker 2 · 0:14.5</span><span class="text-[11px] px-1.5 rounded ${shortTone.long}">${SHORT.long}</span><span class="ml-auto ibtn">${I('x')}</span></div>
+      <div class="p-5 grid gap-5" style="grid-template-columns:minmax(0,1fr) 250px">
+        <div class="flex flex-col gap-3">
+          <p class="text-[12px] text-slate-500">${l[3]} · <span class="text-amber-300">${REASON.long}</span></p>
+          <canvas data-wave="take" data-h="54" class="w-full h-[54px] rounded-lg bg-[#0c0f15]"></canvas>
+          <div class="flex flex-wrap gap-1.5">${words.map((w,j)=>`<span class="px-1.5 py-0.5 rounded text-[15px] ${j>=4&&j<=5?'bg-indigo-500/25 text-white ring-1 ring-indigo-400':'text-slate-200'}">${w}</span>`).join('')}</div>
+          <div class="flex items-center gap-2"><span class="text-[12px] text-slate-400">Say instead</span><span class="ta flex-1 h-8 px-2 flex items-center text-[13px]">पतन किया</span><span class="btn pri !h-8">${I('mic')} Voice 2 takes</span></div>
+          ${[['Take 1','2.95 s','In the dub',1],['Take 2','2.71 s','Best fit',0],['Take 3','3.02 s','',0]].map(([tk,d,tag,on])=>`<div class="flex items-center gap-2 h-[34px] px-2.5 rounded-lg border ${on?'border-indigo-500/60 bg-indigo-500/10':'edge'}"><span class="ibtn !h-6 !w-6">${I('play','w-3 h-3')}</span><span class="text-[12.5px]">${tk}</span><canvas data-wave="take" data-h="20" class="flex-1 h-[20px]"></canvas><span class="mono text-[11.5px] text-slate-400">${d}</span>${tag?`<span class="text-[11px] ${on?'text-indigo-300':'text-emerald-300'}">${tag}</span>`:''}${on?'':'<span class="btn !h-6 !text-[11.5px]">Use</span>'}</div>`).join('')}
+        </div>
+        <div class="flex flex-col gap-2.5 text-[12px]">
+          <span class="lbl">Tags</span><div class="flex flex-wrap gap-1.5">${['calm','warm','slow','serious'].map(x=>`<span class="chip border-slate-700 text-slate-300">[${x}]</span>`).join('')}</div>
+          <span class="lbl mt-1">Saved styles</span><div class="flex flex-wrap gap-1.5">${['Satsang','Narration'].map(x=>`<span class="chip border-slate-700 text-slate-300">${x}</span>`).join('')}</div>
+          <span class="lbl mt-1">Stability</span><div class="h-1 rounded bg-slate-700 relative"><i class="absolute left-0 top-0 bottom-0 w-1/2 rounded bg-indigo-400"></i></div>
+          <span class="lbl mt-1">Place a used take</span><span class="btn">Where the old parts were ${I('dn','w-3 h-3')}</span>
+          <span class="lbl mt-1">More takes</span><div class="flex gap-1.5">${[1,2,3].map(n=>`<span class="w-7 h-7 rounded-full border ${n===2?'border-amber-400/70 bg-amber-500/15 text-amber-100':'border-slate-700 text-slate-300'} flex items-center justify-center">${n}</span>`).join('')}</div>
+        </div>
+      </div>
+    </div>
+  </div>`; }
+
+function linesWindow(){ return `
+  <div class="absolute inset-0 z-30 bg-[#05070bcc] flex items-start justify-center pt-[70px]">
+    <div class="w-[1180px] rounded-2xl border border-slate-700 bg-[#11141b] shadow-2xl overflow-hidden flex flex-col" style="height:800px">
+      <div class="flex items-center gap-2 px-5 h-[52px] border-b edge shrink-0"><h2 class="text-[15px] font-semibold flex items-center gap-2">Lines</h2>${lineTabs('ml-2')}<span class="text-[12px] text-indigo-300 flex items-center gap-1 ml-1">${I('mic','w-3 h-3')} Retake these 12</span><span class="ml-auto btn">${I('q')} Notes 3</span><span class="ibtn">${I('x')}</span></div>
+      <ul data-list class="flex-1 min-h-0 overflow-hidden">${REVIEW.map(i=>compactRow(i, i===PICK)).join('')}</ul>
+      <p class="px-5 py-2.5 border-t edge text-[11.5px] text-slate-500 shrink-0">A click on a line takes the timeline there and plays it; Takes opens its retake window. Esc closes.</p>
+    </div>
+  </div>`; }
+
+function path3Page(alt){
+  const l = LINES[PICK];
+  const head = `<div class="flex items-center gap-2 px-4 h-[46px] border-b edge text-[12px] ${NEW()}">
+      <span class="inline-flex items-center gap-1.5 h-[30px] px-3 rounded-full bg-amber-400/10 text-amber-300 text-[12.5px] font-semibold ${NEW()}" title="${VERDICT_TIP}\n${STATS_TIP}"><span class="w-2 h-2 rounded-full bg-amber-400"></span>12 to listen ${I('dn','w-3 h-3')}</span>
+      <span class="btn">${I('next')} Next mark <span class="kb">N</span></span>
+      <span class="btn border-dashed ${ADD()}" title="Only after a voice change">${I('undo')} Undo voice change</span>${undoGroup(' 37')}<span class="btn">${I('pen')} Edit timing</span><span class="btn mono">1×</span><span class="btn">${I('vid')} Video</span>${zoomCtl()}
+      <span class="ml-auto"></span>${syncControlsC({ menu: false })}</div>`;
+  const slim = `<div class="flex items-center gap-2 h-[34px] px-4 border-b edge bg-[#0f131b] text-[12px] whitespace-nowrap">
+      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span><span class="text-amber-200">Natural suits it better than Tight</span><span class="btn !h-6">Keep</span><span class="btn !h-6 !bg-amber-500 !text-amber-950 !border-amber-400 font-semibold">Sync with Natural</span>
+      <span class="w-px h-4 bg-slate-700"></span><span class="text-slate-300">Fit set gaps, pauses</span><span class="text-indigo-300">Changes</span><span class="text-indigo-300">Undo</span><span class="text-indigo-300">Grouping</span><span class="text-slate-400">Off</span>
+      <span class="w-px h-4 bg-slate-700"></span><span class="text-slate-200">2 lines changed</span><span class="btn !h-6">${I('lock','w-3 h-3')} Changed only</span>
+      <span class="w-px h-4 bg-slate-700"></span><span class="text-amber-300">1 take to choose</span><span class="w-px h-4 bg-slate-700"></span><span class="text-rose-300">1 line has no audio</span>
+      <span class="ml-auto ibtn !h-6 !w-6">${I('x','w-3 h-3')}</span></div>`;
+  const legend = `<span class="flex items-center gap-3 text-[11px] text-slate-400">${[['#f43f5e','Too long'],['#38bdf8','Ends early'],['#f59e0b','Late / tight / words'],['#818cf8','New take']].map(([c,t])=>`<span class="flex items-center gap-1"><i class="block w-3 h-2 rounded-sm border-2" style="border-color:${c}"></i>${t}</span>`).join('')}<span class="flex items-center gap-1"><i class="block w-3 h-2 rounded-sm border border-dashed border-rose-400"></i>No audio</span></span>`;
+  return `${appBar(exportButton())}
+    <div class="h-[917px] px-[30px] pt-3 pb-3 flex flex-col gap-2.5 relative">
+      <section class="card overflow-hidden flex flex-col shrink-0">${head}${slim}
+        <div class="px-3 pt-3">${lanes({ rows:[['Original','#22d3ee','src'],['Synced','#818cf8','dubm']], h:250 })}</div>
+        <div class="flex items-center gap-2.5 px-4 h-[52px]">${tBtns()}${linePair()}${legend}<span class="ibtn">${I('q')}</span></div>
+      </section>
+      <section class="card flex-1 min-h-0 flex items-center gap-6 px-6 ${NEW()}">
+        <div class="flex-1 min-w-0 flex flex-col gap-1">
+          <span class="text-[12px] text-slate-500 truncate">06 · ${LINES[5][4]}</span>
+          <span class="text-[22px] text-slate-50 leading-snug">${l[4]}</span>
+          <span class="text-[14px] text-slate-400">${l[3]}</span>
+          <span class="text-[12px] text-slate-500 truncate">08 · ${LINES[7][4]}</span>
+        </div>
+        <div class="w-[420px] shrink-0 flex flex-col gap-2">
+          <span class="text-[12.5px] text-amber-300">Line 07 · ${REASON.long}</span>
+          <div class="flex gap-2"><span class="btn">${I('mic')} Takes <span class="kb">R</span></span><span class="btn">${I('re')} Retake</span><span class="btn">${I('pen')} Edit timing</span></div>
+          <span class="text-[11.5px] text-slate-500">Click a line on the lane to pick it · N jumps to the next mark</span>
+        </div>
+      </section>
+      ${alt===1 ? linesWindow() : alt===2 ? takesWindow() : alt===3 ? exportWindowC2() : ''}
+    </div>`; }
+
+
+// ================= option 3 redesigns =================
+const colOf = (k) => k==='long' ? '#f43f5e' : k==='early' ? '#38bdf8' : k==='take' ? '#818cf8' : k==='silent' ? '#f43f5e' : '#f59e0b';
+const pctT = (t) => t/30*100;
+const listenChip = () => `<span class="inline-flex items-center gap-1.5 h-[32px] px-3.5 rounded-full bg-amber-400/10 border border-amber-400/30 text-amber-200 text-[13px] font-semibold" title="${VERDICT_TIP}\n${STATS_TIP}"><span class="w-2 h-2 rounded-full bg-amber-400"></span>12 to listen ${I('dn','w-3 h-3')}</span>`;
+const nextMark = () => `<span class="btn">${I('next')} Next mark <span class="kb">N</span></span>`;
+const editGroup = (icons=false) => icons
+  ? `<span class="inline-flex gap-1"><span class="ibtn border-dashed" title="Undo voice change (only after one)">${I('wave','w-4 h-4')}</span><span class="ibtn" title="Undo (Ctrl+Z)">${I('undo','w-4 h-4')}</span><span class="ibtn" title="Redo">${I('redo','w-4 h-4')}</span><span class="ibtn" title="History · 37 steps">${I('hist','w-4 h-4')}</span><span class="btn" title="Move, trim, split, retake by hand">${I('pen')} Edit timing</span></span>`
+  : `<span class="btn border-dashed" title="Only after a voice change">${I('undo')} Undo voice change</span>${undoGroup(' 37')}<span class="btn">${I('pen')} Edit timing</span>`;
+const viewGroup = () => `<span class="btn mono">1×</span><span class="btn">${I('vid')} Video</span>`;
+const vsep = () => `<span class="w-px h-7 bg-slate-700/70 mx-1"></span>`;
+const legendRow = (cls='') => `<span class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400 ${cls}">${[['long','Too long'],['early','Ends early'],['late','Late · tight · words'],['take','New take']].map(([k,tx])=>`<span class="flex items-center gap-1.5"><i class="block w-2.5 h-2.5 rounded-sm" style="background:${colOf(k)}"></i>${tx}</span>`).join('')}<span class="flex items-center gap-1.5"><i class="block w-2.5 h-2.5 rounded-sm border border-dashed border-rose-400"></i>No audio</span></span>`;
+const reasonPill = () => `<span class="inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1 rounded-full bg-rose-500/12 text-rose-200 border border-rose-500/30"><i class="block w-1.5 h-1.5 rounded-full bg-rose-400"></i>${REASON.long}</span>`;
+const lineActions = (cls='') => `<div class="flex flex-wrap gap-2 ${cls}"><span class="btn pri">${I('mic')} Takes <span class="kb !text-indigo-100 !border-indigo-300/60">R</span></span><span class="btn">${I('re')} Retake</span><span class="btn">${I('pen')} Edit timing</span></div>`;
+const lineMeta = () => `<span class="inline-flex items-center gap-2 text-[12px] text-slate-400"><span class="mono text-indigo-200 bg-indigo-500/15 px-1.5 rounded">07</span><span class="w-2 h-2 rounded-full bg-teal-400"></span>Speaker 2 · Arjun · 0:14.5</span>`;
+const noticeRow = (cls='') => `<div class="flex items-center gap-2 h-[34px] px-4 text-[12px] whitespace-nowrap overflow-hidden ${cls}">
+      <span class="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span><span class="text-amber-200">Natural suits it better than Tight</span><span class="btn !h-6">Keep</span><span class="btn !h-6 !bg-amber-500 !text-amber-950 !border-amber-400 font-semibold">Sync with Natural</span>
+      <span class="w-px h-4 bg-slate-700 shrink-0"></span><span class="text-slate-300">Fit set gaps, pauses</span><span class="text-indigo-300">Changes</span><span class="text-indigo-300">Undo</span><span class="text-indigo-300">Grouping</span><span class="text-slate-400">Off</span>
+      <span class="w-px h-4 bg-slate-700 shrink-0"></span><span class="text-slate-200">2 lines changed</span><span class="btn !h-6">${I('lock','w-3 h-3')} Changed only</span>
+      <span class="w-px h-4 bg-slate-700 shrink-0"></span><span class="text-amber-300">1 take to choose</span><span class="w-px h-4 bg-slate-700 shrink-0"></span><span class="text-rose-300">1 line has no audio</span>
+      <span class="ml-auto ibtn !h-6 !w-6 shrink-0">${I('x','w-3 h-3')}</span></div>`;
+const noticeCards = () => `
+  <div class="rounded-xl border border-amber-500/30 bg-amber-950/20 p-2.5 text-[12px]"><div class="text-amber-200">The dub runs 6% longer. Natural suits it better than Tight.</div><div class="mt-1.5 flex gap-1.5"><span class="btn !h-6">Keep Tight</span><span class="btn !h-6 !bg-amber-500 !text-amber-950 !border-amber-400 font-semibold">${I('re','w-3 h-3')} Sync with Natural</span></div></div>
+  <div class="rounded-xl border edge bg-[#0c0f15] p-2.5 text-[12px]"><div class="text-slate-300 flex items-center gap-1.5">${I('aln','w-3.5 h-3.5 text-indigo-300')} Fit to this video set gaps and pauses</div><div class="mt-1 flex gap-2.5 text-indigo-300"><span>What changed</span><span>Undo</span><span>Use grouping</span><span class="text-slate-400">Turn off</span></div></div>
+  <div class="rounded-xl border border-indigo-500/40 bg-indigo-950/30 px-2.5 py-2 text-[12px] flex items-center gap-2"><span class="flex-1 text-slate-200">2 lines changed</span><span class="btn !h-6">${I('lock','w-3 h-3')} Changed only</span></div>
+  <div class="flex gap-2 text-[12px]"><span class="flex-1 rounded-xl border border-amber-500/30 bg-amber-950/15 px-2.5 py-2 text-amber-300">1 take to choose</span><span class="flex-1 rounded-xl border border-rose-500/40 bg-rose-950/20 px-2.5 py-2 text-rose-300">1 line has no audio</span></div>`;
+function laneGrid(rows, headW=200){ return `<div class="rounded-xl border edge bg-[#0b0e14] overflow-hidden"><div class="grid" style="grid-template-columns:${headW}px minmax(0,1fr)">${rows.join('')}</div></div>`; }
+const gRuler = (h=26) => `<div class="border-r border-b edge bg-[#11141b] px-2.5 flex items-center mono text-[10.5px] text-slate-500" style="height:${h}px">1:17.0 in all</div><div class="border-b edge bg-[#0f131a] relative overflow-hidden" style="height:${h}px">${ruler()}<span class="playhead"></span></div>`;
+const gWave = (name,color,kind,h,sub='') => `<div class="border-r border-b edge bg-[#11141b] flex" style="height:${h}px"><span class="w-1 shrink-0" style="background:${color}"></span><div class="flex-1 min-w-0 px-2.5 py-1.5 flex flex-col justify-center gap-1.5">${trackHead(name,color,sub)}</div></div><div class="border-b edge relative" style="height:${h}px"><canvas data-wave="${kind}" data-h="${h}" class="absolute inset-0 w-full h-full"></canvas><span class="playhead"></span></div>`;
+const gFlags = (h=28) => `<div class="border-r border-b edge bg-[#11141b] px-2.5 flex items-center gap-1.5 text-[11px] text-slate-400" style="height:${h}px">${I('flag','w-3 h-3')} Sync check</div><div class="border-b edge relative bg-[#0d1016] overflow-hidden" style="height:${h}px">${LINES.map((l,i)=>[l,i]).filter(([l,i])=>l[0]<29 && (l[5]!=='ok'||i===SILENT)).map(([l,i])=>{ const [s,d]=placed(l); const k = i===SILENT?'silent':l[5]; const c = colOf(k); const at = pctT(s) > 88 ? `right:${Math.max(0,100-pctT(s+d))}%` : `left:${pctT(s)}%`; return `<span class="absolute top-[5px] h-[18px] px-1.5 rounded-md text-[10.5px] font-semibold whitespace-nowrap flex items-center gap-1 ${i===PICK?'ring-1 ring-white/70':''}" style="${at};background:${c}26;color:${c};border:1px ${i===SILENT?'dashed':'solid'} ${c}99">${i===SILENT?'No audio':SHORT[k]}</span>`; }).join('')}<span class="playhead"></span></div>`;
+const gMini = () => `<div class="border-r edge bg-[#11141b]"></div><div class="p-1 bg-[#0a0d12]"><canvas data-wave="mini" data-h="14" class="w-full h-[14px] block"></canvas></div>`;
+const issueChip = (i) => { const l=LINES[i], k=l[5], c=colOf(k), pick=i===PICK; return `<div class="flex items-center gap-2 h-[36px] px-2 rounded-lg ${pick?'bg-indigo-500/15 ring-1 ring-indigo-400/60':''}"><i class="block w-1 h-6 rounded shrink-0" style="background:${c}"></i><span class="mono text-[11px] text-slate-500 w-5 shrink-0">${num(i)}</span><span class="flex-1 min-w-0 truncate text-[12.5px] text-slate-200">${l[4]}</span><span class="text-[10.5px] whitespace-nowrap shrink-0" style="color:${c}">${SHORT[k].replace(' +0.42 s','')}</span></div>`; };
+const winFor = (alt) => alt===1 ? linesWindow() : alt===2 ? takesWindow() : alt===3 ? exportWindowC2() : '';
+const topRight = (alt) => `${syncControlsC({ menu: alt===4 })}`;
+const nowStack = (big=26) => { const l=LINES[PICK]; return `<span class="text-[12.5px] text-slate-500 truncate">06 · ${LINES[5][4]}</span><span class="text-slate-50 leading-snug" style="font-size:${big}px">${l[4]}</span><span class="text-[14px] text-slate-400">${l[3]}</span><span class="text-[12.5px] text-slate-500 truncate">08 · ${LINES[7][4]}</span>`; };
+
+function s1(alt){ return `${appBar(exportButton())}
+  <div class="h-[917px] px-[30px] pt-3 pb-3 flex flex-col gap-2.5 relative">
+    <div class="flex items-center gap-2 h-[44px] shrink-0">${listenChip()}${nextMark()}<span class="ml-auto"></span>${topRight(alt)}</div>
+    <section class="card overflow-hidden shrink-0">
+      <div class="flex items-center gap-2 px-4 h-[58px] border-b edge bg-gradient-to-b from-[#161b26] to-[#11141b]">
+        <span class="lbl mr-1">Listen</span>${tBtns()}${vsep()}<span class="lbl mr-1">Edit</span>${editGroup()}${vsep()}<span class="lbl mr-1">View</span>${viewGroup()}<span class="ml-auto"></span>${zoomCtl()}<span class="ibtn">${I('q')}</span></div>
+      ${noticeRow('border-b edge bg-[#0f131b]')}
+      <div class="p-3">${laneGrid([gRuler(28), gWave('Original','#22d3ee','src',204), gFlags(30), gWave('Synced','#818cf8','dub',204), gMini()])}</div>
+    </section>
+    <section class="card flex-1 min-h-0 grid items-center gap-6 px-6 bg-gradient-to-r from-[#11141b] via-[#141826] to-[#11141b]" style="grid-template-columns:300px minmax(0,1fr) 360px">
+      <div class="flex flex-col gap-2">${lineMeta()}${reasonPill()}</div>
+      <div class="flex flex-col items-center text-center gap-1 min-w-0">${nowStack(26)}</div>
+      <div class="flex flex-col gap-3 items-end">${lineActions('justify-end')}${legendRow('justify-end')}</div>
+    </section>
+    ${winFor(alt)}
+  </div>`; }
+
+function s2(alt){ return `${appBar(exportButton())}
+  <div class="h-[917px] px-[30px] pt-3 pb-3 flex flex-col gap-2.5 relative">
+    <div class="flex items-center gap-3 h-[44px] shrink-0"><span class="text-[13px] text-slate-300 mono" title="${VERDICT_TIP}"><b class="text-slate-100">20</b>/26 in sync · worst <b class="text-amber-300">0.62 s</b> · 4 hand edits</span>${legendRow()}<span class="ml-auto"></span>${topRight(alt)}</div>
+    <div class="flex-1 min-h-0 grid gap-2.5" style="grid-template-columns:minmax(0,1fr) 340px">
+      <div class="flex flex-col gap-2.5 min-h-0">
+        <section class="card overflow-hidden shrink-0">
+          <div class="flex items-center gap-2 px-4 h-[54px] border-b edge bg-gradient-to-b from-[#161b26] to-[#11141b]">${tBtns()}${vsep()}${editGroup()}${vsep()}${viewGroup()}<span class="ml-auto"></span>${zoomCtl()}<span class="ibtn">${I('q')}</span></div>
+          <div class="p-3">${laneGrid([gRuler(26), gWave('Original','#22d3ee','src',236), gWave('Synced','#818cf8','dubm',236), gMini()])}</div>
+        </section>
+        <section class="card flex-1 min-h-0 flex items-center gap-6 px-6">
+          <div class="flex-1 min-w-0 flex flex-col gap-1">${lineMeta()}<span class="text-[22px] text-slate-50 leading-snug">${LINES[PICK][4]}</span><span class="text-[13.5px] text-slate-400">${LINES[PICK][3]}</span></div>
+          <div class="w-[470px] shrink-0 flex flex-col gap-2.5 items-end">${reasonPill()}${lineActions('justify-end')}</div>
+        </section>
+      </div>
+      <aside class="card flex flex-col min-h-0 overflow-hidden">
+        <div class="px-4 pt-4 pb-3 border-b edge">
+          <div class="flex items-baseline gap-2"><span class="text-[28px] font-semibold text-amber-200 leading-none">12</span><span class="text-[13px] text-slate-300">to listen</span><span class="ml-auto">${nextMark()}</span></div>
+          <div class="flex h-2 mt-3 gap-[3px] rounded overflow-hidden">${[['long',3],['early',2],['late',5],['take',1],['silent',1]].map(([k,n])=>`<i class="block h-full" style="flex:${n};background:${colOf(k)}"></i>`).join('')}</div>
+        </div>
+        <div class="p-3 flex flex-col gap-2 border-b edge">${noticeCards()}</div>
+        <div class="flex-1 min-h-0 overflow-hidden px-2 py-2 flex flex-col">
+          <div class="flex items-center gap-2 h-[34px] px-2 rounded-lg border border-dashed border-rose-500/50 text-[12px] text-rose-300 shrink-0"><span class="mono text-[11px] w-5">04</span><span class="flex-1">No audio · voice returned nothing</span></div>
+          ${REVIEW.map(issueChip).join('')}
+        </div>
+        <div class="flex items-center gap-2 px-3 h-[50px] border-t edge bg-[#0c0f15] shrink-0"><span class="btn">All lines ${I('rt','w-3 h-3')}</span><span class="btn ml-auto">${I('mic')} Retake these 12</span><span class="ibtn">${I('q')}</span></div>
+      </aside>
+    </div>
+    ${winFor(alt)}
+  </div>`; }
+
+function s3(alt){ return `${appBar(exportButton())}
+  <div class="h-[917px] px-[30px] pt-3 pb-3 flex flex-col gap-2.5 relative">
+    <div class="flex items-center gap-2 h-[44px] shrink-0">${listenChip()}${nextMark()}${legendRow('ml-3')}<span class="ml-auto"></span>${topRight(alt)}</div>
+    <section class="card overflow-hidden shrink-0">
+      ${noticeRow('border-b edge bg-[#0f131b]')}
+      <div class="px-4 pt-3 pb-2">
+        <div class="flex items-center text-[11.5px] text-slate-400 mb-1.5"><span class="font-semibold text-slate-200 mr-2">Whole dub</span>1:17 · 26 lines · 12 marks · 1 with no audio<span class="ml-auto">Drag the box to move along</span></div>
+        <canvas data-wave="over" data-h="54" class="w-full h-[54px] block rounded-lg bg-[#0b0e14]"></canvas>
+        <div class="flex justify-between mono text-[10px] text-slate-500 mt-1"><span>0:00</span><span>0:20</span><span>0:40</span><span>1:00</span><span>1:17</span></div>
+      </div>
+    </section>
+    <section class="card overflow-hidden shrink-0">
+      <div class="flex items-center gap-2 px-4 h-[50px] border-b edge bg-gradient-to-b from-[#161b26] to-[#11141b]">${editGroup()}${vsep()}${viewGroup()}<span class="ml-auto"></span>${zoomCtl()}<span class="ibtn">${I('q')}</span></div>
+      <div class="p-3">${laneGrid([gRuler(26), gWave('Original','#22d3ee','src',178), gWave('Synced','#818cf8','dubm',178)])}</div>
+    </section>
+    <div class="flex-1 min-h-0 grid gap-2.5" style="grid-template-columns:minmax(0,1fr) 560px">
+      <section class="card flex items-center gap-5 px-5"><div class="flex items-center gap-2.5 shrink-0">${tBtns()}</div><div class="flex-1 min-w-0 flex flex-col gap-0.5"><span class="text-[21px] text-slate-50 leading-snug truncate">${LINES[PICK][4]}</span><span class="text-[13px] text-slate-400 truncate">${LINES[PICK][3]}</span></div></section>
+      <section class="card flex flex-col justify-center gap-2.5 px-5">${lineMeta()}${reasonPill()}${lineActions()}</section>
+    </div>
+    ${winFor(alt)}
+  </div>`; }
+
+function s4(alt){ const l = LINES[PICK]; return `${appBar(exportButton())}
+  <div class="h-[917px] px-[30px] pt-3 pb-3 flex flex-col gap-2.5 relative">
+    <div class="flex items-center gap-2 h-[44px] shrink-0">${listenChip()}${nextMark()}<span class="ml-auto"></span>${topRight(alt)}</div>
+    <section class="rounded-2xl border edge shrink-0 relative overflow-hidden" style="height:206px;background:radial-gradient(120% 140% at 50% 0%, #1e2342 0%, #10131c 55%, #0b0d13 100%)">
+      <div class="absolute left-6 top-4">${lineMeta()}</div>
+      <div class="absolute right-6 top-4 text-[11.5px] text-slate-500">Original over the synced dub</div>
+      <div class="absolute left-6 top-1/2 -translate-y-1/2 w-[260px] text-[13px] text-slate-500 leading-snug">${LINES[5][4]}<div class="text-[11.5px] text-slate-600">${LINES[5][3]}</div></div>
+      <div class="absolute right-6 top-1/2 -translate-y-1/2 w-[260px] text-right text-[13px] text-slate-500 leading-snug">${LINES[7][4]}<div class="text-[11.5px] text-slate-600">${LINES[7][3]}</div></div>
+      <div class="h-full flex flex-col items-center justify-center text-center px-[320px] gap-1.5"><span class="text-[30px] text-white leading-snug" style="text-shadow:0 2px 12px #000">${l[4]}</span><span class="text-[15px] text-slate-300">${l[3]}</span><div class="mt-2 flex items-center gap-3">${reasonPill()}${lineActions()}</div></div>
+    </section>
+    <div class="rounded-xl border edge bg-[#11141b] shrink-0">${noticeRow()}</div>
+    <section class="card overflow-hidden flex-1 min-h-0 flex flex-col">
+      <div class="flex items-center gap-2 px-4 h-[48px] border-b edge">${editGroup()}<span class="ml-auto"></span>${legendRow('mr-3')}${zoomCtl()}</div>
+      <div class="px-3 pt-3">${laneGrid([gRuler(26), gWave('Original','#22d3ee','src',176), gWave('Synced','#818cf8','dubu',176), gMini()])}</div>
+      <div class="flex-1 flex items-center justify-center"><div class="inline-flex items-center gap-3 h-[54px] px-4 rounded-full border border-slate-700 bg-[#151922] shadow-2xl">${tBtns()}${vsep()}${viewGroup()}<span class="ibtn !rounded-full">${I('q')}</span></div></div>
+    </section>
+    ${winFor(alt)}
+  </div>`; }
+
+function s5(alt){ const segs = [...REVIEW.slice(0,3), SILENT, ...REVIEW.slice(3)]; return `${appBar(exportButton())}
+  <div class="h-[917px] px-[30px] pt-3 pb-3 flex flex-col gap-2.5 relative">
+    <div class="flex items-center gap-3 h-[50px] shrink-0">
+      <span class="text-[13px] text-slate-200 font-semibold whitespace-nowrap" title="${VERDICT_TIP}\n${STATS_TIP}">12 to listen</span>
+      <div class="flex items-center gap-[4px] w-[620px]">${segs.map(i=>{ const k = i===SILENT?'silent':LINES[i][5]; const c = colOf(k); return `<span class="flex-1 h-[22px] rounded-md flex items-center justify-center mono text-[10px] ${i===PICK?'ring-2 ring-white/80':''}" title="${num(i)} · ${i===SILENT?'No audio':SHORT[k]}" style="background:${i===SILENT?'transparent':c+'55'};border:1px ${i===SILENT?'dashed':'solid'} ${c};color:#fff">${num(i)}</span>`; }).join('')}</div>
+      ${nextMark()}
+      <span class="ml-auto"></span>
+      <span class="relative"><span class="btn">Notices <span class="px-1.5 rounded-full bg-amber-400/20 text-amber-200 text-[11px]">5</span><i class="block w-1.5 h-1.5 rounded-full bg-amber-400"></i></span>${alt===5 ? `<div class="absolute right-0 top-[38px] z-40 w-[400px] rounded-2xl border border-slate-700 bg-[#151922] shadow-2xl p-3 flex flex-col gap-2">${noticeCards()}</div>` : ''}</span>
+      ${topRight(alt)}
+    </div>
+    <section class="card overflow-hidden shrink-0">
+      <div class="flex items-center gap-2 px-4 h-[46px]"><span class="text-[12px] text-slate-500">Original over the synced dub</span><span class="ml-auto"></span>${editGroup(true)}${vsep()}<span class="ibtn mono text-[11px]">1×</span><span class="ibtn" title="Video">${I('vid','w-4 h-4')}</span>${vsep()}${zoomCtl()}<span class="ibtn">${I('q')}</span></div>
+      <div class="px-3 pb-3">${laneGrid([gRuler(26), gWave('Original','#22d3ee','src',250), gWave('Synced','#818cf8','dubg',250), gMini()], 170)}</div>
+    </section>
+    <section class="card flex-1 min-h-0 grid items-center gap-6 px-6" style="grid-template-columns:auto minmax(0,1fr) auto">
+      <div class="flex items-center gap-2.5">${tBtns()}</div>
+      <div class="min-w-0 flex flex-col gap-0.5 border-l edge pl-6"><span class="text-[22px] text-slate-50 leading-snug truncate">${LINES[PICK][4]}</span><span class="text-[13px] text-slate-400 truncate">${LINES[PICK][3]}</span></div>
+      <div class="flex flex-col gap-2 items-end">${reasonPill()}${lineActions('justify-end')}</div>
+    </section>
+    ${winFor(alt)}
+  </div>`; }
+
+function syncMenuC(){ return `
+  <div class="absolute right-0 top-[36px] z-40 w-[380px] rounded-xl border border-slate-700 bg-[#151922] shadow-2xl p-1.5 text-[12.5px] ${ADD()}">
+    <div class="px-3 py-2 rounded-lg bg-slate-800/70"><div class="text-slate-100 font-medium flex items-center gap-1.5">${I('re')} Sync again</div><div class="text-[11.5px] text-slate-400">Voices the 2 changed lines again and places every line with these settings.</div></div>
+    <div class="px-3 py-2"><div class="text-slate-100 flex items-center gap-1.5">${I('lock')} Sync the 2 changed lines only</div><div class="text-[11.5px] text-slate-400">Every other line stays where it is.</div></div>
+    <div class="px-3 py-2 border-t edge"><div class="text-rose-200 flex items-center gap-1.5">${I('undo')} Sync from scratch…</div><div class="text-[11.5px] text-slate-400">Voices every line again: hand edits, locks and picked takes go. Asks first.</div></div>
+    <div class="px-3 py-2 border-t edge text-[11.5px] text-slate-500">While it runs this button is Cancel sync; if a dub stopped half way it is Resume dub. Uses about 1,840 ElevenLabs characters.</div>
+  </div>`; }
+
+function voicesWindowC(){ const seg = (opts, on) => `<span class="inline-flex p-0.5 rounded-xl border edge bg-[#0a0c11]">${opts.map(o=>`<span class="px-2.5 py-1 rounded-lg text-[12px] ${o===on?'bg-slate-800 text-slate-100':'text-slate-400'}">${o}</span>`).join('')}</span>`;
+  const slider = (t, v, a, b) => `<div><div class="flex justify-between text-[12.5px]"><span class="font-semibold">${t}</span><span class="mono text-slate-300">${v}</span></div><div class="h-1 mt-2 rounded bg-slate-700 relative"><i class="absolute left-0 top-0 bottom-0 rounded bg-indigo-400" style="width:${+v*100}%"></i></div><div class="flex justify-between text-[10.5px] text-slate-500 mt-1"><span>${a}</span><span>${b}</span></div></div>`;
+  return `
+  <div class="absolute inset-0 z-30 bg-[#05070bcc] flex items-start justify-center pt-[40px] ${ADD()}">
+    <div class="w-[900px] rounded-2xl border border-slate-700 bg-[#11141b] shadow-2xl">
+      <div class="flex items-center px-5 h-[50px] border-b edge"><h2 class="text-[15px] font-semibold flex items-center gap-2">${I('users','w-4 h-4 text-indigo-300')} Voices and delivery</h2><span class="ml-3 text-[12px] text-slate-500">A change applies when you sync again.</span><span class="ml-auto ibtn">${I('x')}</span></div>
+      <div class="p-5 grid grid-cols-2 gap-6">
+        <div class="flex flex-col gap-3">
+          <span class="lbl">Cast</span>
+          ${[['Speaker 1','Swami','bg-indigo-400','2.9 syll/s'],['Speaker 2','Arjun','bg-teal-400','3.1 syll/s']].map(([s,v,c,r])=>`<span class="dl"><span class="w-2 h-2 rounded-full ${c}"></span><span class="w-20 text-slate-400">${s}</span><span class="flex-1">${v} <span class="text-[11px] text-slate-500">${r}</span></span><span class="text-[12px] text-slate-400">Use main</span><span class="btn !h-7">Change</span></span>`).join('')}
+          <span class="lbl mt-1">Main voice</span>
+          <span class="dl"><span class="w-6 h-6 rounded-full bg-slate-700 text-[11px] flex items-center justify-center">S</span><span class="flex-1">Swami <span class="text-[11px] text-slate-500">Male · Indian</span></span><span class="btn !h-7">Change</span></span>
+          <div class="flex gap-1.5">${['Swami','Arjun','Meera','Ravi'].map((n,j)=>`<span class="chip ${j===0?'border-indigo-500 text-slate-100':'border-slate-700 text-slate-300'}">${n}</span>`).join('')}</div>
+          <div class="flex items-center justify-between text-[12.5px] text-slate-400"><span>Model</span><span class="btn">Eleven v3 ${I('dn','w-3 h-3')}</span></div>
+          <div class="flex items-center justify-between text-[12.5px] text-slate-400"><span>Expression</span>${seg(['Off','Neutral','Natural','Expressive'],'Neutral')}</div>
+          <p class="text-[11px] text-slate-500 -mt-1.5">Natural and Expressive are for a dub in one voice.</p>
+          <div class="rounded-xl border edge bg-[#0c0f15] p-3 flex flex-col gap-2"><span class="lbl">After the dub</span>
+            <span class="dl">${I('wave','w-4 h-4 text-slate-400')}<span class="flex-1">Change the voice, keep the timing</span>${I('rt','w-4 h-4 text-slate-500')}</span>
+            <span class="dl border-dashed">${I('undo','w-4 h-4 text-slate-400')}<span class="flex-1">Undo voice change <span class="text-[11px] text-slate-500">only after one</span></span></span></div>
+        </div>
+        <div class="flex flex-col gap-3">
+          <label class="flex gap-2.5 text-[12.5px]"><input type="checkbox" checked class="mt-0.5 accent-indigo-500"/><span><span class="font-medium">Even out speakers</span><span class="block text-[11px] text-slate-500">One gain per speaker, so every voice sits at one level.</span></span></label>
+          <span class="lbl">Audio quality</span>
+          ${['WAV 48 kHz','MP3 192 kbps','MP3 128 kbps'].map((q,j)=>`<label class="flex items-center gap-2.5 text-[12.5px]"><input type="radio" ${j===0?'checked':''} class="accent-indigo-500"/>${q}</label>`).join('')}
+          <div class="flex items-center justify-between text-[12.5px] text-slate-400"><span>Mix peak</span>${seg(['−1 dB','−3 dB','−6 dB'],'−1 dB')}</div>
+          <div class="flex items-center justify-between"><span class="lbl">Voice settings</span><span class="text-[12px] text-indigo-300">Reset</span></div>
+          ${slider('Stability','0.50','Creative','Robust')}${slider('Similarity','0.75','Low','High')}${slider('Style Exaggeration','0.00','None','Exaggerated')}
+          <div class="flex items-center text-[12.5px] font-semibold">Speaker boost<span class="ml-auto w-[34px] h-5 rounded-full bg-indigo-500 relative"><i class="absolute top-[3px] left-[17px] w-3.5 h-3.5 rounded-full bg-white"></i></span></div>
+        </div>
+      </div>
+    </div>
+  </div>`; }
+
+function inspectorC(){ const l = LINES[PICK]; return `
+  <aside class="card flex flex-col min-h-0 overflow-hidden ${NEW()}">
+    <div class="flex items-center gap-2 px-4 h-[46px] border-b edge shrink-0"><span class="mono text-[11px] text-indigo-300 bg-indigo-500/10 px-1.5 rounded">Line 07</span><span class="w-2 h-2 rounded-full bg-teal-400"></span><span class="text-[12px] text-slate-400">Speaker 2 · 0:14.5</span><span class="mono text-[11px] px-2 py-0.5 rounded-md ${offTone.long} ${ADD()}">+0.42</span><span class="ml-auto text-[11px] px-1.5 rounded ${shortTone.long}">${SHORT.long}</span></div>
+    <div class="p-4 flex flex-col gap-3 overflow-y-auto min-h-0 [scrollbar-width:thin]">
+      <div><div class="flex gap-3"><p class="flex-1 text-[15px] text-slate-100 leading-snug">${l[4]}</p><span class="${ADD()} rounded">${lengthBars('long')}</span></div><p class="text-[12.5px] text-slate-500">${l[3]}</p><p class="text-[11.5px] text-amber-300 mt-1">${REASON.long}</p>
+        <p class="text-[11.5px] mt-1 text-indigo-300 ${ADD()} rounded px-1">Measured words · start +0.02 · end +0.44 · read 1.10× faster to fit</p></div>
+      <div class="rounded-lg border edge bg-[#0c0f15] p-2.5 ${NEW()}"><div class="flex items-center"><span class="lbl">Words</span><span class="ml-auto text-[11px] text-slate-500">Pick words to say them differently · wording ideas are in Review</span></div>
+        <canvas data-wave="take" data-h="26" class="w-full h-[26px] mt-1.5"></canvas>
+        <div class="flex flex-wrap gap-1.5 mt-1">${l[4].split(' ').map((w,j)=>`<span class="px-1.5 py-0.5 rounded text-[14px] ${j>=4&&j<=5?'bg-indigo-500/25 text-white ring-1 ring-indigo-400':'text-slate-200'}">${w}</span>`).join('')}</div>
+        <div class="mt-2 flex items-center gap-2"><span class="text-[12px] text-slate-400">Say instead</span><span class="ta flex-1 h-8 px-2 flex items-center text-[13px]">पतन किया</span><span class="btn !h-8">[ calm ] tag</span><span class="btn pri !h-8">${I('mic')} Voice it</span></div></div>
+      <p class="text-[11.5px] text-slate-400 -mt-1">Only 0.42 s long: a retake is often shorter, or give it room in Edit timing.</p>
+      <div class="rounded-lg border border-indigo-500/40 bg-indigo-950/30 px-2.5 py-1.5 text-[11.5px] text-slate-300 ${ADD()}">On a line Sync gave a new take: <b>Take 2 of 3 is in the dub</b> · First take · Keep</div>
+      <div class="flex flex-col gap-1.5"><span class="lbl">Takes</span>
+        ${[['Take 1','2.95 s','In the dub',1],['Take 2','2.71 s','Best fit',0],['Take 3','3.02 s','',0]].map(([t,d,tag,on])=>`<div class="flex items-center gap-2 h-[30px] px-2.5 rounded-lg border ${on?'border-indigo-500/60 bg-indigo-500/10':'edge'}"><span class="ibtn !h-6 !w-6">${I('play','w-3 h-3')}</span><span class="text-[12.5px]">${t}</span><canvas data-wave="take" data-h="20" class="flex-1 h-[20px]"></canvas><span class="mono text-[11.5px] text-slate-400">${d}</span>${tag?`<span class="text-[11px] ${on?'text-indigo-300':'text-emerald-300'}">${tag}</span>`:''}${on?'':'<span class="btn !h-6 !text-[11.5px]">Use</span>'}</div>`).join('')}
+      </div>
+      <div class="flex items-center gap-2"><span class="btn">${I('re')} Retake</span><span class="text-[11.5px] text-slate-400">Takes</span>${[1,2,3].map(n=>`<span class="w-7 h-7 rounded-full border ${n===1?'border-amber-400/70 bg-amber-500/15 text-amber-100':'border-slate-700 text-slate-300'} text-[11.5px] flex items-center justify-center">${n}</span>`).join('')}<span class="ml-auto text-[12px] text-indigo-300 flex items-center gap-1">Full retake window ${I('rt','w-3 h-3')}</span></div>
+    </div>
+  </aside>`; }
+
+function exportPageC(){ return `
+  <div class="flex-1 min-h-0 grid grid-cols-4 gap-3 ${NEW()} rounded-2xl">
+    <section class="card p-5 flex flex-col gap-3"><h3 class="text-[15px] font-semibold flex items-center gap-2">${I('wave','w-4 h-4 text-indigo-300')} Dub audio</h3><p class="text-[12px] text-slate-400">1:17 · 48 kHz · every line as voiced, one gain per speaker.</p>
+      <span class="dl" data-k="wav"><span class="fmt">WAV</span><span class="flex-1">Synced dub</span>${I('dl','w-4 h-4 text-slate-500')}</span><span class="dl"><span class="fmt">MP3</span><span class="flex-1">Synced dub · 320 kbps</span>${I('dl','w-4 h-4 text-slate-500')}</span>
+      <p class="text-[11.5px] text-slate-500">Change the voice is in Voices now, with the other voice choices.</p></section>
+    <section class="card p-5 flex flex-col gap-3"><h3 class="text-[15px] font-semibold flex items-center gap-2">${I('users','w-4 h-4 text-teal-300')} Speakers</h3>${stems()}<div class="rounded-xl border edge bg-[#0c0f15] p-3"><div class="lbl mb-2">Mix check</div>${mixChecks()}</div></section>
+    <section class="card p-5 flex flex-col gap-3"><h3 class="text-[15px] font-semibold flex items-center gap-2">${I('cc','w-4 h-4 text-indigo-300')} Subtitles</h3><p class="text-[12px] text-slate-400">Hindi · timed to the dub · 1 line, 7 words max</p>
+      <div class="rounded-xl border edge bg-[#0c0f15] p-3 flex flex-col gap-2 text-[12.5px]">${[0,1,2,3].map(i=>`<div><span class="mono text-[10.5px] text-slate-500">${fmt(LINES[i][0])} → ${fmt(LINES[i][0]+LINES[i][1])}</span><p class="text-slate-200">${LINES[i][4]}</p></div>`).join('')}</div>
+      <span class="btn pri !h-9 justify-center" data-k="srt">Edit &amp; export .srt / .vtt ${I('rt','w-3 h-3')}</span></section>
+    <section class="card p-5 flex flex-col gap-3"><h3 class="text-[15px] font-semibold flex items-center gap-2">${I('file','w-4 h-4 text-indigo-300')} Script</h3><p class="text-[12px] text-slate-400">The lines in the dub, with their times. 2 lines removed in Edit timing are left out.</p>
+      <span class="inline-flex p-0.5 rounded-xl border edge bg-[#0a0c11] self-start text-[12px] ${ADD()}"><span class="px-2.5 py-1 rounded-lg bg-slate-800">Lines in the dub</span><span class="px-2.5 py-1 text-slate-400">Every cue</span></span>
+      <span class="dl"><span class="flex-1">Dialogue</span>${I('dn','w-4 h-4 text-slate-500')}</span><span class="dl">${I('dl','w-4 h-4 text-slate-400')}<span class="flex-1">Save the Hindi script</span></span><span class="dl">${I('copy','w-4 h-4 text-slate-400')}<span class="flex-1">Copy</span></span>
+      <p class="mt-auto text-[11.5px] text-slate-500">The project file (.dhvani, whole or Light) stays in Projects.</p></section>
+  </div>`; }
+
+function takesD(){ const l = LINES[PICK]; const words = l[4].split(' '); return `
+  <aside class="card flex flex-col min-h-0 overflow-hidden ${NEW()}">
+    <div class="flex items-center gap-2 px-4 h-[44px] border-b edge"><span class="text-[13px] font-semibold flex items-center gap-1.5">${I('mic','w-4 h-4 text-indigo-300')} Takes · line 07</span><span class="ml-auto text-[12px] text-slate-400">Place: Where the old parts were ${I('dn','w-3 h-3 inline')}</span></div>
+    <div class="p-4 flex flex-col gap-3 overflow-hidden">
+      <canvas data-wave="take" data-h="54" class="w-full h-[54px] rounded-lg bg-[#0c0f15]"></canvas>
+      <div class="flex flex-wrap gap-1.5">${words.map((w,j)=>`<span class="px-1.5 py-0.5 rounded text-[14px] ${j>=4&&j<=5?'bg-indigo-500/25 text-white ring-1 ring-indigo-400':'text-slate-200'}">${w}</span>`).join('')}</div>
+      <div class="flex items-center gap-2"><span class="text-[12px] text-slate-400">Say instead</span><span class="ta flex-1 h-8 px-2 flex items-center text-[13px]">पतन किया</span><span class="btn !h-8">[ calm ] tag</span><span class="btn pri !h-8">${I('mic')} Voice 2 takes</span></div>
+      ${[['Take 1','2.95 s','In the dub',1],['Take 2','2.71 s','Best fit',0],['Take 3','3.02 s','',0]].map(([t,d,tag,on])=>`<div class="flex items-center gap-2 h-[34px] px-2.5 rounded-lg border ${on?'border-indigo-500/60 bg-indigo-500/10':'edge'}"><span class="ibtn !h-6 !w-6">${I('play','w-3 h-3')}</span><span class="text-[12.5px]">${t}</span><canvas data-wave="take" data-h="20" class="flex-1 h-[20px]"></canvas><span class="mono text-[11.5px] text-slate-400">${d}</span>${tag?`<span class="text-[11px] ${on?'text-indigo-300':'text-emerald-300'}">${tag}</span>`:''}${on?'':'<span class="btn !h-6 !text-[11.5px]">Use</span>'}</div>`).join('')}
+    </div>
+  </aside>`; }
+
+// ---------------- drawing ----------------
+function seeded(n){ let s=n; return ()=>{ s=(s*16807)%2147483647; return s/2147483647; }; }
+const placed = (l) => { const k=l[5]; return [l[0] + (k==='late'?0.31:k==='long'?0.02:0), l[1]*(k==='long'?1.3:k==='early'?0.62:0.93)]; };
+function drawWaves(){
+  document.querySelectorAll('#stage canvas[data-wave]').forEach((c,ci)=>{
+    const W = c.clientWidth, H = +c.dataset.h; if (!W) return; c.width=W; c.height=H;
+    const g = c.getContext('2d'); const rnd = seeded(11+ci*7); const kind = c.dataset.wave;
+    if (kind === 'take') {
+      g.fillStyle = '#818cf8aa';
+      for (let x=1; x<W-1; x+=2){ const h=(H-4)*(0.15+rnd()*0.75)*(0.5+0.5*Math.abs(Math.sin(x/9))); g.fillRect(x, H/2-h/2, 1, Math.max(1,h)); }
+      return;
+    }
+    if (kind === 'over') {
+      const T = 70, XO = (s) => s/T*W;
+      g.fillStyle = '#ffffff08'; g.fillRect(0, 0, W, H);
+      LINES.forEach((l,i)=>{ const [s,d] = placed(l); const x0 = XO(s), x1 = XO(s+d);
+        if (i === SILENT) { g.setLineDash([3,3]); g.strokeStyle = '#f43f5e'; g.strokeRect(x0+0.5, 18.5, x1-x0-1, H-26); g.setLineDash([]); return; }
+        g.fillStyle = HUES[i % HUES.length] + 'aa'; g.fillRect(x0, 20, Math.max(2, x1-x0-1), H-28);
+        g.fillStyle = '#ffffff55'; for (let x=x0+1; x<x1-1; x+=2){ const h=(H-32)*(0.2+rnd()*0.7); g.fillRect(x, 20+(H-28)/2-h/2, 1, h); }
+        if (l[5] !== 'ok') { const c = colOf(l[5]); const m = (x0+x1)/2; g.fillStyle = c; g.beginPath(); g.moveTo(m-6, 3); g.lineTo(m+6, 3); g.lineTo(m, 13); g.closePath(); g.fill(); g.fillRect(x0, H-6, x1-x0, 3); }
+      });
+      g.strokeStyle = '#e2e8f0'; g.lineWidth = 1.5; g.strokeRect(0.75, 0.75, XO(30), H-1.5); g.fillStyle = '#f8fafc'; g.fillRect(XO(15.2), 0, 1.5, H);
+      return;
+    }
+    const total = kind === 'mini' ? 70 : 30;
+    const X = (t) => t/total*W;
+    if (kind === 'mini') { g.fillStyle='#ffffff10'; g.fillRect(0,0,W,H); }
+    LINES.forEach((l,i)=>{
+      if (l[0] > total) return;
+      const hue = HUES[i % HUES.length];
+      if (kind==='spk1' && l[2]!==1) return; if (kind==='spk2' && l[2]!==2) return;
+      const [s, d] = kind === 'src' ? [l[0], l[1]] : placed(l);
+      const x0 = X(s), x1 = X(s+d);
+      if ((kind === 'dubm' || kind === 'dubu' || kind === 'dubg') && i === SILENT) {
+        g.setLineDash([5,4]); g.strokeStyle = '#f43f5e'; g.lineWidth = 1.5; g.strokeRect(x0+0.5, 6.5, x1-x0-1, H-13); g.setLineDash([]);
+        g.fillStyle = '#fda4af'; g.font = '600 12px Inter, sans-serif'; g.fillText('No audio', x0+8, H/2+4); return;
+      }
+      if (kind === 'mini') { g.fillStyle = hue+'cc'; g.fillRect(x0, 3, Math.max(1,x1-x0), H-6); return; }
+      if (kind === 'dubg' && l[5] !== 'ok') { const col = colOf(l[5]); const grd = g.createLinearGradient(0,0,0,H); grd.addColorStop(0,col+'10'); grd.addColorStop(0.5,col+'45'); grd.addColorStop(1,col+'10'); g.fillStyle = grd; g.fillRect(x0-6, 0, x1-x0+12, H); g.fillStyle = col; g.fillRect(x0, 1, x1-x0, 3); }
+      g.fillStyle = hue + (kind==='src' ? '22' : '33'); g.fillRect(x0, 4, x1-x0, H-8);
+      if (i === PICK && kind !== 'src') { g.strokeStyle = hue; g.lineWidth = 1.5; g.strokeRect(x0+0.5, 4.5, x1-x0-1, H-9); }
+      g.fillStyle = kind==='src' ? '#ffffff66' : '#ffffffcc';
+      for (let x=x0+1; x<x1-1; x+=2){ const h=(H-12)*(0.12+rnd()*0.72)*(0.55+0.45*Math.sin(x/7+i)); g.fillRect(x, H/2-h/2, 1, Math.max(1,h)); }
+      if (l[5]==='long' && kind!=='src') { g.fillStyle='#f43f5e'; g.fillRect(X(l[0]+l[1]), H-5, Math.max(2, x1-X(l[0]+l[1])), 3); }
+      if (kind === 'dubu' && l[5] !== 'ok') { const col = colOf(l[5]); g.fillStyle = col; g.fillRect(x0, H-6, x1-x0, 4); g.beginPath(); g.arc(x0+7, 10, 4.5, 0, 7); g.fill(); }
+      if (kind === 'dubm' && l[5] !== 'ok') {
+        const col = colOf(l[5]);
+        g.strokeStyle = col; g.lineWidth = 2; g.strokeRect(x0+1, 3, x1-x0-2, H-6);
+        const label = SHORT[l[5]]; g.font = '600 11px Inter, sans-serif'; const w = g.measureText(label).width + 10;
+        g.fillStyle = col; g.fillRect(x0+1, 3, w, 17); g.fillStyle = '#0a0c11'; g.fillText(label, x0+6, 15);
+      }
+    });
+    if (kind === 'mini') { g.strokeStyle='#e2e8f0'; g.lineWidth=1; g.strokeRect(0.5, 0.5, X(30), H-1); }
+  });
+}
+
+// ---------------- counting ----------------
+function topIn(el){ const stage=document.getElementById('stage'); let y=0; while (el && el!==stage){ y+=el.offsetTop; el=el.offsetParent; } return y; }
+function measure(){
+  const list = document.querySelector('#stage [data-list]');
+  let full = 0, first = null;
+  if (list) {
+    const bottom = Math.min(974, topIn(list) + list.clientHeight);
+    list.querySelectorAll('.row').forEach(r=>{ const t = topIn(r); if (first===null) first = Math.round(t); if (t + r.offsetHeight <= bottom + 0.5) full++; });
+  }
+  const at = (k) => { const el = document.querySelector(`#stage [data-k="${k}"]`); if (!el) return null; const t = topIn(el); return t + el.offsetHeight <= 974 ? 'ok' : Math.round(t); };
+  return { full, first, sync: at('sync'), wav: at('wav'), srt: at('srt') };
+}
+const seen = (v, where) => v === 'ok' ? '<b class="text-emerald-300">দেখা যায়</b>' : v === null ? `<span class="text-slate-400">${where || '—'}</span>` : `<b class="text-rose-300">নিচে, ${v} px</b>`;
+const counts = {};
+let current = 'B';
+function show(id){
+  const m = MOCKS[id];
+  const sel = document.getElementById('alt');
+  if (id !== current || sel.options.length !== (m.alts || []).length) {
+    sel.innerHTML = (m.alts || []).map((t,j)=>`<option value="${j}">${t}</option>`).join('');
+    sel.value = '0';
+  }
+  current = id;
+  const stage = document.getElementById('stage');
+  stage.style.height = m.tall ? 'auto' : '974px';
+  stage.innerHTML = m.html() + '<div style="position:absolute;left:0;right:0;top:972px;height:2px;background:#f59e0b;z-index:50"></div>' + (m.tall ? '<div class="fold"><span>এর নিচে স্ক্রল করে দেখতে হয়</span></div>' : '');
+  document.getElementById('note').textContent = m.note;
+  document.getElementById('altWrap').style.visibility = m.alts ? 'visible' : 'hidden';
+  document.querySelectorAll('#tabs button').forEach(b=>b.className = 'px-3 py-1 ' + (b.dataset.id===id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'));
+  fit();
+  // Tailwind's CDN builds the CSS for new classes a moment after they appear, so measure after that.
+  setTimeout(() => {
+    if (m.tall) stage.style.height = Math.max(974, stage.scrollHeight) + 'px';
+    fit(); drawWaves();
+    const c = measure(); if (!ALT()) counts[id] = c; const now = counts.now;
+    const winAt = { P3:3, S1:3, S2:3, S3:3, S4:3, S5:3 }[id];
+    const inWin = winAt ? (ALT()===winAt ? '' : 'Export ▾ চেপে, এক জানালায়') : id==='C' && ALT()!==1 ? 'Export পাতায়' : '';
+    document.getElementById('count').innerHTML = (c.first!==null ? `পুরো দেখা যায়: <b class="text-white text-[15px]">${c.full}</b> টা লাইন · প্রথম লাইন ${c.first} px-এ` : 'list এই পাতায় নেই')
+      + ` · Sync again: ${seen(c.sync)} · WAV: ${seen(c.wav, inWin)} · Subtitles: ${seen(c.srt, inWin)}`
+      + (id!=='now' && now ? ` <span class="text-slate-500">(আজ: ${now.full} টা লাইন, প্রথমটা ${now.first} px-এ)</span>` : '');
+  }, 260);
+  try { localStorage.setItem('afterDubOpt3Mock', id); } catch {}
+}
+function fit(){
+  const wrap = document.getElementById('wrap'), stage = document.getElementById('stage');
+  const s = Math.min(1, (wrap.clientWidth || 1905)/1905); stage.style.transform = `scale(${s})`; wrap.style.height = (stage.offsetHeight*s)+'px';
+}
+const tabs = document.getElementById('tabs');
+Object.entries(MOCKS).forEach(([id,m])=>{ const b=document.createElement('button'); b.dataset.id=id; b.textContent=m.label; b.onclick=()=>show(id); tabs.appendChild(b); });
+document.getElementById('marks').onchange = () => show(current);
+document.getElementById('alt').onchange = () => show(current);
+document.getElementById('adds').onchange = () => show(current);
+let start = 'S1';
+show('now');
+setTimeout(() => show(start), 500);
+addEventListener('resize', ()=>{ fit(); drawWaves(); });
+</script>
+</body>
+</html>

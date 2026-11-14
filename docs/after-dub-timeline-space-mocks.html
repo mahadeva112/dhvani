@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Timeline Space Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#232a36; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .card { background:#131418; border:1px solid #26282e; border-radius:16px; }
+  .btn { height:30px; padding:0 11px; border:1px solid #2a2d35; border-radius:9px; background:transparent; color:#e2e8f0; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; cursor:default; }
+  .btn:hover { background:#1c1f26; }
+  .btn.sm { height:26px; padding:0 9px; font-size:12px; border-radius:8px; }
+  .btn.pri { background:#4f46e5; border-color:#4f46e5; color:#fff; }
+  .btn.amb { background:#f59e0b; border-color:#f59e0b; color:#0b0c0f; font-weight:600; }
+  .ibtn { height:28px; width:28px; border:1px solid #2a2d35; border-radius:8px; color:#cbd5e1; display:inline-flex; align-items:center; justify-content:center; cursor:default; flex-shrink:0; }
+  .ibtn:hover { background:#1c1f26; }
+  .seg { display:inline-flex; gap:2px; padding:2px; border-radius:11px; background:#0b0c0f; border:1px solid #26282e; }
+  .seg span { padding:3px 9px; border-radius:8px; font-size:12px; color:#94a3b8; font-variant-numeric: tabular-nums; cursor:default; white-space:nowrap; }
+  .seg span.on { background:#24262d; color:#f1f5f9; }
+  .tab { padding:6px 14px; font-size:13px; color:#94a3b8; cursor:default; }
+  .tab.on { background:#1e2230; color:#f1f5f9; }
+  .row { cursor:default; }
+  .row:hover { background:#17191e; }
+  .row.pick { background:#1a1d27; box-shadow: inset 2px 0 0 #818cf8; }
+  .row .hov { opacity:0; }
+  .row:hover .hov, .row.pick .hov { opacity:1; }
+  .clip { position:absolute; top:6px; bottom:6px; border-radius:5px; overflow:hidden; cursor:default; }
+  .clip.pick { outline:2px solid #f8fafc; outline-offset:1px; z-index:3; }
+  .scroll::-webkit-scrollbar { width:10px; height:10px; } .scroll::-webkit-scrollbar-thumb { background:#2a2d35; border-radius:8px; }
+  textarea { resize:none; }
+  .lbl { font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; font-weight:600; color:#64748b; }
+  .feat td { padding:4px 8px; vertical-align:top; border-top:1px solid #1d2028; }
+</style>
+</head>
+<body>
+<div class="max-w-[1560px] mx-auto px-4 py-5">
+  <div class="flex flex-wrap items-center gap-3 mb-3">
+    <h1 class="text-[17px] font-semibold text-slate-100 mr-2">ডাবের পর: Edit timing-কে জায়গা দেওয়া</h1>
+    <div id="tabs" class="flex rounded-xl overflow-hidden border edge"></div>
+    <label class="flex items-center gap-2 text-[12.5px] text-slate-400 ml-2"><input type="checkbox" data-act="pending" id="pend"> দেখাও: "2 lines changed" অবস্থা</label>
+  </div>
+  <p id="note" class="text-[13.5px] text-slate-300 mb-3 max-w-[100rem] leading-relaxed"></p>
+  <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_23rem] items-start">
+    <div>
+      <div id="frame" class="card flex flex-col overflow-hidden relative" style="height:860px"></div>
+      <p class="text-[12px] text-slate-500 mt-2">ক্লিপে বা লাইনে ক্লিক করলে লাইনটা বাছা হয়। বোতামগুলোও মকে কাজ করে: Takes, Suggest, Retake these, All lines, ভাঁজ করা। অ্যাপের লেখা ইংরেজিতেই থাকবে।</p>
+    </div>
+    <aside class="card p-3">
+      <div class="flex items-center justify-between mb-1">
+        <h2 class="text-[14px] font-semibold">কোনো ফিচার বাদ নেই</h2>
+        <span id="hgt" class="mono text-[11.5px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300"></span>
+      </div>
+      <p class="text-[12px] text-slate-500 mb-2">এখনকার Lines কার্ডের প্রতিটা জিনিস এই মকে কোথায় গেল</p>
+      <table class="feat w-full text-[12px]"><tbody id="feat"></tbody></table>
+    </aside>
+  </div>
+</div>
+
+<script>
+// ---------- icons ----------
+const ICON = {
+  play: '<path d="M7 5v14l11-7z" fill="currentColor" stroke="none"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  chevR: '<path d="M9 6l6 6-6 6"/>', chevL: '<path d="M15 6l-6 6 6 6"/>', down: '<path d="M6 9l6 6 6-6"/>', up: '<path d="M6 15l6-6 6 6"/>',
+  copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>',
+  refresh: '<path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4"/>',
+  list: '<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  lock: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>', redo: '<path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>', pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/>', target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/>',
+  warn: '<path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17h.01"/>', grip: '<path d="M8 10h8M8 14h8"/>',
+};
+const I = (n, c = 'w-3.5 h-3.5') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
+
+// ---------- data (from the screenshot: 14 lines, 3 worth a listen) ----------
+const L = [
+  { t: 1.2, o: 5.4, d: 5.3, off: 0.02, dub: 'आज हम एक ऐसे इंसान की बात करेंगे।', src: 'Today we talk about one such person.', measured: 'Measured words · start +0.02 s · end −0.04 s' },
+  { t: 7.4, o: 6.8, d: 6.6, off: -0.05, dub: 'जिसके पास सब कुछ था, फिर भी वह शांत था।', src: 'He had everything, and still he was calm.' },
+  { t: 15.0, o: 6.1, d: 6.0, off: 0.04, dub: 'वह राजा था, पर राजा जैसा बर्ताव नहीं करता था।', src: 'He was a king, but did not act like one.' },
+  { t: 22.3, o: 8.1, d: 8.3, off: 0.0, st: 'long', by: 0.18, dub: 'बेहद काबिल इंसान, और एक महान भक्त, वह बहुत गुणी है। वह शिव को पूजता है, उन्हें प्रसन्न करता है।', src: 'very capable man, and a great devotee. Many, many things. He worships Shiva and pleases him in many ways.' },
+  { t: 31.5, o: 5.0, d: 4.9, off: 0.03, dub: 'लोग उसके पास सलाह लेने आते थे।', src: 'People came to him for advice.' },
+  { t: 37.6, o: 6.4, d: 6.3, off: -0.02, dub: 'हर बात को वह ध्यान से सुनता था।', src: 'He listened to everything with care.' },
+  { t: 45.2, o: 5.6, d: 5.6, off: 0.0, dub: 'गुस्सा उसे छू भी नहीं पाता था।', src: 'Anger could not even touch him.' },
+  { t: 52.0, o: 6.9, d: 6.9, off: 0.01, dub: 'उसकी ताकत उसकी शांति में थी।', src: 'His strength was in his calm.', speed: 'Read 1.04× faster to fit: its words ran longer than the original line had, even with every pause shrunk' },
+  { t: 59.8, o: 5.5, d: 5.4, off: 0.05, dub: 'और यही उसे सबसे अलग बनाता था।', src: 'And that is what set him apart.' },
+  { t: 66.1, o: 4.4, d: 5.47, off: -0.0, st: 'over', by: 0.87, dub: 'वह रावण जितना बलवान न हो, पर वह संतुलित है, समचित्त है.........', src: "He may not be as strong as Ravana, but he's balanced.", offer: true },
+  { t: 70.7, o: 2.6, d: 0, off: null, st: 'silent', dub: 'समचित्त है समचित्त है.........', src: 'Equanimity.' },
+  { t: 75.0, o: 6.0, d: 5.9, off: 0.02, dub: 'जीवन में ऐसा संतुलन ही असली शक्ति है।', src: 'Such balance in life is real power.' },
+  { t: 82.4, o: 5.6, d: 5.5, off: -0.03, dub: 'हम सब इसे अपने भीतर ला सकते हैं।', src: 'We can all bring this into ourselves.' },
+  { t: 89.0, o: 3.4, d: 3.3, off: 0.0, dub: 'बस थोड़ा रुककर देखना होगा।', src: 'We only need to pause and look.' },
+];
+const REVIEW = [3, 10, 9];
+const SPAN = 94;
+const SUGG = [
+  { text: 'बेहद काबिल, महान भक्त, बहुत गुणी। वह शिव को पूजता है, उन्हें प्रसन्न करता है।', s: 7.6, back: 'Very capable, a great devotee, very virtuous. He worships Shiva and pleases him.' },
+  { text: 'काबिल इंसान, महान भक्त और गुणी। शिव को पूजता है, प्रसन्न करता है।', s: 6.9, back: 'A capable man, a great devotee and virtuous. Worships Shiva, pleases him.' },
+];
+const NOTES = [
+  'All 14 lines were cut from the continuous read, so they keep its flow.',
+  '1 suggestion was held back: every wording the text model offered changed the meaning of the original line. Edit that line yourself, or press Suggest 2 to try again.',
+];
+const SUMMARY = '2 outside tolerance · 1 too long for their slot';
+const TABS = [['review', 'Worth a listen', 3], ['long', 'Too long', 1], ['edited', 'Hand edits', 14], ['all', 'Every line', 14]];
+
+// ---------- state ----------
+const S = { view: 'A', pick: 3, sugg: false, takes: false, box: false, pending: false, win: false, tab: 'review', notes: false, retake: false, retakeN: 1, side: true, menu: false, pop: true, dock: true, dockTab: 'line', etab: 'timeline' };
+
+// ---------- helpers ----------
+const clock = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+const offs = (o) => (o === null ? 'silent' : `${o >= 0 ? '+' : '−'}${Math.abs(o).toFixed(2)} s`);
+const isProb = (l) => Boolean(l.st);
+const reason = (l) => l.st === 'long' ? `Runs ${l.by.toFixed(2)} s longer than the original line had`
+  : l.st === 'silent' ? 'The voice returned no audio for this line'
+  : l.st === 'over' ? `Runs ${l.by.toFixed(2)} s into the next line` : 'In sync';
+const shortTag = (l) => l.st === 'long' ? `+${l.by.toFixed(1)} s long` : l.st === 'silent' ? 'silent' : l.st === 'over' ? `${l.by.toFixed(1)} s into next` : '';
+const tagCls = (l) => l.st === 'silent' ? 'bg-rose-500/15 text-rose-300' : 'bg-amber-500/15 text-amber-300';
+const reasonCls = (l) => l.st === 'long' ? 'text-amber-300' : l.st === 'silent' ? 'text-rose-300' : l.st === 'over' ? 'text-amber-300' : 'text-slate-500';
+const listRows = () => S.tab === 'review' ? REVIEW : S.tab === 'long' ? [3] : L.map((_, i) => i);
+const changed = (i) => S.pending && i === 3;
+function rnd(seed) { let a = seed * 9301 + 49297; return () => { a = (a * 9301 + 49297) % 233280; return a / 233280; }; }
+function wave(seed, fill, n = 70) {
+  const r = rnd(seed + 7); let d = '';
+  for (let k = 0; k < n; k++) { const env = Math.sin((k / n) * Math.PI) * 0.6 + 0.4; const h = (1.2 + r() * 8) * env; d += `M${k} ${10 - h}h0.62v${2 * h}h-0.62z`; }
+  return `<svg viewBox="0 0 ${n} 20" preserveAspectRatio="none" class="absolute inset-0 w-full h-full"><path d="${d}" fill="${fill}"/></svg>`;
+}
+const DUBC = ['#6366f1', '#14b8a6', '#0ea5e9', '#8b5cf6'];
+
+function badge(l) {
+  const warm = l.st === 'over' || l.st === 'silent';
+  return `<span class="mono shrink-0 text-[11px] px-2 py-0.5 rounded-md ${warm ? 'bg-amber-500/15 text-amber-300' : 'bg-slate-800 text-slate-300'}">${offs(l.off)}</span>`;
+}
+function bars(l) {
+  if (l.st === 'silent') return '';
+  const m = Math.max(l.o, l.d);
+  const c = l.st === 'long' ? 'bg-amber-400' : 'bg-indigo-400/80';
+  return `<span class="shrink-0 flex items-center gap-2" title="Original line ${l.o.toFixed(1)} s · dub line ${l.d.toFixed(1)} s"><span class="flex flex-col gap-1 w-24"><span class="h-1 rounded bg-slate-500" style="width:${(l.o / m) * 100}%"></span><span class="h-1 rounded ${c}" style="width:${(l.d / m) * 100}%"></span></span>${l.st === 'long' ? `<span class="mono text-[11.5px] text-amber-300">+${(l.d - l.o).toFixed(1)} s</span>` : ''}</span>`;
+}
+
+// ---------- one line, every feature ----------
+function shortenBox(l) {
+  const opts = S.sugg ? `<div class="mb-2 flex flex-col gap-1">${SUGG.map((o, k) => `
+      <div class="flex items-start gap-2 rounded-md border ${k === 0 ? 'border-indigo-500 bg-indigo-500/10' : 'edge'} px-2 py-1.5">
+        <span class="mt-1 w-3 h-3 rounded-full border ${k === 0 ? 'border-indigo-400 bg-indigo-400' : 'border-slate-500'}"></span>
+        <span class="flex-1 min-w-0"><span class="block text-[12.5px] text-slate-100">${o.text}</span><span class="block text-[11.5px] text-slate-500">${o.back}</span></span>
+        <span class="mono text-[11px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300" title="Estimated from how fast this voice said the line">about ${o.s} s · fits</span>
+      </div>`).join('')}</div>` : '';
+  return `<div class="mt-2 rounded-lg border edge bg-[#0d0f13] p-2.5">
+    <div class="lbl mb-1">${S.sugg ? 'Suggested shorter line' : 'Shorten this line'}</div>${opts}
+    <textarea rows="2" class="w-full rounded-md bg-[#15171c] border edge px-2 py-1.5 text-[13px] text-slate-100">${S.sugg ? SUGG[0].text : l.dub}</textarea>
+    <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <span class="btn sm ${S.sugg ? 'pri' : ''}">${I('mic', 'w-3 h-3')} Voice and use · ${S.sugg ? 74 : 95} chars</span>
+      <span class="btn sm" title="Put this wording into the script. Sync again to voice it.">${I('check', 'w-3 h-3')} Use this line</span>
+      <span class="btn sm">${I('copy', 'w-3 h-3')} Copy</span>
+      <span class="btn sm" data-act="sugg">${I('refresh', 'w-3 h-3')} Suggest 2</span>
+      <span class="text-[11.5px] text-slate-500 mono">${S.sugg ? '29' : '34'} / 34 syllables</span>
+      <span class="text-[11.5px] px-1.5 py-0.5 rounded ${S.sugg ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}" title="Estimated from how fast this voice said the line">${S.sugg ? 'about 7.6 s of 8.1 s · fits' : 'about 8.3 s of 8.1 s · still long'}</span>
+    </div>
+  </div>`;
+}
+function offer() {
+  return `<div class="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-950/20 px-2.5 py-1.5">
+    <span class="text-[12px] font-semibold text-amber-300">Better-fitting take ready</span>
+    <span class="text-[11.5px] text-slate-400">Take 2 ends 0.1 s before the next line</span><span class="flex-1"></span>
+    <span class="btn sm">${I('play', 'w-3 h-3')} Listen</span><span class="btn sm">${I('check', 'w-3 h-3')} Use it</span><span class="btn sm">Keep old</span>
+  </div>`;
+}
+function takesPanel(l) {
+  return `<div class="mt-2 rounded-lg border border-indigo-500/30 bg-indigo-950/20 p-2.5">
+    <div class="flex items-center gap-2 mb-1.5"><span class="text-[12.5px] font-semibold">${I('mic', 'w-3.5 h-3.5 inline text-indigo-300')} Takes</span><span class="text-[11.5px] text-slate-500">hear them side by side and pick one</span><span class="flex-1"></span><span class="ibtn" data-act="takes">${I('x')}</span></div>
+    ${[['Take 1', '8.3 s', 'playing now', true], ['Take 2', '7.9 s', 'fits', false], ['Take 3', '8.1 s', 'fits', false]].map(([n, s, t, on]) => `
+      <div class="flex items-center gap-2 py-1 border-t edge first:border-0"><span class="ibtn">${I('play', 'w-3 h-3')}</span><span class="text-[12.5px] w-14">${n}</span><span class="mono text-[11.5px] text-slate-400 w-12">${s}</span><span class="text-[11.5px] ${on ? 'text-indigo-300' : 'text-emerald-300'}">${t}</span><span class="flex-1"></span>${on ? '<span class="text-[11.5px] text-slate-500">in the dub</span>' : '<span class="btn sm">Use</span>'}</div>`).join('')}
+    <div class="mt-1.5 flex items-center gap-2"><span class="btn sm">${I('mic', 'w-3 h-3')} Voice 2 more</span><span class="text-[11.5px] text-slate-500">2 voicings of this line</span></div>
+  </div>`;
+}
+function actions(l, i) {
+  return `<span class="btn sm" title="Plays from just before the line">${I('play', 'w-3 h-3')} Listen</span>${
+    l.st === 'silent' ? `<span class="btn sm" title="Voices this line again. Sync again to hear it.">${I('mic', 'w-3 h-3')} Retake</span>`
+    : `<span class="btn sm ${S.takes && S.pick === i ? 'border-indigo-400 text-indigo-200' : ''}" data-act="takes" title="Voice new takes of this line now, hear them side by side and pick one">${I('mic', 'w-3 h-3')} Takes</span>`}`;
+}
+/** Every part of a line. mode: 'stack' (list) or 'strip' (one wide row, box behind a button). */
+function lineDetail(i, mode = 'stack') {
+  const l = L[i];
+  const toggleBox = mode !== 'stack';
+  const hasBox = l.st === 'long' && !changed(i);
+  const boxBtn = hasBox && toggleBox ? `<span class="btn sm ${S.box ? 'border-amber-400/60 text-amber-200' : ''}" data-act="box">${I('pen', 'w-3 h-3')} Shorten ${I(S.box ? 'up' : 'down', 'w-3 h-3')}</span>` : '';
+  const body = `
+    <p class="text-[12px] text-slate-500 leading-snug mt-0.5">${l.src}</p>
+    <p class="text-[11.5px] mt-1 ${reasonCls(l)}">${reason(l)}</p>
+    ${l.speed ? `<p class="text-[11.5px] mt-1 text-indigo-300">${l.speed}</p>` : ''}
+    ${l.measured ? `<p class="text-[11.5px] mt-1 text-indigo-300">${l.measured}</p>` : ''}
+    ${l.offer ? offer() : ''}
+    ${changed(i) ? `<p class="mt-1.5 inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-300">${I('refresh', 'w-3 h-3')} Changed. Sync again to hear it.</p>` : ''}
+    ${hasBox && (!toggleBox || S.box) ? shortenBox(l) : ''}
+    ${S.takes && S.pick === i ? takesPanel(l) : ''}`;
+  if (mode === 'narrow') return `<div>
+      <div class="flex items-center gap-2 mb-1">${badge(l)}<span class="mono text-[11.5px] text-slate-500">${clock(l.t)}</span><span class="flex-1"></span>${bars(l)}</div>
+      <p class="text-[13.5px] text-slate-100 leading-snug">${l.dub}</p>${body}
+      <div class="mt-2 flex flex-wrap gap-1.5">${boxBtn}${actions(l, i)}</div>
+    </div>`;
+  return `<div class="flex items-start gap-3">
+      ${badge(l)}<span class="mono shrink-0 text-[11.5px] text-slate-500 w-12 mt-0.5">${clock(l.t)}</span>
+      <div class="min-w-0 flex-1">
+        <div class="flex items-start gap-3"><p class="flex-1 min-w-0 text-[13.5px] text-slate-100 leading-snug">${l.dub}</p>${bars(l)}</div>
+        ${body}
+      </div>
+      <div class="shrink-0 flex ${mode === 'strip' ? 'flex-row' : 'flex-col'} items-end gap-1.5">${boxBtn}${actions(l, i)}</div>
+    </div>`;
+}
+/** One row per line, for lists; the picked one opens in place. */
+function compactRow(i, { open = true, narrow = false } = {}) {
+  const l = L[i];
+  if (open && S.pick === i) return `<li class="row pick px-3 py-2.5" data-act="pick:${i}">${lineDetail(i, narrow ? 'narrow' : 'stack')}</li>`;
+  return `<li class="row px-3 py-2 flex items-center gap-2" data-act="pick:${i}">
+    <span class="mono text-[11px] text-slate-500 w-10 shrink-0">${clock(l.t)}</span>
+    <span class="flex-1 min-w-0 truncate text-[13px] text-slate-200">${l.dub}</span>
+    ${changed(i) ? '<span class="text-[11px] px-1.5 rounded bg-indigo-500/15 text-indigo-300">changed</span>' : ''}
+    ${isProb(l) ? `<span class="text-[11px] px-1.5 py-0.5 rounded shrink-0 ${tagCls(l)}">${shortTag(l)}</span>` : ''}
+    <span class="hov ibtn" style="height:24px;width:24px">${I('play', 'w-3 h-3')}</span>
+  </li>`;
+}
+function tabsSeg(small) {
+  return `<span class="seg ${small ? "flex-wrap" : ""}">${TABS.map(([id, t, n]) => `<span data-act="tab:${id}" class="${S.tab === id ? 'on' : ''}">${small && id === 'review' ? 'To listen' : t} · ${n}</span>`).join('')}</span>`;
+}
+function retakeBtn() {
+  const n = S.tab === 'review' ? 2 : S.tab === 'long' ? 1 : 13;
+  return `<span class="inline-flex items-center gap-1 text-[12px] text-indigo-300 cursor-default" data-act="retake">${I('mic', 'w-3 h-3')} ${S.tab === 'all' ? 'Retake all ' + n : 'Retake these ' + n}</span>`;
+}
+function retakeConfirm(tab = S.tab) {
+  if (!S.retake) return '';
+  const n = tab === 'review' ? 2 : tab === 'long' ? 1 : 13; const ch = n * 70;
+  return `<div class="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-amber-400/40 bg-amber-950/20 px-3 py-2">
+    <span class="flex-1 min-w-[14rem] text-[12.5px]">Retake ${n} lines? ${S.retakeN === 1 ? `Each is voiced once: about ${ch} characters of voicing.` : `Each is voiced ${S.retakeN} times and the take that fits best is kept: about ${ch * S.retakeN} characters.`} Lines locked in Edit timing keep their take.</span>
+    <span class="flex items-center gap-1"><span class="text-[11.5px] text-slate-400 mr-1">Takes</span>${[1, 2, 3].map((k) => `<span data-act="retakeN:${k}" class="h-7 w-8 rounded-full border text-[11.5px] flex items-center justify-center cursor-default ${S.retakeN === k ? 'border-amber-400/70 bg-amber-500/15 text-amber-100' : 'border-slate-700 text-slate-300'}">${k}</span>`).join('')}</span>
+    <span class="btn amb sm">${I('mic', 'w-3 h-3')} Retake ${n} lines</span><span class="btn sm" data-act="retake">Cancel</span>
+  </div>`;
+}
+function notesBtn() { return `<span class="btn sm ${S.notes ? 'border-indigo-400 text-indigo-200' : ''}" data-act="notes" title="About this sync">${I('info', 'w-3 h-3')} 2 notes</span>`; }
+function notesBox() { return S.notes ? `<div class="mt-2 rounded-lg border edge bg-[#0d0f13] px-3 py-2 flex flex-col gap-1">${NOTES.map((n) => `<p class="text-[12px] text-slate-400">${n}</p>`).join('')}</div>` : ''; }
+function pendingBar() {
+  if (!S.pending) return '';
+  return `<div class="flex flex-wrap items-center gap-3 rounded-xl border border-indigo-500/40 bg-indigo-950/30 px-3 py-2">
+    <span class="flex-1 min-w-0 text-[12.5px]">2 lines changed. Sync again voices only those lines and places everything again; every other line is reused.</span>
+    <span class="btn sm pri">${I('refresh', 'w-3 h-3')} Sync again</span><span class="btn sm" title="Sync only the changed lines; every other line stays where it is">${I('lock', 'w-3 h-3')} Changed only</span>
+  </div>`;
+}
+
+// ---------- the edit timeline ----------
+function timeline({ tools = '', overlay = '', lanesId = 'lanes' } = {}) {
+  const pos = (t) => (t / SPAN) * 100;
+  const orig = L.map((l, i) => `<div class="clip" style="left:${pos(l.t)}%;width:${pos(l.o)}%;background:#334155" data-act="pick:${i}">${wave(i, '#94a3b8')}</div>`).join('');
+  const dub = L.map((l, i) => {
+    const pk = S.pick === i ? ' pick' : '';
+    if (l.st === 'silent') return `<div class="clip${pk}" style="left:${pos(l.t)}%;width:${pos(l.o)}%;border:1.5px dashed #fb7185;background:#4c051933" data-act="pick:${i}"></div>`;
+    const c = DUBC[i % 4];
+    const mark = isProb(l) ? `<div class="absolute top-0 left-0 right-0 h-[3px] bg-amber-400"></div>` : '';
+    const ch = changed(i) ? `<div class="absolute bottom-0 left-0 right-0 h-[3px] bg-indigo-300"></div>` : '';
+    return `<div class="clip${pk}" style="left:${pos(l.t + (l.off || 0))}%;width:${pos(l.d)}%;background:${c}55;border:1px solid ${c}" data-act="pick:${i}">${wave(i + 40, c)}${mark}${ch}</div>`;
+  }).join('');
+  const music = `<div class="clip" style="left:0%;width:44%;background:#3f3f4655;border:1px solid #71717a">${wave(90, '#a1a1aa', 140)}</div><div class="clip" style="left:52%;width:40%;background:#3f3f4655;border:1px solid #71717a">${wave(91, '#a1a1aa', 140)}</div>`;
+  const ticks = Array.from({ length: 10 }, (_, k) => `<span class="absolute top-0 text-[10px] mono text-slate-500 border-l edge pl-1 h-full" style="left:${pos(k * 10)}%">${clock(k * 10).replace('.0', '')}</span>`).join('');
+  const lane = (name, flex, inner, sub = '') => `<div class="flex min-h-[44px] border-t edge" style="flex:${flex}">
+      <div class="w-24 shrink-0 px-2 py-1.5 border-r edge bg-[#101115]"><div class="text-[11.5px] text-slate-300">${name}</div><div class="text-[10.5px] text-slate-500">${sub}</div></div>
+      <div class="relative flex-1 min-w-0" data-act="unpick">${inner}</div></div>`;
+  const ph = pos(L[S.pick]?.t ?? 22.3);
+  return `<div class="flex flex-col flex-1 min-h-0">
+    <div class="flex flex-wrap items-center gap-2 pb-2">
+      <span class="ibtn" style="background:#4f46e5;border-color:#4f46e5;color:#fff">${I('play', 'w-3.5 h-3.5')}</span>
+      <span class="mono text-[12px] text-slate-300">${clock(L[S.pick]?.t ?? 22.3)} / 1:34.0</span>
+      <span class="seg ml-1"><span class="on">Wave</span><span>Blocks</span><span>Bars</span></span>
+      <span class="seg"><span class="on">Snap</span></span>
+      <span class="ibtn">${I('undo')}</span><span class="ibtn">${I('redo')}</span>
+      ${tools}
+      <span class="flex-1"></span>
+      <span class="text-[11px] text-slate-500 hidden lg:inline">Wave height</span><span class="seg"><span class="on">×1</span><span>×2</span><span>×4</span></span>
+      <span class="btn sm">Done</span>
+    </div>
+    <div class="relative flex flex-col flex-1 min-h-0 rounded-xl border edge overflow-hidden bg-[#0c0d10]">
+      <div class="flex h-5 shrink-0"><div class="w-24 shrink-0 border-r edge bg-[#101115]"></div><div class="relative flex-1">${ticks}</div></div>
+      <div id="${lanesId}" class="relative flex flex-col flex-1 min-h-0">
+        ${lane('Original', 3, orig, 'Speaker 1')}
+        ${lane('Dub', 4, dub, 'Hindi · v3')}
+        ${lane('Music', 2, music, 'Track')}
+        <div class="absolute top-0 bottom-0 w-px bg-rose-400 pointer-events-none" style="left:calc(6rem + (100% - 6rem) * ${ph / 100})"></div>
+      </div>
+      ${overlay}
+    </div>
+  </div>`;
+}
+const appBar = () => `<div class="h-11 shrink-0 flex items-center gap-3 px-4 border-b edge bg-[#0f1013]">
+  <span class="text-[13px] font-semibold">Dhvani</span><span class="text-[12px] text-slate-500">Ramayana talk · Hindi</span>
+  <span class="flex-1"></span>${['Transcript', 'Script', 'Review', 'Dub'].map((s) => `<span class="text-[12px] px-2.5 py-1 rounded-lg ${s === 'Dub' ? 'bg-slate-800 text-slate-100' : 'text-slate-500'}">${s}</span>`).join('')}
+  <span class="flex-1"></span><span class="btn sm">Export</span></div>`;
+const playerCard = (inner, cls = 'flex-1') => `<section class="${cls} min-h-0 flex flex-col rounded-2xl border edge bg-[#111216] px-4 py-3">${inner}</section>`;
+
+// ---------- the All lines window (A, C) ----------
+function linesWindow() {
+  if (!S.win) return '';
+  return `<div class="absolute inset-0 z-20 bg-black/55 flex items-center justify-center p-6" data-act="win">
+    <div class="card w-full max-w-[62rem] max-h-full flex flex-col" data-stop="1">
+      <div class="flex flex-wrap items-center gap-2 px-4 pt-3 pb-2 border-b edge">
+        <h3 class="text-[15px] font-semibold mr-1">Lines</h3>${tabsSeg()}${retakeBtn()}<span class="flex-1"></span>
+        <span class="text-[12px] text-slate-500">${SUMMARY}</span>${notesBtn()}<span class="ibtn" data-act="win">${I('x')}</span>
+      </div>
+      <div class="px-4">${retakeConfirm()}${notesBox()}</div>
+      <ul class="scroll overflow-y-auto divide-y divide-[#1d2028] py-1">${listRows().map((i) => compactRow(i)).join('')}</ul>
+      <div class="px-4 py-2 border-t edge flex items-center gap-2 text-[12px] text-slate-500"><span>Picking a line here shows it on the timeline too.</span><span class="flex-1"></span><span class="btn sm" data-act="win">${I('target', 'w-3 h-3')} Show on timeline</span></div>
+    </div></div>`;
+}
+
+// ---------- NOW ----------
+function viewNow() {
+  const rows = REVIEW.map((i) => `<li class="py-3 border-t edge first:border-0" data-act="pick:${i}">${lineDetail(i)}</li>`).join('');
+  return appBar() + `<div class="scroll flex-1 min-h-0 overflow-y-auto p-4 flex flex-col gap-3">
+    ${playerCard(`<div class="flex items-center gap-2 mb-2"><span class="lbl">Player</span><span class="flex-1"></span><span class="btn sm">${I('pen', 'w-3 h-3')} Edit timing</span></div><div class="flex flex-col" style="height:300px">${timeline()}</div>`, 'shrink-0')}
+    ${pendingBar()}
+    <section class="card px-5 py-4 shrink-0">
+      <div class="flex flex-wrap items-baseline gap-2"><h3 class="text-[15px] font-semibold mr-1">Lines</h3>${tabsSeg()}${retakeBtn()}<span class="flex-1"></span><span class="text-[12px] text-slate-500">${SUMMARY}</span></div>
+      ${retakeConfirm()}
+      ${NOTES.map((n) => `<p class="text-[12px] text-slate-400 mt-2">${n}</p>`).join('')}
+      <ul class="mt-2">${rows}</ul>
+    </section>
+  </div>`;
+}
+
+// ---------- A: one strip under the timeline ----------
+function viewA() {
+  const k = Math.max(0, REVIEW.indexOf(S.pick));
+  const inReview = REVIEW.includes(S.pick);
+  const nav = `<div class="flex flex-wrap items-center gap-2 pt-3">
+    <span class="flex items-center gap-1 rounded-lg border border-amber-400/40 bg-amber-500/10 pl-1 pr-1 py-0.5">
+      <span class="ibtn" style="height:24px;width:24px;border:0" data-act="prev">${I('chevL', 'w-3.5 h-3.5')}</span>
+      <span class="text-[12.5px] text-amber-200 mono px-1">${inReview ? k + 1 : '–'} of 3</span><span class="text-[12.5px] text-amber-200">worth a listen</span>
+      <span class="ibtn" style="height:24px;width:24px;border:0" data-act="next">${I('chevR', 'w-3.5 h-3.5')}</span>
+    </span>
+    <span class="text-[12px] text-slate-500">${SUMMARY}</span>
+    <span class="flex-1"></span>${notesBtn()}
+    <span class="btn sm" data-act="retake">${I('mic', 'w-3 h-3')} Retake these 2</span>
+    <span class="btn sm" data-act="win">${I('list', 'w-3 h-3')} All lines · 14</span>
+  </div>`;
+  const strip = `<div class="mt-2 rounded-xl border edge bg-[#15171c] px-3 py-2.5">${lineDetail(S.pick, 'strip')}</div>`;
+  return appBar() + `<div class="flex-1 min-h-0 p-4 flex flex-col gap-3">
+    ${pendingBar()}
+    ${playerCard(`${timeline()}${nav}${S.win ? '' : retakeConfirm('review')}${notesBox()}${strip}`)}
+  </div>${linesWindow()}`;
+}
+
+// ---------- B: narrow list on the right, folds away ----------
+function viewB() {
+  const panel = S.side ? `<aside class="w-[22rem] shrink-0 min-h-0 flex flex-col rounded-2xl border edge bg-[#111216]">
+      <div class="px-3 pt-3 pb-2 border-b edge">
+        <div class="flex items-center gap-2"><h3 class="text-[14px] font-semibold">Lines</h3><span class="flex-1"></span>${notesBtn()}<span class="ibtn" data-act="side" title="Fold the list">${I('chevR')}</span></div>
+        <div class="mt-2">${tabsSeg(true)}</div>
+        <div class="mt-1.5 flex items-center gap-2"><span class="text-[11.5px] text-slate-500 flex-1">${SUMMARY}</span>${retakeBtn()}</div>
+        ${retakeConfirm()}${notesBox()}
+      </div>
+      <ul class="scroll flex-1 min-h-0 overflow-y-auto divide-y divide-[#1d2028]">${listRows().map((i) => compactRow(i, { narrow: true })).join('')}</ul>
+    </aside>`
+    : `<aside class="w-11 shrink-0 rounded-2xl border edge bg-[#111216] flex flex-col items-center py-3 gap-3 cursor-default" data-act="side" title="Show the list">
+      <span class="ibtn">${I('chevL')}</span><span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 mono">3</span>
+      <span class="text-[12px] text-slate-400" style="writing-mode:vertical-rl">Lines · worth a listen</span></aside>`;
+  return appBar() + `<div class="flex-1 min-h-0 p-4 flex flex-col gap-3">${pendingBar()}
+    <div class="flex-1 min-h-0 flex gap-3">${playerCard(timeline())}${panel}</div></div>`;
+}
+
+// ---------- C: on the clip ----------
+function viewC() {
+  const menu = S.menu ? `<div class="absolute z-10 left-0 top-9 w-[34rem] card shadow-2xl" data-stop="1">
+      <div class="px-3 pt-3 pb-2 border-b edge"><div class="flex items-center gap-2">${tabsSeg(true)}<span class="flex-1"></span>${notesBtn()}</div>
+      <div class="mt-1.5 flex items-center gap-2"><span class="text-[11.5px] text-slate-500 flex-1">${SUMMARY}</span>${retakeBtn()}</div>${retakeConfirm()}${notesBox()}</div>
+      <ul class="scroll max-h-[18rem] overflow-y-auto divide-y divide-[#1d2028]">${listRows().map((i) => compactRow(i, { open: false })).join('')}</ul>
+      <div class="px-3 py-2 border-t edge"><span class="btn sm" data-act="win">${I('list', 'w-3 h-3')} Open all lines…</span></div></div>` : '';
+  const chip = `<span class="relative"><span class="btn sm border-amber-400/50 text-amber-200 bg-amber-500/10" data-act="menu">${I('warn', 'w-3 h-3')} 3 worth a listen ${I('down', 'w-3 h-3')}</span>${menu}</span>`;
+  let pop = '';
+  if (S.pop && S.pick != null) {
+    const l = L[S.pick];
+    const left = Math.min(Math.max(((l.t / SPAN) * 100), 2), 52);
+    pop = `<div class="absolute z-[5] bottom-3 w-[min(44rem,70%)] card shadow-2xl px-3 py-2.5" style="left:calc(6rem + (100% - 6rem) * ${left / 100})" data-stop="1">
+      <div class="flex items-center gap-2 mb-1.5"><span class="lbl">Line ${S.pick + 1} of 14</span>${isProb(l) ? `<span class="text-[11px] px-1.5 rounded ${tagCls(l)}">${shortTag(l)}</span>` : ''}<span class="flex-1"></span><span class="ibtn" style="height:24px;width:24px" data-act="prev">${I('chevL', 'w-3 h-3')}</span><span class="ibtn" style="height:24px;width:24px" data-act="next">${I('chevR', 'w-3 h-3')}</span><span class="ibtn" style="height:24px;width:24px" data-act="closepop">${I('x', 'w-3 h-3')}</span></div>
+      <div class="scroll max-h-[22rem] overflow-y-auto">${lineDetail(S.pick, 'pop')}</div></div>`;
+  }
+  return appBar() + `<div class="flex-1 min-h-0 p-4 flex flex-col gap-3">${pendingBar()}
+    ${playerCard(timeline({ tools: chip, overlay: pop }))}</div>${linesWindow()}`;
+}
+
+// ---------- D: dock at the bottom ----------
+function viewD() {
+  const tabs = [['line', 'Line'], ['lines', 'Lines · 3'], ['notes', 'Notes · 2']];
+  const head = `<div class="flex items-center gap-2 px-3 h-10 shrink-0">
+    <span class="seg">${tabs.map(([id, t]) => `<span data-act="dockTab:${id}" class="${S.dockTab === id && S.dock ? 'on' : ''}">${t}</span>`).join('')}</span>
+    ${!S.dock && S.pick != null ? `<span class="text-[12px] text-slate-400 truncate min-w-0 flex-1"><span class="mono text-slate-500 mr-2">${clock(L[S.pick].t)}</span>${L[S.pick].dub}</span>` : '<span class="flex-1"></span>'}
+    <span class="text-[11.5px] text-slate-500 hidden md:inline">${SUMMARY}</span>
+    <span class="ibtn" data-act="dock" title="${S.dock ? 'Fold the dock' : 'Open the dock'}">${I(S.dock ? 'down' : 'up')}</span></div>`;
+  let body = '';
+  if (S.dock) {
+    if (S.dockTab === 'line') body = `<div class="px-3 pb-3">${lineDetail(S.pick, 'strip')}</div>`;
+    if (S.dockTab === 'lines') body = `<div class="px-3 pb-1 flex items-center gap-2">${tabsSeg(true)}${retakeBtn()}</div><div class="px-3">${retakeConfirm()}</div><ul class="divide-y divide-[#1d2028]">${listRows().map((i) => compactRow(i)).join('')}</ul>`;
+    if (S.dockTab === 'notes') body = `<div class="px-3 pb-3 flex flex-col gap-1.5">${NOTES.map((n) => `<p class="text-[12.5px] text-slate-400">${n}</p>`).join('')}</div>`;
+  }
+  const dock = `<div class="shrink-0 mt-3 rounded-xl border edge bg-[#15171c] flex flex-col" style="${S.dock ? 'height:250px' : ''}">
+    <div class="h-2 flex items-center justify-center cursor-row-resize"><span class="w-10 h-1 rounded bg-slate-600"></span></div>${head}
+    <div class="scroll flex-1 min-h-0 overflow-y-auto">${body}</div></div>`;
+  return appBar() + `<div class="flex-1 min-h-0 p-4 flex flex-col gap-3">${pendingBar()}${playerCard(timeline() + dock)}</div>`;
+}
+
+// ---------- E: two tabs, Timeline | Lines ----------
+function viewE() {
+  const tabs = `<div class="flex items-center gap-2 mb-2">
+    <span class="seg"><span data-act="etab:timeline" class="${S.etab === 'timeline' ? 'on' : ''}">Timeline</span><span data-act="etab:lines" class="${S.etab === 'lines' ? 'on' : ''}">Lines · <span class="text-amber-300">3 to listen</span></span></span>
+    <span class="text-[11.5px] text-slate-500">Tab switches</span></div>`;
+  let inner;
+  if (S.etab === 'timeline') {
+    const l = L[S.pick];
+    const info = `<div class="mt-2 flex items-center gap-2 rounded-xl border edge bg-[#15171c] px-3 py-2">
+      ${badge(l)}<span class="mono text-[11.5px] text-slate-500">${clock(l.t)}</span><span class="flex-1 min-w-0 truncate text-[13px]">${l.dub}</span>
+      ${isProb(l) ? `<span class="text-[11.5px] ${reasonCls(l)} hidden lg:inline">${reason(l)}</span>` : ''}
+      ${actions(l, S.pick)}<span class="btn sm" data-act="etab:lines">${I('list', 'w-3 h-3')} Open in Lines</span></div>`;
+    inner = tabs + timeline() + info + (S.takes ? takesPanel(l) : '');
+  } else {
+    inner = tabs + `<div class="flex flex-wrap items-baseline gap-2 pb-2 border-b edge">${tabsSeg()}${retakeBtn()}<span class="flex-1"></span><span class="text-[12px] text-slate-500">${SUMMARY}</span>${notesBtn()}</div>
+      ${retakeConfirm()}${notesBox()}
+      <ul class="scroll flex-1 min-h-0 overflow-y-auto">${listRows().map((i) => `<li class="py-3 px-1 border-b edge" data-act="pick:${i}">${lineDetail(i)}
+        <div class="mt-1 pl-[7.5rem]"><span class="text-[11.5px] text-indigo-300 cursor-default" data-act="show:${i}">${I('target', 'w-3 h-3 inline')} Show on timeline</span></div></li>`).join('')}</ul>`;
+  }
+  return appBar() + `<div class="flex-1 min-h-0 p-4 flex flex-col gap-3">${pendingBar()}${playerCard(inner)}</div>`;
+}
+
+// ---------- shell ----------
+const VIEWS = {
+  Now: { f: viewNow, note: '<b>এখন যা আছে।</b> টাইমলাইন প্রায় ৩০০ px-এ আটকে থাকে, আর তার নিচে Lines কার্ড পুরো পাতা জুড়ে বসে। নিচে স্ক্রোল করলে বাকিটা দেখা যায়।' },
+  A: { f: viewA, note: '<b>Mock A — টাইমলাইনের নিচে এক স্ট্রিপ।</b> Lines কার্ড আর নেই, টাইমলাইন বাকি পুরো উচ্চতা পায়। নিচের সারিতে ‹ 1 of 3 › চাপলে শোনার মতো লাইনগুলো একটা একটা করে আসে। বাছা লাইনের সবকিছু, মানে কারণ, বার, Listen, Takes আর Shorten ▾, এক সারির স্ট্রিপে থাকে। ট্যাব, Hand edits, Every line আর Retake all-এর পুরো তালিকা খোলে <b>All lines</b> চাপলে, মাঝখানের উইন্ডোতে। যেকোনো ক্লিপে ক্লিক করলে সেই লাইন স্ট্রিপে আসে।' },
+  B: { f: viewB, note: '<b>Mock B — ডানদিকে সরু তালিকা, ভাঁজ করা যায়।</b> টাইমলাইন পুরো উচ্চতা পায়, আর ডানদিকে ২২rem চওড়া তালিকা, প্রতিটা লাইন এক সারিতে। লাইনে ক্লিক করলে সেখানেই পুরোটা খুলে যায়, Shorten বক্সসহ। ⟩ চাপলে তালিকা ভাঁজ হয়ে সরু একটা দাগ হয়ে যায় (তাতে অ্যাম্বার "3" থাকে), তখন টাইমলাইন পুরো চওড়াও পায়।' },
+  C: { f: viewC, note: '<b>Mock C — সব ক্লিপের ওপরেই।</b> কোনো প্যানেল নেই, পুরো পাতা টাইমলাইনের। সমস্যার লাইনের ক্লিপে ওপরে অ্যাম্বার দাগ থাকে, আর না-আসা (silent) লাইন লাল ছক কাটা বাক্স। ক্লিপে ক্লিক করলে টাইমলাইনের ওপর একটা কার্ড ভেসে ওঠে, তাতে সব বোতাম আর ‹ › থাকে। টুলবারের <b>3 worth a listen ▾</b> মেনুতে থাকে ট্যাব, তালিকা, Retake these, নোট আর All lines।' },
+  D: { f: viewD, note: '<b>Mock D — নিচে ডক, DAW-এর মতো।</b> টাইমলাইনের নিচে একটা ডক, তাতে তিনটে ট্যাব: <b>Line</b> (বাছা লাইনের সবকিছু), <b>Lines</b> (তালিকা, ট্যাব, Retake) আর <b>Notes</b>। ⌄ চাপলে ডক নেমে এক সারি হয়ে যায় আর টাইমলাইন প্রায় পুরো পাতা পায়। ওপরের দাগ টেনে উচ্চতা বদলানো যায়, মকে শুধু খোলা আর বন্ধ হয়।' },
+  E: { f: viewE, note: '<b>Mock E — দুটো ট্যাব: Timeline | Lines।</b> প্লেয়ারের মধ্যেই দুটো ট্যাব, একসাথে একটাই দেখা যায়। Timeline ট্যাবে টাইমলাইন পুরো পাতা জুড়ে থাকে, আর বাছা লাইনের এক সারি তথ্য সঙ্গে <b>Open in Lines</b>। Lines ট্যাবে এখনকার তালিকাটাই পুরো পাতা জুড়ে, কিছু বদলায়নি, প্রতিটা লাইনে শুধু বাড়তি <b>Show on timeline</b>। Tab চাপলে ট্যাব বদলায়।' },
+};
+const FEAT = [
+  'ট্যাব: Worth a listen / Too long / End early / Hand edits / Every line',
+  'সারাংশ: outside tolerance · too long…',
+  'Retake these / Retake all, Takes 1–3 বেছে নিশ্চিত করা',
+  '"2 lines changed" → Sync again / Changed only',
+  'নোট: continuous read, আটকে রাখা সাজেশন, সাজেশনের ত্রুটি',
+  'লাইনের অফসেট, সময়, ডাবের লেখা, মূল ইংরেজি',
+  'দৈর্ঘ্যের বার + কারণ (longer / silent / into next)',
+  'Listen',
+  'Takes (নতুন টেক শুনে বাছা)',
+  'Retake (একটা লাইন)',
+  'Shorten / Make fuller বক্স: Suggest 2, বিকল্প, ইংরেজিতে ফেরত অনুবাদ, Copy, Use this line, Voice and use, syllables, সময়ের আন্দাজ',
+  'Better-fitting take ready: Listen · Use it · Keep old',
+  'Read faster to fit / Measured words নোট',
+  'Changed. Sync again to hear it',
+  'প্লেয়ারে লাইন বাছলে সেই লাইন খোলে',
+];
+const MAP = {
+  Now: Array(15).fill('Lines কার্ড'),
+  A: ['All lines উইন্ডো', 'নিচের সারি', 'নিচের সারি + All lines উইন্ডো', 'টাইমলাইনের ওপরে', '2 notes বোতাম', 'স্ট্রিপ', 'স্ট্রিপ + ক্লিপে অ্যাম্বার দাগ', 'স্ট্রিপ', 'স্ট্রিপ → Takes প্যানেল', 'স্ট্রিপ (silent লাইনে)', 'স্ট্রিপে Shorten ▾', 'স্ট্রিপ', 'স্ট্রিপ', 'স্ট্রিপ + ক্লিপে নীল দাগ', 'ক্লিপে ক্লিক = স্ট্রিপে সেই লাইন'],
+  B: ['তালিকার মাথায়', 'তালিকার মাথায়', 'তালিকার মাথায়', 'টাইমলাইনের ওপরে', '2 notes, তালিকার মাথায়', 'খোলা সারি', 'খোলা সারি + ছোট ট্যাগ', 'খোলা সারি / মাউস নিলে ▶', 'খোলা সারি', 'খোলা সারি', 'খোলা সারি', 'খোলা সারি', 'খোলা সারি', 'সারিতে "changed"', 'ক্লিপে ক্লিক = তালিকায় খোলে'],
+  C: ['▾ মেনু', '▾ মেনু', '▾ মেনু', 'টাইমলাইনের ওপরে', '▾ মেনু', 'ভাসমান কার্ড', 'ভাসমান কার্ড + ক্লিপে দাগ', 'ভাসমান কার্ড', 'ভাসমান কার্ড', 'ভাসমান কার্ড', 'ভাসমান কার্ডে Shorten ▾', 'ভাসমান কার্ড', 'ভাসমান কার্ড', 'ভাসমান কার্ড + ক্লিপে নীল দাগ', 'ক্লিপে ক্লিক = কার্ড'],
+  D: ['ডক → Lines', 'ডকের মাথায়', 'ডক → Lines', 'টাইমলাইনের ওপরে', 'ডক → Notes', 'ডক → Line', 'ডক → Line', 'ডক → Line', 'ডক → Line', 'ডক → Line', 'ডক → Line, Shorten ▾', 'ডক → Line', 'ডক → Line', 'ডক → Line', 'ক্লিপে ক্লিক = ডক → Line'],
+  E: ['Lines ট্যাব', 'Lines ট্যাব', 'Lines ট্যাব', 'টাইমলাইনের ওপরে', 'Lines ট্যাব', 'দুই ট্যাবেই', 'Lines ট্যাব', 'দুই ট্যাবেই', 'দুই ট্যাবেই', 'Lines ট্যাব', 'Lines ট্যাব (এখনকার মতো খোলা)', 'Lines ট্যাব', 'Lines ট্যাব', 'Lines ট্যাব', 'ক্লিপ বেছে Open in Lines'],
+};
+function render() {
+  document.getElementById('tabs').innerHTML = Object.keys(VIEWS).map((k) => `<span data-act="view:${k}" class="tab ${S.view === k ? 'on' : ''}">${k === 'Now' ? 'এখন' : 'Mock ' + k}</span>`).join('');
+  document.getElementById('note').innerHTML = VIEWS[S.view].note;
+  document.getElementById('frame').innerHTML = VIEWS[S.view].f();
+  document.getElementById('feat').innerHTML = FEAT.map((f, k) => `<tr><td class="text-emerald-400">${I('check', 'w-3.5 h-3.5')}</td><td class="text-slate-300">${f}</td><td class="text-slate-400 text-right whitespace-nowrap">${MAP[S.view][k]}</td></tr>`).join('');
+  const el = document.getElementById('lanes');
+  document.getElementById('hgt').textContent = el ? `timeline ${Math.round(el.getBoundingClientRect().height)} px` : 'timeline: Lines tab open';
+}
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-act]');
+  if (!a || a.matches('input')) return;
+  // A click inside a window or a menu stays there unless it hits its own action.
+  const stop = e.target.closest('[data-stop]');
+  if (stop && a.contains(stop)) return;
+  const [n, v] = a.dataset.act.split(':');
+  const step = (d) => { const k = REVIEW.indexOf(S.pick); S.pick = REVIEW[(k < 0 ? 0 : k + d + REVIEW.length) % REVIEW.length]; S.takes = false; S.box = false; S.sugg = false; S.pop = true; };
+  if (n === 'view') { S.view = v; S.win = S.menu = S.takes = S.notes = S.retake = false; S.pick = 3; S.pop = true; }
+  else if (n === 'pick') { const i = +v; if (S.pick !== i) { S.takes = S.box = S.sugg = false; } S.pick = i; S.pop = true; if (S.view === 'D') S.dockTab = 'line'; }
+  else if (n === 'unpick') { if (S.view === 'C') S.pop = false; else return; }
+  else if (n === 'show') { S.pick = +v; S.etab = 'timeline'; }
+  else if (n === 'next') step(1); else if (n === 'prev') step(-1);
+  else if (n === 'tab') S.tab = v; else if (n === 'retakeN') S.retakeN = +v;
+  else if (n === 'dockTab') { S.dockTab = v; S.dock = true; } else if (n === 'etab') S.etab = v;
+  else if (n === 'closepop') S.pop = false;
+  else if (['sugg', 'takes', 'box', 'win', 'notes', 'retake', 'side', 'menu', 'dock'].includes(n)) S[n] = !S[n];
+  else return;
+  e.stopPropagation();
+  render();
+});
+document.getElementById('pend').addEventListener('change', (e) => { S.pending = e.target.checked; render(); });
+document.addEventListener('keydown', (e) => { if (S.view === 'E' && e.key === 'Tab' && !e.target.closest('textarea')) { e.preventDefault(); S.etab = S.etab === 'timeline' ? 'lines' : 'timeline'; render(); } });
+window.addEventListener('resize', render);
+render();
+</script>
+</body>
+</html>

@@ -21,13 +21,15 @@ export const languageTag = (language?: string): string => {
  * A line as the player shows it: the original's words above, the dub's below,
  * in small type so the whole sentence fits, wrapping when it does not.
  */
-export const LinePair: React.FC<{ source?: string; dub?: string; sourceLanguage?: string; dubLanguage?: string; className?: string }> = ({
-  source,
-  dub,
-  sourceLanguage,
-  dubLanguage,
-  className = '',
-}) => {
+export const LinePair: React.FC<{
+  source?: string;
+  dub?: string;
+  sourceLanguage?: string;
+  dubLanguage?: string;
+  className?: string;
+  /** Larger type, where the line is what the row is for. */
+  large?: boolean;
+}> = ({ source, dub, sourceLanguage, dubLanguage, className = '', large = false }) => {
   const row = (tag: string, language: string | undefined, text: string, textClass: string) => (
     <span className="flex items-baseline gap-2 min-w-0">
       <span className="w-5 shrink-0 font-mono text-[10px] text-slate-500" title={language || undefined}>{tag}</span>
@@ -36,8 +38,8 @@ export const LinePair: React.FC<{ source?: string; dub?: string; sourceLanguage?
   );
   return (
     <span className={`flex-1 min-w-0 flex flex-col gap-0.5 ${className}`}>
-      {row(languageTag(sourceLanguage) || 'EN', sourceLanguage, source || '', 'text-[11px] text-slate-400')}
-      {row(languageTag(dubLanguage), dubLanguage, dub || '', 'text-[12px] text-slate-100')}
+      {row(languageTag(sourceLanguage) || 'EN', sourceLanguage, source || '', large ? 'text-[12.5px] text-slate-400' : 'text-[11px] text-slate-400')}
+      {row(languageTag(dubLanguage), dubLanguage, dub || '', large ? 'text-[15px] text-slate-50' : 'text-[12px] text-slate-100')}
     </span>
   );
 };

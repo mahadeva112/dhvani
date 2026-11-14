@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>After Dub Review-style</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#232a36; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .card { background:#11141b; border:1px solid #232a36; border-radius:16px; }
+  .btn { height:30px; padding:0 10px; border:1px solid #232a36; border-radius:9px; background:#151922; color:#cbd5e1; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .btn.pri { background:#4f46e5; border-color:#6366f1; color:#fff; font-weight:600; }
+  .sbtn { height:27px; padding:0 9px; border:1px solid #334155; border-radius:8px; background:#0f131b; color:#e2e8f0; font-size:12px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+  .chip { font-size:11.5px; padding:1px 8px; border-radius:999px; border:1px solid; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .ta { background:#0c0f15; border:1px solid #2a3240; border-radius:10px; color:#f1f5f9; }
+  #stage { width:1905px; height:974px; transform-origin: top left; background:#0a0c11; position:relative; overflow:hidden; border-radius:10px; }
+  .row.open { background:#151a26; }
+  .kbd { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; padding:0 5px; border-radius:4px; border:1px solid #334155; color:#94a3b8; }
+  .new { box-shadow: 0 0 0 2px #22d3ee88; }
+  .seg { display:inline-flex; border-radius:12px; border:1px solid #232a36; background:#0c0f15; padding:2px; font-size:12.5px; }
+  .seg span { padding:4px 10px; border-radius:9px; color:#94a3b8; cursor:pointer; white-space:nowrap; }
+  .seg span.on { background:#1e293b; color:#f1f5f9; }
+  .tip { position:relative; }
+  .tip .pop { display:none; position:absolute; top:calc(100% + 6px); left:0; z-index:40; background:#020617; border:1px solid #334155; border-radius:10px; padding:10px 12px; font-size:12px; color:#cbd5e1; white-space:nowrap; }
+  .tip:hover .pop { display:block; }
+  .feat td { padding:5px 6px; vertical-align:top; border-top:1px solid #1d2028; }
+  .hatch { background-image: repeating-linear-gradient(135deg, #f43f5e88 0 3px, transparent 3px 6px); }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-3 sm:p-5">
+<div class="max-w-[1905px] mx-auto">
+  <div class="flex flex-wrap items-center gap-2 mb-2 text-[13px]">
+    <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+    <span class="font-semibold text-[15px] mr-1">ডাবের পর, Review-এর মতো সরল</span>
+    <div id="tabs" class="inline-flex flex-wrap rounded-lg border edge overflow-hidden"></div>
+    <label class="ml-2 inline-flex items-center gap-1.5 text-slate-400"><input id="marks" type="checkbox" checked /> যা নতুন, নীল দাগে দেখাও</label>
+    <span id="count" class="ml-auto text-slate-300"></span>
+  </div>
+  <p id="note" class="text-[13.5px] text-slate-300 mb-3 max-w-[95rem] leading-relaxed"></p>
+  <div id="wrap" style="position:relative"><div id="stage"></div></div>
+  <p class="text-[12px] text-slate-500 mt-2">ফ্রেমটা তোমার স্ক্রিনের মাপ (1905 × 974) ছোট করে দেখানো। হলুদ রেখা = স্ক্রিনের নিচের কিনারা। উপরের সংখ্যা = তালিকায় যতগুলো লাইন পুরো দেখা যায়।</p>
+
+  <div class="card p-4 mt-5">
+    <div class="flex items-center gap-3 mb-1"><h2 class="text-[15px] font-semibold">আজকের Dub পাতার কোন জিনিস কোথায় যায়</h2><span class="text-[12px] text-emerald-300 bg-emerald-500/10 rounded px-2">কোনোটা বাদ নেই</span></div>
+    <table class="feat w-full text-[12.5px]"><thead><tr class="text-slate-500 text-left"><th class="py-1 px-1.5 font-medium">আজ</th><th class="px-1.5 font-medium">R1</th><th class="px-1.5 font-medium">R2</th><th class="px-1.5 font-medium">R3</th><th class="px-1.5 font-medium">R4</th></tr></thead><tbody id="feat"></tbody></table>
+  </div>
+</div>
+
+<script>
+// [start, dur, speaker, English, Hindi, status, offset]
+// status: ok | listen (start outside tolerance) | long (too long for its slot) | edited (hand edit) | changed (words changed, needs retake)
+const LINES = [
+  [0.0,2.2,1,"I don't know how Vicky Yash became Ravana.","पता नहीं यश रावण कैसे बन गए।","ok",0.04],
+  [2.3,0.8,1,"I know him very well.","मैं उन्हें अच्छे से जानता हूँ।","listen",-0.17],
+  [4.6,1.9,2,"There was a question whether anyone could play Ravana at all.","सवाल था कि रावण को कोई निभा भी सकता है या नहीं।","ok",0.02],
+  [6.8,2.6,1,"He was a scholar, a great devotee of Shiva.","वह विद्वान था, शिव का बड़ा भक्त।","edited",0.0],
+  [9.6,3.1,1,"People only remember the ten heads.","लोग बस दस सिर याद रखते हैं।","ok",0.05],
+  [12.9,1.4,1,"But that is not the whole story.","पर पूरी कहानी यह बिल्कुल नहीं है।","long",0.0],
+  [14.5,2.8,2,"So what made him fall?","तो उसका पतन किसने किया?","ok",0.03],
+  [17.6,2.2,1,"His own desire, nothing else.","उसकी अपनी इच्छा, और कुछ नहीं।","ok",-0.06],
+  [20.0,3.4,1,"Ram did not defeat him, he defeated himself.","राम ने उसे नहीं हराया, उसने खुद को हराया।","listen",0.21],
+  [23.6,1.9,1,"That is what the story is really about.","कहानी असल में इसी के बारे में है।","ok",0.01],
+  [25.8,2.4,1,"Every one of us carries a Ravana.","हम सब के भीतर एक रावण है।","changed",0.0],
+  [28.4,1.6,1,"The question is who wins.","सवाल यह है कि जीतता कौन है।","ok",0.04],
+  [30.3,2.9,2,"And how do you make sure it is Ram?","और यह कैसे पक्का करें कि जीत राम की हो?","ok",0.02],
+  [33.5,2.0,1,"You don't fight the Ravana.","आप रावण से लड़ते नहीं।","ok",-0.03],
+  [35.7,3.0,1,"You simply stop feeding him.","आप बस उसे खिलाना बंद कर देते हैं।","ok",0.05],
+  [39.0,1.8,1,"That is all.","बस इतना ही।","ok",0.0],
+  [41.1,2.6,1,"It sounds simple, but it is a life's work.","सुनने में आसान है, पर यह पूरी ज़िंदगी का काम है।","ok",0.06],
+  [44.0,2.1,2,"Thank you for being here.","यहाँ आने के लिए धन्यवाद।","ok",0.02],
+  [46.3,2.4,1,"Let us sit for a few minutes.","चलिए कुछ मिनट बैठते हैं।","ok",0.01],
+  [49.0,2.0,1,"Close your eyes.","आँखें बंद कर लीजिए।","ok",0.0],
+];
+const N = LINES.length;
+const DUBC = ['#818cf8','#2dd4bf','#38bdf8','#a78bfa'];
+const SPKC = { 1:'#818cf8', 2:'#2dd4bf' };
+const fmt = (t) => `0:${t.toFixed(1).padStart(4,'0')}`;
+const NEW = () => document.getElementById('marks').checked ? 'new' : '';
+const pad = (i) => String(i+1).padStart(2,'0');
+const off = (o) => (o > 0 ? '+' : o < 0 ? '−' : '±') + Math.abs(o).toFixed(2) + ' s';
+const NOTE = { listen:(l)=> l[6] < 0 ? 'Starts early to make room' : 'Starts late, after the line before', long:()=> 'Too long for its slot, runs 0.4 s into the next line', edited:()=> 'Hand edit, Sync keeps it', changed:()=> 'Words changed, retake to hear them' };
+const TAG = {
+  listen:(l)=> `<span class="mono text-[11px] px-1.5 rounded bg-amber-500/15 text-amber-300 shrink-0">${off(l[6])}</span>`,
+  long:()=> '<span class="text-[11px] px-1.5 rounded bg-rose-500/15 text-rose-300 shrink-0">Too long</span>',
+  edited:()=> '<span class="text-[11px] px-1.5 rounded bg-slate-500/15 text-slate-300 shrink-0">Hand edit</span>',
+  changed:()=> '<span class="text-[11px] px-1.5 rounded bg-sky-500/15 text-sky-300 shrink-0">Retake ↻</span>',
+};
+const tag = (l) => TAG[l[5]] ? TAG[l[5]](l) : '';
+const EDGE = { listen:'border-amber-400', long:'border-rose-500', changed:'border-sky-400' };
+const edge = (l) => `border-l-2 ${EDGE[l[5]] || 'border-transparent'}`;
+const dot = (s) => `<span class="w-2 h-2 rounded-full shrink-0" style="background:${SPKC[s]}" title="Speaker ${s}"></span>`;
+const PICK = 1; // the picked line (Line 02)
+
+// ---------------- shared pieces ----------------
+const appBar = (extra='') => `
+<div class="h-[57px] flex items-center gap-3 px-5 border-b edge bg-[#0a0c11] shrink-0">
+  <div class="w-8 h-8 rounded-lg bg-indigo-600"></div>
+  <div class="leading-tight"><div class="font-semibold text-[15px]">Dhvani</div><div class="text-[11px] text-slate-500">Dubbing studio</div></div>
+  <div class="ml-6 leading-tight"><div class="text-[13px] font-semibold">Ravana could not defeat Ram</div><div class="text-[11.5px] text-slate-400">English → Hindi · 0:51 <span class="text-emerald-400">✓ Dub ready</span></div></div>
+  <div class="mx-auto flex items-center gap-1 rounded-full border edge px-2 py-1 text-[13px]">
+    <span class="px-3 text-slate-400">✓ Source &amp; voice</span><span class="px-3 text-slate-400">✓ Review</span>
+    <span class="px-3 py-0.5 rounded-full bg-slate-800 font-semibold">③ Dub</span>
+  </div>
+  ${extra}
+  <span class="btn">● Online</span><span class="btn">Projects 13</span><span class="btn" title="Tools hub: Change the voice, Text to speech, Voice changer">⚙</span><span class="btn bg-slate-100 !text-slate-900">+ New dub</span>
+</div>`;
+// The setup moves to the app bar, like Translation does on Review.
+const setupBar = () => `<span class="inline-flex gap-1.5 rounded-xl ${NEW()}"><span class="btn" title="Voice and delivery · Cast · Change the voice">◉ Rachel · v4</span><span class="btn" title="Line by line · Phrase ±150 ms · Joins: Long dub, fitted">Sync settings <span class="text-amber-300 text-[11px]">7 changed</span></span></span>`;
+
+const verdictChip = (cls='') => `
+<span class="tip ${cls} rounded-lg"><span class="btn"><span class="w-2 h-2 rounded-full bg-amber-400"></span><b class="text-amber-200 font-semibold">2 to listen</b><span class="text-slate-400">· 1 too long · runs 6% long</span></span>
+  <span class="pop"><div class="text-amber-200 font-semibold mb-1">Needs a fix · the dub runs 6% longer than the original</div><div class="text-slate-400 mb-2">Long dub, fitted suits this dub.</div>
+  <div class="grid grid-cols-5 gap-4 mono"><span>In sync<br><b class="text-white">17 / 20</b></span><span>90% start within<br><b class="text-white">0.17 s</b></span><span>Worst line<br><b class="text-amber-300">0.21 s</b></span><span>Too long<br><b class="text-white">1</b></span><span>Precision<br><b class="text-white">Phrase ±150 ms</b></span></div></span></span>`;
+
+const editBtns = () => `<span class="inline-flex gap-1.5 ${NEW()} rounded-lg"><span class="btn">↶ Undo</span><span class="btn">↷</span><span class="btn">⟲ History 1 ▾</span></span>`;
+const playerHead = (left='', right='') => `
+  <div class="flex items-center gap-2.5 px-4 h-[44px] text-[12px] border-b edge">
+    ${left}
+    <span class="mono text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded">Line 02 of 20</span>
+    <span class="mono text-slate-300">00:02.3 – 00:03.1</span><span class="text-slate-400">SPEAKER 1</span>
+    <span class="ml-auto"></span>${right}
+    <span class="btn">− ━━●━━ +</span><span class="btn">Whole track</span><span class="btn mono">Wave ×1</span><span class="btn">?</span>
+  </div>`;
+const laneLabel = (name, c) => `<div class="w-[132px] shrink-0 flex items-center gap-2 px-3 text-[11.5px] text-slate-300 border-r edge"><span class="w-1.5 h-1.5 rounded-full" style="background:${c}"></span>${name}<span class="ml-auto flex gap-1 text-[10px] text-slate-500"><span class="kbd">M</span><span class="kbd">S</span></span></div>`;
+function lanes(h=52){
+  return `
+  <div class="relative">
+    <div class="flex text-[10.5px] text-slate-500 mono h-[18px] items-center"><span class="w-[132px] shrink-0 px-3">0:51 in all</span><span class="flex-1 flex justify-between pr-4"><span>00:00</span><span>00:05</span><span>00:10</span><span>00:15</span><span>00:20</span><span>00:25</span><span>00:30</span></span></div>
+    <div class="flex border-t edge">${laneLabel('Original','#22d3ee')}<canvas data-wave="src" data-h="${h}" class="flex-1 min-w-0 block" style="height:${h}px"></canvas></div>
+    <div class="flex">${laneLabel('Dub','#818cf8')}<canvas data-wave="dub" data-h="${h}" class="flex-1 min-w-0 block" style="height:${h}px"></canvas></div>
+    <div class="absolute left-[160px] top-[18px] bottom-0 w-[2px] bg-rose-500"></div>
+  </div>
+  <div class="mx-4 my-[5px] h-[7px] rounded bg-slate-800 relative"><div class="absolute left-0 top-0 h-full w-[60%] rounded bg-slate-600"></div></div>`;
+}
+const mini = () => `<div class="relative px-4 pt-2"><canvas data-wave="mini" data-h="26" class="w-full block rounded" style="height:26px"></canvas><div class="absolute top-2 h-[26px] border border-slate-200/80 rounded" style="left:calc(16px + 1%);width:58%"></div></div>`;
+const transportBtns = `<span class="btn">⏮</span><span class="w-9 h-9 rounded-full bg-slate-100 text-slate-900 flex items-center justify-center shrink-0">▶</span><span class="btn">⏭</span><span class="mono text-[13px] whitespace-nowrap">00:02.3 <span class="text-slate-500">/ 00:51.0</span></span>`;
+// Play row: caption = the picked line's card, like Review's LineFitRow
+const l = LINES[PICK];
+const lineCardRow = (extra='', fixes=true) => `
+  <div class="flex items-center gap-2.5 px-4 h-[58px] ${NEW()} rounded-b-2xl">
+    ${transportBtns}<span class="w-px h-8 bg-slate-700 mx-1"></span>
+    <span class="mono font-semibold text-[11.5px]" style="color:${DUBC[0]}">Line 02</span>
+    <div class="leading-tight min-w-0 flex-1"><div class="text-[15px] truncate">${l[4]}</div><div class="text-[11.5px] text-slate-400 truncate">${l[3]}</div></div>
+    <div class="text-[12.5px] whitespace-nowrap"><b class="text-amber-300 mono">${off(l[6])}</b><span class="text-slate-400"> · Starts early to make room</span></div>
+    ${fixes ? `<span class="sbtn">⇄ Listen A/B</span><span class="sbtn">◎ Takes <span class="kbd">T</span></span><span class="sbtn">Fix ▾</span>` : ''}
+    <span class="w-px h-8 bg-slate-700 mx-1"></span><span class="btn mono">1× ▾</span><span class="btn">Add video</span>${extra}
+  </div>`;
+
+const search = (w='w-[18rem]') => `<span class="${w} h-[32px] rounded-xl border edge bg-[#0c0f15] px-3 flex items-center text-[12.5px] text-slate-500">⌕ Find in lines</span>`;
+const showMenu = (label='Show Every line 20 ▾') => `<span class="btn" title="Worth a listen 2 · Too long 1 · Hand edits 1 · Every line 20">${label}</span>`;
+const COLS = 'grid-cols-[4.5rem_4.5rem_minmax(0,1fr)_minmax(0,1.3fr)]';
+const colHead = (dubLabel='Hindi dub') => `<div class="grid ${COLS} gap-4 px-4 h-[32px] items-center border-b edge text-[12px] text-slate-500 sticky top-0 bg-[#11141b] z-10"><span>#</span><span>Time</span><span>Original</span><span>${dubLabel}</span></div>`;
+const footer = (left, right) => `<div class="h-[46px] border-t edge flex items-center gap-2 px-4 text-[12px] text-slate-400 shrink-0">${left}<span class="ml-auto"></span>${right}</div>`;
+const exportBtns = () => `<span class="inline-flex gap-1.5 rounded-xl ${NEW()}"><span class="btn" title="Sync changed lines only · Sync again · Sync from scratch…">↻ Sync again ▾</span><span class="btn pri" title="WAV / MP3 · Dub + tracks · Stems · Subtitles · Script">⤓ Export ▾</span></span>`;
+
+// Rows (Review grammar: number, time, original, dub text you can edit)
+const row = (x,i, open=false) => `
+<div class="row ${open?'open':''} ${edge(x)} grid ${COLS} gap-4 px-4 py-[7px] border-b edge items-start">
+  <div class="flex gap-2 items-center text-[12px] text-slate-400 pt-1"><span class="btn !h-6 !px-1.5">▷</span><span class="mono">${pad(i)}</span></div>
+  <div class="mono text-[12px] text-slate-400 pt-1.5">${fmt(x[0])}</div>
+  <div class="text-[13.5px] text-slate-300 flex items-center gap-2 min-w-0 pt-1">${dot(x[2])}<span class="truncate">${x[3]}</span></div>
+  <div>
+    <div class="ta px-3 py-[6px] text-[16px] flex items-center gap-2 ${open?'ring-1 ring-indigo-500':''}"><span class="flex-1">${x[4]}</span>${tag(x)}</div>
+    ${NOTE[x[5]] && x[5] !== 'edited' ? `<div class="text-[11.5px] mt-1 ${x[5]==='long'?'text-rose-300':x[5]==='changed'?'text-sky-300':'text-amber-300/90'}">${NOTE[x[5]](x)}</div>` : ''}
+  </div>
+</div>`;
+// R2: the dub column draws the line's own wave in its room
+const waveRow = (x,i, open=false) => `
+<div class="row ${open?'open':''} ${edge(x)} grid ${COLS} gap-4 px-4 py-[6px] border-b edge items-start">
+  <div class="flex gap-2 items-center text-[12px] text-slate-400 pt-1"><span class="btn !h-6 !px-1.5">▷</span><span class="mono">${pad(i)}</span></div>
+  <div class="mono text-[12px] text-slate-400 pt-1.5">${fmt(x[0])}<div class="text-slate-600">${x[1]}s</div></div>
+  <div class="text-[13.5px] text-slate-300 flex items-center gap-2 min-w-0 pt-1">${dot(x[2])}<span class="truncate">${x[3]}</span></div>
+  <div class="min-w-0">
+    <div class="flex items-center gap-2 text-[16px] ${open?'ta px-3 py-[5px] ring-1 ring-indigo-500':'px-0.5'}"><span class="flex-1 min-w-0 truncate">${x[4]}</span>${tag(x)}</div>
+    <canvas data-wave="row" data-i="${i}" data-h="20" class="w-full block mt-1" style="height:20px"></canvas>
+  </div>
+</div>`;
+// R4: a listen pass, each line gets a heard tick
+const HEARD = new Set([0,2,3,4]);
+const passRow = (x,i, open=false) => {
+  const h = HEARD.has(i), mark = open ? '<span class="w-5 h-5 rounded-full border-2 border-indigo-400 flex items-center justify-center text-[10px] text-indigo-300">▶</span>' : h ? '<span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-[11px]">✓</span>' : '<span class="w-5 h-5 rounded-full border border-slate-600"></span>';
+  return `
+<div class="row ${open?'open':''} ${edge(x)} grid ${COLS} gap-4 px-4 py-[7px] border-b edge items-start">
+  <div class="flex gap-2 items-center text-[12px] text-slate-400 pt-1">${mark}<span class="mono">${pad(i)}</span></div>
+  <div class="mono text-[12px] text-slate-400 pt-1.5">${fmt(x[0])}</div>
+  <div class="text-[13.5px] ${h?'text-slate-500':'text-slate-300'} flex items-center gap-2 min-w-0 pt-1">${dot(x[2])}<span class="truncate">${x[3]}</span></div>
+  <div>
+    <div class="ta px-3 py-[6px] text-[16px] flex items-center gap-2 ${open?'ring-1 ring-indigo-500':''} ${h?'opacity-60':''}"><span class="flex-1">${x[4]}</span>${tag(x)}</div>
+    ${open ? `<div class="flex items-center gap-2 mt-2 ${NEW()} rounded-lg"><span class="text-[12px] text-amber-300 mr-1">${NOTE.listen(x)} · ${off(x[6])}</span><span class="sbtn !border-emerald-600 text-emerald-200">✓ Sounds right <span class="kbd">Enter</span></span><span class="sbtn">◎ Takes <span class="kbd">T</span></span><span class="sbtn">Nudge to the original</span><span class="sbtn">Shorter wording</span><span class="sbtn">Later <span class="kbd">N</span></span></div>` : NOTE[x[5]] && x[5] !== 'edited' ? `<div class="text-[11.5px] mt-1 ${x[5]==='long'?'text-rose-300':x[5]==='changed'?'text-sky-300':'text-amber-300/90'}">${NOTE[x[5]](x)}</div>` : ''}
+  </div>
+</div>`; };
+
+const listBox = (tb, inner, foot, head=colHead()) =>
+  `<div class="card mx-[30px] my-[12px] overflow-hidden flex flex-col flex-1 min-h-0" data-list>${tb}<div class="flex-1 min-h-0 overflow-hidden">${head}${inner}</div>${foot}</div>`;
+const topBox = (html) => `<div class="mx-[30px] mt-[12px] shrink-0">${html}</div>`;
+const column = (html) => `<div class="flex flex-col h-full">${html}</div>`;
+const toolbar = (inner) => `<div class="flex items-center gap-2 px-4 h-[50px] border-b edge shrink-0">${inner}</div>`;
+const viewSeg = (opts, on) => `<span class="seg" data-seg>${opts.map((o)=>`<span class="${o===on?'on':''}" data-view="${o}">${o}</span>`).join('')}</span>`;
+
+// ---------------- R3 timeline view ----------------
+let r3view = 'Timeline';
+const tlTools = `<span class="inline-flex gap-1 rounded-xl border edge bg-[#0c0f15] p-0.5">${['↖ Select','⟷ Range','✂ Blade','⊓ Snap','⇥ Ripple','⚑ Marker'].map((t,i)=>`<span class="px-2 py-1 rounded-lg text-[12px] ${i===0?'bg-slate-800 text-white':'text-slate-400'}">${t}</span>`).join('')}</span>
+  <span class="inline-flex gap-1.5">${['Split','Join','Align','Mute','Lock','Split at pauses','Tighten'].map(t=>`<span class="sbtn">${t}</span>`).join('')}</span>`;
+const tlLane = (name, c, kind, h, extra='') => `<div class="flex border-b edge">${laneLabel(name,c).replace('w-[132px]','w-[150px]')}<div class="relative flex-1 min-w-0"><canvas data-wave="${kind}" data-h="${h}" class="w-full block" style="height:${h}px"></canvas>${extra}</div></div>`;
+const timelineBody = () => `
+  <div class="flex-1 min-h-0 flex flex-col">
+    <div class="flex text-[10.5px] text-slate-500 mono h-[20px] items-center border-b edge"><span class="w-[150px] shrink-0 px-3">Markers ⚑ 2</span><span class="flex-1 flex justify-between pr-4"><span>00:00</span><span>00:03</span><span>00:06</span><span>00:09</span><span>00:12</span><span>00:15</span><span>00:18</span></span></div>
+    ${tlLane('Original','#22d3ee','tsrc',92)}
+    ${tlLane('Sync check','#f59e0b','tcheck',22)}
+    ${tlLane('Speaker 1','#818cf8','tdub1',104)}
+    ${tlLane('Speaker 2','#2dd4bf','tdub2',104)}
+    ${tlLane('Music (track)','#f472b6','ttrack',58)}
+    <div class="flex-1"></div>
+  </div>`;
+
+// ---------------- the "now" page (rough) ----------------
+const nowHtml = () => column(`${appBar()}
+  <div class="card mx-[30px] mt-[14px] h-[78px] flex items-center gap-4 px-5 shrink-0"><span class="chip text-amber-300 border-amber-500/50 bg-amber-500/10">Needs a fix</span><div><div class="font-semibold text-[15px]">The dub runs 6% longer than the original</div><div class="text-[12px] text-slate-400">Long dub, fitted suits this dub.</div></div><span class="ml-auto grid grid-cols-5 gap-8 mono text-[12px] text-slate-400"><span>In sync<br><b class="text-white text-[16px]">17 / 20</b></span><span>90% start within<br><b class="text-white text-[16px]">0.17 s</b></span><span>Worst line<br><b class="text-amber-300 text-[16px]">0.21 s</b></span><span>Too long<br><b class="text-white text-[16px]">1</b></span><span>Precision<br><b class="text-white text-[16px]">Phrase ±150 ms</b></span></span></div>
+  <div class="card mx-[30px] mt-[12px] overflow-hidden shrink-0">
+    <div class="flex items-center gap-2 px-4 h-[40px] text-[12px] text-slate-400 border-b edge">PLAYER · Levels are for listening; the dub file is unchanged<span class="ml-auto btn">↶</span><span class="btn">↷</span><span class="btn">⟲ History 1 ▾</span><span class="btn">✎ Edit timing</span></div>
+    <div class="flex items-center gap-2 px-4 h-[36px] text-[12px] text-slate-500">Ctrl + scroll to zoom<span class="ml-auto btn">− ━━●━━ +</span><span class="btn">Whole track</span><span class="btn">×1</span></div>
+    ${lanes(72)}
+    <div class="flex items-center gap-2.5 px-4 h-[54px]">${transportBtns}<div class="leading-tight ml-2"><div class="text-[11.5px] text-slate-400">${LINES[0][3]}</div><div class="text-[14px]">${LINES[0][4]}</div></div><span class="ml-auto"></span><span class="btn">◎ Takes</span><span class="btn">1× ▾</span><span class="btn">Add video</span><span class="btn">?</span></div>
+  </div>
+  <div class="mx-[30px] mt-[12px] flex gap-3 flex-1 min-h-0 mb-[12px]">
+    <div class="card flex-1 overflow-hidden flex flex-col" data-list>
+      <div class="flex items-center gap-2 px-4 h-[50px] border-b edge shrink-0"><b class="text-[14px]">Lines</b><span class="seg"><span class="on">Worth a listen · 2</span><span>Every line · 20</span></span><span class="ml-auto text-[12px] text-slate-400">2 outside tolerance · 1 too long for their slot</span></div>
+      <div class="flex-1 min-h-0 overflow-hidden">${LINES.filter(x=>x[5]!=='ok').map((x)=>`<div class="row grid grid-cols-[5rem_4rem_minmax(0,1fr)_8rem_6rem] gap-3 px-4 py-3 border-b edge items-start"><span class="mono text-[11.5px] px-1.5 rounded bg-amber-500/15 text-amber-300 w-fit">${off(x[6])}</span><span class="mono text-[12px] text-slate-500">${fmt(x[0])}</span><div><div class="text-[15px]">${x[4]}</div><div class="text-[12.5px] text-slate-400">${x[3]}</div><div class="text-[12px] text-slate-400 mt-1">${NOTE[x[5]](x)}</div></div><div class="pt-2"><div class="h-1 rounded bg-indigo-400/70"></div><div class="h-1 mt-1 rounded bg-slate-500 w-[80%]"></div></div><div class="flex flex-col gap-1.5"><span class="sbtn">▶ Listen</span><span class="sbtn">◎ Takes</span></div></div>`).join('')}</div>
+    </div>
+    <div class="w-[420px] shrink-0 flex flex-col gap-3 overflow-hidden">
+      <div class="card p-4"><div class="flex"><b class="text-[14px]">Voice and delivery</b><span class="ml-auto text-[12px] text-slate-400">Change ▾</span></div><div class="text-[12px] text-slate-400 mt-1">Rachel · Eleven v4. A change applies when you sync again.</div></div>
+      <div class="card p-4"><div class="flex"><b class="text-[14px]">Sync settings</b><span class="ml-auto text-[12px] text-slate-400">‹ Review</span></div><div class="flex gap-2 mt-2"><span class="sbtn">Line by line</span><span class="sbtn">Phrase (±150 ms)</span></div><div class="text-[12px] text-slate-400 mt-2">Joins: Long dub, fitted</div><div class="btn w-full justify-center mt-2">Open sync settings <span class="text-amber-300 text-[11px]">7 changed</span></div>
+        <div class="text-[11px] text-slate-500 mt-4 mb-1">SYNCED DUB</div><div class="sbtn w-full mb-1.5">WAV · Synced dub</div><div class="sbtn w-full mb-1.5">MP3 · Synced dub</div><div class="sbtn w-full">Change the voice</div>
+        <div class="text-[11px] text-slate-500 mt-4 mb-1">SUBTITLES</div><div class="sbtn w-full">Export subtitles</div>
+        <div class="text-[11px] text-slate-500 mt-4 mb-1">SCRIPT AND TOOLS</div><div class="sbtn w-full mb-1.5">JSON · Hindi script</div><div class="sbtn w-full mb-1.5">Text to speech</div><div class="sbtn w-full">Start a new dub</div></div>
+    </div>
+  </div>`);
+
+const MOCKS = {
+  now: {
+    label: 'আজ',
+    note: 'এখনকার Dub পাতা (মোটামুটি)। ওপরে একটা আলাদা ফলের কার্ড (Needs a fix + পাঁচটা সংখ্যা), Player-এর মাথায় দুটো সারি (PLAYER লেখা + zoom), তারপর লেন আর play সারি। নিচে Lines কার্ড বাঁদিকে আর ডানদিকে একটা লম্বা স্তম্ভ: Voice and delivery, Sync settings, WAV, MP3, Change the voice, Subtitles, JSON, Text to speech, Start a new dub, Sync again। Review-এ এসব কিছুই আর পাতায় নেই, তাই দুটো পাতা দুরকম দেখায়।',
+    html: nowHtml,
+  },
+  R1: {
+    label: 'R1 · Review-এর যমজ',
+    note: 'Review পাতার ছাঁচ হুবহু। (১) ফলের কার্ড যায় তালিকার toolbar-এ একটা বোতাম হয়ে: "2 to listen · 1 too long · runs 6% long", মাউস রাখলে পাঁচটা সংখ্যা। (২) Undo / History যায় player-এর মাথার বাঁদিকে, PLAYER আর zoom-এর আলাদা সারি থাকে না। (৩) play সারির caption-ই বাছা লাইনের কার্ড: −0.17 s, কারণ, Listen A/B, Takes, Fix ▾। (৪) ডানের স্তম্ভ নেই: Voice আর Sync settings app bar-এ (Review-এ Translation যেমন), Sync again আর Export তালিকার footer-এ (Review-এ Continue to dub যেমন)। Change the voice আর Text to speech আগে থেকেই ⚙ Tools hub-এ। (৫) তালিকা Review-এর মতো: #, Time, Original, Hindi dub, আর হিন্দি বাক্সে সরাসরি লেখা যায়; শব্দ বদলালে লাইনটা "Retake ↻" পায়। সমস্যার লাইনে শুধু রঙিন কিনারা আর এক লাইনের কারণ। Edit timing আগের মতো একটা বোতাম।',
+    html: () => column(`${appBar(setupBar())}
+      ${topBox(`<div class="card overflow-hidden">${playerHead(editBtns()+'<span class="w-px h-5 bg-slate-700"></span>', '<span class="btn">✎ Edit timing</span>')}${lanes()}${lineCardRow()}</div>`)}
+      ${listBox(toolbar(`${viewSeg(['Lines','Script'],'Lines')}${search()}${verdictChip(NEW())}<span class="ml-auto"></span>${showMenu()}<span class="btn">⋯</span>`),
+        LINES.map((x,i)=>row(x,i,i===PICK)).join(''),
+        footer('Showing 20 of 20 lines · 2 to listen · 1 too long', exportBtns()))}`),
+  },
+  R2: {
+    label: 'R2 · লাইনেই ঢেউ',
+    note: 'R1-এর সব আছে, তফাত একটাই: প্রতিটা লাইনের হিন্দি লেখার নিচে তার নিজের ছোট ঢেউ, তার জায়গার (room) ভেতরে আঁকা। জায়গা ড্যাশ দেওয়া বাক্স, ঢেউ লাইনের রঙে; বেশি লম্বা হলে বাক্সের বাইরের অংশ লাল ছক কাটা, আগে বা পরে শুরু হলে বাক্সের কিনারায় অ্যাম্বার দাগ। তাই সংখ্যা না পড়েই চোখে পড়ে কোন লাইন ঠিক নেই। লাইনগুলো যেহেতু নিজেরাই দেখায়, player-এর বড় লেন দুটোর বদলে শুধু পুরো ডাবের একটা সরু মানচিত্র থাকে (সাদা বাক্স = এখন যা দেখছ)। লেন দরকার হলে Edit timing।',
+    html: () => column(`${appBar(setupBar())}
+      ${topBox(`<div class="card overflow-hidden">${playerHead(editBtns()+'<span class="w-px h-5 bg-slate-700"></span>', '<span class="btn">✎ Edit timing</span>').replace('<span class="btn mono">Wave ×1</span>','')}<div class="${NEW()} rounded">${mini()}</div><div class="h-2"></div>${lineCardRow()}</div>`)}
+      ${listBox(toolbar(`${viewSeg(['Lines','Script'],'Lines')}${search()}${verdictChip()}<span class="ml-auto"></span>${showMenu()}<span class="btn">⋯</span>`),
+        LINES.map((x,i)=>waveRow(x,i,i===PICK)).join(''),
+        footer('Showing 20 of 20 lines · 2 to listen · 1 too long', exportBtns()), colHead(`<span class="${NEW()} rounded px-1">Hindi dub · its wave in its room</span>`))}`),
+  },
+  R3: {
+    label: 'R3 · Lines | Timeline | Script',
+    note: 'Review-এ তালিকার মাথায় Cues | Script সুইচ আছে; এখানে একই জায়গায় তিনটে: <b>Lines | Timeline | Script</b>। Edit timing আর আলাদা mode বা বোতাম নয়, Timeline-এ গেলে তালিকার পুরো জায়গাটা লেন পায় (Original, Sync check, প্রতি বক্তার লেন, ট্র্যাক), টুলগুলো toolbar-এ। Player তখন শুধু ছোট মানচিত্র আর play সারি, তাই লেন দুবার আঁকা হয় না। Lines-এ গেলে R1-এর তালিকা, Script-এ পড়ার মতো অনুচ্ছেদ। ওপরের সুইচে ক্লিক করে দেখো। Timeline থেকে Lines-এ গেলেও বাছা লাইনটা একই থাকে।',
+    html: () => {
+      const isTl = r3view === 'Timeline', isScript = r3view === 'Script';
+      const tb = toolbar(`<span class="${NEW()} rounded-xl">${viewSeg(['Lines','Timeline','Script'], r3view)}</span>${isTl ? tlTools : search()}${verdictChip()}<span class="ml-auto"></span>${isTl ? '<span class="btn">◎ Takes</span><span class="btn mono">Wave ×1</span>' : showMenu()}<span class="btn">⋯</span>`);
+      const body = isTl ? timelineBody() : isScript
+        ? `<div class="px-10 py-6 text-[19px] leading-[2.1] max-w-[70rem]">${LINES.map((x,i)=>`<span class="${i===PICK?'bg-amber-400/15 text-amber-100 rounded px-1':x[5]==='long'?'underline decoration-rose-400 decoration-wavy underline-offset-4':x[5]==='listen'?'underline decoration-amber-400 decoration-wavy underline-offset-4':''}">${x[4]}</span> `).join('')}</div>`
+        : LINES.map((x,i)=>row(x,i,i===PICK)).join('');
+      const box = isTl || isScript
+        ? `<div class="card mx-[30px] my-[12px] overflow-hidden flex flex-col flex-1 min-h-0">${tb}${body}${footer(isTl?'Drag a line to move it · edges trim · S cuts · Alt + drag copies':'Read along · wavy line = worth a listen', exportBtns())}</div>`
+        : listBox(tb, body, footer('Showing 20 of 20 lines · 2 to listen · 1 too long', exportBtns()));
+      return column(`${appBar(setupBar())}
+        ${topBox(`<div class="card overflow-hidden">${playerHead(editBtns()+'<span class="w-px h-5 bg-slate-700"></span>').replace('<span class="btn mono">Wave ×1</span>','')}${mini()}<div class="h-2"></div>${lineCardRow()}</div>`)}
+        ${box}`);
+    },
+  },
+  R4: {
+    label: 'R4 · একবার শুনে যাও',
+    note: 'R1-এর ছাঁচ, কিন্তু তালিকাটা একটা শোনার খাতা। প্রতিটা লাইনের বাঁদিকে গোল চিহ্ন: ✓ শোনা হয়েছে, ফাঁকা = এখনো নয়, ▶ = এখন বাজছে। Show ▾ শুরুতে "To listen first", তাই সমস্যার লাইনগুলো আগে আসে। Footer-এ Review-এর Continue-এর জায়গায় শোনার অগ্রগতি: <kbd>N</kbd> পরের লাইন বাজায় (আগে Original, তারপর Dub), খোলা লাইনের নিচেই <b>Sounds right</b> (<kbd>Enter</kbd>), Takes, Nudge, Shorter wording, Later। সব শোনা হলে footer-এ শুধু Export থাকে। ফলের সংখ্যা আর ঝামেলার তালিকা পড়ার দরকার পড়ে না, শুনতে শুনতেই কাজ শেষ।',
+    html: () => column(`${appBar(setupBar())}
+      ${topBox(`<div class="card overflow-hidden">${playerHead(editBtns()+'<span class="w-px h-5 bg-slate-700"></span>', '<span class="btn">✎ Edit timing</span>')}${lanes(46)}${lineCardRow('', false)}</div>`)}
+      ${listBox(toolbar(`${viewSeg(['Lines','Script'],'Lines')}${search()}${verdictChip()}<span class="ml-auto"></span>${showMenu('Show To listen first ▾')}<span class="btn">⋯</span>`),
+        [PICK, 8, 5, 10, ...LINES.map((_,i)=>i).filter(i=>![PICK,8,5,10].includes(i))].map((i)=>passRow(LINES[i], i, i===PICK)).join(''),
+        footer(`<span class="flex items-center gap-3 ${NEW()} rounded-lg pr-2"><span class="text-slate-300">Listened <b class="text-white">4</b> of 20</span><span class="w-56 h-1.5 rounded bg-slate-800 relative"><span class="absolute inset-y-0 left-0 w-[20%] rounded bg-emerald-400"></span></span><span class="sbtn">▶ Play next <span class="kbd">N</span></span><span class="text-slate-500">3 to check first</span></span>`, exportBtns()))}`),
+  },
+};
+
+// Where every feature of today's Dub page goes
+const FEAT = [
+  ['Needs a fix + ৫টা সংখ্যা', 'toolbar-এর বোতাম, hover-এ সংখ্যা', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+  ['Undo / Redo / History', 'player-এর মাথা, বাঁদিকে', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+  ['Edit timing', 'player-এর মাথা, বোতাম', 'R1-এর মতো', 'Timeline সুইচ', 'R1-এর মতো'],
+  ['Zoom, Whole track, ×1', 'player-এর মাথা, ডানদিকে', 'R1-এর মতো (Wave Edit timing-এ)', 'মাথা + Timeline', 'R1-এর মতো'],
+  ['Original / Synced লেন, M S dB', 'player, আগের মতো', 'সরু মানচিত্র + প্রতি লাইনে ঢেউ', 'Timeline-এ বড় লেন', 'player, একটু নিচু'],
+  ['Play, সময়, caption', 'play সারি = লাইনের কার্ড', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+  ['Takes, 1×, Add video', 'play সারি', 'R1-এর মতো', 'play সারি + toolbar', 'খোলা লাইন + play সারি'],
+  ['Worth a listen / Every line', 'Show ▾ মেনু', 'R1-এর মতো', 'R1-এর মতো', 'Show ▾ (To listen first)'],
+  ['লাইনের অফসেট, কারণ, Listen, Takes', 'রঙিন কিনারা + এক লাইন, play সারিতে বোতাম', 'লাইনের ঢেউ + কারণের চিপ', 'R1-এর মতো', 'খোলা লাইনের নিচে ধাপ'],
+  ['Voice and delivery, Change', 'app bar: Rachel · v4', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+  ['Sync settings, 7 changed', 'app bar বোতাম → মাঝের জানালা', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+  ['WAV / MP3, Subtitles, JSON script', 'footer: Export ▾', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+  ['Change the voice, Text to speech', '⚙ Tools hub (আগে থেকেই আছে)', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+  ['Start a new dub', 'app bar: + New dub (আগে থেকেই আছে)', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+  ['Sync again, Sync from scratch', 'footer: Sync again ▾', 'R1-এর মতো', 'R1-এর মতো', 'R1-এর মতো'],
+];
+
+// ---------------- drawing ----------------
+function seeded(n){ let s=n; return ()=>{ s=(s*16807)%2147483647; return s/2147483647; }; }
+const nextStart = (i) => LINES[i+1] ? LINES[i+1][0] : LINES[i][0]+LINES[i][1]+0.6;
+const dubLen = (x,i) => x[5]==='long' ? (nextStart(i)-x[0])*1.22 : x[1]*1.05;
+function wave(g, x0, x1, H, color, rnd, y=0, amp=1){
+  g.fillStyle = color;
+  for (let x=x0+1; x<x1-1; x+=2){ const h=(H-6)*amp*(0.18+rnd()*0.7)*(0.55+0.45*Math.sin(x/6)); g.fillRect(x, y+H/2-h/2, 1.2, Math.max(1,h)); }
+}
+function drawWaves(){
+  document.querySelectorAll('canvas[data-wave]').forEach((c,ci)=>{
+    const W = c.clientWidth, H = +c.dataset.h; if (!W) return; c.width=W; c.height=H;
+    const g = c.getContext('2d'); const rnd = seeded(11+ci*17); const kind = c.dataset.wave;
+    if (kind === 'row') {
+      const i = +c.dataset.i, x = LINES[i]; const room = nextStart(i) - x[0]; const scale = W / (room*1.35);
+      const r1 = room*scale - 2; g.setLineDash([3,3]); g.strokeStyle = '#47556999'; g.strokeRect(0.5, 0.5, r1, H-1); g.setLineDash([]);
+      const s0 = Math.max(0, x[6]*scale*4) + 2, len = dubLen(x,i)*scale; const col = DUBC[i % 4];
+      wave(g, s0, Math.min(s0+len, r1), H, col+'dd', rnd);
+      if (s0+len > r1) { g.fillStyle='#f43f5e99'; for (let k=r1; k<s0+len; k+=5) g.fillRect(k, 3, 2.5, H-6); g.fillStyle='#fecdd3'; g.font='10px monospace'; g.fillText('+0.4 s', s0+len+4, H-6); }
+      if (x[5]==='listen') { g.fillStyle='#f59e0b'; g.fillRect(x[6]<0?0:s0-2, 0, 2, H); g.font='10px monospace'; g.fillText(off(x[6]), r1+6, H-6); }
+      return;
+    }
+    const isMini = kind==='mini', isTl = kind[0]==='t';
+    const total = isMini ? 51 : isTl ? 19.5 : 33; const X = (t) => t/total*W;
+    if (isMini) { g.fillStyle='#0c0f15'; g.fillRect(0,0,W,H); }
+    LINES.forEach((x,i)=>{
+      if (x[0] > total) return;
+      const col = DUBC[i % 4];
+      if (kind==='src' || kind==='tsrc') { const x0=X(x[0]), x1=X(x[0]+x[1]); g.fillStyle='#22d3ee22'; g.fillRect(x0,2,x1-x0,H-4); wave(g,x0,x1,H,'#a5f3fcaa',rnd); return; }
+      if (kind==='tcheck') { if (x[5]==='listen' || x[5]==='long') { g.fillStyle = x[5]==='long' ? '#f43f5e' : '#f59e0b'; g.beginPath(); const px=X(x[0]); g.moveTo(px,4); g.lineTo(px+8,H/2); g.lineTo(px,H-4); g.fill(); g.font='10px monospace'; g.fillText(x[5]==='long'?'too long':off(x[6]), px+12, H/2+3); } return; }
+      if (kind==='ttrack') { if (i===0) { g.fillStyle='#f472b622'; g.fillRect(X(1),4,X(18)-X(1),H-8); wave(g, X(1), X(18), H, '#f9a8d488', rnd, 0, .5); } return; }
+      if ((kind==='tdub1' && x[2]!==1) || (kind==='tdub2' && x[2]!==2)) return;
+      const s = x[0] + x[6], len = dubLen(x,i); const x0 = X(s), x1 = X(s+len);
+      if (kind==='mini') { g.fillStyle = x[5]==='long' ? '#f43f5e' : x[5]==='listen' ? '#f59e0b' : col+'aa'; g.fillRect(x0, 5, Math.max(2,x1-x0-1), H-10); return; }
+      const top = isTl ? 6 : 3, hh = H - top*2;
+      g.fillStyle = col + '33'; g.fillRect(x0, top, x1-x0-1, hh); wave(g, x0, x1, H, col+'ee', rnd);
+      if (i===PICK) { g.strokeStyle='#f1f5f9'; g.lineWidth=2; g.strokeRect(x0+1, top+1, x1-x0-3, hh-2); }
+      if (x[5]==='long') { const r = X(nextStart(i)); g.fillStyle='#f43f5e88'; for (let k=r; k<x1; k+=5) g.fillRect(k, top, 2.5, hh); }
+      if (isTl) { g.fillStyle='#e2e8f0cc'; g.font='11px "Noto Sans Devanagari", sans-serif'; g.fillText(x[4].slice(0, Math.max(4, Math.floor((x1-x0)/9))), x0+5, top+13); }
+    });
+  });
+}
+
+// ---------------- counting ----------------
+function topIn(el){ const stage=document.getElementById('stage'); let y=0; while (el && el!==stage){ y+=el.offsetTop; el=el.offsetParent; } return y; }
+function countRows(){
+  const list = document.querySelector('[data-list]'); if (!list) return null;
+  const foot = [...list.children].find(c => c.classList.contains('border-t'));
+  const bottom = Math.min(974, topIn(list) + list.offsetHeight - (foot ? foot.offsetHeight : 0));
+  let full = 0; list.querySelectorAll('.row').forEach(r=>{ if (topIn(r) + r.offsetHeight <= bottom + 0.5) full++; });
+  const first = list.querySelector('.row'); return { full, first: first ? Math.round(topIn(first)) : 0 };
+}
+const counts = {};
+let current = 'R1';
+function show(id){
+  current = id;
+  const m = MOCKS[id];
+  document.getElementById('stage').innerHTML = m.html() + '<div style="position:absolute;left:0;right:0;top:972px;height:2px;background:#f59e0b;z-index:50"></div>';
+  document.getElementById('note').innerHTML = m.note;
+  document.querySelectorAll('#tabs button').forEach(b=>b.className = 'px-3 py-1 ' + (b.dataset.id===id ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'));
+  document.querySelectorAll('[data-seg] [data-view]').forEach(s => s.onclick = () => { if (id === 'R3') { r3view = s.dataset.view; show('R3'); } });
+  fit(); document.getElementById('count').textContent = '';
+  setTimeout(() => {
+    drawWaves(); const c = countRows(); if (c) counts[id] = c;
+    const now = counts.now;
+    document.getElementById('count').innerHTML = c ? `পুরো দেখা যায়: <b class="text-white text-[15px]">${c.full}</b> টা লাইন · প্রথম লাইন শুরু ${c.first} px-এ` + (id!=='now' && now ? ` <span class="text-slate-500">(আজ ${now.full} টা, ${now.first} px)</span>` : '') : 'Timeline: লেন পায় পাতার প্রায় অর্ধেকের বেশি';
+  }, 220);
+  try { localStorage.setItem('afterDubReviewStyle', id); } catch {}
+}
+function fit(){
+  const wrap = document.getElementById('wrap'), stage = document.getElementById('stage');
+  const s = Math.min(1, (wrap.clientWidth || 1905)/1905); stage.style.transform = `scale(${s})`; wrap.style.height = (974*s)+'px';
+}
+document.getElementById('feat').innerHTML = FEAT.map((r)=>`<tr>${r.map((c,i)=>`<td class="${i===0?'text-slate-200':'text-slate-400'}">${c}</td>`).join('')}</tr>`).join('');
+const tabs = document.getElementById('tabs');
+Object.entries(MOCKS).forEach(([id,m])=>{ const b=document.createElement('button'); b.dataset.id=id; b.textContent=m.label; b.onclick=()=>show(id); tabs.appendChild(b); });
+document.getElementById('marks').onchange = () => show(current);
+let start = 'R1'; try { start = localStorage.getItem('afterDubReviewStyle') || 'R1'; } catch {}
+show('now');
+setTimeout(() => show(MOCKS[start] ? start : 'R1'), 450);
+addEventListener('resize', ()=>{ fit(); drawWaves(); });
+</script>
+</body>
+</html>

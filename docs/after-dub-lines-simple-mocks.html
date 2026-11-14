@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lines Simple Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .edge { border-color:#232a36; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .card { background:#131418; border:1px solid #26282e; border-radius:16px; }
+  .btn { height:30px; padding:0 11px; border:1px solid #2a2d35; border-radius:9px; background:transparent; color:#e2e8f0; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; cursor:default; }
+  .btn:hover { background:#1c1f26; }
+  .ibtn { height:28px; width:28px; border:1px solid #2a2d35; border-radius:8px; color:#cbd5e1; display:inline-flex; align-items:center; justify-content:center; cursor:default; }
+  .ibtn:hover { background:#1c1f26; }
+  .seg { display:inline-flex; gap:2px; padding:2px; border-radius:12px; background:#0b0c0f; border:1px solid #26282e; }
+  .seg span { padding:4px 10px; border-radius:9px; font-size:12px; color:#94a3b8; font-variant-numeric: tabular-nums; cursor:default; }
+  .seg span.on { background:#24262d; color:#f1f5f9; }
+  .row { cursor:default; }
+  .row .hov { opacity:0; transition:opacity .12s; }
+  .row:hover .hov, .row.pick .hov { opacity:1; }
+  .row:hover { background:#17191e; }
+  .row.pick { background:#1a1d27; box-shadow: inset 2px 0 0 #818cf8; }
+  .gone { outline:2px dashed #f43f5e88; outline-offset:2px; border-radius:6px; }
+  .moved { outline:2px solid #22d3ee88; outline-offset:2px; border-radius:6px; }
+  .tab { padding:6px 14px; font-size:13px; color:#94a3b8; cursor:default; }
+  .tab.on { background:#1e2230; color:#f1f5f9; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-3 sm:p-5">
+<div class="max-w-[1440px] mx-auto">
+  <div class="flex flex-wrap items-center gap-2 mb-3 text-[13px]">
+    <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+    <div id="tabs" class="inline-flex flex-wrap rounded-lg border edge overflow-hidden"></div>
+    <span class="ml-3 text-slate-400">ডাবের অবস্থা:</span>
+    <div id="cases" class="inline-flex rounded-lg border edge overflow-hidden"></div>
+    <label class="ml-3 inline-flex items-center gap-1.5 text-slate-400"><input id="marks" type="checkbox" /> এখনকার কী বাদ যাচ্ছে, লাল দাগে দেখাও (Now-তে)</label>
+  </div>
+  <p id="note" class="text-[13.5px] text-slate-300 mb-4 max-w-[90rem] leading-relaxed"></p>
+  <div id="stage"></div>
+  <p class="text-[12px] text-slate-500 mt-3">লাইনের ওপর মাউস নিলে বা ক্লিক করলে বোতামগুলো দেখা যায় (মক-এ ক্লিক করলে লাইনটা বাছা হয়)। অ্যাপের লেখা ইংরেজিতেই থাকবে।</p>
+</div>
+
+<script>
+// ---------- icons ----------
+const ICON = {
+  play: '<path d="M7 5v14l11-7z" fill="currentColor" stroke="none"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  chev: '<path d="M9 6l6 6-6 6"/>',
+  down: '<path d="M6 9l6 6 6-6"/>',
+  pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
+  dots: '<circle cx="5" cy="12" r="1.3" fill="currentColor"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/><circle cx="19" cy="12" r="1.3" fill="currentColor"/>',
+};
+const I = (n, c = 'w-3.5 h-3.5') => `<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n]}</svg>`;
+
+// ---------- data ----------
+// t start, off offset, o original len, d dub len, st status, by seconds, ed hand edit
+const GOOD = [
+  { t: 0.0, off: 0.0, o: 4.6, d: 4.6, st: 'ok', ed: 1, dub: 'पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।', src: 'Welcome back to the podcast. Today we are exploring the frontiers of artificial intelligence.' },
+  { t: 4.8, off: 0.11, o: 5.1, d: 4.9, st: 'ok', ed: 1, dub: 'शुक्रिया। पिछले छह महीनों में जो तरक्की हुई, वो बेमिसाल है।', src: 'Thank you for having me. The rate of progress over the last six months has been truly unprecedented.' },
+  { t: 10.2, off: -0.12, o: 4.4, d: 4.5, st: 'ok', ed: 1, dub: 'चलिए, सीधे मल्टीमोडल मॉडल और लाइव अनुवाद पर आएँ।', src: 'Let us dive straight into multimodal models and live speech translation.' },
+];
+const MIXED = [
+  GOOD[0],
+  { ...GOOD[1], st: 'long', by: 0.62, d: 5.7, off: 0.04, ed: 0 },
+  { ...GOOD[2], ed: 0 },
+  { t: 14.9, off: 0.02, o: 3.9, d: 3.1, st: 'early', by: 0.8, ed: 0, dub: 'तो शुरुआत करते हैं।', src: 'So where should we begin? Let us start with the basics of how these systems learn.' },
+  { t: 19.3, off: 0.06, o: 3.2, d: 3.2, st: 'ok', ed: 0, dub: 'ये मॉडल तस्वीर, आवाज़ और शब्द, तीनों समझते हैं।', src: 'These models understand images, sound and text, all at once.' },
+  { t: 23.0, off: 0.42, o: 4.1, d: 4.0, st: 'late', by: 0.42, ed: 1, dub: 'और यही बात इन्हें पहले से बिल्कुल अलग बनाती है।', src: 'And that is exactly what makes them so different from before.' },
+  { t: 27.6, off: -0.03, o: 3.5, d: 3.4, st: 'ok', ed: 0, dub: 'अनुवाद अब लगभग उसी पल हो जाता है।', src: 'Translation now happens almost in the same moment.' },
+  { t: 31.2, off: 0.0, o: 3.0, d: 4.1, st: 'long', by: 1.1, ed: 0, dub: 'लेकिन क्या हम सचमुच इस रफ़्तार के लिए पूरी तरह से तैयार हैं, ये सोचने की बात है?', src: 'But are we really ready for this pace?' },
+];
+const reasonOf = (l) =>
+  l.st === 'long' ? `Runs ${l.by.toFixed(2)} s longer than the original line had`
+  : l.st === 'early' ? `Ends ${l.by.toFixed(1)} s before the original speaker stops: ${l.d.toFixed(1)} s said, ${l.o.toFixed(1)} s spoken`
+  : l.st === 'late' ? `Starts ${l.by.toFixed(2)} s after the original line`
+  : 'In sync';
+const shortReason = (l) =>
+  l.st === 'long' ? `${l.by.toFixed(1)} s too long` : l.st === 'early' ? `ends ${l.by.toFixed(1)} s early` : l.st === 'late' ? `starts ${l.by.toFixed(2)} s late` : '';
+const tone = (l) => (l.st === 'long' || l.st === 'late' ? 'amber' : l.st === 'early' ? 'sky' : 'slate');
+const clock = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+const offs = (o) => (Math.abs(o) < 0.005 ? '±0.00 s' : `${o > 0 ? '+' : '−'}${Math.abs(o).toFixed(2)} s`);
+const bars = (l, w = 'w-28') => {
+  const sc = Math.max(l.o, l.d);
+  const c = l.st === 'long' ? 'bg-amber-400' : l.st === 'early' ? 'bg-sky-400' : 'bg-indigo-400/70';
+  return `<span class="${w} flex flex-col gap-[3px] mt-1.5"><span class="h-[5px] rounded-full bg-slate-600" style="width:${(l.o / sc) * 100}%"></span><span class="h-[5px] rounded-full ${c}" style="width:${(l.d / sc) * 100}%"></span></span>`;
+};
+const problem = (l) => l.st !== 'ok';
+
+// ---------- state ----------
+const S = { view: 'A', data: 'good', marks: false, pick: null, open: false, src: true };
+const lines = () => (S.data === 'good' ? GOOD : MIXED);
+
+// ---------- NOW: current app ----------
+function viewNow() {
+  const L = lines();
+  const P = L.filter(problem);
+  const m = (s) => (S.marks ? `class="gone ${s}"` : `class="${s}"`);
+  const tabs = [['Worth a listen', P.length, 1], ...(P.some((l) => l.st === 'long') ? [['Too long', P.filter((l) => l.st === 'long').length]] : []), ...(P.some((l) => l.st === 'early') ? [['End early', 1]] : []), ['Hand edits', L.filter((l) => l.ed).length], ['Every line', L.length]];
+  const on = S.data === 'good' ? 'Every line' : 'Worth a listen';
+  const shown = S.data === 'good' ? L : P;
+  return `<div class="card p-5">
+    <div class="flex flex-wrap items-center gap-2.5">
+      <h3 class="text-[15px] font-semibold">Lines</h3>
+      <span ${m('')}><span class="seg">${tabs.map(([t, n]) => `<span class="${t === on ? 'on' : ''}">${t} · ${n}</span>`).join('')}</span></span>
+      ${P.length > 1 ? `<span class="text-xs text-indigo-300 inline-flex items-center gap-1">${I('mic', 'w-3 h-3')} Retake these ${P.length}</span>` : ''}
+      <span class="flex-1"></span>
+      <span class="text-xs text-slate-500">${P.length ? `${P.length} outside tolerance · ${P.filter((l) => l.st === 'long').length} too long for their slot · 1 end early` : 'Every line landed within tolerance.'}</span>
+    </div>
+    <ul class="mt-3 divide-y divide-slate-800 border-y border-[#26282e]">
+      ${shown.map((l) => `<li class="py-3 flex items-start gap-3">
+        <span ${m(`shrink-0 mt-0.5 mono text-[11px] px-2 py-0.5 rounded-md ${problem(l) ? 'bg-amber-500/15 text-amber-300' : 'bg-slate-800 text-slate-300'}`)}>${offs(l.off)}</span>
+        <span class="shrink-0 mt-0.5 mono text-[11.5px] text-slate-500 w-14">${clock(l.t)}</span>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-start gap-3"><p class="flex-1 text-[13.5px] leading-snug">${l.dub}</p><span ${m('')}>${bars(l)}</span></div>
+          <p class="text-[12px] text-slate-500 mt-0.5">${l.src}</p>
+          <p ${m(`text-[11.5px] mt-1 inline-block ${l.st === 'long' || l.st === 'late' ? 'text-amber-300' : l.st === 'early' ? 'text-sky-300' : 'text-slate-400'}`)}>${reasonOf(l)}</p>
+          ${problem(l) && l.st !== 'late' ? `<div class="mt-2 rounded-lg border border-[#26282e] bg-black/30 p-2.5 text-[12px] text-slate-400"><div class="text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1">${l.st === 'early' ? 'Make this line fuller' : 'Shorten this line'}</div><div class="rounded-md border border-[#2a2d35] px-2 py-1.5 text-slate-200">${l.dub}</div><div class="mt-1.5 flex gap-2"><span class="btn">Use this line</span><span class="btn">Copy</span><span class="btn">Suggest ${l.st === 'early' ? 'fuller' : 'shorter'}</span></div></div>` : ''}
+        </div>
+        <div ${m('shrink-0 flex flex-col gap-1.5')}><span class="btn">${I('play', 'w-3 h-3')} Listen</span><span class="btn">${I('mic', 'w-3 h-3')} Takes</span></div>
+      </li>`).join('')}
+    </ul>
+  </div>`;
+}
+
+// shared: simple row with hover actions
+function simpleRow(l, i, opts = {}) {
+  const pick = S.pick === i;
+  const t = tone(l);
+  const stripe = t === 'amber' ? 'bg-amber-400' : t === 'sky' ? 'bg-sky-400' : 'bg-transparent';
+  return `<li class="row ${pick ? 'pick' : ''} relative flex items-start gap-3 py-2.5 pl-4 pr-3 rounded-lg" data-i="${i}">
+    <span class="absolute left-1 top-3 bottom-3 w-[3px] rounded-full ${stripe}"></span>
+    <span class="shrink-0 mono text-[11.5px] text-slate-500 w-12 pt-0.5">${clock(l.t)}</span>
+    <div class="flex-1 min-w-0">
+      <p class="text-[14px] leading-snug">${l.dub}${l.ed ? ' <span title="Hand edit" class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 align-middle ml-1"></span>' : ''}</p>
+      ${S.src ? `<p class="text-[12px] text-slate-500 mt-0.5 leading-snug">${l.src}</p>` : ''}
+      ${problem(l) ? `<p class="text-[11.5px] mt-1 ${t === 'sky' ? 'text-sky-300' : 'text-amber-300'}">${opts.longReason ? reasonOf(l) : shortReason(l)}</p>` : ''}
+      ${pick && problem(l) && l.st !== 'late' ? fixBox(l) : ''}
+    </div>
+    ${problem(l) ? `<span class="shrink-0 flex items-center gap-2">${bars(l, 'w-24')}<span class="mono text-[11.5px] w-11 pt-1 ${t === 'sky' ? 'text-sky-300' : 'text-amber-300'}">${l.st === 'early' ? '−' : '+'}${l.by.toFixed(1)} s</span></span>` : ''}
+    <span class="hov shrink-0 flex items-center gap-1.5">
+      <span class="ibtn" title="Listen (Space)">${I('play', 'w-3.5 h-3.5')}</span>
+      <span class="ibtn" title="Takes (T)">${I('mic', 'w-3.5 h-3.5')}</span>
+    </span>
+  </li>`;
+}
+function fixBox(l) {
+  return `<div class="mt-2 rounded-lg border border-[#26282e] bg-black/30 p-2.5 text-[12px] text-slate-400">
+    <div class="text-[10.5px] uppercase tracking-wide font-semibold text-slate-500 mb-1">${l.st === 'early' ? 'Make this line fuller' : 'Shorten this line'}</div>
+    <div class="rounded-md border border-[#2a2d35] px-2 py-1.5 text-slate-200 text-[13px]">${l.dub}</div>
+    <div class="mt-1.5 flex gap-2"><span class="btn" style="background:#4f46e5;border-color:#6366f1;color:#fff">Use this line</span><span class="btn">Suggest ${l.st === 'early' ? 'fuller' : 'shorter'}</span></div>
+  </div>`;
+}
+const srcToggle = () => `<label class="inline-flex items-center gap-1.5 text-xs text-slate-400 cursor-default"><input type="checkbox" data-src ${S.src ? 'checked' : ''}/> Original</label>`;
+
+// ---------- A: one clean list ----------
+function viewA() {
+  const L = lines();
+  const P = L.filter(problem);
+  const head = P.length
+    ? `<span class="text-[12.5px] text-amber-300">${P.length} of ${L.length} worth a listen</span>`
+    : `<span class="inline-flex items-center gap-1.5 text-[12.5px] text-emerald-300">${I('check', 'w-3.5 h-3.5')} All ${L.length} lines in sync</span>`;
+  const seg = P.length ? `<span class="seg"><span class="on">Worth a listen · ${P.length}</span><span>All · ${L.length}</span></span>` : '';
+  const shown = P.length ? P : L;
+  return `<div class="card p-5">
+    <div class="flex flex-wrap items-center gap-3">
+      <h3 class="text-[15px] font-semibold">Lines</h3>${seg}${head}
+      <span class="flex-1"></span>${srcToggle()}
+      ${P.length > 1 ? `<span class="btn">${I('mic', 'w-3 h-3')} Retake ${P.length}</span>` : ''}
+    </div>
+    <ul class="mt-3 flex flex-col gap-0.5">${shown.map((l) => simpleRow(l, L.indexOf(l))).join('')}</ul>
+  </div>`;
+}
+
+// ---------- B: problems first, the rest folded ----------
+function viewB() {
+  const L = lines();
+  const P = L.filter(problem);
+  const ok = L.filter((l) => !problem(l));
+  const fold = `<button data-fold class="w-full mt-2 flex items-center gap-2 px-3 py-2.5 rounded-lg border border-[#26282e] text-[13px] text-slate-300 hover:bg-[#17191e] cursor-default">
+      ${I(S.open ? 'down' : 'chev', 'w-4 h-4 text-slate-500')} ${P.length ? `The other ${ok.length} lines are in sync` : `Show all ${L.length} lines`}</button>
+    ${S.open ? `<ul class="mt-1 flex flex-col gap-0.5">${ok.map((l) => simpleRow(l, L.indexOf(l))).join('')}</ul>` : ''}`;
+  if (!P.length)
+    return `<div class="card p-5">
+      <div class="flex items-center gap-3 rounded-xl bg-emerald-500/[.07] border border-emerald-500/25 px-4 py-4">
+        <span class="w-9 h-9 rounded-full bg-emerald-500/15 text-emerald-300 flex items-center justify-center">${I('check', 'w-5 h-5')}</span>
+        <div class="flex-1"><p class="text-[14.5px] font-semibold text-emerald-100">All ${L.length} lines are in sync</p><p class="text-[12.5px] text-slate-400">Nothing to fix. Play the dub above, or open a line to retake it.</p></div>
+      </div>${fold}</div>`;
+  return `<div class="card p-5">
+    <div class="flex items-center gap-3">
+      <h3 class="text-[15px] font-semibold">${P.length} lines worth a listen</h3>
+      <span class="flex-1"></span>${srcToggle()}<span class="btn">${I('mic', 'w-3 h-3')} Retake ${P.length}</span>
+    </div>
+    <ul class="mt-3 flex flex-col gap-0.5">${P.map((l) => simpleRow(l, L.indexOf(l), { longReason: true })).join('')}</ul>
+    ${fold}
+  </div>`;
+}
+
+// ---------- C: script reading, every line, marks only ----------
+function viewC() {
+  const L = lines();
+  const P = L.filter(problem);
+  return `<div class="card p-5">
+    <div class="flex flex-wrap items-center gap-3">
+      <h3 class="text-[15px] font-semibold">Lines</h3>
+      <span class="text-[12.5px] ${P.length ? 'text-amber-300' : 'text-emerald-300'}">${P.length ? `${P.length} marked` : 'All in sync'}</span>
+      ${P.length ? `<span class="seg"><span class="on">All</span><span>Marked only</span></span>` : ''}
+      <span class="flex-1"></span>${srcToggle()}
+    </div>
+    <ul class="mt-3 flex flex-col">${L.map((l, i) => {
+      const t = tone(l);
+      const pick = S.pick === i;
+      return `<li class="row ${pick ? 'pick' : ''} flex items-baseline gap-3 py-2 px-3 rounded-lg" data-i="${i}">
+        <span class="shrink-0 mono text-[11px] text-slate-600 w-11">${clock(l.t)}</span>
+        <div class="flex-1 min-w-0">
+          <p class="text-[14px] leading-snug ${problem(l) ? (t === 'sky' ? 'mb-1.5 underline decoration-sky-400/70 decoration-2 underline-offset-[5px]' : 'mb-1.5 underline decoration-amber-400/80 decoration-wavy underline-offset-[5px]') : ''}">${l.dub}${l.ed ? ' <span title="Hand edit" class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 align-middle ml-1"></span>' : ''}</p>
+          ${S.src ? `<p class="text-[12px] text-slate-500 leading-snug">${l.src}</p>` : ''}
+          ${pick && problem(l) ? `<p class="text-[11.5px] mt-1 ${t === 'sky' ? 'text-sky-300' : 'text-amber-300'}">${reasonOf(l)}</p>${l.st !== 'late' ? fixBox(l) : ''}` : ''}
+        </div>
+        ${problem(l) ? `<span class="shrink-0 mono text-[11.5px] ${t === 'sky' ? 'text-sky-300' : 'text-amber-300'}">${shortReason(l)}</span>` : ''}
+        <span class="hov shrink-0 flex items-center gap-1.5 self-start"><span class="ibtn">${I('play')}</span><span class="ibtn">${I('mic')}</span></span>
+      </li>`;
+    }).join('')}</ul>
+  </div>`;
+}
+
+// ---------- shell ----------
+const VIEWS = {
+  Now: { f: viewNow, note: '<b>এখন যা আছে।</b> সব লাইন ঠিক থাকলেও প্রতিটা সারিতে অফসেট চিপ, দুটো বার, "In sync" আর দুটো বোতাম থাকে। ওপরে Worth a listen · 0, Hand edits, Every line তিনটে ট্যাব। "লাল দাগে দেখাও" টিক দিলে দেখা যাবে মকগুলোয় কী সরানো হয়েছে।' },
+  A: { f: viewA, note: '<b>Mock A — এক পরিষ্কার তালিকা।</b> সারিতে শুধু সময়, ডাবের লেখা আর তার নিচে মূল লেখা। বাঁদিকের রঙিন দাগ, বার আর কারণ দেখায় শুধু সমস্যা থাকা লাইনে। Listen / Takes ছোট আইকন হয়ে মাউস নিলে বা লাইন বাছলে দেখায়। ট্যাব শুধু সমস্যা থাকলে দেখায়, আর তখনো দুটো: Worth a listen আর All। Hand edits ট্যাব বাদ দিয়ে লাইনের পাশে ছোট অ্যাম্বার ফোঁটা। লম্বা লাইন বাছলে নিচে Shorten বক্স খোলে।' },
+  B: { f: viewB, note: '<b>Mock B — সমস্যা আগে, বাকি ভাঁজ করা।</b> সব ঠিক থাকলে শুধু একটা সবুজ কার্ড: "All 3 lines are in sync", নিচে "Show all 3 lines" খুললে তালিকা। সমস্যা থাকলে ওপরে শুধু সেই লাইনগুলো (পুরো কারণসহ), বাকি ঠিক লাইনগুলো "The other N lines are in sync" ভাঁজের নিচে। সবচেয়ে কম জিনিস চোখে পড়ে।' },
+  C: { f: viewC, note: '<b>Mock C — স্ক্রিপ্টের মতো পড়া।</b> সব লাইন পরপর, কোনো ট্যাব নেই (সমস্যা থাকলে শুধু All | Marked only)। সমস্যার লাইনের লেখার নিচে ঢেউ-দাগ (লম্বা = অ্যাম্বার, আগে শেষ = নীল) আর ডানদিকে ছোট লেখা "0.6 s too long"। বার নেই, অফসেট নেই। লাইনে ক্লিক করলে কারণ আর ঠিক করার বক্স খোলে।' },
+};
+const CASES = { good: 'সব ঠিক (তোমার স্ক্রিনশট, ৩ লাইন)', mixed: 'কিছু সমস্যা (৮ লাইন, ৪টা শোনার মতো)' };
+function render() {
+  document.getElementById('tabs').innerHTML = Object.keys(VIEWS).map((k) => `<span data-v="${k}" class="tab ${S.view === k ? 'on' : ''}">${k === 'Now' ? 'এখন' : 'Mock ' + k}</span>`).join('');
+  document.getElementById('cases').innerHTML = Object.entries(CASES).map(([k, t]) => `<span data-c="${k}" class="tab ${S.data === k ? 'on' : ''}">${t}</span>`).join('');
+  document.getElementById('note').innerHTML = VIEWS[S.view].note;
+  document.getElementById('stage').innerHTML = VIEWS[S.view].f();
+}
+document.addEventListener('click', (e) => {
+  const v = e.target.closest('[data-v]'), c = e.target.closest('[data-c]'), r = e.target.closest('.row'), f = e.target.closest('[data-fold]');
+  if (v) { S.view = v.dataset.v; S.pick = null; S.open = false; }
+  else if (c) { S.data = c.dataset.c; S.pick = null; S.open = false; }
+  else if (f) S.open = !S.open;
+  else if (r && !e.target.closest('.ibtn')) { const i = +r.dataset.i; S.pick = S.pick === i ? null : i; }
+  else return;
+  render();
+});
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'marks') S.marks = e.target.checked;
+  if (e.target.matches('[data-src]')) S.src = e.target.checked;
+  render();
+});
+render();
+</script>
+</body>
+</html>

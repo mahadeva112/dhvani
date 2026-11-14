@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sync Panel Compact</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#cbd5e1; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .panel { background:#11141b; border:1px solid #232a36; border-radius:16px; width:100%; max-width:400px; overflow:hidden; }
+  .edge { border-color:#232a36; }
+  .lbl { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:#64748b; font-weight:600; }
+  svg.i { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  svg.i.s { width:14px; height:14px; }
+  svg.i.xs { width:12px; height:12px; }
+  /* current */
+  .row0 { display:flex; align-items:center; gap:10px; height:40px; padding:0 12px; border:1px solid #232a36; border-radius:10px; color:#e2e8f0; }
+  .fmt0 { font-size:10.5px; padding:2px 6px; border-radius:6px; background:#1e2430; color:#cbd5e1; }
+  /* shared new bits */
+  .fmt { height:24px; padding:0 7px; border:1px solid #2b3342; border-radius:7px; background:#0d1017; color:#cbd5e1; font-size:10.5px; display:inline-flex; align-items:center; gap:4px; cursor:default; }
+  .fmt:hover { border-color:#475569; background:#161b25; color:#f1f5f9; }
+  .fmt svg { color:#64748b; }
+  .fmt:hover svg { color:#a5b4fc; }
+  .xrow { display:flex; align-items:center; gap:10px; min-height:38px; padding:0 10px; border-radius:9px; }
+  .xrow:hover { background:#151a24; }
+  .tbtn { height:30px; border:1px solid #232a36; border-radius:9px; background:#0f131b; color:#cbd5e1; font-size:12px; display:flex; align-items:center; justify-content:center; gap:6px; cursor:default; }
+  .tbtn:hover { background:#161b25; border-color:#334155; }
+  .tile { border:1px solid #232a36; border-radius:12px; background:#0e1118; padding:10px; display:flex; flex-direction:column; gap:8px; cursor:default; }
+  .tile:hover { border-color:#334155; background:#121620; }
+  .ico { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .badge { font-size:10.5px; padding:1px 6px; border-radius:6px; background:rgba(251,191,36,.15); color:#fcd34d; font-weight:500; }
+  .pri { background:#4f46e5; color:#fff; font-weight:600; }
+  .pri:hover { background:#6366f1; }
+  .menu { background:#0b0e14; border:1px solid #334155; border-radius:11px; box-shadow:0 12px 30px rgba(0,0,0,.5); padding:4px; }
+  .mi { display:flex; align-items:center; gap:8px; padding:7px 9px; border-radius:8px; font-size:12.5px; color:#e2e8f0; cursor:default; }
+  .mi:hover { background:#1a2030; }
+  .hnote { font-size:12px; color:#94a3b8; }
+  .measure { font-size:11.5px; color:#64748b; }
+  .measure b { color:#e2e8f0; font-weight:600; }
+</style>
+</head>
+<body class="min-h-screen p-4 sm:p-8">
+<div class="max-w-[1320px] mx-auto">
+  <h1 class="text-[20px] font-semibold text-slate-100">Dub-এর পরের সাইড প্যানেল: দুটো ছোট, গোছানো মক</h1>
+  <p class="text-[13px] text-slate-400 mt-1 max-w-[900px]">একই কাজ, একই বোতাম; শুধু সাজানো বদলেছে। Voice and delivery আর Sync settings এক কার্ডে, প্রতিটা ফাইল এক সারিতে (ফরম্যাট বোতাম সারির ডানে), Sync from scratch আর Sync changed lines only মূল বোতামের পাশের মেনুতে। নিচের Cast সারির Stems দুটোও প্যানেলের Export-এ চলে এসেছে, তাতে Cast সারি এক লাইনে নেমে যায়। প্রতিটা কলামের নিচে প্যানেলের মাপা উচ্চতা।</p>
+
+  <div class="mt-6 flex flex-wrap gap-8 items-start">
+
+    <!-- ================= CURRENT ================= -->
+    <section class="flex flex-col gap-3 w-[380px] max-w-full">
+      <div>
+        <div class="text-[14px] font-semibold text-slate-200">এখন</div>
+        <div class="hnote">দুটো কার্ড, প্রতিটা ফাইল আলাদা উঁচু সারি, সব লেখা খোলা।</div>
+      </div>
+      <div id="cur" class="flex flex-col gap-3 w-full max-w-[400px]">
+        <div class="panel p-5">
+          <div class="flex items-center justify-between"><div class="text-[15px] font-semibold text-slate-100">Voice and delivery</div><span class="text-[12.5px] text-slate-400 flex items-center gap-1">Change <i data-i="down" class="xs"></i></span></div>
+          <div class="text-[12.5px] text-slate-400 mt-1">Sadhguru Hindi · Eleven v4 · 2 speakers. A change applies when you sync again.</div>
+        </div>
+        <div class="panel">
+          <div class="flex items-center justify-between px-5 pt-4"><div class="text-[15px] font-semibold text-slate-100">Sync settings</div><span class="text-xs text-slate-400 flex items-center gap-1"><i data-i="left" class="xs"></i> Review</span></div>
+          <div class="px-5 py-4"><div class="flex flex-col gap-3 rounded-xl border edge bg-black/20 p-3.5">
+            <div class="flex flex-wrap gap-1.5 text-[11.5px]"><span class="px-2 py-0.5 rounded-md border border-slate-700">Line by line</span><span class="px-2 py-0.5 rounded-md border border-slate-700">Phrase (±150 ms)</span><span class="px-2 py-0.5 rounded-md border border-slate-700">Joins: Long dub, fitted</span></div>
+            <div class="h-9 flex items-center justify-center gap-2 rounded-lg border border-slate-700 text-[13px] text-slate-200"><i data-i="sliders"></i> Open sync settings <span class="badge">7 changed</span></div>
+          </div></div>
+          <div class="px-5 pb-4 flex flex-col gap-2"><span class="lbl">Synced dub</span>
+            <div class="row0"><span class="fmt0 mono">WAV</span><span class="flex-1 text-[13px]">Synced dub</span><i data-i="dl" class="text-slate-500"></i></div>
+            <div class="row0"><span class="fmt0 mono">MP3</span><span class="flex-1 text-[13px]">Synced dub</span><i data-i="dl" class="text-slate-500"></i></div>
+            <div class="row0"><span class="fmt0 mono">WAV</span><span class="flex-1 text-[13px]">Dub + tracks</span><i data-i="dl" class="text-slate-500"></i></div>
+            <div class="row0"><span class="fmt0 mono">MP3</span><span class="flex-1 text-[13px]">Dub + tracks</span><i data-i="dl" class="text-slate-500"></i></div>
+            <div class="row0" style="height:56px"><i data-i="wave" class="text-slate-400"></i><span class="flex-1"><span class="block text-[13px]">Change the voice</span><span class="block text-[11.5px] text-slate-500">Keeps the timing; Sync again re-voices it</span></span><i data-i="right" class="text-slate-500"></i></div>
+          </div>
+          <div class="px-5 pb-4 flex flex-col gap-2"><span class="lbl">Subtitles</span>
+            <div class="row0" style="height:86px"><span class="ico" style="width:44px;height:44px;background:#1e2540;color:#a5b4fc"><i data-i="sliders"></i></span><span class="flex-1"><span class="block text-[14px] font-semibold">Export subtitles</span><span class="block text-[11.5px] text-slate-500">Hindi · timed to the synced dub</span><span class="block text-[11.5px] text-slate-500">1 line, 5 words max · .srt or .vtt</span></span><i data-i="right" class="text-slate-500"></i></div>
+          </div>
+          <div class="px-5 pb-4 flex flex-col gap-2"><span class="lbl">Script and tools</span>
+            <div class="row0" style="height:58px"><span class="fmt0 mono" style="background:#1e2540;color:#a5b4fc">JSON</span><span class="flex-1"><span class="block text-[13px] font-semibold">Hindi script</span><span class="block text-[11.5px] text-slate-500">Script file · other formats in the arrow</span></span><i data-i="dl" class="text-slate-500"></i><i data-i="down" class="text-slate-500"></i></div>
+            <div class="row0 justify-center" style="height:32px"><i data-i="speak" class="s"></i><span class="text-[12.5px]">Text to speech</span></div>
+            <div class="row0 justify-center" style="height:32px"><i data-i="plus" class="s"></i><span class="text-[12.5px]">Start a new dub</span></div>
+          </div>
+          <div class="px-5 py-4 border-t edge bg-black/30 flex flex-col gap-2">
+            <div class="h-11 rounded-xl pri flex items-center justify-center gap-2 text-sm"><i data-i="refresh"></i> Sync again</div>
+            <p class="text-center text-[11.5px] text-slate-500">Places every line again with these settings; a new voice or voice setting voices them again.</p>
+            <div class="self-center text-[12px] text-slate-400 flex items-center gap-1.5"><i data-i="undo" class="s"></i> Sync from scratch…</div>
+          </div>
+        </div>
+      </div>
+      <div class="measure" data-for="cur"></div>
+    </section>
+
+    <!-- ================= MOCK A ================= -->
+    <section class="flex flex-col gap-3 w-[380px] max-w-full">
+      <div>
+        <div class="text-[14px] font-semibold text-indigo-300">Mock A · গোছানো তালিকা</div>
+        <div class="hnote">এক কার্ড। ওপরে দুটো সারাংশ সারি (ভয়েস, Sync), তারপর Export তালিকা: বাঁয়ে নাম, ডানে ফরম্যাট বোতাম, ক্লিক = ডাউনলোড।</div>
+      </div>
+      <div id="mA" class="panel">
+        <div class="flex items-center justify-between px-4 pt-3.5 pb-2.5">
+          <div class="text-[14.5px] font-semibold text-slate-100">Sync settings</div>
+          <span class="text-xs text-slate-400 flex items-center gap-1 cursor-default hover:text-slate-200"><i data-i="left" class="xs"></i> Review</span>
+        </div>
+
+        <!-- summary block -->
+        <div class="mx-3 rounded-xl border edge bg-black/25 divide-y divide-[#1c222d]">
+          <div class="xrow" title="Voice and delivery: a change applies when you sync again">
+            <span class="ico" style="background:#1d2333;color:#a5b4fc"><i data-i="mic" class="s"></i></span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-[12.5px] text-slate-100 truncate">Sadhguru Hindi · Eleven v4</span>
+              <span class="block text-[11px] text-slate-500 truncate">2 speakers · applies on Sync again</span>
+            </span>
+            <span class="text-[12px] text-slate-400 hover:text-slate-100 flex items-center gap-0.5">Change <i data-i="down" class="xs"></i></span>
+          </div>
+          <div class="xrow" style="min-height:44px">
+            <span class="ico" style="background:#1d2333;color:#a5b4fc"><i data-i="sliders" class="s"></i></span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-[12.5px] text-slate-100 truncate">Line by line · Phrase ±150 ms</span>
+              <span class="block text-[11px] text-slate-500 truncate">Joins: Long dub, fitted</span>
+            </span>
+            <span class="flex items-center gap-1.5 h-7 px-2 rounded-lg border border-slate-700 text-[12px] text-slate-200 hover:bg-slate-800"><span class="badge">7 changed</span><i data-i="right" class="xs"></i></span>
+          </div>
+        </div>
+
+        <!-- export -->
+        <div class="px-3 pt-3.5">
+          <div class="lbl px-1.5 pb-1">Export</div>
+          <div class="flex flex-col">
+            <div class="xrow"><i data-i="wave" class="s text-slate-500"></i><span class="flex-1 text-[13px] text-slate-200">Synced dub</span>
+              <span class="flex gap-1"><span class="fmt mono" title="Synced dub, WAV">WAV<i data-i="dl" class="xs"></i></span><span class="fmt mono" title="An MP3 copy at 320 kbps">MP3<i data-i="dl" class="xs"></i></span></span></div>
+            <div class="xrow"><i data-i="tracks" class="s text-slate-500"></i><span class="flex-1 text-[13px] text-slate-200">Dub + tracks</span>
+              <span class="flex gap-1"><span class="fmt mono">WAV<i data-i="dl" class="xs"></i></span><span class="fmt mono">MP3<i data-i="dl" class="xs"></i></span></span></div>
+            <div class="xrow" title="Stems: the same length as the dub, so they line up at 0:00"><i data-i="layers" class="s text-slate-500"></i><span class="flex-1 min-w-0"><span class="text-[13px] text-slate-200">Stems</span> <span class="text-[11px] text-slate-500">one per speaker</span></span>
+              <span class="flex gap-1"><span class="fmt"><span class="w-1.5 h-1.5 rounded-full bg-violet-400"></span>S1<i data-i="dl" class="xs"></i></span><span class="fmt"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>S2<i data-i="dl" class="xs"></i></span></span></div>
+            <div class="h-px bg-[#1c222d] mx-2 my-1"></div>
+            <div class="xrow" style="min-height:44px"><i data-i="cc" class="s text-slate-500"></i><span class="flex-1 min-w-0"><span class="block text-[13px] text-slate-200">Subtitles</span><span class="block text-[11px] text-slate-500 truncate">Hindi · 1 line, 5 words max</span></span>
+              <span class="flex gap-1"><span class="fmt mono">SRT<i data-i="dl" class="xs"></i></span><span class="fmt mono">VTT<i data-i="dl" class="xs"></i></span><span class="fmt" title="Edit the cues before saving"><i data-i="pen" class="xs"></i></span></span></div>
+            <div class="xrow"><i data-i="file" class="s text-slate-500"></i><span class="flex-1 text-[13px] text-slate-200">Hindi script</span>
+              <span class="flex"><span class="fmt mono rounded-r-none">JSON<i data-i="dl" class="xs"></i></span><span class="fmt rounded-l-none border-l-0 px-1.5" title="Other formats"><i data-i="down" class="xs"></i></span></span></div>
+          </div>
+        </div>
+
+        <!-- tools -->
+        <div class="px-4 pt-3 pb-3.5">
+          <div class="lbl pb-1.5">Tools</div>
+          <div class="grid grid-cols-3 gap-1.5">
+            <span class="tbtn" title="Keeps the timing; Sync again re-voices it"><i data-i="wave" class="s"></i>Voice</span>
+            <span class="tbtn"><i data-i="speak" class="s"></i>Speech</span>
+            <span class="tbtn"><i data-i="plus" class="s"></i>New dub</span>
+          </div>
+        </div>
+
+        <!-- footer -->
+        <div class="px-4 py-3 border-t edge bg-black/30 flex flex-col gap-1.5">
+          <div class="flex gap-1.5 relative">
+            <span class="flex-1 h-10 rounded-xl pri flex items-center justify-center gap-2 text-[13.5px] cursor-default"><i data-i="refresh" class="s"></i> Sync again</span>
+            <span class="w-10 h-10 rounded-xl border border-slate-700 flex items-center justify-center text-slate-300 hover:bg-slate-800 cursor-default" data-menu="mA-menu" title="More ways to sync"><i data-i="more"></i></span>
+            <div id="mA-menu" class="menu absolute right-0 bottom-12 w-[250px] hidden z-10">
+              <div class="mi"><i data-i="lock" class="s text-indigo-300"></i>Sync the 3 changed lines only</div>
+              <div class="mi text-rose-200"><i data-i="undo" class="s"></i>Sync from scratch…</div>
+            </div>
+          </div>
+          <p class="text-center text-[11px] text-slate-500">Places every line again; a new voice voices them again.</p>
+        </div>
+      </div>
+      <div class="measure" data-for="mA"></div>
+    </section>
+
+    <!-- ================= MOCK B ================= -->
+    <section class="flex flex-col gap-3 w-[380px] max-w-full">
+      <div>
+        <div class="text-[14px] font-semibold text-indigo-300">Mock B · টাইল গ্রিড</div>
+        <div class="hnote">ওপরে এক লাইনের সেটিংস বার, তারপর ২ কলামের Export টাইল। মূল বোতামটা split: পাশের তীরে অন্য Sync।</div>
+      </div>
+      <div id="mB" class="panel">
+        <div class="px-4 pt-3.5 pb-3 flex items-center justify-between">
+          <div class="text-[14.5px] font-semibold text-slate-100">Sync settings</div>
+          <span class="text-xs text-slate-400 flex items-center gap-1 cursor-default hover:text-slate-200"><i data-i="left" class="xs"></i> Review</span>
+        </div>
+
+        <div class="px-3 flex flex-col gap-1.5">
+          <div class="flex items-center gap-2 h-10 pl-3 pr-2 rounded-xl border edge bg-black/25 cursor-default hover:border-slate-600">
+            <i data-i="sliders" class="s text-indigo-300"></i>
+            <span class="flex-1 min-w-0 truncate text-[12.5px] text-slate-200">Line by line <span class="text-slate-600">·</span> ±150 ms <span class="text-slate-600">·</span> Long dub, fitted</span>
+            <span class="badge">7</span><i data-i="right" class="xs text-slate-500"></i>
+          </div>
+          <div class="flex items-center gap-2 h-10 pl-3 pr-2 rounded-xl border edge bg-black/25 cursor-default hover:border-slate-600" title="A change applies when you sync again">
+            <i data-i="mic" class="s text-indigo-300"></i>
+            <span class="flex-1 min-w-0 truncate text-[12.5px] text-slate-200">Sadhguru Hindi <span class="text-slate-600">·</span> Eleven v4 <span class="text-slate-600">·</span> 2 speakers</span>
+            <span class="text-[11.5px] text-slate-400">Change</span><i data-i="down" class="xs text-slate-500"></i>
+          </div>
+        </div>
+
+        <div class="px-3 pt-3.5">
+          <div class="lbl px-1 pb-1.5">Export</div>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="tile">
+              <div class="flex items-center gap-2"><span class="ico" style="background:#1d2333;color:#a5b4fc"><i data-i="wave" class="s"></i></span><span class="text-[12.5px] font-medium text-slate-100 leading-tight">Synced dub</span></div>
+              <div class="flex gap-1"><span class="fmt mono flex-1 justify-center">WAV<i data-i="dl" class="xs"></i></span><span class="fmt mono flex-1 justify-center">MP3<i data-i="dl" class="xs"></i></span></div>
+            </div>
+            <div class="tile">
+              <div class="flex items-center gap-2"><span class="ico" style="background:#1d2333;color:#a5b4fc"><i data-i="tracks" class="s"></i></span><span class="text-[12.5px] font-medium text-slate-100 leading-tight">Dub + tracks</span></div>
+              <div class="flex gap-1"><span class="fmt mono flex-1 justify-center">WAV<i data-i="dl" class="xs"></i></span><span class="fmt mono flex-1 justify-center">MP3<i data-i="dl" class="xs"></i></span></div>
+            </div>
+            <div class="tile">
+              <div class="flex items-center gap-2"><span class="ico" style="background:#1d2333;color:#a5b4fc"><i data-i="cc" class="s"></i></span><span class="min-w-0"><span class="block text-[12.5px] font-medium text-slate-100 leading-tight">Subtitles</span><span class="block text-[10.5px] text-slate-500 truncate">1 line · 5 words</span></span><i data-i="pen" class="xs text-slate-500 ml-auto" title="Edit cues"></i></div>
+              <div class="flex gap-1"><span class="fmt mono flex-1 justify-center">SRT<i data-i="dl" class="xs"></i></span><span class="fmt mono flex-1 justify-center">VTT<i data-i="dl" class="xs"></i></span></div>
+            </div>
+            <div class="tile" title="Stems: the same length as the dub, so they line up at 0:00">
+              <div class="flex items-center gap-2"><span class="ico" style="background:#1d2333;color:#a5b4fc"><i data-i="layers" class="s"></i></span><span class="min-w-0"><span class="block text-[12.5px] font-medium text-slate-100 leading-tight">Stems</span><span class="block text-[10.5px] text-slate-500 truncate">WAV · per speaker</span></span></div>
+              <div class="flex gap-1"><span class="fmt flex-1 justify-center"><span class="w-1.5 h-1.5 rounded-full bg-violet-400"></span>S1<i data-i="dl" class="xs"></i></span><span class="fmt flex-1 justify-center"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>S2<i data-i="dl" class="xs"></i></span></div>
+            </div>
+            <div class="tile">
+              <div class="flex items-center gap-2"><span class="ico" style="background:#1d2333;color:#a5b4fc"><i data-i="file" class="s"></i></span><span class="text-[12.5px] font-medium text-slate-100 leading-tight">Hindi script</span></div>
+              <div class="flex"><span class="fmt mono flex-1 justify-center rounded-r-none">JSON<i data-i="dl" class="xs"></i></span><span class="fmt rounded-l-none border-l-0 px-1.5"><i data-i="down" class="xs"></i></span></div>
+            </div>
+            <div class="tile" title="Keeps the timing; Sync again re-voices it">
+              <div class="flex items-center gap-2"><span class="ico" style="background:#16261f;color:#6ee7b7"><i data-i="wave" class="s"></i></span><span class="min-w-0"><span class="block text-[12.5px] font-medium text-slate-100 leading-tight">Change voice</span><span class="block text-[10.5px] text-slate-500 truncate">keeps the timing</span></span></div>
+              <div class="flex"><span class="fmt flex-1 justify-center">Open<i data-i="right" class="xs"></i></span></div>
+            </div>
+          </div>
+          <div class="flex items-center justify-center gap-4 pt-2.5 pb-3 text-[12px] text-slate-400">
+            <span class="flex items-center gap-1.5 hover:text-slate-100 cursor-default"><i data-i="speak" class="s"></i>Text to speech</span>
+            <span class="w-px h-3 bg-slate-700"></span>
+            <span class="flex items-center gap-1.5 hover:text-slate-100 cursor-default"><i data-i="plus" class="s"></i>Start a new dub</span>
+          </div>
+        </div>
+
+        <div class="px-4 py-3 border-t edge bg-black/30 flex flex-col gap-1.5">
+          <div class="flex relative">
+            <span class="flex-1 h-10 rounded-l-xl pri flex items-center justify-center gap-2 text-[13.5px] cursor-default"><i data-i="refresh" class="s"></i> Sync again</span>
+            <span class="w-10 h-10 rounded-r-xl pri border-l border-indigo-400/40 flex items-center justify-center cursor-default" data-menu="mB-menu" title="Other ways to sync"><i data-i="down" class="s"></i></span>
+            <div id="mB-menu" class="menu absolute right-0 bottom-12 w-[270px] hidden z-10">
+              <div class="mi"><i data-i="lock" class="s text-indigo-300"></i><span class="flex-1">Sync the 3 changed lines only</span></div>
+              <div class="h-px bg-slate-800 my-1"></div>
+              <div class="mi text-rose-200"><i data-i="undo" class="s"></i><span class="flex-1">Sync from scratch…</span><span class="text-[10.5px] text-slate-500">asks first</span></div>
+            </div>
+          </div>
+          <p class="text-center text-[11px] text-slate-500">Places every line again; a new voice voices them again.</p>
+        </div>
+      </div>
+      <div class="measure" data-for="mB"></div>
+    </section>
+  </div>
+
+  <!-- Cast strip -->
+  <section class="mt-10">
+    <div class="text-[14px] font-semibold text-slate-200">দুটো মকেই: নিচের Cast সারি</div>
+    <div class="hnote mb-3">Stems প্যানেলে গেলে ডানের কলাম লাগে না। ঠিক আছে এমন বার্তাগুলো একটা সবুজ “2 ok”-এ গুটিয়ে যায় (হোভারে পুরো লেখা), সতর্কবার্তা খোলাই থাকে। তিন-চার লাইনের বদলে এক লাইন।</div>
+    <div class="rounded-2xl border edge bg-[#11141b] px-4 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-2 text-[12.5px]">
+      <span class="lbl">Cast</span>
+      <span class="px-2 py-0.5 rounded-md border border-violet-500/50 bg-violet-500/10 text-violet-200 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-violet-400"></span>Speaker 1 <span class="text-slate-400">Sadhguru Hindi</span></span>
+      <span class="px-2 py-0.5 rounded-md border border-emerald-500/50 bg-emerald-500/10 text-emerald-200 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Speaker 2 <span class="text-slate-400">Aaditya</span></span>
+      <span class="w-px h-4 bg-slate-700"></span>
+      <span class="flex items-center gap-1 text-emerald-300" title="Every line as voiced, one gain per speaker: Speaker 1 -2.1 dB, Speaker 2 +2.2 dB. · 2 speakers, one track each in Stems."><i data-i="check" class="s"></i>2 ok</span>
+      <span class="flex items-center gap-1.5 text-amber-200"><i data-i="warn" class="s text-amber-400"></i>1 place a speaker runs into their own line</span>
+      <span class="flex items-center gap-1.5 text-amber-200" title="Saved as 32-bit float, so nothing clipped."><i data-i="warn" class="s text-amber-400"></i>Peak +2.2 dB at 0:15.2, nothing clipped</span>
+      <span class="ml-auto text-slate-400 hover:text-slate-100 cursor-default">Change voices</span>
+    </div>
+  </section>
+
+  <section class="mt-8 grid gap-4 md:grid-cols-2 text-[12.5px] text-slate-400">
+    <div class="rounded-xl border edge p-4"><div class="text-slate-200 font-medium mb-1">Mock A কেন</div>পড়তে সবচেয়ে সোজা: ওপর থেকে নিচে নাম পড়লেই সব পাওয়া যায়। প্রতিটা ফাইলের ফরম্যাট এক সারিতে, তাই WAV আর MP3 আলাদা সারি লাগে না। Tools তিনটে ছোট বোতামে এক লাইনে।</div>
+    <div class="rounded-xl border edge p-4"><div class="text-slate-200 font-medium mb-1">Mock B কেন</div>দেখতে ড্যাশবোর্ডের মতো, উচ্চতা A-র প্রায় সমান। টাইলে আইকন থাকায় চোখে তাড়াতাড়ি খুঁজে পাওয়া যায়; তবে নামগুলো ছোট হয় (Change voice, 1 line · 5 words)। সরু জানালায় টাইল এক কলামে নামবে।</div>
+  </section>
+</div>
+
+<script>
+const P = {
+  dl:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+  sliders:'<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+  wave:'<path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"/>',
+  right:'<path d="m9 18 6-6-6-6"/>', down:'<path d="m6 9 6 6 6-6"/>', left:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
+  refresh:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  undo:'<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  speak:'<path d="M11 4.7a.7.7 0 0 0-1.2-.5L6.4 7.6A1.4 1.4 0 0 1 5.4 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.4a1.4 1.4 0 0 1 1 .4l3.4 3.4a.7.7 0 0 0 1.2-.5z"/><path d="M16 9a5 5 0 0 1 0 6"/>',
+  cc:'<rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15h4M15 15h2M7 11h2M13 11h4"/>',
+  file:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13H8M16 17H8"/>',
+  layers:'<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+  tracks:'<path d="M21 15V6"/><path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"/><path d="M12 12H3"/><path d="M16 6H3"/><path d="M12 18H3"/>',
+  mic:'<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/>',
+  lock:'<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  pen:'<path d="M21.17 6.81a1 1 0 0 0-3.99-3.99L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
+  more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  check:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+  warn:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>'
+};
+document.querySelectorAll('i[data-i]').forEach(el => {
+  const s = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  s.setAttribute('viewBox','0 0 24 24');
+  s.setAttribute('class', ('i ' + el.className).trim());
+  s.innerHTML = P[el.dataset.i] || '';
+  if (el.title) s.insertAdjacentHTML('afterbegin', `<title>${el.title}</title>`);
+  el.replaceWith(s);
+});
+document.querySelectorAll('[data-menu]').forEach(btn => {
+  btn.addEventListener('click', e => { e.stopPropagation(); document.getElementById(btn.dataset.menu).classList.toggle('hidden'); });
+});
+function measure() {
+  const cur = document.getElementById('cur').offsetHeight;
+  document.querySelectorAll('.measure').forEach(m => {
+    const h = document.getElementById(m.dataset.for).offsetHeight;
+    const pct = Math.round((1 - h / cur) * 100);
+    m.innerHTML = `উচ্চতা <b>${h}px</b>` + (m.dataset.for === 'cur' ? ' (দুটো কার্ড মিলিয়ে)' : ` · এখনকার চেয়ে <b>${pct}%</b> কম`);
+  });
+}
+addEventListener('load', measure); addEventListener('resize', measure);
+</script>
+</body>
+</html>

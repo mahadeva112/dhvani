@@ -1098,10 +1098,12 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
 };
 
 /** The picked voice for the setup panel, from the live library or the built-in list. */
-export const SelectedVoiceSummary: React.FC<{ voiceId: string; availableVoices?: Voice[] }> = ({
-  voiceId,
-  availableVoices = [],
-}) => {
+export const SelectedVoiceSummary: React.FC<{
+  voiceId: string;
+  availableVoices?: Voice[];
+  /** One line with no box: a small avatar, the name, then what the voice is. */
+  compact?: boolean;
+}> = ({ voiceId, availableVoices = [], compact = false }) => {
   const live = availableVoices.find((v) => v.voice_id === voiceId);
   const fallback = POPULAR_ELEVENLABS_VOICES.find((v) => v.id === voiceId);
   const missing = !voiceId
@@ -1123,6 +1125,21 @@ export const SelectedVoiceSummary: React.FC<{ voiceId: string; availableVoices?:
   ]
     .filter(Boolean)
     .join(' · ');
+
+  if (compact)
+    return (
+      <div className="flex items-center gap-2 min-w-0">
+        <span
+          className={`w-5 h-5 rounded-full bg-gradient-to-br ${avatarGradient(voiceId || name)} text-white flex items-center justify-center font-semibold text-[10px] shrink-0`}
+        >
+          {name.charAt(0).toUpperCase()}
+        </span>
+        <span className="min-w-0 truncate text-[12.5px] text-slate-100" title={[fullName, meta].filter(Boolean).join(' · ')}>
+          {name}
+          {meta && <span className="text-[11px] text-slate-500"> · {meta}</span>}
+        </span>
+      </div>
+    );
 
   return (
     <div className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-950/70 border border-edge min-w-0">

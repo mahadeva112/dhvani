@@ -556,7 +556,7 @@ export const JOIN_SECTION_INFO: Record<SyncJoinSection, { description: string; t
     terms: 'join cues group longest joined line unit',
   },
   review: {
-    description: 'What is listed under Worth a listen after a sync.',
+    description: 'What is flagged on the dub lane after a sync.',
     terms: 'flag joins tight review',
   },
 };
