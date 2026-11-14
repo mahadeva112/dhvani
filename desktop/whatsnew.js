@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.78',
+    changes: [
+      'In Edit timing, drag the bottom edge of any track to make it taller or shorter; double-click the edge to put it back. Each project keeps its own sizes.',
+      'Waves always show the real volume: the Wave height button is gone. Ctrl + A now selects only the text in the box you are typing in, and the History and Sync again menus no longer get cut off.',
+    ],
+  },
+  {
     version: '1.4.77',
     changes: [
       'Tools and settings is a simple list: click a tool and its window opens straight away. Every tool window now looks the same, and one opened from the list has a Tools button to go back to it.',
