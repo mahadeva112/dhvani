@@ -16,6 +16,7 @@ import {
   FileText,
   Lock,
   Unlock,
+  ChevronRight,
 } from 'lucide-react';
 import {
   synthesizeSpeech,
@@ -57,6 +58,7 @@ import { DEFAULT_LANGUAGES } from './ProHeader';
 import { reportError } from '../services/errorPopup';
 import { PhoneticTextarea } from './review/PhoneticTextarea';
 import { PageScrollLock } from './usePageScrollLock';
+import { ToolWindow, toolPrimaryButton } from './ToolWindow';
 
 /**
  * Text to speech studio.
@@ -265,6 +267,8 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
   const [playingTakeId, setPlayingTakeId] = useState<string | null>(null);
   const [auditioning, setAuditioning] = useState(false);
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  // The ElevenLabs sliders and speaker boost sit in a fold that starts closed.
+  const [isFineTuneOpen, setIsFineTuneOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -630,6 +634,16 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
   const canCompare = cartesiaAvailable && chars > 0 && Boolean(voiceIdFor('elevenlabs')) && Boolean(voiceIdFor('cartesia'));
   const activeSettings = el.useOwnSettings ? ownSettings : el.settings;
   const formatHint = OUTPUT_FORMATS.find((f) => f.id === prefs.outputFormat)?.hint;
+  const boostOn = activeSettings?.use_speaker_boost !== false;
+  // The closed fold's summary: stability, similarity, style and speed as the sliders show them.
+  const fineTuneSummary = [
+    activeSettings?.stability ?? DEFAULT_VOICE_SETTINGS.stability,
+    activeSettings?.similarity_boost ?? DEFAULT_VOICE_SETTINGS.similarity_boost,
+    activeSettings?.style ?? 0,
+  ]
+    .map((v) => v.toFixed(2))
+    .concat(`${(activeSettings?.speed ?? 1).toFixed(2)}×`)
+    .join(' · ');
 
   const slider = (
     label: string,
@@ -704,590 +718,596 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <PageScrollLock />
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="tts-studio-title"
-        className="w-full max-w-[68rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
-        onClick={(ev) => ev.stopPropagation()}
+    <>
+      {/* Escape closes the studio while focus is in it, unless the voice library is open over it. */}
+      <div
+        className="contents"
         onKeyDown={(ev) => {
           if (ev.key === 'Escape' && !isPickerOpen) onClose();
         }}
       >
-        <audio ref={playerRef} />
-
-        {/* Header with the engine switch */}
-        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
-          <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
-            <Speech className="w-[18px] h-[18px]" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 id="tts-studio-title" className="text-lg font-semibold text-slate-100 leading-tight">
-              Text to speech
-            </h2>
-            <p className="text-[12.5px] text-slate-400 mt-0.5">Voice any text with ElevenLabs or Cartesia, and compare the takes.</p>
-          </div>
-          <div
-            role="radiogroup"
-            aria-label="Engine"
-            className="order-3 sm:order-none w-full sm:w-auto flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950/60 border border-edge"
-          >
-            {(['elevenlabs', 'cartesia'] as const).map((e) => {
-              const disabled = e === 'cartesia' && !cartesiaAvailable;
-              return (
-                <button
-                  key={e}
-                  type="button"
-                  role="radio"
-                  aria-checked={engine === e}
-                  disabled={disabled}
-                  title={disabled ? 'Add a Cartesia key in API settings to use Cartesia.' : undefined}
-                  onClick={() => updatePrefs((p) => ({ ...p, engine: e }))}
-                  className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default disabled:opacity-40 disabled:cursor-not-allowed ${
-                    engine === e ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {VOICE_ENGINE_LABELS[e]}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[minmax(0,1fr)_23.75rem]">
-          <div className="px-5 sm:px-6 py-5 flex flex-col gap-5 min-w-0">
-            {/* Voice */}
-            <div className="flex flex-col gap-2">
-              <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/60 border border-edge">
-                <span className="w-[38px] h-[38px] rounded-full bg-gradient-to-br from-indigo-600 to-cyan-500 text-white font-semibold flex items-center justify-center shrink-0">
-                  {(voice.name.charAt(0) || '?').toUpperCase()}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[13.5px] font-semibold text-slate-100 truncate" title={voice.full}>
-                    {voice.name}
-                  </span>
-                  <span className="block text-[11.5px] text-slate-400 truncate capitalize">
-                    {[VOICE_ENGINE_LABELS[engine], voice.meta].filter(Boolean).join(' · ')}
-                  </span>
-                </span>
-                {voice.preview && (
-                  <button type="button" onClick={toggleAudition} className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default">
-                    {auditioning ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
-                    Sample
+        <ToolWindow
+          onClose={onClose}
+          title="Text to speech"
+          subtitle="Voice any text with ElevenLabs or Cartesia, and compare the takes."
+          icon={Speech}
+          tone="teal"
+          widthClassName="max-w-[68rem]"
+          titleId="tts-studio-title"
+          headerExtra={
+            <div role="radiogroup" aria-label="Engine" className="flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950/60 border border-edge">
+              {(['elevenlabs', 'cartesia'] as const).map((e) => {
+                const disabled = e === 'cartesia' && !cartesiaAvailable;
+                return (
+                  <button
+                    key={e}
+                    type="button"
+                    role="radio"
+                    aria-checked={engine === e}
+                    disabled={disabled}
+                    title={disabled ? 'Add a Cartesia key in API settings to use Cartesia.' : undefined}
+                    onClick={() => updatePrefs((p) => ({ ...p, engine: e }))}
+                    className={`px-3 py-1.5 rounded-lg text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default disabled:opacity-40 disabled:cursor-not-allowed ${
+                      engine === e ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {VOICE_ENGINE_LABELS[e]}
                   </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setIsPickerOpen(true)}
-                  className="h-8 px-2.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
-                >
-                  Change
-                </button>
-              </div>
+                );
+              })}
             </div>
+          }
+          footer={
+            <>
+              <span className="flex-1 min-w-0 text-[11.5px] text-slate-500">Takes stay until you close the app.</span>
+              <button type="button" onClick={onClose} className={toolPrimaryButton}>
+                Done
+              </button>
+            </>
+          }
+        >
+          <audio ref={playerRef} />
 
-            {/* Script */}
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <label htmlFor="tts-text" className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-auto">
-                  Text
-                </label>
-                <select
-                  aria-label="Language"
-                  value={prefs.language}
-                  onChange={(ev) => updatePrefs((p) => ({ ...p, language: ev.target.value }))}
-                  className="h-7 bg-slate-950/60 border border-edge rounded-[8px] px-2 text-[11.5px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
-                >
-                  {LANGUAGES.map((l) => (
-                    <option key={l.code} value={l.code} className="bg-slate-900">
-                      {l.label}
-                    </option>
-                  ))}
-                </select>
-                {projectScript?.trim() && (
-                  <button type="button" onClick={() => setText(projectScript)} className={smallButton} title="Replace the text with this project's dub script">
-                    <FileText className="w-3.5 h-3.5" /> Project script
-                  </button>
-                )}
-                <button type="button" onClick={() => setText('')} disabled={!text} className={smallButton}>
-                  Clear
-                </button>
-              </div>
-              <PhoneticTextarea
-                id="tts-text"
-                ref={textareaRef}
-                language={prefs.language}
-                value={text}
-                onChange={setText}
-                onKeyDown={(ev) => {
-                  if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter' && canGenerate) {
-                    ev.preventDefault();
-                    void runTake(engine);
-                  }
-                }}
-                rows={7}
-                placeholder="Type or paste what should be said. Line breaks become breathing pauses."
-                className="w-full min-h-[10rem] resize-y bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-xl px-3.5 py-3 text-[14px] leading-relaxed text-slate-100 placeholder-slate-500 focus:outline-none"
-              />
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-slate-500 font-mono tabular-nums">
-                <span>{chars.toLocaleString()} characters</span>
-                {chars > 0 && <span>≈ {formatLength(estimatedSeconds)} of speech</span>}
-                {chars > 0 && <span>≈ {creditsFor(engine).toLocaleString()} {VOICE_ENGINE_LABELS[engine]} credits</span>}
-                {chars > 10000 && <span className="text-amber-400">Long text is voiced in passages and joined.</span>}
-              </div>
-              {engine === 'elevenlabs' && takesTags && (
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] text-slate-500 mr-1">Audio tags</span>
-                  {ELEVEN_V3_AUDIO_TAGS.map((tag) => (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => insertTag(tag)}
-                      className="px-2 py-0.5 rounded-full border border-edge bg-slate-950/60 hover:border-indigo-500/50 hover:text-indigo-200 text-[11px] font-mono text-slate-400 cursor-default"
-                    >
-                      [{tag}]
+          <div className="min-h-full grid md:grid-cols-[minmax(0,1fr)_23.75rem]">
+            <div className="px-5 sm:px-6 py-5 flex flex-col gap-5 min-w-0">
+              {/* Voice */}
+              <div className="flex flex-col gap-2">
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Voice</span>
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-950/60 border border-edge">
+                  <span className="w-[38px] h-[38px] rounded-full bg-gradient-to-br from-indigo-600 to-cyan-500 text-white font-semibold flex items-center justify-center shrink-0">
+                    {(voice.name.charAt(0) || '?').toUpperCase()}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13.5px] font-semibold text-slate-100 truncate" title={voice.full}>
+                      {voice.name}
+                    </span>
+                    <span className="block text-[11.5px] text-slate-400 truncate capitalize">
+                      {[VOICE_ENGINE_LABELS[engine], voice.meta].filter(Boolean).join(' · ')}
+                    </span>
+                  </span>
+                  {voice.preview && (
+                    <button type="button" onClick={toggleAudition} className="h-8 px-2.5 flex items-center gap-1.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default">
+                      {auditioning ? <Square className="w-3 h-3 fill-current" /> : <Play className="w-3 h-3 fill-current" />}
+                      Sample
                     </button>
-                  ))}
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsPickerOpen(true)}
+                    className="h-8 px-2.5 rounded-[9px] border border-edge bg-slate-900 hover:bg-slate-800 text-xs font-medium text-slate-200 shrink-0 cursor-default"
+                  >
+                    Change
+                  </button>
                 </div>
-              )}
-            </div>
+              </div>
 
-            {/* Model and delivery, per engine */}
-            <div className="flex flex-col gap-4 p-4 rounded-xl border border-edge bg-slate-950/30">
-              <div className="flex items-center justify-between gap-2 -my-1">
-                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
-                  {VOICE_ENGINE_LABELS[engine]} model &amp; delivery
-                </span>
-                {engine === 'elevenlabs' && (
-                  <ResetDefaultsButton
-                    onClick={() => setEl({ useOwnSettings: false, settings: { ...DEFAULT_VOICE_SETTINGS } })}
-                    disabled={!el.useOwnSettings && isElevenLabsDefault(el.settings)}
-                  />
+              {/* Script */}
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label htmlFor="tts-text" className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 mr-auto">
+                    Text
+                  </label>
+                  <select
+                    aria-label="Language"
+                    value={prefs.language}
+                    onChange={(ev) => updatePrefs((p) => ({ ...p, language: ev.target.value }))}
+                    className="h-7 bg-slate-950/60 border border-edge rounded-[8px] px-2 text-[11.5px] text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
+                  >
+                    {LANGUAGES.map((l) => (
+                      <option key={l.code} value={l.code} className="bg-slate-900">
+                        {l.label}
+                      </option>
+                    ))}
+                  </select>
+                  {projectScript?.trim() && (
+                    <button type="button" onClick={() => setText(projectScript)} className={smallButton} title="Replace the text with this project's dub script">
+                      <FileText className="w-3.5 h-3.5" /> Project script
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setText('')} disabled={!text} className={smallButton}>
+                    Clear
+                  </button>
+                </div>
+                <PhoneticTextarea
+                  id="tts-text"
+                  ref={textareaRef}
+                  language={prefs.language}
+                  value={text}
+                  onChange={setText}
+                  onKeyDown={(ev) => {
+                    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter' && canGenerate) {
+                      ev.preventDefault();
+                      void runTake(engine);
+                    }
+                  }}
+                  rows={7}
+                  placeholder="Type or paste what should be said. Line breaks become breathing pauses."
+                  className="w-full min-h-[10rem] resize-y bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-xl px-3.5 py-3 text-[14px] leading-relaxed text-slate-100 placeholder-slate-500 focus:outline-none"
+                />
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-slate-500 font-mono tabular-nums">
+                  <span>{chars.toLocaleString()} characters</span>
+                  {chars > 0 && <span>≈ {formatLength(estimatedSeconds)} of speech</span>}
+                  {chars > 0 && <span>≈ {creditsFor(engine).toLocaleString()} {VOICE_ENGINE_LABELS[engine]} credits</span>}
+                  {chars > 10000 && <span className="text-amber-400">Long text is voiced in passages and joined.</span>}
+                </div>
+                {engine === 'elevenlabs' && takesTags && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] text-slate-500 mr-1">Audio tags</span>
+                    {ELEVEN_V3_AUDIO_TAGS.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => insertTag(tag)}
+                        className="px-2 py-0.5 rounded-full border border-edge bg-slate-950/60 hover:border-indigo-500/50 hover:text-indigo-200 text-[11px] font-mono text-slate-400 cursor-default"
+                      >
+                        [{tag}]
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
 
-              {engine === 'elevenlabs' ? (
-                <>
-                  <div className="grid sm:grid-cols-2 gap-4 items-start">
-                    <div className="flex flex-col gap-1.5">
-                      <label htmlFor="tts-el-model" className="text-xs text-slate-400">Model</label>
-                      <select
-                        id="tts-el-model"
-                        value={el.modelId}
-                        onChange={(ev) => setEl({ modelId: ev.target.value })}
-                        className={`${field} cursor-default`}
-                      >
-                        {!models.some((m) => m.model_id === el.modelId) && (
-                          <option value={el.modelId} className="bg-slate-900">{el.modelId}</option>
-                        )}
-                        {models.map((m) => (
-                          <option key={m.model_id} value={m.model_id} className="bg-slate-900">
-                            {m.name}
-                            {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
-                          </option>
-                        ))}
-                      </select>
-                      {elModel?.description && <p className="text-[11px] text-slate-500 leading-snug">{elModel.description}</p>}
-                    </div>
-                    <div className="flex flex-col gap-3 sm:pt-6">
-                      {toggle(
-                        'Auto delivery cues',
-                        takesTags ? 'Adds [calm], [sighs]… so it is performed, not read' : 'Eleven v3 and v4 only',
-                        el.expressive && takesTags,
-                        (v) => setEl({ expressive: v }),
-                        !takesTags
-                      )}
-                    </div>
-                  </div>
-
-                  {canFollowDub &&
-                    toggle(
-                      'Same as the dub',
-                      followDub
-                        ? 'Model, settings and delivery cues are shared with the dub; changes here apply to it too'
-                        : 'This studio keeps its own model and settings',
-                      followDub,
-                      setFollowDub
-                    )}
-
-                  {toggle(
-                    "Use the voice's own settings",
-                    'How the voice sounds on the ElevenLabs website',
-                    el.useOwnSettings,
-                    (v) => setEl(v ? { useOwnSettings: true } : { useOwnSettings: false, settings: { ...DEFAULT_VOICE_SETTINGS, ...(ownSettings || {}) } })
+              {/* Model and delivery, per engine */}
+              <div className="flex flex-col gap-4 p-4 rounded-xl border border-edge bg-slate-950/30">
+                <div className="flex items-center justify-between gap-2 -my-1">
+                  <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                    {VOICE_ENGINE_LABELS[engine]} model &amp; delivery
+                  </span>
+                  {engine === 'elevenlabs' && (
+                    <ResetDefaultsButton
+                      onClick={() => setEl({ useOwnSettings: false, settings: { ...DEFAULT_VOICE_SETTINGS } })}
+                      disabled={!el.useOwnSettings && isElevenLabsDefault(el.settings)}
+                    />
                   )}
+                </div>
 
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    {slider(
-                      'Stability',
-                      isV3 ? 'Below 0.5 creative, 0.5 natural, above robust.' : 'Higher is steadier; lower is more emotional.',
-                      activeSettings?.stability ?? DEFAULT_VOICE_SETTINGS.stability,
-                      (v) => setEl({ settings: { ...el.settings, stability: v } }),
-                      { ends: ['Variable', 'Stable'], disabled: el.useOwnSettings }
+                {engine === 'elevenlabs' ? (
+                  <>
+                    <div className="grid sm:grid-cols-2 gap-4 items-start">
+                      <div className="flex flex-col gap-1.5">
+                        <label htmlFor="tts-el-model" className="text-xs text-slate-400">Model</label>
+                        <select
+                          id="tts-el-model"
+                          value={el.modelId}
+                          onChange={(ev) => setEl({ modelId: ev.target.value })}
+                          className={`${field} cursor-default`}
+                        >
+                          {!models.some((m) => m.model_id === el.modelId) && (
+                            <option value={el.modelId} className="bg-slate-900">{el.modelId}</option>
+                          )}
+                          {models.map((m) => (
+                            <option key={m.model_id} value={m.model_id} className="bg-slate-900">
+                              {m.name}
+                              {m.token_cost_factor && m.token_cost_factor !== 1 ? ` · ${m.token_cost_factor}× credits` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {elModel?.description && <p className="text-[11px] text-slate-500 leading-snug">{elModel.description}</p>}
+                      </div>
+                      <div className="flex flex-col gap-3 sm:pt-6">
+                        {toggle(
+                          'Auto delivery cues',
+                          takesTags ? 'Adds [calm], [sighs]… so it is performed, not read' : 'Eleven v3 and v4 only',
+                          el.expressive && takesTags,
+                          (v) => setEl({ expressive: v }),
+                          !takesTags
+                        )}
+                      </div>
+                    </div>
+
+                    {canFollowDub &&
+                      toggle(
+                        'Same as the dub',
+                        followDub
+                          ? 'Model, settings and delivery cues are shared with the dub; changes here apply to it too'
+                          : 'This studio keeps its own model and settings',
+                        followDub,
+                        setFollowDub
+                      )}
+
+                    {toggle(
+                      "Use the voice's own settings",
+                      'How the voice sounds on the ElevenLabs website',
+                      el.useOwnSettings,
+                      (v) => setEl(v ? { useOwnSettings: true } : { useOwnSettings: false, settings: { ...DEFAULT_VOICE_SETTINGS, ...(ownSettings || {}) } })
                     )}
-                    {slider(
-                      'Similarity',
-                      'How closely it keeps to the original voice.',
-                      activeSettings?.similarity_boost ?? DEFAULT_VOICE_SETTINGS.similarity_boost,
-                      (v) => setEl({ settings: { ...el.settings, similarity_boost: v } }),
-                      { ends: ['Looser', 'Closer'], disabled: el.useOwnSettings }
+
+                    <button
+                      type="button"
+                      onClick={() => setIsFineTuneOpen((o) => !o)}
+                      aria-expanded={isFineTuneOpen}
+                      aria-controls="tts-el-fine-tune"
+                      className="w-full flex items-center gap-2 pt-3 -mb-1 border-t border-edge text-left text-[12.5px] font-medium text-slate-300 hover:text-slate-100 transition-colors cursor-default"
+                    >
+                      <ChevronRight className={`w-3.5 h-3.5 shrink-0 text-slate-500 transition-transform ${isFineTuneOpen ? 'rotate-90' : ''}`} />
+                      <span className="min-w-0 truncate">Stability, similarity, style, speed, speaker boost</span>
+                      <span className="ml-auto shrink-0 font-mono text-[11.5px] font-normal text-slate-500 tabular-nums">
+                        {fineTuneSummary}
+                        <span className="hidden sm:inline"> · boost {boostOn ? 'on' : 'off'}</span>
+                      </span>
+                    </button>
+                    {isFineTuneOpen && (
+                      <div id="tts-el-fine-tune" className="flex flex-col gap-4">
+                        <div className="grid sm:grid-cols-2 gap-4">
+                          {slider(
+                            'Stability',
+                            isV3 ? 'Below 0.5 creative, 0.5 natural, above robust.' : 'Higher is steadier; lower is more emotional.',
+                            activeSettings?.stability ?? DEFAULT_VOICE_SETTINGS.stability,
+                            (v) => setEl({ settings: { ...el.settings, stability: v } }),
+                            { ends: ['Variable', 'Stable'], disabled: el.useOwnSettings }
+                          )}
+                          {slider(
+                            'Similarity',
+                            'How closely it keeps to the original voice.',
+                            activeSettings?.similarity_boost ?? DEFAULT_VOICE_SETTINGS.similarity_boost,
+                            (v) => setEl({ settings: { ...el.settings, similarity_boost: v } }),
+                            { ends: ['Looser', 'Closer'], disabled: el.useOwnSettings }
+                          )}
+                          {slider(
+                            'Style exaggeration',
+                            'Amplifies the voice’s style. Costs latency; 0 is safest.',
+                            activeSettings?.style ?? 0,
+                            (v) => setEl({ settings: { ...el.settings, style: v } }),
+                            { ends: ['None', 'Strong'], disabled: el.useOwnSettings }
+                          )}
+                          {slider(
+                            'Speed',
+                            speedApplies ? 'Speaking rate; 1.0 is natural.' : 'This model ignores speed.',
+                            activeSettings?.speed ?? 1,
+                            (v) => setEl({ settings: { ...el.settings, speed: v } }),
+                            {
+                              min: MIN_VOICE_SPEED,
+                              max: MAX_VOICE_SPEED,
+                              step: 0.01,
+                              suffix: '×',
+                              ends: ['Slower', 'Faster'],
+                              disabled: el.useOwnSettings || !speedApplies,
+                            }
+                          )}
+                        </div>
+                        {toggle(
+                          'Speaker boost',
+                          'Sharpens likeness to the voice, slightly slower',
+                          boostOn,
+                          (v) => setEl({ settings: { ...el.settings, use_speaker_boost: v } }),
+                          el.useOwnSettings
+                        )}
+                      </div>
                     )}
-                    {slider(
-                      'Style exaggeration',
-                      'Amplifies the voice’s style. Costs latency; 0 is safest.',
-                      activeSettings?.style ?? 0,
-                      (v) => setEl({ settings: { ...el.settings, style: v } }),
-                      { ends: ['None', 'Strong'], disabled: el.useOwnSettings }
-                    )}
-                    {slider(
-                      'Speed',
-                      speedApplies ? 'Speaking rate; 1.0 is natural.' : 'This model ignores speed.',
-                      activeSettings?.speed ?? 1,
-                      (v) => setEl({ settings: { ...el.settings, speed: v } }),
-                      {
-                        min: MIN_VOICE_SPEED,
-                        max: MAX_VOICE_SPEED,
+                  </>
+                ) : (
+                  <>
+                    <div className="grid sm:grid-cols-2 gap-4 items-start">
+                      <div className="flex flex-col gap-1.5">
+                        <label htmlFor="tts-ca-model" className="text-xs text-slate-400">Model</label>
+                        <select
+                          id="tts-ca-model"
+                          value={cartesia.modelId}
+                          onChange={(ev) => setCartesia({ modelId: ev.target.value })}
+                          className={`${field} cursor-default`}
+                        >
+                          {CARTESIA_MODELS.map((m) => (
+                            <option key={m.id} value={m.id} className="bg-slate-900">{m.name}</option>
+                          ))}
+                        </select>
+                        {cartesiaModel && <p className="text-[11px] text-slate-500 leading-snug">{cartesiaModel.description}</p>}
+                      </div>
+                      <div className={`flex flex-col gap-1.5 ${cartesiaControls ? '' : 'opacity-45'}`}>
+                        <label htmlFor="tts-ca-emotion" className="text-xs text-slate-400">Emotion</label>
+                        <select
+                          id="tts-ca-emotion"
+                          value={cartesia.emotion}
+                          disabled={!cartesiaControls}
+                          onChange={(ev) => setCartesia({ emotion: ev.target.value })}
+                          className={`${field} cursor-default`}
+                        >
+                          <option value="" className="bg-slate-900">Let the model choose</option>
+                          {CARTESIA_EMOTIONS.map((emo) => (
+                            <option key={emo} value={emo} className="bg-slate-900">
+                              {emo.charAt(0).toUpperCase() + emo.slice(1)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-4">
+                      {slider('Speed', cartesiaControls ? 'Speaking rate; 1.0 is natural.' : 'Sonic 3 models only.', cartesia.speed, (v) => setCartesia({ speed: v }), {
+                        min: MIN_CARTESIA_SPEED,
+                        max: MAX_CARTESIA_SPEED,
                         step: 0.01,
                         suffix: '×',
                         ends: ['Slower', 'Faster'],
-                        disabled: el.useOwnSettings || !speedApplies,
-                      }
-                    )}
-                  </div>
-                  {toggle(
-                    'Speaker boost',
-                    'Sharpens likeness to the voice, slightly slower',
-                    activeSettings?.use_speaker_boost !== false,
-                    (v) => setEl({ settings: { ...el.settings, use_speaker_boost: v } }),
-                    el.useOwnSettings
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className="grid sm:grid-cols-2 gap-4 items-start">
-                    <div className="flex flex-col gap-1.5">
-                      <label htmlFor="tts-ca-model" className="text-xs text-slate-400">Model</label>
-                      <select
-                        id="tts-ca-model"
-                        value={cartesia.modelId}
-                        onChange={(ev) => setCartesia({ modelId: ev.target.value })}
-                        className={`${field} cursor-default`}
-                      >
-                        {CARTESIA_MODELS.map((m) => (
-                          <option key={m.id} value={m.id} className="bg-slate-900">{m.name}</option>
-                        ))}
-                      </select>
-                      {cartesiaModel && <p className="text-[11px] text-slate-500 leading-snug">{cartesiaModel.description}</p>}
+                        disabled: !cartesiaControls,
+                      })}
+                      {slider('Volume', cartesiaControls ? 'Loudness of the read; 1.0 is normal.' : 'Sonic 3 models only.', cartesia.volume, (v) => setCartesia({ volume: v }), {
+                        min: 0.5,
+                        max: 2,
+                        step: 0.05,
+                        suffix: '×',
+                        ends: ['Softer', 'Louder'],
+                        disabled: !cartesiaControls,
+                      })}
                     </div>
-                    <div className={`flex flex-col gap-1.5 ${cartesiaControls ? '' : 'opacity-45'}`}>
-                      <label htmlFor="tts-ca-emotion" className="text-xs text-slate-400">Emotion</label>
-                      <select
-                        id="tts-ca-emotion"
-                        value={cartesia.emotion}
-                        disabled={!cartesiaControls}
-                        onChange={(ev) => setCartesia({ emotion: ev.target.value })}
-                        className={`${field} cursor-default`}
+                    <button
+                      type="button"
+                      onClick={() => setCartesia({ speed: 1, volume: 1, emotion: '' })}
+                      className={`${smallButton} w-fit`}
+                    >
+                      Reset delivery
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Output */}
+              <div className="grid sm:grid-cols-2 gap-4 items-start">
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="tts-format" className="text-xs text-slate-400">Output format</label>
+                  <select
+                    id="tts-format"
+                    value={prefs.outputFormat}
+                    onChange={(ev) => updatePrefs((p) => ({ ...p, outputFormat: ev.target.value }))}
+                    className={`${field} cursor-default`}
+                  >
+                    {OUTPUT_FORMATS.map((f) => (
+                      <option key={f.id} value={f.id} className="bg-slate-900">{f.label}</option>
+                    ))}
+                  </select>
+                  {formatHint && <p className="text-[11px] text-slate-500">{formatHint}.</p>}
+                </div>
+                {engine === 'elevenlabs' && (
+                  <div className="flex flex-col gap-1.5">
+                    <label htmlFor="tts-seed" className="text-xs text-slate-400">Seed</label>
+                    <div className="flex gap-1.5">
+                      <input
+                        id="tts-seed"
+                        type="number"
+                        min={0}
+                        max={4294967295}
+                        value={el.seedLocked ? el.seed : ''}
+                        placeholder="Random each take"
+                        disabled={!el.seedLocked}
+                        onChange={(ev) => {
+                          const n = Math.floor(Number(ev.target.value));
+                          if (Number.isFinite(n)) setEl({ seed: Math.min(4294967295, Math.max(0, n)) });
+                        }}
+                        className={`${field} font-mono disabled:opacity-60`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEl({ seedLocked: !el.seedLocked })}
+                        aria-pressed={el.seedLocked}
+                        title={el.seedLocked ? 'Unlock: a new seed each take' : 'Lock the seed to repeat a take'}
+                        className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border cursor-default ${
+                          el.seedLocked ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200' : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100'
+                        }`}
                       >
-                        <option value="" className="bg-slate-900">Let the model choose</option>
-                        {CARTESIA_EMOTIONS.map((emo) => (
-                          <option key={emo} value={emo} className="bg-slate-900">
-                            {emo.charAt(0).toUpperCase() + emo.slice(1)}
-                          </option>
-                        ))}
-                      </select>
+                        {el.seedLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEl({ seed: randomSeed(), seedLocked: true })}
+                        title="New random seed"
+                        aria-label="New random seed"
+                        className="w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 cursor-default"
+                      >
+                        <Dices className="w-4 h-4" />
+                      </button>
                     </div>
+                    <p className="text-[11px] text-slate-500">Same seed, text and settings gives the same take.</p>
                   </div>
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    {slider('Speed', cartesiaControls ? 'Speaking rate; 1.0 is natural.' : 'Sonic 3 models only.', cartesia.speed, (v) => setCartesia({ speed: v }), {
-                      min: MIN_CARTESIA_SPEED,
-                      max: MAX_CARTESIA_SPEED,
-                      step: 0.01,
-                      suffix: '×',
-                      ends: ['Slower', 'Faster'],
-                      disabled: !cartesiaControls,
-                    })}
-                    {slider('Volume', cartesiaControls ? 'Loudness of the read; 1.0 is normal.' : 'Sonic 3 models only.', cartesia.volume, (v) => setCartesia({ volume: v }), {
-                      min: 0.5,
-                      max: 2,
-                      step: 0.05,
-                      suffix: '×',
-                      ends: ['Softer', 'Louder'],
-                      disabled: !cartesiaControls,
-                    })}
-                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                <button type="button" onClick={() => void runTake(engine)} disabled={!canGenerate} className={primaryButton}>
+                  <AudioLines className="w-4 h-4" /> Generate with {VOICE_ENGINE_LABELS[engine]}
+                </button>
+                {cartesiaAvailable && (
                   <button
                     type="button"
-                    onClick={() => setCartesia({ speed: 1, volume: 1, emotion: '' })}
-                    className={`${smallButton} w-fit`}
+                    onClick={() => {
+                      void runTake('elevenlabs');
+                      void runTake('cartesia');
+                    }}
+                    disabled={!canCompare}
+                    title={canCompare ? 'Voice the same text on both engines, each with its own voice and settings' : 'Choose a voice on both engines first'}
+                    className={secondaryButton}
                   >
-                    Reset delivery
+                    <Columns2 className="w-4 h-4" /> Generate on both
                   </button>
-                </>
+                )}
+                <span className="text-[11.5px] text-slate-500">
+                  <kbd className="font-mono">Ctrl</kbd> + <kbd className="font-mono">Enter</kbd> to generate
+                </span>
+              </div>
+
+              {errorMessage && (
+                <p className="flex items-start gap-2 px-3 py-2.5 rounded-[10px] bg-rose-500/10 border border-rose-500/30 text-[12.5px] text-slate-200" role="alert">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-px" /> {errorMessage}
+                </p>
               )}
             </div>
 
-            {/* Output */}
-            <div className="grid sm:grid-cols-2 gap-4 items-start">
-              <div className="flex flex-col gap-1.5">
-                <label htmlFor="tts-format" className="text-xs text-slate-400">Output format</label>
-                <select
-                  id="tts-format"
-                  value={prefs.outputFormat}
-                  onChange={(ev) => updatePrefs((p) => ({ ...p, outputFormat: ev.target.value }))}
-                  className={`${field} cursor-default`}
-                >
-                  {OUTPUT_FORMATS.map((f) => (
-                    <option key={f.id} value={f.id} className="bg-slate-900">{f.label}</option>
-                  ))}
-                </select>
-                {formatHint && <p className="text-[11px] text-slate-500">{formatHint}.</p>}
+            {/* Takes */}
+            <aside aria-label="Takes" className="px-5 py-5 border-t md:border-t-0 md:border-l border-edge bg-slate-950/40 flex flex-col gap-3 min-w-0">
+              <div className="flex items-center justify-between">
+                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                  Takes{takes.length ? ` · ${takes.length}` : ''}
+                </span>
+                {takes.length > 0 && !running && (
+                  <button type="button" onClick={() => takes.forEach((t) => removeTake(t.id))} className="text-[11.5px] text-slate-500 hover:text-slate-200 cursor-default">
+                    Clear all
+                  </button>
+                )}
               </div>
-              {engine === 'elevenlabs' && (
-                <div className="flex flex-col gap-1.5">
-                  <label htmlFor="tts-seed" className="text-xs text-slate-400">Seed</label>
-                  <div className="flex gap-1.5">
-                    <input
-                      id="tts-seed"
-                      type="number"
-                      min={0}
-                      max={4294967295}
-                      value={el.seedLocked ? el.seed : ''}
-                      placeholder="Random each take"
-                      disabled={!el.seedLocked}
-                      onChange={(ev) => {
-                        const n = Math.floor(Number(ev.target.value));
-                        if (Number.isFinite(n)) setEl({ seed: Math.min(4294967295, Math.max(0, n)) });
-                      }}
-                      className={`${field} font-mono disabled:opacity-60`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setEl({ seedLocked: !el.seedLocked })}
-                      aria-pressed={el.seedLocked}
-                      title={el.seedLocked ? 'Unlock: a new seed each take' : 'Lock the seed to repeat a take'}
-                      className={`w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border cursor-default ${
-                        el.seedLocked ? 'border-indigo-500 bg-indigo-950/40 text-indigo-200' : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100'
-                      }`}
-                    >
-                      {el.seedLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEl({ seed: randomSeed(), seedLocked: true })}
-                      title="New random seed"
-                      aria-label="New random seed"
-                      className="w-10 h-10 shrink-0 flex items-center justify-center rounded-[10px] border border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 cursor-default"
-                    >
-                      <Dices className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-500">Same seed, text and settings gives the same take.</p>
+
+              {takes.length === 0 ? (
+                <div className="flex-1 min-h-[13.75rem] flex flex-col items-center justify-center gap-2.5 p-6 text-center rounded-xl border-[1.5px] border-dashed border-slate-700 text-[12.5px] text-slate-500">
+                  <span className="w-10 h-10 rounded-[11px] bg-slate-900 border border-edge text-slate-400 flex items-center justify-center">
+                    <Speech className="w-5 h-5" />
+                  </span>
+                  <span className="max-w-[16rem]">
+                    Each take appears here with its voice and model, so you can compare them and keep the best one.
+                  </span>
                 </div>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3 pt-1">
-              <button type="button" onClick={() => void runTake(engine)} disabled={!canGenerate} className={primaryButton}>
-                <AudioLines className="w-4 h-4" /> Generate with {VOICE_ENGINE_LABELS[engine]}
-              </button>
-              {cartesiaAvailable && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    void runTake('elevenlabs');
-                    void runTake('cartesia');
-                  }}
-                  disabled={!canCompare}
-                  title={canCompare ? 'Voice the same text on both engines, each with its own voice and settings' : 'Choose a voice on both engines first'}
-                  className={secondaryButton}
-                >
-                  <Columns2 className="w-4 h-4" /> Generate on both
-                </button>
-              )}
-              <span className="text-[11.5px] text-slate-500">
-                <kbd className="font-mono">Ctrl</kbd> + <kbd className="font-mono">Enter</kbd> to generate
-              </span>
-            </div>
-
-            {errorMessage && (
-              <p className="flex items-start gap-2 px-3 py-2.5 rounded-[10px] bg-rose-500/10 border border-rose-500/30 text-[12.5px] text-slate-200" role="alert">
-                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-px" /> {errorMessage}
-              </p>
-            )}
-          </div>
-
-          {/* Takes */}
-          <aside aria-label="Takes" className="px-5 py-5 border-t md:border-t-0 md:border-l border-edge bg-slate-950/40 flex flex-col gap-3 min-w-0">
-            <div className="flex items-center justify-between">
-              <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
-                Takes{takes.length ? ` · ${takes.length}` : ''}
-              </span>
-              {takes.length > 0 && !running && (
-                <button type="button" onClick={() => takes.forEach((t) => removeTake(t.id))} className="text-[11.5px] text-slate-500 hover:text-slate-200 cursor-default">
-                  Clear all
-                </button>
-              )}
-            </div>
-
-            {takes.length === 0 ? (
-              <div className="flex-1 min-h-[13.75rem] flex flex-col items-center justify-center gap-2.5 p-6 text-center rounded-xl border-[1.5px] border-dashed border-slate-700 text-[12.5px] text-slate-500">
-                <span className="w-10 h-10 rounded-[11px] bg-slate-900 border border-edge text-slate-400 flex items-center justify-center">
-                  <Speech className="w-5 h-5" />
-                </span>
-                <span className="max-w-[16rem]">
-                  Each take appears here with its voice and model, so you can compare them and keep the best one.
-                </span>
-              </div>
-            ) : (
-              <ul className="flex flex-col gap-2.5">
-                {takes.map((take) => {
-                  const prog = take.status === 'running' ? progressOf(take) : null;
-                  return (
-                    <li
-                      key={take.id}
-                      className={`flex flex-col gap-2 p-3 rounded-xl bg-slate-900 border ${
-                        playingTakeId === take.id ? 'border-indigo-500/60' : 'border-edge'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => togglePlay(take)}
-                          disabled={take.status !== 'done'}
-                          className="w-[30px] h-[30px] rounded-full border border-slate-700 bg-slate-950/60 text-slate-100 flex items-center justify-center shrink-0 disabled:opacity-30 cursor-default"
-                          aria-label={`${playingTakeId === take.id ? 'Stop' : 'Play'} take by ${take.voiceName}`}
-                        >
-                          {take.status === 'running' ? (
-                            <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
-                          ) : playingTakeId === take.id ? (
-                            <Square className="w-3 h-3 fill-current" />
-                          ) : (
-                            <Play className="w-3 h-3 fill-current ml-px" />
-                          )}
-                        </button>
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center gap-1.5">
-                            <span className="text-[12.5px] font-semibold text-slate-100 truncate">{take.voiceName}</span>
-                            <span
-                              className={`text-[9.5px] uppercase tracking-wider font-semibold px-1.5 py-px rounded ${
-                                take.engine === 'cartesia' ? 'bg-cyan-500/15 text-cyan-300' : 'bg-indigo-500/15 text-indigo-300'
-                              }`}
-                            >
-                              {VOICE_ENGINE_LABELS[take.engine]}
-                            </span>
-                          </span>
-                          <span className="block text-[11px] text-slate-400 truncate font-mono">
-                            {[
-                              take.modelLabel,
-                              take.buffer ? formatLength(take.buffer.duration) : null,
-                              take.seed !== undefined ? `seed ${take.seed}` : null,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')}
-                          </span>
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeTake(take.id)}
-                          aria-label={take.status === 'running' ? 'Cancel take' : 'Remove take'}
-                          title={take.status === 'running' ? 'Cancel' : 'Remove'}
-                          className="p-1 text-slate-500 hover:text-slate-200 cursor-default"
-                        >
-                          {take.status === 'running' ? <X className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
-
-                      <p className="text-[11.5px] text-slate-400 line-clamp-2" title={take.text}>
-                        {take.text}
-                      </p>
-
-                      {prog && (
-                        <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
-                          <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                            {prog.fraction === null ? (
-                              <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
-                            ) : (
-                              <div
-                                className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-[width] duration-500"
-                                style={{ width: `${Math.max(4, Math.round(prog.fraction * 100))}%` }}
-                              />
-                            )}
-                          </div>
-                          <span className="text-[11px] text-slate-400">{prog.label}</span>
-                        </div>
-                      )}
-
-                      {take.status === 'done' && take.buffer && (
-                        <div className="h-[30px]">
-                          <MiniWaveform buffer={take.buffer} className={take.engine === 'cartesia' ? 'text-cyan-400/80' : 'text-indigo-400'} />
-                        </div>
-                      )}
-
-                      {take.status === 'failed' && (
-                        <p className="flex items-start gap-1.5 text-[11.5px] text-rose-300">
-                          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" /> {take.error}
-                        </p>
-                      )}
-                      {take.status === 'cancelled' && <p className="text-[11.5px] text-slate-500">Cancelled.</p>}
-
-                      {take.status === 'done' && (
-                        <div className="flex flex-wrap gap-1.5">
-                          <button type="button" onClick={() => downloadTake(take)} className={smallButton}>
-                            <Download className="w-3.5 h-3.5" /> .{take.blob ? audioFileExtension(take.blob) : 'mp3'}
-                          </button>
-                          {onSetDubbedMaster && (
-                            <button
-                              type="button"
-                              disabled={!take.buffer || !take.blob}
-                              onClick={() => take.blob && take.buffer && onSetDubbedMaster(take.blob, take.buffer)}
-                              className={smallButton}
-                              title="Make this the project's finished dub audio"
-                            >
-                              <Film className="w-3.5 h-3.5" /> Use as the dub
-                            </button>
-                          )}
-                          {take.seed !== undefined && (
-                            <button
-                              type="button"
-                              onClick={() => setEl({ seed: take.seed!, seedLocked: true })}
-                              className={smallButton}
-                              title="Lock this take's seed to regenerate it with small changes"
-                            >
-                              <Lock className="w-3.5 h-3.5" /> Reuse seed
-                            </button>
-                          )}
+              ) : (
+                <ul className="flex flex-col gap-2.5">
+                  {takes.map((take) => {
+                    const prog = take.status === 'running' ? progressOf(take) : null;
+                    return (
+                      <li
+                        key={take.id}
+                        className={`flex flex-col gap-2 p-3 rounded-xl bg-slate-900 border ${
+                          playingTakeId === take.id ? 'border-indigo-500/60' : 'border-edge'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
                           <button
                             type="button"
-                            onClick={() => setText(take.text)}
-                            disabled={take.text === text.trim()}
-                            className={smallButton}
+                            onClick={() => togglePlay(take)}
+                            disabled={take.status !== 'done'}
+                            className="w-[30px] h-[30px] rounded-full border border-slate-700 bg-slate-950/60 text-slate-100 flex items-center justify-center shrink-0 disabled:opacity-30 cursor-default"
+                            aria-label={`${playingTakeId === take.id ? 'Stop' : 'Play'} take by ${take.voiceName}`}
                           >
-                            <Check className="w-3.5 h-3.5" /> Load text
+                            {take.status === 'running' ? (
+                              <RefreshCw className="w-3 h-3 animate-spin text-indigo-400" />
+                            ) : playingTakeId === take.id ? (
+                              <Square className="w-3 h-3 fill-current" />
+                            ) : (
+                              <Play className="w-3 h-3 fill-current ml-px" />
+                            )}
+                          </button>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center gap-1.5">
+                              <span className="text-[12.5px] font-semibold text-slate-100 truncate">{take.voiceName}</span>
+                              <span
+                                className={`text-[9.5px] uppercase tracking-wider font-semibold px-1.5 py-px rounded ${
+                                  take.engine === 'cartesia' ? 'bg-cyan-500/15 text-cyan-300' : 'bg-indigo-500/15 text-indigo-300'
+                                }`}
+                              >
+                                {VOICE_ENGINE_LABELS[take.engine]}
+                              </span>
+                            </span>
+                            <span className="block text-[11px] text-slate-400 truncate font-mono">
+                              {[
+                                take.modelLabel,
+                                take.buffer ? formatLength(take.buffer.duration) : null,
+                                take.seed !== undefined ? `seed ${take.seed}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeTake(take.id)}
+                            aria-label={take.status === 'running' ? 'Cancel take' : 'Remove take'}
+                            title={take.status === 'running' ? 'Cancel' : 'Remove'}
+                            className="p-1 text-slate-500 hover:text-slate-200 cursor-default"
+                          >
+                            {take.status === 'running' ? <X className="w-3.5 h-3.5" /> : <Trash2 className="w-3.5 h-3.5" />}
                           </button>
                         </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </aside>
-        </div>
-      </section>
+
+                        <p className="text-[11.5px] text-slate-400 line-clamp-2" title={take.text}>
+                          {take.text}
+                        </p>
+
+                        {prog && (
+                          <div className="flex flex-col gap-1.5" role="status" aria-live="polite">
+                            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                              {prog.fraction === null ? (
+                                <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
+                              ) : (
+                                <div
+                                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-[width] duration-500"
+                                  style={{ width: `${Math.max(4, Math.round(prog.fraction * 100))}%` }}
+                                />
+                              )}
+                            </div>
+                            <span className="text-[11px] text-slate-400">{prog.label}</span>
+                          </div>
+                        )}
+
+                        {take.status === 'done' && take.buffer && (
+                          <div className="h-[30px]">
+                            <MiniWaveform buffer={take.buffer} className={take.engine === 'cartesia' ? 'text-cyan-400/80' : 'text-indigo-400'} />
+                          </div>
+                        )}
+
+                        {take.status === 'failed' && (
+                          <p className="flex items-start gap-1.5 text-[11.5px] text-rose-300">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-px" /> {take.error}
+                          </p>
+                        )}
+                        {take.status === 'cancelled' && <p className="text-[11.5px] text-slate-500">Cancelled.</p>}
+
+                        {take.status === 'done' && (
+                          <div className="flex flex-wrap gap-1.5">
+                            <button type="button" onClick={() => downloadTake(take)} className={smallButton}>
+                              <Download className="w-3.5 h-3.5" /> .{take.blob ? audioFileExtension(take.blob) : 'mp3'}
+                            </button>
+                            {onSetDubbedMaster && (
+                              <button
+                                type="button"
+                                disabled={!take.buffer || !take.blob}
+                                onClick={() => take.blob && take.buffer && onSetDubbedMaster(take.blob, take.buffer)}
+                                className={smallButton}
+                                title="Make this the project's finished dub audio"
+                              >
+                                <Film className="w-3.5 h-3.5" /> Use as the dub
+                              </button>
+                            )}
+                            {take.seed !== undefined && (
+                              <button
+                                type="button"
+                                onClick={() => setEl({ seed: take.seed!, seedLocked: true })}
+                                className={smallButton}
+                                title="Lock this take's seed to regenerate it with small changes"
+                              >
+                                <Lock className="w-3.5 h-3.5" /> Reuse seed
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setText(take.text)}
+                              disabled={take.text === text.trim()}
+                              className={smallButton}
+                            >
+                              <Check className="w-3.5 h-3.5" /> Load text
+                            </button>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </aside>
+          </div>
+        </ToolWindow>
+      </div>
 
       {/* The voice library for the engine that is on */}
       {isPickerOpen && (
@@ -1325,6 +1345,6 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };

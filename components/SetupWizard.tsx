@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  Key,
   ExternalLink,
   CheckCircle2,
   AlertCircle,
@@ -10,7 +9,6 @@ import {
   Server,
   Cloud,
   Info,
-  X,
   Eye,
   EyeOff,
   AudioLines,
@@ -25,7 +23,6 @@ import {
   KeyRound,
   Film,
   FileAudio,
-  HardDrive,
   CircleDashed,
 } from 'lucide-react';
 import {
@@ -56,6 +53,7 @@ import { reportError } from '../services/errorPopup';
 import { maskKey, PROBE_WORDS, type ProbeStatus } from '../services/providerDetect';
 import { synthesizeSamplePreview } from '../services/elevenLabsService';
 import { PageScrollLock } from './usePageScrollLock';
+import { ToolWindow, toolPrimaryButton, toolTextButton } from './ToolWindow';
 
 interface SetupWizardProps {
   /** Where each credential currently comes from. */
@@ -1309,6 +1307,162 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
   /* --------------------------- Window --------------------------- */
 
+  /*
+   * All three steps are laid out in the same place and only the picked one shows, so the
+   * pane is as tall as its tallest step and stays that size from one step to the next.
+   */
+  const stepPanels = steps.map((view) => {
+    const shown = view.id === step;
+    return (
+      <div
+        key={view.id}
+        role="tabpanel"
+        aria-label={view.title}
+        aria-hidden={!shown}
+        inert={!shown}
+        className={`[grid-area:1/1] min-w-0 flex flex-col gap-3 ${shown ? 'tools-hub-preview-in' : 'invisible'}`}
+      >
+        <div className="flex items-baseline gap-2 min-w-0">
+          <h3 className="text-[15px] font-semibold text-slate-100 shrink-0">{view.title}</h3>
+          <span className="text-[12.5px] text-slate-500 truncate">{view.what}</span>
+        </div>
+        {view.id === 'transcribe' ? transcribeStep : view.id === 'translate' ? translateStep : voiceStep}
+      </div>
+    );
+  });
+
+  /** Try it and what leaves this computer for each step, laid over one another like the steps. */
+  const liveCards = (layoutWithTry: string, layout: string) =>
+    steps.map((view) => {
+      const shown = view.id === step;
+      const tryCard = tryCardFor(view);
+      return (
+        <aside
+          key={view.id}
+          aria-label={`${view.title}: live`}
+          aria-hidden={!shown}
+          inert={!shown}
+          className={`[grid-area:1/1] min-w-0 grid ${tryCard ? layoutWithTry : ''} ${layout} gap-3 content-start ${
+            shown ? 'tools-hub-preview-in' : 'invisible'
+          }`}
+        >
+          {tryCard}
+          {connectionCardFor(view)}
+        </aside>
+      );
+    });
+
+  if (isSettings) {
+    /*
+     * Reopened from the app: the shared tool window, with the steps in a list on
+     * the left and the picked step's fields on the right. On a narrow window the
+     * list sits above the fields and the whole body scrolls as one.
+     */
+    return (
+      <ToolWindow
+        onClose={onSkip}
+        // Keys being typed are not saved yet; only Cancel or the close button leaves them.
+        closeOnBackdrop={false}
+        title="API settings"
+        subtitle="The services your dub goes through. Pick a step to change who does it."
+        icon={KeyRound}
+        tone="slate"
+        widthClassName="max-w-[62rem]"
+        heightClassName="sm:h-[min(43rem,100%)]"
+        titleId="setup-title"
+        bodyScrolls={false}
+        bodyClassName="@container"
+        headerExtra={
+          <>
+            <span
+              className={`shrink-0 flex items-center gap-1.5 h-7 pl-1.5 pr-2.5 rounded-full border text-[11.5px] whitespace-nowrap ${
+                isDetecting
+                  ? 'border-slate-700 bg-slate-800/40'
+                  : readyCount === 3
+                    ? 'border-emerald-500/30 bg-emerald-500/[.07]'
+                    : 'border-amber-500/30 bg-amber-500/[.07]'
+              }`}
+            >
+              <HealthRing ready={readyCount} checking={isDetecting} className="w-4 h-4" />
+              {isDetecting ? (
+                <span className="font-semibold text-slate-300">Checking…</span>
+              ) : (
+                <span className={`font-semibold ${readyCount === 3 ? 'text-emerald-300' : 'text-amber-300'}`}>{readyCount}/3 steps ready</span>
+              )}
+              {detection && !isDetecting && <span className="hidden sm:inline text-slate-500">· checked {agoLabel(detection.checkedAt, now)}</span>}
+            </span>
+            <button
+              type="button"
+              onClick={runDetection}
+              disabled={isDetecting}
+              aria-label="Check every service again"
+              className="shrink-0 h-7 px-2.5 rounded-lg border border-slate-700 bg-slate-950/60 hover:bg-slate-800 text-[11.5px] font-medium text-slate-200 inline-flex items-center gap-1.5 transition-colors disabled:opacity-60 cursor-default"
+            >
+              <RefreshCw className={`w-3 h-3 ${isDetecting ? 'animate-spin' : ''}`} />
+              Re-check
+            </button>
+          </>
+        }
+        footer={
+          <>
+            <div className="min-w-0 flex-1 basis-56 leading-tight">
+              <p className="text-[12px] text-slate-300 truncate">Keys are saved on this computer only</p>
+              {configFile && (
+                <p className="text-[11px] text-slate-500 font-mono truncate mt-0.5" title={configFile}>
+                  {configFile}
+                </p>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-3">
+              {unsaved && (
+                <span className="hidden sm:flex items-center gap-1.5 text-[12px] text-amber-300 whitespace-nowrap">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Unsaved changes
+                </span>
+              )}
+              <button type="button" onClick={onSkip} className={toolTextButton}>
+                Cancel
+              </button>
+              <button type="button" onClick={handleSave} disabled={!canSubmit} className={toolPrimaryButton}>
+                {isSaving ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Checking…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Save changes</span>
+                    <kbd className="hidden sm:inline text-[10.5px] px-1 rounded bg-indigo-500/60 font-sans">Ctrl S</kbd>
+                  </>
+                )}
+              </button>
+            </div>
+          </>
+        }
+      >
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin] grid content-start @3xl:overflow-hidden @3xl:grid-cols-[18rem_minmax(0,1fr)] @3xl:grid-rows-[minmax(0,1fr)]">
+          {/* Left: the steps, then Try it and what leaves this computer for the picked one */}
+          <div className="min-w-0 p-4 flex flex-col gap-4 bg-slate-950/40 border-b @3xl:border-b-0 @3xl:border-r border-edge @3xl:overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+            <div className="min-w-0">
+              <div id="api-steps-label" className="px-1 pb-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                Steps
+              </div>
+              <div role="tablist" aria-labelledby="api-steps-label" className="grid gap-1 @xl:@max-3xl:grid-cols-3">
+                {steps.map((view) => (
+                  <StepRow key={view.id} view={view} status={statusOf(view)} active={view.id === step} changed={dirty[view.id]} onPick={() => setStep(view.id)} />
+                ))}
+              </div>
+            </div>
+            <div className="min-w-0 grid">{liveCards('@xl:@max-3xl:grid-cols-2', '@3xl:flex @3xl:flex-col')}</div>
+          </div>
+
+          {/* Right: the picked step's fields */}
+          <div className="@container/stage min-w-0 grid content-start p-5 @3xl:overflow-y-auto overscroll-contain [scrollbar-width:thin]">{stepPanels}</div>
+        </div>
+      </ToolWindow>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
       <PageScrollLock />
@@ -1325,21 +1479,13 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
 
         {/* Header: name, how many steps work, Re-check */}
         <div className="relative flex items-center gap-3 @xl:gap-3.5 px-4 @xl:px-7 pt-5 @xl:pt-6 shrink-0">
-          {isSettings ? (
-            <div className="w-10 h-10 @xl:w-11 @xl:h-11 rounded-xl bg-slate-100 text-slate-950 flex items-center justify-center shrink-0 shadow-lg shadow-black/30" aria-hidden="true">
-              <Key className="w-5 h-5" />
-            </div>
-          ) : (
-            <img src="./icon-192.png" alt="" aria-hidden="true" draggable={false} className="w-10 h-10 @xl:w-11 @xl:h-11 shrink-0" />
-          )}
+          <img src="./icon-192.png" alt="" aria-hidden="true" draggable={false} className="w-10 h-10 @xl:w-11 @xl:h-11 shrink-0" />
           <div className="min-w-0 flex-1">
             <h2 id="setup-title" className="text-[18px] @xl:text-[19px] font-semibold text-slate-100 leading-tight truncate">
-              {isSettings ? 'API settings' : 'Welcome to Dhvani'}
+              Welcome to Dhvani
             </h2>
             <p className="hidden @md:block text-[12.5px] text-slate-400 mt-0.5 truncate">
-              {isSettings
-                ? 'The services your dub goes through. Pick a step to change who does it.'
-                : "Connect two services and you're ready to dub. Each key is checked as you paste it."}
+              {"Connect two services and you're ready to dub. Each key is checked as you paste it."}
             </p>
           </div>
           <div
@@ -1375,16 +1521,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
               <span className="hidden @lg:inline">Re-check</span>
             </button>
           </div>
-          {isSettings && (
-            <button
-              type="button"
-              onClick={onSkip}
-              aria-label="Close"
-              className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
         </div>
 
         {/* Body. The window keeps one height for every step; this scrolls only when the screen is too short for a step. */}
@@ -1403,82 +1539,23 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           </div>
 
           {/* The picked step, and the live panel beside it, or under it when the window is narrow */}
-          {/*
-            All three steps are laid out in the same place and only the picked one shows, so the
-            window is as tall as its tallest step and stays that size from one step to the next.
-          */}
           <div ref={bodyGrid} className="grid @4xl:grid-cols-[minmax(0,1fr)_19rem] gap-4 @xl:gap-5 px-4 @xl:px-7 pt-4 @xl:pt-5 pb-5 content-start">
-            <div className="@container/stage min-w-0 grid">
-              {steps.map((view) => {
-                const shown = view.id === step;
-                return (
-                  <div
-                    key={view.id}
-                    role="tabpanel"
-                    aria-label={view.title}
-                    aria-hidden={!shown}
-                    inert={!shown}
-                    className={`[grid-area:1/1] min-w-0 flex flex-col gap-3 ${shown ? 'tools-hub-preview-in' : 'invisible'}`}
-                  >
-                    <div className="flex items-baseline gap-2 min-w-0">
-                      <h3 className="text-[15px] font-semibold text-slate-100 shrink-0">{view.title}</h3>
-                      <span className="text-[12.5px] text-slate-500 truncate">{view.what}</span>
-                    </div>
-                    {view.id === 'transcribe' ? transcribeStep : view.id === 'translate' ? translateStep : voiceStep}
-                  </div>
-                );
-              })}
-            </div>
-            <div className="min-w-0 grid">
-              {steps.map((view) => {
-                const shown = view.id === step;
-                const tryCard = tryCardFor(view);
-                return (
-                  <aside
-                    key={view.id}
-                    aria-label={`${view.title}: live`}
-                    aria-hidden={!shown}
-                    inert={!shown}
-                    className={`[grid-area:1/1] min-w-0 grid ${tryCard ? '@xl:@max-4xl:grid-cols-2' : ''} @4xl:flex @4xl:flex-col gap-3 content-start ${
-                      shown ? 'tools-hub-preview-in' : 'invisible'
-                    }`}
-                  >
-                    {tryCard}
-                    {connectionCardFor(view)}
-                  </aside>
-                );
-              })}
-            </div>
+            <div className="@container/stage min-w-0 grid">{stepPanels}</div>
+            <div className="min-w-0 grid">{liveCards('@xl:@max-4xl:grid-cols-2', '@4xl:flex @4xl:flex-col')}</div>
           </div>
         </div>
 
         {/* Footer */}
         <div className="relative px-4 @xl:px-7 py-3.5 border-t border-edge bg-slate-950/50 flex flex-wrap items-center gap-x-4 gap-y-2.5 shrink-0">
-          {isSettings ? (
-            <div className="min-w-0 flex-1 basis-56 flex items-center gap-3">
-              <span className="hidden @md:flex w-8 h-8 rounded-lg bg-slate-800/70 items-center justify-center shrink-0">
-                <HardDrive className="w-4 h-4 text-slate-400" />
-              </span>
-              <div className="min-w-0 leading-tight">
-                <p className="text-[12px] text-slate-300 truncate">Keys are saved on this computer only</p>
-                {configFile && (
-                  <p className="text-[11px] text-slate-500 font-mono truncate mt-0.5" title={configFile}>
-                    {configFile}
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={onSkip}
-              className="flex-1 basis-56 min-w-0 text-left text-[12.5px] text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5 cursor-default"
-              title="Configure the keys yourself using a .env file or environment variables"
-            >
-              <Terminal className="w-3.5 h-3.5 shrink-0" />
-              <span>I&apos;ll use a .env file instead</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onSkip}
+            className="flex-1 basis-56 min-w-0 text-left text-[12.5px] text-slate-400 hover:text-slate-200 transition-colors flex items-center gap-1.5 cursor-default"
+            title="Configure the keys yourself using a .env file or environment variables"
+          >
+            <Terminal className="w-3.5 h-3.5 shrink-0" />
+            <span>I&apos;ll use a .env file instead</span>
+          </button>
 
           <div className="ml-auto flex items-center gap-3">
             {unsaved && (
@@ -1486,15 +1563,6 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                 Unsaved changes
               </span>
-            )}
-            {isSettings && (
-              <button
-                type="button"
-                onClick={onSkip}
-                className="h-10 px-4 rounded-xl border border-slate-700 hover:bg-slate-800 text-[13px] font-semibold text-slate-200 cursor-default"
-              >
-                Cancel
-              </button>
             )}
             <button
               type="button"
@@ -1509,7 +1577,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
                 </>
               ) : (
                 <>
-                  <span>{isSettings ? 'Save changes' : 'Save and start'}</span>
+                  <span>Save and start</span>
                   <kbd className="hidden @lg:inline text-[10.5px] px-1 rounded bg-indigo-500/60 font-sans">Ctrl S</kbd>
                 </>
               )}
@@ -1564,8 +1632,8 @@ const StatusDot: React.FC<{ tone: keyof typeof TONE_TEXT; checking?: boolean }> 
   );
 
 /** A ring that fills a third for each step that works. */
-const HealthRing: React.FC<{ ready: number; checking: boolean }> = ({ ready, checking }) => (
-  <svg viewBox="0 0 20 20" className={`w-5 h-5 shrink-0 -rotate-90 ${checking ? 'animate-pulse' : ''}`} aria-hidden="true">
+const HealthRing: React.FC<{ ready: number; checking: boolean; className?: string }> = ({ ready, checking, className = 'w-5 h-5' }) => (
+  <svg viewBox="0 0 20 20" className={`${className} shrink-0 -rotate-90 ${checking ? 'animate-pulse' : ''}`} aria-hidden="true">
     <circle cx="10" cy="10" r="8" fill="none" stroke="#1e293b" strokeWidth="2.5" />
     <circle
       cx="10"
@@ -1658,6 +1726,47 @@ const StepCard: React.FC<{ view: StepView; status: ProbeStatus; active: boolean;
           ) : null}
         </span>
       </span>
+    </button>
+  );
+};
+
+/** One step in the settings window's list: its number, name, who does it with which model, and whether it works. */
+const StepRow: React.FC<{ view: StepView; status: ProbeStatus; active: boolean; changed: boolean; onPick: () => void }> = ({
+  view,
+  status,
+  active,
+  changed,
+  onPick,
+}) => {
+  const word = PROBE_WORDS[status] || PROBE_WORDS.unverified;
+  const said = `${status === 'ok' ? 'Live' : word.word}${status === 'ok' && view.row?.latencyMs ? ` · ${formatLatency(view.row.latencyMs)}` : ''}`;
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onPick}
+      className={`min-w-0 w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left transition-colors cursor-default ${
+        active ? 'bg-slate-800/80 text-white' : 'text-slate-200 hover:bg-slate-800/40'
+      }`}
+    >
+      <kbd className={`w-[18px] h-[18px] shrink-0 rounded flex items-center justify-center text-[10px] font-sans ${active ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
+        {view.key}
+      </kbd>
+      <span className="min-w-0 flex-1 leading-tight">
+        <span className="block text-[13px] font-medium truncate">{view.title}</span>
+        <span className="block mt-0.5 text-[11px] text-slate-500 truncate">
+          {view.engine} · {view.model || 'model not set'}
+        </span>
+      </span>
+      {changed && <span className="shrink-0 text-[10px] px-1.5 rounded bg-amber-500/15 text-amber-300">Changed</span>}
+      <span
+        title={said}
+        className={`w-[7px] h-[7px] shrink-0 rounded-full ${
+          status === 'ok' ? 'bg-emerald-400 api-live-dot' : word.tone === 'warn' ? 'bg-amber-400' : word.tone === 'error' ? 'bg-rose-400' : 'bg-slate-500'
+        }`}
+      />
+      <span className="sr-only">{said}</span>
     </button>
   );
 };

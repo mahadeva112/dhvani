@@ -1,7 +1,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { Download, RotateCw, X, Check, CheckCircle2, AlertCircle, FolderOpen, Circle } from 'lucide-react';
-import { PageScrollLock } from './usePageScrollLock';
+import { ToolWindow, toolPrimaryButton, toolSecondaryButton } from './ToolWindow';
 
 /** The updater's state as desktop/main.cjs pushes it. */
 export interface AppUpdateState {
@@ -306,51 +306,47 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
     <>
       {installing &&
         createPortal(
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
-            <PageScrollLock />
-            <section
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby="installing-title"
-              className="w-full max-w-[26rem] rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
-            >
-              <div className="flex items-center gap-3.5 px-5 py-4 border-b border-edge">
-                <div className="w-[38px] h-[38px] rounded-[10px] bg-blue-600 text-white keep-white flex items-center justify-center shrink-0" aria-hidden="true">
-                  <RotateCw className="w-[18px] h-[18px]" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <h2 id="installing-title" className="text-lg font-semibold leading-tight">
-                    Installing DHVANI {version}
-                  </h2>
-                  <p className="text-[12.5px] text-slate-400 mt-0.5 tabular-nums">
-                    Installed {currentVersion} · New {version}
-                  </p>
-                </div>
+          <ToolWindow
+            // Nothing closes this window: the app is about to close itself to install.
+            onClose={() => {}}
+            closeDisabled
+            showClose={false}
+            role="alertdialog"
+            title={`Installing DHVANI ${version}`}
+            subtitle={
+              <span className="tabular-nums">
+                Installed {currentVersion} · New {version}
+              </span>
+            }
+            icon={RotateCw}
+            tone="slate"
+            widthClassName="max-w-[26rem]"
+            layerClassName="z-[60]"
+            titleId="installing-title"
+          >
+            <div className="px-5 py-4" aria-live="polite">
+              <ol className="flex flex-col gap-2.5 text-[13px]">
+                <li className="flex items-center gap-2.5 text-slate-300">
+                  <Check className="w-4 h-4 text-emerald-400" /> Update downloaded
+                </li>
+                <li className="flex items-center gap-2.5 text-slate-100 font-medium">
+                  <span className="w-4 h-4 flex items-center justify-center text-blue-400">
+                    <PillSpinner />
+                  </span>
+                  Closing DHVANI to install
+                </li>
+                <li className="flex items-center gap-2.5 text-slate-500">
+                  <Circle className="w-4 h-4" /> Opening the new version
+                </li>
+              </ol>
+              <div className="mt-4 h-1.5 rounded-full bg-slate-800 overflow-hidden" aria-hidden="true">
+                <div className="h-full w-1/3 rounded-full bg-blue-500 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
               </div>
-              <div className="px-5 py-4" aria-live="polite">
-                <ol className="flex flex-col gap-2.5 text-[13px]">
-                  <li className="flex items-center gap-2.5 text-slate-300">
-                    <Check className="w-4 h-4 text-emerald-400" /> Update downloaded
-                  </li>
-                  <li className="flex items-center gap-2.5 text-slate-100 font-medium">
-                    <span className="w-4 h-4 flex items-center justify-center text-blue-400">
-                      <PillSpinner />
-                    </span>
-                    Closing DHVANI to install
-                  </li>
-                  <li className="flex items-center gap-2.5 text-slate-500">
-                    <Circle className="w-4 h-4" /> Opening the new version
-                  </li>
-                </ol>
-                <div className="mt-4 h-1.5 rounded-full bg-slate-800 overflow-hidden" aria-hidden="true">
-                  <div className="h-full w-1/3 rounded-full bg-blue-500 animate-[dubsweep_1.4s_ease-in-out_infinite]" />
-                </div>
-                <p className="text-[12px] text-slate-400 mt-3">
-                  DHVANI closes for about a minute while it installs, then opens again by itself. Your keys and settings are kept.
-                </p>
-              </div>
-            </section>
-          </div>,
+              <p className="text-[12px] text-slate-400 mt-3">
+                DHVANI closes for about a minute while it installs, then opens again by itself. Your keys and settings are kept.
+              </p>
+            </div>
+          </ToolWindow>,
           document.body
         )}
 
@@ -375,7 +371,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                   <button
                     type="button"
                     onClick={() => setShowNewNotes(true)}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
+                    className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
                   >
                     See what’s new
                   </button>
@@ -424,7 +420,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 <button
                   type="button"
                   onClick={() => setOpen(true)}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
                 >
                   See what’s new
                 </button>
@@ -454,41 +450,78 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
       {open &&
         !installing &&
         createPortal(
-        <div
-          className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200 select-text"
-          onClick={(e) => e.target === e.currentTarget && setOpen(false)}
-        >
-          <PageScrollLock />
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="update-title"
-            className="w-full max-w-[28rem] min-h-full sm:min-h-0 sm:my-auto flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
+          <ToolWindow
+            onClose={() => setOpen(false)}
+            title={title}
+            subtitle={
+              <span className="tabular-nums">
+                Installed {currentVersion}
+                {nativeBuild ? ' for Intel' : ''}
+                {version && offered && <> · New {version}{nativeBuild ? ' for Apple Silicon' : ''}</>}
+              </span>
+            }
+            icon={status === 'downloaded' ? RotateCw : Download}
+            tone="slate"
+            widthClassName="max-w-[28rem]"
+            titleId="update-title"
+            bodyClassName="select-text"
+            footer={
+              <>
+                <span className="flex-1" />
+                {status === 'error' || status === 'not-available' ? (
+                  <>
+                    <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
+                      Close
+                    </button>
+                    <button type="button" onClick={() => api.check()} className={toolPrimaryButton}>
+                      Check again
+                    </button>
+                  </>
+                ) : status === 'available' ? (
+                  <>
+                    <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
+                      Later
+                    </button>
+                    <button type="button" onClick={() => api.download()} className={toolPrimaryButton}>
+                      <Download className="w-3.5 h-3.5" /> {state.error ? 'Retry download' : canInstall ? 'Download and install' : 'Download'}
+                    </button>
+                  </>
+                ) : status === 'downloading' ? (
+                  <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
+                    Hide
+                  </button>
+                ) : status === 'downloaded' && !canInstall ? (
+                  <>
+                    <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
+                      Close
+                    </button>
+                    <button type="button" onClick={() => api.showDownload()} className={toolPrimaryButton}>
+                      <FolderOpen className="w-3.5 h-3.5" /> Show in folder
+                    </button>
+                  </>
+                ) : status === 'downloaded' ? (
+                  <>
+                    <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
+                      Install when I close
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => !busy && api.install()}
+                      aria-disabled={busy}
+                      title={busy ? 'A dub or sync is running' : undefined}
+                      className={`${toolPrimaryButton} aria-disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:hover:bg-indigo-600`}
+                    >
+                      <RotateCw className="w-3.5 h-3.5" /> Restart and install
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setOpen(false)} className={toolSecondaryButton}>
+                    Close
+                  </button>
+                )}
+              </>
+            }
           >
-            <div className="flex items-center gap-3.5 px-5 py-4 border-b border-edge">
-              <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
-                {status === 'downloaded' ? <RotateCw className="w-[18px] h-[18px]" /> : <Download className="w-[18px] h-[18px]" />}
-              </div>
-              <div className="min-w-0 flex-1">
-                <h2 id="update-title" className="text-lg font-semibold text-slate-100 leading-tight">
-                  {title}
-                </h2>
-                <p className="text-[12.5px] text-slate-400 mt-0.5 tabular-nums">
-                  Installed {currentVersion}
-                  {nativeBuild ? ' for Intel' : ''}
-                  {version && offered && <> · New {version}{nativeBuild ? ' for Apple Silicon' : ''}</>}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setOpen(false)}
-                aria-label="Close"
-                className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
             <div className="px-5 py-4 flex flex-col gap-3.5" aria-live="polite">
               {status === 'checking' && (
                 <p className="flex items-center gap-2 text-[13px] text-slate-400">
@@ -564,100 +597,7 @@ export const UpdateControl: React.FC<{ busy?: boolean }> = ({ busy = false }) =>
                 </p>
               )}
             </div>
-
-            <div className="flex flex-wrap justify-end gap-2 px-5 py-3.5 border-t border-edge">
-              {status === 'error' || status === 'not-available' ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => api.check()}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
-                  >
-                    Check again
-                  </button>
-                </>
-              ) : status === 'available' ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
-                  >
-                    Later
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => api.download()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
-                  >
-                    <Download className="w-3.5 h-3.5" /> {state.error ? 'Retry download' : canInstall ? 'Download and install' : 'Download'}
-                  </button>
-                </>
-              ) : status === 'downloading' ? (
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
-                >
-                  Hide
-                </button>
-              ) : status === 'downloaded' && !canInstall ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
-                  >
-                    Close
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => api.showDownload()}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white keep-white text-[12.5px] font-semibold cursor-default"
-                  >
-                    <FolderOpen className="w-3.5 h-3.5" /> Show in folder
-                  </button>
-                </>
-              ) : status === 'downloaded' ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
-                  >
-                    Install when I close
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => !busy && api.install()}
-                    aria-disabled={busy}
-                    title={busy ? 'A dub or sync is running' : undefined}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white keep-white text-[12.5px] font-semibold ${
-                      busy ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-500 cursor-default'
-                    }`}
-                  >
-                    <RotateCw className="w-3.5 h-3.5" /> Restart and install
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setOpen(false)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700 hover:bg-slate-800 text-[12.5px] font-medium text-slate-200 cursor-default"
-                >
-                  Close
-                </button>
-              )}
-            </div>
-          </section>
-        </div>,
+          </ToolWindow>,
           // The header's backdrop blur would otherwise pin this overlay inside it.
           document.body
         )}

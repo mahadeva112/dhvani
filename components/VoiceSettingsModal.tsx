@@ -33,6 +33,7 @@ import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { VoiceSelectorCard } from './VoiceSelectorCard';
 import { reportError } from '../services/errorPopup';
 import { PageScrollLock } from './usePageScrollLock';
+import { ToolWindow, toolPrimaryButton, toolTextButton } from './ToolWindow';
 
 interface VoiceSettingsModalProps {
   isOpen: boolean;
@@ -339,40 +340,47 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
   const style = shownSettings.style ?? 0;
 
   return (
-    <div
-      id="voice-settings-modal"
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <PageScrollLock />
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="voice-settings-title"
-        className="w-full max-w-[58rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
+    <div id="voice-settings-modal" className="contents">
+      <ToolWindow
+        onClose={onClose}
+        title="Voice settings"
+        subtitle="How the dub sounds. Changes apply to the next dub."
+        icon={Mic}
+        tone="blue"
+        widthClassName="max-w-[58rem]"
+        titleId="voice-settings-title"
+        footer={
+          <>
+            <span className="flex-1 min-w-[12rem] text-xs text-slate-400">Saved on this computer. Applies to the next dub.</span>
+            {cartesiaVoice && onCartesiaPrefsChange && (
+              <ResetDefaultsButton
+                onClick={() => updateCartesia({ speed: 1, volume: 1, emotion: '' })}
+                disabled={cartesia.speed === 1 && cartesia.volume === 1 && !cartesia.emotion}
+              />
+            )}
+            {!cartesiaVoice && onElVoiceSettingsChange && (
+              <ResetDefaultsButton
+                onClick={() => onElVoiceSettingsChange({ ...DEFAULT_VOICE_SETTINGS })}
+                disabled={!usingVoiceOwnSettings && isElevenLabsDefault(elVoiceSettings)}
+              />
+            )}
+            {!cartesiaVoice && onElVoiceSettingsChange && (
+              <button
+                type="button"
+                onClick={() => onElVoiceSettingsChange(null)}
+                disabled={usingVoiceOwnSettings}
+                className={toolTextButton}
+              >
+                Reset to voice’s own
+              </button>
+            )}
+            <button type="button" onClick={onClose} className={toolPrimaryButton}>
+              Done
+            </button>
+          </>
+        }
       >
-        {/* Header */}
-        <div className="flex items-center gap-3.5 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
-          <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
-            <Mic className="w-[18px] h-[18px]" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 id="voice-settings-title" className="text-lg font-semibold text-slate-100 leading-tight">
-              Voice settings
-            </h2>
-            <p className="text-[12.5px] text-slate-400 mt-0.5">How the dub sounds. Changes apply to the next dub.</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[20rem_minmax(0,1fr)]">
+        <div className="grid md:grid-cols-[20rem_minmax(0,1fr)]">
           {/* Left: who speaks, and with which model */}
           <div className="px-5 py-5 border-b md:border-b-0 md:border-r border-edge bg-slate-950/40 flex flex-col gap-5 min-w-0">
             <div className="flex flex-col gap-2">
@@ -853,41 +861,7 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             </div>
           </div>
         </div>
-
-        {/* Footer */}
-        <div className="flex flex-wrap items-center gap-3 px-5 sm:px-6 py-3.5 border-t border-edge shrink-0">
-          <span className="flex-1 min-w-[12rem] text-xs text-slate-400">Saved on this computer. Applies to the next dub.</span>
-          {cartesiaVoice && onCartesiaPrefsChange && (
-            <ResetDefaultsButton
-              onClick={() => updateCartesia({ speed: 1, volume: 1, emotion: '' })}
-              disabled={cartesia.speed === 1 && cartesia.volume === 1 && !cartesia.emotion}
-            />
-          )}
-          {!cartesiaVoice && onElVoiceSettingsChange && (
-            <ResetDefaultsButton
-              onClick={() => onElVoiceSettingsChange({ ...DEFAULT_VOICE_SETTINGS })}
-              disabled={!usingVoiceOwnSettings && isElevenLabsDefault(elVoiceSettings)}
-            />
-          )}
-          {!cartesiaVoice && onElVoiceSettingsChange && (
-            <button
-              type="button"
-              onClick={() => onElVoiceSettingsChange(null)}
-              disabled={usingVoiceOwnSettings}
-              className="text-[12.5px] text-slate-400 hover:text-slate-200 disabled:opacity-40 px-1 cursor-default"
-            >
-              Reset to voice’s own
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-[38px] px-5 rounded-[10px] bg-indigo-600 hover:bg-indigo-500 text-white text-[13.5px] font-semibold cursor-default"
-          >
-            Done
-          </button>
-        </div>
-      </section>
+      </ToolWindow>
 
       {/* The full voice library, the same one Step 1 and Step 3 use */}
       {isPickerOpen && (

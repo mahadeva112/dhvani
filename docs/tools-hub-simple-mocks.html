@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tools Hub Simple</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#cbd5e1; font-family: Inter, system-ui, "Noto Sans Bengali", sans-serif; }
+  .veil { background:#0a0c11; border-radius:18px; padding:28px 16px; display:flex; justify-content:center; align-items:flex-start; }
+  .win { background:#11141b; border:1px solid #2b313d; border-radius:20px; box-shadow:0 25px 50px rgba(0,0,0,.6); color:#f1f5f9; width:100%; overflow:hidden; display:flex; flex-direction:column; }
+  .edge { border-color:#27292d; }
+  .lbl { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:#64748b; font-weight:600; }
+  svg.i { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  svg.i.s { width:14px; height:14px; }
+  .tile { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .tile.big { width:36px; height:36px; border-radius:10px; }
+  .row { width:100%; display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:10px; text-align:left; cursor:default; }
+  .row:hover { background:#1a1f2a; }
+  .row.on { background:#1e2430; }
+  .x { width:32px; height:32px; border-radius:999px; display:flex; align-items:center; justify-content:center; color:#94a3b8; cursor:default; }
+  .x:hover { background:#1e2430; color:#f1f5f9; }
+  .search { display:flex; align-items:center; gap:8px; height:36px; padding:0 10px; border:1px solid #2b313d; border-radius:10px; background:#0b0d12; color:#64748b; }
+  .search span.ph { flex:1; font-size:13px; }
+  kbd { font-size:10.5px; padding:0 4px; border:1px solid #2b313d; border-radius:4px; font-family:ui-monospace,Consolas,monospace; color:#94a3b8; }
+  .seg { display:inline-flex; padding:2px; border-radius:8px; background:#0b0d12; border:1px solid #27292d; font-size:12px; }
+  .seg b { font-weight:500; padding:3px 10px; border-radius:6px; color:#94a3b8; cursor:default; }
+  .seg b.on { background:rgba(99,102,241,.3); color:#fff; }
+  .sel { height:30px; min-width:9rem; padding:0 10px; border-radius:8px; background:#0b0d12; border:1px solid #27292d; font-size:12.5px; color:#f1f5f9; display:inline-flex; align-items:center; justify-content:space-between; gap:8px; }
+  .btn2 { height:32px; padding:0 12px; border-radius:9px; border:1px solid #334155; background:#0d1017; font-size:12.5px; font-weight:500; color:#e2e8f0; display:inline-flex; align-items:center; gap:6px; cursor:default; }
+  .btn2:hover { background:#1e2430; }
+  .pri { height:34px; padding:0 14px; border-radius:9px; background:#4f46e5; color:#fff; font-size:13px; font-weight:600; display:inline-flex; align-items:center; gap:7px; cursor:default; }
+  .pri:hover { background:#6366f1; }
+  .card { border:1px solid #27292d; border-radius:12px; background:rgba(30,36,48,.25); }
+  .card > div + div { border-top:1px solid #1e2430; }
+  .dot { width:6px; height:6px; border-radius:999px; background:#34d399; display:inline-block; }
+  .bar { height:5px; border-radius:99px; background:#1e2430; overflow:hidden; }
+  .bar i { display:block; height:100%; width:62%; background:#34d399; border-radius:99px; }
+  .caret { transition: transform .15s; }
+  .open .caret { transform: rotate(90deg); }
+  .more { display:none; }
+  .open + .more { display:block; }
+</style>
+</head>
+<body class="px-4 py-8 sm:px-8">
+<div class="max-w-[72rem] mx-auto flex flex-col gap-12">
+
+  <header>
+    <h1 class="text-xl font-semibold text-slate-100">Tools and settings — সহজ করার mock</h1>
+    <p class="text-sm text-slate-400 mt-1 max-w-[46rem]">
+      অ্যাপের অন্য window গুলো (Save the script, Script &amp; translation, Sync again, Balance) যেমন: মাঝখানে একটা ছোট window, উপরে ছোট রঙিন icon + নাম + এক লাইন + ✕, নিচে সাদামাটা সারি। Gradient tile, পেছনের আলো, বড় হেডার, দুই ভাগ — এগুলো Tools hub-এ শুধু আছে। নিচে তিন রকম।
+    </p>
+  </header>
+
+  <!-- ============ MOCK A ============ -->
+  <section class="flex flex-col gap-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Mock A — শুধু তালিকা</h2>
+      <p class="text-sm text-slate-400 mt-1 max-w-[46rem]">Save the script-এর মতো একটা ছোট window। প্রতিটা সারিতে নাম আর এখন কী সেট আছে। ক্লিক = তার নিজের window খোলে। ডান দিকের ভাগ নেই, তাই "Change here" quick control-ও নেই (Voice/Sync-এর control তাদের নিজের window-তে)। নিচে এক লাইনে balance।</p>
+    </div>
+    <div class="veil">
+      <div class="win max-w-[30rem]">
+        <header class="flex items-center gap-3 px-5 pt-4 pb-3 border-b edge">
+          <span class="tile big" style="background:rgba(99,102,241,.15);color:#a5b4fc"><svg class="i" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg></span>
+          <span class="flex-1 min-w-0">
+            <h3 class="text-[15px] font-semibold">Tools and settings</h3>
+            <p class="text-[12px] text-slate-400">Pick one to open it.</p>
+          </span>
+          <span class="x"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+        </header>
+        <div class="px-5 pt-3">
+          <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="ph">Find a tool or setting</span><kbd>Ctrl K</kbd></div>
+        </div>
+        <div class="px-3 pt-2 pb-3" data-list="a"></div>
+        <footer class="flex items-center gap-3 px-5 py-3 border-t edge text-[12px]">
+          <span class="dot"></span><span class="text-slate-300">ElevenLabs</span><span class="text-slate-500">11.8M left</span>
+          <span class="text-slate-600">·</span><span class="dot"></span><span class="text-slate-400">Cartesia</span>
+          <span class="text-slate-600">·</span><span class="dot"></span><span class="text-slate-400">Translation</span>
+          <span class="ml-auto text-indigo-300 cursor-default">Balance ›</span>
+        </footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MOCK B ============ -->
+  <section class="flex flex-col gap-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Mock B — তালিকা, Voice/Sync সারির মধ্যেই খোলে</h2>
+      <p class="text-sm text-slate-400 mt-1 max-w-[46rem]">A-এর মতোই ছোট window। কিন্তু যেগুলোর quick control আছে (Voice settings, Sync settings) সেগুলো ক্লিক করলে সারিটা নিচে খুলে যায় — engine, expression, sync mode সেখানেই বদলানো যায়, আর "All voice settings" দিয়ে পুরো window। বাকিগুলো ক্লিক করলে সোজা খোলে। (Voice/Sync সারিতে ক্লিক করে দেখুন।)</p>
+    </div>
+    <div class="veil">
+      <div class="win max-w-[30rem]">
+        <header class="flex items-center gap-3 px-5 pt-4 pb-3 border-b edge">
+          <span class="tile big" style="background:rgba(99,102,241,.15);color:#a5b4fc"><svg class="i" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg></span>
+          <span class="flex-1 min-w-0">
+            <h3 class="text-[15px] font-semibold">Tools and settings</h3>
+            <p class="text-[12px] text-slate-400">Pick one to open it.</p>
+          </span>
+          <span class="x"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+        </header>
+        <div class="px-5 pt-3">
+          <div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="ph">Find a tool or setting</span><kbd>Ctrl K</kbd></div>
+        </div>
+        <div class="px-3 pt-2 pb-3" data-list="b"></div>
+        <footer class="px-5 py-3 border-t edge">
+          <div class="flex items-center justify-between text-[12px]"><span class="text-slate-300">ElevenLabs</span><span class="text-slate-500">11.8M left</span></div>
+          <div class="bar mt-1.5"><i></i></div>
+        </footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ MOCK C ============ -->
+  <section class="flex flex-col gap-3">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-100">Mock C — দুই ভাগ থাকে, সাজ অন্য window-এর মতো</h2>
+      <p class="text-sm text-slate-400 mt-1 max-w-[46rem]">এখনকার মতো বাঁয়ে তালিকা, ডানে বাছাই করা জিনিস — কিন্তু window ছোট, উপরে অন্য window-এর মতো একটাই হেডার, gradient tile আর পেছনের আলো নেই, বড় নাম নেই। ডানে শুধু সারি; "Open" ছোট বোতাম। নিচের ↑↓ / Esc লাইনও নেই।</p>
+    </div>
+    <div class="veil">
+      <div class="win max-w-[46rem]">
+        <header class="flex items-center gap-3 px-5 pt-4 pb-3 border-b edge">
+          <span class="tile big" style="background:rgba(99,102,241,.15);color:#a5b4fc"><svg class="i" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg></span>
+          <span class="flex-1 min-w-0">
+            <h3 class="text-[15px] font-semibold">Tools and settings</h3>
+            <p class="text-[12px] text-slate-400">Pick one to see it, Enter opens it.</p>
+          </span>
+          <span class="x"><svg class="i" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></svg></span>
+        </header>
+        <div class="grid grid-cols-1 sm:grid-cols-[15rem_1fr] min-h-[26rem]">
+          <div class="border-b sm:border-b-0 sm:border-r edge flex flex-col">
+            <div class="px-3 pt-3"><div class="search"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg><span class="ph">Find</span><kbd>Ctrl K</kbd></div></div>
+            <div class="px-2 pt-1 pb-3" data-list="c"></div>
+          </div>
+          <div class="p-5 flex flex-col gap-4">
+            <div class="flex items-center gap-2.5">
+              <span class="tile" style="background:rgba(139,92,246,.15);color:#c4b5fd"><svg class="i s" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></svg></span>
+              <span class="flex-1 min-w-0"><span class="block text-[14px] font-semibold">Sync settings</span><span class="block text-[12px] text-slate-400">How the dub is fitted to the original</span></span>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <span class="lbl">Change here</span>
+              <div class="card">
+                <div class="flex items-center gap-3 px-3.5 py-2.5"><span class="flex-1 text-[13px]">Sync mode</span><span class="seg"><b class="on">Line by line</b><b>Continuous</b></span></div>
+                <div class="flex items-center gap-3 px-3.5 py-2.5"><span class="flex-1 text-[13px]">Join chunks</span><span class="sel">Custom <svg class="i s" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span></div>
+              </div>
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <span class="lbl">Now</span>
+              <div class="card">
+                <div class="flex items-center gap-3 px-3.5 py-2.5 text-[13px]"><span class="flex-1">Cut at source pauses</span><span class="text-slate-300">On</span></div>
+                <div class="flex items-center gap-3 px-3.5 py-2.5 text-[13px]"><span class="flex-1">Dub length</span><span class="text-slate-300">Auto</span></div>
+              </div>
+            </div>
+            <div class="mt-auto flex items-center gap-3">
+              <span class="flex-1 text-[12px] text-slate-500">Changes here save as you make them.</span>
+              <span class="btn2"><svg class="i s" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>All sync settings</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="text-sm text-slate-400 max-w-[46rem] pb-8">
+    <p><b class="text-slate-200">তিনটেতেই একই:</b> মাঝখানে খোলে, বাইরে ক্লিক বা Esc-এ বন্ধ, Ctrl K, খুঁজে পাওয়া, ↑↓ Enter চলে (শুধু নিচে লেখা থাকে না)। icon ছোট রঙিন ছাপ (অন্য window-এর মতো), gradient নয়।</p>
+  </section>
+</div>
+
+<script>
+const P = {
+  kbd:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>',
+  tts:'<path d="M2 10v3M6 6v11M10 3v18M14 8v7M18 5v13M22 10v3"/>',
+  vc:'<path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"/>',
+  pause:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  key:'<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
+  mic:'<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/>',
+  sync:'<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/>',
+  style:'<path d="M17 6H3M21 12H3M15 18H3"/>',
+  upd:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"/>',
+};
+const T = { indigo:['99,102,241','#a5b4fc'], teal:['20,184,166','#5eead4'], pink:['236,72,153','#f9a8d4'], amber:['245,158,11','#fcd34d'], slate:['148,163,184','#cbd5e1'], blue:['59,130,246','#93c5fd'], violet:['139,92,246','#c4b5fd'], emerald:['16,185,129','#6ee7b7'] };
+const ITEMS = [
+  ['Studio','Phonetic keyboard','Hindi','kbd','indigo'],
+  ['Studio','Text to speech','ElevenLabs','tts','teal'],
+  ['Studio','Voice changer','Synced dub ready','vc','pink'],
+  ['Studio','Pause detection','50 · 26 lines','pause','amber'],
+  ['Settings','API settings','Your gateway — vertex_ai/gemini-3.7-flash','key','slate'],
+  ['Settings','Voice settings','Sadhguru Hindi - Clip Clone 1 · ElevenLabs','mic','blue','voice'],
+  ['Settings','Sync settings','Line by line · Custom','sync','violet','sync'],
+  ['Settings','Translation style','Swami','style','emerald'],
+  ['App','Check for updates','1.4.76','upd','slate'],
+];
+const tile = (ic,t,sz='') => `<span class="tile" style="background:rgba(${T[t][0]},.15);color:${T[t][1]}"><svg class="i ${sz}" viewBox="0 0 24 24">${P[ic]}</svg></span>`;
+const chev = '<svg class="i s caret text-slate-500" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>';
+const QUICK = {
+  voice: `<div class="mx-2 mb-2 card"><div class="flex items-center gap-3 px-3.5 py-2.5"><span class="flex-1 text-[13px]">Voice engine</span><span class="seg"><b class="on">ElevenLabs</b><b>Cartesia</b></span></div>
+    <div class="flex items-center gap-3 px-3.5 py-2.5"><span class="flex-1 text-[13px]">Expression</span><span class="seg"><b class="on">Off</b><b>Neutral</b><b>Natural</b><b>Expr.</b></span></div>
+    <div class="flex items-center px-3.5 py-2"><span class="flex-1 text-[11.5px] text-slate-500">Saves as you change it.</span><span class="text-[12.5px] text-indigo-300 cursor-default">All voice settings ›</span></div></div>`,
+  sync: `<div class="mx-2 mb-2 card"><div class="flex items-center gap-3 px-3.5 py-2.5"><span class="flex-1 text-[13px]">Sync mode</span><span class="seg"><b class="on">Line by line</b><b>Continuous</b></span></div>
+    <div class="flex items-center gap-3 px-3.5 py-2.5"><span class="flex-1 text-[13px]">Join chunks</span><span class="sel">Custom <svg class="i s" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></span></div>
+    <div class="flex items-center px-3.5 py-2"><span class="flex-1 text-[11.5px] text-slate-500">Saves as you change it.</span><span class="text-[12.5px] text-indigo-300 cursor-default">All sync settings ›</span></div></div>`,
+};
+function render(el, mode) {
+  let html = '', grp = '';
+  for (const [g,name,sum,ic,t,quick] of ITEMS) {
+    if (g !== grp) { grp = g; html += `<p class="lbl px-2.5 pt-3 pb-1">${g}</p>`; }
+    const on = mode==='c' && quick==='sync' ? ' on' : '';
+    const right = mode==='b' && quick ? chev.replace('caret','caret') : (mode==='c' ? '' : '<svg class="i s text-slate-600" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>');
+    html += `<div class="row${on}" ${mode==='b'&&quick?'data-q':''}>${tile(ic,t,'s')}<span class="flex-1 min-w-0"><span class="block text-[13px] font-medium leading-tight truncate">${name}</span><span class="block text-[11px] text-slate-500 leading-tight truncate mt-0.5">${sum}</span></span>${right}</div>`;
+    if (mode==='b' && quick) html += `<div class="more">${QUICK[quick]}</div>`;
+  }
+  el.innerHTML = html;
+}
+document.querySelectorAll('[data-list]').forEach(el => render(el, el.dataset.list));
+document.querySelectorAll('[data-q]').forEach(r => r.addEventListener('click', () => r.classList.toggle('open')));
+document.querySelectorAll('[data-list="b"] [data-q]')[1]?.classList.add('open');
+</script>
+</body>

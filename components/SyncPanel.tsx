@@ -22,7 +22,6 @@ import {
   Play,
   RefreshCw,
   RotateCcw,
-  Ruler,
   Search,
   Settings2,
   ShieldCheck,
@@ -77,7 +76,7 @@ import { SyncPresetLibrary } from './SyncPresetLibrary';
 import { reportError } from '../services/errorPopup';
 import { isOwnCustom, lengthPresetOf } from '../services/syncAutoFit';
 import { CenteredPanel } from './CenteredPanel';
-import { PageScrollLock } from './usePageScrollLock';
+import { ToolWindow, toolPrimaryButton, toolSecondaryButton, toolTextButton } from './ToolWindow';
 
 /**
  * Sync, in the Dub step: voices the script line by line, places each line in
@@ -704,7 +703,6 @@ const SyncSettingsWindow: React.FC<{
   // A search that leaves the open section out opens the first section it finds.
   const current = (needle && !listed.some((s) => s.id === section) ? listed[0] : undefined) ?? sections.find((s) => s.id === section) ?? sections[0];
   const measured = (id: SettingsSection) => id !== 'basics' && id !== 'suggestions' && id !== 'checks' && id !== 'presets' && joinSectionMeasured(id, fitted, options.join);
-  const fittedNow = JOIN_SECTIONS.some((s) => joinSectionMeasured(s.id, fitted, options.join));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -755,21 +753,6 @@ const SyncSettingsWindow: React.FC<{
     current.id === 'basics'
       ? [(!multiSpeaker && options.voicing !== 'lines'), options.precision !== 'phrase'].filter(Boolean).length
       : current.changedCount;
-
-  const chips: { label: string; value: string; to: SettingsSection; changed: boolean }[] = [
-    { label: 'Voice', value: voicingLabel(options, multiSpeaker), to: 'basics', changed: !multiSpeaker && options.voicing !== 'lines' },
-    { label: 'Precision', value: precisionLabelOf(options), to: 'basics', changed: options.precision !== 'phrase' },
-    { label: 'Line joins', value: presetLabelOf(options), to: 'basics', changed: options.preset !== 'natural' || (options.screen ?? 'any') !== 'any' },
-    { label: 'Chunk sync', value: options.join.chunkSync ? 'On' : 'Off', to: 'chunks', changed: options.join.chunkSync !== SYNC_JOIN_PRESETS.natural.chunkSync },
-    { label: 'Late lines', value: options.timingProtection === 'strict' ? 'Strict' : 'Flagged', to: 'fit', changed: options.timingProtection === 'strict' },
-    {
-      label: 'Suggestions',
-      value: options.suggest || options.suggestLonger ? 'On' : 'Off',
-      to: 'suggestions',
-      changed: options.suggest || options.suggestLonger,
-    },
-    { label: 'Word check', value: options.verifyWords ? 'On' : 'Off', to: 'checks', changed: Boolean(options.verifyWords) },
-  ];
 
   const body = (() => {
     switch (current.id) {
@@ -934,217 +917,168 @@ const SyncSettingsWindow: React.FC<{
     }
   })();
 
+  const findSetting = (
+    <label className="hidden sm:flex items-center gap-2 h-[34px] w-56 px-2.5 rounded-[10px] border border-slate-700 bg-slate-950 text-slate-500 focus-within:border-indigo-500">
+      <Search className="w-4 h-4 shrink-0" />
+      <input
+        ref={searchRef}
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Find a setting"
+        aria-label="Find a setting"
+        className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-200 placeholder:text-slate-500 focus:outline-none"
+      />
+      {!query && <span className="text-[10.5px] px-1 rounded border border-slate-700">Ctrl F</span>}
+    </label>
+  );
+
+  // Dub & sync sits at the far right on the Dub step; Done is the window's last word everywhere else.
+  const syncShown = !isSyncing && Boolean(onSync);
+  const footer = (
+    <>
+      <button
+        type="button"
+        onClick={() => onOptionsChange(defaultSyncOptions())}
+        disabled={isSyncing || isDefaultOptions(options)}
+        title={isDefaultOptions(options) ? 'Already on the default settings' : 'Line by line, phrase precision, Natural line joins, no suggestions'}
+        className={toolTextButton}
+      >
+        <RotateCcw className="w-3.5 h-3.5" /> Reset all to defaults
+      </button>
+      <button
+        type="button"
+        onClick={() => setOnlyChanged(changedSections > 0 && !onlyChanged)}
+        className={`hidden sm:flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] transition-colors cursor-default ${
+          changedSections ? 'bg-amber-400/10 text-amber-200 hover:bg-amber-400/15' : 'text-slate-500'
+        }`}
+      >
+        {changedSections ? (
+          <>
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            {changedSections} {changedSections === 1 ? 'section' : 'sections'} changed{onlyChanged ? ' · show all' : ''}
+          </>
+        ) : (
+          'All on the defaults'
+        )}
+      </button>
+      {blockedReason && !isSyncing && <span className="text-[11.5px] text-amber-300">{blockedReason}</span>}
+      <span className="flex-1" />
+      {previewShown && <span className="hidden lg:inline text-[11.5px] text-slate-500">The preview follows your changes.</span>}
+      <button type="button" onClick={onClose} className={syncShown ? toolSecondaryButton : toolPrimaryButton}>
+        Done
+      </button>
+      {syncShown && onSync && (
+        <button
+          type="button"
+          onClick={() => {
+            onClose();
+            onSync();
+          }}
+          disabled={Boolean(blockedReason)}
+          className={toolPrimaryButton}
+        >
+          {synced ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
+          {synced ? 'Sync again' : 'Dub & sync'}
+        </button>
+      )}
+    </>
+  );
+
   // On the page itself, not in the rail: the sticky rail would keep it under the timeline's markers.
   return createPortal(
-    <div
-      className="fixed inset-0 z-50 flex items-stretch justify-center p-0 sm:p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+    <ToolWindow
+      onClose={onClose}
+      title="Sync settings"
+      titleId="sync-settings-title"
+      subtitle={isSyncing ? 'Locked while the dub syncs.' : 'How each line is placed. Changes apply as you make them, for the next sync.'}
+      icon={SlidersHorizontal}
+      tone="violet"
+      widthClassName="max-w-[66rem]"
+      // A set height, so the window does not jump from one section to the next.
+      heightClassName="h-[min(46rem,100%)]"
+      headerExtra={findSetting}
+      footer={footer}
+      bodyScrolls={false}
     >
-      <PageScrollLock />
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sync-settings-title"
-        className="w-full max-w-[90rem] h-full flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
-      >
-        <div className="flex items-center gap-3.5 px-4 sm:px-5 py-3 border-b border-edge shrink-0">
-          <div className="w-[38px] h-[38px] rounded-[10px] bg-indigo-500/15 text-indigo-300 flex items-center justify-center shrink-0" aria-hidden="true">
-            <SlidersHorizontal className="w-[18px] h-[18px]" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 id="sync-settings-title" className="text-lg font-semibold text-slate-100 leading-tight">
-              Sync settings
-            </h2>
-            <p className="text-[12.5px] text-slate-400 mt-0.5 truncate">
-              {isSyncing ? 'Locked while the dub syncs.' : 'How each line is placed. Changes apply as you make them, for the next sync.'}
-            </p>
-          </div>
-          <label className="hidden sm:flex items-center gap-2 h-9 w-64 px-2.5 rounded-lg border border-slate-700 bg-slate-950 text-slate-500 focus-within:border-indigo-500">
-            <Search className="w-4 h-4 shrink-0" />
-            <input
-              ref={searchRef}
-              type="search"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Find a setting"
-              aria-label="Find a setting"
-              className="flex-1 min-w-0 bg-transparent text-[13px] text-slate-200 placeholder:text-slate-500 focus:outline-none"
-            />
-            {!query && <span className="text-[10.5px] px-1 rounded border border-slate-700">Ctrl F</span>}
-          </label>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="shrink-0 flex items-center gap-2 px-4 sm:px-5 py-2.5 border-b border-edge bg-slate-950/40 overflow-x-auto [scrollbar-width:none]">
-          {chips.map((chip) => (
-            <button
-              key={chip.label}
-              type="button"
-              onClick={() => open(chip.to)}
-              title={`Open ${sections.find((s) => s.id === chip.to)?.title}`}
-              className={`shrink-0 flex items-center gap-1.5 h-7 px-2.5 rounded-lg border bg-slate-900 text-[12px] text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors cursor-default ${
-                chip.changed ? 'border-amber-400/35' : 'border-slate-700/80'
-              }`}
-            >
-              {chip.label} <span className="text-slate-100 font-medium">{chip.value}</span>
-              {chip.changed && <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />}
-            </button>
-          ))}
-          {fittedNow && (
-            <span title="Set by Fit to this video" className="shrink-0 flex items-center gap-1 h-7 px-2.5 rounded-lg bg-indigo-500/15 text-[12px] text-indigo-300">
-              <Ruler className="w-3.5 h-3.5" /> Fitted
-            </span>
-          )}
-          <span className="flex-1" />
-          {fitSource && current.id !== 'basics' && (
-            <button
-              type="button"
-              onClick={() => open('basics')}
-              className="shrink-0 flex items-center gap-1.5 h-7 px-3 rounded-lg border border-indigo-500/45 bg-indigo-500/10 text-[12px] text-indigo-200 hover:bg-indigo-500/20 transition-colors cursor-default"
-            >
-              <Ruler className="w-3.5 h-3.5" /> Fit to this video
-            </button>
-          )}
-        </div>
-
-        <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)] lg:grid-cols-[18rem_minmax(0,1fr)]">
-          <nav
-            aria-label="Sync settings sections"
-            // Each row grows into the room the window has, up to a comfortable height, and shrinks back to its content when it is short.
-            className="shrink-0 flex md:flex-col gap-0.5 p-2 md:px-2.5 md:py-2 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto [scrollbar-width:thin] border-b md:border-b-0 md:border-r border-edge bg-slate-950/40"
-          >
-            {onlyChanged && (
-              <div className="hidden md:flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-amber-400/10 text-[11.5px] text-amber-200 shrink-0">
-                Changed sections only
-                <button type="button" onClick={() => setOnlyChanged(false)} className="text-amber-100 underline underline-offset-2 cursor-default">
-                  Show all
-                </button>
-              </div>
-            )}
-            {listed.length === 0 && <p className="px-2 py-6 text-center text-[12px] text-slate-500">No setting matches “{query.trim()}”.</p>}
-            {listed.map((s, n) => {
-              const Icon = s.icon;
-              const on = current.id === s.id;
-              return (
-                <React.Fragment key={s.id}>
-                  {(n === 0 || listed[n - 1].group !== s.group) && (
-                    <span className="hidden md:flex md:grow md:max-h-9 items-end px-2 pt-1.5 pb-0.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{s.group}</span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => open(s.id)}
-                    aria-current={on ? 'true' : undefined}
-                    className={`shrink-0 md:w-full md:grow md:max-h-[3.5rem] flex items-center gap-2.5 text-left rounded-lg px-2 py-[3px] border transition-colors cursor-default ${
-                      on ? 'bg-slate-800 border-slate-700 text-slate-100' : 'border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
-                    }`}
-                  >
-                    <span
-                      className={`hidden md:flex w-6 h-6 shrink-0 rounded-md items-center justify-center ${on ? 'bg-indigo-500/15 text-indigo-300' : 'bg-slate-900 text-slate-500'}`}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-medium whitespace-nowrap md:truncate leading-tight">{s.title}</span>
-                      <span className="hidden md:block text-[11px] text-slate-500 truncate leading-tight mt-0.5">{s.summary}</span>
-                    </span>
-                    {measured(s.id) && (
-                      <span title="Set by Fit to this video" className="hidden lg:inline px-1.5 py-px rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-medium">
-                        measured
-                      </span>
-                    )}
-                    {s.changedCount > 0 && (
-                      <span title={`${s.changedCount} changed from the default`} className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                    )}
-                  </button>
-                </React.Fragment>
-              );
-            })}
-          </nav>
-
-          <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-7 py-5">
-            <div className="max-w-[64rem]">
-              <div className="flex items-start gap-3 mb-4">
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-[17px] font-semibold text-slate-100">{current.title}</h3>
-                  <p className="text-[12.5px] text-slate-400 mt-0.5">{current.description}</p>
-                  <p className="text-[11.5px] text-slate-500 mt-1">{current.summary}</p>
-                </div>
-                {resettable > 0 && (
-                  <button
-                    type="button"
-                    onClick={resetSection}
-                    disabled={isSyncing}
-                    className="shrink-0 flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" /> {current.id === 'basics' ? 'Reset voicing and precision' : `Reset this section (${resettable})`}
-                  </button>
-                )}
-              </div>
-              <div className={isSyncing ? 'opacity-60' : ''}>{body}</div>
+      <div className="flex-1 min-h-0 flex flex-col md:grid md:grid-cols-[15rem_minmax(0,1fr)] lg:grid-cols-[17rem_minmax(0,1fr)]">
+        <nav
+          aria-label="Sync settings sections"
+          // Each row grows into the room the window has, up to a comfortable height, and shrinks back to its content when it is short.
+          className="shrink-0 flex md:flex-col gap-0.5 p-2 md:px-2.5 md:py-2 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto [scrollbar-width:thin] border-b md:border-b-0 md:border-r border-edge bg-slate-950/40"
+        >
+          {onlyChanged && (
+            <div className="hidden md:flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-amber-400/10 text-[11.5px] text-amber-200 shrink-0">
+              Changed sections only
+              <button type="button" onClick={() => setOnlyChanged(false)} className="text-amber-100 underline underline-offset-2 cursor-default">
+                Show all
+              </button>
             </div>
+          )}
+          {listed.length === 0 && <p className="px-2 py-6 text-center text-[12px] text-slate-500">No setting matches “{query.trim()}”.</p>}
+          {listed.map((s, n) => {
+            const Icon = s.icon;
+            const on = current.id === s.id;
+            return (
+              <React.Fragment key={s.id}>
+                {(n === 0 || listed[n - 1].group !== s.group) && (
+                  <span className="hidden md:flex md:grow md:max-h-9 items-end px-2 pt-1.5 pb-0.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">{s.group}</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => open(s.id)}
+                  aria-current={on ? 'true' : undefined}
+                  className={`shrink-0 md:w-full md:grow md:max-h-[3.5rem] flex items-center gap-2.5 text-left rounded-lg px-2 py-[3px] border transition-colors cursor-default ${
+                    on ? 'bg-slate-800 border-slate-700 text-slate-100' : 'border-transparent text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                  }`}
+                >
+                  <span
+                    className={`hidden md:flex w-6 h-6 shrink-0 rounded-md items-center justify-center ${on ? 'bg-indigo-500/15 text-indigo-300' : 'bg-slate-900 text-slate-500'}`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-medium whitespace-nowrap md:truncate leading-tight">{s.title}</span>
+                    <span className="hidden md:block text-[11px] text-slate-500 truncate leading-tight mt-0.5">{s.summary}</span>
+                  </span>
+                  {measured(s.id) && (
+                    <span title="Set by Fit to this video" className="hidden lg:inline px-1.5 py-px rounded-md bg-indigo-500/15 text-indigo-300 text-[10px] font-medium">
+                      measured
+                    </span>
+                  )}
+                  {s.changedCount > 0 && (
+                    <span title={`${s.changedCount} changed from the default`} className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                  )}
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </nav>
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-7 py-5">
+          <div className="max-w-[64rem]">
+            <div className="flex items-start gap-3 mb-4">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-[17px] font-semibold text-slate-100">{current.title}</h3>
+                <p className="text-[12.5px] text-slate-400 mt-0.5">{current.description}</p>
+                <p className="text-[11.5px] text-slate-500 mt-1">{current.summary}</p>
+              </div>
+              {resettable > 0 && (
+                <button
+                  type="button"
+                  onClick={resetSection}
+                  disabled={isSyncing}
+                  className="shrink-0 flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 text-[12px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" /> {current.id === 'basics' ? 'Reset voicing and precision' : `Reset this section (${resettable})`}
+                </button>
+              )}
+            </div>
+            <div className={isSyncing ? 'opacity-60' : ''}>{body}</div>
           </div>
         </div>
-
-        <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 sm:px-5 py-3 border-t border-edge bg-slate-950/60">
-          <button
-            type="button"
-            onClick={() => onOptionsChange(defaultSyncOptions())}
-            disabled={isSyncing || isDefaultOptions(options)}
-            title={isDefaultOptions(options) ? 'Already on the default settings' : 'Line by line, phrase precision, Natural line joins, no suggestions'}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-lg border border-edge text-[12.5px] text-slate-300 hover:bg-slate-800 hover:text-slate-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default"
-          >
-            <RotateCcw className="w-3.5 h-3.5" /> Reset all to defaults
-          </button>
-          <button
-            type="button"
-            onClick={() => setOnlyChanged(changedSections > 0 && !onlyChanged)}
-            className={`hidden sm:flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[12px] transition-colors cursor-default ${
-              changedSections ? 'bg-amber-400/10 text-amber-200 hover:bg-amber-400/15' : 'text-slate-500'
-            }`}
-          >
-            {changedSections ? (
-              <>
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                {changedSections} {changedSections === 1 ? 'section' : 'sections'} changed{onlyChanged ? ' · show all' : ''}
-              </>
-            ) : (
-              'All on the defaults'
-            )}
-          </button>
-          {blockedReason && !isSyncing && <span className="text-[11.5px] text-amber-300">{blockedReason}</span>}
-          <span className="flex-1" />
-          {previewShown && <span className="hidden lg:inline text-[11.5px] text-slate-500">The preview follows your changes.</span>}
-          <button
-            type="button"
-            onClick={onClose}
-            className="h-9 px-4 rounded-lg border border-slate-700 text-[13px] text-slate-200 hover:bg-slate-800 transition-colors cursor-default"
-          >
-            Done
-          </button>
-          {!isSyncing && onSync && (
-            <button
-              type="button"
-              onClick={() => {
-                onClose();
-                onSync();
-              }}
-              disabled={Boolean(blockedReason)}
-              className="h-9 flex items-center gap-2 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default"
-            >
-              {synced ? <RefreshCw className="w-4 h-4" /> : <Play className="w-4 h-4 fill-current" />}
-              {synced ? 'Sync again' : 'Dub & sync'}
-            </button>
-          )}
-        </div>
-      </section>
-    </div>,
+      </div>
+    </ToolWindow>,
     document.body
   );
 };

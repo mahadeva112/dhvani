@@ -22,11 +22,10 @@ import { BatchJob, ProcessingStatus } from '../types';
 import { UpdateControl, openUpdates, updatesSupported, useUpdateState } from './UpdateControl';
 import { CenteredPanel } from './CenteredPanel';
 import { STEP_HEADER_SLOT_ID } from './stepHeaderSlot';
-import { HubMeter, HubSegmented, HubSelect, HubSwitch, ToolsHub, type ToolsHubItem } from './ToolsHub';
-import { readOptions, rememberSyncOptions } from './SyncPanel';
-import { isAutoLength, joinPresetOf, pickAutoLength, pickLengthByHand } from './SyncJoinSettings';
-import { SYNC_JOIN_PRESET_OPTIONS, SYNC_PRECISION_OPTIONS, SYNC_SCREEN_OPTIONS, type SyncJoinPreset, type SyncOptions, type SyncScreen } from '../services/syncService';
-import type { VoiceExpression } from '../services/elevenLabsService';
+import { ToolsHub, type ToolsHubItem } from './ToolsHub';
+import { OPEN_TOOLS_EVENT } from './toolsReturn';
+import { readOptions } from './SyncPanel';
+import { SYNC_JOIN_PRESET_OPTIONS, SYNC_SCREEN_OPTIONS, type SyncJoinPreset, type SyncScreen } from '../services/syncService';
 import { projectName } from '../services/projects';
 import type { CartesiaUsage, GatewayUsage } from '../services/usageService';
 
@@ -89,13 +88,6 @@ export interface ProHeaderProps {
   onRefreshUsage?: () => void;
   /** The engine speaking the dub. ElevenLabs always transcribes. */
   voiceEngine?: 'elevenlabs' | 'cartesia';
-  /** Switches the voice engine from Tools and settings; Cartesia without a key opens API settings. */
-  onVoiceEngineChange?: (engine: 'elevenlabs' | 'cartesia') => void;
-  /** How much expression the dub is voiced with, and how Tools and settings changes it. */
-  voiceExpression?: VoiceExpression;
-  onVoiceExpressionChange?: (expression: VoiceExpression) => void;
-  /** Saves sync options to the open project, changed from Tools and settings. */
-  onSyncOptionsChange?: (options: SyncOptions) => void;
   /** True when a Cartesia key is set up; shows Cartesia in the services panel. */
   cartesiaReady?: boolean;
   elevenLabsReady?: boolean;
@@ -234,10 +226,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   usageLoading = false,
   onRefreshUsage,
   voiceEngine = 'elevenlabs',
-  onVoiceEngineChange,
-  voiceExpression = 'off',
-  onVoiceExpressionChange,
-  onSyncOptionsChange,
   cartesiaReady = false,
   elevenLabsReady = true,
   translationReady = true,
@@ -262,6 +250,15 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
   const [servicesOpen, setServicesOpen] = React.useState(false);
   const toolsRef = React.useRef<HTMLDivElement>(null);
   const closeTools = React.useCallback(() => setToolsOpen(false), []);
+  // Back in a tool window opened from the list opens the list again.
+  React.useEffect(() => {
+    const reopen = () => {
+      setServicesOpen(false);
+      setToolsOpen(true);
+    };
+    window.addEventListener(OPEN_TOOLS_EVENT, reopen);
+    return () => window.removeEventListener(OPEN_TOOLS_EVENT, reopen);
+  }, []);
   const closeServices = React.useCallback(() => setServicesOpen(false), []);
 
 
@@ -304,14 +301,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
 
   /** The sync settings this project will use, read the way the Dub step reads them. */
   const sync = readOptions(activeJob?.syncOptions);
-  // Without a project the options live in the browser only, so a change there needs its own render.
-  const [, setSyncChanged] = React.useState(0);
-  const changeSync = (update: (options: SyncOptions) => SyncOptions) => {
-    const next = update(sync);
-    rememberSyncOptions(next);
-    if (activeJob) onSyncOptionsChange?.(next);
-    setSyncChanged((n) => n + 1);
-  };
   const engineName = voiceEngine === 'cartesia' ? 'Cartesia' : 'ElevenLabs';
   const lineCount = activeJob?.segments.length ?? 0;
   const updateState = useUpdateState();
@@ -343,10 +332,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: targetLanguage || DEFAULT_TARGET_LANGUAGE,
       icon: Keyboard,
       tone: 'indigo',
-      facts: [
-        { label: 'Script', value: targetLanguage || DEFAULT_TARGET_LANGUAGE },
-        { label: "In a line's text box", value: 'Ctrl G' },
-      ],
       onOpen: onOpenPhoneticKeyboard,
     },
     onOpenTextToSpeech && {
@@ -357,10 +342,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: engineName,
       icon: Speech,
       tone: 'teal',
-      facts: [
-        { label: 'Engine', value: engineName },
-        { label: 'Model', value: voiceSummary || '—' },
-      ],
       onOpen: onOpenTextToSpeech,
     },
     onOpenVoiceChanger && {
@@ -371,10 +352,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: hasSync ? 'Synced dub ready' : null,
       icon: AudioWaveform,
       tone: 'pink',
-      facts: [
-        { label: 'Keeps', value: 'Timing and delivery' },
-        { label: 'Synced dub', value: hasSync ? 'Ready to change' : 'Not synced yet', status: hasSync ? 'ok' : 'off' },
-      ],
       onOpen: onOpenVoiceChanger,
     },
     onOpenPauseSensitivity && {
@@ -385,11 +362,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: `${pauseSensitivity}${hasCues ? ` · ${lineCount} lines` : ''}`,
       icon: Activity,
       tone: 'amber',
-      facts: [
-        { label: 'Sensitivity', value: String(pauseSensitivity) },
-        { label: 'Lines now', value: hasCues ? lineCount.toLocaleString() : 'No transcript yet' },
-      ],
-      extra: <HubMeter share={pauseSensitivity / 100} left="Fewer, longer lines" right="More, shorter lines" tone="amber" />,
       onOpen: onOpenPauseSensitivity,
     },
     onOpenApiSettings && {
@@ -400,20 +372,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: translationSummary,
       icon: KeyRound,
       tone: 'slate',
-      facts: [
-        { label: 'ElevenLabs', value: elevenLabsReady ? 'Connected' : 'Not set up', status: elevenLabsReady ? 'ok' : 'off' },
-        { label: 'Cartesia', value: cartesiaReady ? 'Connected' : 'Not set up', status: cartesiaReady ? 'ok' : 'off' },
-        { label: 'Translation', value: translationSummary || (translationReady ? 'Ready' : 'Not set up'), status: translationReady ? 'ok' : 'off' },
-      ],
-      extra:
-        quota && quotaShare !== null ? (
-          <HubMeter
-            share={quotaShare}
-            left={`ElevenLabs: ${compact(quotaLeft!)} of ${compact(quota.limit)} characters left`}
-            right={quota.resetUnix ? `Resets ${shortDate(quota.resetUnix * 1000)}` : undefined}
-            tone={quotaShare < 0.1 ? 'rose' : quotaShare < 0.25 ? 'amber' : 'emerald'}
-          />
-        ) : undefined,
       onOpen: onOpenApiSettings,
     },
     onOpenSettings && {
@@ -424,45 +382,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: [voiceName, voiceSummary].filter(Boolean).join(' · ') || null,
       icon: Mic,
       tone: 'blue',
-      controls: [
-        onVoiceEngineChange && {
-          label: 'Voice engine',
-          help: cartesiaReady ? undefined : 'Cartesia asks for its key first',
-          control: (
-            <HubSegmented
-              label="Voice engine"
-              value={voiceEngine}
-              options={[
-                { id: 'elevenlabs', label: 'ElevenLabs' },
-                { id: 'cartesia', label: 'Cartesia' },
-              ]}
-              onChange={onVoiceEngineChange}
-            />
-          ),
-        },
-        onVoiceExpressionChange && {
-          label: 'Dub expression',
-          help: 'The words never change',
-          control: (
-            <HubSegmented
-              label="Dub expression"
-              value={voiceExpression}
-              options={[
-                { id: 'off', label: 'Off', title: 'As written, in the voice’s own settings' },
-                { id: 'neutral', label: 'Neutral', title: 'Calm and even, no tags' },
-                { id: 'natural', label: 'Natural', title: 'Tagged from the original speaker' },
-                { id: 'expressive', label: 'Expressive', title: 'Tags guessed from the script' },
-              ]}
-              onChange={onVoiceExpressionChange}
-            />
-          ),
-        },
-      ].filter(Boolean) as ToolsHubItem['controls'],
-      facts: [
-        { label: 'Voice', value: voiceName || '—' },
-        { label: 'Model', value: voiceSummary || engineName },
-      ],
-      note: 'Used for the dub, Sync and text to speech.',
       onOpen: onOpenSettings,
     },
     onOpenSyncSettings && {
@@ -473,63 +392,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: `${sync.voicing === 'continuous' ? 'Continuous read' : 'Line by line'} · ${presetName(sync)}`,
       icon: SlidersHorizontal,
       tone: 'violet',
-      controls: [
-        {
-          label: 'How to voice',
-          control: (
-            <HubSegmented
-              label="How to voice"
-              value={sync.voicing}
-              options={[
-                { id: 'lines', label: 'Line by line' },
-                { id: 'continuous', label: 'Continuous' },
-              ]}
-              onChange={(voicing) => changeSync((o) => ({ ...o, voicing }))}
-            />
-          ),
-        },
-        {
-          label: 'Precision',
-          control: (
-            <HubSelect
-              label="Precision"
-              value={sync.precision}
-              options={SYNC_PRECISION_OPTIONS}
-              onChange={(precision) => changeSync((o) => ({ ...o, precision }))}
-            />
-          ),
-        },
-        {
-          label: 'Line joins',
-          help: isAutoLength(sync) ? 'Sync picks it from the video' : SYNC_JOIN_PRESET_OPTIONS.find((p) => p.id === sync.preset)?.sub,
-          control: (
-            <HubSelect
-              label="Line joins"
-              value={isAutoLength(sync) ? 'auto' : sync.preset}
-              options={[{ id: 'auto' as const, label: 'Auto' }, ...SYNC_JOIN_PRESET_OPTIONS]}
-              onChange={(preset) => changeSync((o) => (preset === 'auto' ? pickAutoLength(o) : pickLengthByHand(o, preset)))}
-            />
-          ),
-        },
-        {
-          label: 'Chunk sync',
-          help: 'Split each line where it goes quiet and place the pieces',
-          control: (
-            <HubSwitch
-              label="Chunk sync"
-              on={sync.join.chunkSync}
-              onChange={(chunkSync) =>
-                changeSync((o) => {
-                  const join = { ...o.join, chunkSync };
-                  return { ...o, join, preset: joinPresetOf(join, o.screen) };
-                })
-              }
-            />
-          ),
-        },
-      ],
-      facts: sync.screen && sync.screen !== 'any' ? [{ label: 'On screen', value: SYNC_SCREEN_OPTIONS.find((s) => s.id === sync.screen)?.label ?? sync.screen }] : [],
-      note: activeJob ? 'For this project. Changes apply to the next sync.' : 'For your next project.',
       onOpen: onOpenSyncSettings,
     },
     onOpenCustomPrompt && {
@@ -540,11 +402,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: translationStyleName,
       icon: AlignLeft,
       tone: 'emerald',
-      facts: [
-        { label: 'Style', value: translationStyleName || '—' },
-        { label: 'Dub language', value: targetLanguage || DEFAULT_TARGET_LANGUAGE },
-      ],
-      note: 'Used for the next translation.',
       onOpen: onOpenCustomPrompt,
     },
     updatesSupported() && {
@@ -555,24 +412,6 @@ export const ProHeader: React.FC<ProHeaderProps> = ({
       summary: updateSummary,
       icon: RefreshCw,
       tone: updateOffered ? 'blue' : 'slate',
-      facts: [
-        { label: 'Installed', value: updateState?.currentVersion || '—' },
-        {
-          label: 'Latest',
-          value: updateOffered ? updateState!.version : updateState?.status === 'not-available' ? 'You have it' : 'Not checked yet',
-          status: updateOffered ? 'ok' : undefined,
-        },
-      ],
-      openLabel:
-        updateState?.status === 'downloaded'
-          ? updateState.canInstall
-            ? 'Restart to update'
-            : 'Show the download'
-          : updateState?.status === 'downloading'
-            ? 'Show progress'
-            : updateOffered
-              ? `Get ${updateState!.version}`
-              : 'Check now',
       // With a version already on offer, open it as it is rather than checking again.
       onOpen: () => openUpdates(!updateOffered),
     },

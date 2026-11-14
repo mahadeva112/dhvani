@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tools Windows Simple</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#cbd5e1; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .veil { background:#0a0c11; border-radius:18px; padding:28px 16px; display:flex; justify-content:center; align-items:flex-start; min-height:30rem; }
+  .win { background:#11141b; border:1px solid #2b313d; border-radius:20px; box-shadow:0 25px 50px rgba(0,0,0,.6); color:#f1f5f9; width:100%; overflow:hidden; display:flex; flex-direction:column; }
+  .edge { border-color:#27292d; }
+  .lbl { font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:#64748b; font-weight:600; }
+  svg.i { width:16px; height:16px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  svg.i.s { width:14px; height:14px; }
+  .tile { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .tile.big { width:36px; height:36px; border-radius:10px; }
+  .row { width:100%; display:flex; align-items:center; gap:10px; padding:7px 10px; border-radius:10px; text-align:left; cursor:pointer; }
+  .row:hover { background:#1a1f2a; }
+  .row:hover .go { color:#a5b4fc; }
+  .x { width:32px; height:32px; border-radius:999px; display:flex; align-items:center; justify-content:center; color:#94a3b8; cursor:default; flex-shrink:0; }
+  .x:hover { background:#1e2430; color:#f1f5f9; }
+  .search { display:flex; align-items:center; gap:8px; height:34px; padding:0 10px; border:1px solid #2b313d; border-radius:10px; background:#0b0d12; color:#64748b; font-size:13px; }
+  kbd { font-size:10.5px; padding:0 4px; border:1px solid #2b313d; border-radius:4px; font-family:ui-monospace,Consolas,monospace; color:#94a3b8; }
+  .seg { display:inline-flex; padding:2px; border-radius:9px; background:#0b0d12; border:1px solid #27292d; font-size:12px; flex-wrap:wrap; }
+  .seg b { font-weight:500; padding:4px 10px; border-radius:7px; color:#94a3b8; cursor:default; white-space:nowrap; }
+  .seg b.on { background:#1e2430; color:#fff; }
+  .seg.t b.on { background:rgba(99,102,241,.3); }
+  .sel { height:32px; padding:0 10px; border-radius:9px; background:#0b0d12; border:1px solid #27292d; font-size:12.5px; color:#f1f5f9; display:inline-flex; align-items:center; justify-content:space-between; gap:8px; min-width:8rem; }
+  .inp { height:34px; padding:0 10px; border-radius:9px; background:#0b0d12; border:1px solid #27292d; font-size:12.5px; color:#64748b; display:flex; align-items:center; }
+  .ta { padding:10px; border-radius:10px; background:#0b0d12; border:1px solid #27292d; font-size:13px; color:#e2e8f0; line-height:1.55; }
+  .btn2 { height:32px; padding:0 12px; border-radius:9px; border:1px solid #334155; background:#0d1017; font-size:12.5px; font-weight:500; color:#e2e8f0; display:inline-flex; align-items:center; justify-content:center; gap:6px; cursor:default; white-space:nowrap; }
+  .btn2:hover { background:#1e2430; }
+  .btn2.sm { height:26px; padding:0 9px; font-size:11.5px; border-radius:7px; }
+  .pri { height:34px; padding:0 14px; border-radius:9px; background:#4f46e5; color:#fff; font-size:13px; font-weight:600; display:inline-flex; align-items:center; justify-content:center; gap:7px; cursor:default; white-space:nowrap; }
+  .pri:hover { background:#6366f1; }
+  .ghost { font-size:12.5px; color:#94a3b8; cursor:default; }
+  .ghost:hover { color:#f1f5f9; }
+  .card { border:1px solid #27292d; border-radius:12px; background:rgba(30,36,48,.25); }
+  .card > .r + .r { border-top:1px solid #1e2430; }
+  .r { display:flex; align-items:center; gap:12px; padding:9px 14px; min-height:44px; }
+  .r .n { flex:1; min-width:0; font-size:13px; }
+  .r .h { display:block; font-size:11.5px; color:#64748b; margin-top:2px; }
+  .sw { width:34px; height:20px; border-radius:99px; background:#334155; position:relative; flex-shrink:0; }
+  .sw::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:99px; background:#fff; transition:.15s; }
+  .sw.on { background:#6366f1; }
+  .sw.on::after { transform:translateX(14px); }
+  .sl { position:relative; height:4px; border-radius:99px; background:#1e2430; }
+  .sl i { position:absolute; left:0; top:0; bottom:0; border-radius:99px; background:#818cf8; }
+  .sl u { position:absolute; top:50%; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:99px; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,.5); }
+  .opt { border:1px solid #27292d; border-radius:12px; padding:10px 12px; display:flex; gap:10px; align-items:flex-start; cursor:default; background:#0d1017; }
+  .opt.on { border-color:#6366f1; background:rgba(99,102,241,.08); }
+  .rad { width:16px; height:16px; border-radius:99px; border:2px solid #475569; margin-top:2px; flex-shrink:0; }
+  .opt.on .rad { border:5px solid #6366f1; }
+  .chip { height:26px; padding:0 10px; border-radius:99px; border:1px solid #27292d; background:#0d1017; font-size:11.5px; color:#cbd5e1; display:inline-flex; align-items:center; gap:5px; }
+  .chip.on { border-color:#6366f1; color:#fff; background:rgba(99,102,241,.15); }
+  .dot { width:7px; height:7px; border-radius:99px; display:inline-block; flex-shrink:0; }
+  .side { background:rgba(11,13,18,.5); }
+  .nav { display:flex; align-items:center; gap:9px; padding:7px 10px; border-radius:9px; font-size:13px; cursor:default; }
+  .nav.on { background:#1e2430; color:#fff; }
+  .nav:hover { background:#1a1f2a; }
+  .nav small { display:block; font-size:11px; color:#64748b; line-height:1.2; margin-top:1px; }
+  .fold { display:flex; align-items:center; gap:8px; padding:10px 14px; font-size:13px; color:#cbd5e1; cursor:default; }
+  .mono { font-family:ui-monospace,Consolas,monospace; font-variant-numeric:tabular-nums; }
+  .tabbar button { font-size:12.5px; padding:6px 12px; border-radius:99px; border:1px solid #27292d; color:#94a3b8; background:#0d1017; }
+  .tabbar button.on { color:#fff; border-color:#6366f1; background:rgba(99,102,241,.18); }
+  .note { font-size:12px; color:#94a3b8; }
+  .new { font-size:10px; font-weight:600; padding:1px 6px; border-radius:6px; background:rgba(251,191,36,.15); color:#fcd34d; }
+</style>
+</head>
+<body class="px-4 py-8 sm:px-8">
+<div class="max-w-[78rem] mx-auto flex flex-col gap-6">
+
+  <header>
+    <h1 class="text-xl font-semibold text-slate-100">Tools — ক্লিক করলেই খোলে, আর প্রতিটা window একই ধাঁচে</h1>
+    <p class="text-sm text-slate-400 mt-1 max-w-[52rem]">
+      ১) Tools-এর তালিকায় কোনো নামে ক্লিক করলে সেটার নিজের window সোজা খুলে যায় — মাঝখানের "Now" পাতা আর "Open …" বোতাম আর নেই।<br>
+      ২) নয়টা window-ই এখন একই খোলসে: ছোট রঙিন icon + নাম + এক লাইন + গোল ✕ উপরে, নিচে বাঁয়ে Reset/লেখা আর ডানে <b class="text-slate-200">Done</b>। সাদা icon tile, পেছনের আলো, আলাদা আলাদা হেডার — সব এক রকম হয়েছে। ভেতরের সেটিং সব আগের মতোই আছে, শুধু সাজানো সহজ।
+      <span class="new">নতুন</span> লেখা মানে যেখানে সাজানোয় বড় বদল।
+    </p>
+  </header>
+
+  <nav class="tabbar flex flex-wrap gap-2" id="tabs"></nav>
+  <p class="text-sm text-slate-400 max-w-[52rem]" id="what"></p>
+  <div class="veil" id="stage"></div>
+</div>
+
+<script>
+const P = {
+  kbd:'<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M8 12h.01M12 12h.01M16 12h.01M7 16h10"/>',
+  tts:'<path d="M2 10v3M6 6v11M10 3v18M14 8v7M18 5v13M22 10v3"/>',
+  vc:'<path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"/>',
+  pause:'<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+  key:'<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
+  mic:'<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/>',
+  sync:'<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/>',
+  style:'<path d="M17 6H3M21 12H3M15 18H3"/>',
+  upd:'<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"/>',
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  right:'<path d="m9 18 6-6-6-6"/>',
+  down:'<path d="m6 9 6 6 6-6"/>',
+  search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  play:'<path d="m6 3 14 9-14 9z"/>',
+  copy:'<rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16V4a2 2 0 0 1 2-2h12"/>',
+  arrow:'<path d="M5 12h14M12 5l7 7-7 7"/>',
+  reset:'<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>',
+  lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  dl:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>',
+  trash:'<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  dice:'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h.01M16 16h.01M12 12h.01"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  rec:'<circle cx="12" cy="12" r="6"/>',
+};
+const ic = (n, c='') => `<svg class="i ${c}" viewBox="0 0 24 24">${P[n]}</svg>`;
+const T = { indigo:['99,102,241','#a5b4fc'], teal:['20,184,166','#5eead4'], pink:['236,72,153','#f9a8d4'], amber:['245,158,11','#fcd34d'], slate:['148,163,184','#cbd5e1'], blue:['59,130,246','#93c5fd'], violet:['139,92,246','#c4b5fd'], emerald:['16,185,129','#6ee7b7'] };
+const tile = (n,t,big) => `<span class="tile ${big?'big':''}" style="background:rgba(${T[t][0]},.15);color:${T[t][1]}">${ic(n, big?'':'s')}</span>`;
+const seg = (opts, on=0, t=true) => `<span class="seg ${t?'t':''}">${opts.map((o,i)=>`<b class="${i===on?'on':''}">${o}</b>`).join('')}</span>`;
+const sel = (v, w='') => `<span class="sel" ${w?`style="min-width:${w}"`:''}>${v} ${ic('down','s')}</span>`;
+const sw = on => `<span class="sw ${on?'on':''}"></span>`;
+const r = (name, ctl, help='') => `<div class="r"><span class="n">${name}${help?`<span class="h">${help}</span>`:''}</span>${ctl}</div>`;
+const card = rows => `<div class="card">${rows.join('')}</div>`;
+const lbl = (t, right='') => `<div class="flex items-center justify-between gap-3 px-1 pb-1.5"><span class="lbl">${t}</span>${right?`<span class="text-[11.5px] text-slate-500">${right}</span>`:''}</div>`;
+const slider = (name, val, pct, hint, l, rr, dim) => `<div class="${dim?'opacity-40':''}"><div class="flex items-baseline justify-between"><span class="text-[13px]">${name}</span><span class="mono text-[12px] text-slate-300">${val}</span></div>${hint?`<p class="text-[11.5px] text-slate-500 mt-0.5">${hint}</p>`:''}<div class="sl mt-3"><i style="width:${pct}%"></i><u style="left:${pct}%"></u></div><div class="flex justify-between text-[10.5px] text-slate-500 mt-1.5"><span>${l}</span><span>${rr}</span></div></div>`;
+const opt = (title, sub, on, extra='') => `<div class="opt ${on?'on':''}"><span class="rad"></span><span class="min-w-0 flex-1"><span class="flex items-center gap-2 text-[13px] font-medium">${title}${extra}</span><span class="block text-[11.5px] text-slate-400 mt-0.5 leading-snug">${sub}</span></span></div>`;
+const wave = (n, color='#22d3ee', h=28) => { let s=''; for(let k=0;k<n;k++){ const v = 4 + Math.abs(Math.sin(k*1.7)*Math.cos(k*.31))*(h-4); s+=`<span style="width:2px;height:${v.toFixed(0)}px;background:${color};border-radius:2px;opacity:.85"></span>`;} return `<span class="flex items-center gap-[2px]" style="height:${h}px">${s}</span>`; };
+
+function shell({ t, icon, title, sub, w, head='', body, foot }) {
+  return `<div class="win" style="max-width:${w}">
+    <header class="flex items-center gap-3 px-5 pt-4 pb-3 border-b edge flex-wrap">
+      ${tile(icon,t,true)}
+      <span class="flex-1 min-w-[12rem]"><h3 class="text-[15px] font-semibold">${title}</h3><p class="text-[12px] text-slate-400">${sub}</p></span>
+      ${head}
+      <span class="x">${ic('x')}</span>
+    </header>
+    ${body}
+    ${foot ? `<footer class="flex items-center gap-3 px-5 py-3 border-t edge flex-wrap">${foot}</footer>` : ''}
+  </div>`;
+}
+const two = (main, side, sideW='19rem', sideLeft=false) => `<div class="grid grid-cols-1 md:grid-cols-[${sideLeft?sideW+'_minmax(0,1fr)':'minmax(0,1fr)_'+sideW}]">${sideLeft ? `<div class="side border-b md:border-b-0 md:border-r edge p-4 flex flex-col gap-4">${side}</div><div class="p-5 flex flex-col gap-5 min-w-0">${main}</div>` : `<div class="p-5 flex flex-col gap-5 min-w-0">${main}</div><div class="side border-t md:border-t-0 md:border-l edge p-4 flex flex-col gap-4">${side}</div>`}</div>`;
+const done = (left='', extra='') => `<span class="flex-1 min-w-0 text-[12px] text-slate-500">${left}</span>${extra}<span class="pri">Done</span>`;
+
+/* ---------- the list ---------- */
+const ITEMS = [
+  ['Studio','keyboard','Phonetic keyboard','Hindi','kbd','indigo'],
+  ['Studio','tts','Text to speech','ElevenLabs','tts','teal'],
+  ['Studio','vc','Voice changer','Synced dub ready','vc','pink'],
+  ['Studio','pause','Pause detection','50 · 26 lines','pause','amber'],
+  ['Settings','api','API settings','Your gateway — vertex_ai/gemini-3.7-flash','key','slate'],
+  ['Settings','voice','Voice settings','Sadhguru Hindi - Clip Clone 1 · ElevenLabs','mic','blue'],
+  ['Settings','sync','Sync settings','Line by line · Custom','sync','violet'],
+  ['Settings','style','Translation style','Swami','style','emerald'],
+  ['App','upd','Check for updates','1.4.76 · up to date','upd','slate'],
+];
+function hub() {
+  let rows = '', g = '';
+  for (const [grp,id,name,sum,icn,t] of ITEMS) {
+    if (grp !== g) { g = grp; rows += `<p class="lbl px-2.5 pt-3 pb-1">${grp}</p>`; }
+    rows += `<div class="row" onclick="show('${id}')">${tile(icn,t)}<span class="flex-1 min-w-0"><span class="block text-[13px] font-medium leading-tight truncate">${name}</span><span class="block text-[11px] text-slate-500 leading-tight truncate mt-0.5">${sum}</span></span><span class="go text-slate-600">${ic('right','s')}</span></div>`;
+  }
+  return shell({ t:'indigo', icon:'sync', title:'Tools and settings', sub:'Click one to open it.', w:'30rem',
+    body:`<div class="px-5 pt-3"><div class="search">${ic('search')}<span class="flex-1">Find a tool or setting</span><kbd>Ctrl K</kbd></div></div><div class="px-3 pt-1 pb-3">${rows}</div>`,
+    foot:`<span class="dot" style="background:#34d399"></span><span class="text-[12px] text-slate-300">ElevenLabs</span><span class="text-[12px] text-slate-500">11.8M left</span><span class="text-slate-600">·</span><span class="dot" style="background:#34d399"></span><span class="text-[12px] text-slate-400">Cartesia</span><span class="text-slate-600">·</span><span class="dot" style="background:#34d399"></span><span class="text-[12px] text-slate-400">Translation</span>` });
+}
+
+/* ---------- 1 Phonetic keyboard ---------- */
+function keyboard() {
+  const chips = ['कैसे','कैसें','कैसै','कइसे','कैशे'].map((w,i)=>`<span class="chip ${i===0?'on':''}"><kbd>${i+1}</kbd><span style="font-size:13px">${w}</span></span>`).join('');
+  const keys = ['◌ा','◌ि','◌ी','◌ु','◌ू','◌ृ','◌े','◌ै','◌ो','◌ौ','◌ं','◌ः','◌ँ','◌्'].map(k=>`<span class="btn2" style="height:40px;width:3rem;font-size:16px">${k}</span>`).join('');
+  const guide = [['k / kh / g / gh','Velar','क / ख / ग / घ'],['ch / chh / j / jh','Palatal','च / छ / ज / झ'],['t / th / d / dh / n','Dental','त / थ / द / ध / न'],['T / Th / D / Dh / N','Retroflex (Capital)','ट / ठ / ड / ढ / ण'],['a / aa / i / ee / u / oo','Vowels & Matras','अ / आ / इ / ई / उ / ऊ']].map(([a,b,c])=>`<div class="r"><span class="n"><span class="mono text-[12px] text-slate-200">${a}</span><span class="h">${b}</span></span><span class="text-[13px] text-slate-300">${c}</span></div>`);
+  return shell({ t:'indigo', icon:'kbd', title:'Hindi keyboard', sub:'Type how it sounds in English letters. It becomes Hindi as you go.', w:'60rem',
+    head:`${sel('हिन्दी Hindi')}<span class="flex items-center gap-2 text-[12px] text-slate-300">${sw(true)} Every cue</span>`,
+    body: two(`
+      <div>${lbl('Typing pad','1–5 picks a spelling')}
+        <div class="card">
+          <div class="px-4 pt-4 pb-3" style="font-size:24px">नमस्ते आप <span style="text-decoration:underline;text-decoration-color:#818cf8;text-underline-offset:6px">कैसे</span></div>
+          <div class="flex items-center gap-3 px-4 py-2.5 border-t edge border-dashed"><span class="lbl">Roman</span><span class="mono text-[13px] text-slate-200">namaste aap kaise</span></div>
+          <div class="flex items-center gap-2 flex-wrap px-4 py-2.5 border-t edge"><span class="text-[11.5px] text-slate-500 mr-1">For "kaise"</span>${chips}</div>
+        </div>
+        <div class="flex items-center gap-2 mt-3 flex-wrap"><span class="pri">${ic('arrow','s')} Add to cue 03</span><span class="btn2">${ic('copy','s')} Copy</span><span class="btn2">Clear</span><span class="ml-auto text-[12px] text-slate-500">Editing <b class="text-slate-300">cue 03</b></span></div>
+      </div>
+      <div>${lbl('Letters')}<div class="card p-3">${seg(['Vowels','Vowel signs','Consonants','Marks & numbers'],1,false)}<div class="flex flex-wrap gap-1.5 mt-3">${keys}</div></div></div>`,
+      `${seg(['Guide','My words','Whole script'],0,false)}
+       ${card(guide)}
+       <p class="note"><b class="text-slate-200">Capitals matter.</b> t and T are different letters. Double a vowel to make it long.</p>`, '20rem'),
+    foot: done('Ctrl G types this way in a line’s text box.') });
+}
+
+/* ---------- 2 Text to speech ---------- */
+function tts() {
+  const tags = ['thoughtful','curious','calm','serious','warmly','sighs','laughs','whispers'].map(t=>`<span class="chip">[${t}]</span>`).join('');
+  const take = (name, eng, col, meta, playing) => `<div class="card p-3 ${playing?'':''}" style="${playing?'border-color:#6366f1':''}">
+      <div class="flex items-center gap-2.5"><span class="x" style="width:28px;height:28px;background:#fff;color:#0b0d12">${ic('play','s')}</span><span class="flex-1 min-w-0 text-[13px] font-medium truncate">${name}</span><span class="text-[10px] font-semibold px-1.5 rounded" style="background:${col}22;color:${col}">${eng}</span></div>
+      <p class="mono text-[11px] text-slate-500 mt-1.5">${meta}</p>
+      <p class="text-[12px] text-slate-300 mt-1 leading-snug">नमस्ते, आज हम ध्यान के बारे में बात करेंगे…</p>
+      <div class="mt-2">${wave(46,col,20)}</div>
+      <div class="flex gap-1.5 mt-2.5 flex-wrap"><span class="btn2 sm">${ic('dl','s')} .mp3</span><span class="btn2 sm">Use as the dub</span><span class="btn2 sm">Reuse seed</span></div></div>`;
+  return shell({ t:'teal', icon:'tts', title:'Text to speech', sub:'Voice any text with ElevenLabs or Cartesia, and compare the takes.', w:'64rem',
+    head: seg(['ElevenLabs','Cartesia']),
+    body: two(`
+      <div>${lbl('Voice')}<div class="card r"><span class="tile big" style="border-radius:99px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:600">S</span><span class="n"><b class="font-medium">Sadhguru Hindi - Clip Clone 1</b><span class="h">ElevenLabs · indian · male</span></span><span class="btn2 sm">${ic('play','s')} Sample</span><span class="btn2 sm">Change</span></div></div>
+      <div>${lbl('Text', `${sel('हिन्दी Hindi')} `)}
+        <div class="ta" style="min-height:7.5rem">नमस्ते, आज हम ध्यान के बारे में बात करेंगे।<br>जब आप शांत बैठते हैं…</div>
+        <div class="flex items-center gap-3 mt-2 mono text-[11.5px] text-slate-500 flex-wrap"><span>86 characters</span><span>≈ 0:07 of speech</span><span>≈ 86 credits</span><span class="ml-auto font-sans flex gap-1.5"><span class="btn2 sm">${ic('file','s')} Project script</span><span class="btn2 sm">Clear</span></span></div>
+        <div class="flex items-center gap-1.5 flex-wrap mt-3"><span class="text-[11.5px] text-slate-500 mr-1">Audio tags</span>${tags}</div>
+      </div>
+      <div>${lbl('Model and delivery')}${card([
+        r('Model', sel('Eleven v4','11rem'), 'The most emotive voices, 90+ languages. Pace comes from audio tags.'),
+        r('Same as the dub', sw(true), 'Model, settings and delivery cues are shared with the dub'),
+        r('Use the voice’s own settings', sw(true), 'How the voice sounds on the ElevenLabs website'),
+        `<div class="fold border-t edge">${ic('right','s')} Stability, similarity, style, speed, speaker boost <span class="new">নতুন</span><span class="ml-auto text-[11.5px] text-slate-500">0.50 · 0.75 · 0.00 · 1.00×</span></div>`,
+        r('Auto delivery cues', sw(false), 'Adds [calm], [sighs]… so it is performed, not read'),
+        r('Output', `${sel('MP3 · 44.1 kHz · 128 kbps','13rem')}`),
+        r('Seed', `<span class="inp" style="width:9rem">Random each take</span><span class="btn2 sm">${ic('lock','s')}</span><span class="btn2 sm">${ic('dice','s')}</span>`),
+      ])}</div>
+      <div class="flex items-center gap-2 flex-wrap"><span class="pri">${ic('tts','s')} Generate with ElevenLabs</span><span class="btn2">Generate on both</span><span class="text-[11.5px] text-slate-500 ml-1">Ctrl + Enter</span></div>`,
+      `${lbl('Takes · 2','Clear all')}${take('Sadhguru Hindi','ELEVENLABS','#818cf8','Eleven v4 · 0:07 · seed 48213',true)}${take('Hindi narrator','CARTESIA','#22d3ee','Sonic 3.6 · 0:07',false)}`, '22rem'),
+    foot: done('Takes stay until you close the app.') });
+}
+
+/* ---------- 3 Voice changer ---------- */
+function vc() {
+  const spk = (c, n, name, v) => `<div class="r"><span class="tile" style="border-radius:99px;background:${c};color:#fff;font-size:11px;font-weight:600">${n}</span><span class="n">${name}<span class="h">12 lines · kept as is</span></span>${sel(v,'11rem')}<span class="btn2 sm">Browse</span></div>`;
+  const lane = (name, col, blocks) => `<div class="flex items-center gap-2"><span class="w-16 text-[11px] text-slate-400 truncate">${name}</span><span class="flex-1 relative h-6 rounded bg-[#0b0d12]">${blocks.map(([l,w,s])=>`<span class="absolute top-0.5 bottom-0.5 rounded text-[9px] flex items-center justify-center" style="left:${l}%;width:${w}%;background:${s==='a'?'rgba(245,158,11,.35)':s==='ok'?'rgba(16,185,129,.35)':col+'55'};color:#fff">${s==='ok'?'✓':s==='a'?'!':''}</span>`).join('')}</span></div>`;
+  return shell({ t:'pink', icon:'vc', title:'Voice changer', sub:'Keep how it was said, change who says it.', w:'62rem',
+    head: seg(['Change voice','Clone a voice','Effects']),
+    body: `<div class="flex items-center gap-3 px-5 py-3 border-b edge flex-wrap side"><span class="lbl">Dub</span><span class="tile" style="background:rgba(34,211,238,.15);color:#67e8f9">${ic('file','s')}</span><span class="min-w-0"><span class="block text-[13px]">dub_hindi.wav</span><span class="block text-[11px] text-slate-500">2:05 · dubbed audio</span></span><span class="x" style="width:28px;height:28px;background:#fff;color:#0b0d12">${ic('play','s')}</span><span class="flex-1 hidden sm:block">${wave(60,'#22d3ee',22)}</span><span class="btn2 sm">Other file</span><span class="btn2 sm"><span class="dot" style="background:#f43f5e"></span> Record</span></div>` +
+    two(`
+      <div>${lbl('Replace the dub', '<span style="color:#6ee7b7">● Latest edits ready</span>')}<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${opt('Line by line','Keeps your edits',true)}${opt('Whole file','One take of everything',false)}</div>
+        <p class="note mt-2">Each line is changed on its own and fitted to its old length, so it lands exactly where it was.</p></div>
+      <div>${lbl('Change each speaker into')}${card([spk('#6366f1','S1','Speaker 1','Sadhguru Hindi'), spk('#ec4899','S2','Speaker 2','Keep as is')])}</div>
+      <div>${lbl('Voice settings')}<div class="card p-4 grid grid-cols-1 sm:grid-cols-2 gap-5">${slider('Stability','0.50',50,'Higher keeps rhythm and pitch closer to the speaker.','More variable','More stable')}${slider('Similarity','0.75',75,'How strongly it sounds like the voice.','Low','High')}</div>
+        <div class="mt-2">${card([r('Model', sel('Multilingual (29 languages)','13rem')), r('Remove background noise', sw(false)), r('Speaker boost', sw(true)), `<div class="fold border-t edge">${ic('right','s')} Style exaggeration, seed</div>`])}</div></div>
+      <div class="flex items-center gap-3 flex-wrap"><span class="pri">Replace 14 lines</span><span class="note">Uses ElevenLabs credits for those lines only.</span></div>`,
+      `${lbl('Edit timing')}<p class="note">Every line stays where it is. Changed lines turn green; amber ones are worth a listen.</p>
+       <div class="flex flex-col gap-1.5">${lane('Speaker 1','#6366f1',[[2,14,'ok'],[20,10,'ok'],[34,16,'a'],[56,12,''],[74,18,'']])}${lane('Speaker 2','#ec4899',[[16,6,''],[50,7,''],[70,5,'']])}</div>
+       <div class="grid grid-cols-3 gap-2 text-center">${[['Changed','3/14'],['Fitted','2'],['To check','1']].map(([a,b],i)=>`<div class="card py-2"><div class="mono text-[15px] ${i===2?'text-amber-300':i===1?'text-emerald-300':''}">${b}</div><div class="text-[10.5px] text-slate-500">${a}</div></div>`).join('')}</div>`, '21rem'),
+    foot: done('The old voice stays in each line’s takes.') });
+}
+
+/* ---------- 4 Pause detection ---------- */
+function pause() {
+  const pres = [['Long pauses','over 400 ms'],['Natural','about 130 ms'],['Quick speech','about 90 ms'],['Every breath','about 50 ms']].map(([a,b],i)=>`<div class="opt ${i===1?'on':''}" style="flex-direction:column;gap:2px"><span class="text-[13px] font-medium">${a}</span><span class="text-[11px] text-slate-400">${b}</span></div>`).join('');
+  return shell({ t:'amber', icon:'pause', title:'Pause detection', sub:'How long a pause has to be before the talk is split into a new cue.', w:'38rem',
+    body: `<div class="p-5 flex flex-col gap-4">
+      <div class="flex items-baseline gap-2"><span class="mono text-[28px] font-semibold">42</span><span class="text-slate-400 text-[13px]">cues</span><span class="mono text-[11px] px-2 py-0.5 rounded-full" style="background:rgba(99,102,241,.15);color:#a5b4fc">+6 from before</span></div>
+      <div class="rounded-xl bg-[#0b0d12] border edge px-3 py-2">${wave(110,'#22d3ee',46)}</div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">${pres}</div>
+      <div class="card p-4">${slider('Sensitivity','50',50,'Lower makes fewer, longer cues. Higher splits at shorter pauses.','Fewer, longer cues','More, shorter cues')}</div>
+      ${card([`<div class="fold">${ic('right','s')} Advanced gate <span class="text-[11.5px] text-slate-500">open, close, hold, pad</span></div>`])}
+      <p class="note flex gap-2">${ic('info','s')} Moving any control re-splits the cues straight away. Text already in a cue is carried over.</p>
+    </div>`,
+    foot: `<span class="ghost">Reset to natural</span><span class="flex-1"></span><span class="pri">Done</span>` });
+}
+
+/* ---------- 5 API settings ---------- */
+function api() {
+  const step = (n, name, eng, on, st='Live · 182 ms') => `<div class="nav ${on?'on':''}"><kbd>${n}</kbd><span class="flex-1 min-w-0">${name}<small class="truncate">${eng}</small></span><span class="dot" style="background:#34d399" title="${st}"></span></div>`;
+  return shell({ t:'slate', icon:'key', title:'API settings', sub:'The services your dub goes through. Pick a step to change who does it.', w:'62rem',
+    head: `<span class="chip" style="color:#6ee7b7;border-color:rgba(16,185,129,.35)"><span class="dot" style="background:#34d399"></span> 3/3 ready · checked just now</span><span class="btn2 sm">${ic('reset','s')} Re-check</span>`,
+    body: two(`
+      <div><h4 class="text-[14px] font-semibold">Translate</h4><p class="note">Each cue into the dub language.</p></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${opt('Google Gemini','Calls Google directly with your Gemini key.',false)}${opt('Your own gateway','LiteLLM, vLLM or any OpenAI-compatible server on your network.',true,'<span class="mono text-[10.5px] text-emerald-300">230 ms</span>')}</div>
+      ${card([
+        r('Server address', `<span class="inp mono" style="width:15rem">http://172.18.1.17:14005</span>`, 'With or without /v1'),
+        r('API key <span class="text-slate-500 text-[11px]">optional</span>', `<span class="inp" style="width:15rem">Saved. Paste a new key to replace it</span>`),
+        r('Model <span class="text-slate-500 text-[11px]">24 found</span>', sel('vertex_ai/gemini-3.7-flash','15rem')),
+        r('Speaks', seg(['OpenAI format','Gemini format'])),
+        `<div class="fold border-t edge">${ic('right','s')} Endpoint and models</div>`,
+        `<div class="fold border-t edge">${ic('right','s')} Translation speed</div>`,
+      ])}`,
+      `${lbl('Steps')}<div class="flex flex-col gap-1">${step(1,'Transcribe','ElevenLabs · scribe_v2')}${step(2,'Translate','Your gateway · gemini-3.7-flash',true)}${step(3,'Voice','ElevenLabs · eleven_v4')}</div>
+       <div>${lbl('Try it','Into Hindi')}<div class="card p-3"><p class="text-[12.5px] text-slate-300">Silence is not the absence of sound.</p><span class="pri w-full mt-2.5" style="height:30px">Translate</span><p class="text-[11px] text-slate-500 mt-2">Runs on the saved settings.</p></div></div>
+       <div>${lbl('What leaves this computer')}<div class="card p-3 text-[12px] flex flex-col gap-1.5"><span>Cue text only → ${ic('lock','s')} <span class="mono text-slate-400">172.18.1.17</span></span><span class="text-slate-500">Key saved on this computer</span></div></div>`, '18rem', true),
+    foot: `<span class="flex-1 min-w-0 text-[12px] text-slate-500">Keys are saved on this computer only.</span><span class="ghost">Cancel</span><span class="pri">Save changes <kbd style="color:#c7d2fe;border-color:#818cf8">Ctrl S</kbd></span>` });
+}
+
+/* ---------- 6 Voice settings ---------- */
+function voice() {
+  const model = (n, s, on, c='1×') => `<div class="opt ${on?'on':''}" style="padding:8px 10px"><span class="rad"></span><span class="flex-1 min-w-0"><span class="flex items-center gap-2 text-[13px] font-medium">${n}<span class="ml-auto mono text-[10.5px] text-slate-400">${c}</span></span><span class="block text-[11px] text-slate-400 leading-snug">${s}</span></span></div>`;
+  return shell({ t:'blue', icon:'mic', title:'Voice settings', sub:'How the dub sounds. Changes apply to the next dub.', w:'58rem',
+    body: two(`
+      <div>${lbl('Delivery')}<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${opt('Sadhguru Hindi’s own settings','Sounds as the voice does on the ElevenLabs website. Recommended.',true)}${opt('Custom','Your own mix for this voice.',false)}</div>
+        <p class="note mt-2">Using the saved settings: stability 0.50, similarity 0.75, style 0.00, speaker boost on.</p></div>
+      ${card([r('Auto-tune stability', sw(true), 'A long dub is kept at stability 0.60 or more so every part has one tone.')])}
+      <div>${lbl('Try it')}<div class="ta">नमस्ते, आज हम ध्यान के बारे में बात करेंगे।</div><div class="flex items-center gap-3 mt-2"><span class="btn2">${ic('play','s')} Hear it</span><span class="flex-1">${wave(40,'#818cf8',18)}</span><span class="text-[11px] text-slate-500">44 characters</span></div></div>`,
+      `<div>${lbl('Voice')}<div class="card p-3"><div class="flex items-center gap-2.5"><span class="tile big" style="border-radius:99px;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;font-weight:600">S</span><span class="min-w-0"><span class="block text-[13px] font-medium truncate">Sadhguru Hindi - Clip Clone 1</span><span class="block text-[11px] text-slate-500">narration · calm</span></span></div><div class="flex gap-1.5 mt-2.5"><span class="btn2 sm flex-1">${ic('play','s')} Sample</span><span class="btn2 sm flex-1">Change voice</span></div></div></div>
+       <div>${lbl('Model','Compare')}<div class="flex flex-col gap-1.5">${model('Eleven v4','Most emotive, 90+ languages.',true)}${model('Eleven v3','Expressive, 70+ languages.',false)}${model('Eleven Multilingual v2','Steady and natural, 29 languages.',false)}${model('Eleven Flash v2.5','Fastest, 32 languages.',false,'½×')}</div><p class="text-[11.5px] text-indigo-300 mt-2">Show 6 more models</p></div>
+       <p class="text-[11.5px] flex items-center gap-1.5"><span class="dot" style="background:#34d399"></span><span class="text-slate-300">ElevenLabs connected · pro</span><span class="ml-auto text-indigo-300">Manage key</span></p>`, '19rem', true),
+    foot: done('Saved on this computer. Applies to the next dub.', '<span class="ghost">Reset to voice’s own</span>') });
+}
+
+/* ---------- 7 Sync settings ---------- */
+function sync() {
+  const nav = (n, s, on, ch) => `<div class="nav ${on?'on':''}"><span class="flex-1 min-w-0">${n}<small class="truncate">${s}</small></span>${ch?'<span class="dot" style="background:#fbbf24"></span>':''}</div>`;
+  return shell({ t:'violet', icon:'sync', title:'Sync settings', sub:'How each line is placed. Changes apply as you make them, for the next sync.', w:'66rem',
+    head: `<span class="search" style="width:14rem">${ic('search','s')}<span class="flex-1">Find a setting</span><kbd>Ctrl F</kbd></span>`,
+    body: two(`
+      <div><h4 class="text-[14px] font-semibold">Basics</h4><p class="note">How the dub is voiced, how close the timing has to be, and the line joins to start from.</p></div>
+      ${card([r('Fit to this video when I Sync', sw(true), 'Sync measures the original first (no credit) and shows what changed, with Undo.')])}
+      <div>${lbl('How to voice')}<div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${opt('Line by line','Each line is voiced for its own slot. The best timing.',true,'<span class="text-[10.5px] text-slate-500">default</span>')}${opt('One continuous read','Read in one take, then cut and placed. One voice only.',false)}</div></div>
+      ${card([
+        r('Precision', seg(['Loose ±300','Phrase ±150','Close-up ±80'],1)),
+        r('Line joins', seg(['Auto','Short','Natural','Long','Very long','Custom'],5), 'By how long the dub runs'),
+        r('On screen', seg(['Any','Narration','On-camera'],0), 'Adds to the length preset'),
+        `<div class="fold border-t edge">${ic('right','s')} What <b>Custom</b> sets <span class="ml-auto text-[11.5px] text-indigo-300">Show what changed</span></div>`,
+      ])}
+      <div>${lbl('When a line still runs long')}${card([r('Pick the best of 3 takes', seg(['Off','Ask','Auto'])), r('Read it faster', seg(['Off','Ask','Auto'])), r('Suggest a shorter wording', seg(['Off','Suggest']))])}</div>`,
+      `<div class="flex flex-col gap-0.5"><span class="lbl px-1">Setup</span>${nav('Basics','Line by line · Phrase · Custom',true,true)}${nav('My sync presets','Save, apply, import, export')}
+       <span class="lbl px-1 mt-3">Placement</span>${nav('Chunk sync','Split below -40 dB · pauses to 50%',false,true)}${nav('Gaps between lines','180 ms · 250 ms at a new speaker')}${nav('Pauses inside a line','Only where the original pauses')}${nav('When a line still runs long','Nothing is voiced again')}${nav('Line edges','Tail to -70 dB, held 40 ms')}${nav('Grouping','Under 400 ms apart, up to 12 s')}
+       <span class="lbl px-1 mt-3">Fit and review</span>${nav('When a line doesn’t fit','Flagged over 250 ms late')}${nav('Review','Flags joins under 150 ms')}${nav('Suggestions','Off')}${nav('Extra checks','Off')}</div>`, '17rem', true),
+    foot: `<span class="ghost">Reset all to defaults</span><span class="chip" style="color:#fcd34d;border-color:rgba(245,158,11,.35)"><span class="dot" style="background:#fbbf24"></span> 2 sections changed</span><span class="flex-1"></span><span class="pri">Done</span>` });
+}
+
+/* ---------- 8 Translation style ---------- */
+function style() {
+  const st = (n, b, s, on) => `<div class="opt ${on?'on':''}" style="padding:8px 10px"><span class="rad"></span><span class="flex-1 min-w-0"><span class="flex items-center gap-2 text-[13px] font-medium">${n}${b?`<span class="text-[10px] px-1.5 rounded" style="background:rgba(99,102,241,.2);color:#c7d2fe">${b}</span>`:''}</span><span class="block text-[11px] text-slate-400 leading-snug line-clamp-2">${s}</span></span></div>`;
+  const rules = ['Keep tech terms in English','Short & punchy sentences','Respectful formal tone','Casual everyday slang','Match exact speech duration','Sanskrit/Spiritual vocabulary'].map((t,i)=>`<span class="chip ${i===2?'on':''}">${i===2?'✓':'+'} ${t}</span>`).join('');
+  const act = (t, s, n) => `<div class="card p-3 flex items-start gap-3"><span class="flex-1 min-w-0"><span class="block text-[13px] font-medium">${t}</span><span class="block text-[11.5px] text-slate-400">${s}</span><span class="block text-[11px] text-amber-300 mt-1">${n}</span></span><span class="btn2 sm">Run</span></div>`;
+  return shell({ t:'emerald', icon:'style', title:'Translation style', sub:'How the Hindi should sound. It’s sent with every cue the engine translates.', w:'60rem',
+    body: two(`
+      <div>${lbl('Instructions','Swami, edited')}<div class="ta" style="min-height:9rem;color:#cbd5e1">Translate meaning first, never word for word. Keep Sanskrit terms as they are said…</div></div>
+      <div>${lbl('Add a rule','Click to add it to the end')}<div class="flex flex-wrap gap-1.5">${rules}</div></div>
+      <div>${lbl('Save as your own prompt')}<div class="flex gap-2"><span class="inp flex-1">Name, e.g. Bengali talks</span><span class="btn2">Save as</span></div></div>
+      <div>${lbl('Save and apply')}<div class="flex flex-col gap-2">${act('Re-translate the 42 cues','Keeps the English and its timing; only the Hindi is written again.','Uses your translation engine')}${act('Fast re-translate the 42 cues','Translation only. Skips meaning, length and term checks.','Uses your translation engine')}</div></div>`,
+      `${lbl('Style')}<div class="flex flex-col gap-1.5">${st('Sadhguru','Recommended','Meaning first, never word for word',false)}${st('Natural Spoken','','Meaning-first dubbing for any speaker',false)}${st('Custom Instructions','','Your own rules, glossary, tone',false)}</div>
+       ${lbl('Your prompts')}<div class="flex flex-col gap-1.5">${st('Swami','','Translate meaning first, never word…',true)}${st('Bengali talks','','Short lines, keep names in English…',false)}</div>`, '18rem', true),
+    foot: `<span class="ghost">Reset to the saved text</span><span class="flex-1 text-[12px] text-slate-500">Saved on this computer</span><span class="pri">Save</span>` });
+}
+
+/* ---------- 9 Updates ---------- */
+function upd() {
+  return shell({ t:'slate', icon:'upd', title:'Update available', sub:'Installed 1.4.76 · New 1.4.77', w:'28rem',
+    body: `<div class="p-5 flex flex-col gap-3">${lbl('What’s new')}<div class="card p-3 text-[12.5px] text-slate-300 leading-relaxed max-h-48 overflow-auto">• Tools: a click opens the tool's own window.<br>• Every tool window looks the same.<br>• Edit timing: solo leaves out everything not soloed.</div><p class="note">Your keys and settings are kept.</p></div>`,
+    foot: `<span class="flex-1"></span><span class="ghost">Later</span><span class="pri">${ic('dl','s')} Download and install</span>` });
+}
+
+const VIEWS = [
+  ['hub','Tools list', hub, 'Tools-এর তালিকা। নামে ক্লিক করলেই সেটার window খোলে (এখানেও ক্লিক করে দেখুন)। ডানের "Now" পাতা, "Change here" আর "Open …" বোতাম নেই। ↑↓ দিয়ে বাছাই, Enter-এ খোলে।'],
+  ['keyboard','Phonetic keyboard', keyboard, 'আগের মতো সব আছে: টাইপিং প্যাড, বানান বাছাই 1–5, অক্ষরের তালিকা, Guide / My words / Whole script। লিপি বাছাই আর "Every cue" সুইচ হেডারে। নিচে Done যোগ হল।'],
+  ['tts','Text to speech', tts, 'Voice, Text, Model and delivery আর Takes একই আছে। নতুন: চারটে slider আর Speaker boost এক লাইনে ভাঁজ করা (খুললে দেখা যায়), কারণ "voice’s own settings" চালু থাকলে ওগুলো এমনিতেও বন্ধ থাকে।'],
+  ['vc','Voice changer', vc, 'Change voice / Clone a voice / Effects হেডারে, DUB-এর লাইন উপরে, ডানে Edit timing-এর ফল। Style exaggeration আর Seed এক ভাঁজে। Clone আর Effects tab-এর ভেতর আগের মতোই।'],
+  ['pause','Pause detection', pause, 'এটা আগেই সবচেয়ে সাদামাটা ছিল — শুধু খোলস বাকিদের মতো করা হল। নিচে Reset to natural আর Done।'],
+  ['api','API settings', api, 'নতুন: উপরের বড় pipeline-এর তিনটে কার্ড বাঁয়ের তালিকা হল (Transcribe / Translate / Voice, পাশে সবুজ বিন্দু), অন্য দুই-ভাগের window-এর মতো। Try it আর What leaves this computer বাঁয়ের নিচে। Save changes আগের মতোই।'],
+  ['voice','Voice settings', voice, 'বাঁয়ে Voice আর Model, ডানে Delivery, Auto-tune আর Try it। Custom বাছলে slider গুলো এখানে আসে আগের মতো। নিচে Reset to voice’s own আর Done।'],
+  ['sync','Sync settings', sync, 'নতুন: পুরো পর্দা জোড়া window-এর বদলে বাকিদের মতো মাঝখানের window; উপরের chip-এর সারি নেই (বাঁয়ের তালিকাতেই প্রতিটার মান আর বদলের amber বিন্দু আছে)। ভেতরের সব section আগের মতো।'],
+  ['style','Translation style', style, 'বাঁয়ে Style আর Your prompts, ডানে Instructions, Add a rule, Save as, Save and apply। নিচে Reset আর Save।'],
+  ['upd','Check for updates', upd, 'নীল বোতামের বদলে বাকিদের মতো indigo; খোলস এক রকম। বাকি অবস্থা (checking, downloading, ready) আগের মতোই।'],
+];
+function show(id) {
+  const v = VIEWS.find(x => x[0] === id) || VIEWS[0];
+  document.getElementById('stage').innerHTML = v[2]();
+  document.getElementById('what').innerHTML = v[3];
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.id === v[0]));
+}
+document.getElementById('tabs').innerHTML = VIEWS.map(v => `<button data-id="${v[0]}" onclick="show('${v[0]}')">${v[1]}</button>`).join('');
+show('hub');
+</script>
+</body>
+</html>

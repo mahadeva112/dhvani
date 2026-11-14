@@ -63,6 +63,7 @@ import type { LaneClip, LineProgress, SpeakerVoices, VoiceChangeSettings } from 
 import { EditRenderChip, KEEP, LineLanes, LineRunSummary, SpeakerVoiceRows } from './VoiceChangeLines';
 import { reportError } from '../services/errorPopup';
 import { PageScrollLock } from './usePageScrollLock';
+import { ToolWindow, toolPrimaryButton } from './ToolWindow';
 
 /** Formats the whole-file voice change is asked again in when the plan refuses one (as a dub's are). */
 const STS_FALLBACK: Record<string, string> = { wav_48000: 'mp3_44100_192', mp3_44100_192: 'mp3_44100_128' };
@@ -717,8 +718,8 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
         setActiveTab(id);
         setErrorMessage(null);
       }}
-      className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-1.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-default ${
-        activeTab === id ? 'bg-slate-800 text-slate-100 shadow-sm' : 'text-slate-400 hover:text-slate-200'
+      className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-1.5 sm:px-2.5 py-1 rounded-[7px] text-xs font-medium whitespace-nowrap transition-colors cursor-default ${
+        activeTab === id ? 'bg-indigo-500/30 text-white' : 'text-slate-400 hover:text-slate-200'
       }`}
     >
       <Icon className="hidden sm:block w-3.5 h-3.5" />
@@ -772,52 +773,42 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
   const field = 'w-full h-10 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[10px] px-3 text-[13px] text-slate-100 placeholder-slate-500 focus:outline-none';
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start sm:items-center justify-center sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <PageScrollLock />
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="voice-changer-title"
-        className="w-full max-w-[62.5rem] min-h-full sm:min-h-0 sm:my-auto sm:max-h-[calc(100vh-3rem)] flex flex-col sm:rounded-[18px] bg-slate-900 border border-slate-700/80 shadow-2xl text-slate-100 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <audio ref={audioPlayerRef} />
-
-        {/* Header with the three modes */}
-        <div className="flex flex-wrap items-center gap-x-3.5 gap-y-3 px-5 sm:px-6 py-4 border-b border-edge shrink-0">
-          <div className="w-[38px] h-[38px] rounded-[10px] bg-slate-100 text-slate-950 flex items-center justify-center shrink-0" aria-hidden="true">
-            <AudioWaveform className="w-[18px] h-[18px]" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 id="voice-changer-title" className="text-lg font-semibold text-slate-100 leading-tight">
-              Voice changer
-            </h2>
-            <p className="text-[12.5px] text-slate-400 mt-0.5">Keep how it was said, change who says it.</p>
-          </div>
+    <>
+      <ToolWindow
+        onClose={onClose}
+        title="Voice changer"
+        subtitle="Keep how it was said, change who says it."
+        icon={AudioWaveform}
+        tone="pink"
+        titleId="voice-changer-title"
+        widthClassName="max-w-[62.5rem]"
+        heightClassName="sm:h-[min(46rem,100%)]"
+        bodyScrolls={false}
+        headerExtra={
+          // The three modes
           <div
             role="tablist"
             aria-label="Mode"
-            className="order-3 sm:order-none w-full sm:w-auto flex p-[3px] gap-0.5 rounded-[11px] bg-slate-950/60 border border-edge"
+            className="order-3 sm:order-none w-full sm:w-auto flex p-[2px] gap-0.5 rounded-[9px] bg-slate-950/60 border border-edge"
           >
             {tabButton('sts', 'Change voice', ArrowLeftRight)}
             {tabButton('clone', 'Clone a voice', UserPlus)}
             {tabButton('effects', 'Effects', Sliders)}
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition-colors shrink-0 cursor-default"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+        }
+        footer={
+          <>
+            <span className="flex-1 min-w-0 text-[12px] text-slate-500">{lineMode ? "The old voice stays in each line's takes." : ''}</span>
+            <button type="button" onClick={onClose} className={toolPrimaryButton}>
+              Done
+            </button>
+          </>
+        }
+      >
+        <audio ref={audioPlayerRef} />
 
         {/* Input audio (the dub by default), shared by every mode */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-5 sm:px-6 py-3 border-b border-edge bg-slate-950/40 shrink-0">
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 px-5 py-3 border-b border-edge bg-slate-950/40 shrink-0">
           <span className="hidden sm:block w-14 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500 shrink-0">{inputIsProjectDub || !sourceAudioFile ? 'Dub' : 'Input'}</span>
           <span className="w-[34px] h-[34px] rounded-[9px] bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0">
             {isRecording ? <Mic className="w-4 h-4" /> : <FileAudio className="w-4 h-4" />}
@@ -1022,13 +1013,6 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     setSimilarity,
                     ['Low', 'High']
                   )}
-                  {slider(
-                    'Style Exaggeration',
-                    "Pushes the voice's own style further. Above zero it can take longer and drift.",
-                    styleExaggeration,
-                    setStyleExaggeration,
-                    ['None', 'Exaggerated']
-                  )}
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-4 items-end">
@@ -1070,22 +1054,31 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     onClick={() => setIsAdvancedOpen((v) => !v)}
                     className="self-start flex items-center gap-1.5 text-[13px] font-medium text-slate-400 hover:text-slate-200 cursor-default"
                   >
-                    Advanced settings
+                    Style exaggeration, seed
                     <ChevronDown className={`w-4 h-4 transition-transform ${isAdvancedOpen ? 'rotate-180' : ''}`} />
                   </button>
                   {isAdvancedOpen && (
-                    <div className="flex flex-col gap-1.5 max-w-xs">
-                      <label htmlFor="sts-seed" className="text-xs text-slate-400">Seed</label>
-                      <input
-                        id="sts-seed"
-                        type="text"
-                        inputMode="numeric"
-                        value={stsSeed}
-                        onChange={(e) => setStsSeed(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                        placeholder="Random"
-                        className={field}
-                      />
-                      <span className="text-[11.5px] text-slate-500">The same seed and settings give the same take. Leave empty for a fresh one.</span>
+                    <div className="grid sm:grid-cols-2 gap-4 items-start">
+                      {slider(
+                        'Style Exaggeration',
+                        "Pushes the voice's own style further. Above zero it can take longer and drift.",
+                        styleExaggeration,
+                        setStyleExaggeration,
+                        ['None', 'Exaggerated']
+                      )}
+                      <div className="flex flex-col gap-1.5">
+                        <label htmlFor="sts-seed" className="text-xs text-slate-400">Seed</label>
+                        <input
+                          id="sts-seed"
+                          type="text"
+                          inputMode="numeric"
+                          value={stsSeed}
+                          onChange={(e) => setStsSeed(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                          placeholder="Random"
+                          className={field}
+                        />
+                        <span className="text-[11.5px] text-slate-500">The same seed and settings give the same take. Leave empty for a fresh one.</span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1116,7 +1109,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                           : 'Choose an ElevenLabs voice to change into.'
                         : editRender !== 'ready'
                           ? 'Waits for your latest edits, so it changes the dub as it is now.'
-                          : "Uses ElevenLabs credits for those lines only. The old voice stays in each line's takes."}
+                          : 'Uses ElevenLabs credits for those lines only.'}
                     </span>
                   </div>
                 ) : (
@@ -1486,7 +1479,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
             )}
           </aside>
         </div>
-      </section>
+      </ToolWindow>
 
       {/* The full voice library, to pick who to change into */}
       {isPickerOpen && (
@@ -1522,6 +1515,6 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
