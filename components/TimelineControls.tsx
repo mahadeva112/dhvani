@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { ChevronsLeft, ChevronsRight, Maximize2, Pause, Play, ZoomIn, ZoomOut } from 'lucide-react';
 import { withAlpha } from './lineColors';
 import { useLiveFrame } from './useLiveTime';
-import { WaveHeightButton } from './WaveHeightButton';
 
 /**
  * Controls for the sync timelines (the preview's and the report's): zoom and
@@ -248,7 +247,6 @@ export const TimelineZoomControls: React.FC<{ zoom: TimelineZoom }> = ({ zoom })
         <Maximize2 className="w-3.5 h-3.5" /> Whole track
       </button>
     </div>
-    <WaveHeightButton className="!h-8" />
   </div>
 );
 

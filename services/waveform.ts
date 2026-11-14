@@ -291,10 +291,7 @@ export const peakRange = (p: Peaks, i0: number, i1: number): { hi: number; lo: n
   return { hi, lo };
 };
 
-export type DrawPeaksOptions = DrawWaveOptions & {
-  /** How much taller than its real level the wave is drawn (Wave height); 1 when left out. */
-  scale?: number;
-};
+export type DrawPeaksOptions = DrawWaveOptions;
 
 /**
  * Draws `peaks` into the box as a video editor's timeline does: one solid
@@ -315,10 +312,9 @@ export const drawPeaks = (ctx: CanvasRenderingContext2D, peaks: Peaks | null, o:
   const half = H / 2;
   const mid = top + Math.floor(half);
   const span = o.to - o.from;
-  const scale = o.scale ?? 1;
   const fixed: WaveStyle = typeof o.style === 'string' ? { color: o.style } : null;
   const styleAt: (t: number) => WaveStyle = typeof o.style === 'string' ? () => fixed : o.style;
-  const gainAt = (t: number) => (o.gain ? Math.max(0, o.gain(t)) : 1) * scale;
+  const gainAt = (t: number) => (o.gain ? Math.max(0, o.gain(t)) : 1);
   const yOf = (v: number) => mid - Math.max(-1, Math.min(1, v)) * half;
   /** Under half a pixel from the centre either way: too quiet to draw. */
   const quiet = (v: number) => Math.abs(Math.max(-1, Math.min(1, v))) * half < 0.5;

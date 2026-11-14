@@ -47,8 +47,6 @@ import { MarkerFlags, MarkerLines, MarkerList, newMarker, sortMarkers } from './
 import type { TimelineNote } from '../types';
 import { WindowWaveform, usePeaks, type PeakData } from './WindowWaveform';
 import { computePeaks, drawCentreLine, drawPeaks } from '../services/waveform';
-import { useWaveHeight } from './waveHeight';
-import { WaveHeightButton } from './WaveHeightButton';
 import { hueOf, shadeOf, tintOf, withAlpha } from './lineColors';
 import { decodeAudioBlobUrl } from '../services/audioService';
 import { alignTakeWords } from '../services/syncTakesService';
@@ -371,7 +369,6 @@ const PartWave: React.FC<{
     return () => observer.disconnect();
   }, []);
   const { from, to, rate, gainDb, fadeIn, fadeOut } = part;
-  const scale = useWaveHeight();
   const length = (to - from) / rate;
   const a = shown ? Math.max(0, shown.from) : 0;
   const b = shown ? Math.min(length, shown.to) : length;
@@ -409,7 +406,6 @@ const PartWave: React.FC<{
       from: start + a * rate,
       to: start + b * rate,
       style: tintOf(hue, 0.82),
-      scale,
       gain: (t) => {
         // t is in the bank; the fades are in the part's own (played) time.
         const at = (t - start) / rate;
@@ -436,7 +432,7 @@ const PartWave: React.FC<{
       ctx.lineTo(x(length), bottom);
       ctx.stroke();
     }
-  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size, scale, a, b, length]);
+  }, [data, bankOffset, from, to, rate, gainDb, fadeIn, fadeOut, hue, size, a, b, length]);
   return (
     <canvas
       ref={ref}
@@ -3927,7 +3923,6 @@ export const SyncEditTimeline: React.FC<{
             <Maximize2 className="w-3.5 h-3.5" /> Fit
           </button>
         </div>
-        <WaveHeightButton className="!h-9 !rounded-xl bg-slate-950" />
         <button
           type="button"
           onClick={() => setShowHelp(true)}

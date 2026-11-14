@@ -20,8 +20,6 @@ import {
 import { AudioSegment } from '../types';
 import { useLiveFrame, useLiveTime } from './useLiveTime';
 import { computePeaks, drawCentreLine, drawPeaks, WaveStyle } from '../services/waveform';
-import { useWaveHeight } from './waveHeight';
-import { WaveHeightButton } from './WaveHeightButton';
 import { MIN_WINDOW_SECONDS, PLAYHEAD_RED, Playhead, RULER_STEPS, placePlayheadAt, tickDecimals, ticksBetween } from './TimelineControls';
 import { LINE_HUES, shadeOf, tintOf } from './lineColors';
 
@@ -403,7 +401,6 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
   /** The left cue of the cut being dragged. */
   const cutDragRef = useRef<string | number | null>(null);
   const [redrawTick, setRedrawTick] = useState(0);
-  const waveHeight = useWaveHeight();
 
   const span = total > 0 ? total / zoom : 1;
   const spanRef = useRef(span);
@@ -634,7 +631,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     from: number,
     to: number,
     color: string | ((t: number) => WaveStyle)
-  ) => drawPeaks(ctx, peaks, { x: 0, y: top, w, h: height, from, to, style: color, scale: waveHeight });
+  ) => drawPeaks(ctx, peaks, { x: 0, y: top, w, h: height, from, to, style: color });
   /**
    * Inside a line, the pale wave in its own colour that Edit timing draws over a
    * clip (dimmed until played); `base` between lines.
@@ -740,7 +737,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
       ctx.fillRect(cx - 4, h / 2 - 10, 8.5, 20);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet, lineSpans, showNumbers, waveHeight]);
+  }, [peaks, segments, activeIndex, zoom, viewStart, span, palette, redrawTick, selectedCutId, fastSet, lineSpans, showNumbers]);
 
   useEffect(() => {
     const c = prepareCanvas(wavePlayedRef.current);
@@ -750,7 +747,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     drawBars(c.ctx, c.w, top, c.h - top - (lineSpans?.length ? LANE_INSET : 3), vs, vs + drawnSpan, lineBars(palette.played, true));
     applyFrame(liveRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [peaks, zoom, viewStart, span, palette, redrawTick, lineSpans, waveHeight]);
+  }, [peaks, zoom, viewStart, span, palette, redrawTick, lineSpans]);
 
   // The mini player's strip: the whole file.
   useEffect(() => {
@@ -760,7 +757,7 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
     const p = prepareCanvas(miniPlayedRef.current);
     if (p) drawBars(p.ctx, p.w, 2, p.h - 4, 0, total, palette.played);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showMini, peaks, total, palette, redrawTick, waveHeight]);
+  }, [showMini, peaks, total, palette, redrawTick]);
 
   // ---------- pointer ----------
   const timeAt = (e: React.PointerEvent | React.MouseEvent, el: HTMLElement, whole: boolean) => {
@@ -1188,7 +1185,6 @@ export const ReviewWaveformPlayer: React.FC<ReviewWaveformPlayerProps> = ({
             <button type="button" onClick={() => setZoom(1)} disabled={zoom === 1} className={`${segBtn(false)} disabled:opacity-40`} title="Show the whole track (F)">
               Fit
             </button>
-            <WaveHeightButton />
             <button
               type="button"
               onClick={() => {

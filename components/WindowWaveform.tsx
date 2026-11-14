@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { bufferSeconds } from '../services/playbackTimeline';
 import { computePeaks, drawCentreLine, drawPeaks, type Peaks } from '../services/waveform';
 import { shadeOf, tintOf } from './lineColors';
-import { useWaveHeight } from './waveHeight';
 
 export type PeakData = Peaks;
 
@@ -35,7 +34,6 @@ export const WindowWaveform: React.FC<{
   look?: 'bars' | 'clips';
 }> = ({ data, from, span, spans, className, look = 'bars' }) => {
   const ref = useRef<HTMLCanvasElement>(null);
-  const scale = useWaveHeight();
   const [size, setSize] = useState(0);
   useEffect(() => {
     const canvas = ref.current;
@@ -60,7 +58,7 @@ export const WindowWaveform: React.FC<{
     if (!data || data.seconds <= 0 || span <= 0) return;
     const gapColor = getComputedStyle(canvas).color;
     if (look === 'clips') {
-      drawClips(ctx, data, from, span, spans, gapColor, w, h, dpr, scale);
+      drawClips(ctx, data, from, span, spans, gapColor, w, h, dpr);
       return;
     }
     // Silence leaves the lane blank but for a faint centre guide, as in DaVinci.
@@ -72,18 +70,17 @@ export const WindowWaveform: React.FC<{
       h: h - 4,
       from,
       to: from + span,
-      scale,
       style: (t) => {
         const line = spans.find((s) => t >= s.from && t < s.to);
         return line ? { color: line.color, alpha: line.faded ? 0.35 : 1 } : { color: gapColor };
       },
     });
-  }, [data, from, span, spans, size, look, scale]);
+  }, [data, from, span, spans, size, look]);
   return <canvas ref={ref} aria-hidden="true" className={`absolute inset-0 w-full h-full pointer-events-none ${className}`} />;
 };
 
 /** Clip bodies, guides and pale waveforms for `look="clips"`; between clips, the wave in `gapColor`. */
-const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, span: number, spans: WaveSpan[], gapColor: string, w: number, h: number, dpr: number, scale: number) => {
+const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, span: number, spans: WaveSpan[], gapColor: string, w: number, h: number, dpr: number) => {
   const to = from + span;
   const x = (t: number) => ((t - from) / span) * w;
   const top = 3;
@@ -91,7 +88,7 @@ const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, 
   const mid = top + height / 2;
   const hair = 1 / dpr;
   const snap = (y: number) => Math.round(y * dpr) / dpr;
-  drawPeaks(ctx, data, { x: 0, y: top, w, h: height, from, to, style: gapColor, scale });
+  drawPeaks(ctx, data, { x: 0, y: top, w, h: height, from, to, style: gapColor });
   for (const s of spans) {
     if (s.to <= from || s.from >= to) continue;
     const a = Math.round(x(s.from) * dpr) / dpr;
@@ -110,7 +107,7 @@ const drawClips = (ctx: CanvasRenderingContext2D, data: PeakData, from: number, 
     ctx.fillStyle = tintOf(s.color, 0.6, 0.22);
     ctx.fillRect(a, snap(mid - height / 4), b - a, hair);
     ctx.fillRect(a, snap(mid + height / 4), b - a, hair);
-    drawPeaks(ctx, data, { x: a, y: top, w: b - a, h: height, from: from + (a / w) * span, to: from + (b / w) * span, style: tintOf(s.color, 0.82), scale });
+    drawPeaks(ctx, data, { x: a, y: top, w: b - a, h: height, from: from + (a / w) * span, to: from + (b / w) * span, style: tintOf(s.color, 0.82) });
     ctx.restore();
   }
 };
