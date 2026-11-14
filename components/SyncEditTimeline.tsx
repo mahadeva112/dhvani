@@ -656,7 +656,28 @@ const ClipBox = React.memo<ClipBoxProps>(
   }
 );
 
-/** A toolbar button whose name and shortcut show on hover or keyboard focus. */
+/**
+ * The name, shortcut and a line on what it does, shown over an icon-only
+ * button on hover or keyboard focus, like DaVinci's toolbars. Anchored to the
+ * button's left edge so it never runs off the window; `up` opens it above, for
+ * the row under the lanes.
+ */
+const ButtonTip: React.FC<{ label: string; shortcut?: string; hint?: string; up?: boolean }> = ({ label, shortcut, hint, up }) => (
+  <span
+    role="tooltip"
+    className={`pointer-events-none absolute left-0 z-40 w-max max-w-[16rem] rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-left text-[11px] font-normal leading-snug text-slate-300 opacity-0 shadow-lg shadow-black/40 transition-opacity delay-300 group-hover:opacity-100 group-focus-visible:opacity-100 ${
+      up ? 'bottom-full mb-2' : 'top-full mt-2'
+    }`}
+  >
+    <span className="flex items-center gap-2 font-medium text-slate-100 whitespace-nowrap">
+      {label}
+      {shortcut && <kbd className="ml-auto rounded border border-slate-600 bg-slate-800 px-1.5 font-mono text-[10.5px] text-slate-200">{shortcut}</kbd>}
+    </span>
+    {hint && <span className="mt-0.5 block whitespace-normal text-slate-400">{hint}</span>}
+  </span>
+);
+
+/** An icon-only toolbar toggle; its name and shortcut show on hover or keyboard focus. */
 const ToolButton: React.FC<{
   label: string;
   shortcut: string;
@@ -670,31 +691,21 @@ const ToolButton: React.FC<{
     onClick={onClick}
     aria-pressed={pressed}
     aria-keyshortcuts={shortcut === 'Drag' ? undefined : shortcut}
-    title={hint || label}
     aria-label={label}
-    className={`group relative h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium transition-colors cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+    className={`group relative h-8 w-8 rounded-lg flex items-center justify-center transition-colors cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
       pressed ? 'bg-indigo-500/20 text-indigo-100 ring-1 ring-inset ring-indigo-400/60' : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800'
     }`}
   >
     {children}
-    <span
-      role="tooltip"
-      className="hidden sm:block pointer-events-none absolute left-1/2 top-full z-40 mt-2 -translate-x-1/2 w-max max-w-[16rem] rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-1.5 text-left text-[11px] font-normal leading-snug text-slate-300 opacity-0 shadow-lg shadow-black/40 transition-opacity delay-150 group-hover:opacity-100 group-focus-visible:opacity-100"
-    >
-      <span className="flex items-center gap-2 font-medium text-slate-100">
-        {label}
-        <kbd className="ml-auto rounded border border-slate-600 bg-slate-800 px-1.5 font-mono text-[10.5px] text-slate-200">{shortcut}</kbd>
-      </span>
-      {hint && <span className="mt-0.5 block whitespace-normal text-slate-400">{hint}</span>}
-    </span>
+    <ButtonTip label={label} shortcut={shortcut} hint={hint} />
   </button>
 );
 
-/** A small action with its shortcut on it. */
 /** A toggle in the Split at pauses panel: one line, never broken. */
 const panelChip = (on: boolean) =>
   `h-6 px-2 rounded-md text-[11.5px] border whitespace-nowrap shrink-0 cursor-default disabled:opacity-40 disabled:cursor-default ${on ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`;
 
+/** An icon-only action on the picked line; its name and shortcut show above it on hover or keyboard focus. */
 const ActionButton: React.FC<{ label: string; shortcut?: string; onClick: () => void; children: React.ReactNode; title?: string }> = ({
   label,
   shortcut,
@@ -705,13 +716,12 @@ const ActionButton: React.FC<{ label: string; shortcut?: string; onClick: () => 
   <button
     type="button"
     onClick={onClick}
-    title={title}
+    aria-label={label}
     aria-keyshortcuts={shortcut}
-    className="h-8 px-2.5 rounded-lg flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+    className="group relative h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
   >
     {children}
-    {label}
-    {shortcut && <kbd className="rounded border border-slate-700 px-1 font-mono text-[10px] text-slate-500">{shortcut}</kbd>}
+    <ButtonTip label={label} shortcut={shortcut} hint={title} up />
   </button>
 );
 
@@ -3608,14 +3618,14 @@ export const SyncEditTimeline: React.FC<{
     return partner ? { id: partner.part.id, zone: active.zone === 'rollLeft' ? ('rollRight' as const) : ('rollLeft' as const) } : null;
   })();
   const currentUnit = current ? unitByKey.get(current.key) : undefined;
-  const currentLanding = landing(currentUnit, tolerance);
   const currentLocked = current ? committed[current.key]?.locked ?? false : false;
   /** The picked line's start, speed, gain and fades: in a row on the line bar, or stacked in its properties. */
   const lineFields = (chunk: Chunk, stacked: boolean) => {
     const id = chunk.part.id;
     return (
       <>
-        <NumberField key={`start-${id}`} label="Start" unit="s" value={chunk.part.start} step={0.01} digits={3} width="4.25rem" stacked={stacked} autoFocus={stacked} onCommit={(v) => setField({ start: v }, 'Set the start of')} />
+        {/* Start only in the double-click properties, not on the picked-line row */}
+        {stacked && <NumberField key={`start-${id}`} label="Start" unit="s" value={chunk.part.start} step={0.01} digits={3} width="4.25rem" stacked={stacked} autoFocus={stacked} onCommit={(v) => setField({ start: v }, 'Set the start of')} />}
         <NumberField key={`speed-${id}`} label="Speed" unit="%" value={chunk.part.rate * 100} step={1} digits={0} width="2.5rem" defaultValue={100} stacked={stacked} onCommit={(v) => setField({ rate: v / 100 }, 'Set the speed of')} />
         <NumberField key={`gain-${id}`} label="Gain" unit="dB" value={chunk.part.gainDb} step={0.5} digits={1} width="2.5rem" defaultValue={0} stacked={stacked} onCommit={(v) => setField({ gainDb: clamp(Math.round(v * 2) / 2, MIN_GAIN_DB, MAX_GAIN_DB) }, 'Set the gain of')} />
         <NumberField key={`in-${id}`} label="Fade in" unit="ms" value={chunk.part.fadeIn * 1000} step={10} digits={0} width="2.75rem" defaultValue={0} stacked={stacked} onCommit={(v) => setField({ fadeIn: Math.max(0, v) / 1000 }, 'Fade in')} />
@@ -3982,16 +3992,11 @@ export const SyncEditTimeline: React.FC<{
       {/* Tools: names and shortcuts show on hover */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5">
-          {onOpenTakes && <ToolButton label="Select range" shortcut="Drag" hint="Drag inside a dub line to select words for a retake. Uses ElevenLabs forced alignment; may use alignment credits. No voice is generated until Retake is pressed." pressed={rangeTool} onClick={() => { alignmentRequest.current?.abort(); rangeDrag.current = null; setAligningRange(false); setTakeRange(null); setRangeWords(null); setRangeTool(v => !v); setBlade(false); }}>
-            <Mic className="w-4 h-4" /> Select range
-          </ToolButton>}
           <ToolButton label="Blade" shortcut="B" hint="On: a click cuts a line in two there. Off: S splits at the pointer or the playhead." pressed={blade} onClick={() => { alignmentRequest.current?.abort(); rangeDrag.current = null; setAligningRange(false); setTakeRange(null); setRangeWords(null); setRangeTool(false); setBlade((v) => !v); }}>
             <Scissors className="w-4 h-4" />
-            Blade
           </ToolButton>
           <ToolButton label="Snap" shortcut="N" hint="Edges snap to the original's lines, other lines and the playhead, and a moved line stops at the next one instead of playing over it." pressed={snap} onClick={() => setSnap((v) => !v)}>
             <Magnet className="w-4 h-4" />
-            Snap
           </ToolButton>
           <ToolButton
             label="Ripple"
@@ -4001,12 +4006,10 @@ export const SyncEditTimeline: React.FC<{
             onClick={() => setRipple((v) => !v)}
           >
             <ArrowRightToLine className="w-4 h-4" />
-            Ripple
           </ToolButton>
           {onMarkersChange && (
             <ToolButton label="Marker" shortcut="Shift + M" hint="Puts a marker with a note at the playhead, for you to come back to. It doesn't change the dub." pressed={false} onClick={addMarker}>
               <Flag className="w-4 h-4" />
-              Marker
             </ToolButton>
           )}
         </div>
@@ -4093,8 +4096,11 @@ export const SyncEditTimeline: React.FC<{
         </button>
       </div>
 
-      {/* The picked line: one row, so the lanes keep the room */}
-      <section aria-label="Picked line" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 min-h-[2.75rem] rounded-xl border border-edge bg-slate-950/60 px-3 py-1.5 min-w-0">
+      {/* The picked line: one row, so the lanes keep the room. With nothing picked it stays empty but keeps its height, so the lanes don't jump on a click. */}
+      <section
+        aria-label="Picked line"
+        className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 min-h-[2.75rem] rounded-xl px-3 py-1.5 min-w-0 ${group.length > 1 || current ? 'border border-edge bg-slate-950/60' : ''}`}
+      >
         {group.length > 1 ? (
           <>
             <span className="text-[13px] font-semibold text-slate-100 whitespace-nowrap">{group.length} lines picked</span>
@@ -4169,19 +4175,13 @@ export const SyncEditTimeline: React.FC<{
           </>
         ) : current ? (
           <>
-            <span className="text-[13px] font-semibold text-slate-100 whitespace-nowrap">{current.original ? `Clip ${current.label}` : `Line ${current.label}`}</span>
             {current.file ? (
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: withAlpha(laneHue(current), 0.14), color: laneHue(current) }}>
                 {trackById.get(trackOfLane(current.lane) ?? '')?.name ?? 'Track'}
               </span>
             ) : current.original ? (
               <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-cyan-400/12 text-cyan-300 whitespace-nowrap">original voice</span>
-            ) : (
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${currentLanding.chip}`}>{currentLanding.label}</span>
-            )}
-            {currentUnit?.offset !== null && currentUnit?.offset !== undefined && (
-              <span className="font-mono text-[11.5px] text-slate-400 whitespace-nowrap">{formatShift(currentUnit.offset)} vs original</span>
-            )}
+            ) : null}
             {!current.original && currentLocked && (
               <span className="flex items-center gap-1 text-[11px] text-slate-500 whitespace-nowrap" title="Locked: Sync again leaves it where it is">
                 <Lock className="w-3 h-3" /> Locked
@@ -4200,14 +4200,9 @@ export const SyncEditTimeline: React.FC<{
               <span className="flex-1 min-w-[8rem] truncate text-[12px] text-slate-300" title="Its edges trim it into more of the original; Alt + Shift + drag slips which stretch it plays; Alt + drag copies it.">
                 The original from <span className="font-mono">{formatTime(current.part.from)}</span> to <span className="font-mono">{formatTime(current.part.to)}</span>
               </span>
-            ) : (
-              <span className="flex-1 min-w-[8rem] truncate text-[12.5px] text-slate-200" title={[current.unit?.text, current.unit?.sourceText].filter(Boolean).join('\n')}>
-                {current.unit?.text}
-                {current.unit?.sourceText && <span className="text-slate-500"> · {current.unit.sourceText}</span>}
-              </span>
-            )}
+            ) : null}
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">{lineFields(current, false)}</span>
-            <span className="flex items-center gap-1">
+            <span className="ml-auto flex items-center gap-1">
               <IconButton label="Play from here" shortcut="/" onClick={() => onPlayFrom(Math.max(0, current.part.start - 0.3))}>
                 <Play className="w-3.5 h-3.5" />
               </IconButton>
@@ -4237,15 +4232,7 @@ export const SyncEditTimeline: React.FC<{
               </IconButton>
             </span>
           </>
-        ) : (
-          <p className="text-[12.5px] text-slate-400">
-            <span className="font-medium text-slate-200">Click a line to pick it</span> · right-click it for everything it can do · double-click it for its start, speed, gain and fades.
-            {audio && ' Drop audio files here for a track of music or effects.'}{' '}
-            <button type="button" onClick={() => setShowHelp(true)} className="text-indigo-300 hover:text-indigo-200 underline underline-offset-2 cursor-default">
-              How editing works
-            </button>
-          </p>
-        )}
+        ) : null}
       </section>
 
       {/* A track's height being dragged: which track, and how tall against its own size */}
