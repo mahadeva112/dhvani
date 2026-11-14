@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Retake Window Size</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .card { background:#131418; border:1px solid #26282e; border-radius:16px; }
+  .note { font-size:13px; color:#94a3b8; line-height:1.6; }
+  .note b { color:#e2e8f0; font-weight:600; }
+  .key { font-family: ui-monospace, Consolas, monospace; font-size:11px; border:1px solid #2f3440; border-bottom-width:2px; border-radius:5px; padding:0 5px; color:#cbd5e1; background:#15171c; }
+
+  /* The app behind the window: Edit timing, dimmed */
+  .stage { position:relative; height:680px; border:1px solid #232a36; border-radius:12px; overflow:hidden; background:#0b0d12; user-select:none; }
+  .stage .bg { position:absolute; inset:0; opacity:.55; pointer-events:none; }
+  .lane { position:absolute; left:150px; right:0; height:56px; border-top:1px solid #1c222c; }
+  .lane .clip { position:absolute; top:6px; bottom:6px; border-radius:5px; }
+  .lhead { position:absolute; left:0; width:150px; height:56px; border-top:1px solid #1c222c; border-right:1px solid #1c222c; font-size:11px; color:#94a3b8; padding:8px; }
+
+  /* The window */
+  .win { position:absolute; background:#101217; border:1px solid #2c303a; border-radius:12px; box-shadow:0 24px 60px rgba(0,0,0,.6); display:flex; flex-direction:column; overflow:hidden; container-type:inline-size; }
+  .win.anim { transition: left .18s ease, top .18s ease, width .18s ease, height .18s ease; }
+  .bar { height:36px; flex:none; display:flex; align-items:center; gap:8px; padding:0 8px 0 10px; border-bottom:1px solid #22262f; font-size:13px; font-weight:600; color:#f1f5f9; cursor:default; }
+  .bar .grip { color:#475569; letter-spacing:-2px; }
+  .ib { width:26px; height:26px; border-radius:7px; display:inline-flex; align-items:center; justify-content:center; color:#94a3b8; cursor:default; }
+  .ib:hover { background:#1f232c; color:#fff; }
+  .body { flex:1; min-height:0; overflow:auto; padding:12px; }
+  .size { font-size:11px; font-weight:500; color:#64748b; }
+
+  /* Resize handles: 4 edges + 4 corners */
+  .h { position:absolute; z-index:10; }
+  .h.n, .h.s { left:10px; right:10px; height:7px; cursor:ns-resize; }
+  .h.e, .h.w { top:10px; bottom:10px; width:7px; cursor:ew-resize; }
+  .h.n { top:-3px; } .h.s { bottom:-3px; } .h.e { right:-3px; } .h.w { left:-3px; }
+  .h.ne, .h.nw, .h.se, .h.sw { width:14px; height:14px; }
+  .h.ne { top:-4px; right:-4px; cursor:nesw-resize; } .h.sw { bottom:-4px; left:-4px; cursor:nesw-resize; }
+  .h.nw { top:-4px; left:-4px; cursor:nwse-resize; } .h.se { bottom:-4px; right:-4px; cursor:nwse-resize; }
+  .h.se::after { content:''; position:absolute; right:7px; bottom:7px; width:9px; height:9px; border-right:2px solid #475569; border-bottom:2px solid #475569; border-bottom-right-radius:3px; }
+  .win.edge-lit { border-color:#6366f1; }
+  .pill { position:fixed; z-index:50; pointer-events:none; background:#1e2230; border:1px solid #3b4252; color:#f1f5f9; font-size:11.5px; border-radius:8px; padding:3px 8px; white-space:nowrap; }
+
+  /* Window content */
+  .lbl { font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; font-weight:600; color:#64748b; }
+  .box { border:1px solid #22262f; border-radius:9px; background:rgba(15,23,42,.6); }
+  .chip { height:26px; padding:0 10px; border-radius:999px; border:1px solid #334155; font-size:11.5px; color:#cbd5e1; display:inline-flex; align-items:center; cursor:default; white-space:nowrap; }
+  .chip.on { border-color:rgba(129,140,248,.7); background:rgba(99,102,241,.15); color:#e0e7ff; }
+  .btn { height:28px; padding:0 10px; border:1px solid #334155; border-radius:8px; font-size:12px; color:#e2e8f0; display:inline-flex; align-items:center; gap:6px; cursor:default; white-space:nowrap; }
+  .btn:hover { background:#1e293b; }
+  .primary { height:32px; padding:0 12px; border-radius:9px; background:#4f46e5; color:#fff; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:6px; cursor:default; white-space:nowrap; }
+  .primary:hover { background:#6366f1; }
+  .tag { border-radius:3px; background:rgba(99,102,241,.3); color:#c7d2fe; padding:0 2px; }
+  .take { display:flex; flex-wrap:wrap; align-items:center; gap:10px; border:1px solid #22262f; border-radius:9px; padding:8px 10px; background:rgba(15,23,42,.6); }
+  .take.on { border-color:rgba(129,140,248,.7); background:rgba(99,102,241,.1); }
+  .play { width:30px; height:30px; border-radius:999px; border:1px solid #334155; display:inline-flex; align-items:center; justify-content:center; color:#e2e8f0; flex:none; }
+  .fit { font-size:11px; font-weight:600; padding:2px 8px; border-radius:999px; }
+  .word { border-radius:4px; padding:0 2px; }
+  .word.pick { background:rgba(99,102,241,.25); box-shadow:0 0 0 1px rgba(129,140,248,.6); color:#e0e7ff; }
+
+  /* How the content lays out at each width (container queries on the window) */
+  .grid2 { display:flex; flex-direction:column; gap:12px; }
+  .more { display:flex; flex-direction:column; gap:12px; }
+  @container (min-width: 860px) {
+    .grid2 { display:grid; grid-template-columns: minmax(0,1.15fr) minmax(0,1fr); align-items:start; gap:16px; }
+    .grid2 > .right { position:sticky; top:0; }
+  }
+  @container (max-width: 560px) {
+    .hide-narrow { display:none !important; }
+    .wave { height:40px !important; }
+  }
+  .compact .more { display:none; }
+  .compact .moreToggle { display:inline-flex; }
+  .moreToggle { display:none; }
+  .compact.showmore .more { display:flex; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-[1240px] mx-auto px-4 py-6 flex flex-col gap-8">
+  <header class="flex flex-col gap-1">
+    <h1 class="text-xl font-semibold text-slate-100">Retake window — size</h1>
+    <p class="note">দুটো mock, দুটোই হাতে চালিয়ে দেখা যায়। পেছনে Edit timing আবছা করে রাখা। ভেতরের লেখা, ট্যাগ বা টেক কিছুই বদলায়নি — শুধু উইন্ডোর মাপ আর মাপ অনুযায়ী ভেতরের সাজানো।</p>
+  </header>
+
+  <!-- Mock A -->
+  <section class="card p-4 flex flex-col gap-3">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="text-[15px] font-semibold text-slate-100">Mock A — চার দিক, চার কোণ ধরে টেনে মাপ বদলানো</h2>
+      <span class="note">macOS / Windows-এর সাধারণ উইন্ডোর মতো। ধার বা কোণে মাউস নিলে cursor বদলায়, টানলে মাপ দেখায়।</span>
+    </div>
+    <div class="stage" id="stageA"></div>
+    <ul class="note list-disc pl-5">
+      <li>যেকোনো ধার (উপর, নিচ, বাঁ, ডান) বা কোণ ধরে টানা যায়। ডান-নিচের কোণে ছোট দাগ দেখায়, যাতে বোঝা যায় এখানে ধরা যায়।</li>
+      <li><b>সবচেয়ে ছোট 480 × 360</b>, সবচেয়ে বড় অ্যাপের জানালা জুড়ে। এর বাইরে যায় না।</li>
+      <li>সরু করলে wave নিচু হয়, ছোট নোটগুলো লুকোয়, সব এক কলামে স্ক্রল হয়। <b>860 px-এর বেশি চওড়া</b> করলে নিজে থেকেই দুই কলাম হয়: বাঁয়ে শব্দ ও সেটিং, ডানে টেকের তালিকা — Retake করে পাশেই শোনা যায়।</li>
+      <li>title bar-এ <b>double-click</b> করলে বড় ↔ আগের মাপ। মাপ আর জায়গা মনে থাকে, পরের বার একই মাপে খোলে।</li>
+    </ul>
+  </section>
+
+  <!-- Mock B -->
+  <section class="card p-4 flex flex-col gap-3">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="text-[15px] font-semibold text-slate-100">Mock B — দুটো ঠিক করা মাপ: Compact আর Expanded</h2>
+      <span class="note">title bar-এর বোতামে, বা title-এ double-click করে, বদলায়। টেনে মাপ বদলায় না।</span>
+    </div>
+    <div class="stage" id="stageB"></div>
+    <ul class="note list-disc pl-5">
+      <li><b>Compact (520 px)</b>: শুধু দরকারি — দাবের টেক, শব্দ, Read, Retake বোতাম আর টেকের তালিকা। Sent to the voice, Stability, Takes সংখ্যা <b>More ▾</b>-এর ভেতরে।</li>
+      <li><b>Expanded</b>: অ্যাপের জানালার প্রায় পুরোটা, দুই কলাম — বাঁয়ে সব সেটিং খোলা, ডানে টেকের তালিকা।</li>
+      <li>শেষবার যে মাপে রেখেছিলেন, পরের বার সেই মাপে খোলে।</li>
+      <li>মনে রাখবেন: ৩ নভেম্বর আপনি দুটো view বাদ দিয়ে একটাই রাখতে বলেছিলেন। এটা সেই দুই-view ফিরিয়ে আনে, তবে এবার দুটোয় একই জিনিস থাকে, শুধু সাজানো আলাদা।</li>
+    </ul>
+  </section>
+
+  <section class="card p-4">
+    <h2 class="text-[15px] font-semibold text-slate-100 mb-1">আমার পরামর্শ: Mock A</h2>
+    <p class="note">টেনে মাপ বদলানো দিয়ে Compact আর Expanded দুটোই পাওয়া যায়, আর মাঝের যেকোনো মাপও। Edit timing-এ যেখানে কাজ করছেন সেটা ঢেকে না দিয়ে উইন্ডোটা পাশে সরিয়ে রাখা যায়। একটা view-ই থাকে, তাই কোন view-এ আছেন তা ভাবতে হয় না। B-তে একটা বোতামে চট করে বদলানো যায়, কিন্তু মাঝের মাপ পাওয়া যায় না।</p>
+  </section>
+</div>
+
+<script>
+const ICON = {
+  mic: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>',
+  x: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>',
+  expand: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>',
+  shrink: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/></svg>',
+  play: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4v16l13-8z"/></svg>',
+  tag: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.6 2.6A2 2 0 0 0 11.2 2H4a2 2 0 0 0-2 2v7.2a2 2 0 0 0 .6 1.4l8.7 8.7a2.4 2.4 0 0 0 3.4 0l6.6-6.6a2.4 2.4 0 0 0 0-3.4z"/><circle cx="7.5" cy="7.5" r="1"/></svg>',
+  check: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M20 6 9 17l-5-5"/></svg>',
+  head: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"/></svg>',
+};
+
+const WORDS = 'यह जीवन एक अवसर है, इसे पूरी जागरूकता से जियो।'.split(' ');
+
+/** A wave of bars, the same each time. */
+const wave = (n, seed) => {
+  let x = seed, out = '';
+  for (let i = 0; i < n; i++) {
+    x = (x * 9301 + 49297) % 233280;
+    const env = Math.sin((i / n) * Math.PI) ** 0.6;
+    const h = Math.max(2, (0.25 + (x / 233280) * 0.75) * env * 94);
+    const pick = i > n * 0.38 && i < n * 0.6;
+    out += `<rect x="${i + 0.15}" y="${50 - h / 2}" width=".7" height="${h}" fill="${pick ? '#a5b4fc' : '#64748b'}"/>`;
+  }
+  return `<svg viewBox="0 0 ${n} 100" preserveAspectRatio="none" class="absolute inset-0 w-full h-full">${out}</svg>`;
+};
+
+const takeRow = (name, sub, secs, fit, on, seed) => {
+  const tones = { fits: 'background:rgba(52,211,153,.12);color:#6ee7b7', over: 'background:rgba(251,191,36,.12);color:#fcd34d', short: 'background:rgba(56,189,248,.12);color:#7dd3fc' };
+  return `<div class="take ${on ? 'on' : ''}">
+    <span class="play">${ICON.play}</span>
+    <div class="min-w-0 flex-1">
+      <div class="flex flex-wrap items-center gap-x-2"><span class="text-[12.5px] font-medium text-slate-100">${name}</span>${sub ? `<span class="text-[11px] text-slate-400">${sub}</span>` : ''}<span class="mono text-[11px] text-slate-500">${secs} s</span></div>
+      <div class="relative h-1.5 mt-2 rounded-full bg-slate-800"><div class="h-full rounded-full ${on ? 'bg-indigo-400' : 'bg-slate-500'}" style="width:${seed}%"></div><span class="absolute -top-0.5 h-2.5 w-px bg-slate-200" style="left:78%"></span></div>
+    </div>
+    <span class="fit" style="${tones[fit[0]]}">${fit[1]}</span>
+    ${on ? `<span class="flex items-center gap-1 text-[11.5px] text-indigo-200 font-medium px-1">${ICON.check} In the dub</span>` : `<span class="btn">Use ${name}</span>`}
+  </div>`;
+};
+
+/** What the retake window holds: the same in both mocks. */
+const content = ({ moreToggle = false } = {}) => `
+  <div class="grid2">
+    <div class="left flex flex-col gap-3 min-w-0">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="mono text-[11px] text-slate-500">slot 3.4 s · original speech 3.1 s</span>
+      </div>
+      <div>
+        <div class="flex items-center gap-2 mb-1"><span class="lbl">The take in the dub</span><span class="ml-auto text-[11px] text-slate-500 hide-narrow">Drag across the wave, or click a word · <span class="key">Esc</span> clears</span></div>
+        <div class="box px-2.5 pt-2 pb-1.5">
+          <div class="wave relative h-14">${wave(220, 7)}</div>
+          <p class="mt-1 flex flex-wrap gap-x-1 text-[13.5px] leading-relaxed">${WORDS.map((w, i) => `<span class="word ${i === 3 || i === 4 ? 'pick' : ''}">${w}</span>`).join(' ')}</p>
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="lbl">Words of the line</span>
+          <span class="btn" style="height:24px;font-size:11.5px">Phonetic off</span>
+          <span class="btn ml-auto" style="height:24px;font-size:11.5px">${ICON.tag} Tags <span class="key">[</span></span>
+        </div>
+        <div class="box px-2.5 py-2 text-[14.5px] leading-relaxed text-slate-100"><span class="tag">[calm]</span> यह जीवन एक अवसर है, इसे पूरी जागरूकता से जियो।</div>
+        <div class="mt-1 flex flex-wrap gap-x-3 text-[11.5px] mono"><span class="text-slate-500">slot 3.4 s</span><span class="font-semibold text-emerald-300">about 3.0 s</span><span class="text-slate-500">44 / 44 characters</span><span class="text-indigo-300 hide-narrow">1 tag · not counted in the time</span></div>
+      </div>
+      ${moreToggle ? '<span class="moreToggle btn self-start">More ▾ <span class="text-slate-500">voice, stability, takes</span></span>' : ''}
+      <div class="more">
+        <div>
+          <span class="lbl">Sent to the voice</span>
+          <p class="mt-1 mono text-[12px] leading-relaxed text-slate-300 box px-2.5 py-1.5">[calm] यह जीवन एक अवसर है, इसे पूरी जागरूकता से जियो।</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div class="flex flex-wrap items-center gap-1.5"><span class="text-[11.5px] text-slate-400 mr-1">Stability</span><span class="chip on">As synced</span><span class="chip">Creative</span><span class="chip">Natural</span><span class="chip">Robust</span></div>
+          <div class="flex items-center gap-1.5"><span class="text-[11.5px] text-slate-400 mr-1">Takes</span><span class="chip">1</span><span class="chip">2</span><span class="chip on">3</span><span class="chip">5</span></div>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-1.5"><span class="text-[11.5px] text-slate-400 mr-1">Read</span><span class="chip on">Same</span><span class="chip">A bit faster</span><span class="chip">A bit slower</span></div>
+      <div class="flex flex-wrap items-center gap-2"><span class="primary">${ICON.mic.replace('#a5b4fc', '#fff')} Retake line 05 · 3 takes · 132 chars</span><span class="text-[11.5px] text-slate-500 hide-narrow">Character counts are estimates.</span></div>
+    </div>
+    <div class="right flex flex-col gap-1.5 min-w-0">
+      <span class="lbl mb-0.5">Takes</span>
+      ${takeRow("Sync's take", '', '3.12', ['fits', 'Fits'], false, 72)}
+      ${takeRow('Take 1', 'Same', '2.94', ['fits', 'Fits'], true, 68)}
+      ${takeRow('Take 2', 'Same', '3.51', ['over', '+0.1 s over'], false, 81)}
+      ${takeRow('Take 3', 'A bit faster', '2.61', ['short', 'Short'], false, 60)}
+      <div class="flex flex-wrap items-center gap-2 mt-1.5 text-[11.5px] text-slate-500">
+        <span class="btn">${ICON.head} Listen in the dub</span>
+        <span class="hide-narrow">Place a used take: <b class="text-slate-300 font-medium">Where the old parts were</b></span>
+      </div>
+    </div>
+  </div>`;
+
+/** Edit timing behind the window, dimmed. */
+const backdrop = () => {
+  const colors = ['#6366f1', '#22d3ee', '#f59e0b', '#a78bfa', '#34d399'];
+  let html = '<div class="bg">';
+  html += '<div class="absolute left-0 right-0 top-0 h-9 border-b border-slate-800 flex items-center px-3 text-[12px] text-slate-400 gap-3"><b class="text-slate-200">Edit timing</b><span>Undo</span><span>Snap</span><span class="ml-auto">00:01:12.40</span></div>';
+  ['Original', 'Hindi dub', 'Music'].forEach((name, r) => {
+    const top = 60 + r * 64;
+    html += `<div class="lhead" style="top:${top}px">${name}</div><div class="lane" style="top:${top}px">`;
+    for (let i = 0; i < 9; i++) html += `<div class="clip" style="left:${i * 11 + (r * 3) % 5}%;width:${7 + ((i * 7 + r) % 4)}%;background:${colors[(i + r) % 5]}33;border:1px solid ${colors[(i + r) % 5]}66"></div>`;
+    html += '</div>';
+  });
+  html += '<div class="absolute top-9 bottom-0 w-px bg-red-500" style="left:46%"></div></div>';
+  return html;
+};
+
+const STAGE_PAD = 10;
+const stageRect = (stage) => ({ w: stage.clientWidth, h: stage.clientHeight });
+const pill = document.createElement('div');
+pill.className = 'pill';
+pill.style.display = 'none';
+document.body.appendChild(pill);
+
+/* ---------- Mock A: drag any edge or corner ---------- */
+(() => {
+  const stage = document.getElementById('stageA');
+  stage.innerHTML = backdrop();
+  const win = document.createElement('div');
+  win.className = 'win';
+  const MIN = { w: 480, h: 360 };
+  let box = { x: 240, y: 70, w: 680, h: 560 };
+  let before = null;
+  win.innerHTML = `
+    <div class="bar"><span class="grip">⋮⋮</span>${ICON.mic}<span>Retake · line 05</span><span class="size mono" id="sizeA"></span><span class="ml-auto"></span><span class="ib" title="Close">${ICON.x}</span></div>
+    <div class="body">${content()}</div>
+    ${['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map((d) => `<div class="h ${d}" data-d="${d}"></div>`).join('')}`;
+  stage.appendChild(win);
+  const sizeLabel = win.querySelector('#sizeA');
+  const place = () => {
+    const s = stageRect(stage);
+    box.w = Math.min(Math.max(box.w, MIN.w), s.w - 2 * STAGE_PAD);
+    box.h = Math.min(Math.max(box.h, MIN.h), s.h - 2 * STAGE_PAD);
+    box.x = Math.min(Math.max(box.x, STAGE_PAD), s.w - box.w - STAGE_PAD);
+    box.y = Math.min(Math.max(box.y, STAGE_PAD), s.h - box.h - STAGE_PAD);
+    Object.assign(win.style, { left: box.x + 'px', top: box.y + 'px', width: box.w + 'px', height: box.h + 'px' });
+    sizeLabel.textContent = `${Math.round(box.w)} × ${Math.round(box.h)}`;
+  };
+  place();
+
+  let drag = null;
+  win.addEventListener('pointerdown', (e) => {
+    const d = e.target.dataset?.d;
+    const onBar = e.target.closest('.bar') && !e.target.closest('.ib');
+    if (!d && !onBar) return;
+    e.preventDefault();
+    win.classList.remove('anim');
+    drag = { d: d || 'move', sx: e.clientX, sy: e.clientY, start: { ...box } };
+    if (d) win.classList.add('edge-lit');
+    win.setPointerCapture(e.pointerId);
+  });
+  win.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy, s = drag.start, S = stageRect(stage);
+    if (drag.d === 'move') { box.x = s.x + dx; box.y = s.y + dy; place(); return; }
+    let { x, y, w, h } = s;
+    if (drag.d.includes('e')) w = Math.min(Math.max(s.w + dx, MIN.w), S.w - STAGE_PAD - s.x);
+    if (drag.d.includes('s')) h = Math.min(Math.max(s.h + dy, MIN.h), S.h - STAGE_PAD - s.y);
+    if (drag.d.includes('w')) { const nx = Math.min(Math.max(s.x + dx, STAGE_PAD), s.x + s.w - MIN.w); w = s.w + (s.x - nx); x = nx; }
+    if (drag.d.includes('n')) { const ny = Math.min(Math.max(s.y + dy, STAGE_PAD), s.y + s.h - MIN.h); h = s.h + (s.y - ny); y = ny; }
+    box = { x, y, w, h };
+    place();
+    pill.style.display = 'block';
+    pill.style.left = e.clientX + 14 + 'px';
+    pill.style.top = e.clientY + 14 + 'px';
+    pill.textContent = `${Math.round(w)} × ${Math.round(h)}${w >= 860 ? ' · two columns' : w <= 560 ? ' · narrow' : ''}`;
+  });
+  const end = () => { drag = null; pill.style.display = 'none'; win.classList.remove('edge-lit'); };
+  win.addEventListener('pointerup', end);
+  win.addEventListener('pointercancel', end);
+  win.querySelector('.bar').addEventListener('dblclick', () => {
+    win.classList.add('anim');
+    const S = stageRect(stage);
+    if (before) { box = before; before = null; }
+    else { before = { ...box }; box = { x: STAGE_PAD, y: STAGE_PAD, w: S.w - 2 * STAGE_PAD, h: S.h - 2 * STAGE_PAD }; }
+    place();
+  });
+})();
+
+/* ---------- Mock B: Compact or Expanded ---------- */
+(() => {
+  const stage = document.getElementById('stageB');
+  stage.innerHTML = backdrop();
+  const win = document.createElement('div');
+  win.className = 'win anim';
+  let expanded = false;
+  let pos = { x: 300, y: 40 };
+  win.innerHTML = `
+    <div class="bar"><span class="grip">⋮⋮</span>${ICON.mic}<span>Retake · line 05</span>
+      <span class="ml-auto"></span>
+      <span class="seg-b flex items-center gap-0.5 rounded-lg border border-slate-700 p-0.5">
+        <button class="szb text-[11.5px] px-2 h-6 rounded-md cursor-default" data-s="c">Compact</button>
+        <button class="szb text-[11.5px] px-2 h-6 rounded-md cursor-default" data-s="e">Expanded</button>
+      </span>
+      <span class="ib" id="toggleB" title="Expanded / Compact (double-click the title)"></span>
+      <span class="ib" title="Close">${ICON.x}</span>
+    </div>
+    <div class="body">${content({ moreToggle: true })}</div>`;
+  stage.appendChild(win);
+  const toggle = win.querySelector('#toggleB');
+  const place = () => {
+    const S = stageRect(stage);
+    win.classList.toggle('compact', !expanded);
+    if (expanded) Object.assign(win.style, { left: STAGE_PAD + 'px', top: STAGE_PAD + 'px', width: S.w - 2 * STAGE_PAD + 'px', height: S.h - 2 * STAGE_PAD + 'px' });
+    else {
+      const w = Math.min(520, S.w - 2 * STAGE_PAD), h = Math.min(600, S.h - 2 * STAGE_PAD);
+      pos.x = Math.min(Math.max(pos.x, STAGE_PAD), S.w - w - STAGE_PAD);
+      pos.y = Math.min(Math.max(pos.y, STAGE_PAD), S.h - h - STAGE_PAD);
+      Object.assign(win.style, { left: pos.x + 'px', top: pos.y + 'px', width: w + 'px', height: h + 'px' });
+    }
+    toggle.innerHTML = expanded ? ICON.shrink : ICON.expand;
+    win.querySelectorAll('.szb').forEach((b) => {
+      const on = (b.dataset.s === 'e') === expanded;
+      b.style.background = on ? '#24262d' : 'transparent';
+      b.style.color = on ? '#f1f5f9' : '#94a3b8';
+    });
+  };
+  place();
+  toggle.addEventListener('click', () => { expanded = !expanded; place(); });
+  win.querySelectorAll('.szb').forEach((b) => b.addEventListener('click', () => { expanded = b.dataset.s === 'e'; place(); }));
+  win.querySelector('.bar').addEventListener('dblclick', (e) => { if (e.target.closest('button, .ib')) return; expanded = !expanded; place(); });
+  win.querySelector('.moreToggle').addEventListener('click', (e) => {
+    win.classList.toggle('showmore');
+    e.currentTarget.innerHTML = win.classList.contains('showmore') ? 'Less ▴' : 'More ▾ <span class="text-slate-500">voice, stability, takes</span>';
+  });
+  // The compact window moves by its title bar; the expanded one fills the app.
+  let drag = null;
+  win.querySelector('.bar').addEventListener('pointerdown', (e) => {
+    if (expanded || e.target.closest('button, .ib')) return;
+    win.classList.remove('anim');
+    drag = { sx: e.clientX, sy: e.clientY, start: { ...pos } };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  });
+  win.querySelector('.bar').addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    pos = { x: drag.start.x + e.clientX - drag.sx, y: drag.start.y + e.clientY - drag.sy };
+    place();
+  });
+  win.querySelector('.bar').addEventListener('pointerup', () => { drag = null; win.classList.add('anim'); });
+})();
+</script>
+</body>
+</html>

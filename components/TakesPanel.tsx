@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowLeftRight, Check, Headphones, Keyboard, Loader2, Lock, Mic, Pause, Pencil, Play, Plus, RotateCcw, Search, Tag, Trash2, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, Check, Headphones, Keyboard, Loader2, Lock, Mic, Pause, Pencil, Play, RotateCcw, Tag, Trash2, X } from 'lucide-react';
 import type { LineSuggestion, SyncUnitReport } from '../services/syncService';
 import type { RewriteDirection } from './SyncPreviewPanel';
 import { reportError } from '../services/errorPopup';
 import { dotsToPauses, PAUSE_MARK, pauseSeconds, stripPauses } from '../server/lib/linePauses.js';
-import { isTagName, stripTags, TAG_LIBRARY, TAG_MARK, tagProblems, tagsOf } from '../server/lib/lineTags.js';
+import { stripTags, TAG_MARK, tagProblems, tagsOf } from '../server/lib/lineTags.js';
 import { useTagPrefs } from '../services/tagPrefs';
 import { TagTextarea, type TagTextareaHandle } from './TagTextarea';
 import { usePhoneticTyping } from './review/usePhoneticTyping';
@@ -68,6 +68,27 @@ const WithPauses: React.FC<{ text: string }> = ({ text }) => {
   if (at < text.length) parts.push(text.slice(at));
   return <>{parts}</>;
 };
+
+/**
+ * The Tags button over a box of words: opens the tags to pick from where the
+ * caret is, and closes them when pressed again. The press keeps the caret in
+ * the words, so the tags open where it was.
+ */
+const TagsButton: React.FC<{ open: boolean; onToggle: () => void; hint: string; className?: string }> = ({ open, onToggle, hint, className = '' }) => (
+  <button
+    type="button"
+    onMouseDown={(e) => e.preventDefault()}
+    onClick={onToggle}
+    aria-pressed={open}
+    aria-expanded={open}
+    title={open ? 'Close the tags' : `${hint}. Typing [ does the same.`}
+    className={`h-6 px-2 rounded-md border text-[11.5px] flex items-center gap-1 cursor-default ${
+      open ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-200' : 'border-slate-700 text-slate-200 hover:bg-slate-800'
+    } ${className}`}
+  >
+    <Tag className="w-3 h-3" /> Tags <kbd className="font-mono text-slate-500">[</kbd>
+  </button>
+);
 
 /** Whether the voice of a line reads typed tags, and why not when it doesn't. */
 export interface VoiceTags {
@@ -162,7 +183,7 @@ export const TakesPanel: React.FC<{
   onVoice: (options: TakeAsk) => void;
   /** Whether this line's voice reads tags typed in its words. */
   voiceTags?: VoiceTags;
-  /** Retake pro: the tag library, saved styles, stability and how many takes, beside the words. */
+  /** Retake pro: the words open, what is sent to the voice, stability and how many takes. */
   pro?: boolean;
   /** The dub's language: phonetic typing in the words turns Roman letters into its script. */
   language?: string;
@@ -326,7 +347,7 @@ export const TakesPanel: React.FC<{
         })()
       : null;
 
-  // The whole line's words are edited in a section opened for it; Retake pro has it open beside its tags.
+  // The whole line's words are edited in a section opened for it; Retake pro has it open.
   const [lineOpen, setLineOpen] = useState(false);
 
   // Only the words changed since Sync: the line can be retaken whole, in the words the script has now.
@@ -366,6 +387,9 @@ export const TakesPanel: React.FC<{
   // What each take costs: tags are characters to the voice too.
   const billed = stripPauses(marked).length;
   const editor = useRef<TagTextareaHandle>(null);
+  // Whether each box's tags are offered now: its Tags button shows pressed, and a second press closes them.
+  const [sayTagsOpen, setSayTagsOpen] = useState(false);
+  const [lineTagsOpen, setLineTagsOpen] = useState(false);
   const phonetic = usePhoneticTyping(language);
   const langName = getIndicLanguageConfig(language).nativeName;
   const phoneticButton = language && (
@@ -382,7 +406,7 @@ export const TakesPanel: React.FC<{
       Phonetic {phonetic.enabled ? langName : 'off'}
     </button>
   );
-  const { prefs, addOwn, removeOwn, saveStyle, removeStyle } = useTagPrefs();
+  const { prefs, addOwn } = useTagPrefs();
   const [count, setCount] = useState<number>(TAKES_PER_ASK);
   const [stability, setStability] = useState<number | null>(null);
   const takeCount = pro ? count : TAKES_PER_ASK;
@@ -486,157 +510,19 @@ export const TakesPanel: React.FC<{
   const placement = canPlaceLikeSync ? chosenPlacement : 'old';
   useEffect(() => setConfirmClear(false), [unit.key, clearable]);
 
-  const [search, setSearch] = useState('');
-  const [newTag, setNewTag] = useState('');
-  const [styleName, setStyleName] = useState<string | null>(null);
-  const found = search.trim().toLowerCase();
   const sectionLabel = 'text-[10.5px] uppercase tracking-wide font-semibold text-slate-500';
-  const chip = 'inline-flex items-center rounded px-1.5 py-0.5 font-mono text-[11.5px] bg-indigo-500/20 text-indigo-200 hover:bg-indigo-500/35 cursor-default';
-  const cleanNewTag = newTag.trim().replace(/[\[\]]/g, '').toLowerCase();
-  // Tags from the library go into the words said in place of the picked ones, while some are picked; else into the line.
-  const tagTarget = () => (some ? sayEditor : editor).current;
-  const addNewTag = () => {
-    if (!isTagName(cleanNewTag)) return;
-    addOwn(cleanNewTag);
-    tagTarget()?.insertTag(cleanNewTag);
-    setNewTag('');
-  };
-  const lineTags = [...new Set(typedTags)].slice(0, 8);
-
-  /** Retake pro's side: every tag to pick from, the user's own, and their saved styles. */
-  const library = (
-    <aside className="border-r border-edge p-3 flex flex-col gap-2.5 min-w-0" aria-label="Tags">
-      <div className="relative">
-        <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2 top-2" aria-hidden="true" />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search tags"
-          aria-label="Search tags"
-          className="w-full h-8 pl-7 pr-2 rounded-md bg-slate-900 border border-edge text-[12.5px] text-slate-100 focus:outline-none focus:border-indigo-500"
-        />
-      </div>
-      {[...TAG_LIBRARY, { group: 'Your tags', tags: prefs.own.filter((t) => !TAG_LIBRARY.some((g) => g.tags.includes(t))) }].map((g) => {
-        const tags = g.tags.filter((t) => !found || t.includes(found));
-        if (tags.length === 0) return null;
-        const own = g.group === 'Your tags';
-        return (
-          <div key={g.group}>
-            <div className={`${sectionLabel} mb-1`}>{g.group}</div>
-            <div className="flex flex-wrap gap-1">
-              {tags.map((t) => (
-                <span key={t} className="group relative">
-                  <button type="button" onClick={() => tagTarget()?.insertTag(t)} title={`Put [${t}] where the caret is (before the words selected)`} className={chip}>
-                    [{t}]
-                  </button>
-                  {own && (
-                    <button
-                      type="button"
-                      onClick={() => removeOwn(t)}
-                      aria-label={`Remove [${t}] from your tags`}
-                      className="absolute -top-1.5 -right-1.5 hidden group-hover:flex w-3.5 h-3.5 rounded-full bg-slate-700 text-slate-200 items-center justify-center cursor-default"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  )}
-                </span>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-      {found && !TAG_LIBRARY.some((g) => g.tags.some((t) => t.includes(found))) && !prefs.own.some((t) => t.includes(found)) && (
-        <p className="text-[11.5px] text-slate-500">No tag found. Add it as your own below.</p>
-      )}
-      <div>
-        <div className={`${sectionLabel} mb-1`}>Add your own</div>
-        <div className="flex gap-1">
-          <input
-            value={newTag}
-            onChange={(e) => setNewTag(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addNewTag()}
-            placeholder="angry"
-            aria-label="Your own tag"
-            className="min-w-0 flex-1 h-7 px-2 rounded-md bg-slate-900 border border-edge text-[12px] text-slate-100 focus:outline-none focus:border-indigo-500"
-          />
-          <button type="button" onClick={addNewTag} className="h-7 px-2 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 cursor-default">
-            Add
-          </button>
-        </div>
-        {cleanNewTag && !isTagName(cleanNewTag) && <p className="mt-1 text-[11px] text-amber-300">Write tags in English, such as angry.</p>}
-      </div>
-      <div>
-        <div className={`${sectionLabel} mb-1`}>Saved styles</div>
-        <div className="flex flex-col gap-1">
-          {prefs.styles.map((style) => (
-            <div key={style.name} className="group relative">
-              <button
-                type="button"
-                onClick={() => tagTarget()?.leadWith(style.tags)}
-                title="Start the line with these tags, in place of the tags it starts with"
-                className="w-full text-left rounded-md border border-edge hover:bg-slate-900 px-2 py-1.5 cursor-default"
-              >
-                <span className="block text-[12px] text-slate-200 truncate pr-4">{style.name}</span>
-                <span className="block font-mono text-[10.5px] text-slate-500 truncate">{style.tags.map((t) => `[${t}]`).join(' ')}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => removeStyle(style.name)}
-                aria-label={`Delete the style ${style.name}`}
-                className="absolute top-1 right-1 hidden group-hover:flex w-5 h-5 rounded text-slate-400 hover:text-white hover:bg-slate-800 items-center justify-center cursor-default"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-          {styleName !== null ? (
-            <input
-              autoFocus
-              value={styleName}
-              onChange={(e) => setStyleName(e.target.value)}
-              onBlur={() => setStyleName(null)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && styleName.trim()) {
-                  saveStyle({ name: styleName.trim().slice(0, 40), tags: lineTags });
-                  setStyleName(null);
-                } else if (e.key === 'Escape') {
-                  e.stopPropagation();
-                  setStyleName(null);
-                }
-              }}
-              placeholder="Name, then Enter"
-              aria-label="Name of the style"
-              className="h-7 px-2 rounded-md bg-slate-900 border border-indigo-500 text-[12px] text-slate-100 focus:outline-none"
-            />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setStyleName('')}
-              disabled={lineTags.length === 0}
-              title={lineTags.length === 0 ? 'Put some tags in the line first' : `Save ${lineTags.map((t) => `[${t}]`).join(' ')} under a name`}
-              className="h-7 rounded-md border border-dashed border-slate-700 text-[11.5px] text-slate-400 hover:text-slate-200 flex items-center justify-center gap-1 cursor-default disabled:opacity-40"
-            >
-              <Plus className="w-3 h-3" /> Save the line's tags as a style
-            </button>
-          )}
-        </div>
-      </div>
-    </aside>
-  );
 
   return (
     <section
       aria-label={`Takes for line ${lineNumber}`}
       className={
-        pro
-          ? '-m-3 grid grid-cols-[14rem_minmax(0,1fr)]'
-          : inWindow
-            ? 'flex flex-col gap-3'
-            : 'rounded-xl border border-indigo-500/30 bg-slate-950/70 px-3.5 py-3 flex flex-col gap-3'
+        inWindow
+          ? // A window made wide enough has the takes beside the words, to hear each retake as it comes.
+            'flex flex-col gap-3 @[860px]:grid @[860px]:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] @[860px]:items-start @[860px]:gap-4'
+          : 'rounded-xl border border-indigo-500/30 bg-slate-950/70 px-3.5 py-3 flex flex-col gap-3'
       }
     >
-      {pro && library}
-      <div className={pro ? 'p-3 flex flex-col gap-3 min-w-0' : 'contents'}>
+      <div className="flex flex-col gap-3 min-w-0">
       <div className="flex flex-wrap items-center gap-2">
         {!inWindow && <Mic className="w-3.5 h-3.5 text-indigo-300" />}
         {!inWindow && <span className="text-[13px] font-semibold text-slate-100">Takes · line {String(lineNumber).padStart(2, '0')}</span>}
@@ -759,15 +645,8 @@ export const TakesPanel: React.FC<{
                 Say instead
               </label>
               {!showLine && phoneticButton}
-              {voiceTags.on && !pro && (
-                <button
-                  type="button"
-                  onClick={() => sayEditor.current?.openTags()}
-                  title="Put a tag before these words (where the caret is). Typing [ does the same."
-                  className="h-6 px-2 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 flex items-center gap-1 cursor-default"
-                >
-                  <Tag className="w-3 h-3" /> Tags <kbd className="font-mono text-slate-500">[</kbd>
-                </button>
+              {voiceTags.on && (
+                <TagsButton open={sayTagsOpen} onToggle={() => sayEditor.current?.toggleTags()} hint="Put a tag before these words (where the caret is)" />
               )}
               <span className="ml-auto text-[11px] text-slate-500">Leave it as it is to voice the same words again</span>
             </div>
@@ -781,6 +660,7 @@ export const TakesPanel: React.FC<{
               onNewTag={addOwn}
               phonetic={language ? phonetic : undefined}
               lang={language}
+              onTagsOpenChange={setSayTagsOpen}
             />
             <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] tabular-nums">
               {resaidSeconds !== null && perChar > 0 ? (
@@ -829,20 +709,7 @@ export const TakesPanel: React.FC<{
             Words of the line
           </label>
           {phoneticButton}
-          {pro ? (
-            <span className="ml-auto text-[11px] text-slate-500">
-              Type <kbd className="font-mono text-slate-300">[</kbd> for tags · select words, then pick a tag to put it before them
-            </span>
-          ) : (
-            <button
-              type="button"
-              onClick={() => editor.current?.openTags()}
-              title="Put a tag where the caret is (before the words selected). Typing [ does the same."
-              className="ml-auto h-6 px-2 rounded-md border border-slate-700 hover:bg-slate-800 text-[11.5px] text-slate-200 flex items-center gap-1 cursor-default"
-            >
-              <Tag className="w-3 h-3" /> Tags <kbd className="font-mono text-slate-500">[</kbd>
-            </button>
-          )}
+          <TagsButton open={lineTagsOpen} onToggle={() => editor.current?.toggleTags()} hint="Put a tag where the caret is (before the words selected)" className="ml-auto" />
         </div>
         <TagTextarea
           ref={editor}
@@ -855,6 +722,7 @@ export const TakesPanel: React.FC<{
           large={pro}
           phonetic={language ? phonetic : undefined}
           lang={language}
+          onTagsOpenChange={setLineTagsOpen}
         />
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] tabular-nums">
           <span className="text-slate-500">slot {slot.toFixed(1)} s</span>
@@ -1109,6 +977,10 @@ export const TakesPanel: React.FC<{
         </div>
       )}
 
+      </div>
+
+      {/* The takes: beside the words in a wide window, under them otherwise */}
+      <div className={`flex flex-col gap-3 min-w-0 ${inWindow ? '@[860px]:sticky @[860px]:top-0' : ''}`}>
       {onClearTakes && clearable > 0 && (
         <div className="flex items-center gap-2 -mb-1.5">
           <span className="text-[10.5px] uppercase tracking-wide font-semibold text-slate-500">Takes</span>

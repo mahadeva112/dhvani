@@ -12,6 +12,8 @@ export interface TagTextareaHandle {
   insertTag: (tag: string) => void;
   /** Types `[` where the caret is and offers the tags, as typing it would. */
   openTags: () => void;
+  /** The Tags button: opens the tags, or closes them when open (taking back a `[` it typed that nothing was typed after). */
+  toggleTags: () => void;
   /** Puts these tags at the start of the line, in place of the tags it starts with. */
   leadWith: (tags: string[]) => void;
   focus: () => void;
@@ -65,10 +67,18 @@ export const TagTextarea = forwardRef<
     /** Phonetic typing: Roman letters become the line's script as each word ends, as in the script table. */
     phonetic?: ReturnType<typeof usePhoneticTyping>;
     lang?: string;
+    /** Whether the tags are offered now: the Tags button shows it pressed. */
+    onTagsOpenChange?: (open: boolean) => void;
   }
->(({ id, value, onChange, onBlur, ownTags, onNewTag, large = false, phonetic, lang }, ref) => {
+>(({ id, value, onChange, onBlur, ownTags, onNewTag, large = false, phonetic, lang, onTagsOpenChange }, ref) => {
   const area = useRef<HTMLTextAreaElement>(null);
-  const [menu, setMenu] = useState<{ filter: string; from: number } | null>(null);
+  const [menu, setMenuState] = useState<{ filter: string; from: number } | null>(null);
+  const setMenu = (next: { filter: string; from: number } | null) => {
+    setMenuState(next);
+    onTagsOpenChange?.(next !== null);
+  };
+  // The `[` the Tags button typed, and the space put before it: taken back if the button closes the tags with nothing typed after it.
+  const typedBracket = useRef<{ at: number; lead: number } | null>(null);
   const [active, setActive] = useState(0);
 
   // As tall as its words, so the coloured copy behind never has to scroll with it.
@@ -117,6 +127,24 @@ export const TagTextarea = forwardRef<
     });
   };
 
+  const openTags = () => {
+    const el = area.current;
+    const text = el?.value ?? value;
+    const at = el ? el.selectionStart : text.length;
+    const lead = at > 0 && !/\s/.test(text[at - 1]) ? ' ' : '';
+    const from = at + lead.length;
+    // With words selected, the `[` goes before them.
+    onChange(`${text.slice(0, at)}${lead}[${text.slice(at)}`);
+    typedBracket.current = { at: from, lead: lead.length };
+    setMenu({ filter: '', from });
+    setActive(0);
+    requestAnimationFrame(() => {
+      if (!area.current) return;
+      area.current.focus();
+      area.current.setSelectionRange(from + 1, from + 1);
+    });
+  };
+
   useImperativeHandle(ref, () => ({
     insertTag: (tag) => {
       const el = area.current;
@@ -124,21 +152,24 @@ export const TagTextarea = forwardRef<
       const at = el ? el.selectionStart : value.length;
       put(tag, at, at);
     },
-    openTags: () => {
+    openTags,
+    toggleTags: () => {
+      if (!menu) return openTags();
       const el = area.current;
       const text = el?.value ?? value;
-      const at = el ? el.selectionStart : text.length;
-      const lead = at > 0 && !/\s/.test(text[at - 1]) ? ' ' : '';
-      const from = at + lead.length;
-      // With words selected, the `[` goes before them.
-      onChange(`${text.slice(0, at)}${lead}[${text.slice(at)}`);
-      setMenu({ filter: '', from });
-      setActive(0);
-      requestAnimationFrame(() => {
-        if (!area.current) return;
-        area.current.focus();
-        area.current.setSelectionRange(from + 1, from + 1);
-      });
+      const typed = typedBracket.current;
+      setMenu(null);
+      typedBracket.current = null;
+      // Nothing typed after the `[` the button put in: it comes out again, with its space.
+      if (typed && typed.at === menu.from && menu.filter === '' && text[typed.at] === '[') {
+        const from = typed.at - typed.lead;
+        onChange(`${text.slice(0, from)}${text.slice(typed.at + 1)}`);
+        requestAnimationFrame(() => {
+          if (!area.current) return;
+          area.current.focus();
+          area.current.setSelectionRange(from, from);
+        });
+      } else el?.focus();
     },
     leadWith: (tags) => {
       const rest = value.replace(/^(\s*\[[a-zA-Z][a-zA-Z' -]{0,38}\])+\s*/, '');

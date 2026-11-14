@@ -4696,9 +4696,10 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                       {timingTakesCopy && <span className="text-slate-400 font-normal">· the copy only</span>}
                     </>
                   }
-                  // Always the full window: tags, styles, stability and more takes beside the words.
-                  width={920}
+                  // One view: the words open, stability and more takes; dragged to any size, the takes go beside the words when wide. Tags are typed with [ or the Tags button.
+                  width={680}
                   storageKey="dhvani.retakeWindow.position"
+                  resizable
                   confirmClose={timingTakesDirty ? 'Your edited words have not been voiced yet. Close and lose them?' : null}
                   onClose={() => {
                     setTimingTakesKey(null);

@@ -114,8 +114,15 @@ export const SyncAlignmentView: React.FC<{
     (u) => Math.max(u.srcEnd, u.placedEnd ?? -Infinity) >= windowStart && Math.min(u.srcStart, u.placedStart ?? Infinity) <= end
   );
 
-  // The line picked out: the one hovered, else the one being heard.
-  const atPlayhead = units.find((u) => currentTime >= Math.min(u.srcStart, u.placedStart ?? Infinity) && currentTime <= Math.max(u.srcEnd, u.placedEnd ?? -Infinity));
+  // The line picked out: the one hovered, else the one being heard. Where a line's dub runs into the next
+  // line's time, the playhead is on the line that started last, not on the one before it.
+  const atPlayhead = units.reduce<SyncUnitReport | undefined>((found, u) => {
+    const from = Math.min(u.srcStart, u.placedStart ?? Infinity);
+    if (currentTime < from || currentTime > Math.max(u.srcEnd, u.placedEnd ?? -Infinity)) return found;
+    return !found || from >= Math.min(found.srcStart, found.placedStart ?? Infinity) ? u : found;
+  }, undefined);
+  // A line stops being hovered once the pointer leaves it: the Takes button under the lanes is for the line at the playhead, not the last one passed over.
+  const unhover = (index: number) => () => setHovered((h) => (h === index ? null : h));
   const focus = hovered !== null ? units.find((u) => u.index === hovered) : atPlayhead;
   const focusIndex = focus?.index ?? null;
   const dim = (u: SyncUnitReport) => hovered !== null && u.index !== hovered;
@@ -242,6 +249,7 @@ export const SyncAlignmentView: React.FC<{
               <span
                 key={u.index}
                 onMouseEnter={() => setHovered(u.index)}
+                onMouseLeave={unhover(u.index)}
                 onClick={seekLine(u.srcStart)}
                 title={`Line ${u.index + 1} · original\n${u.sourceText}`}
                 className={`absolute top-1 bottom-1 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
@@ -280,6 +288,7 @@ export const SyncAlignmentView: React.FC<{
                 <span
                   key={u.index}
                   onMouseEnter={() => setHovered(u.index)}
+                  onMouseLeave={unhover(u.index)}
                   onClick={seekLine(u.placedStart)}
                   title={`Line ${u.index + 1} · ${landedAs(u)}\n${u.text}`}
                   className={`absolute top-1 bottom-1 rounded transition-opacity ${dim(u) ? 'opacity-30' : ''}`}
