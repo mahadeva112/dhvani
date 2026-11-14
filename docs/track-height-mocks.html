@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Track Height Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .card { background:#131418; border:1px solid #26282e; border-radius:16px; }
+  .btn { height:30px; padding:0 11px; border:1px solid #2a2d35; border-radius:9px; background:transparent; color:#e2e8f0; font-size:12.5px; display:inline-flex; align-items:center; gap:6px; white-space:nowrap; cursor:default; }
+  .btn:hover { background:#1c1f26; }
+  .seg { display:inline-flex; gap:2px; padding:2px; border-radius:10px; background:#0b0c0f; border:1px solid #26282e; }
+  .seg button { padding:3px 10px; border-radius:7px; font-size:12px; color:#94a3b8; cursor:default; white-space:nowrap; }
+  .seg button:hover { color:#e2e8f0; }
+  .seg button.on { background:#24262d; color:#f1f5f9; }
+  .tl { display:grid; grid-template-columns: 150px minmax(0,1fr); border:1px solid #232a36; border-radius:12px; overflow:hidden; background:#0b0d12; user-select:none; }
+  .head { border-right:1px solid #232a36; border-top:1px solid #1c222c; padding:0 8px; display:flex; flex-direction:column; justify-content:center; gap:4px; font-size:11.5px; color:#cbd5e1; position:relative; overflow:hidden; }
+  .lane { border-top:1px solid #1c222c; position:relative; overflow:hidden; }
+  .head.still, .lane.still { color:#64748b; font-size:10.5px; }
+  .grip { position:absolute; left:0; right:0; bottom:-3px; height:7px; cursor:ns-resize; z-index:5; }
+  .grip::after { content:''; position:absolute; left:0; right:0; top:3px; height:1px; background:transparent; transition: background .1s; }
+  .row-hover .grip::after, .grip.on::after { background:#818cf8; height:2px; top:2px; }
+  .clip { position:absolute; top:5px; bottom:5px; border-radius:5px; overflow:hidden; }
+  .clip canvas, .lane > canvas { position:absolute; left:0; top:0; width:100%; height:100%; }
+  .clip .name { position:absolute; left:0; right:0; bottom:0; height:14px; font-size:9.5px; padding-left:5px; color:#e2e8f0; display:flex; align-items:center; gap:3px; }
+  .ms { display:flex; gap:3px; align-items:center; }
+  .ms b { width:17px; height:16px; border:1px solid #2f3440; border-radius:4px; font-size:9.5px; display:inline-flex; align-items:center; justify-content:center; color:#94a3b8; font-weight:600; }
+  .fader { flex:1; height:3px; border-radius:2px; background:#2a2f3a; position:relative; }
+  .fader::after { content:''; position:absolute; left:62%; top:-3px; width:9px; height:9px; border-radius:50%; background:#a5b4fc; }
+  .pill { position:fixed; z-index:50; pointer-events:none; background:#1e2230; border:1px solid #3b4252; color:#f1f5f9; font-size:11.5px; border-radius:8px; padding:3px 8px; white-space:nowrap; }
+  .note { font-size:13px; color:#94a3b8; line-height:1.6; }
+  .note b { color:#e2e8f0; font-weight:600; }
+  .key { font-family: ui-monospace, Consolas, monospace; font-size:11px; border:1px solid #2f3440; border-bottom-width:2px; border-radius:5px; padding:0 5px; color:#cbd5e1; background:#15171c; }
+  .playhead { position:absolute; top:0; bottom:0; width:1px; background:#f0473c; pointer-events:none; z-index:4; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-[1180px] mx-auto px-4 py-6 flex flex-col gap-8">
+  <header class="flex flex-col gap-1">
+    <h1 class="text-xl font-semibold text-slate-100">Edit timing — track height</h1>
+    <p class="note">দুটো mock। দুটোতেই track-এর নিচের দাগ মাউসে ধরে উপর-নিচে টানলে সেই track লম্বা বা সরু হয়, waveform-ও সঙ্গে বড়-ছোট হয়। মাউস দাগের উপর নিলে নীল দাগ দেখায়। নিজে টেনে দেখুন।</p>
+  </header>
+
+  <section class="card p-4 flex flex-col gap-3">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="text-[15px] font-semibold text-slate-100">Mock A — প্রতিটা track আলাদা</h2>
+      <span class="note">শুধু টেনে। প্রতিটা track নিজের মাপ রাখে। দাগে <b>double-click</b> করলে আগের মাপে ফেরে।</span>
+    </div>
+    <div id="mockA"></div>
+    <ul class="note list-disc pl-5">
+      <li>track-এর নামের ঘর বা lane, দুই জায়গার নিচের দাগ থেকেই টানা যায় (REAPER-এর মতো)।</li>
+      <li>খুব সরু করলে M / S / fader লুকিয়ে শুধু নাম থাকে। লম্বা করলে clip-এর waveform আরও স্পষ্ট হয়।</li>
+      <li>Ruler, Script, Start drift, Whole dub-এর মাপ বদলায় না।</li>
+      <li>মাপ project-এর সঙ্গে রাখা থাকে, আবার খুললে একই থাকে।</li>
+    </ul>
+  </section>
+
+  <section class="card p-4 flex flex-col gap-3">
+    <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      <h2 class="text-[15px] font-semibold text-slate-100">Mock B — আলাদা + সব একসঙ্গে</h2>
+      <span class="note">Mock A-র সব কিছু, তার সঙ্গে <span class="key">Shift</span> চেপে টানলে সব track একসঙ্গে, আর উপরে Track height-এর চারটে মাপ।</span>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-[12px] text-slate-500">Track height</span>
+      <div class="seg" id="sizesB">
+        <button data-h="40">S</button><button data-h="64" class="on">M</button><button data-h="104">L</button><button data-h="160">XL</button>
+      </div>
+      <span class="text-[11.5px] text-slate-500 ml-1"><span class="key">Shift</span> + টানা = সব track · double-click = আগের মাপ</span>
+    </div>
+    <div id="mockB"></div>
+    <ul class="note list-disc pl-5">
+      <li>S / M / L / XL চাপলে সব track একবারে সেই মাপে যায়। তারপর যেকোনো track আলাদা করে টানা যায়।</li>
+      <li>একটা track টেনে বদলালে উপরের বোতামে কোনোটাই বাছা থাকে না (মাপ মিশ্র)।</li>
+    </ul>
+  </section>
+</div>
+
+<div id="pill" class="pill" style="display:none"></div>
+
+<script>
+const MIN_H = 30, MAX_H = 240;
+const VIEW = 20; // seconds on screen
+const TRACKS = [
+  { id: 'orig', name: 'Original', dot: '#22d3ee', kind: 'wave', h: 56, def: 56, sub: 'English' },
+  { id: 's1', name: 'Speaker 1', dot: '#818cf8', kind: 'clips', h: 72, def: 72, sub: 'Rachel' },
+  { id: 's2', name: 'Speaker 2', dot: '#f472b6', kind: 'clips', h: 72, def: 72, sub: 'Adam' },
+];
+const COLORS = ['#7c5a8a', '#5d5a92', '#8a7a52', '#47708a', '#8a5262'];
+const CLIPS = {
+  s1: [[0.6, 3.4, 1], [4.4, 7.2, 2], [8.9, 11.6, 4], [15.2, 18.6, 6]],
+  s2: [[12.0, 14.6, 5]],
+};
+
+// A made-up but steady waveform: speech-like bursts.
+function peaks(seed, n) {
+  let x = seed * 9301 + 49297;
+  const rnd = () => ((x = (x * 9301 + 49297) % 233280) / 233280);
+  const out = [];
+  let env = 0;
+  for (let i = 0; i < n; i++) {
+    if (i % 18 === 0) env = 0.25 + rnd() * 0.75;
+    const syll = Math.abs(Math.sin(i / 3.1 + seed));
+    out.push(Math.min(1, env * (0.35 + 0.65 * syll) * (0.7 + rnd() * 0.3)));
+  }
+  return out;
+}
+function drawWave(canvas, data, color) {
+  const r = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(r.width * dpr));
+  canvas.height = Math.max(1, Math.round(r.height * dpr));
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const w = r.width, h = r.height, mid = h / 2;
+  ctx.fillStyle = color;
+  for (let px = 0; px < w; px++) {
+    const v = data[Math.floor((px / w) * data.length)] || 0;
+    const a = v * (h / 2 - 2);
+    ctx.fillRect(px, mid - a, 1, Math.max(1, a * 2));
+  }
+}
+
+function buildTimeline(root, opts) {
+  const tracks = TRACKS.map((t) => ({ ...t }));
+  root.innerHTML = '';
+  const tl = document.createElement('div');
+  tl.className = 'tl';
+  root.appendChild(tl);
+  const pill = document.getElementById('pill');
+  const pct = (t) => (t / VIEW) * 100;
+  const rows = {};
+
+  const fixedRow = (label, h, fill) => {
+    const hd = document.createElement('div'); hd.className = 'head still'; hd.style.height = h + 'px'; hd.textContent = label;
+    hd.parentElement; tl.appendChild(hd);
+    const ln = document.createElement('div'); ln.className = 'lane still'; ln.style.height = h + 'px';
+    if (fill) fill(ln);
+    tl.appendChild(ln);
+    return ln;
+  };
+
+  // Ruler
+  fixedRow('', 24, (ln) => {
+    ln.style.borderTop = '0';
+    for (let s = 0; s <= VIEW; s += 1) {
+      const tick = document.createElement('span');
+      tick.style.cssText = `position:absolute;bottom:0;left:${pct(s)}%;width:1px;height:${s % 5 ? 5 : 11}px;background:${s % 5 ? '#334155' : '#64748b'}`;
+      ln.appendChild(tick);
+      if (s % 5 === 0 && s < VIEW) {
+        const lab = document.createElement('span');
+        lab.className = 'mono'; lab.textContent = `0:${String(s).padStart(2, '0')}`;
+        lab.style.cssText = `position:absolute;top:3px;left:calc(${pct(s)}% + 4px);font-size:10px;color:#94a3b8`;
+        ln.appendChild(lab);
+      }
+    }
+  });
+
+  const waveData = {};
+  tracks.forEach((t, i) => {
+    const hd = document.createElement('div'); hd.className = 'head';
+    const body = document.createElement('div'); body.className = 'flex flex-col gap-1 min-w-0'; hd.appendChild(body);
+    const ln = document.createElement('div'); ln.className = 'lane';
+    tl.appendChild(hd); tl.appendChild(ln);
+    rows[t.id] = { hd, ln, t, body };
+    if (t.kind === 'wave') {
+      ln.style.background = '#0d1418';
+      const c = document.createElement('canvas'); ln.appendChild(c);
+      waveData[t.id] = { canvas: c, data: peaks(3, 900), color: 'rgba(34,211,238,.55)' };
+    } else {
+      (CLIPS[t.id] || []).forEach(([a, b, n], k) => {
+        const clip = document.createElement('div'); clip.className = 'clip';
+        clip.style.left = pct(a) + '%'; clip.style.width = pct(b - a) + '%';
+        const col = COLORS[(n + k) % COLORS.length];
+        clip.style.background = col + 'cc';
+        const c = document.createElement('canvas'); c.style.bottom = '14px'; c.style.height = 'calc(100% - 14px)';
+        clip.appendChild(c);
+        const nm = document.createElement('div'); nm.className = 'name mono'; nm.style.background = col; nm.innerHTML = `<span style="color:#fca5a5">●</span>${n}`;
+        clip.appendChild(nm);
+        ln.appendChild(clip);
+        waveData[t.id + k] = { canvas: c, data: peaks(n + 7, 300), color: 'rgba(255,255,255,.55)' };
+      });
+    }
+    // Grips along the bottom edge of the header and the lane
+    [hd, ln].forEach((el) => {
+      const g = document.createElement('div'); g.className = 'grip'; g.title = 'Drag to make this track taller or shorter · double-click: back to its size';
+      el.appendChild(g);
+      g.addEventListener('pointerenter', () => { hd.classList.add('row-hover'); ln.classList.add('row-hover'); });
+      g.addEventListener('pointerleave', () => { if (!drag) { hd.classList.remove('row-hover'); ln.classList.remove('row-hover'); } });
+      g.addEventListener('dblclick', () => { t.h = t.def; afterSingle(); layout(); });
+      g.addEventListener('pointerdown', (e) => startDrag(e, t, g));
+    });
+  });
+
+  fixedRow('Script', 22, (ln) => {
+    [[0.6, 'पंक्ति 1'], [4.4, 'पंक्ति 2'], [8.9, 'पंक्ति 3'], [12.0, 'पंक्ति 4'], [15.2, 'पंक्ति 5']].forEach(([t, s]) => {
+      const sp = document.createElement('span'); sp.textContent = s; sp.style.cssText = `position:absolute;top:4px;left:${pct(t)}%;font-size:10.5px;color:#cbd5e1`; ln.appendChild(sp);
+    });
+  });
+  fixedRow('Start drift', 20, (ln) => { ln.style.background = 'repeating-linear-gradient(90deg,#0f2a22 0 2px,transparent 2px 5px)'; });
+  fixedRow('Whole dub', 20, (ln) => {
+    const f = document.createElement('span'); f.style.cssText = 'position:absolute;top:4px;bottom:4px;left:2%;width:33%;border:1px solid #c7d2fe99;border-radius:3px;background:#c7d2fe22'; ln.appendChild(f);
+  });
+
+  // Playhead across the lanes
+  const ph = document.createElement('div'); ph.className = 'playhead'; ph.style.left = `calc(150px + (100% - 150px) * ${9.6 / VIEW})`;
+  tl.style.position = 'relative'; tl.appendChild(ph);
+
+  let drag = null;
+  function startDrag(e, t, g) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const all = opts.shiftAll && e.shiftKey;
+    drag = { y: e.clientY, t, g, all, start: t.h, starts: tracks.map((x) => x.h) };
+    g.setPointerCapture(e.pointerId);
+    g.classList.add('on');
+    document.body.style.cursor = 'ns-resize';
+    showPill(e);
+  }
+  function showPill(e) {
+    const what = drag.all ? 'All tracks' : drag.t.name;
+    const ratio = (drag.t.h / drag.t.def);
+    pill.textContent = `${what} · ${ratio >= 0.995 && ratio <= 1.005 ? 'normal' : '×' + ratio.toFixed(1)}`;
+    pill.style.display = 'block';
+    pill.style.left = e.clientX + 14 + 'px';
+    pill.style.top = e.clientY + 12 + 'px';
+  }
+  window.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dy = e.clientY - drag.y;
+    if (drag.all) tracks.forEach((x, i) => (x.h = clamp(drag.starts[i] + dy)));
+    else drag.t.h = clamp(drag.start + dy);
+    layout();
+    showPill(e);
+  });
+  window.addEventListener('pointerup', () => {
+    if (!drag) return;
+    drag.g.classList.remove('on');
+    Object.values(rows).forEach((r) => { r.hd.classList.remove('row-hover'); r.ln.classList.remove('row-hover'); });
+    if (!drag.all) afterSingle();
+    drag = null;
+    pill.style.display = 'none';
+    document.body.style.cursor = '';
+  });
+  const clamp = (h) => Math.max(MIN_H, Math.min(MAX_H, Math.round(h)));
+
+  function headHtml(t) {
+    const small = t.h < 46, big = t.h >= 96;
+    return `
+      <div class="flex items-center gap-1.5 min-w-0"><span style="width:7px;height:7px;border-radius:50%;background:${t.dot};flex-shrink:0"></span><span class="truncate">${t.name}</span>${!small ? `<span class="text-[10px] text-slate-500 truncate">${t.sub}</span>` : ''}</div>
+      ${!small && t.kind === 'clips' ? `<div class="ms"><b>M</b><b>S</b><span class="fader"></span><span class="mono text-[9.5px] text-slate-500">0.0 dB</span></div>` : ''}
+      ${big && t.kind === 'clips' ? `<div class="text-[10px] text-slate-500">${(CLIPS[t.id] || []).length} lines</div>` : ''}`;
+  }
+  function layout() {
+    tracks.forEach((t) => {
+      const { hd, ln, body } = rows[t.id];
+      hd.style.height = ln.style.height = t.h + 'px';
+      body.innerHTML = headHtml(t);
+    });
+    requestAnimationFrame(() => Object.values(waveData).forEach((w) => drawWave(w.canvas, w.data, w.color)));
+    if (opts.onLayout) opts.onLayout(tracks);
+  }
+  function afterSingle() { if (opts.onSingle) opts.onSingle(tracks); }
+  window.addEventListener('resize', layout);
+  layout();
+  return {
+    setAll(h) { tracks.forEach((t) => (t.h = h)); layout(); },
+  };
+}
+
+buildTimeline(document.getElementById('mockA'), {});
+
+const sizes = document.getElementById('sizesB');
+const mark = (h) => sizes.querySelectorAll('button').forEach((b) => b.classList.toggle('on', Number(b.dataset.h) === h));
+const B = buildTimeline(document.getElementById('mockB'), {
+  shiftAll: true,
+  onLayout: (tracks) => {
+    const hs = new Set(tracks.map((t) => t.h));
+    mark(hs.size === 1 ? [...hs][0] : -1);
+  },
+});
+B.setAll(64);
+sizes.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => B.setAll(Number(b.dataset.h))));
+</script>
+</body>
+</html>

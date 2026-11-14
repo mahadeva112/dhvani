@@ -278,6 +278,74 @@ type Chunk = {
 const LANE_PX = 56;
 /** The one dub lane, with one speaker: taller, as the lane the editing happens on. */
 const DUB_LANE_PX = 72;
+/** The Original's row, at its own size. */
+const SOURCE_ROW_PX = 56;
+/** How short and how tall a track can be dragged (px). */
+const MIN_TRACK_PX = 30;
+const MAX_TRACK_PX = 240;
+/** The key the Original's row keeps its height under, among the lanes' names (which never start with a NUL). */
+const SOURCE_ROW_KEY = '\u0000source';
+/** A track's header keeps only its name below SHOW_CONTROLS_PX, and its caption from SHOW_CAPTION_PX. */
+const SHOW_CONTROLS_PX = 44;
+const SHOW_CAPTION_PX = LANE_PX;
+const clampTrackHeight = (px: number) => Math.round(clamp(px, MIN_TRACK_PX, MAX_TRACK_PX));
+
+/**
+ * The bottom edge of a track, as in REAPER and DaVinci Resolve: dragged up or
+ * down it makes the track shorter or taller; double-clicked, the track goes
+ * back to its own size. One sits under each track in the headers and one in
+ * the lanes, at `top` (px) in its row; both light while either is pointed at.
+ */
+const HeightGrip: React.FC<{
+  top: number;
+  /** At the foot of a row that clips what spills out: sits just above `top` instead of across it. */
+  inside?: boolean;
+  label: string;
+  lit: boolean;
+  onHover: (on: boolean) => void;
+  onPress: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onMove: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onRelease: (e: React.PointerEvent<HTMLDivElement>) => void;
+  onReset: () => void;
+}> = ({ top, inside = false, label, lit, onHover, onPress, onMove, onRelease, onReset }) => (
+  <div
+    role="separator"
+    aria-orientation="horizontal"
+    aria-label={`${label}: height`}
+    title={`Drag to make ${label} taller or shorter · double-click: back to its size`}
+    className={`absolute left-0 right-0 z-30 ${inside ? 'h-1.5' : 'h-2'} cursor-ns-resize touch-none`}
+    style={{ top: top - (inside ? 6 : 4) }}
+    onPointerEnter={() => onHover(true)}
+    onPointerLeave={() => onHover(false)}
+    // The row's own handlers (pick, move, trim) never see a press here.
+    onPointerDown={(e) => {
+      e.stopPropagation();
+      if (e.button !== 0) return;
+      e.preventDefault();
+      onPress(e);
+    }}
+    onPointerMove={(e) => {
+      e.stopPropagation();
+      onMove(e);
+    }}
+    onPointerUp={(e) => {
+      e.stopPropagation();
+      onRelease(e);
+    }}
+    onPointerCancel={(e) => {
+      e.stopPropagation();
+      onRelease(e);
+    }}
+    onDoubleClick={(e) => {
+      e.stopPropagation();
+      onReset();
+    }}
+    onClick={(e) => e.stopPropagation()}
+    onContextMenu={(e) => e.stopPropagation()}
+  >
+    <span aria-hidden="true" className={`absolute left-0 right-0 ${inside ? 'bottom-0' : 'top-[3px]'} h-0.5 pointer-events-none ${lit ? 'bg-indigo-400' : ''}`} />
+  </div>
+);
 
 /** Edit timing's tracks of outside audio: their files, and each track's mute and solo, for listening. */
 export interface AudioTrackLanes {
@@ -890,6 +958,7 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
       ['Right-click a lane name', 'Add audio, add, rename, move, delete'],
       ['Drag a clip up or down', 'Onto another track'],
       ['Drag a track’s name up or down', 'Move the track'],
+      ['Drag a track’s bottom edge', 'Make it taller or shorter (double-click: back to its size)'],
     ],
   },
   {
@@ -978,12 +1047,13 @@ const formatLevel = (db: number) => `${db > 0 ? '+' : db < 0 ? '−' : ''}${Math
  * solo are for listening, while the dub plays live. The lane for clips of the
  * original has only its name.
  */
-const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: number; heard: boolean; live: boolean }> = ({
+const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: number; heard: boolean; live: boolean; height: number }> = ({
   name,
   lanes,
   lines,
   heard,
   live,
+  height,
 }) => {
   const saved = lanes.levels[name] ?? 0;
   // The fader moves freely while dragged; the level is set, and the file rendered, when it is let go.
@@ -994,13 +1064,13 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
   };
   if (name === ORIGINAL_SPEAKER) {
     return (
-      <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 first:border-t-0" style={{ height: LANE_PX }}>
+      <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 first:border-t-0 overflow-hidden" style={{ height }}>
         <span className="flex items-center gap-1.5 text-[11.5px] text-slate-300">
           <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: ORIGINAL_HUE }} />
           Original clips
           <span className="ml-auto text-[10px] text-slate-500 tabular-nums">{lines}</span>
         </span>
-        <span className="text-[10px] text-slate-500 leading-snug">Drag a stretch of the original down here.</span>
+        {height >= SHOW_CAPTION_PX && <span className="text-[10px] text-slate-500 leading-snug">Drag a stretch of the original down here.</span>}
       </div>
     );
   }
@@ -1011,7 +1081,7 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
       on ? onClass : 'border-slate-700 bg-slate-900 text-slate-400 hover:text-slate-100 hover:border-slate-500'
     }`;
   return (
-    <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 first:border-t-0 min-w-0" style={{ height: LANE_PX }}>
+    <div className="px-2 flex flex-col justify-center gap-0.5 border-t border-edge/80 first:border-t-0 min-w-0 overflow-hidden" style={{ height }}>
       <span className="flex items-center gap-1.5 text-[11.5px] text-slate-200 min-w-0">
         <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: lanes.colors[name] ?? '#818cf8' }} />
         <span className="truncate" title={name}>
@@ -1021,12 +1091,12 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
           {lines} {lines === 1 ? 'line' : 'lines'}
         </span>
       </span>
-      {lanes.captions[name] && (
+      {lanes.captions[name] && height >= SHOW_CAPTION_PX && (
         <span className="block text-[10px] text-slate-500 truncate" title={lanes.captions[name]}>
           {lanes.captions[name]}
         </span>
       )}
-      <span className="flex items-center gap-1">
+      {height >= SHOW_CONTROLS_PX && <span className="flex items-center gap-1">
         <button
           type="button"
           aria-pressed={monitor.muted}
@@ -1066,7 +1136,7 @@ const SpeakerLaneHead: React.FC<{ name: string; lanes: SpeakerLanes; lines: numb
           className={`flex-1 min-w-0 h-1 accent-indigo-400 cursor-default transition-opacity ${heard ? '' : 'opacity-40'}`}
         />
         <span className="w-[3.25rem] text-right font-mono text-[10.5px] text-slate-400 tabular-nums">{formatLevel(db)}</span>
-      </span>
+      </span>}
     </div>
   );
 };
@@ -1109,7 +1179,7 @@ const TrackLaneHead: React.FC<{
     }`;
   return (
     <div
-      className={`px-2 flex flex-col justify-center gap-0.5 ${first ? '' : 'border-t border-edge/80'} min-w-0 touch-none select-none ${dragging ? 'bg-indigo-500/15 opacity-70' : ''}`}
+      className={`px-2 flex flex-col justify-center gap-0.5 ${first ? '' : 'border-t border-edge/80'} min-w-0 overflow-hidden touch-none select-none ${dragging ? 'bg-indigo-500/15 opacity-70' : ''}`}
       style={{ height, cursor: dragging ? 'grabbing' : 'grab' }}
       title="Drag up or down to move the track"
       onPointerDown={(e) => {
@@ -1161,12 +1231,12 @@ const TrackLaneHead: React.FC<{
           <MoreHorizontal className="w-3.5 h-3.5" />
         </button>
       </span>
-      {caption && (
+      {caption && height >= SHOW_CAPTION_PX && (
         <span className="block text-[10px] text-slate-500 truncate" title={caption}>
           {caption}
         </span>
       )}
-      <span className="flex items-center gap-1">
+      {height >= SHOW_CONTROLS_PX && <span className="flex items-center gap-1">
         <button
           type="button"
           aria-pressed={monitor.muted}
@@ -1206,7 +1276,7 @@ const TrackLaneHead: React.FC<{
           className={`flex-1 min-w-0 h-1 accent-indigo-400 cursor-default transition-opacity ${heard ? '' : 'opacity-40'}`}
         />
         <span className="w-[3.25rem] text-right font-mono text-[10.5px] text-slate-400 tabular-nums">{formatLevel(db)}</span>
-      </span>
+      </span>}
     </div>
   );
 };
@@ -1260,6 +1330,9 @@ export const SyncEditTimeline: React.FC<{
   /** The editor's own markers with notes; Shift + M adds one at the playhead. */
   markers?: TimelineNote[];
   onMarkersChange?: (markers: TimelineNote[]) => void;
+  /** Each track's height (px) where it was dragged from its own, by lane name; kept with the project. */
+  trackHeights?: Record<string, number> | null;
+  onTrackHeightsChange?: (heights: Record<string, number>) => void;
 }> = ({
   bank,
   bankBlob,
@@ -1289,6 +1362,8 @@ export const SyncEditTimeline: React.FC<{
   takesUnavailableKeys = [],
   markers = [],
   onMarkersChange,
+  trackHeights,
+  onTrackHeightsChange,
 }) => {
   const [showHelp, setShowHelp] = useState(false);
   const rate = bank.sampleRate;
@@ -1415,7 +1490,24 @@ export const SyncEditTimeline: React.FC<{
   /** The dub's own row: one lane or several (speakers, tracks under it). */
   const mainCount = baseLanes.length + bottomTracks.length;
   const laned = mainCount > 1;
-  const laneHeights = useMemo(() => laneNames.map((name) => (!multi && name === '' ? DUB_LANE_PX : LANE_PX)), [laneNames, multi]);
+  /*
+   * Track heights: each track's own size until its bottom edge is dragged.
+   * The drag changes `heights` as it goes; the project keeps them when it is let go.
+   */
+  const [heights, setHeights] = useState<Record<string, number>>(() => trackHeights ?? {});
+  const heightsRef = useRef(heights);
+  heightsRef.current = heights;
+  const heightDrag = useRef<{ key: string; label: string; own: number; y: number; from: number } | null>(null);
+  useEffect(() => {
+    if (!heightDrag.current) setHeights(trackHeights ?? {});
+  }, [trackHeights]);
+  // The grip pointed at, lit in the headers and the lanes alike, and what a drag has made of the track.
+  const [gripLit, setGripLit] = useState<string | null>(null);
+  const [heightTip, setHeightTip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const ownHeight = (key: string) => (key === SOURCE_ROW_KEY ? SOURCE_ROW_PX : !multi && key === '' ? DUB_LANE_PX : LANE_PX);
+  const heightOf = (key: string) => clampTrackHeight(heights[key] ?? ownHeight(key));
+  const laneHeights = useMemo(() => laneNames.map(heightOf), [laneNames, multi, heights]);
+  const sourceHeight = heightOf(SOURCE_ROW_KEY);
   /** Each lane's top inside its own group's row. */
   const laneTops = useMemo(
     () => laneHeights.map((_, n) => laneHeights.slice(0, n).reduce((sum, h, k) => sum + (laneGroups[k] === laneGroups[n] ? h : 0), 0)),
@@ -3563,6 +3655,71 @@ export const SyncEditTimeline: React.FC<{
   /** The px top and height of lane `n` in its row, for a mark drawn over it. */
   const laneBox = (n: number, inset = 0) => ({ top: laneTops[n] + inset, height: laneHeights[n] - 2 * inset });
 
+  /** A lane's name as the user knows it, for its height grip. */
+  const laneLabel = (key: string) =>
+    key === SOURCE_ROW_KEY
+      ? 'Original'
+      : key === ''
+      ? `${targetLanguage} dub`
+      : key === ORIGINAL_SPEAKER
+      ? 'Original clips'
+      : isTrackLane(key)
+      ? trackById.get(trackOfLane(key) ?? '')?.name ?? 'Track'
+      : key;
+  const tipText = (label: string, px: number, own: number) => `${label} · ${Math.abs(px - own) < 1 ? 'its own size' : `×${(px / own).toFixed(1)}`}`;
+  const saveHeights = (next: Record<string, number>) => {
+    setHeights(next);
+    onTrackHeightsChange?.(next);
+  };
+  /** The grip under track `key`, at `top` px in its row or header column. */
+  const heightGrip = (key: string, top: number, inside = false) => (
+    <HeightGrip
+      key={`grip:${key}`}
+      top={top}
+      inside={inside}
+      label={laneLabel(key)}
+      lit={gripLit === key}
+      onHover={(on) => {
+        if (!heightDrag.current) setGripLit(on ? key : null);
+      }}
+      onPress={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        const label = laneLabel(key);
+        heightDrag.current = { key, label, own: ownHeight(key), y: e.clientY, from: heightOf(key) };
+        setGripLit(key);
+        setHeightTip({ x: e.clientX, y: e.clientY, text: tipText(label, heightOf(key), ownHeight(key)) });
+      }}
+      onMove={(e) => {
+        const d = heightDrag.current;
+        if (!d) return;
+        const px = clampTrackHeight(d.from + e.clientY - d.y);
+        setHeights((prev) => (prev[d.key] === px ? prev : { ...prev, [d.key]: px }));
+        setHeightTip({ x: e.clientX, y: e.clientY, text: tipText(d.label, px, d.own) });
+      }}
+      onRelease={() => {
+        const d = heightDrag.current;
+        if (!d) return;
+        heightDrag.current = null;
+        setGripLit(null);
+        setHeightTip(null);
+        // Back at its own size, the track keeps nothing.
+        const { [d.key]: px, ...rest } = heightsRef.current;
+        const next = px === undefined || Math.abs(px - d.own) < 1 ? rest : { ...rest, [d.key]: px };
+        if (JSON.stringify(next) !== JSON.stringify(trackHeights ?? {})) saveHeights(next);
+        else setHeights(next);
+      }}
+      onReset={() => {
+        const { [key]: _gone, ...rest } = heightsRef.current;
+        saveHeights(rest);
+      }}
+    />
+  );
+  /** The grips under the lanes of one row, at their tops in it; `clipped`, the row cuts off what spills past its foot. */
+  const laneGrips = (group: LaneGroup, clipped = false) => {
+    const lanes = lanesOf(group);
+    return lanes.map((n) => heightGrip(laneNames[n], laneTops[n] + laneHeights[n], clipped && n === lanes[lanes.length - 1]));
+  };
+
   /**
    * One row of lanes: tracks above the Original, tracks above the dub, or the
    * dub's own row (its lanes and the tracks under it). Every row draws its
@@ -3584,8 +3741,8 @@ export const SyncEditTimeline: React.FC<{
     return (
       <div
         ref={main ? laneRef : group === 'top' ? topRowRef : midRowRef}
-        className={`relative ${geometry ? '' : 'h-[4.5rem]'} border-b border-edge bg-slate-950/70 ${lanes.length > 0 ? 'overflow-hidden' : ''} touch-none`}
-        style={{ cursor: laneCursor, ...(geometry && { height: groupHeight(group) }) }}
+        className={`relative border-b border-edge bg-slate-950/70 ${lanes.length > 0 ? 'overflow-hidden' : ''} touch-none`}
+        style={{ cursor: laneCursor, height: groupHeight(group) }}
         {...rowHandlers}
       >
         {geometry &&
@@ -3697,6 +3854,7 @@ export const SyncEditTimeline: React.FC<{
         {dropOn !== undefined && inRow(dropOn) && (
           <span aria-hidden="true" className="absolute left-0 right-0 z-30 pointer-events-none bg-indigo-400/15 border-y-2 border-indigo-400/70" style={laneBox(dropOn)} />
         )}
+        {laneGrips(group, true)}
       </div>
     );
   };
@@ -3737,6 +3895,7 @@ export const SyncEditTimeline: React.FC<{
           <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine.top }} />
         )}
         {list.map((track, k) => (k === 0 ? React.cloneElement(trackHeadFor(track), { first: true }) : trackHeadFor(track)))}
+        {laneGrips(group)}
       </div>
     );
 
@@ -4089,20 +4248,33 @@ export const SyncEditTimeline: React.FC<{
         )}
       </section>
 
+      {/* A track's height being dragged: which track, and how tall against its own size */}
+      {heightTip && (
+        <span
+          aria-live="polite"
+          className="fixed z-[80] pointer-events-none whitespace-nowrap rounded-lg border border-slate-600 bg-slate-800 px-2 py-0.5 text-[11.5px] text-slate-100 shadow-lg"
+          style={{ left: heightTip.x + 14, top: heightTip.y + 12 }}
+        >
+          {heightTip.text}
+        </span>
+      )}
       {/* The lanes */}
       <div className={`grid ${renderTrackHead || laneNames.length > 1 ? 'grid-cols-[12.5rem_minmax(0,1fr)]' : 'grid-cols-[5.5rem_minmax(0,1fr)]'} rounded-xl border border-edge overflow-hidden bg-slate-900/50`}>
         <div className="flex flex-col text-[11px] text-slate-400 border-r border-edge">
           <div className="h-6 px-2 flex items-center font-mono text-[11px] font-semibold text-slate-200 tabular-nums border-b border-edge">{formatTime(currentTime)}</div>
           {trackHeadRow('top', topTracks)}
-          {renderTrackHead ? (
-            <div className="h-14 px-2 flex items-center border-b border-edge">
-              {renderTrackHead('source', 'Original', 'bg-cyan-400', <Lock className="w-3 h-3 text-slate-600" aria-label="Locked" />)}
-            </div>
-          ) : (
-            <div className="h-14 px-2 flex items-center gap-1.5 border-b border-edge">
-              <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original <Lock className="w-3 h-3 text-slate-600 ml-auto" aria-label="Locked" />
-            </div>
-          )}
+          <div className="relative border-b border-edge" style={{ height: sourceHeight }}>
+            {renderTrackHead ? (
+              <div className="h-full px-2 flex items-center overflow-hidden">
+                {renderTrackHead('source', 'Original', 'bg-cyan-400', <Lock className="w-3 h-3 text-slate-600" aria-label="Locked" />)}
+              </div>
+            ) : (
+              <div className="h-full px-2 flex items-center gap-1.5 overflow-hidden">
+                <span className="w-2 h-2 rounded-sm bg-cyan-400" /> Original <Lock className="w-3 h-3 text-slate-600 ml-auto" aria-label="Locked" />
+              </div>
+            )}
+            {heightGrip(SOURCE_ROW_KEY, sourceHeight)}
+          </div>
           <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-edge">Sync links</div>
           {speakerLanes && (
             <div className="h-14 px-2 flex items-center border-b border-edge">
@@ -4116,7 +4288,7 @@ export const SyncEditTimeline: React.FC<{
             </div>
           )}
           {trackHeadRow('mid', midTracks)}
-          <div className="relative flex flex-col border-b border-edge" style={{ height: laned ? lanesHeight : DUB_LANE_PX }}>
+          <div className="relative flex flex-col border-b border-edge" style={{ height: lanesHeight }}>
           {trackDropLine?.group === 'main' && (
             <span aria-hidden="true" className="absolute left-0 right-0 z-30 h-0.5 -mt-px bg-indigo-400 pointer-events-none" style={{ top: trackDropLine.top }} />
           )}
@@ -4125,6 +4297,7 @@ export const SyncEditTimeline: React.FC<{
               {baseLanes.map((name) => (
                 <SpeakerLaneHead
                   key={name}
+                  height={laneHeights[laneIndex.get(name) ?? 0]}
                   name={name}
                   lanes={speakerLanes}
                   lines={chunks.filter((c) => c.lane === name && !c.part.muted).length}
@@ -4135,14 +4308,16 @@ export const SyncEditTimeline: React.FC<{
             </div>
           ) : renderTrackHead ? (
             <div
-              className="h-[4.5rem] px-2 flex items-center"
+              className="px-2 flex items-center overflow-hidden"
+              style={{ height: laneHeights[laneIndex.get('') ?? 0] }}
               onContextMenu={audio ? (e) => (e.preventDefault(), setTrackMenu({ x: e.clientX, y: e.clientY, track: null })) : undefined}
             >
               {renderTrackHead('synth', `${targetLanguage} dub`, 'bg-indigo-400')}
             </div>
           ) : (
             <div
-              className="h-[4.5rem] px-2 flex items-center gap-1.5"
+              className="px-2 flex items-center gap-1.5 overflow-hidden"
+              style={{ height: laneHeights[laneIndex.get('') ?? 0] }}
               onContextMenu={audio ? (e) => (e.preventDefault(), setTrackMenu({ x: e.clientX, y: e.clientY, track: null })) : undefined}
             >
               <span className="w-2 h-2 rounded-sm bg-indigo-400" /> <span className="truncate">{targetLanguage} dub</span>
@@ -4150,6 +4325,7 @@ export const SyncEditTimeline: React.FC<{
           )}
           {/* Tracks of outside audio under the dub */}
           {bottomTracks.map(trackHeadFor)}
+          {laneGrips('main')}
           </div>
           <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-edge">Script</div>
           <div className="h-10 px-2 flex items-center text-[10.5px] text-slate-500">Start drift</div>
@@ -4189,7 +4365,8 @@ export const SyncEditTimeline: React.FC<{
           {/* Original: a click seeks, a drag picks a stretch to put on the dub */}
           <div
             ref={originalRowRef}
-            className="relative h-14 border-b border-edge bg-slate-950/50 overflow-hidden cursor-default touch-none"
+            className="relative border-b border-edge bg-slate-950/50 overflow-hidden cursor-default touch-none"
+            style={{ height: sourceHeight }}
             title="Drag across the original to pick a stretch, then drag it down onto the dub"
             onPointerDown={onOriginalPointerDown}
             onPointerMove={onOriginalPointerMove}
@@ -4222,6 +4399,7 @@ export const SyncEditTimeline: React.FC<{
               ) : null
             )}
             </div>
+            {heightGrip(SOURCE_ROW_KEY, sourceHeight, true)}
           </div>
 
           {/* Sync links */}

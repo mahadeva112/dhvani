@@ -589,7 +589,7 @@ interface ExpressDubWizardProps {
   /** Saves the script; `lines` replaces the cues when the script follows the synced dub. */
   onDownloadScript?: (format?: TargetScriptFormat, lines?: AudioSegment[]) => void;
   /** Saves the project's subtitle edits and Edit timing markers. */
-  onUpdateJobFields?: (patch: Partial<Pick<BatchJob, 'subtitleEdits' | 'syncMarkers' | 'syncTakeChoices'>>) => void;
+  onUpdateJobFields?: (patch: Partial<Pick<BatchJob, 'subtitleEdits' | 'syncMarkers' | 'syncTakeChoices' | 'syncTrackHeights'>>) => void;
   isCompact?: boolean;
   customPrompt?: string;
   promptPresetId?: string;
@@ -4670,6 +4670,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   takesUnavailableKeys={syncPendingLines}
                   markers={activeJob.syncMarkers || []}
                   onMarkersChange={onUpdateJobFields && ((markers) => onUpdateJobFields({ syncMarkers: markers.length > 0 ? markers : null }))}
+                  trackHeights={activeJob.syncTrackHeights}
+                  onTrackHeightsChange={onUpdateJobFields && ((heights) => onUpdateJobFields({ syncTrackHeights: Object.keys(heights).length > 0 ? heights : null }))}
                   onOpenTakes={
                     renderTakes
                       ? (key, phrase, follow, copy) => {

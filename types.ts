@@ -392,6 +392,8 @@ export interface BatchJob {
   subtitleEdits?: Record<string, SubtitleEdit> | null;
   /** The editor's own notes on the Edit timing timeline. Nothing renders or exports them. */
   syncMarkers?: TimelineNote[] | null;
+  /** Edit timing's track heights (px) where they were dragged from their own, by lane name. A view setting: not in the undo history. */
+  syncTrackHeights?: Record<string, number> | null;
   /** Each speaker's level in dB, set on their lane in Edit timing; the synced dub is rendered with it (services/speakerLevels.ts). */
   syncSpeakerLevels?: Record<string, number> | null;
   /** Set when the dub was voiced by several speakers: one track per speaker, and what the mix did. */

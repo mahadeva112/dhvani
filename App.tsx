@@ -103,8 +103,8 @@ const OPEN_PROJECT_STORAGE_KEY = 'dhvani_open_project';
  * Not working on a project: its audio, decoded again each time it opens, and
  * the step it is on. Changing these leaves when it was last worked on.
  */
-// Sync settings too: opening an older project saves them for the first time, and that isn't working on it.
-const VIEW_FIELDS = new Set<string>(['audioBuffer', 'synthAudioBuffer', 'syncedAudioBuffer', 'lastStep', 'syncOptions']);
+// Sync settings too: opening an older project saves them for the first time, and that isn't working on it. Nor is making a track taller in Edit timing.
+const VIEW_FIELDS = new Set<string>(['audioBuffer', 'synthAudioBuffer', 'syncedAudioBuffer', 'lastStep', 'syncOptions', 'syncTrackHeights']);
 
 /** A new id for a Sync's bank (syncEpoch), or a bank the server is to be sent. */
 const newSyncId = () =>
