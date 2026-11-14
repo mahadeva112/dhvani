@@ -4886,7 +4886,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
 
             {/* Voice, once synced: a window from the Voice button on the player's row. Before the first sync it is on the Dub settings card. */}
             {report && (
-              <CenteredPanel open={voiceOpen} onClose={() => setVoiceOpen(false)} label="Voice and delivery" className="max-w-[44rem]" layerClassName="z-40">
+              <CenteredPanel open={voiceOpen} onClose={() => !isVoicePickerOpen && setVoiceOpen(false)} label="Voice and delivery" className="max-w-[44rem]" layerClassName="z-40">
                 <div className="flex items-center gap-3 px-4 sm:px-5 pt-4 pb-3">
                   <span className="min-w-0 flex-1">
                     <h2 className="text-[15px] font-semibold text-slate-100">Voice and delivery</h2>
@@ -5188,10 +5188,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
         />
       )}
 
-      {/* The voice library over any step: the main voice, or one speaker's from the cast */}
-      {isVoicePickerOpen && (
+      {/* The voice library over any step: the main voice, or one speaker's from the cast.
+          On <body> so it opens in front of the window it was opened from (Voice and delivery, Speakers),
+          which are on <body> too; under the error popup (z-80). */}
+      {isVoicePickerOpen && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm"
           role="dialog"
           aria-modal="true"
           aria-label="Choose a voice"
@@ -5225,7 +5227,8 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               className="h-[78vh]"
             />
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Floating Export Toast Notification */}
