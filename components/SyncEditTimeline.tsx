@@ -9,6 +9,8 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleHelp,
   ClipboardPaste,
   Copy,
@@ -1327,6 +1329,8 @@ export const SyncEditTimeline: React.FC<{
   onSeek: (time: number) => void;
   onPlayFrom: (time: number) => void;
   onClose: () => void;
+  /** Where the zoom buttons go: the player's transport row. Without it they sit at the end of the tools row. */
+  zoomSlot?: HTMLElement | null;
   /** A lane's header with its mute, solo, fader and meter; without it the lanes show their names. */
   renderTrackHead?: (track: 'source' | 'synth', label: string, dot: string, badge?: React.ReactNode) => React.ReactNode;
   /** With several speakers: one lane each, with a level, mute and solo. Without it, one dub lane. */
@@ -1365,6 +1369,7 @@ export const SyncEditTimeline: React.FC<{
   onSeek,
   onPlayFrom,
   onClose,
+  zoomSlot,
   renderTrackHead,
   speakerLanes,
   onOpenTakes,
@@ -3597,11 +3602,48 @@ export const SyncEditTimeline: React.FC<{
   }, [speakerLanes, baseLanes, tracks, audio?.monitor]);
   const spoken = measured.units.filter((u) => u.placedStart !== null && onScreen(Math.min(u.srcStart, u.placedStart as number), Math.max(u.srcEnd, u.placedEnd as number)));
   const editedCount = Object.keys(committed).filter((key) => !isClip(key)).length;
-  const originalCount = Object.keys(committed).filter(isOriginalClip).length;
   /** Overlaps between lines of the dub; clips on a track playing over each other are the user's to cross. */
   const dubOverlaps = overlaps.filter((o) => !o.a.file);
   const inSync = measured.summary.inSync;
   const lineCount = measured.units.filter((u) => !u.silent || isEdited(committed, u.key)).length;
+  /** The lines out of sync, in the order they play: the header steps through them. Each is its first part on the dub. */
+  const problems = useMemo(() => {
+    const out: Chunk[] = [];
+    measured.units.forEach((unit) => {
+      if (unit.silent || unit.offset === null || unit.inSync) return;
+      const chunk = chunks.find((c) => c.key === unit.key && !c.original && !c.file);
+      if (chunk) out.push(chunk);
+    });
+    return out.sort((a, b) => a.part.start - b.part.start);
+  }, [measured, chunks]);
+  /** Which of them is picked: any part of its line counts. */
+  const problemAt = current && !current.original ? problems.findIndex((c) => c.key === current.key) : -1;
+  /** Picks the next (or previous) line out of sync and puts the playhead on it; from no pick, the next one after the playhead. */
+  const stepProblem = (direction: 1 | -1) => {
+    const n = problems.length;
+    if (n === 0) return;
+    let next: Chunk;
+    if (problemAt >= 0) next = problems[(problemAt + direction + n) % n];
+    else {
+      const from = current ? current.part.start : currentTime;
+      next =
+        direction > 0
+          ? problems.find((c) => c.part.start > from + 0.01) ?? problems[0]
+          : [...problems].reverse().find((c) => c.part.start < from - 0.01) ?? problems[n - 1];
+    }
+    setSelected(next.part.id);
+    zoom.setFollow(true);
+    onSeek(next.part.start);
+  };
+  /** Why a line is out of sync, said as the fix needs it: a start off the original's (Align), or an end running into the next line (Tighten). */
+  const syncProblem = (unit: SyncUnitReport | undefined): { text: string; fix: 'align' | 'tighten' } | null => {
+    if (!unit || unit.silent || unit.offset === null || unit.inSync) return null;
+    if (Math.abs(unit.offset) > tolerance) return { text: `Starts ${Math.abs(unit.offset).toFixed(2)} s ${unit.offset > 0 ? 'late' : 'early'}`, fix: 'align' };
+    if ((unit.overrun ?? 0) > tolerance) return { text: `Runs ${(unit.overrun ?? 0).toFixed(2)} s into the next line`, fix: 'tighten' };
+    return { text: 'Out of sync', fix: 'align' };
+  };
+  /** The picked line's problem, when it is the only line picked. */
+  const currentProblem = group.length === 1 && current && !current.original ? syncProblem(current.unit) : null;
   const originalSpans = useMemo(
     () => baseReport.units.map((unit, n) => ({ from: unit.srcStart, to: unit.srcEnd, color: hueOf(n) })),
     [baseReport]
@@ -3909,6 +3951,21 @@ export const SyncEditTimeline: React.FC<{
       </div>
     );
 
+  /** The zoom buttons: on the player's transport row when it gives a place for them, else at the end of the tools. */
+  const zoomGroup = (
+    <div className="flex items-center gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Zoom">
+      <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+        <ZoomOut className="w-4 h-4" />
+      </button>
+      <span className="min-w-[3.5rem] text-center font-mono text-[11px] text-slate-400 tabular-nums">{windowSeconds < 1 ? `${Math.round(windowSeconds * 1000)} ms` : windowSeconds < 60 ? `${Math.round(windowSeconds)} s` : `${(windowSeconds / 60).toFixed(1)} min`}</span>
+      <button type="button" onClick={() => zoom.zoomBy(0.5)} disabled={!zoom.canZoomIn} title="Zoom in (=)" aria-label="Zoom in" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+        <ZoomIn className="w-4 h-4" />
+      </button>
+      <button type="button" onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Whole track (Shift + Z; again to zoom back)" className="h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+        <Maximize2 className="w-3.5 h-3.5" /> Fit
+      </button>
+    </div>
+  );
   const entries = menu && current ? menuEntries() : [];
   const runEntry = (entry: Exclude<MenuEntry, 'rule'>) => {
     closeMenu();
@@ -3926,71 +3983,41 @@ export const SyncEditTimeline: React.FC<{
       aria-label="Edit timing"
       className="flex flex-col gap-3 rounded-xl border border-edge bg-slate-950/70 p-3 focus:outline-none focus-visible:ring-1 focus-visible:ring-indigo-500/60"
     >
-      {/* Title, what the edits come to, and whether the audio has caught up */}
+      {/* One row: the title, the lines out of sync to step through, the tools, and on the right whether the audio has caught up, Reset and Done. Names and shortcuts show on hover. */}
       <div className="flex flex-wrap items-center gap-2">
-        <h3 className="text-[13.5px] font-semibold text-slate-100">Edit timing</h3>
-        <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/12 text-amber-300">
-          {editedCount === 0 ? 'No hand edits' : `${editedCount} line${editedCount === 1 ? '' : 's'} edited by hand`}
-        </span>
-        {originalCount > 0 && (
-          <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-cyan-400/12 text-cyan-300">
-            {originalCount} clip{originalCount === 1 ? '' : 's'} of the original
+        <h3 className="text-[13.5px] font-semibold text-slate-100 mr-1">Edit timing</h3>
+        {problems.length > 0 ? (
+          <span
+            role="group"
+            aria-label="Lines out of sync"
+            title={`Lines that start more than ${tolerance.toFixed(2)} s off the original's, or run into the next line. Step through them with the arrows.`}
+            className="h-8 pl-2.5 pr-1 rounded-lg border border-amber-400/25 bg-amber-400/10 flex items-center gap-2 text-[12px] font-semibold text-amber-200 whitespace-nowrap"
+          >
+            <TriangleAlert className="w-3.5 h-3.5 text-amber-300" />
+            {problems.length} out of sync
+            <span className="flex items-center border-l border-amber-400/25 pl-1">
+              <button type="button" onClick={() => stepProblem(-1)} aria-label="Previous line out of sync" title="Previous line out of sync" className="h-6 w-6 rounded flex items-center justify-center hover:bg-amber-400/15 cursor-default">
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="min-w-[2.25rem] text-center font-mono text-[11px] font-normal text-amber-300/80 tabular-nums">
+                {problemAt >= 0 ? problemAt + 1 : '–'}/{problems.length}
+              </span>
+              <button type="button" onClick={() => stepProblem(1)} aria-label="Next line out of sync" title="Next line out of sync" className="h-6 w-6 rounded flex items-center justify-center hover:bg-amber-400/15 cursor-default">
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          </span>
+        ) : (
+          <span className="h-8 px-2.5 rounded-lg bg-emerald-500/12 flex items-center gap-1.5 text-[12px] font-semibold text-emerald-300 whitespace-nowrap">
+            <Check className="w-3.5 h-3.5" /> {lineCount === 1 ? 'In sync' : `All ${lineCount} in sync`}
           </span>
         )}
-        <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300">
-          {inSync} of {lineCount} in sync
-        </span>
         {dubOverlaps.length > 0 && (
-          <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300" title="Lines playing over each other, marked red on the lane. Both are heard there.">
+          <span className="text-[11.5px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/15 text-rose-300 whitespace-nowrap" title="Lines playing over each other, marked red on the lane. Both are heard there.">
             {dubOverlaps.length} overlap{dubOverlaps.length === 1 ? '' : 's'}
           </span>
         )}
-        <span aria-live="polite" className="flex items-center gap-1.5 text-[11.5px] text-slate-400">
-          {status.state === 'pending' || status.state === 'rendering' ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" /> {live ? 'Playing your edits live · saving the file…' : 'Updating the audio…'}
-            </>
-          ) : status.state === 'error' ? (
-            <span className="flex items-center gap-1.5 text-rose-300">
-              <TriangleAlert className="w-3.5 h-3.5" /> {status.message}
-              <button type="button" onClick={onRetry} className="underline underline-offset-2 hover:text-rose-200 cursor-default">
-                Try again
-              </button>
-            </span>
-          ) : (
-            <>
-              <Check className="w-3.5 h-3.5 text-emerald-400" /> Audio up to date
-            </>
-          )}
-        </span>
-        <span className="ml-auto flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={act.resetAll}
-            disabled={!hasEdits(committed)}
-            className="h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5"
-          >
-            <RotateCcw className="w-3.5 h-3.5" /> Reset all edits
-          </button>
-          <button type="button" onClick={onClose} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-xs font-semibold text-white cursor-default flex items-center gap-1.5">
-            <Check className="w-3.5 h-3.5" /> Done
-          </button>
-        </span>
-      </div>
-      {status.notice && <p className="text-[12px] text-amber-300">{status.notice}</p>}
-      {onMarkersChange && (
-        <MarkerList
-          markers={markers}
-          onJump={(m) => {
-            zoom.setFollow(true);
-            onSeek(m.time);
-            setEditingMarker(m.id);
-          }}
-        />
-      )}
-
-      {/* Tools: names and shortcuts show on hover */}
-      <div className="flex flex-wrap items-center gap-2">
+        <span aria-hidden="true" className="w-px h-5 bg-slate-700 mx-1" />
         <div className="flex gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5">
           <ToolButton label="Blade" shortcut="B" hint="On: a click cuts a line in two there. Off: S splits at the pointer or the playhead." pressed={blade} onClick={() => { alignmentRequest.current?.abort(); rangeDrag.current = null; setAligningRange(false); setTakeRange(null); setRangeWords(null); setRangeTool(false); setBlade((v) => !v); }}>
             <Scissors className="w-4 h-4" />
@@ -4106,28 +4133,64 @@ export const SyncEditTimeline: React.FC<{
             </ActionButton>
           )}
         </div>
-        <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Zoom">
-          <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
-            <ZoomOut className="w-4 h-4" />
-          </button>
-          <span className="min-w-[3.5rem] text-center font-mono text-[11px] text-slate-400 tabular-nums">{windowSeconds < 1 ? `${Math.round(windowSeconds * 1000)} ms` : windowSeconds < 60 ? `${Math.round(windowSeconds)} s` : `${(windowSeconds / 60).toFixed(1)} min`}</span>
-          <button type="button" onClick={() => zoom.zoomBy(0.5)} disabled={!zoom.canZoomIn} title="Zoom in (=)" aria-label="Zoom in" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
-            <ZoomIn className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Whole track (Shift + Z; again to zoom back)" className="h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
-            <Maximize2 className="w-3.5 h-3.5" /> Fit
-          </button>
-        </div>
         <button
           type="button"
           onClick={() => setShowHelp(true)}
           title="Shortcuts, and how editing works (?)"
+          aria-label="Shortcuts"
           aria-keyshortcuts="?"
-          className="h-9 px-2.5 rounded-xl border border-edge bg-slate-950 flex items-center gap-1.5 text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
+          className="h-9 w-9 rounded-xl border border-edge bg-slate-950 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
         >
-          <CircleHelp className="w-4 h-4" /> Shortcuts
+          <CircleHelp className="w-4 h-4" />
         </button>
+        {!zoomSlot && zoomGroup}
+        <span className="ml-auto flex items-center gap-2.5">
+          <span aria-live="polite" className="flex items-center gap-1.5 text-[11.5px] text-slate-400 whitespace-nowrap">
+            {status.state === 'pending' || status.state === 'rendering' ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> {live ? 'Playing live · saving…' : 'Saving…'}
+              </>
+            ) : status.state === 'error' ? (
+              <span className="flex items-center gap-1.5 text-rose-300">
+                <TriangleAlert className="w-3.5 h-3.5 shrink-0" />
+                <span className="max-w-[16rem] truncate" title={status.message}>{status.message}</span>
+                <button type="button" onClick={onRetry} className="underline underline-offset-2 hover:text-rose-200 cursor-default">
+                  Try again
+                </button>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5" title="The audio is up to date with your edits">
+                <Check className="w-3.5 h-3.5 text-emerald-400" /> Saved
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={act.resetAll}
+            disabled={!hasEdits(committed)}
+            title={editedCount > 0 ? `Reset all edits (${editedCount} line${editedCount === 1 ? '' : 's'} edited by hand)` : 'Reset all edits'}
+            aria-label="Reset all edits"
+            className="h-8 w-8 rounded-lg border border-slate-700 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+          </button>
+          <button type="button" onClick={onClose} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-xs font-semibold text-white cursor-default flex items-center gap-1.5">
+            <Check className="w-3.5 h-3.5" /> Done
+          </button>
+        </span>
       </div>
+      {zoomSlot && createPortal(zoomGroup, zoomSlot)}
+      {status.notice && <p className="text-[12px] text-amber-300">{status.notice}</p>}
+      {onMarkersChange && (
+        <MarkerList
+          markers={markers}
+          onJump={(m) => {
+            zoom.setFollow(true);
+            onSeek(m.time);
+            setEditingMarker(m.id);
+          }}
+        />
+      )}
 
       {/* The picked line: one row, so the lanes keep the room. With nothing picked it stays empty but keeps its height, so the lanes don't jump on a click. */}
       <section
@@ -4223,6 +4286,33 @@ export const SyncEditTimeline: React.FC<{
             {!current.original && !currentLocked && isEdited(committed, current.key) && (
               <span className="text-[11px] text-slate-500 whitespace-nowrap" title="Not locked: Sync again places it itself, and its edits go">
                 Not locked
+              </span>
+            )}
+            {!current.original && currentProblem && (
+              // Why it is out of sync, and the one action that fixes most of it.
+              <span className="flex items-center gap-2 whitespace-nowrap">
+                <span className="flex items-center gap-1.5 text-[12px] text-amber-300">
+                  <TriangleAlert className="w-3.5 h-3.5" /> {currentProblem.text}
+                </span>
+                {currentProblem.fix === 'align' ? (
+                  <button
+                    type="button"
+                    onClick={act.align}
+                    title="Move the line so its first word starts with the original's"
+                    className="h-7 px-2.5 rounded-md bg-amber-400/15 hover:bg-amber-400/25 text-[11.5px] font-semibold text-amber-200 cursor-default flex items-center gap-1.5"
+                  >
+                    <AlignStartVertical className="w-3.5 h-3.5" /> Align <kbd className="font-mono text-[10px] font-normal text-amber-300/80">A</kbd>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={openTighten}
+                    title="Take the long silences out of this line so it ends sooner: see what is cut, listen, then apply"
+                    className="h-7 px-2.5 rounded-md bg-amber-400/15 hover:bg-amber-400/25 text-[11.5px] font-semibold text-amber-200 cursor-default flex items-center gap-1.5"
+                  >
+                    <FoldHorizontal className="w-3.5 h-3.5" /> Tighten <kbd className="font-mono text-[10px] font-normal text-amber-300/80">Q</kbd>
+                  </button>
+                )}
               </span>
             )}
             {current.file ? (
