@@ -131,7 +131,6 @@ import { PageScrollLock } from './usePageScrollLock';
  *              lines only make room for their own, so speakers may overlap
  *              as they do in the original
  *   script     what each line says, under where it plays
- *   drift      each line's start error against the tolerance band
  *   overview   under the lanes, like a scrollbar: the whole dub, each line
  *              coloured by how it lands; the frame is the stretch on screen,
  *              and dragging it scrolls
@@ -2715,9 +2714,13 @@ export const SyncEditTimeline: React.FC<{
       if (!hasEdits(committed)) return;
       // The clips on tracks are not edits of the dub: they stay.
       const kept = audioClipsOf(committed);
+      const lines = Object.keys(committed).filter((key) => !isClip(key)).length;
+      if (lines === 0) return say('The dub is as Sync placed it. Only clips on your tracks are left; delete a track to take its clips off.');
       commit(kept, 'Reset all edits');
       setSelected(null);
-      if (hasEdits(kept)) say('The dub is as Sync placed it. The clips on your tracks stay; delete a track to take its clips off.');
+      // No confirm box: Reset all is one step in the project's saved history, so Undo brings every edit back.
+      const reset = `${lines === 1 ? '1 line' : `${lines} lines`} back to where Sync placed them. Undo (Ctrl + Z) brings your edits back.`;
+      say(hasEdits(kept) ? `${reset} The clips on your tracks stay.` : reset);
     },
     nudge: (seconds: number) => {
       if (group.length === 0) return;
@@ -3649,7 +3652,6 @@ export const SyncEditTimeline: React.FC<{
     [baseReport]
   );
   const statusColor = (chunk: Chunk) => (chunk.original ? laneHue(chunk) : landing(chunk.unit, tolerance).color);
-  const driftY = (offset: number) => 50 - clamp(offset / 0.6, -1, 1) * 40;
   const laneCursor = blade || rangeTool ? 'crosshair' : drag.current ? ZONE_CURSOR[drag.current.zone] : hover ? ZONE_CURSOR[hover.zone] : 'default';
   /** A cut being pointed at or rolled lights the edge across it too, so both parts read as one cut. */
   const seamLit = (() => {
@@ -4438,7 +4440,6 @@ export const SyncEditTimeline: React.FC<{
           {laneGrips('main')}
           </div>
           <div className="h-6 px-2 flex items-center text-[10.5px] text-slate-500 border-b border-edge">Script</div>
-          <div className="h-10 px-2 flex items-center text-[10.5px] text-slate-500">Start drift</div>
         </div>
 
         <div
@@ -4576,26 +4577,6 @@ export const SyncEditTimeline: React.FC<{
               >
                 {unit.text}
               </span>
-            ))}
-            </div>
-          </div>
-
-          {/* Drift: each line's start error, against the tolerance band */}
-          <div className="relative h-10 overflow-hidden">
-            <span
-              aria-hidden="true"
-              className="absolute left-0 right-0 bg-emerald-400/[0.07] border-y border-dashed border-emerald-400/30 pointer-events-none"
-              style={{ top: `${driftY(tolerance)}%`, bottom: `${100 - driftY(-tolerance)}%` }}
-            />
-            <span aria-hidden="true" className="absolute left-0 right-0 top-1/2 border-t border-edge pointer-events-none" />
-            <div ref={zoom.strip} className="absolute inset-0">
-            {spoken.map((unit) => (
-              <span
-                key={unit.key}
-                title={`Line ${(unitIndexByKey.get(unit.key) ?? 0) + 1}: ${formatShift(unit.offset as number)}`}
-                className={`absolute w-2 h-2 -ml-1 -mt-1 rounded-full ${current?.key === unit.key ? 'ring-2 ring-slate-100' : ''}`}
-                style={{ left: `${pct(unit.srcStart)}%`, top: `${driftY(unit.offset as number)}%`, background: landing(unit, tolerance).color }}
-              />
             ))}
             </div>
           </div>
