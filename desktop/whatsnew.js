@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.84',
+    changes: [
+      'Edit timing’s line tools (Split, Join, Align, Mute, Lock, Split at pauses, Tighten, Takes) now sit in one row at the top, beside Blade, Snap and Undo.',
+      'After Sync, Undo, History and Edit timing sit on the timeline’s zoom row, and the playing line shows just its two sentences. The review video opens only when you add or show it.',
+    ],
+  },
+  {
     version: '1.4.83',
     changes: [
       'Every place you pick a voice (Voice, Speakers, Text to speech, Voice changer, Voice settings) now shows a short list first: the voices in this dub, your favourites, recently used and a few suggested for your language. Search finds any other.',
