@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CircleHelp, Mic } from 'lucide-react';
+import { CircleHelp } from 'lucide-react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
 import { LINE_HUES, hueOf, withAlpha } from './lineColors';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
@@ -59,13 +59,10 @@ export const SyncAlignmentView: React.FC<{
   onNextLine?: () => void;
   /** More of the player's controls, after the legend: speed, video. */
   transportExtras?: React.ReactNode;
-  /** Opens the picked-out line's retake window: new takes, or other words. Takes shows only with it. */
-  onOpenTakes?: (unit: SyncUnitReport) => void;
+  /** On the zoom's row, at its left: undo, history, Edit timing. */
+  toolbar?: React.ReactNode;
   /** A click on a lane: with this, the player decides (a lane not being heard starts that track there). */
   onSeekTrack?: (track: 'source' | 'synth', time: number) => void;
-  /** The languages of the original and the dub, for the picked-out line's tags. */
-  sourceLanguage?: string;
-  dubLanguage?: string;
 }> = ({
   report,
   reportedTime,
@@ -80,10 +77,8 @@ export const SyncAlignmentView: React.FC<{
   onPrevLine,
   onNextLine,
   transportExtras,
-  onOpenTakes,
+  toolbar,
   onSeekTrack,
-  sourceLanguage,
-  dubLanguage,
 }) => {
   // The clocks and the line under the playhead use tenths; the playheads move every frame through playheadRef.
   const currentTime = useLiveTime(reportedTime, isPlaying, getLiveTime, 0.1);
@@ -186,7 +181,6 @@ export const SyncAlignmentView: React.FC<{
   );
 
   const laneLabel = 'flex items-center gap-1.5 text-[11px] text-slate-400';
-  const lineAction = 'h-7 px-2.5 rounded-lg border border-slate-700 text-[11.5px] font-sans text-slate-200 hover:bg-slate-800 hover:text-white flex items-center gap-1.5 cursor-default';
   /** A track header cell: the track's colour down its left edge, then its name and mixer. */
   const headCell = (stripe: string, children: React.ReactNode) => (
     <div className="flex min-w-0 self-stretch border-r border-b border-edge bg-slate-900/80">
@@ -198,7 +192,12 @@ export const SyncAlignmentView: React.FC<{
 
   return (
     <div className="flex flex-col gap-2" onMouseLeave={() => setHovered(null)}>
-      <TimelineZoomControls zoom={zoom} />
+      {/* One row over the lanes: the editing tools on the left, zoom on the right */}
+      <div className="flex flex-wrap items-center gap-2">
+        {toolbar}
+        <span className="flex-1" />
+        <TimelineZoomControls zoom={zoom} />
+      </div>
 
       {/* The arrange view, as in REAPER: track headers on the left, the ruler and lanes on the right, the scroll bar along their foot. */}
       <div className="rounded-xl border border-edge bg-slate-950/50 overflow-hidden">
@@ -326,16 +325,7 @@ export const SyncAlignmentView: React.FC<{
           // Its timing is on the lanes and in Edit timing; here only the words: the original above, the dub below.
           <span className="flex-1 min-w-0 flex items-center gap-3 text-[12px]" aria-live="polite">
             {focus ? (
-              <>
-                <LinePair large source={focus.sourceText} dub={focus.text} sourceLanguage={sourceLanguage} dubLanguage={dubLanguage} />
-                <span className="flex items-center gap-2 shrink-0">
-                  {onOpenTakes && !focus.silent && (
-                    <button type="button" onClick={() => onOpenTakes(focus)} className={lineAction} title="Retake this line, or change its words, in the retake window">
-                      <Mic className="w-3 h-3" /> Takes
-                    </button>
-                  )}
-                </span>
-              </>
+              <LinePair large source={focus.sourceText} dub={focus.text} />
             ) : (
               <span className="text-slate-500">Hover a line to see how it landed, or press play.</span>
             )}

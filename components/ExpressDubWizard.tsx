@@ -871,9 +871,13 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [editingTiming, setEditingTiming] = useState(false);
   /** A local video to watch the dub against; it is only looked at, never part of the project. */
   const reviewVideo = useReviewVideo(activeJob?.id);
-  /** The floating video's ✕ hides it; a new video shows again. */
-  const [reviewVideoHidden, setReviewVideoHidden] = useState(false);
-  useEffect(() => setReviewVideoHidden(false), [reviewVideo.video]);
+  /**
+   * The video's window is open on the Dub page. It never opens by itself when a
+   * project opens: only Add video or Show video opens it. Leaving the Dub page
+   * and coming back opens it again; ✕, or closing or switching the project, shuts it.
+   */
+  const [reviewVideoShown, setReviewVideoShown] = useState(false);
+  useEffect(() => setReviewVideoShown(false), [activeJob?.id]);
   /** Dub step, once synced: the Voice and delivery window, from the Voice button on the player's row. */
   const [voiceOpen, setVoiceOpen] = useState(false);
   /** The line whose retake window is open: from Edit timing, or from the line picked in the synced player. */
@@ -4507,6 +4511,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  setReviewVideoShown(true);
                   // In a browser the video's window opens now and picks the file itself.
                   if (!hasDub || !reserveReviewWindow((doc) => reviewVideo.pick(doc))) reviewVideo.pick();
                 }}
@@ -4516,12 +4521,12 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 <Video className="w-3.5 h-3.5" /> Add video
               </button>
             )}
-            {reviewVideo.video && reviewVideoHidden && (
+            {reviewVideo.video && !reviewVideoShown && (
               <button
                 type="button"
                 onClick={() => {
                   if (hasDub) reserveReviewWindow();
-                  setReviewVideoHidden(false);
+                  setReviewVideoShown(true);
                 }}
                 className="h-8 px-2.5 rounded-lg border border-edge text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800 flex items-center gap-1.5 cursor-default"
               >
@@ -4557,6 +4562,68 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           );
         }
 
+        /** Once synced, on the timeline's zoom row, at its left: undo, history and Edit timing. */
+        const syncTools = canEditTiming ? (
+          <>
+            {projectHistory && (
+              <div
+                className="flex items-center gap-1"
+                role="group"
+                aria-label="Undo and history"
+              >
+                <button
+                  type="button"
+                  onClick={() => projectHistory.goTo(projectHistory.at - 1)}
+                  disabled={!projectHistory.labels.undo}
+                  title={projectHistory.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Nothing to undo'}
+                  aria-label="Undo"
+                  className="h-8 w-8 rounded-lg border border-edge flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
+                >
+                  <Undo2 className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => projectHistory.goTo(projectHistory.at + 1)}
+                  disabled={!projectHistory.labels.redo}
+                  title={projectHistory.labels.redo ? `Redo: ${projectHistory.labels.redo} (Ctrl + Shift + Z)` : 'Nothing to redo'}
+                  aria-label="Redo"
+                  className="h-8 w-8 rounded-lg border border-edge flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
+                >
+                  <Redo2 className="w-4 h-4" />
+                </button>
+                {projectHistory.entries.length > 1 && <HistoryMenu history={projectHistory} />}
+              </div>
+            )}
+            {!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('Undo the voice change? The dub goes back to the voice it had before, with its timing edits, and the new voice is thrown away.')) onUndoVoiceChange();
+                }}
+                title="Put back the dub from before the voice change, so its timing can be edited again"
+                className="h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5"
+              >
+                <RotateCcw className="w-3.5 h-3.5" /> Undo voice change
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setEditingTiming(true)}
+              disabled={!activeJob.syncBank}
+              title={
+                activeJob.syncBank
+                  ? 'Move, trim, split and stretch the synced lines by hand'
+                  : activeJob.syncBeforeVoiceChange
+                    ? 'The voice change replaced the whole file: undo it, or Sync again, to edit the timing'
+                    : 'Sync again to edit the timing of this dub'
+              }
+              className={`h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5`}
+            >
+              <Pencil className="w-3.5 h-3.5" /> Edit timing
+            </button>
+          </>
+        ) : null;
+
         return (
         <div className="flex-1 flex flex-col gap-4 animate-in fade-in duration-200">
           {report && !isSyncing && (
@@ -4568,76 +4635,14 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onUsePreset={syncWithPreset}
               onGoTo={seekSource}
               mixWarnings={multiSpeaker && activeJob.syncMix ? mixWarnings(activeJob.syncMix) : undefined}
-              part="notices"
+              // How the sync went, in a bar of its own over the player; while Edit timing is open, only what needs saying.
+              part={timingOpen ? 'notices' : undefined}
             />
           )}
           {report && !isSyncing && autoFitPanel}
           {/* Transport: the lines worth a listen play through it; once synced, the original over the synced dub */}
           {hasDub && (
             <section aria-label="Player" data-menu-bounds="" className="bg-slate-900/90 border border-edge rounded-2xl px-4 py-3 flex flex-col gap-3">
-              {report && canEditTiming && !(editingTiming && activeJob.syncBank && activeJob.syncBaseReport) && (
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* How the sync went on the left; undo, history and Edit timing on the right. What syncs and saves is in the dock under the timeline. */}
-                  <SyncStatusBar part="status" report={report} presetNow={joinPresetLabel(syncOptions)} presetSuggestion={lengthSuggestion} onGoTo={seekSource} />
-                  <span className="flex-1" />
-                  {projectHistory && (
-                    <div
-                      className="flex items-center gap-1"
-                      role="group"
-                      aria-label="Undo and history"
-                    >
-                      <button
-                        type="button"
-                        onClick={() => projectHistory.goTo(projectHistory.at - 1)}
-                        disabled={!projectHistory.labels.undo}
-                        title={projectHistory.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Nothing to undo'}
-                        aria-label="Undo"
-                        className="h-8 w-8 rounded-lg border border-edge flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
-                      >
-                        <Undo2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => projectHistory.goTo(projectHistory.at + 1)}
-                        disabled={!projectHistory.labels.redo}
-                        title={projectHistory.labels.redo ? `Redo: ${projectHistory.labels.redo} (Ctrl + Shift + Z)` : 'Nothing to redo'}
-                        aria-label="Redo"
-                        className="h-8 w-8 rounded-lg border border-edge flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
-                      >
-                        <Redo2 className="w-4 h-4" />
-                      </button>
-                      {projectHistory.entries.length > 1 && <HistoryMenu history={projectHistory} />}
-                    </div>
-                  )}
-                  {!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm('Undo the voice change? The dub goes back to the voice it had before, with its timing edits, and the new voice is thrown away.')) onUndoVoiceChange();
-                      }}
-                      title="Put back the dub from before the voice change, so its timing can be edited again"
-                      className="h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 cursor-default flex items-center gap-1.5"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" /> Undo voice change
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setEditingTiming(true)}
-                    disabled={!activeJob.syncBank}
-                    title={
-                      activeJob.syncBank
-                        ? 'Move, trim, split and stretch the synced lines by hand'
-                        : activeJob.syncBeforeVoiceChange
-                          ? 'The voice change replaced the whole file: undo it, or Sync again, to edit the timing'
-                          : 'Sync again to edit the timing of this dub'
-                    }
-                    className={`h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5`}
-                  >
-                    <Pencil className="w-3.5 h-3.5" /> Edit timing
-                  </button>
-                </div>
-              )}
               {report && editingTiming && activeJob.syncBank && activeJob.syncBaseReport && onSyncEditsChange && (
                 <SyncEditTimeline
                   bank={activeJob.syncBank}
@@ -4742,17 +4747,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                   onPrevLine={prevCue}
                   onNextLine={nextCue}
                   transportExtras={playerExtras}
-                  onOpenTakes={
-                    renderTakes
-                      ? (unit) => {
-                          setTimingTakesKey(unit.key);
-                          setTimingTakesCopy(null);
-                          setTimingTakesPhrase(null);
-                        }
-                      : undefined
-                  }
-                  sourceLanguage={subtitleSourceLanguage}
-                  dubLanguage={targetLanguage}
+                  toolbar={syncTools}
                   onSeekTrack={(track, t) => {
                     // A lane not being heard starts being heard there; a lane being heard just moves.
                     const leftOut = track === 'source' ? trackMode === 'synth' : trackMode === 'source';
@@ -4793,7 +4788,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               </span>
               <span aria-live="polite" className="flex-1 min-w-[12rem] flex">
                 {activeCue ? (
-                  <LinePair source={getSourceText(activeCue)} dub={getTargetText(activeCue)} sourceLanguage={subtitleSourceLanguage} dubLanguage={targetLanguage} />
+                  <LinePair source={getSourceText(activeCue)} dub={getTargetText(activeCue)} />
                 ) : (
                   <span className="text-xs text-slate-500">Press play.</span>
                 )}
@@ -4834,7 +4829,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               )}
             </section>
           )}
-          {hasDub && reviewVideo.video && !reviewVideoHidden && (
+          {hasDub && reviewVideo.video && reviewVideoShown && (
             <ReviewVideoFloat
               video={reviewVideo.video}
               {...reviewClock}
@@ -4848,7 +4843,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               onTrackMode={(mode) => switchTrack(mode)}
               onReplace={reviewVideo.pick}
               onRemove={reviewVideo.clear}
-              onHide={() => setReviewVideoHidden(true)}
+              onHide={() => setReviewVideoShown(false)}
             />
           )}
 
