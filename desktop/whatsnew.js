@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.85',
+    changes: [
+      'Edit timing fits in one row at the top. “2 out of sync ‹ ›” steps through the lines that are off, and a picked line says why with a one-click fix: Align when it starts late or early, Tighten when it runs into the next line.',
+      'Edit timing’s zoom buttons now sit at the right end of the play row.',
+    ],
+  },
+  {
     version: '1.4.84',
     changes: [
       'Edit timing’s line tools (Split, Join, Align, Mute, Lock, Split at pauses, Tighten, Takes) now sit in one row at the top, beside Blade, Snap and Undo.',
