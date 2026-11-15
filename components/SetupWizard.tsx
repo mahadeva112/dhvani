@@ -1368,7 +1368,7 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
         icon={KeyRound}
         tone="slate"
         widthClassName="max-w-[62rem]"
-        heightClassName="sm:h-[min(43rem,100%)]"
+        heightClassName="sm:h-[min(48rem,100%)]"
         titleId="setup-title"
         bodyScrolls={false}
         bodyClassName="@container"
@@ -1440,24 +1440,29 @@ export const SetupWizard: React.FC<SetupWizardProps> = ({
           </>
         }
       >
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin] grid content-start @3xl:overflow-hidden @3xl:grid-cols-[18rem_minmax(0,1fr)] @3xl:grid-rows-[minmax(0,1fr)]">
-          {/* Left: the steps, then Try it and what leaves this computer for the picked one */}
-          <div className="min-w-0 p-4 flex flex-col gap-4 bg-slate-950/40 border-b @3xl:border-b-0 @3xl:border-r border-edge @3xl:overflow-y-auto overscroll-contain [scrollbar-width:thin]">
-            <div className="min-w-0">
-              <div id="api-steps-label" className="px-1 pb-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
-                Steps
-              </div>
-              <div role="tablist" aria-labelledby="api-steps-label" className="grid gap-1 @xl:@max-3xl:grid-cols-3">
-                {steps.map((view) => (
-                  <StepRow key={view.id} view={view} status={statusOf(view)} active={view.id === step} changed={dirty[view.id]} onPick={() => setStep(view.id)} />
-                ))}
-              </div>
-            </div>
-            <div className="min-w-0 grid">{liveCards('@xl:@max-3xl:grid-cols-2', '@3xl:flex @3xl:flex-col')}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain [scrollbar-width:thin] flex flex-col @3xl:overflow-hidden">
+          {/* The pipeline: Media, the three steps with a dot running between them, the dub */}
+          <div role="tablist" aria-label="Steps" className="shrink-0 flex items-stretch px-4 @xl:px-6 py-4 border-b border-edge">
+            <FlowEnd Icon={FileAudio} label="Media" />
+            {steps.map((view, i) => (
+              <React.Fragment key={view.id}>
+                <FlowLink label={view.carries} first={i === 0} />
+                <StepCard view={view} status={statusOf(view)} active={view.id === step} changed={dirty[view.id]} onPick={() => setStep(view.id)} />
+              </React.Fragment>
+            ))}
+            <FlowLink label="Dub audio" last />
+            <FlowEnd Icon={AudioLines} label="Dub" />
           </div>
 
-          {/* Right: the picked step's fields */}
-          <div className="@container/stage min-w-0 grid content-start p-5 @3xl:overflow-y-auto overscroll-contain [scrollbar-width:thin]">{stepPanels}</div>
+          <div className="min-w-0 grid content-start @3xl:flex-1 @3xl:min-h-0 @3xl:grid-cols-[18rem_minmax(0,1fr)] @3xl:grid-rows-[minmax(0,1fr)]">
+            {/* Left: Try it and what leaves this computer for the picked step */}
+            <div className="min-w-0 p-4 grid content-start bg-slate-950/40 border-b @3xl:border-b-0 @3xl:border-r border-edge @3xl:overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+              {liveCards('@xl:@max-3xl:grid-cols-2', '@3xl:flex @3xl:flex-col')}
+            </div>
+
+            {/* Right: the picked step's fields */}
+            <div className="@container/stage min-w-0 grid content-start p-5 @3xl:overflow-y-auto overscroll-contain [scrollbar-width:thin]">{stepPanels}</div>
+          </div>
         </div>
       </ToolWindow>
     );
@@ -1726,47 +1731,6 @@ const StepCard: React.FC<{ view: StepView; status: ProbeStatus; active: boolean;
           ) : null}
         </span>
       </span>
-    </button>
-  );
-};
-
-/** One step in the settings window's list: its number, name, who does it with which model, and whether it works. */
-const StepRow: React.FC<{ view: StepView; status: ProbeStatus; active: boolean; changed: boolean; onPick: () => void }> = ({
-  view,
-  status,
-  active,
-  changed,
-  onPick,
-}) => {
-  const word = PROBE_WORDS[status] || PROBE_WORDS.unverified;
-  const said = `${status === 'ok' ? 'Live' : word.word}${status === 'ok' && view.row?.latencyMs ? ` · ${formatLatency(view.row.latencyMs)}` : ''}`;
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onPick}
-      className={`min-w-0 w-full flex items-center gap-2.5 px-2.5 py-2 rounded-[9px] text-left transition-colors cursor-default ${
-        active ? 'bg-slate-800/80 text-white' : 'text-slate-200 hover:bg-slate-800/40'
-      }`}
-    >
-      <kbd className={`w-[18px] h-[18px] shrink-0 rounded flex items-center justify-center text-[10px] font-sans ${active ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
-        {view.key}
-      </kbd>
-      <span className="min-w-0 flex-1 leading-tight">
-        <span className="block text-[13px] font-medium truncate">{view.title}</span>
-        <span className="block mt-0.5 text-[11px] text-slate-500 truncate">
-          {view.engine} · {view.model || 'model not set'}
-        </span>
-      </span>
-      {changed && <span className="shrink-0 text-[10px] px-1.5 rounded bg-amber-500/15 text-amber-300">Changed</span>}
-      <span
-        title={said}
-        className={`w-[7px] h-[7px] shrink-0 rounded-full ${
-          status === 'ok' ? 'bg-emerald-400 api-live-dot' : word.tone === 'warn' ? 'bg-amber-400' : word.tone === 'error' ? 'bg-rose-400' : 'bg-slate-500'
-        }`}
-      />
-      <span className="sr-only">{said}</span>
     </button>
   );
 };
