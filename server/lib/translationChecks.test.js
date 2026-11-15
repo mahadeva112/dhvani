@@ -104,14 +104,71 @@ test('refineBatch restores meaning first, then fits the length', async () => {
     return answers.shift();
   };
   const out = await refineBatch(cues, start, { targetLanguage: 'Bengali', ask });
-  assert.equal(prompts.length, 3);
+  assert.equal(prompts.length, 4);
   assert.match(prompts[0], /strict reviewer/);
   assert.match(prompts[1], /"ruled" is missing/);
   assert.match(prompts[2], /id 1: \d+ syllables, the voice has time for about 16/);
+  // The length fix changed a line, so the meaning is checked once more.
+  assert.match(prompts[3], /strict reviewer/);
+  assert.match(prompts[3], /মানবসভ্যতা দীর্ঘদিন ক্ষমতাধর পুরুষদের"/);
   assert.equal(out.meaningFixed, 1);
   assert.equal(out.lengthFixed, 1);
+  assert.equal(out.lengthUndone, 0);
   assert.equal(out.translations.get('1'), 'মানবসভ্যতা দীর্ঘদিন ক্ষমতাধর পুরুষদের');
   assert.equal(out.translations.get('2'), 'শাসনে চলে এসেছে।');
+});
+
+test('a length fix that loses meaning is undone for its sentence, and only for the cues it changed', async () => {
+  const twoSentences = [...cues, { id: '3', text: 'That is the story.', syllables: 6 }];
+  const first = 'মানবসভ্যতা দীর্ঘদিন ধরে ক্ষমতাধর পুরুষদের নিয়ন্ত্রণ';
+  const start = new Map([['1', first], ['2', 'আর শাসনে চলে এসেছে।'], ['3', 'এটাই গল্পটা, এটাই আসল গল্প।']]);
+  const prompts = [];
+  const answers = [
+    { sentences: [] },
+    // Fits the time by dropping "controlled" from the first sentence, and shortens the second.
+    {
+      translations: [
+        { id: '1', translatedText: 'মানবসভ্যতা দীর্ঘদিন' },
+        { id: '2', translatedText: 'পুরুষদের শাসনে।' },
+        { id: '3', translatedText: 'এটাই গল্প।' },
+      ],
+    },
+    {
+      sentences: [
+        { ids: ['1', '2'], problem: '', words: [{ english: 'controlled', translatedAs: '', same: false }] },
+        { ids: ['3'], problem: '', englishShaped: 'word order follows English' },
+      ],
+    },
+  ];
+  const ask = async (prompt) => {
+    prompts.push(prompt);
+    return answers.shift();
+  };
+  const out = await refineBatch(twoSentences, start, { targetLanguage: 'Bengali', ask });
+  // Meaning, one length pass (nothing is long after it), then meaning again.
+  assert.equal(prompts.length, 3);
+  assert.match(prompts[2], /strict reviewer/);
+  assert.equal(out.lengthUndone, 2);
+  // Both changed cues of the sentence that lost "controlled" are back as before the length fix.
+  assert.equal(out.translations.get('1'), first);
+  assert.equal(out.translations.get('2'), 'আর শাসনে চলে এসেছে।');
+  // Reading like English is not lost meaning: that shortening stays.
+  assert.equal(out.translations.get('3'), 'এটাই গল্প।');
+});
+
+test('a meaning recheck that fails keeps the length fix', async () => {
+  const start = new Map([['1', 'মানবসভ্যতা দীর্ঘদিন ধরে ক্ষমতাধর পুরুষদের শাসন ও নিয়ন্ত্রণে'], ['2', 'চলে এসেছে।']]);
+  const answers = [{ sentences: [] }, { translations: [{ id: '1', translatedText: 'মানবসভ্যতা ক্ষমতাধর পুরুষদের শাসনে' }] }];
+  let calls = 0;
+  const ask = async () => {
+    calls += 1;
+    if (!answers.length) throw new Error('unreachable');
+    return answers.shift();
+  };
+  const out = await refineBatch(cues, start, { targetLanguage: 'Bengali', ask });
+  assert.equal(calls, 3);
+  assert.equal(out.lengthUndone, 0);
+  assert.equal(out.translations.get('1'), 'মানবসভ্যতা ক্ষমতাধর পুরুষদের শাসনে');
 });
 
 test('refineBatch survives a failing meaning check and drops length fixes that make things worse', async () => {

@@ -85,7 +85,9 @@ test('cues still long after the first length fix go back once more, and only the
     return answers.shift();
   };
   const out = await refineBatch(pair, new Map([['1', say(20)], ['2', say(16)]]), { targetLanguage: 'Bengali', ask });
-  assert.equal(prompts.length, 3);
+  // Two length passes, then the meaning checked once more over what they changed.
+  assert.equal(prompts.length, 4);
+  assert.match(prompts[3], /strict reviewer/);
   assert.match(prompts[1], /- id 1: 20 syllables[\s\S]*- id 2: 16 syllables/);
   assert.match(prompts[2], /- id 1: 16 syllables/);
   assert.doesNotMatch(prompts[2].split('CUES (JSON)')[0], /- id 2:/);

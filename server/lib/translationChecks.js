@@ -336,8 +336,9 @@ const wordProblems = (words) =>
  * as not the same, so a word flagged in the list is fixed even when the
  * reviewer's summary says nothing, plus where it reads like English, so the
  * fix rebuilds it in the language's own shape. Sentences with no problem are left out.
+ * `shape: false` leaves out where it reads like English: only meaning counts.
  */
-export const readMeaningIssues = (parsed, ids) => {
+export const readMeaningIssues = (parsed, ids, { shape = true } = {}) => {
   const known = new Set(ids);
   const list = Array.isArray(parsed?.sentences) ? parsed.sentences : Array.isArray(parsed?.issues) ? parsed.issues : [];
   return list
@@ -347,7 +348,7 @@ export const readMeaningIssues = (parsed, ids) => {
       const shaped = String(issue?.englishShaped ?? '').trim();
       return {
         ids: (Array.isArray(issue?.ids) ? issue.ids : []).map(String).filter((id) => known.has(id)),
-        problem: [said && !NO_PROBLEM.test(said) ? said : '', words, shaped && !NO_PROBLEM.test(shaped) ? `reads like English: ${shaped}` : ''].filter(Boolean).join('; '),
+        problem: [said && !NO_PROBLEM.test(said) ? said : '', words, shape && shaped && !NO_PROBLEM.test(shaped) ? `reads like English: ${shaped}` : ''].filter(Boolean).join('; '),
       };
     })
     .filter((issue) => issue.ids.length > 0 && issue.problem);

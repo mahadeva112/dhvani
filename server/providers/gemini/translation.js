@@ -273,12 +273,15 @@ const askJson = async (prompt, { apiKey, models, temperature, effort = writeEffo
  *    that miss go back to the model with the counts; the fix is kept only
  *    when it leaves the batch closer to right, and it must keep every idea.
  *    Cues still long after that go back once more, on their own.
- * 3. Key terms: a cue that says one of `terms` (the talk's key terms so far)
+ * 3. Meaning again, when the length fix changed a cue: a changed cue in a
+ *    sentence that now says less goes back to its line from before the
+ *    length fix (`lengthUndone`).
+ * 4. Key terms: a cue that says one of `terms` (the talk's key terms so far)
  *    with another word is asked to use the listed word.
  * A check that fails (the model unreachable or its answer unreadable) leaves
  * the translation as it was: the checks only ever improve it.
  *
- * @returns {Promise<{translations: Map<string,string>, lengthFixed: number, meaningFixed: number, termsFixed: number}>}
+ * @returns {Promise<{translations: Map<string,string>, lengthFixed: number, lengthUndone: number, meaningFixed: number, termsFixed: number}>}
  */
 export const refineBatch = async (batch, translated, { targetLanguage, customPrompt = '', terms = [], apiKey, models, ask = askJson } = {}) => {
   let translations = new Map(translated);
@@ -303,6 +306,7 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
 
   // Length last, so a word the meaning check put back is fitted to the time
   // too. The second pass sends back only the cues still long after the first.
+  const beforeLength = translations;
   for (const find of [cueIssues, longIssues]) {
     const issues = find(batch, translations);
     if (!issues.length) continue;
@@ -316,6 +320,27 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
       }
     } catch (err) {
       logger.warn(`Translation length check skipped: ${err?.message || err}`);
+    }
+  }
+
+  // The length fix is judged by syllables only, so a shorter line that lost
+  // a word (or got back the word the meaning check restored) would pass.
+  // The meaning is checked once more, and every cue the length fix changed
+  // in a sentence that lost meaning goes back to its line from before: a
+  // clear line a little long beats a short one that says less.
+  let lengthUndone = 0;
+  const shortened = ids.filter((id) => translations.get(id) !== beforeLength.get(id));
+  if (shortened.length) {
+    try {
+      const review = await ask(buildMeaningReviewPrompt({ cues: batch, translations, targetLanguage }), { apiKey, models, temperature: 0, effort: reviewEffort() });
+      const undo = new Set(readMeaningIssues(review, ids, { shape: false }).flatMap((issue) => issue.ids).filter((id) => shortened.includes(id)));
+      if (undo.size) {
+        translations = new Map(translations);
+        for (const id of undo) translations.set(id, beforeLength.get(id));
+        lengthUndone = undo.size;
+      }
+    } catch (err) {
+      logger.warn(`Translation meaning recheck skipped: ${err?.message || err}`);
     }
   }
 
@@ -337,7 +362,7 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
     }
   }
 
-  return { translations, lengthFixed, meaningFixed, termsFixed };
+  return { translations, lengthFixed, lengthUndone, meaningFixed, termsFixed };
 };
 
 /** Lines of context on each side of a batch, so a sentence cut by a batch boundary still reads whole. */
@@ -451,6 +476,7 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
     missingIds,
     failedBatches,
     lengthFixed: 0,
+    lengthUndone: 0,
     meaningFixed: 0,
     retriedBatches: 0,
     termsFixed: 0,
@@ -515,6 +541,7 @@ const translateBatchesChecked = async (
   let failedBatches = 0;
   let firstError = null;
   let lengthFixed = 0;
+  let lengthUndone = 0;
   let meaningFixed = 0;
   let retriedBatches = 0;
   let termsFixed = 0;
@@ -547,7 +574,7 @@ const translateBatchesChecked = async (
     const attempt = async () => {
       const outcome = await translateBatch({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, apiKey, models, generate });
       modelUsed = outcome.modelUsed;
-      if (!check) return { translations: outcome.result, lengthFixed: 0, meaningFixed: 0, termsFixed: 0, terms: outcome.terms };
+      if (!check) return { translations: outcome.result, lengthFixed: 0, lengthUndone: 0, meaningFixed: 0, termsFixed: 0, terms: outcome.terms };
       onProgress?.({
         stage: 'translating',
         batch: finished + 1,
@@ -573,6 +600,7 @@ const translateBatchesChecked = async (
       }
     }
     lengthFixed += kept.lengthFixed;
+    lengthUndone += kept.lengthUndone;
     meaningFixed += kept.meaningFixed;
     termsFixed += kept.termsFixed;
     terms = mergeTerms(terms, kept.terms, kept.translations);
@@ -629,9 +657,9 @@ const translateBatchesChecked = async (
   if (missingIds.length > 0) {
     logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
   }
-  if (lengthFixed || meaningFixed || retriedBatches || termsFixed) {
+  if (lengthFixed || lengthUndone || meaningFixed || retriedBatches || termsFixed) {
     logger.info(
-      `Translation checks refit ${lengthFixed} cue(s) for length, restored the meaning of ${meaningFixed} and made ${termsFixed} use the talk's key term` +
+      `Translation checks refit ${lengthFixed} cue(s) for length, restored the meaning of ${meaningFixed}, undid ${lengthUndone} length fit(s) that lost meaning and made ${termsFixed} use the talk's key term` +
         (retriedBatches ? `; ${retriedBatches} batch(es) far too long were translated again.` : '.')
     );
   }
@@ -643,6 +671,7 @@ const translateBatchesChecked = async (
     missingIds,
     failedBatches,
     lengthFixed,
+    lengthUndone,
     meaningFixed,
     retriedBatches,
     termsFixed,
