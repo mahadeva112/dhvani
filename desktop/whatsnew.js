@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.86',
+    changes: [
+      'Translate no longer drops meaningful words to fit a line’s time. After a line is shortened, its meaning is checked against the English again, and a sentence that lost a word keeps its fuller line.',
+    ],
+  },
+  {
     version: '1.4.85',
     changes: [
       'Edit timing fits in one row at the top. “2 out of sync ‹ ›” steps through the lines that are off, and a picked line says why with a one-click fix: Align when it starts late or early, Tighten when it runs into the next line.',
