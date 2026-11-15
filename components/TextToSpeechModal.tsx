@@ -1336,6 +1336,8 @@ export const TextToSpeechModal: React.FC<TextToSpeechModalProps> = ({
             <VoiceSelectorCard
               elVoiceId={voiceId}
               onElVoiceIdChange={selectVoice}
+              shortlist
+              layout="list"
               availableVoices={engineVoices}
               targetLanguage={prefs.language}
               voiceEngine={engine}

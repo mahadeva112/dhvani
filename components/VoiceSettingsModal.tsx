@@ -887,6 +887,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({
             <VoiceSelectorCard
               elVoiceId={elVoiceId}
               onElVoiceIdChange={onElVoiceIdChange}
+              shortlist
+              layout="list"
               availableVoices={voices}
               targetLanguage={targetLanguage}
               className="h-[78vh]"

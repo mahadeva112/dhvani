@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { AlertTriangle, Check, Clock, Loader2, Minus, X as XIcon } from 'lucide-react';
 import type { Voice } from '../services/elevenLabsService';
+import { getFavoriteVoices } from '../services/favoriteVoicesService';
+import { readRecentVoices } from './VoiceSelectorCard';
 import { ORIGINAL_LANE, VOICE_CHANGE_FLAG_SHARE, type LaneClip, type LineProgress } from '../services/voiceChangeService';
 
 /**
@@ -11,6 +13,8 @@ import { ORIGINAL_LANE, VOICE_CHANGE_FLAG_SHARE, type LaneClip, type LineProgres
 
 /** What a speaker is changed into: a voice id, or KEEP for their own voice. */
 export const KEEP = 'keep';
+/** The dropdown's last choice: opens the whole library for that speaker. */
+const BROWSE = 'browse';
 
 /** Each speaker's colour, in the order they first speak; the original is grey. */
 const SPEAKER_TONES = [
@@ -42,19 +46,26 @@ export const formatChange = (change: number) => `${change >= 0 ? '+' : '−'}${M
 export const SpeakerVoiceRows: React.FC<{
   speakers: { name: string; lines: number }[];
   voices: Voice[];
+  /** Listed in each dropdown besides the chosen, favourite and recently used voices, e.g. the dub's own voice. */
+  pinnedIds?: string[];
   chosen: Record<string, string>;
   onChoose: (speaker: string, voiceId: string) => void;
   onBrowse: (speaker: string) => void;
   hasOriginalClips: boolean;
   disabled: boolean;
-}> = ({ speakers, voices, chosen, onChoose, onBrowse, hasOriginalClips, disabled }) => {
+}> = ({ speakers, voices, pinnedIds, chosen, onChoose, onBrowse, hasOriginalClips, disabled }) => {
   const names = speakers.map((s) => s.name);
+  // A short set, not the whole library (thousands of names): the rest is in Browse.
+  const shortVoices = useMemo(() => {
+    const ids = new Set([...(pinnedIds || []), ...Object.values(chosen), ...getFavoriteVoices().map((f) => f.id), ...readRecentVoices()]);
+    return voices.filter((v) => ids.has(v.voice_id));
+  }, [voices, pinnedIds, chosen]);
   return (
     <div className="flex flex-col gap-2">
       {speakers.map((speaker) => {
         const value = chosen[speaker.name] ?? KEEP;
         const keep = value === KEEP;
-        const known = keep || voices.some((v) => v.voice_id === value);
+        const known = keep || shortVoices.some((v) => v.voice_id === value);
         return (
           <div
             key={speaker.name}
@@ -76,16 +87,17 @@ export const SpeakerVoiceRows: React.FC<{
               aria-label={`Voice for ${speaker.name}`}
               value={value}
               disabled={disabled}
-              onChange={(e) => onChoose(speaker.name, e.target.value)}
+              onChange={(e) => (e.target.value === BROWSE ? onBrowse(speaker.name) : onChoose(speaker.name, e.target.value))}
               className="col-span-2 sm:col-span-1 w-full h-9 bg-slate-950/60 border border-slate-700 focus:border-indigo-500 rounded-[9px] px-2.5 text-[12.5px] text-slate-100 focus:outline-none cursor-default disabled:opacity-50"
             >
               <option value={KEEP} className="bg-slate-900">Keep as is</option>
               {!known && <option value={value} className="bg-slate-900">Chosen voice</option>}
-              {voices.map((v) => (
+              {shortVoices.map((v) => (
                 <option key={v.voice_id} value={v.voice_id} className="bg-slate-900">
                   {shortName(v.name)}
                 </option>
               ))}
+              <option value={BROWSE} className="bg-slate-900">More voices…</option>
             </select>
             <button
               type="button"

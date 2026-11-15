@@ -5230,6 +5230,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             <VoiceSelectorCard
               elVoiceId={castPickFor ? activeJob?.cast?.[castPickFor]?.voiceId || elVoiceId : elVoiceId}
               onElVoiceIdChange={castPickFor && onCastChange ? (id) => onCastChange(castPickFor, id) : onElVoiceIdChange}
+              shortlist
+              layout="list"
+              pinnedVoiceIds={setupPinnedVoices}
               availableVoices={availableVoices}
               loading={voicesLoading}
               targetLanguage={targetLanguage}

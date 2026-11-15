@@ -918,6 +918,7 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
                     <SpeakerVoiceRows
                       speakers={lineByLine.speakers}
                       voices={stsVoices}
+                      pinnedIds={[targetVoiceId]}
                       chosen={speakerVoices}
                       onChoose={(speaker, id) => setSpeakerVoices((prev) => ({ ...prev, [speaker]: id }))}
                       onBrowse={(speaker) => {
@@ -1509,6 +1510,9 @@ export const VoiceChangerModal: React.FC<VoiceChangerModalProps> = ({
               elVoiceId={pickerFor ? speakerVoices[pickerFor] ?? '' : targetVoiceId}
               onElVoiceIdChange={(id) => (pickerFor ? setSpeakerVoices((prev) => ({ ...prev, [pickerFor]: id })) : setTargetVoiceId(id))}
               availableVoices={stsVoices}
+              shortlist
+              layout="list"
+              pinnedVoiceIds={[targetVoiceId, ...Object.values(speakerVoices).filter((id) => id !== KEEP)]}
               targetLanguage={targetLanguage}
               className="h-[78vh]"
             />

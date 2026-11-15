@@ -205,7 +205,7 @@ interface VoiceSelectorCardProps {
 /** Voices picked lately, newest first, for the short set. */
 const RECENT_VOICES_KEY = 'dhvani_recent_voices';
 const RECENT_VOICES_MAX = 12;
-const readRecentVoices = (): string[] => {
+export const readRecentVoices = (): string[] => {
   try {
     const list = JSON.parse(localStorage.getItem(RECENT_VOICES_KEY) || '[]');
     return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string') : [];
