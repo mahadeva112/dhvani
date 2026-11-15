@@ -188,7 +188,33 @@ interface VoiceSelectorCardProps {
    * placeholder cards instead of the built-in list, so it fills once, not twice.
    */
   loading?: boolean;
+  /** Replaces the "Dubbing voice" title, e.g. "Voice for Speaker 2". */
+  heading?: React.ReactNode;
+  /**
+   * Until something is typed or filtered, list only a short set: the voices in
+   * this dub, favourites, recently used and a few suggested for the dub
+   * language. The whole library is a search away.
+   */
+  shortlist?: boolean;
+  /** Voices listed first in the short set (the main voice and the cast's). */
+  pinnedVoiceIds?: string[];
+  /** One voice a row instead of a grid of cards. */
+  layout?: 'grid' | 'list';
 }
+
+/** Voices picked lately, newest first, for the short set. */
+const RECENT_VOICES_KEY = 'dhvani_recent_voices';
+const RECENT_VOICES_MAX = 12;
+const readRecentVoices = (): string[] => {
+  try {
+    const list = JSON.parse(localStorage.getItem(RECENT_VOICES_KEY) || '[]');
+    return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+/** Suggested voices in the short set. */
+const SUGGESTED_COUNT = 8;
 
 /** A voice plus the precomputed fields the search ranks against. */
 interface IndexedVoice extends VoiceItem {
@@ -354,7 +380,13 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   voiceEngine = 'elevenlabs',
   onVoiceEngineChange,
   loading = false,
+  heading,
+  shortlist = false,
+  pinnedVoiceIds,
+  layout = 'grid',
 }) => {
+  const list = layout === 'list';
+  const [recentIds, setRecentIds] = useState<string[]>(readRecentVoices);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all');
@@ -546,6 +578,44 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     favoritesOnly,
   ].filter(Boolean).length;
 
+  // The short set, in groups, until a search or filter asks for the whole library.
+  const groups = useMemo(() => {
+    if (!shortlist || tokens.length || activeFilterCount > 0) return null;
+    const byId = new Map(allVoices.map((v) => [v.id, v]));
+    const seen = new Set<string>();
+    const take = (ids: string[]) => {
+      const out: IndexedVoice[] = [];
+      for (const id of ids) {
+        const v = byId.get(id);
+        if (v && !seen.has(id)) {
+          seen.add(id);
+          out.push(v);
+        }
+      }
+      return out;
+    };
+    const result = [
+      { key: 'dub', label: 'In this dub', voices: take(pinnedVoiceIds || [elVoiceId]) },
+      { key: 'favourites', label: 'Favourites', voices: take(favorites.map((f) => f.id)) },
+      { key: 'recent', label: 'Recently used', voices: take(recentIds) },
+      {
+        key: 'suggested',
+        label: `Suggested for ${targetLanguage}`,
+        // Voices of the dub language before ones only verified in it. Instant clones are left out:
+        // an account can hold thousands, often named by an ID, and search finds them.
+        voices: take(
+          filteredVoices
+            .filter((v) => v.languageFit > 0 && !seen.has(v.id) && !v.category.toLowerCase().includes('clon'))
+            .sort((a, b) => b.languageFit - a.languageFit)
+            .slice(0, SUGGESTED_COUNT)
+            .map((v) => v.id),
+        ),
+      },
+    ].filter((g) => g.voices.length > 0);
+    return result;
+  }, [shortlist, tokens, activeFilterCount, allVoices, pinnedVoiceIds, elVoiceId, favorites, recentIds, filteredVoices, targetLanguage]);
+  const shortlistCount = groups ? groups.reduce((n, g) => n + g.voices.length, 0) : 0;
+
   const resetFilters = () => {
     setSearchQuery('');
     setCategoryFilter('all');
@@ -598,7 +668,16 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     }
   };
 
-  const selectVoice = (id: string) => onElVoiceIdChange(id);
+  const selectVoice = (id: string) => {
+    onElVoiceIdChange(id);
+    setRecentIds((prev) => {
+      const next = [id, ...prev.filter((x) => x !== id)].slice(0, RECENT_VOICES_MAX);
+      try {
+        localStorage.setItem(RECENT_VOICES_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
 
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const last = filteredVoices.length - 1;
@@ -643,7 +722,8 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   const [rowHeight, setRowHeight] = useState<number | null>(null);
   useLayoutEffect(() => {
     const el = listRef.current;
-    if (!el || !hasVoices) return;
+    // Rows and the grouped short set keep their natural height.
+    if (!el || !hasVoices || list || groups) return;
     const fit = () => {
       const bodies = el.querySelectorAll<HTMLElement>('[data-card-body]');
       if (!bodies.length) return;
@@ -671,7 +751,152 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     const ro = new ResizeObserver(fit);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [hasVoices, visibleVoices.length]);
+  }, [hasVoices, visibleVoices.length, list, groups]);
+
+  /** One voice: a card in the grid, or a row in the list. */
+  const renderVoice = (v: IndexedVoice, idx: number) => {
+    const isSelected = v.id === elVoiceId;
+    const isPlaying = playingVoiceId === v.id;
+    const isHighlighted = idx === highlightIndex && searchQuery.length > 0;
+    const fav = isFavorite(v.id);
+    // Library names often carry a tagline: "Aaditya - Rich, Deep and Suspenseful".
+    const [title, ...rest] = v.name.split(/\s+[-–—|]\s+/);
+    const tagline = rest.join(' – ');
+    const subtitle = tagline || v.desc || capitalize(v.category);
+    const showAccent = v.accent !== 'Neutral' && v.accent !== 'Standard';
+    const tags = (
+      <>
+        {v.languageFit > 0 && (
+          <span
+            className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-300"
+            title={
+              v.languageFit === 2
+                ? `A ${targetLanguage} voice`
+                : `Verified by ${VOICE_ENGINE_LABELS[voiceEngine]} in ${targetLanguage}`
+            }
+          >
+            {targetLanguage}
+          </span>
+        )}
+        {v.gender !== 'neutral' && (
+          <span className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-300">
+            {capitalize(v.gender)}
+          </span>
+        )}
+        {showAccent && (
+          <span className="truncate text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-400">
+            <Highlight text={v.accent} tokens={tokens} />
+          </span>
+        )}
+      </>
+    );
+
+    return (
+      <div
+        key={v.id}
+        id={`voice-opt-${v.id}`}
+        role="option"
+        aria-selected={isSelected}
+        tabIndex={0}
+        data-idx={idx}
+        onClick={() => selectVoice(v.id)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            selectVoice(v.id);
+          }
+        }}
+        className={`group relative flex items-center gap-3 rounded-xl border cursor-default transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+          list ? 'px-3 py-2' : 'p-3 snap-start'
+        } ${
+          isSelected
+            ? list
+              ? 'border-indigo-500/70 bg-indigo-950/40'
+              : 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
+            : isHighlighted
+              ? 'border-slate-600 bg-slate-800'
+              : list
+                ? 'border-transparent hover:bg-slate-800/50'
+                : 'border-edge bg-slate-950/60 hover:border-slate-700 hover:bg-slate-800/50'
+        }`}
+      >
+        {/* Avatar doubles as the preview button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            handleTogglePreview(v.id, v.previewUrl);
+          }}
+          disabled={!v.previewUrl}
+          className={`relative ${list ? 'w-9 h-9' : 'w-10 h-10'} rounded-full bg-gradient-to-br ${avatarGradient(v.id)} text-white flex items-center justify-center font-semibold text-sm shrink-0 ${
+            v.previewUrl ? 'cursor-default' : ''
+          }`}
+          title={v.previewUrl ? (isPlaying ? 'Stop preview' : `Play ${v.name} preview`) : 'No preview available'}
+        >
+          <span className={isPlaying ? 'opacity-0' : v.previewUrl ? 'group-hover:opacity-0 transition-opacity' : ''}>
+            {v.name.charAt(0).toUpperCase()}
+          </span>
+          {v.previewUrl && (
+            <span
+              className={`absolute inset-0 flex items-center justify-center rounded-full bg-black/40 transition-opacity ${
+                isPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              }`}
+            >
+              {isPlaying ? (
+                <Square className="w-3.5 h-3.5 fill-current animate-pulse" />
+              ) : (
+                <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
+              )}
+            </span>
+          )}
+        </button>
+
+        <div data-card-body className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span
+              className={`text-[13.5px] font-semibold truncate ${isSelected ? 'text-indigo-100' : 'text-slate-100'}`}
+              title={v.name}
+            >
+              <Highlight text={title} tokens={tokens} />
+            </span>
+            <span className="flex-1" />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleToggleFavorite(v);
+              }}
+              className={`p-1 -m-1 rounded-md transition-opacity shrink-0 cursor-default ${
+                fav
+                  ? 'text-amber-300'
+                  : 'text-slate-500 hover:text-amber-200 opacity-0 group-hover:opacity-100 focus:opacity-100'
+              }`}
+              title={fav ? 'Remove from favourites' : 'Add to favourites'}
+              aria-label={fav ? `Remove ${v.name} from favourites` : `Add ${v.name} to favourites`}
+            >
+              <Star className={`w-3.5 h-3.5 ${fav ? 'fill-current' : ''}`} />
+            </button>
+            {isSelected && !list && <Check className="w-4 h-4 text-indigo-400 shrink-0" aria-label="Selected" />}
+          </div>
+
+          <p className="text-xs text-slate-400 truncate mt-0.5" title={subtitle}>
+            <Highlight text={subtitle} tokens={tokens} />
+          </p>
+
+          {!list && <div className="flex items-center gap-1 mt-2 overflow-hidden whitespace-nowrap">{tags}</div>}
+        </div>
+
+        {list && <div className="hidden md:flex items-center gap-1 shrink-0 max-w-[40%] overflow-hidden whitespace-nowrap">{tags}</div>}
+        {list && (isSelected ? (
+          <Check className="w-4 h-4 text-indigo-400 shrink-0" aria-label="Selected" />
+        ) : (
+          <span aria-hidden="true" className="shrink-0 px-2.5 py-1 rounded-lg border border-edge text-[11.5px] font-medium text-slate-200 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100">
+            Use
+          </span>
+        ))}
+      </div>
+    );
+  };
 
   return (
     <section
@@ -682,11 +907,13 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       {/* Heading */}
       <div className="flex items-start justify-between gap-3 px-4 sm:px-5 pt-4">
         <div className="min-w-0">
-          <h2 id="voice-library-heading" className="text-[15px] font-semibold text-slate-100 leading-tight">
-            Dubbing voice
+          <h2 id="voice-library-heading" className="flex items-center gap-2 text-[15px] font-semibold text-slate-100 leading-tight">
+            {heading ?? 'Dubbing voice'}
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Voices that speak {targetLanguage} are shown first. Play a preview before you choose.
+            {shortlist
+              ? `Your voices first. Search to find any voice in your library; ${targetLanguage} voices come first.`
+              : `Voices that speak ${targetLanguage} are shown first. Play a preview before you choose.`}
           </p>
         </div>
         <div className="shrink-0 flex items-center gap-3">
@@ -740,7 +967,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={handleSearchKeyDown}
-            placeholder="Search voices"
+            placeholder={shortlist && allVoices.length > 0 ? `Search all ${allVoices.length.toLocaleString()} voices` : 'Search voices'}
             title="Search by name, accent, style or voice ID"
             className="w-full h-9 bg-slate-950 border border-edge rounded-xl pl-9 pr-10 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/15 transition-all"
             spellCheck={false}
@@ -893,7 +1120,9 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         role="listbox"
         aria-label="Voices"
         onScroll={handleListScroll}
-        className="flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar px-4 py-2.5 snap-y snap-mandatory scroll-pt-2.5"
+        className={`flex-1 min-h-0 max-h-[32rem] lg:max-h-none overflow-y-auto custom-scrollbar ${
+          list ? 'px-2.5 py-2' : 'px-4 py-2.5'
+        } ${list || groups ? '' : 'snap-y snap-mandatory scroll-pt-2.5'}`}
       >
         {awaitingLibrary ? (
           <div
@@ -911,6 +1140,29 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                 </div>
               </div>
             ))}
+          </div>
+        ) : groups && groups.length > 0 ? (
+          // The short set: a heading per group, then its voices.
+          <div className="flex flex-col gap-4">
+            {groups.map((g, gi) => {
+              const offset = groups.slice(0, gi).reduce((n, x) => n + x.voices.length, 0);
+              return (
+                <div key={g.key} role="group" aria-label={g.label} className="flex flex-col gap-1.5">
+                  <div className="px-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                    {g.label} <span className="font-mono text-slate-600 tabular-nums">{g.voices.length}</span>
+                  </div>
+                  <div
+                    className={
+                      list
+                        ? 'flex flex-col gap-0.5'
+                        : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5'
+                    }
+                  >
+                    {g.voices.map((v, i) => renderVoice(v, offset + i))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ) : filteredVoices.length === 0 ? (
           <div className="p-8 text-center rounded-xl border border-dashed border-edge space-y-2">
@@ -932,138 +1184,16 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
           </div>
         ) : (
           <div
-            className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5"
-            style={rowHeight ? { gridAutoRows: `${rowHeight}px` } : undefined}
+            className={
+              list ? 'flex flex-col gap-0.5' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5'
+            }
+            style={rowHeight && !list ? { gridAutoRows: `${rowHeight}px` } : undefined}
           >
-            {visibleVoices.map((v, idx) => {
-              const isSelected = v.id === elVoiceId;
-              const isPlaying = playingVoiceId === v.id;
-              const isHighlighted = idx === highlightIndex && searchQuery.length > 0;
-              const fav = isFavorite(v.id);
-              // Library names often carry a tagline: "Aaditya - Rich, Deep and Suspenseful".
-              const [title, ...rest] = v.name.split(/\s+[-–—|]\s+/);
-              const tagline = rest.join(' – ');
-              const subtitle = tagline || v.desc || capitalize(v.category);
-              const showAccent = v.accent !== 'Neutral' && v.accent !== 'Standard';
-
-              return (
-                <div
-                  key={v.id}
-                  id={`voice-opt-${v.id}`}
-                  role="option"
-                  aria-selected={isSelected}
-                  tabIndex={0}
-                  data-idx={idx}
-                  onClick={() => selectVoice(v.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      selectVoice(v.id);
-                    }
-                  }}
-                  className={`group relative flex items-center gap-3 p-3 rounded-xl border snap-start cursor-default transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
-                    isSelected
-                      ? 'border-indigo-500 bg-indigo-950/40 ring-4 ring-indigo-500/10'
-                      : isHighlighted
-                        ? 'border-slate-600 bg-slate-800'
-                        : 'border-edge bg-slate-950/60 hover:border-slate-700 hover:bg-slate-800/50'
-                  }`}
-                >
-                  {/* Avatar doubles as the preview button */}
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleTogglePreview(v.id, v.previewUrl);
-                    }}
-                    disabled={!v.previewUrl}
-                    className={`relative w-10 h-10 rounded-full bg-gradient-to-br ${avatarGradient(v.id)} text-white flex items-center justify-center font-semibold text-sm shrink-0 ${
-                      v.previewUrl ? 'cursor-default' : ''
-                    }`}
-                    title={v.previewUrl ? (isPlaying ? 'Stop preview' : `Play ${v.name} preview`) : 'No preview available'}
-                  >
-                    <span className={isPlaying ? 'opacity-0' : v.previewUrl ? 'group-hover:opacity-0 transition-opacity' : ''}>
-                      {v.name.charAt(0).toUpperCase()}
-                    </span>
-                    {v.previewUrl && (
-                      <span
-                        className={`absolute inset-0 flex items-center justify-center rounded-full bg-black/40 transition-opacity ${
-                          isPlaying ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-                        }`}
-                      >
-                        {isPlaying ? (
-                          <Square className="w-3.5 h-3.5 fill-current animate-pulse" />
-                        ) : (
-                          <Play className="w-3.5 h-3.5 fill-current ml-0.5" />
-                        )}
-                      </span>
-                    )}
-                  </button>
-
-                  <div data-card-body className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span
-                        className={`text-[13.5px] font-semibold truncate ${isSelected ? 'text-indigo-100' : 'text-slate-100'}`}
-                        title={v.name}
-                      >
-                        <Highlight text={title} tokens={tokens} />
-                      </span>
-                      <span className="flex-1" />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleFavorite(v);
-                        }}
-                        className={`p-1 -m-1 rounded-md transition-opacity shrink-0 cursor-default ${
-                          fav
-                            ? 'text-amber-300'
-                            : 'text-slate-500 hover:text-amber-200 opacity-0 group-hover:opacity-100 focus:opacity-100'
-                        }`}
-                        title={fav ? 'Remove from favourites' : 'Add to favourites'}
-                        aria-label={fav ? `Remove ${v.name} from favourites` : `Add ${v.name} to favourites`}
-                      >
-                        <Star className={`w-3.5 h-3.5 ${fav ? 'fill-current' : ''}`} />
-                      </button>
-                      {isSelected && <Check className="w-4 h-4 text-indigo-400 shrink-0" aria-label="Selected" />}
-                    </div>
-
-                    <p className="text-xs text-slate-400 truncate mt-0.5" title={subtitle}>
-                      <Highlight text={subtitle} tokens={tokens} />
-                    </p>
-
-                    <div className="flex items-center gap-1 mt-2 overflow-hidden whitespace-nowrap">
-                      {v.languageFit > 0 && (
-                        <span
-                          className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-cyan-500/10 text-cyan-300"
-                          title={
-                            v.languageFit === 2
-                              ? `A ${targetLanguage} voice`
-                              : `Verified by ${VOICE_ENGINE_LABELS[voiceEngine]} in ${targetLanguage}`
-                          }
-                        >
-                          {targetLanguage}
-                        </span>
-                      )}
-                      {v.gender !== 'neutral' && (
-                        <span className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-300">
-                          {capitalize(v.gender)}
-                        </span>
-                      )}
-                      {showAccent && (
-                        <span className="truncate text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-400">
-                          <Highlight text={v.accent} tokens={tokens} />
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {visibleVoices.map((v, idx) => renderVoice(v, idx))}
           </div>
         )}
 
-        {visibleCount < filteredVoices.length && (
+        {!groups && visibleCount < filteredVoices.length && (
           <button
             type="button"
             onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
@@ -1077,7 +1207,9 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       {/* Footer */}
       <div className="flex items-center justify-between gap-2 px-4 sm:px-5 py-2.5 border-t border-edge text-[11px] text-slate-500">
         <span className="tabular-nums">
-          {awaitingLibrary ? 'Loading your voice library…' : <>
+          {awaitingLibrary ? 'Loading your voice library…' : groups && groups.length > 0 ? (
+            `${shortlistCount} of ${allVoices.length.toLocaleString()} voices · type to search the rest`
+          ) : <>
           Showing {Math.min(visibleCount, filteredVoices.length).toLocaleString()} of{' '}
           {filteredVoices.length.toLocaleString()} {filteredVoices.length === 1 ? 'voice' : 'voices'}
           {tokens.length > 0 ? ' · best match first' : ''}

@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Source Voice Mocks 3</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  // Graphite, as index.css swaps it.
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .scroll::-webkit-scrollbar { width:8px } .scroll::-webkit-scrollbar-thumb { background:#34363c; border-radius:8px } .scroll::-webkit-scrollbar-track { background:transparent }
+  .sw { width:34px; height:19px; border-radius:999px; background:#34363c; position:relative; flex-shrink:0; display:inline-block; }
+  .sw::after { content:''; position:absolute; top:3px; left:3px; width:13px; height:13px; border-radius:50%; background:#fff; transition:left .15s; }
+  .sw.on { background:#5866e0; } .sw.on::after { left:18px; }
+  .pop { box-shadow: 0 24px 60px -12px rgba(0,0,0,.85); }
+  .eq span { display:inline-block; width:2px; margin:0 .5px; background:currentColor; border-radius:1px; animation: eq .9s ease-in-out infinite; }
+  .eq span:nth-child(2) { animation-delay:.2s } .eq span:nth-child(3) { animation-delay:.4s }
+  @keyframes eq { 0%,100% { height:4px } 50% { height:12px } }
+  .fold { background: repeating-linear-gradient(90deg,#f43f5e 0 8px,transparent 8px 14px); height:2px; }
+  button, select { cursor:default; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[100rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<div class="max-w-[100rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">অবস্থা</span>
+  <span id="stateSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+  <span class="ml-3 px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">Window</span>
+  <span id="hSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<p id="note" class="max-w-[100rem] mx-auto mb-4 text-[13.5px] text-slate-300 leading-relaxed"></p>
+
+<div class="max-w-[100rem] mx-auto">
+  <div id="frame" class="relative rounded-2xl border border-slate-700 overflow-hidden bg-slate-950 flex flex-col"></div>
+  <p class="mt-2 text-[11.5px] text-slate-500">ফ্রেমটা app-এর window — উচ্চতা উপরের "Window" দিয়ে বদলাও। লাল দাগ = window-এর নিচের কিনারা; তার নিচে যা আছে দেখতে scroll লাগে।</p>
+</div>
+
+<script>
+const ICON = {
+  film: '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>',
+  swap: '<path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+  arrow: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  arrowR: '<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+  chevR: '<path d="m9 18 6-6-6-6"/>',
+  x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  gauge: '<path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/>',
+  wave: '<path d="M2 13a2 2 0 0 0 2-2V7a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0V4a2 2 0 0 1 4 0v13a2 2 0 0 0 4 0v-4a2 2 0 0 1 2-2"/>',
+  speech: '<path d="M8.8 20v-4.1l1.9.2a2.3 2.3 0 0 0 2.164-2.1V8.3A5.37 5.37 0 0 0 2 8.25c0 2.8.656 3.054 1 4.55a5.77 5.77 0 0 1 .029 2.758L2 20"/><path d="M19.8 17.8a7.5 7.5 0 0 0 .003-10.603"/><path d="M17 15a3.5 3.5 0 0 0-.025-4.975"/>',
+  refresh: '<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>',
+  folder: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+  plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+  filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
+};
+const ic = (n, c = 'w-4 h-4') => `<svg class="${c} shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
+
+// id, name, description, gender, group (fav | clone | used | lib), hue
+const VOICES = [
+  ['tanmay', '00_Tanmay Bhat Podcast', 'Middle aged', 'Male', 'fav', 205],
+  ['c1', '0ErFUEONO6UCyzV5JLS5', 'Cloned', '', 'clone', 290],
+  ['c2', '2l2r9BDVhOvZ05QZUZdq', 'Cloned', '', 'clone', 215],
+  ['c3', '3S5F64BzY8IEm63FThZL', 'Cloned', '', 'clone', 225],
+  ['c4', '3TnhEdvDUbRSEbTwnaOs', 'Cloned', '', 'clone', 150],
+  ['aaditya', 'Aaditya Kapur', 'Calm Conversational Hindi Voice', 'Male', 'used', 220],
+  ['aarohi', 'Aarohi', 'Calm Hindi Narrator', 'Female', 'used', 160],
+  ['aakash', 'Aakash Aryan', 'Conversational Voice', 'Male', 'lib', 30],
+  ['aaliyah', 'Aaliyah', 'Young · Narrative story', 'Female', 'lib', 210],
+  ['aarav', 'Aarav R', 'Natural, Deep Indian Hindi', 'Male', 'lib', 265],
+  ['abhii', 'Abhii', 'Young & Natural Hindi Voice', 'Male', 'lib', 160],
+  ['abhishek', 'Abhishek', 'Warm, Calm and Polished', 'Male', 'lib', 210],
+  ['adarsh', 'Adarsh', 'Emotive Hindi Voice', 'Male', 'lib', 220],
+  ['aarush', 'Aarush', 'TV-Style Mythology Narrator', 'Male', 'lib', 265],
+  ['aditi', 'Aditi', 'Soft spoken teacher', 'Female', 'lib', 330],
+  ['kabir', 'Kabir', 'Storyteller, warm', 'Male', 'lib', 30],
+];
+const GROUP = { fav: 'Favourites', clone: 'Your cloned voices', used: 'Used in your projects', lib: 'Suggested for Hindi' };
+const SPEAKERS = [
+  { n: 1, share: 62, hue: 250, note: 'speaks most' },
+  { n: 2, share: 28, hue: 170 },
+  { n: 3, share: 10, hue: 30 },
+];
+const RATE = { tanmay: 5.5, aaditya: 4.6, aarohi: 4.2, aakash: 5.0, abhishek: 4.4 };
+
+const MOCKS = {
+  now: { label: 'এখন', note: 'এখনকার পাতা, তুলনার জন্য। Cast অবস্থায় 720 px-এ Transcribe লাল দাগের নিচে চলে যায়; বাঁয়ে 5,254টা voice-এর grid।' },
+  E: { label: 'Mock E · ডানে Cast, বাঁয়ে voice তালিকা', note: 'চেনা দুই কলাম, কিন্তু পরিষ্কার। ডানে ছোট panel: ভাষা, Speakers (1·2·3·4+·Detect), আর Cast — Main voice ও প্রতিটা speaker এক লাইনে। কোনো সারি চাপলে বাঁয়ের তালিকা সেই speaker-এর জন্য voice বাছে, উপরের wave-এ শুধু তার অংশ উজ্জ্বল হয়। তালিকায় শুধু তোমার voice (Favourites, Cloned, Used); বাকি 5,254 শুধু search করলে। Transcribe panel-এর নিচে আটকানো, কখনও নামে না। Voice changer / TTS উপরের Tools-এ।' },
+  F: { label: 'Mock F · উপরে toolbar, মাঝে Cast টেবিল', note: 'সব setup এক সারির toolbar-এ — ফাইল, Spoken in ⇄ Dub into, Speakers, আর ডানে Transcribe (সবসময় উপরে)। মাঝে বড় wave, speaker-এর রঙে ভাগ করা। তার নিচে একটা টেবিল: প্রতিটা speaker → তার voice। "▶ Original" দিয়ে আসল লোকটার গলা শোনো, পাশেই নতুন voice-এর ▶ আর গতি (syl/s, Fast হলে হলুদ)। Change চাপলে মাঝখানের window — My voices আগে, search করলে সব। পাতায় voice library নেই।' },
+};
+const STATES = { one: 'এক speaker', multi: 'More than one (3) — transcribe-এর আগে', cast: 'Speaker পাওয়া গেছে (Cast)' };
+const HEIGHTS = { 900: 'বড় · 900 px', 720: 'Laptop · 720 px' };
+
+const S = { mock: 'E', st: 'cast', h: 720, tab: 'mine', q: '', voice: 'tanmay', playing: null, cast: { 1: null, 2: 'aarohi', 3: null }, slot: 0, win: null, wtab: 'mine', wq: '' };
+try { const s = JSON.parse(localStorage.getItem('sourceVoiceMock3') || '{}'); Object.assign(S, { mock: MOCKS[s.mock] ? s.mock : S.mock, st: s.st || S.st, h: s.h || S.h }); } catch {}
+
+const vById = (id) => VOICES.find((v) => v[0] === id);
+const multi = () => S.st !== 'one';
+const known = () => S.st === 'cast';
+const mine = () => VOICES.filter((v) => v[4] !== 'lib');
+
+// ---------- shared pieces ----------
+const avatar = (v, size = 'w-9 h-9 text-[13px]') => `<span class="${size} rounded-full flex items-center justify-center font-semibold shrink-0 text-white" style="background:linear-gradient(135deg,hsl(${v[5]} 75% 55%),hsl(${v[5] + 30} 70% 45%))">${v[1][0].toUpperCase()}</span>`;
+const playBtn = (v, cls = 'w-8 h-8') => {
+  const on = S.playing === v[0];
+  return `<button data-act="play" data-v="${v[0]}" title="${on ? 'Stop preview' : 'Play preview'}" class="${cls} rounded-full flex items-center justify-center shrink-0 ${on ? 'bg-indigo-500 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-200'}">${on ? '<span class="eq flex items-center h-3"><span></span><span></span><span></span></span>' : ic('play', 'w-3.5 h-3.5 ml-0.5')}</button>`;
+};
+const tag = (t) => `<span class="text-[10px] px-1.5 py-px rounded bg-slate-800 text-slate-300 font-semibold">${t}</span>`;
+const fav = (v) => v[4] === 'fav' ? `<span class="text-amber-400">${ic('star', 'w-3.5 h-3.5 fill-current')}</span>` : '';
+
+function sel(value, options, cls = '') {
+  return `<div class="relative ${cls}"><select class="appearance-none w-full h-10 bg-slate-950 border border-edge hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 focus:outline-none focus:border-indigo-500">
+    ${options.map((o) => `<option ${o === value ? 'selected' : ''} class="bg-slate-900">${o}</option>`).join('')}</select>
+    <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">${ic('chev')}</span></div>`;
+}
+const langPair = (labels = true) => `<div class="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+  <label class="flex flex-col gap-1.5 min-w-0">${labels ? '<span class="text-xs text-slate-400">Spoken in</span>' : ''}${sel('English', ['Auto detect', 'English', 'Hindi', 'Bangla'])}</label>
+  <button class="w-9 h-10 flex items-center justify-center rounded-xl border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800" title="Swap languages">${ic('swap')}</button>
+  <label class="flex flex-col gap-1.5 min-w-0">${labels ? '<span class="text-xs text-slate-400">Dub into</span>' : ''}${sel('Hindi (हिन्दी)', ['Hindi (हिन्दी)', 'Bangla', 'Tamil'])}</label></div>`;
+
+function speakerSeg() {
+  const cur = S.st === 'one' ? '1' : '3';
+  return `<div class="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">${['1', '2', '3', '4+', 'Detect'].map((l) =>
+    `<button data-act="spk" data-n="${l}" class="h-8 px-2.5 rounded-lg text-[12.5px] font-medium ${cur === l ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'}">${l}</button>`).join('')}</div>`;
+}
+
+function wave(n = 220, h = 'h-10') {
+  let out = '', seed = 7;
+  for (let i = 0; i < n; i++) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const r = seed / 233280;
+    const gap = (i % 41) > 37;
+    out += `<span class="flex-1 rounded-sm bg-cyan-500/70" style="height:${gap ? 4 : 12 + r * 85}%"></span>`;
+  }
+  return `<div class="${h} flex items-center gap-[1.5px]">${out}</div>`;
+}
+
+function mediaStrip(extra = '') {
+  return `<div class="shrink-0 rounded-2xl border border-edge bg-slate-900/90 px-4 py-3 flex items-center gap-3">
+    <span class="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center">${ic('film', 'w-5 h-5')}</span>
+    <div class="min-w-0 w-56"><div class="text-[13.5px] font-semibold truncate">AQMBIXz4LzR9QYPqeBMIqQY8…</div><div class="text-[11.5px] mono text-slate-400">1:08 · 48 kHz stereo · 8.0 MB</div></div>
+    <div class="flex-1 min-w-0">${wave(200, 'h-9')}</div>
+    <button class="px-3 py-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-xs font-semibold text-slate-200">Replace</button>
+    ${extra}
+  </div>`;
+}
+
+const transcribeBtn = (cls = 'h-11 w-full') => `<button class="${cls} flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold active:translate-y-px">${ic('mic')}Transcribe again${ic('arrow')}</button>`;
+const stepsRow = `<ol class="flex items-start pt-1">${['Transcribe', 'Word timings', 'Translate or your script'].map((l, i) =>
+  `<li class="relative flex-1 flex flex-col items-center gap-1 text-center">${i ? `<span class="absolute top-[9px] right-1/2 w-full h-px ${i < 2 ? 'bg-emerald-500/40' : 'bg-slate-700'}"></span>` : ''}
+   <span class="relative w-[18px] h-[18px] rounded-full border flex items-center justify-center text-[10px] ${i < 2 ? 'border-emerald-500 text-emerald-400 bg-slate-950' : 'border-indigo-400 text-indigo-300 bg-slate-950'}">${i < 2 ? ic('check', 'w-2.5 h-2.5') : 3}</span>
+   <span class="text-[10.5px] ${i < 2 ? 'text-slate-400' : 'text-slate-200'}">${l}</span></li>`).join('')}</ol>`;
+
+function rateCard(v) {
+  const r = RATE[v[0]] || 4.8;
+  return `<div class="rounded-xl border border-edge px-3 py-2.5 flex items-center gap-2.5">
+    ${ic('gauge', 'w-4 h-4 text-slate-500')}<div class="min-w-0 flex-1"><div class="text-[10.5px] text-slate-500">Speaking rate in Hindi</div>
+    <div class="text-[13px] font-semibold"><span class="mono">${r.toFixed(1)}</span> syllables/s ${r > 5 ? '<span class="ml-1 text-[10px] px-1.5 py-px rounded bg-amber-400 text-slate-950 font-bold">Fast</span>' : ''}</div></div>
+    <button class="w-8 h-8 rounded-lg border border-edge text-slate-400 hover:bg-slate-800 flex items-center justify-center">${ic('refresh', 'w-3.5 h-3.5')}</button></div>`;
+}
+
+function chosen(v, sub) {
+  return `<div class="rounded-xl border border-edge px-3 py-2.5 flex items-center gap-3">${avatar(v)}
+    <div class="min-w-0 flex-1"><div class="text-[13px] font-semibold truncate">${v[1]}</div><div class="text-[11.5px] text-slate-500">${sub || v[3] || v[2]}</div></div></div>`;
+}
+
+const castVoice = (n) => S.cast[n] ? vById(S.cast[n]) : null;
+function castRows({ compact = false, change = 'Pick' } = {}) {
+  if (!known()) {
+    return `<div class="flex flex-col">${SPEAKERS.map((s) => `<div class="flex items-center gap-2 py-1.5 border-t border-edge first:border-t-0 text-[13px] text-slate-300">
+      <span class="w-2 h-2 rounded-full opacity-70" style="background:hsl(${s.hue} 70% 62%)"></span>Speaker ${s.n}<span class="ml-auto text-[11px] text-slate-500">Main voice</span></div>`).join('')}
+      <p class="text-[11px] text-slate-500 leading-snug pt-1">After transcribing you will see who speaks most, and give each their own voice.</p></div>`;
+  }
+  return `<div class="flex flex-col ${compact ? '' : 'gap-1.5'}">${SPEAKERS.map((s) => {
+    const v = castVoice(s.n);
+    return `<div class="flex items-center gap-2.5 ${compact ? 'py-1.5 border-t border-edge first:border-t-0' : 'rounded-xl border border-edge px-3 py-2'}">
+      <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:hsl(${s.hue} 70% 62%)"></span>
+      <div class="min-w-0 flex-1"><div class="text-[13px] text-slate-100 truncate">Speaker ${s.n} <span class="mono text-[11px] text-slate-500">${s.share}%</span>${s.note ? `<span class="text-[11px] text-slate-500"> · ${s.note}</span>` : ''}</div>
+        ${compact ? '' : `<div class="text-[11.5px] ${v ? 'text-slate-300' : 'text-slate-500'} truncate">${v ? v[1] : 'Main voice · ' + vById(S.voice)[1]}</div>`}</div>
+      ${compact ? `<span class="text-[11.5px] ${v ? 'text-slate-200' : 'text-slate-500'} truncate max-w-[9rem]">${v ? v[1] : 'Main voice'}</span>` : ''}
+      <button data-act="pickfor" data-n="${s.n}" class="h-7 px-2.5 rounded-lg border border-edge text-[11.5px] font-medium text-slate-200 hover:bg-slate-800">${change}</button></div>`;
+  }).join('')}</div>`;
+}
+
+function appBar() {
+  return `<div class="shrink-0 h-14 px-4 flex items-center gap-3 border-b border-edge bg-slate-950">
+    <span class="w-8 h-8 rounded-lg bg-indigo-500 flex items-center justify-center">${ic('wave', 'w-4 h-4 text-white')}</span>
+    <div class="leading-tight"><div class="text-[14px] font-semibold">Dhvani</div><div class="text-[10.5px] text-slate-500">Dubbing studio</div></div>
+    <div class="ml-4 min-w-0"><div class="text-[12.5px] font-semibold truncate">AQMBIXz4LzR9QYPqeBMIqQY8oM8B…</div><div class="text-[11px] text-slate-400">English → Hindi · 1:08 <span class="ml-1 px-1.5 rounded bg-emerald-500/15 text-emerald-300">Dub ready</span></div></div>
+    <div class="flex-1"></div>
+    <div class="flex items-center gap-1 rounded-full border border-edge p-1 text-[12px]">
+      <span class="px-2.5 py-1 rounded-full bg-slate-800 font-semibold"><span class="mr-1 inline-flex w-4 h-4 rounded-full bg-indigo-500 text-[10px] items-center justify-center">1</span>Source &amp; voice</span>
+      <span class="px-2.5 py-1 text-slate-400">✓ Review <span class="text-indigo-300 text-[10.5px]">28 cues</span></span>
+      <span class="px-2.5 py-1 text-slate-400">✓ Dub</span></div>
+    <div class="flex-1"></div>
+    ${S.mock !== 'now' ? `<button class="h-8 px-2.5 rounded-lg border border-edge bg-slate-900 hover:bg-slate-800 text-[12.5px] text-slate-200" title="Voice changer, Text to speech and more">Tools</button>` : ''}
+    <button class="h-8 px-2.5 rounded-lg border border-edge bg-slate-900 text-[12.5px] text-slate-200 flex items-center gap-1.5">${ic('folder', 'w-3.5 h-3.5')}Projects</button>
+    <button class="h-8 px-3 rounded-lg bg-slate-100 text-slate-900 text-[12.5px] font-semibold">+ New dub</button>
+  </div>`;
+}
+
+// ---------- voice cards / rows ----------
+function voiceCard(v) {
+  const on = S.voice === v[0];
+  return `<button data-act="voice" data-v="${v[0]}" class="text-left rounded-xl border ${on ? 'border-indigo-500 bg-indigo-500/10' : 'border-edge bg-slate-900 hover:bg-slate-800/60'} p-3 flex items-start gap-3 min-w-0">
+    ${avatar(v, 'w-10 h-10 text-[14px]')}<span class="min-w-0 flex-1"><span class="flex items-center gap-1.5"><span class="text-[13px] font-semibold truncate">${v[1]}</span>${fav(v)}${on ? `<span class="ml-auto text-indigo-300">${ic('check', 'w-3.5 h-3.5')}</span>` : ''}</span>
+    <span class="block text-[11.5px] text-slate-400 truncate">${v[2]}</span><span class="mt-1.5 flex gap-1">${tag('Hindi')}${v[3] ? tag(v[3]) : ''}</span></span></button>`;
+}
+function voiceRow(v, { use = false } = {}) {
+  const t = S.win !== null ? S.win : S.slot;
+  const on = (t ? (S.cast[t] || S.voice) : S.voice) === v[0];
+  return `<div class="flex items-center gap-3 px-3 py-2 rounded-xl ${on ? 'bg-indigo-500/10 ring-1 ring-indigo-500/60' : 'hover:bg-slate-800/50'}">
+    ${playBtn(v)}${avatar(v, 'w-8 h-8 text-[12px]')}
+    <div class="min-w-0 flex-1"><div class="flex items-center gap-1.5 text-[13px] font-semibold truncate">${v[1]}${fav(v)}</div><div class="text-[11.5px] text-slate-500 truncate">${v[2]}${v[3] ? ' · ' + v[3] : ''}</div></div>
+    ${RATE[v[0]] ? `<span class="hidden xl:inline mono text-[11px] text-slate-500">${RATE[v[0]].toFixed(1)} syl/s</span>` : ''}
+    ${on ? `<span class="h-7 px-2.5 rounded-lg bg-indigo-600 text-white text-[11.5px] font-semibold flex items-center gap-1">${ic('check', 'w-3 h-3')}${pickLabel()}</span>`
+         : `<button data-act="voice" data-v="${v[0]}" class="h-7 px-2.5 rounded-lg border border-edge text-[11.5px] font-medium text-slate-200 hover:bg-slate-800">Use</button>`}
+  </div>`;
+}
+const pickLabel = () => { const t = S.win !== null ? S.win : S.slot; return t ? `Speaker ${t}` : (multi() ? 'Main voice' : 'In use'); };
+
+function grouped(list, rowFn, cols = '') {
+  const groups = ['fav', 'clone', 'used', 'lib'];
+  return groups.map((g) => {
+    const items = list.filter((v) => v[4] === g);
+    if (!items.length) return '';
+    return `<div class="flex flex-col gap-1.5"><div class="px-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">${GROUP[g]} <span class="mono text-slate-600">${items.length}</span></div>
+      <div class="${cols || 'flex flex-col gap-0.5'}">${items.map(rowFn).join('')}</div></div>`;
+  }).join('');
+}
+
+function searchBox(act, val, ph) {
+  return `<div class="relative flex-1 min-w-[12rem]"><span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">${ic('search')}</span>
+    <input data-act="${act}" value="${val}" placeholder="${ph}" class="w-full h-9 bg-slate-950 border border-edge rounded-xl pl-9 pr-8 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500" />
+    <span class="absolute right-2 top-1/2 -translate-y-1/2 mono text-[10.5px] px-1.5 rounded border border-slate-700 text-slate-500">/</span></div>`;
+}
+const engineSeg = `<div class="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5"><span class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-600 text-white">ElevenLabs</span><span class="px-2.5 py-1 text-xs font-semibold text-slate-400">Cartesia</span></div>`;
+const genderSeg = `<div class="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5"><span class="px-2.5 py-1 rounded-lg text-xs bg-slate-800">All</span><span class="px-2.5 py-1 text-xs text-slate-400">Female</span><span class="px-2.5 py-1 text-xs text-slate-400">Male</span></div>`;
+
+function pickingFor() {
+  if (!S.slot) return '';
+  const s = SPEAKERS[S.slot - 1];
+  return `<div class="shrink-0 flex items-center gap-2 rounded-xl border border-indigo-500/50 bg-indigo-500/10 px-3 py-2 text-[12.5px]">
+    <span class="w-2.5 h-2.5 rounded-full" style="background:hsl(${s.hue} 70% 62%)"></span>Picking a voice for <b>Speaker ${s.n}</b>
+    <button data-act="slot" data-n="0" class="ml-auto text-slate-400 hover:text-slate-100 text-[12px]">Done</button></div>`;
+}
+
+// ---------- NOW ----------
+function mockNow() {
+  const v = vById(S.voice);
+  const all = VOICES.concat(VOICES.slice(7)).concat(VOICES.slice(7));
+  return `<div class="flex-1 min-h-0 overflow-y-auto scroll p-4 flex flex-col gap-4" id="pageScroll">
+    ${mediaStrip()}
+    <div class="grid grid-cols-[minmax(0,1fr)_22rem] gap-4 items-start">
+      <section class="rounded-2xl border border-edge bg-slate-900/90 flex flex-col" style="height:${S.h - 56 - 32 - 72 - 16}px">
+        <div class="px-5 pt-4 flex items-start gap-3"><div class="flex-1"><h2 class="text-[15px] font-semibold">Dubbing voice</h2><p class="text-[12px] text-slate-400">Voices that speak Hindi are shown first. Play a preview before you choose.</p></div>${engineSeg}<span class="mono text-[11px] text-slate-500 pt-1.5">5,254 VOICES</span></div>
+        <div class="px-5 py-3 flex flex-wrap items-center gap-2 border-b border-edge">${searchBox('q', '', 'Search voices')}${genderSeg}
+          <span class="flex items-center gap-2 text-xs text-slate-300"><span class="sw"></span>Indian voices only</span>
+          <span class="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge text-xs text-slate-300">${ic('star', 'w-3 h-3')}Favourites 1</span>
+          <span class="h-8 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge text-xs text-slate-300">${ic('filter', 'w-3 h-3')}More filters</span></div>
+        <div class="flex-1 min-h-0 overflow-y-auto scroll p-4 grid grid-cols-3 2xl:grid-cols-4 gap-3 content-start">${all.map(voiceCard).join('')}</div>
+        <div class="px-5 py-2 border-t border-edge text-[11.5px] text-slate-500">Showing 60 of 5,254 voices</div>
+      </section>
+      <aside class="rounded-2xl border border-edge bg-slate-900/90 flex flex-col">
+        <h2 class="px-5 pt-4 text-[15px] font-semibold">Dub setup</h2>
+        <div class="px-5 py-4 flex flex-col gap-2.5">${langPair()}<p class="text-[11.5px] text-slate-500">Auto detect works for most talks. Set the language when speakers mix languages.</p></div>
+        <div class="px-5 py-4 border-t border-edge flex flex-col gap-2.5">
+          <div class="flex items-start gap-3"><div class="flex-1"><div class="text-[13px] font-semibold">More than one person speaks</div><div class="text-[11.5px] text-slate-500">ElevenLabs labels who says each line, so every speaker can get their own voice.</div></div><button data-act="multi" class="sw ${multi() ? 'on' : ''}"></button></div>
+          ${multi() ? `<div class="flex items-center justify-between text-xs text-slate-400">How many speakers ${sel('3', ['Detect', '2', '3', '4'], 'w-24')}</div>` : ''}
+        </div>
+        <div class="px-5 py-4 border-t border-edge flex flex-col gap-2.5">
+          <span class="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">${multi() ? 'Main voice' : 'Voice'}</span>
+          ${chosen(v)}
+          ${multi() && !known() ? '<p class="text-[11px] text-slate-500 -mt-1">Pick it for whoever speaks most, such as the host. Every speaker uses it until you give them their own.</p>' : ''}
+          ${rateCard(v)}
+          ${multi() ? `<span class="pt-2 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">${known() ? 'Cast' : 'Speakers'}</span>${castRows()}` : ''}
+        </div>
+        <div class="px-5 py-4 border-t border-edge flex flex-col gap-2">
+          ${['Voice changer|Keep the delivery, swap the speaker\'s voice|wave', 'Text to speech|Voice any text with ElevenLabs or Cartesia|speech'].map((t) => { const [a, b, i] = t.split('|'); return `<div class="flex items-center gap-3 p-2.5 rounded-xl border border-edge"><span class="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center">${ic(i)}</span><span class="flex-1"><span class="block text-[13px] font-semibold">${a}</span><span class="block text-xs text-slate-500">${b}</span></span>${ic('chevR', 'w-4 h-4 text-slate-500')}</div>`; }).join('')}
+        </div>
+        <div class="px-5 py-4 border-t border-edge bg-slate-950/60 flex flex-col gap-2.5">${transcribeBtn()}${stepsRow}</div>
+      </aside>
+    </div>
+  </div>`;
+}
+
+// ---------- speaker-coloured wave (after transcribing) ----------
+// [from, to, speaker] over 200 bars
+const SEGS = [[0, 42, 1], [42, 60, 2], [60, 96, 1], [96, 112, 3], [112, 150, 1], [150, 176, 2], [176, 200, 1]];
+const spkAt = (i) => (SEGS.find(([a, b]) => i >= a && i < b) || [0, 0, 1])[2];
+const hueOf = (n) => SPEAKERS[n - 1].hue;
+function waveSpk(n = 200, h = 'h-9', focus = 0) {
+  let out = '', seed = 7;
+  for (let i = 0; i < n; i++) {
+    seed = (seed * 9301 + 49297) % 233280;
+    const r = seed / 233280;
+    const gap = (i % 41) > 37;
+    const s = spkAt(Math.floor((i / n) * 200));
+    const col = known() ? `hsl(${hueOf(s)} 70% 62% / ${focus && focus !== s ? 0.18 : 0.85})` : 'rgb(6 182 212 / .7)';
+    out += `<span class="flex-1 rounded-sm" style="height:${gap ? 4 : 12 + r * 85}%;background:${col}"></span>`;
+  }
+  return `<div class="${h} flex items-center gap-[1.5px]">${out}</div>`;
+}
+const legend = () => known() ? `<div class="flex items-center gap-3 text-[11px] text-slate-400">${SPEAKERS.map((s) => `<span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full" style="background:hsl(${s.hue} 70% 62%)"></span>Speaker ${s.n} <span class="mono text-slate-500">${s.share}%</span></span>`).join('')}</div>` : '';
+const voiceFor = (n) => (n && S.cast[n] ? vById(S.cast[n]) : vById(S.voice));
+const rateOf = (v) => (RATE[v[0]] || 4.8).toFixed(1);
+
+// ---------- Mock E ----------
+function mockE() {
+  const q = S.q.trim().toLowerCase();
+  const found = q ? VOICES.filter((x) => (x[1] + ' ' + x[2] + ' ' + x[3]).toLowerCase().includes(q)) : null;
+  const who = S.slot ? `Speaker ${S.slot}` : (multi() ? 'Main voice' : 'the dub');
+  const dot = S.slot ? `<span class="w-2.5 h-2.5 rounded-full" style="background:hsl(${hueOf(S.slot)} 70% 62%)"></span>` : '';
+
+  const castRow = (n, label, sub) => {
+    const v = voiceFor(n);
+    const own = !n || S.cast[n];
+    const on = S.slot === n;
+    const can = !n || known();
+    return `<button data-act="slot" data-n="${n}" ${can ? '' : 'disabled'} class="w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl ${on ? 'bg-indigo-500/12 ring-1 ring-indigo-500/70' : 'hover:bg-slate-800/60'} disabled:hover:bg-transparent">
+      ${n ? `<span class="w-2.5 h-2.5 rounded-full shrink-0" style="background:hsl(${hueOf(n)} 70% 62%)"></span>` : avatar(v, 'w-7 h-7 text-[11px]')}
+      <span class="min-w-0 flex-1"><span class="block text-[12.5px] font-semibold text-slate-100 truncate">${label}${sub ? ` <span class="font-normal mono text-[11px] text-slate-500">${sub}</span>` : ''}</span>
+        <span class="block text-[11.5px] ${own ? 'text-slate-300' : 'text-slate-500'} truncate">${n && !S.cast[n] ? 'Main voice' : v[1]}</span></span>
+      <span class="mono text-[11px] text-slate-500">${n && !S.cast[n] ? '' : rateOf(v)}</span>
+      ${on ? `<span class="text-indigo-300">${ic('chevR', 'w-4 h-4 rotate-180')}</span>` : ''}
+    </button>`;
+  };
+
+  return `<div class="flex-1 min-h-0 p-4 flex flex-col gap-4">
+    <div class="shrink-0 rounded-2xl border border-edge bg-slate-900/90 px-4 py-3 flex items-center gap-3">
+      <button class="w-9 h-9 rounded-full bg-slate-100 text-slate-900 flex items-center justify-center">${ic('play', 'w-3.5 h-3.5 ml-0.5')}</button>
+      <div class="min-w-0 w-52"><div class="text-[13px] font-semibold truncate">AQMBIXz4LzR9QYPqeBMIqQY8…</div><div class="text-[11px] mono text-slate-400">1:08 · 48 kHz stereo · 8.0 MB</div></div>
+      <div class="flex-1 min-w-0 flex flex-col gap-1">${waveSpk(200, 'h-8', S.slot)}${legend()}</div>
+      <button class="px-3 py-1.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-xs font-semibold text-slate-200">Replace</button>
+    </div>
+    <div class="flex-1 min-h-0 grid grid-cols-[minmax(0,1fr)_20rem] gap-4">
+      <section class="min-h-0 rounded-2xl border border-edge bg-slate-900/90 flex flex-col">
+        <div class="px-4 pt-4 pb-3 flex items-center gap-3">
+          <h2 class="flex items-center gap-2 text-[15px] font-semibold whitespace-nowrap">${dot}Voice for ${who}</h2>
+          ${searchBox('q', S.q, 'Search all 5,254 voices — name, style, accent')}${engineSeg}
+        </div>
+        <div class="flex-1 min-h-0 overflow-y-auto scroll px-2 pb-3 flex flex-col gap-4">
+          ${found ? `<div class="flex flex-col gap-0.5"><div class="px-3 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">${found.length} of 5,254 · Hindi first</div>${found.map((x) => voiceRow(x)).join('')}</div>`
+                  : grouped(VOICES.slice(0, 11), (x) => voiceRow(x)).replace(/<div class="px-1 /g, '<div class="px-3 ')}
+        </div>
+        <div class="shrink-0 px-4 py-2.5 border-t border-edge text-[11.5px] text-slate-500 flex items-center gap-2">${ic('search', 'w-3.5 h-3.5')}Only your voices are listed. Type to search the whole library.</div>
+      </section>
+      <aside class="min-h-0 rounded-2xl border border-edge bg-slate-900/90 flex flex-col overflow-hidden">
+        <div class="flex-1 min-h-0 overflow-y-auto scroll">
+          <div class="px-4 pt-4 pb-3 flex flex-col gap-3">
+            ${langPair(false)}
+            <div class="flex items-center justify-between gap-2"><span class="text-xs text-slate-400">Speakers</span>${speakerSeg()}</div>
+          </div>
+          <div class="px-2 py-3 border-t border-edge flex flex-col gap-0.5">
+            <div class="px-3 pb-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">${multi() ? 'Cast' : 'Voice'}</div>
+            ${castRow(0, multi() ? 'Main voice' : vById(S.voice)[1], multi() ? 'everyone else' : '')}
+            ${multi() ? SPEAKERS.map((s) => castRow(s.n, `Speaker ${s.n}`, known() ? s.share + '%' : '')).join('') : ''}
+            ${multi() && !known() ? '<p class="px-3 pt-1 text-[11px] text-slate-500 leading-snug">Speakers are found when you transcribe. Then pick a row and give it a voice.</p>' : ''}
+          </div>
+        </div>
+        <div class="shrink-0 p-4 border-t border-edge bg-slate-950/80">${transcribeBtn()}</div>
+      </aside>
+    </div>
+  </div>`;
+}
+
+// ---------- Mock F ----------
+function mockF() {
+  const origBtn = (n) => {
+    const id = 'orig' + n, on = S.playing === id;
+    return `<button data-act="play" data-v="${id}" title="Hear Speaker ${n} in the original" class="h-7 px-2 rounded-lg flex items-center gap-1.5 text-[11.5px] ${on ? 'bg-indigo-500 text-white' : 'text-slate-300 hover:bg-slate-800'}">${on ? '<span class="eq flex items-center h-3"><span></span><span></span><span></span></span>' : ic('play', 'w-3 h-3')}Original</button>`;
+  };
+  const row = (n, label, share) => {
+    const v = voiceFor(n);
+    const usesMain = n && !S.cast[n];
+    return `<div class="grid grid-cols-[minmax(0,13rem)_auto_auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 border-t border-edge first:border-t-0">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 text-[13px] font-semibold">${n ? `<span class="w-2.5 h-2.5 rounded-full" style="background:hsl(${hueOf(n)} 70% 62%)"></span>` : ''}${label}</div>
+        ${share ? `<div class="mt-1.5 flex items-center gap-2"><div class="flex-1 h-1 rounded-full bg-slate-800 overflow-hidden"><div class="h-full rounded-full" style="width:${share}%;background:hsl(${hueOf(n)} 70% 62%)"></div></div><span class="mono text-[10.5px] text-slate-500">${share}%</span></div>` : `<div class="text-[11.5px] text-slate-500">${n ? 'Found after transcribing' : (multi() ? 'Anyone without their own voice' : 'The whole file')}</div>`}
+      </div>
+      ${n && known() ? origBtn(n) : '<span></span>'}
+      <span class="text-slate-600">${ic('arrowR', 'w-4 h-4')}</span>
+      <div class="min-w-0 flex items-center gap-2.5">${playBtn(v, 'w-7 h-7')}${avatar(v, 'w-8 h-8 text-[12px]')}
+        <div class="min-w-0"><div class="text-[13px] ${usesMain ? 'text-slate-400' : 'font-semibold'} truncate">${usesMain ? 'Main voice · ' + v[1] : v[1]}</div>
+        <div class="text-[11px] text-slate-500 mono">${rateOf(v)} syl/s in Hindi${!usesMain && rateOf(v) > 5 ? ' <span class="ml-1 font-sans text-[10px] px-1 rounded bg-amber-400 text-slate-950 font-bold">Fast</span>' : ''}</div></div></div>
+      <button data-act="${n ? 'pickfor' : 'win'}" data-n="${n}" ${n && !known() ? 'disabled' : ''} class="h-8 px-3 rounded-lg border border-edge text-[12px] font-medium hover:bg-slate-800 disabled:opacity-40">Change</button>
+    </div>`;
+  };
+  return `<div class="flex-1 min-h-0 flex flex-col">
+    <div class="shrink-0 px-4 py-2.5 border-b border-edge bg-slate-900/60 flex items-center gap-3">
+      <span class="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">${ic('film', 'w-4 h-4')}</span>
+      <div class="min-w-0 w-48"><div class="text-[12.5px] font-semibold truncate">AQMBIXz4LzR9QYPqeBMIqQY8…</div><div class="text-[11px] mono text-slate-500">1:08 · 8.0 MB</div></div>
+      <span class="w-px h-7 bg-edge"></span>
+      <div class="w-[22rem]">${langPair(false).replace(/h-10/g, 'h-9')}</div>
+      <span class="w-px h-7 bg-edge"></span>
+      <span class="text-xs text-slate-400">Speakers</span>${speakerSeg()}
+      <div class="flex-1"></div>
+      ${transcribeBtn('h-10 px-5')}
+    </div>
+    <div class="flex-1 min-h-0 overflow-y-auto scroll">
+      <div class="max-w-[60rem] mx-auto px-6 py-6 flex flex-col gap-5">
+        <div class="rounded-2xl border border-edge bg-slate-900/90 px-4 py-3.5 flex flex-col gap-2">
+          <div class="flex items-center gap-3"><button class="w-8 h-8 rounded-full bg-slate-100 text-slate-900 flex items-center justify-center">${ic('play', 'w-3 h-3 ml-0.5')}</button>
+            <div class="flex-1 min-w-0">${waveSpk(220, 'h-12')}</div><button class="px-3 py-1.5 rounded-lg border border-edge text-xs font-semibold text-slate-200 hover:bg-slate-800">Replace</button></div>
+          ${known() ? `<div class="pl-11">${legend()}</div>` : ''}
+        </div>
+        <div class="flex items-end justify-between gap-3">
+          <div><h2 class="text-[16px] font-semibold">${multi() ? 'Who speaks, and in which voice' : 'Dubbing voice'}</h2>
+          <p class="text-[12px] text-slate-500">${multi() ? 'Hear each speaker in the original, then give them a voice that fits.' : 'Hear it, check its speed, change it if you like.'}</p></div>
+          ${engineSeg}
+        </div>
+        <div class="rounded-2xl border border-edge bg-slate-900/90 overflow-hidden">
+          ${row(0, multi() ? 'Main voice' : 'Voice', 0)}
+          ${multi() ? SPEAKERS.map((s) => row(s.n, `Speaker ${s.n}${s.note ? ' <span class="font-normal text-[11px] text-slate-500">· ' + s.note + '</span>' : ''}`, known() ? s.share : 0)).join('') : ''}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+// ---------- centred voice window (C, D) ----------
+function voiceWindow() {
+  if (S.win === null) return '';
+  const forN = S.win;
+  const q = S.wq.trim().toLowerCase();
+  const list = S.wtab === 'mine' && !q ? null : VOICES.filter((x) => !q || (x[1] + ' ' + x[2]).toLowerCase().includes(q));
+  const title = forN ? `Voice for Speaker ${forN}` : (multi() ? 'Main voice' : 'Dubbing voice');
+  return `<div class="absolute inset-0 bg-black/60 flex items-center justify-center p-6 z-10">
+    <div class="pop w-full max-w-[40rem] max-h-full rounded-2xl border border-slate-700 bg-slate-900 flex flex-col overflow-hidden">
+      <div class="px-5 pt-4 pb-3 flex items-center gap-3 border-b border-edge"><h3 class="text-[15px] font-semibold flex-1">${title}</h3>${engineSeg}
+        <button data-act="closewin" class="w-8 h-8 rounded-lg hover:bg-slate-800 text-slate-400 flex items-center justify-center">${ic('x')}</button></div>
+      <div class="px-5 py-3 flex items-center gap-2 border-b border-edge">
+        <div class="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
+          <button data-act="wtab" data-t="mine" class="px-3 py-1.5 rounded-lg text-[12.5px] font-semibold ${S.wtab === 'mine' && !q ? 'bg-slate-800' : 'text-slate-400'}">My voices</button>
+          <button data-act="wtab" data-t="all" class="px-3 py-1.5 rounded-lg text-[12.5px] font-semibold ${S.wtab === 'all' || q ? 'bg-slate-800' : 'text-slate-400'}">All <span class="mono text-slate-500">5,254</span></button></div>
+        ${searchBox('wq', S.wq, 'Search name, style, accent')}
+      </div>
+      <div class="flex-1 min-h-0 overflow-y-auto scroll p-3 flex flex-col gap-4" style="max-height:${S.h - 260}px">
+        ${list ? list.map((x) => voiceRow(x)).join('') : grouped(mine(), (x) => voiceRow(x))}
+      </div>
+    </div></div>`;
+}
+
+// ---------- render ----------
+function seg(el, map, cur, act) {
+  document.getElementById(el).innerHTML = Object.entries(map).map(([k, v]) => {
+    const l = typeof v === 'string' ? v : v.label;
+    return `<button data-act="${act}" data-k="${k}" class="px-3 py-1.5 text-[12.5px] border-r border-edge last:border-r-0 ${String(cur) === k ? 'bg-indigo-600 text-white font-semibold' : 'bg-slate-900 text-slate-300 hover:bg-slate-800'}">${l}</button>`;
+  }).join('');
+}
+
+function render() {
+  seg('mockSeg', MOCKS, S.mock, 'mock');
+  seg('stateSeg', STATES, S.st, 'st');
+  seg('hSeg', HEIGHTS, S.h, 'h');
+  document.getElementById('note').textContent = MOCKS[S.mock].note;
+  const fr = document.getElementById('frame');
+  fr.style.height = S.h + 'px';
+  const body = { now: mockNow, E: mockE, F: mockF }[S.mock]();
+  fr.innerHTML = appBar() + body + voiceWindow() + `<div class="fold absolute left-0 right-0 bottom-0"></div>`;
+  try { localStorage.setItem('sourceVoiceMock3', JSON.stringify({ mock: S.mock, st: S.st, h: S.h })); } catch {}
+  if (S.mock === 'now') { const p = document.getElementById('pageScroll'); if (p) p.scrollTop = 0; }
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b || b.tagName === 'INPUT' || b.tagName === 'SELECT') return;
+  const a = b.dataset.act;
+  if (a === 'mock') { S.mock = b.dataset.k; S.win = null; S.slot = 0; S.q = ''; }
+  else if (a === 'st') { S.st = b.dataset.k; S.slot = 0; }
+  else if (a === 'h') S.h = Number(b.dataset.k);
+  else if (a === 'multi') S.st = multi() ? 'one' : 'multi';
+  else if (a === 'spk') S.st = b.dataset.n === '1' ? 'one' : (S.st === 'one' ? 'multi' : S.st);
+  else if (a === 'tab') { S.tab = b.dataset.t; }
+  else if (a === 'wtab') { S.wtab = b.dataset.t; if (b.dataset.t === 'mine') S.wq = ''; }
+  else if (a === 'play') S.playing = S.playing === b.dataset.v ? null : b.dataset.v;
+  else if (a === 'slot') S.slot = Number(b.dataset.n);
+  else if (a === 'win') { S.win = Number(b.dataset.n || S.slot || 0); S.wtab = 'mine'; S.wq = ''; }
+  else if (a === 'closewin') S.win = null;
+  else if (a === 'pickfor') {
+    const n = Number(b.dataset.n);
+    if (S.mock === 'F') { S.win = n; S.wtab = 'mine'; S.wq = ''; } else { S.slot = n; }
+  }
+  else if (a === 'voice') {
+    const id = b.dataset.v;
+    const target = S.win !== null ? S.win : S.slot;
+    if (target) { S.cast[target] = id === S.voice ? null : id; } else S.voice = id;
+    if (S.win !== null) S.win = null;
+    if (S.mock !== 'E') S.slot = 0;
+  }
+  render();
+});
+document.addEventListener('input', (e) => {
+  const a = e.target.dataset.act;
+  if (a !== 'q' && a !== 'wq') return;
+  S[a] = e.target.value;
+  const pos = e.target.selectionStart;
+  render();
+  const el = document.querySelector(`[data-act="${a}"]`);
+  if (el) { el.focus(); el.setSelectionRange(pos, pos); }
+});
+render();
+</script>
+</body>
+</html>

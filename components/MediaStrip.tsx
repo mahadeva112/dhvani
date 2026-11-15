@@ -7,6 +7,10 @@ interface MediaStripProps {
   audioBuffer: AudioBuffer | null;
   onFileSelect: (files: FileList | File[]) => void;
   onLoadSample: (sampleType: 'podcast' | 'keynote') => void;
+  /** At the end of the loaded file's row, after Replace: the step's main button, so it never scrolls away. */
+  action?: React.ReactNode;
+  /** Stretches of the wave drawn in their own colour (seconds), such as each speaker's lines. */
+  spans?: { from: number; to: number; color: string }[];
 }
 
 const formatDuration = (seconds: number) => {
@@ -80,7 +84,7 @@ export const MiniWaveform: React.FC<{ buffer: AudioBuffer; className?: string; s
  * Slim media bar at the top of step 1: a drop target before a file is loaded,
  * then the loaded file's name, length and waveform with a Replace button.
  */
-export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFileSelect, onLoadSample }) => {
+export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFileSelect, onLoadSample, action, spans }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -141,7 +145,7 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
 
         <div className="order-3 sm:order-none basis-full sm:basis-auto flex-1 min-w-0 h-11">
           {audioBuffer ? (
-            <MiniWaveform buffer={audioBuffer} />
+            <MiniWaveform buffer={audioBuffer} spans={spans} />
           ) : (
             <div className="h-full flex items-center gap-2 text-xs text-slate-500">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Reading audio…
@@ -156,6 +160,12 @@ export const MediaStrip: React.FC<MediaStripProps> = ({ file, audioBuffer, onFil
         >
           Replace
         </button>
+        {action && (
+          <>
+            <span aria-hidden="true" className="hidden sm:block w-px h-8 bg-edge shrink-0" />
+            <div className="shrink-0 flex items-center gap-2">{action}</div>
+          </>
+        )}
         {fileInput}
       </section>
     );

@@ -36,7 +36,6 @@ import {
   ChevronDown,
   ClipboardPaste,
   AudioWaveform,
-  Speech,
   ShieldCheck,
   ArrowLeftRight,
   X,
@@ -53,7 +52,7 @@ import { projectFileStem } from '../services/projects';
 import { useVoiceMatches } from '../services/useVoiceMatches';
 import { listSpeakers, likelySlips, overlapsBefore, speakerOf, isMultiSpeaker, SPEAKER_COLORS } from '../services/speakers';
 import type { SpeakerSlip } from '../services/speakers';
-import { SpeakerBar, SpeakerStrip, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MainVoiceRole, MixPeakChoice, StemDownloads, mixWarnings } from './SpeakerPanel';
+import { SpeakerBar, SpeakerStrip, CueSelectionBar, SpeakerPicker, SpeakerCueNotes, SpeakerChip, CastCard, MixPeakChoice, StemDownloads, mixWarnings } from './SpeakerPanel';
 import { retranslateCues, translationFraction, type RetranslateProgress } from '../services/subtitleService';
 import { TargetScriptChoice } from './TargetScriptChoice';
 import { scrollWithin } from './scrollWithin';
@@ -350,6 +349,16 @@ interface LiveTimeProps {
 const LiveClock: React.FC<LiveTimeProps> = ({ currentTime, isPlaying, getLiveTime }) => (
   <>{formatClock(useLiveTime(currentTime, isPlaying, getLiveTime, 1))}</>
 );
+
+/** Source & voice's Speakers row: one voice, a set number of speakers, or let ElevenLabs count them. */
+type SpeakerChoice = '1' | '2' | '3' | '4+' | 'detect';
+const SPEAKER_CHOICES: { id: SpeakerChoice; label: string; title: string }[] = [
+  { id: '1', label: '1', title: 'One person speaks: one voice for the whole file' },
+  { id: '2', label: '2', title: 'Two people speak' },
+  { id: '3', label: '3', title: 'Three people speak' },
+  { id: '4+', label: '4+', title: 'Four or more people speak' },
+  { id: 'detect', label: 'Detect', title: 'Let ElevenLabs count the speakers' },
+];
 
 const railButton =
   'flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-lg border border-edge bg-slate-950/60 hover:bg-slate-800 text-xs font-medium text-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-default';
@@ -1183,6 +1192,24 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const speakerOverlaps = useMemo(() => (multiSpeaker ? overlapsBefore(segments) : new Map<string, { speaker: string; seconds: number }>()), [segments, multiSpeaker]);
   const overlapIds = useMemo(() => new Set(speakerOverlaps.keys()), [speakerOverlaps]);
   const speakerByName = useMemo(() => new Map(speakers.map((s) => [s.name, s])), [speakers]);
+
+  // Source & voice: whose voice the library picks, the main voice (null) or one speaker's.
+  const [setupPickFor, setSetupPickFor] = useState<string | null>(null);
+  const pickFor = multiSpeaker && setupPickFor && speakerByName.has(setupPickFor) ? setupPickFor : null;
+  // The file's wave in each speaker's colour; with a speaker picked, the others fade.
+  const setupWaveSpans = useMemo(() => {
+    if (!multiSpeaker) return undefined;
+    return segments.map((seg) => {
+      const s = speakerByName.get(speakerOf(seg));
+      const color = s?.color || SPEAKER_COLORS[0];
+      return { from: seg.startTime, to: seg.endTime, color: pickFor && s?.name !== pickFor ? `${color}40` : color };
+    });
+  }, [multiSpeaker, segments, speakerByName, pickFor]);
+  // Listed first in the voice library: the main voice and every speaker's own.
+  const setupPinnedVoices = useMemo(
+    () => [...new Set([elVoiceId, ...Object.values(activeJob?.cast || {}).map((c) => c.voiceId)].filter(Boolean))],
+    [elVoiceId, activeJob?.cast],
+  );
   const cueIndexById = useMemo(() => new Map(segments.map((seg, i) => [String(seg.id), i])), [segments]);
   // A filter on a speaker who was renamed or merged away no longer applies.
   useEffect(() => {
@@ -2409,6 +2436,17 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     );
   };
 
+  // Source & voice's Speakers row, and its cast.
+  const speakerChoice: SpeakerChoice = !multiSpeakerInput ? '1' : speakerCount === 0 ? 'detect' : speakerCount >= 4 ? '4+' : (String(speakerCount) as SpeakerChoice);
+  const setupSpeakers = [...speakers].sort((a, b) => b.share - a.share);
+  const voiceOfSpeaker = (name: string) => activeJob?.cast?.[name]?.voiceId || elVoiceId;
+  const sharedVoices = [...new Set(setupSpeakers.map((s) => voiceOfSpeaker(s.name)))]
+    .map((voiceId) => setupSpeakers.filter((s) => voiceOfSpeaker(s.name) === voiceId))
+    .filter((group) => group.length > 1)
+    .map((group) => ({ voiceId: voiceOfSpeaker(group[0].name), least: group[group.length - 1], others: group.slice(0, -1).map((s) => s.name) }));
+  // The speed of the picked row's voice: a speaker's own, or the main voice's.
+  const pickedRate = pickFor && activeJob?.cast?.[pickFor]?.voiceId ? speakerVoiceRates?.[pickFor] : voiceRate;
+
   return (
     <div className="w-full flex-1 flex flex-col space-y-4 sm:space-y-5">
       {/* ========================================================================= */}
@@ -2421,382 +2459,355 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
             audioBuffer={activeJob?.audioBuffer ?? null}
             onFileSelect={onFileSelect}
             onLoadSample={onLoadSampleSession}
+            spans={setupWaveSpans}
+            // The step's main button sits on the file's row, so it never scrolls away however long the setup gets.
+            action={
+              activeJob ? (
+                isTranscribing ? (
+                  <>
+                    <span role="status" className="flex items-center gap-2 text-[13px] text-slate-300">
+                      <RefreshCw className="w-4 h-4 animate-spin text-indigo-300" />
+                      Transcribing…
+                    </span>
+                    {onCancelTranscription && (
+                      <button
+                        type="button"
+                        onClick={onCancelTranscription}
+                        className="h-10 px-3 flex items-center gap-1.5 rounded-xl border border-slate-700 text-[13px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 hover:border-rose-500/50 transition-colors cursor-default"
+                      >
+                        <X className="w-4 h-4" />
+                        Cancel
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      // Transcribing again replaces the cues, and with them any script on them.
+                      if (
+                        transcribed &&
+                        !awaitingScript &&
+                        !window.confirm(
+                          scriptIsCustom
+                            ? 'Transcribe again? The new transcript replaces the current cues and your aligned script. You can paste the script again afterwards.'
+                            : 'Transcribe again? The new transcript replaces the current cues and their translation.'
+                        )
+                      ) {
+                        return;
+                      }
+                      // Once transcribed, the app opens Review itself.
+                      await onAutoTranscribe();
+                    }}
+                    title={transcribed ? undefined : 'Nothing is sent to ElevenLabs until you press this: set the language and speakers first.'}
+                    className="h-10 px-5 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors cursor-default active:translate-y-px"
+                  >
+                    <Mic className="w-4 h-4" />
+                    <span>{transcribed ? 'Transcribe again' : 'Transcribe audio'}</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </button>
+                )
+              ) : undefined
+            }
           />
+          {transcriptionCancelled && !isTranscribing && (
+            <p className="-mt-2 px-1 text-xs text-amber-300" role="status">
+              Transcription cancelled. {transcribed ? 'The transcript you had is kept.' : 'Press Transcribe audio to start again.'}
+            </p>
+          )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] 2xl:grid-cols-[minmax(0,1fr)_26rem] gap-4 items-stretch lg:flex-1">
-            {/* Voice library: the main decision on this step */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_21rem] 2xl:grid-cols-[minmax(0,1fr)_24rem] gap-4 items-stretch lg:flex-1 lg:min-h-[28rem]">
+            {/* Voice library: your voices first, the rest a search away. Picks for the cast row picked on the right. */}
             <VoiceSelectorCard
-              elVoiceId={elVoiceId}
-              onElVoiceIdChange={onElVoiceIdChange}
+              elVoiceId={pickFor ? activeJob?.cast?.[pickFor]?.voiceId || elVoiceId : elVoiceId}
+              // Picking the main voice for a speaker leaves them on it, so they follow it if it changes.
+              onElVoiceIdChange={
+                pickFor && onCastChange ? (id) => onCastChange(pickFor, id === elVoiceId ? null : id) : onElVoiceIdChange
+              }
+              heading={
+                pickFor ? (
+                  <>
+                    Voice for <SpeakerChip speaker={speakerByName.get(pickFor)} name={pickFor} />
+                  </>
+                ) : multiSpeaker || multiSpeakerInput ? (
+                  'Main voice'
+                ) : undefined
+              }
+              shortlist
+              layout="list"
+              pinnedVoiceIds={setupPinnedVoices}
               availableVoices={availableVoices}
               loading={voicesLoading}
               targetLanguage={targetLanguage}
               voiceEngine={voiceEngine}
               onVoiceEngineChange={onVoiceEngineChange}
-              // Zero height + full min-height: the setup panel alone sets the row height,
-              // and the voice list scrolls inside it instead of leaving a gap below the panel.
+              // Zero height + full min-height: the row's height comes from the page, and the list scrolls inside it.
               className="lg:h-0 lg:min-h-full"
             />
 
-            {/* Setup panel */}
+            {/* Setup panel: it scrolls inside itself, so nothing on it pushes the page longer */}
             <aside
               aria-label="Dub setup"
-              className="bg-slate-900/90 border border-edge rounded-2xl overflow-hidden flex flex-col"
+              className="lg:h-0 lg:min-h-full bg-slate-900/90 border border-edge rounded-2xl overflow-hidden flex flex-col"
             >
-              <h2 className="px-4 sm:px-5 pt-4 text-[15px] font-semibold text-slate-100">Dub setup</h2>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                <div className="px-4 sm:px-5 pt-4 pb-4 flex flex-col gap-2.5">
+                  <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <label htmlFor="express-wizard-source-lang-select" className="text-xs text-slate-400">
+                        Spoken in
+                      </label>
+                      <div className="relative group">
+                        <select
+                          id="express-wizard-source-lang-select"
+                          value={sourceLanguage}
+                          onChange={(e) => onSourceLanguageChange?.(e.target.value)}
+                          disabled={!onSourceLanguageChange}
+                          className="appearance-none w-full h-10 bg-slate-950 border border-edge hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
+                        >
+                          <option value="" className="bg-slate-900">Auto detect</option>
+                          <option value="English" className="bg-slate-900">English</option>
+                          {languages.map((lang) => {
+                            const code = typeof lang === 'string' ? lang : lang.code;
+                            const label = typeof lang === 'string' ? lang : lang.label;
+                            return (
+                              <option key={`src-${code}`} value={code} className="bg-slate-900">
+                                {label}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <ChevronDown
+                          aria-hidden="true"
+                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-hover:text-slate-300 group-focus-within:text-indigo-400 transition-colors"
+                        />
+                      </div>
+                    </div>
 
-              <div className="px-4 sm:px-5 py-4 flex flex-col gap-2.5">
-                <div className="grid grid-cols-[1fr_auto_1fr] items-end gap-2">
-                  <div className="flex flex-col gap-1.5 min-w-0">
-                    <label htmlFor="express-wizard-source-lang-select" className="text-xs text-slate-400">
-                      Spoken in
-                    </label>
-                    <div className="relative group">
-                      <select
-                        id="express-wizard-source-lang-select"
-                        value={sourceLanguage}
-                        onChange={(e) => onSourceLanguageChange?.(e.target.value)}
-                        disabled={!onSourceLanguageChange}
-                        className="appearance-none w-full h-10 bg-slate-950 border border-edge hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
-                      >
-                        <option value="" className="bg-slate-900">Auto detect</option>
-                        <option value="English" className="bg-slate-900">English</option>
-                        {languages.map((lang) => {
-                          const code = typeof lang === 'string' ? lang : lang.code;
-                          const label = typeof lang === 'string' ? lang : lang.label;
-                          return (
-                            <option key={`src-${code}`} value={code} className="bg-slate-900">
-                              {label}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <ChevronDown
-                        aria-hidden="true"
-                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-hover:text-slate-300 group-focus-within:text-indigo-400 transition-colors"
-                      />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const from = sourceLanguage;
+                        onSourceLanguageChange?.(targetLanguage);
+                        onTargetLanguageChange(from);
+                      }}
+                      disabled={!onSourceLanguageChange || !sourceLanguage || sourceLanguage === 'English'}
+                      className="w-9 h-10 flex items-center justify-center rounded-xl border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-default"
+                      title="Swap languages"
+                      aria-label="Swap languages"
+                    >
+                      <ArrowLeftRight className="w-4 h-4" />
+                    </button>
+
+                    <div className="flex flex-col gap-1.5 min-w-0">
+                      <label htmlFor="express-wizard-lang-select" className="text-xs text-slate-400">
+                        Dub into
+                      </label>
+                      <div className="relative group">
+                        <select
+                          id="express-wizard-lang-select"
+                          value={targetLanguage}
+                          onChange={(e) => onTargetLanguageChange(e.target.value)}
+                          className="appearance-none w-full h-10 bg-slate-950 border border-edge hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
+                        >
+                          {languages.map((lang) => {
+                            const code = typeof lang === 'string' ? lang : lang.code;
+                            const label = typeof lang === 'string' ? lang : lang.label;
+                            return (
+                              <option key={code} value={code} className="bg-slate-900">
+                                {label}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <ChevronDown
+                          aria-hidden="true"
+                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-hover:text-slate-300 group-focus-within:text-indigo-400 transition-colors"
+                        />
+                      </div>
                     </div>
                   </div>
+                  <p className="text-[11.5px] text-slate-500 leading-relaxed">
+                    Auto detect works for most talks. Set the language when speakers mix languages.
+                  </p>
+                </div>
 
+                {onMultiSpeakerInputChange && (
+                  <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[13px] font-semibold text-slate-100">Speakers</span>
+                      {/* How many people speak: 1 is one voice for the file; more asks ElevenLabs who says each line. */}
+                      <div role="radiogroup" aria-label="How many people speak" className="flex bg-slate-950 border border-edge rounded-xl p-0.5 gap-0.5">
+                        {SPEAKER_CHOICES.map(({ id, label, title }) => (
+                          <button
+                            key={id}
+                            type="button"
+                            role="radio"
+                            aria-checked={speakerChoice === id}
+                            disabled={isTranscribing}
+                            title={title}
+                            onClick={() => {
+                              if (id === '1') {
+                                onMultiSpeakerInputChange(false);
+                                return;
+                              }
+                              if (!multiSpeakerInput) onMultiSpeakerInputChange(true);
+                              onSpeakerCountChange?.(id === 'detect' ? 0 : id === '4+' ? Math.max(4, speakerCount) : Number(id));
+                            }}
+                            className={`h-7 px-2.5 rounded-lg text-[12.5px] font-medium transition-colors cursor-default disabled:opacity-50 ${
+                              speakerChoice === id ? 'bg-slate-800 text-slate-100' : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {speakerChoice === '4+' && onSpeakerCountChange && (
+                      <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
+                        <label htmlFor="express-wizard-speaker-count">How many speakers</label>
+                        <select
+                          id="express-wizard-speaker-count"
+                          value={speakerCount}
+                          onChange={(e) => onSpeakerCountChange(Number(e.target.value))}
+                          disabled={isTranscribing}
+                          className="h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
+                        >
+                          {Array.from({ length: 7 }, (_, i) => i + 4).map((n) => (
+                            <option key={n} value={n} className="bg-slate-900">
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <p className="text-[11.5px] text-slate-500 leading-snug">
+                      {!multiSpeakerInput
+                        ? multiSpeaker
+                          ? `This transcript has ${speakers.length} speakers. The setting here is for the next transcription.`
+                          : 'One voice for the whole file.'
+                        : speakerCount === 0
+                          ? 'ElevenLabs finds the speakers. Setting the number helps when two voices sound alike.'
+                          : 'ElevenLabs labels who says each line, so every speaker can get their own voice.'}
+                    </p>
+                    {multiSpeakerInput && activeJob && segments.length > 0 && !multiSpeaker && onRetranscribeAudio && (
+                      <button
+                        type="button"
+                        onClick={() => onRetranscribeAudio(activeJob.customPrompt ?? customPrompt ?? '').catch(() => {})}
+                        disabled={isTranscribing}
+                        title="This file was transcribed as one speaker. Transcribing again clears its translated lines."
+                        className={`${railButton} w-full`}
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isTranscribing ? 'animate-spin' : ''}`} />
+                        {isTranscribing ? 'Transcribing…' : 'Transcribe again to find speakers'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* The cast: the main voice, then each speaker. Picking a row points the voice library at it. */}
+                <div className="px-2.5 sm:px-3 py-3 border-t border-edge flex flex-col gap-0.5">
+                  <span className="px-2 pb-1 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                    {multiSpeaker || multiSpeakerInput ? 'Cast' : 'Voice'}
+                  </span>
                   <button
                     type="button"
-                    onClick={() => {
-                      const from = sourceLanguage;
-                      onSourceLanguageChange?.(targetLanguage);
-                      onTargetLanguageChange(from);
-                    }}
-                    disabled={!onSourceLanguageChange || !sourceLanguage || sourceLanguage === 'English'}
-                    className="w-9 h-10 flex items-center justify-center rounded-xl border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed transition-colors cursor-default"
-                    title="Swap languages"
-                    aria-label="Swap languages"
+                    onClick={() => setSetupPickFor(null)}
+                    aria-pressed={!pickFor}
+                    className={`w-full text-left px-2 py-2 rounded-xl flex flex-col gap-0.5 transition-colors cursor-default ${
+                      !pickFor ? 'bg-indigo-500/10 ring-1 ring-indigo-500/60' : 'hover:bg-slate-800/60'
+                    }`}
                   >
-                    <ArrowLeftRight className="w-4 h-4" />
+                    {(multiSpeaker || multiSpeakerInput) && (
+                      <span className="text-[10.5px] text-slate-500">Main voice · anyone without their own</span>
+                    )}
+                    <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} compact />
                   </button>
 
-                  <div className="flex flex-col gap-1.5 min-w-0">
-                    <label htmlFor="express-wizard-lang-select" className="text-xs text-slate-400">
-                      Dub into
-                    </label>
-                    <div className="relative group">
-                      <select
-                        id="express-wizard-lang-select"
-                        value={targetLanguage}
-                        onChange={(e) => onTargetLanguageChange(e.target.value)}
-                        className="appearance-none w-full h-10 bg-slate-950 border border-edge hover:border-slate-600 rounded-xl pl-3 pr-9 text-[13px] font-medium text-slate-100 truncate transition-colors focus:outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 cursor-default"
-                      >
-                        {languages.map((lang) => {
-                          const code = typeof lang === 'string' ? lang : lang.code;
-                          const label = typeof lang === 'string' ? lang : lang.label;
-                          return (
-                            <option key={code} value={code} className="bg-slate-900">
-                              {label}
-                            </option>
-                          );
-                        })}
-                      </select>
-                      <ChevronDown
-                        aria-hidden="true"
-                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-hover:text-slate-300 group-focus-within:text-indigo-400 transition-colors"
-                      />
-                    </div>
-                  </div>
-                </div>
-                <p className="text-[11.5px] text-slate-500 leading-relaxed">
-                  Auto detect works for most talks. Set the language when speakers mix languages.
-                </p>
-              </div>
-
-              {onMultiSpeakerInputChange && (
-                <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
-                  <label className="flex items-start justify-between gap-3 cursor-default">
-                    <span className="flex flex-col gap-0.5">
-                      <span className="text-[13px] font-semibold text-slate-100">More than one person speaks</span>
-                      <span className="text-[11.5px] text-slate-500 leading-snug">
-                        ElevenLabs labels who says each line, so every speaker can get their own voice.
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={multiSpeakerInput}
-                      aria-label="More than one person speaks"
-                      onClick={() => onMultiSpeakerInputChange(!multiSpeakerInput)}
-                      className={`relative w-9 h-5 rounded-full shrink-0 mt-0.5 transition-colors cursor-default ${
-                        multiSpeakerInput ? 'bg-indigo-500' : 'bg-slate-700'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-[3px] w-3.5 h-3.5 rounded-full bg-white transition-all ${multiSpeakerInput ? 'left-[19px]' : 'left-[3px]'}`}
-                      />
-                    </button>
-                  </label>
-                  {multiSpeakerInput && onSpeakerCountChange && (
-                    <div className="flex items-center justify-between gap-3 text-xs text-slate-400">
-                      <label htmlFor="express-wizard-speaker-count">How many speakers</label>
-                      <select
-                        id="express-wizard-speaker-count"
-                        value={speakerCount}
-                        onChange={(e) => onSpeakerCountChange(Number(e.target.value))}
-                        className="h-8 bg-slate-950 border border-edge hover:border-slate-600 rounded-lg px-2 text-xs font-medium text-slate-200 focus:outline-none focus:border-indigo-500 cursor-default"
-                      >
-                        <option value={0} className="bg-slate-900">Detect</option>
-                        {Array.from({ length: 9 }, (_, i) => i + 2).map((n) => (
-                          <option key={n} value={n} className="bg-slate-900">
-                            {n}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-                  {multiSpeakerInput && speakerCount === 0 && (
-                    <p className="text-[11px] text-slate-500 leading-snug">Setting the number helps when two voices sound alike.</p>
-                  )}
-                  {multiSpeakerInput && activeJob && segments.length > 0 && !multiSpeaker && onRetranscribeAudio && (
-                    <button
-                      type="button"
-                      onClick={() => onRetranscribeAudio(activeJob.customPrompt ?? customPrompt ?? '').catch(() => {})}
-                      disabled={isTranscribing}
-                      title="This file was transcribed as one speaker. Transcribing again clears its translated lines."
-                      className={`${railButton} w-full`}
-                    >
-                      <RefreshCw className={`w-3.5 h-3.5 ${isTranscribing ? 'animate-spin' : ''}`} />
-                      {isTranscribing ? 'Transcribing…' : 'Transcribe again to find speakers'}
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2.5">
-                <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
-                  {multiSpeaker || multiSpeakerInput ? 'Main voice' : 'Voice'}
-                </span>
-                <SelectedVoiceSummary voiceId={elVoiceId} availableVoices={availableVoices} />
-                {multiSpeakerInput && !multiSpeaker && (
-                  <p className="text-[11px] text-slate-500 leading-snug -mt-1">
-                    Pick it for whoever speaks most, such as the host. Every speaker uses it until you give them their own.
-                  </p>
-                )}
-                {multiSpeaker && activeJob && (
-                  <MainVoiceRole speakers={speakers} cast={activeJob.cast} mainVoiceId={elVoiceId} availableVoices={availableVoices} />
-                )}
-                {voiceRate && <VoiceRateCard voiceRate={voiceRate} language={targetLanguage} />}
-                {/* More than one person speaks is on, but no speakers are known yet: show what is coming, so the
-                    section never looks like a one-voice dub. Voices are picked per speaker only after transcribing,
-                    since which person ElevenLabs calls Speaker 1 is not known before. */}
-                {multiSpeakerInput && !multiSpeaker && (
-                  <div className="flex flex-col gap-1 pt-2">
-                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Speakers</span>
-                    {speakerCount > 0 &&
+                  {multiSpeaker && activeJob
+                    ? setupSpeakers.map((s) => {
+                        const own = activeJob.cast?.[s.name]?.voiceId;
+                        const on = pickFor === s.name;
+                        return (
+                          <div
+                            key={s.name}
+                            className={`flex items-center rounded-xl transition-colors ${
+                              on ? 'bg-indigo-500/10 ring-1 ring-indigo-500/60' : 'hover:bg-slate-800/60'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setSetupPickFor(s.name)}
+                              aria-pressed={on}
+                              title={`${s.name}: ${Math.round(s.share * 100)}% of the speech. Pick a voice for them on the left.`}
+                              className="flex-1 min-w-0 flex items-center gap-2.5 px-2 py-2 text-left cursor-default"
+                            >
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
+                              <span className="min-w-0 flex-1">
+                                <span className="flex items-baseline gap-1.5 min-w-0">
+                                  <span className="truncate text-[13px] font-semibold text-slate-100">{s.name}</span>
+                                  <span className="shrink-0 font-mono text-[10.5px] text-slate-500 tabular-nums">{Math.round(s.share * 100)}%</span>
+                                </span>
+                                {own ? (
+                                  <SelectedVoiceSummary voiceId={own} availableVoices={availableVoices} compact />
+                                ) : (
+                                  <span className="block text-[11.5px] text-slate-500">Main voice</span>
+                                )}
+                              </span>
+                            </button>
+                            {own && onCastChange && (
+                              <button
+                                type="button"
+                                onClick={() => onCastChange(s.name, null)}
+                                title="Voice this speaker with the main voice"
+                                aria-label={`Voice ${s.name} with the main voice`}
+                                className="mr-1.5 p-1 rounded-md text-slate-500 hover:text-slate-200 hover:bg-slate-800 cursor-default"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    : multiSpeakerInput &&
                       Array.from({ length: speakerCount }, (_, i) => (
-                        <div key={i} className="flex items-center gap-2 py-1.5 border-t border-edge first:border-t-0">
+                        <div key={i} className="flex items-center gap-2.5 px-2 py-1.5 text-[13px] text-slate-400">
                           <span
-                            className="w-2 h-2 rounded-full shrink-0 opacity-70"
+                            className="w-2.5 h-2.5 rounded-full shrink-0 opacity-60"
                             style={{ backgroundColor: SPEAKER_COLORS[i % SPEAKER_COLORS.length] }}
                           />
-                          <span className="flex-1 min-w-0 truncate text-[13px] text-slate-300">Speaker {i + 1}</span>
+                          <span className="flex-1 min-w-0 truncate">Speaker {i + 1}</span>
                           <span className="text-[11px] text-slate-500">Main voice</span>
                         </div>
                       ))}
-                    <p className="text-[11px] text-slate-500 leading-snug pt-1">
-                      {speakerCount > 0
-                        ? 'After transcribing you will see who speaks most, and give each their own voice.'
-                        : 'Speakers are found when the file is transcribed. Then you can give each their own voice here.'}
+
+                  {multiSpeakerInput && !multiSpeaker && (
+                    <p className="px-2 pt-1 text-[11px] text-slate-500 leading-snug">
+                      Speakers are found when the file is transcribed. Then pick a row here and give it a voice.
                     </p>
-                  </div>
-                )}
-                {/* Each speaker's voice can be picked here too, so translation is sized for it before anything is voiced. */}
-                {multiSpeaker && onCastChange && activeJob && (
-                  <div className="flex flex-col gap-2 pt-2">
-                    <span className="text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">Cast</span>
-                    <CastCard
-                      speakers={speakers}
-                      cast={activeJob.cast}
-                      mainVoiceId={elVoiceId}
-                      availableVoices={availableVoices}
-                      onPick={(speaker) => {
-                        setCastPickFor(speaker);
-                        setIsVoicePickerOpen(true);
-                      }}
-                      onUseMain={(speaker) => onCastChange(speaker, null)}
-                      rates={speakerVoiceRates}
-                      mainRate={voiceRate}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {onSensitivityChange && (
-                <div className="px-4 sm:px-5 py-4 border-t border-edge flex flex-col gap-2">
-                  <div className="flex items-center justify-between text-[13px]">
-                    <label htmlFor="express-wizard-pause" className="text-slate-200">
-                      Pause detection
-                    </label>
-                    <span className="font-mono text-slate-400 tabular-nums">{analysisSensitivity}</span>
-                  </div>
-                  <input
-                    id="express-wizard-pause"
-                    type="range"
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={analysisSensitivity}
-                    onChange={(e) => onSensitivityChange(Number(e.target.value))}
-                    className="w-full accent-indigo-500 cursor-default"
-                  />
-                  <div className="flex justify-between text-[10.5px] text-slate-500">
-                    <span>Fewer, longer lines</span>
-                    <span>More, shorter lines</span>
-                  </div>
-                </div>
-              )}
-
-              {onOpenVoiceChanger && (
-                <div className="px-4 sm:px-5 py-4 border-t border-edge">
-                  <button
-                    type="button"
-                    onClick={onOpenVoiceChanger}
-                    className="w-full flex items-center gap-3 p-2.5 rounded-xl border border-edge hover:bg-slate-800/60 text-left transition-colors cursor-default"
-                  >
-                    <span className="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center shrink-0">
-                      <AudioWaveform className="w-4 h-4" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-[13px] font-semibold text-slate-100">Voice changer</span>
-                      <span className="block text-xs text-slate-500 truncate">
-                        Keep the delivery, swap the speaker's voice
-                      </span>
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-                  </button>
-                  {onOpenTextToSpeech && (
-                    <button
-                      type="button"
-                      onClick={onOpenTextToSpeech}
-                      className="mt-2 w-full flex items-center gap-3 p-2.5 rounded-xl border border-edge hover:bg-slate-800/60 text-left transition-colors cursor-default"
-                    >
-                      <span className="w-8 h-8 rounded-lg bg-slate-950 border border-edge text-slate-400 flex items-center justify-center shrink-0">
-                        <Speech className="w-4 h-4" />
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[13px] font-semibold text-slate-100">Text to speech</span>
-                        <span className="block text-xs text-slate-500 truncate">
-                          Voice any text with ElevenLabs or Cartesia
-                        </span>
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
-                    </button>
+                  )}
+                  {/* Speakers sharing a voice sound alike: name the one who says least in each group. */}
+                  {multiSpeaker &&
+                    sharedVoices.map(({ voiceId, least, others }) => (
+                      <p key={voiceId} className="px-2 pt-1 text-[11px] text-amber-300/90 leading-snug">
+                        {least.name} ({least.cues} line{least.cues === 1 ? '' : 's'}) shares a voice with {others.join(', ')}, so they will
+                        sound alike. Pick {least.name} and give them their own voice.
+                      </p>
+                    ))}
+                  {pickedRate && (
+                    <div className="px-1 pt-2">
+                      <VoiceRateCard voiceRate={pickedRate} language={targetLanguage} />
+                    </div>
                   )}
                 </div>
-              )}
 
-              <div className="mt-auto px-4 sm:px-5 py-4 border-t border-edge bg-slate-950/60 flex flex-col gap-2.5">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    // Transcribing again replaces the cues, and with them any script on them.
-                    if (
-                      transcribed &&
-                      !awaitingScript &&
-                      !window.confirm(
-                        scriptIsCustom
-                          ? 'Transcribe again? The new transcript replaces the current cues and your aligned script. You can paste the script again afterwards.'
-                          : 'Transcribe again? The new transcript replaces the current cues and their translation.'
-                      )
-                    ) {
-                      return;
-                    }
-                    // Once transcribed, the app opens Review itself.
-                    await onAutoTranscribe();
-                  }}
-                  disabled={!activeJob || isTranscribing}
-                  className="h-11 flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed cursor-default active:translate-y-px"
-                >
-                  {isTranscribing ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Transcribing…</span>
-                    </>
-                  ) : activeJob ? (
-                    <>
-                      <Mic className="w-4 h-4" />
-                      <span>{transcribed ? 'Transcribe again' : 'Transcribe audio'}</span>
-                      <ArrowRight className="w-4 h-4" />
-                    </>
-                  ) : (
-                    <span>Add media to continue</span>
-                  )}
-                </button>
-
-                {isTranscribing && onCancelTranscription && (
-                  <button
-                    type="button"
-                    onClick={onCancelTranscription}
-                    className="h-9 flex items-center justify-center gap-2 rounded-xl border border-slate-700 text-[13px] font-medium text-slate-200 hover:text-white hover:bg-slate-800 hover:border-rose-500/50 transition-colors cursor-default"
-                  >
-                    <X className="w-4 h-4" />
-                    Cancel transcription
-                  </button>
-                )}
-                {isTranscribing ? null : transcriptionCancelled ? (
-                  <p className="text-xs text-amber-300" role="status">
-                    Transcription cancelled. {transcribed ? 'The transcript you had is kept.' : 'Press Transcribe audio to start again.'}
-                  </p>
-                ) : activeJob && !transcribed ? (
-                  <p className="text-xs text-slate-400">
-                    Nothing is sent to ElevenLabs until you press Transcribe audio: set the language and speakers first.
-                  </p>
-                ) : (
-                  // What transcribing starts: three small steps, ticked once done, the next one lit.
-                  <ol aria-label="What happens next" className="flex items-start pt-0.5">
-                    {['Transcribe', 'Word timings', 'Translate or your script'].map((label, i) => {
-                      const done = transcribed && i < 2;
-                      const next = transcribed ? i === 2 : i === 0;
-                      return (
-                        <li key={label} className="relative flex-1 flex flex-col items-center gap-1 text-center">
-                          {i > 0 && (
-                            <span
-                              aria-hidden="true"
-                              className={`absolute top-[9px] right-1/2 w-full h-px ${transcribed && i < 3 ? 'bg-emerald-500/40' : 'bg-slate-700'}`}
-                            />
-                          )}
-                          <span
-                            className={`relative w-[18px] h-[18px] rounded-full border flex items-center justify-center font-mono text-[10px] ${
-                              done
-                                ? 'border-emerald-500/60 bg-emerald-950 text-emerald-300'
-                                : next
-                                  ? 'border-indigo-400/70 bg-indigo-950 text-indigo-200'
-                                  : 'border-slate-700 bg-slate-900 text-slate-500'
-                            }`}
-                          >
-                            {done ? <Check className="w-2.5 h-2.5" strokeWidth={3} /> : i + 1}
-                          </span>
-                          <span className={`text-[11px] leading-tight ${done ? 'text-slate-400' : next ? 'text-slate-200' : 'text-slate-500'}`}>{label}</span>
-                        </li>
-                      );
-                    })}
-                  </ol>
-                )}
               </div>
+
+              {activeJob && !transcribed && !isTranscribing && (
+                <p className="shrink-0 px-4 sm:px-5 py-3 border-t border-edge text-[11.5px] text-slate-500 leading-snug">
+                  Nothing is sent to ElevenLabs until you press Transcribe audio: set the language and speakers first.
+                </p>
+              )}
             </aside>
           </div>
         </div>
