@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.87',
+    changes: [
+      'API settings shows the moving pipeline again: Media, Transcribe, Translate, Voice and Dub across the top, with a dot running between the steps and a green Live light on each one that works. Click a step to change it.',
+    ],
+  },
+  {
     version: '1.4.86',
     changes: [
       'Translate no longer drops meaningful words to fit a line’s time. After a line is shortened, its meaning is checked against the English again, and a sentence that lost a word keeps its fuller line.',
