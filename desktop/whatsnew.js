@@ -5,6 +5,12 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.83',
+    changes: [
+      'Every place you pick a voice (Voice, Speakers, Text to speech, Voice changer, Voice settings) now shows a short list first: the voices in this dub, your favourites, recently used and a few suggested for your language. Search finds any other.',
+    ],
+  },
+  {
     version: '1.4.82',
     changes: [
       'Source & voice is tidier: Transcribe sits next to your file and never scrolls away, and Speakers is one row (1, 2, 3, 4+ or Detect).',
