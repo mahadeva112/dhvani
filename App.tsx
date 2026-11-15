@@ -5296,6 +5296,7 @@ export default function App() {
           voiceExpression={voiceExpression}
           onVoiceExpressionChange={handleVoiceExpressionChange}
           cartesiaModelId={cartesiaVoice.modelId}
+          cartesiaVoice={cartesiaVoice}
           dubMatchLoudness={dubMatchLoudness}
           onDubMatchLoudnessChange={handleDubMatchLoudnessChange}
           dubAudioQuality={dubAudioQuality}

@@ -68,7 +68,9 @@ import {
   isElevenLabsDefault,
   type VoiceExpression,
 } from '../services/elevenLabsService';
-import { cartesiaTakesControls } from '../services/cartesiaService';
+import { cartesiaTakesControls, type CartesiaVoicePrefs } from '../services/cartesiaService';
+import { samplePassage } from '../services/samplePassages';
+import { VoiceTryLine } from './VoiceTryLine';
 import { ResetDefaultsButton } from './ResetDefaultsButton';
 import { audioBufferToWav } from '../services/audioService';
 import {
@@ -493,6 +495,8 @@ interface ExpressDubWizardProps {
   onVoiceExpressionChange?: (expression: VoiceExpression) => void;
   /** The Cartesia model a Cartesia dub is voiced with: Natural and Expressive need a sonic-3 one. */
   cartesiaModelId?: string;
+  /** How a Cartesia voice is voiced (model, speed, emotion), for the voice's read of a line on Source & voice. */
+  cartesiaVoice?: CartesiaVoicePrefs;
   /** Brings a dub's lines (or, with several speakers, each speaker) to one loudness; off keeps each at the level it was voiced at. */
   dubMatchLoudness?: boolean;
   onDubMatchLoudnessChange?: (enabled: boolean) => void;
@@ -683,6 +687,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   voiceExpression = 'off',
   onVoiceExpressionChange,
   cartesiaModelId,
+  cartesiaVoice,
   dubMatchLoudness = false,
   onDubMatchLoudnessChange,
   dubAudioQuality = DEFAULT_DUB_AUDIO_QUALITY,
@@ -2452,6 +2457,15 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
     .map((group) => ({ voiceId: voiceOfSpeaker(group[0].name), least: group[group.length - 1], others: group.slice(0, -1).map((s) => s.name) }));
   // The speed of the picked row's voice: a speaker's own, or the main voice's.
   const pickedRate = pickFor && activeJob?.cast?.[pickFor]?.voiceId ? speakerVoiceRates?.[pickFor] : voiceRate;
+  // The picked row's voice reading a line of the dub: that speaker's first translated line (anyone's for the main voice), else a sample.
+  const tryVoiceId = pickFor ? voiceOfSpeaker(pickFor) : elVoiceId;
+  const tryCueIndex = segments.findIndex((seg) => seg.textTarget?.trim() && (!pickFor || speakerOf(seg) === pickFor));
+  const tryText = tryCueIndex >= 0 ? segments[tryCueIndex].textTarget!.trim() : samplePassage(targetLanguage);
+  const tryVoiceName = (() => {
+    const voice = availableVoices.find((v) => v.voice_id === tryVoiceId);
+    const name = (voice?.name || POPULAR_ELEVENLABS_VOICES.find((v) => v.id === tryVoiceId)?.name || '').trim();
+    return name.split(/\s+[-–—|]\s+/)[0] || 'the voice';
+  })();
 
   return (
     <div className="w-full flex-1 flex flex-col space-y-4 sm:space-y-5">
@@ -2540,7 +2554,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 ) : undefined
               }
               shortlist
-              layout="list"
+              layout="cards"
               pinnedVoiceIds={setupPinnedVoices}
               availableVoices={availableVoices}
               loading={voicesLoading}
@@ -2800,6 +2814,21 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                         sound alike. Pick {least.name} and give them their own voice.
                       </p>
                     ))}
+                  {tryVoiceId && tryText && (
+                    <div className="px-1 pt-2">
+                      <VoiceTryLine
+                        apiKey={elApiKey}
+                        voiceId={tryVoiceId}
+                        modelId={elModelId}
+                        // The main voice's settings are the dub's; a speaker's own voice is read with its saved ones.
+                        voiceSettings={tryVoiceId === elVoiceId ? elVoiceSettings : null}
+                        cartesia={voiceEngine === 'cartesia' ? cartesiaVoice : undefined}
+                        text={tryText}
+                        title={tryCueIndex >= 0 ? `Hear ${tryVoiceName} on your script` : `Hear ${tryVoiceName} in ${targetLanguage}`}
+                        label={tryCueIndex >= 0 ? `Line ${tryCueIndex + 1}` : 'Sample'}
+                      />
+                    </div>
+                  )}
                   {pickedRate && (
                     <div className="px-1 pt-2">
                       <VoiceRateCard voiceRate={pickedRate} language={targetLanguage} />

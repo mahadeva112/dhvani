@@ -198,8 +198,11 @@ interface VoiceSelectorCardProps {
   shortlist?: boolean;
   /** Voices listed first in the short set (the main voice and the cast's). */
   pinnedVoiceIds?: string[];
-  /** One voice a row instead of a grid of cards. */
-  layout?: 'grid' | 'list';
+  /**
+   * `list`: one voice a row. `cards`: the short set as two columns of cards
+   * with their tags, a style shelf and recently used voices under them.
+   */
+  layout?: 'grid' | 'list' | 'cards';
 }
 
 /** Voices picked lately, newest first, for the short set. */
@@ -371,6 +374,47 @@ const chipClass = (active: boolean, tone: 'indigo' | 'purple' | 'amber' = 'indig
   }`;
 };
 
+const GRID_COLUMNS = 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5';
+const CARD_COLUMNS = 'grid grid-cols-1 xl:grid-cols-2 min-[1900px]:grid-cols-3 gap-2.5';
+
+/**
+ * A small wave on a voice card, its shape drawn from the voice ID (not the
+ * sample's audio). It plays the sample too, and fills as the sample plays.
+ */
+const PreviewWave: React.FC<{ id: string; progress: number; onClick: (e: React.MouseEvent) => void }> = ({ id, progress, onClick }) => {
+  const heights = useMemo(() => {
+    let h = 7;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+    return Array.from({ length: 18 }, (_, i) => {
+      h = (Math.imul(h, 1103515245) + 12345) | 0;
+      const r = ((h >>> 8) & 0xff) / 255;
+      // Taller in the middle, like a spoken phrase.
+      const shape = 0.45 + 0.55 * Math.sin(((i + 0.5) / 18) * Math.PI);
+      return Math.max(3, Math.round(18 * shape * (0.35 + 0.65 * r)));
+    });
+  }, [id]);
+  const playing = progress >= 0;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-hidden="true"
+      tabIndex={-1}
+      className={`hidden xl:flex items-center gap-[2px] h-[18px] shrink-0 cursor-default transition-opacity ${
+        playing ? 'opacity-100' : 'opacity-40 group-hover:opacity-70'
+      }`}
+    >
+      {heights.map((height, i) => (
+        <span
+          key={i}
+          className={`w-[2px] rounded-full ${playing && i / heights.length < progress ? 'bg-indigo-400' : 'bg-slate-500'}`}
+          style={{ height }}
+        />
+      ))}
+    </button>
+  );
+};
+
 export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   elVoiceId,
   onElVoiceIdChange,
@@ -386,6 +430,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   layout = 'grid',
 }) => {
   const list = layout === 'list';
+  const cards = layout === 'cards';
   const [recentIds, setRecentIds] = useState<string[]>(readRecentVoices);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -396,6 +441,8 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [indianOnly, setIndianOnly] = useState(readIndianOnly);
   const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+  // How far the playing preview is, 0 to 1, for the card's wave.
+  const [playProgress, setPlayProgress] = useState(0);
   const [highlightIndex, setHighlightIndex] = useState(0);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
@@ -597,7 +644,8 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     const result = [
       { key: 'dub', label: 'In this dub', voices: take(pinnedVoiceIds || [elVoiceId]) },
       { key: 'favourites', label: 'Favourites', voices: take(favorites.map((f) => f.id)) },
-      { key: 'recent', label: 'Recently used', voices: take(recentIds) },
+      // Cards show recent voices on the shelf under the list instead.
+      { key: 'recent', label: 'Recently used', voices: cards ? [] : take(recentIds) },
       {
         key: 'suggested',
         label: `Suggested for ${targetLanguage}`,
@@ -613,8 +661,20 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       },
     ].filter((g) => g.voices.length > 0);
     return result;
-  }, [shortlist, tokens, activeFilterCount, allVoices, pinnedVoiceIds, elVoiceId, favorites, recentIds, filteredVoices, targetLanguage]);
+  }, [shortlist, tokens, activeFilterCount, allVoices, pinnedVoiceIds, elVoiceId, favorites, recentIds, filteredVoices, targetLanguage, cards]);
   const shortlistCount = groups ? groups.reduce((n, g) => n + g.voices.length, 0) : 0;
+  // The shelf's recently used voices: those not already in a group above.
+  const recentShelf = useMemo(() => {
+    if (!cards || !groups) return [];
+    const shown = new Set(groups.flatMap((g) => g.voices.map((v) => v.id)));
+    const byId = new Map(allVoices.map((v) => [v.id, v]));
+    return recentIds
+      .flatMap((id) => {
+        const v = byId.get(id);
+        return v && !shown.has(id) ? [v] : [];
+      })
+      .slice(0, 6);
+  }, [cards, groups, allVoices, recentIds]);
 
   const resetFilters = () => {
     setSearchQuery('');
@@ -657,6 +717,10 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
       const audio = new Audio(previewUrl);
       audioRef.current = audio;
       setPlayingVoiceId(voiceId);
+      setPlayProgress(0);
+      audio.ontimeupdate = () => {
+        if (audio.duration > 0) setPlayProgress(audio.currentTime / audio.duration);
+      };
       audio.play().catch((err) => {
         console.warn('Voice preview playback failed:', err);
         setPlayingVoiceId(null);
@@ -762,7 +826,10 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
     // Library names often carry a tagline: "Aaditya - Rich, Deep and Suspenseful".
     const [title, ...rest] = v.name.split(/\s+[-–—|]\s+/);
     const tagline = rest.join(' – ');
-    const subtitle = tagline || v.desc || capitalize(v.category);
+    // Cards carry age and style as tags, so their line under the name is the description alone.
+    const age = capitalize(prettify(v.labels?.age));
+    const ownDescription = capitalize(prettify(v.labels?.description));
+    const subtitle = tagline || (cards && ownDescription) || v.desc || capitalize(v.category);
     const showAccent = v.accent !== 'Neutral' && v.accent !== 'Standard';
     const tags = (
       <>
@@ -781,6 +848,14 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
         {v.gender !== 'neutral' && (
           <span className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-300">
             {capitalize(v.gender)}
+          </span>
+        )}
+        {cards && age && (
+          <span className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-300">{age}</span>
+        )}
+        {cards && v.styleKey && (
+          <span className="shrink-0 text-[10px] font-medium px-1.5 py-px rounded-md bg-slate-800 text-slate-300">
+            <Highlight text={v.styleKey} tokens={tokens} />
           </span>
         )}
         {showAccent && (
@@ -885,6 +960,17 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
 
           {!list && <div className="flex items-center gap-1 mt-2 overflow-hidden whitespace-nowrap">{tags}</div>}
         </div>
+
+        {cards && v.previewUrl && (
+          <PreviewWave
+            id={v.id}
+            progress={isPlaying ? playProgress : -1}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleTogglePreview(v.id, v.previewUrl);
+            }}
+          />
+        )}
 
         {list && <div className="hidden md:flex items-center gap-1 shrink-0 max-w-[40%] overflow-hidden whitespace-nowrap">{tags}</div>}
         {list && (isSelected ? (
@@ -1128,9 +1214,9 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
           <div
             aria-busy="true"
             aria-label="Loading voices"
-            className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5"
+            className={cards ? CARD_COLUMNS : GRID_COLUMNS}
           >
-            {Array.from({ length: 20 }, (_, i) => (
+            {Array.from({ length: cards ? 8 : 20 }, (_, i) => (
               <div key={i} className="flex items-center gap-3 p-3 rounded-xl border border-edge bg-slate-950/60 h-[88px]">
                 <div className="w-10 h-10 rounded-full bg-slate-800 animate-pulse shrink-0" />
                 <div className="flex-1 min-w-0 space-y-2">
@@ -1151,18 +1237,65 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
                   <div className="px-1.5 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
                     {g.label} <span className="font-mono text-slate-600 tabular-nums">{g.voices.length}</span>
                   </div>
-                  <div
-                    className={
-                      list
-                        ? 'flex flex-col gap-0.5'
-                        : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5'
-                    }
-                  >
+                  <div className={list ? 'flex flex-col gap-0.5' : cards ? CARD_COLUMNS : GRID_COLUMNS}>
                     {g.voices.map((v, i) => renderVoice(v, offset + i))}
                   </div>
                 </div>
               );
             })}
+            {cards && (styleOptions.length > 0 || recentShelf.length > 0) && (
+              <div className="mt-2 flex flex-wrap gap-x-8 gap-y-4">
+                {styleOptions.length > 0 && (
+                  <div className="min-w-0 flex-1 basis-80">
+                    <div className="px-1.5 mb-2 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                      Browse by style
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {styleOptions.map(({ value, count }) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setStyleFilter(value);
+                            setShowMoreFilters(true);
+                          }}
+                          title={`Show the ${count.toLocaleString()} ${value.toLowerCase()} voices`}
+                          className="flex items-center gap-2 h-8 px-3 rounded-full border border-edge bg-slate-950/60 text-[12px] text-slate-200 hover:border-slate-600 hover:bg-slate-800/60 cursor-default"
+                        >
+                          {value}
+                          <span className="font-mono text-[10.5px] text-slate-500 tabular-nums">{count.toLocaleString()}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {recentShelf.length > 0 && (
+                  <div className="min-w-0">
+                    <div className="px-1.5 mb-2 text-[10.5px] uppercase tracking-wider font-semibold text-slate-500">
+                      Recently used
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {recentShelf.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => selectVoice(v.id)}
+                          title={`Use ${v.name}`}
+                          className="flex items-center gap-2 h-8 pl-1 pr-3 rounded-full border border-edge bg-slate-950/60 text-[12px] text-slate-200 hover:border-slate-600 hover:bg-slate-800/60 cursor-default max-w-[14rem]"
+                        >
+                          <span
+                            className={`w-6 h-6 rounded-full bg-gradient-to-br ${avatarGradient(v.id)} grid place-items-center text-[10.5px] font-semibold text-white shrink-0`}
+                          >
+                            {v.name.charAt(0).toUpperCase()}
+                          </span>
+                          <span className="truncate">{v.name.split(/\s+[-–—|]\s+/)[0]}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : filteredVoices.length === 0 ? (
           <div className="p-8 text-center rounded-xl border border-dashed border-edge space-y-2">
@@ -1184,9 +1317,7 @@ export const VoiceSelectorCard: React.FC<VoiceSelectorCardProps> = ({
           </div>
         ) : (
           <div
-            className={
-              list ? 'flex flex-col gap-0.5' : 'grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1900px]:grid-cols-5 gap-2.5'
-            }
+            className={list ? 'flex flex-col gap-0.5' : cards ? CARD_COLUMNS : GRID_COLUMNS}
             style={rowHeight && !list ? { gridAutoRows: `${rowHeight}px` } : undefined}
           >
             {visibleVoices.map((v, idx) => renderVoice(v, idx))}
