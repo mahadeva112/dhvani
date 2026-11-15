@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.82',
+    changes: [
+      'Source & voice is tidier: Transcribe sits next to your file and never scrolls away, and Speakers is one row (1, 2, 3, 4+ or Detect).',
+      'Click Main voice or a speaker to give them a voice from the list beside it. The list shows the voices in this dub, your favourites, recently used and a few suggested for your language; search finds any other.',
+    ],
+  },
+  {
     version: '1.4.81',
     changes: [
       'In the Voice window, Change now opens the voice list in front of the window instead of behind it.',
