@@ -705,7 +705,7 @@ const ToolButton: React.FC<{
 const panelChip = (on: boolean) =>
   `h-6 px-2 rounded-md text-[11.5px] border whitespace-nowrap shrink-0 cursor-default disabled:opacity-40 disabled:cursor-default ${on ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`;
 
-/** An icon-only action on the picked line; its name and shortcut show above it on hover or keyboard focus. */
+/** An icon-only action on the picked line, in the tools row; its name and shortcut show below it on hover or keyboard focus. */
 const ActionButton: React.FC<{ label: string; shortcut?: string; onClick: () => void; children: React.ReactNode; title?: string }> = ({
   label,
   shortcut,
@@ -721,7 +721,7 @@ const ActionButton: React.FC<{ label: string; shortcut?: string; onClick: () => 
     className="group relative h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
   >
     {children}
-    <ButtonTip label={label} shortcut={shortcut} hint={title} up />
+    <ButtonTip label={label} shortcut={shortcut} hint={title} />
   </button>
 );
 
@@ -4073,6 +4073,39 @@ export const SyncEditTimeline: React.FC<{
           </div>
           )}
         </div>
+        <div className="flex shrink-0 gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Actions on the picked line">
+          <ActionButton label="Split" shortcut="S" onClick={act.split} title="Cut the line at the playhead">
+            <SquareSplitHorizontal className="w-4 h-4" />
+          </ActionButton>
+          <ActionButton label="Join" shortcut="G" onClick={act.join} title="Join this part to the next part of its line">
+            <Link2 className="w-4 h-4" />
+          </ActionButton>
+          <ActionButton label="Align" shortcut="A" onClick={act.align} title="Move the line so its first word starts with the original's">
+            <AlignStartVertical className="w-4 h-4" />
+          </ActionButton>
+          <ActionButton label={group.length > 0 && group.every((c) => c.part.muted) ? 'Unmute' : 'Mute'} shortcut="M" onClick={act.mute}>
+            <VolumeX className="w-4 h-4" />
+          </ActionButton>
+          <ActionButton label={currentLocked ? 'Unlock' : 'Lock'} shortcut="L" onClick={act.lock} title="A locked line stays where it is when Sync runs again">
+            {currentLocked ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
+          </ActionButton>
+          <ActionButton label="Split at pauses" shortcut="D" onClick={tighten?.settings.silence === 'keep' ? closeTighten : openSplit} title="Cut the picked lines in the middle of every pause, as REAPER's Dynamic split (every line when none is picked): nothing moves, nothing is taken out">
+            <ScissorsLineDashed className="w-4 h-4" />
+          </ActionButton>
+          <ActionButton label="Tighten" shortcut="Q" onClick={tighten?.settings.silence === 'remove' ? closeTighten : openTighten} title="Take the long silences out of the picked lines and close them up back to back (every line when none is picked): see what is cut, listen, then apply">
+            <FoldHorizontal className="w-4 h-4" />
+          </ActionButton>
+          {onOpenTakes && (
+            <ActionButton
+              label="Takes"
+              shortcut="T"
+              onClick={() => openTakes()}
+              title="Open the retake window for the picked line: voice new takes of it, or of some of its words, and use one, with tags, stability and more takes beside the words"
+            >
+              <Mic className="w-4 h-4" />
+            </ActionButton>
+          )}
+        </div>
         <div className="ml-auto flex items-center gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Zoom">
           <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <ZoomOut className="w-4 h-4" />
@@ -4733,45 +4766,12 @@ export const SyncEditTimeline: React.FC<{
         </div>
       )}
 
-      {/* Actions on the picked line */}
+      {/* Hints and notices under the lanes; the actions on the picked line sit in the tools row above */}
       {rangeTool && <p role="status" className="text-[12px] text-indigo-200">
         {aligningRange ? 'Matching the selected audio to its words…' : rangeWords ? `Selected: “${rangeWords.text}” · word boundaries matched. Choose a direction and Retake below.` : 'Drag inside one dub waveform to select words. For keyboard selection, open Takes, click a word, then Shift-click another.'}
       </p>}
       <div className="flex flex-wrap items-center gap-1">
-        <div className="flex flex-wrap gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5">
-          <ActionButton label="Split" shortcut="S" onClick={act.split} title="Cut the line at the playhead">
-            <SquareSplitHorizontal className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label="Join" shortcut="G" onClick={act.join} title="Join this part to the next part of its line">
-            <Link2 className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label="Align" shortcut="A" onClick={act.align} title="Move the line so its first word starts with the original's">
-            <AlignStartVertical className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label={group.length > 0 && group.every((c) => c.part.muted) ? 'Unmute' : 'Mute'} shortcut="M" onClick={act.mute}>
-            <VolumeX className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label={currentLocked ? 'Unlock' : 'Lock'} shortcut="L" onClick={act.lock} title="A locked line stays where it is when Sync runs again">
-            {currentLocked ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-          </ActionButton>
-          <ActionButton label="Split at pauses" shortcut="D" onClick={tighten?.settings.silence === 'keep' ? closeTighten : openSplit} title="Cut the picked lines in the middle of every pause, as REAPER's Dynamic split (every line when none is picked): nothing moves, nothing is taken out">
-            <ScissorsLineDashed className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label="Tighten" shortcut="Q" onClick={tighten?.settings.silence === 'remove' ? closeTighten : openTighten} title="Take the long silences out of the picked lines and close them up back to back (every line when none is picked): see what is cut, listen, then apply">
-            <FoldHorizontal className="w-4 h-4" />
-          </ActionButton>
-          {onOpenTakes && (
-            <ActionButton
-              label="Takes"
-              shortcut="T"
-              onClick={() => openTakes()}
-              title="Open the retake window for the picked line: voice new takes of it, or of some of its words, and use one, with tags, stability and more takes beside the words"
-            >
-              <Mic className="w-4 h-4" />
-            </ActionButton>
-          )}
-        </div>
-        {/* Short hints only, at a fixed height beside the tools, so the row never wraps and the timeline stays put; the whole guide is under Shortcuts (?) */}
+        {/* Short hints only, at a fixed height, so the row never wraps and the timeline stays put; the whole guide is under Shortcuts (?) */}
         <span className="flex-1 basis-0 min-w-0 h-6 flex items-center justify-end">
           {toast ? (
             <span aria-live="polite" className="truncate min-w-0 text-[12px] text-amber-300">{toast}</span>

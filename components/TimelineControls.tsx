@@ -232,15 +232,14 @@ export const useTimelineZoom = (total: number, currentTime: number, { wheelScrol
 const ZOOM_BUTTON =
   'h-7 min-w-7 px-1.5 rounded-md flex items-center justify-center gap-1.5 text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 disabled:hover:bg-transparent cursor-default';
 
-/** Zoom in / out and back to the whole timeline, with how else to zoom. */
+/** Zoom in / out and back to the whole timeline; Ctrl + scroll is told on hover only. */
 export const TimelineZoomControls: React.FC<{ zoom: TimelineZoom }> = ({ zoom }) => (
   <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-[11px] text-slate-500">
-    <span className="hidden sm:inline">{zoom.zoomed ? 'Scroll to move · ' : ''}Ctrl + scroll to zoom</span>
     <div className="flex items-center gap-0.5 rounded-lg border border-edge bg-slate-950/60 p-0.5" role="group" aria-label="Zoom">
-      <button type="button" className={ZOOM_BUTTON} onClick={() => zoom.zoomBy(1 / ZOOM_STEP)} disabled={!zoom.canZoomIn} aria-label="Zoom in" title="Zoom in">
+      <button type="button" className={ZOOM_BUTTON} onClick={() => zoom.zoomBy(1 / ZOOM_STEP)} disabled={!zoom.canZoomIn} aria-label="Zoom in" title="Zoom in (Ctrl + scroll)">
         <ZoomIn className="w-4 h-4" />
       </button>
-      <button type="button" className={ZOOM_BUTTON} onClick={() => zoom.zoomBy(ZOOM_STEP)} disabled={!zoom.zoomed} aria-label="Zoom out" title="Zoom out">
+      <button type="button" className={ZOOM_BUTTON} onClick={() => zoom.zoomBy(ZOOM_STEP)} disabled={!zoom.zoomed} aria-label="Zoom out" title="Zoom out (Ctrl + scroll)">
         <ZoomOut className="w-4 h-4" />
       </button>
       <button type="button" className={ZOOM_BUTTON} onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Show the whole track">
