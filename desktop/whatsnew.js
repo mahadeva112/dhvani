@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.89',
+    changes: [
+      'The finished dub page is cleaner: the Undo, Redo and History buttons, the zoom buttons and the colour help button are gone. Ctrl + Z still undoes, Ctrl + scroll still zooms, and History is in Edit timing.',
+      'The Edit timing button is now called Edit and sits on the right, over the timeline.',
+    ],
+  },
+  {
     version: '1.4.88',
     changes: [
       'Source & voice shows voices as cards in two columns, with age and style on each and a small wave to play the sample. Under them, Browse by style opens all voices of a style, and Recently used picks one again.',

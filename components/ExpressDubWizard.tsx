@@ -40,8 +40,6 @@ import {
   ArrowLeftRight,
   X,
   Pencil,
-  Redo2,
-  Undo2,
   FileText,
   Video,
   Zap,
@@ -166,7 +164,7 @@ import { ScriptTableView, type LinePacing } from './review/ScriptTableView';
 import { PASSAGE_PAUSES, buildPassages, loadPassagePause, savePassagePause } from './review/passages';
 import { CueEditButtons, CueEditNotice, PickableWords, useCueEditing, useReviewUndoKeys, type ReviewUndo } from './review/CueEditBar';
 import { reviewHistoryLabels } from '../services/reviewHistory';
-import { HistoryMenu, type ProjectHistoryView } from './HistoryMenu';
+import type { ProjectHistoryView } from './HistoryMenu';
 import { SyncEditTimeline, type AudioTrackLanes, type SyncEditStatus } from './SyncEditTimeline';
 import { isClip, partLine, spokenSpan, type AudioTrack, type SyncEdits } from '../services/syncEditService';
 import { alignTakeWords, firstWordAt, takesOf, type TakeAsk } from '../services/syncTakesService';
@@ -4593,38 +4591,9 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
           );
         }
 
-        /** Once synced, on the timeline's zoom row, at its left: undo, history and Edit timing. */
+        /** Once synced, on the row over the timeline, at its right: Edit (opens Edit timing). Undo stays on Ctrl + Z here; the history list lives in Edit timing. */
         const syncTools = canEditTiming ? (
           <>
-            {projectHistory && (
-              <div
-                className="flex items-center gap-1"
-                role="group"
-                aria-label="Undo and history"
-              >
-                <button
-                  type="button"
-                  onClick={() => projectHistory.goTo(projectHistory.at - 1)}
-                  disabled={!projectHistory.labels.undo}
-                  title={projectHistory.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Nothing to undo'}
-                  aria-label="Undo"
-                  className="h-8 w-8 rounded-lg border border-edge flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
-                >
-                  <Undo2 className="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => projectHistory.goTo(projectHistory.at + 1)}
-                  disabled={!projectHistory.labels.redo}
-                  title={projectHistory.labels.redo ? `Redo: ${projectHistory.labels.redo} (Ctrl + Shift + Z)` : 'Nothing to redo'}
-                  aria-label="Redo"
-                  className="h-8 w-8 rounded-lg border border-edge flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default"
-                >
-                  <Redo2 className="w-4 h-4" />
-                </button>
-                {projectHistory.entries.length > 1 && <HistoryMenu history={projectHistory} />}
-              </div>
-            )}
             {!activeJob.syncBank && activeJob.syncBeforeVoiceChange && onUndoVoiceChange && (
               <button
                 type="button"
@@ -4650,7 +4619,7 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
               }
               className={`h-8 px-3 rounded-lg border border-slate-700 text-xs font-medium text-slate-200 hover:text-white hover:bg-slate-800 disabled:opacity-40 disabled:hover:bg-transparent cursor-default flex items-center gap-1.5`}
             >
-              <Pencil className="w-3.5 h-3.5" /> Edit timing
+              <Pencil className="w-3.5 h-3.5" /> Edit
             </button>
           </>
         ) : null;

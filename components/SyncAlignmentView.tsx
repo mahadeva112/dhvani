@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { CircleHelp } from 'lucide-react';
 import type { SyncReport, SyncUnitReport } from '../services/syncService';
-import { LINE_HUES, hueOf, withAlpha } from './lineColors';
+import { hueOf, withAlpha } from './lineColors';
 import { WindowWaveform, usePeaks } from './WindowWaveform';
-import { Playhead, TimelineRuler, TimelineScrollbar, TimelineTransport, TimelineZoomControls, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
+import { Playhead, TimelineRuler, TimelineScrollbar, TimelineTransport, useTimelineZoom, useWindowPlayheads, wheelScroll } from './TimelineControls';
 import { useLiveTime } from './useLiveTime';
 import { LinePair } from './LinePair';
 
@@ -192,12 +191,8 @@ export const SyncAlignmentView: React.FC<{
 
   return (
     <div className="flex flex-col gap-2" onMouseLeave={() => setHovered(null)}>
-      {/* One row over the lanes: the editing tools on the left, zoom on the right */}
-      <div className="flex flex-wrap items-center gap-2">
-        {toolbar}
-        <span className="flex-1" />
-        <TimelineZoomControls zoom={zoom} />
-      </div>
+      {/* One row over the lanes: the editing tools, at its right. Zoom is Ctrl + scroll on the lanes, no buttons. */}
+      {toolbar && <div className="flex flex-wrap items-center justify-end gap-2">{toolbar}</div>}
 
       {/* The arrange view, as in REAPER: track headers on the left, the ruler and lanes on the right, the scroll bar along their foot. */}
       <div className="rounded-xl border border-edge bg-slate-950/50 overflow-hidden">
@@ -333,27 +328,6 @@ export const SyncAlignmentView: React.FC<{
         }
       >
         {transportExtras}
-        {/* The legend, a click away rather than a row of its own */}
-        <details className="relative">
-          <summary
-            className="list-none w-8 h-8 rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center cursor-default [&::-webkit-details-marker]:hidden"
-            aria-label="What the colours mean"
-            title="What the colours mean"
-          >
-            <CircleHelp className="w-4 h-4" />
-          </summary>
-          <div className="absolute right-0 bottom-full mb-2 z-30 w-72 rounded-xl border border-slate-700 bg-slate-900 shadow-2xl p-3 flex flex-col gap-2 text-[11.5px] text-slate-300">
-            <span className="flex items-center gap-2">
-              <span className="flex gap-0.5">
-                {LINE_HUES.map((hue) => (
-                  <span key={hue} className="w-2 h-2.5 rounded-sm" style={{ background: hue }} />
-                ))}
-              </span>
-              Each line's colour, the same in both lanes
-            </span>
-            <span className="text-slate-400">One colour stacked straight is in sync. Hover a line to see how it landed.</span>
-          </div>
-        </details>
       </TimelineTransport>
     </div>
   );
