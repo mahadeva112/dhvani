@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.88',
+    changes: [
+      'Source & voice shows voices as cards in two columns, with age and style on each and a small wave to play the sample. Under them, Browse by style opens all voices of a style, and Recently used picks one again.',
+      'A new card on the right lets you hear the picked voice read your first translated line (or a sample) before you dub. It reads only when you click; playing it again is free.',
+      'Edit timing drops the Start drift row. Reset all now says how many lines went back and that Undo brings your edits back.',
+    ],
+  },
+  {
     version: '1.4.87',
     changes: [
       'API settings shows the moving pipeline again: Media, Transcribe, Translate, Voice and Dub across the top, with a dot running between the steps and a green Live light on each one that works. Click a step to change it.',
