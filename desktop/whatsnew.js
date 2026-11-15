@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.90',
+    changes: [
+      'Edit timing has fewer buttons on top. The zoom is back at the top right, with a new Line button that zooms to the picked line.',
+      'Split, Join, Align, Takes, Mute, Lock, Split at pauses and Tighten now sit on the picked line\'s row. With nothing picked, that row has Split at pauses and Tighten for the whole dub.',
+      'Blade is on B and Marker on Shift + M. You can also right-click the ruler to put a marker there. Redo is in History.',
+    ],
+  },
+  {
     version: '1.4.89',
     changes: [
       'The finished dub page is cleaner: the Undo, Redo and History buttons, the zoom buttons and the colour help button are gone. Ctrl + Z still undoes, Ctrl + scroll still zooms, and History is in Edit timing.',
