@@ -872,8 +872,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
   const [alignHandOff, setAlignHandOff] = useState<ScriptHandOff | null>(null);
   /** Dub step: the player's lanes are the Edit timing timeline. */
   const [editingTiming, setEditingTiming] = useState(false);
-  /** Where Edit timing puts its zoom buttons: the end of the transport row under it. */
-  const [timingZoomSlot, setTimingZoomSlot] = useState<HTMLSpanElement | null>(null);
   /** A local video to watch the dub against; it is only looked at, never part of the project. */
   const reviewVideo = useReviewVideo(activeJob?.id);
   /**
@@ -4669,7 +4667,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                     if (!isPlaying) onTogglePlay();
                   }}
                   onClose={() => setEditingTiming(false)}
-                  zoomSlot={timingZoomSlot}
                   renderTrackHead={mixerLevels ? renderTrackHead : undefined}
                   speakerLanes={
                     activeJob.syncBaseReport.mix && onSpeakerLevelChange && onSpeakerMonitorChange
@@ -4818,7 +4815,6 @@ export const ExpressDubWizard: React.FC<ExpressDubWizardProps> = ({
                 </div>
               )}
               {playerExtras}
-              {timingOpen && <span ref={setTimingZoomSlot} className="ml-auto flex" />}
               </div>
               )}
               {/* The dock, once synced: what the next Sync uses on the left, what the dub is saved as on the right. */}

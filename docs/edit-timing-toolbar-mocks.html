@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Edit Timing Toolbar Mocks</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<script>
+  // Graphite, as index.css swaps it.
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          slate: { 50:'#f6f6f7',100:'#ececef',200:'#dcdde1',300:'#c6c8ce',400:'#abadb5',500:'#8b8e98',600:'#5a5d66',700:'#34363c',800:'#232529',900:'#18191c',950:'#111214' },
+          indigo: { 200:'#c9cdf9',300:'#a5adf5',400:'#7b86ec',500:'#5866e0',600:'#4c59d0',950:'#23253a' },
+          edge: '#27292d',
+        },
+      },
+    },
+  };
+</script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#0b0c0e; font-family: Inter, system-ui, "Noto Sans Devanagari", "Noto Sans Bengali", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  button, select { cursor:default; }
+  .grp { display:flex; align-items:center; gap:2px; border:1px solid #27292d; background:#111214; border-radius:12px; padding:2px; }
+  .tb { height:32px; min-width:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; gap:6px; color:#c6c8ce; font-size:12px; }
+  .tb:hover { background:#232529; color:#fff; }
+  .tb.on { background:rgba(88,102,224,.18); color:#c9cdf9; box-shadow: inset 0 0 0 1px rgba(123,134,236,.55); }
+  .tb:disabled { opacity:.35; background:transparent; }
+  .tb.sm { height:26px; min-width:26px; border-radius:6px; }
+  .clip { position:absolute; top:5px; bottom:5px; border-radius:5px; overflow:hidden; border:1px solid rgba(255,255,255,.08); }
+  .clip canvas, .lanecv { position:absolute; inset:0; width:100%; height:100%; }
+  .clip.picked { box-shadow: 0 0 0 2px #ececef; z-index:2; }
+  .clip .lab { position:absolute; left:4px; bottom:2px; font-size:10.5px; font-weight:700; color:#fff; display:flex; align-items:center; gap:4px; }
+  .clip .dot { position:absolute; right:4px; top:4px; width:6px; height:6px; border-radius:9px; background:#f59e0b; }
+  .ph { position:absolute; top:0; bottom:0; width:1px; background:#f0473c; pointer-events:none; z-index:5; }
+  .ph::before { content:''; position:absolute; top:0; left:-4px; border:4px solid transparent; border-top:6px solid #f0473c; }
+  .ms b { width:18px; height:17px; border:1px solid #34363c; border-radius:4px; font-size:9.5px; display:inline-flex; align-items:center; justify-content:center; color:#abadb5; font-weight:600; }
+  .new { font-size:9.5px; font-weight:700; letter-spacing:.02em; padding:1px 5px; border-radius:99px; background:rgba(52,211,153,.15); color:#6ee7b7; }
+  .menu { position:absolute; z-index:30; min-width:15rem; white-space:nowrap; border-radius:12px; border:1px solid #34363c; background:#18191c; box-shadow:0 18px 40px rgba(0,0,0,.55); padding:4px; }
+  .menu .mi { width:100%; height:30px; border-radius:7px; padding:0 8px; display:flex; align-items:center; gap:8px; font-size:12.5px; color:#dcdde1; text-align:left; }
+  .menu .mi:hover { background:#232529; }
+  .menu .mi kbd { margin-left:auto; font-family:ui-monospace,Consolas,monospace; font-size:10.5px; color:#8b8e98; }
+  .menu hr { border:0; border-top:1px solid #27292d; margin:4px 2px; }
+  .slider { position:relative; width:7rem; height:4px; border-radius:4px; background:#34363c; }
+  .slider i { position:absolute; left:0; top:0; bottom:0; border-radius:4px; background:#7b86ec; }
+  .slider b { position:absolute; top:-5px; width:14px; height:14px; margin-left:-7px; border-radius:99px; background:#ececef; box-shadow:0 1px 3px rgba(0,0,0,.6); }
+  .hl { outline:2px dashed #34d399; outline-offset:3px; border-radius:12px; }
+  table.mx { border-collapse:collapse; width:100%; font-size:12.5px; }
+  table.mx th, table.mx td { border-bottom:1px solid #27292d; padding:6px 10px; text-align:left; vertical-align:top; }
+  table.mx th { color:#8b8e98; font-weight:600; font-size:11.5px; }
+  table.mx td.cur { background:rgba(88,102,224,.08); }
+  .gone { color:#f59e0b; } .keep { color:#c6c8ce; } .moved { color:#a5adf5; }
+</style>
+</head>
+<body class="text-slate-100 min-h-screen p-4 sm:p-6">
+
+<div class="max-w-[100rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 font-medium">Mock</span>
+  <span id="mockSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+</div>
+<div class="max-w-[100rem] mx-auto mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-400">
+  <span class="px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium">অবস্থা</span>
+  <span id="stateSeg" class="inline-flex flex-wrap rounded-lg border border-edge overflow-hidden"></span>
+  <label class="ml-3 flex items-center gap-1.5"><input id="hlBox" type="checkbox" class="accent-emerald-400" checked /> zoom কোথায় আছে সবুজ দাগে দেখাও</label>
+</div>
+<p id="note" class="max-w-[100rem] mx-auto mb-4 text-[13.5px] text-slate-300 leading-relaxed"></p>
+
+<div class="max-w-[100rem] mx-auto">
+  <div id="frame" class="relative rounded-2xl border border-slate-700 overflow-hidden bg-slate-950 flex flex-col" style="height:720px"></div>
+  <p class="mt-2 text-[11.5px] text-slate-500">ফ্রেমটা app-এর Edit timing পাতা (উপরের app bar বাদ)। dub lane-এ কোনো line-এ click = বাছা, ডান-click = তার menu, ফাঁকা জায়গায় click বা <span class="mono">Esc</span> = ছাড়া। Snap / Ripple, zoom − + Fit, ⋯ আর ▶ চাপা যায়। Lanes ইচ্ছে করে একটু ছোট করা (Sync links, All speakers, Original clips বাদ) — ওগুলো বদলাচ্ছে না।</p>
+
+  <h2 class="mt-8 mb-2 text-[15px] font-semibold">উপরের প্রতিটা বোতাম কোথায় যায়</h2>
+  <p class="mb-3 text-[12.5px] text-slate-400"><span class="keep">থাকে</span> · <span class="moved">সরে যায়</span> · <span class="gone">উপর থেকে বাদ (shortcut থাকে)</span>। কোনো কাজই হারায় না — শুধু উপর থেকে সরে।</p>
+  <div class="rounded-xl border border-edge overflow-x-auto bg-slate-950"><table class="mx" id="matrix"></table></div>
+</div>
+
+<script>
+const ICON = {
+  scissors: '<circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/>',
+  magnet: '<path d="m6 15-4-4 6.75-6.77a7.79 7.79 0 0 1 11 11L13 22l-4-4 6.39-6.36a2.14 2.14 0 0 0-3-3L6 15"/><path d="m5 8 4 4"/><path d="m12 15 4 4"/>',
+  ripple: '<path d="M17 12H3"/><path d="m11 18 6-6-6-6"/><path d="M21 5v14"/>',
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/>',
+  undo: '<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  redo: '<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>',
+  history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+  split: '<path d="M8 19H5c-1 0-2-1-2-2V7c0-1 1-2 2-2h3"/><path d="M16 5h3c1 0 2 1 2 2v10c0 1-1 2-2 2h-3"/><path d="M12 4v16"/>',
+  link: '<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><path d="M8 12h8"/>',
+  align: '<rect width="9" height="6" x="6" y="14" rx="2"/><rect width="16" height="6" x="6" y="4" rx="2"/><path d="M2 2v20"/>',
+  mute: '<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>',
+  lock: '<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  pauses: '<circle cx="4" cy="8" r="2"/><path d="M5.42 9.42 8 12"/><path d="m14 6-8.58 8.58"/><circle cx="4" cy="16" r="2"/><path d="M10.8 14.8 14 18"/><path d="M16 12h-2"/><path d="M22 12h-2"/>',
+  tighten: '<path d="M2 12h6"/><path d="M22 12h-6"/><path d="M12 2v2"/><path d="M12 8v2"/><path d="M12 14v2"/><path d="M12 20v2"/><path d="m19 9-3 3 3 3"/><path d="m5 15 3-3-3-3"/>',
+  mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/>',
+  zoomOut: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M8 11h6"/>',
+  zoomIn: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M8 11h6"/><path d="M11 8v6"/>',
+  fit: '<path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/>',
+  focus: '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><rect x="7" y="9" width="10" height="6" rx="1"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  reset: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  play: '<polygon points="6 3 20 12 6 21 6 3" fill="currentColor"/>',
+  pause: '<rect x="14" y="4" width="4" height="16" rx="1" fill="currentColor"/><rect x="6" y="4" width="4" height="16" rx="1" fill="currentColor"/>',
+  prev: '<path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/>',
+  next: '<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
+  more: '<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+  video: '<path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+  download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+  sync: '<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>',
+  sliders: '<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>',
+  sub: '<rect width="18" height="14" x="3" y="5" rx="2"/><path d="M7 15h4"/><path d="M15 15h2"/><path d="M7 11h2"/><path d="M13 11h4"/>',
+  doc: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 13H8"/><path d="M16 17H8"/><path d="M16 13h-2"/>',
+};
+const ic = (n, c = 'w-4 h-4') => `<svg class="${c} shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
+
+// ---------- data (the screenshot's project) ----------
+const TOTAL = 14;
+const SRC = [
+  { n: 1, t: [0.0, 3.8], col: '#3d6f80', en: 'Welcome back to the podcast. Today we are exploring the frontiers of artificial intelligence.', hi: 'पॉडकास्ट में फिर स्वागत है। आज बात एआई के नए दौर की।' },
+  { n: 2, t: [4.8, 9.2], col: '#8a4a5e', en: 'Thanks. What has happened in the last six months is remarkable.', hi: 'शुक्रिया। पिछले छह महीनों में जो तरक्की हुई, वो बेमिसाल है।' },
+  { n: 3, t: [10.1, 14.0], col: '#5f5a8a', en: "Let's go straight to multimodal models and live translation.", hi: 'चलिए, सीधे मल्टीमोडल मॉडल और लाइव अनुवाद पर आएँ।' },
+];
+const PARTS = [
+  { id: '1', sp: 'host', line: 1, d: [0.0, 3.4] },
+  { id: '2a', sp: 'guest', line: 2, d: [4.8, 8.2], edited: true, lock: true, off: '+0.00 s' },
+  { id: '2b', sp: 'guest', line: 2, d: [8.25, 9.6], edited: true, lock: true },
+  { id: '3a', sp: 'host', line: 3, d: [10.1, 10.55], edited: true, off: '+0' },
+  { id: '3b', sp: 'host', line: 3, d: [10.62, 14.0], edited: true, lock: true },
+];
+const SPK = { host: { name: 'Host', col: '#6d5fb8', dot: 'bg-indigo-400', lines: 3 }, guest: { name: 'Guest', col: '#1f8a7a', dot: 'bg-teal-400', lines: 2 } };
+const PLAYHEAD = 0.0;
+
+const MOCKS = {
+  now: { label: 'এখন', top: 17, note: 'এখনকার পাতা, তুলনার জন্য। উপরে 17টা বোতাম: Blade · Snap · Ripple · Marker | Undo · Redo · History | Split · Join · Align · Mute · Lock · Split at pauses · Tighten · Takes | ?. বাছা line-এর আটটা বোতাম কিছু বাছা না থাকলেও সবসময় উপরে বসে থাকে। Zoom নিচে transport-এর সারির ডানে — চোখ আর হাত দুটোই নিচে নামাতে হয়। মাথার সারি আর lanes-এর মাঝে একটা ফাঁকা সারি (বাছা line-এর জন্য রাখা) কিছু না বাছলে খালি পড়ে থাকে।' },
+  A: { label: 'Mock A · Line-এর কাজ line-এর সারিতে', top: 6, note: 'উপরে শুধু যা সবসময় লাগে: Snap, Ripple, Undo, History, আর ডানে zoom (− 14 s + · Fit · নতুন "Line" = বাছা line-এ zoom), ?, Saved, Reset, Done। Line-এর আটটা কাজ নেমে যায় নিচের "বাছা line" সারিতে — যে সারিটা এখন খালি পড়ে থাকে — নাম-সহ, শুধু line বাছলে। কিছু না বাছলে ওই সারিতেই "Whole dub" এর দুটো কাজ (Split at pauses, Tighten), কারণ ওরা তখন সব line-এ চলে। Blade আর Marker উপর থেকে বাদ: S দিয়ে কাটা যায়, B / Shift+M থাকে, Marker ruler-এ ডান-click-এও। Redo History-র তালিকার ভিতরে (Ctrl+Shift+Z থাকে)। আমার পছন্দ এটাই।' },
+  B: { label: 'Mock B · Timeline-এর মাথায় zoom', top: 3, note: 'Zoom ঠিক timeline-এর নিজের ডান-উপরের কোণে (ruler-এর উপরে একটা পাতলা সারিতে) — DaVinci / Premiere-এর মতো, যেখানে চোখ থাকে। সাথে নতুন একটা slider, টেনে zoom। সেই সারির বাঁয়ে Snap, Ripple আর "Whole dub ▾" (Split at pauses, Tighten)। পাতার মাথায় শুধু title, sync-এর অবস্থা, Undo, History, ?, Saved/Reset/Done। Line বাছলে line-এর ঠিক উপরে একটা ছোট ভাসমান বার (Split · Join · Align · Takes · Mute · Lock) — মাউস যেখানে, বোতামও সেখানে। Start/Speed/Gain/Fades double-click-এর ছোট window-এ (app-এ আগেই আছে)। বাছা line-এর আলাদা সারি থাকে না, lanes বেশি জায়গা পায়।' },
+  C: { label: 'Mock C · ⋯ More আর ডান-click', top: 5, note: 'সবচেয়ে কম বোতাম, এক সারি। উপরে Undo, History, Snap, ডানে zoom, তারপর "⋯ More" (Ripple, Blade, Marker, Split at pauses, Tighten — প্রতিটার পাশে shortcut), ?, Saved/Reset/Done। Line বাছলে নিচের সারিতে শুধু সবচেয়ে বেশি লাগে এমন দুটো: Align আর Takes, বাকি সব ডান-click-এর menu-তে (app-এ ডান-click menu আগেই আছে, এখানে সেটা ভরা)। "অবস্থা: ডান-click 2a" বেছে menu-টা দেখো। পরিষ্কার, কিন্তু Split / Join / Lock খুঁজতে নতুন কেউ একটু সময় নেবে।' },
+  D: { label: 'Mock D · দুই সারি, DaVinci-র মতো', top: 13, note: 'যারা সব বোতাম চোখের সামনে চায় তাদের জন্য। প্রথম সারি: title, sync-এর অবস্থা, Saved/Reset/Done। দ্বিতীয় সারি একটা আসল toolbar: বাঁয়ে Undo · Redo · History আর Snap · Ripple, মাঝে line-এর কাজ নাম-সহ (Split · Join · Align · Takes, বাকি Mute/Lock/Split at pauses/Tighten "⋯"-এ) — line না বাছলে ধূসর, ডানে zoom slider + 14 s + Fit + Line। Blade, Marker উপর থেকে বাদ। বাছা line-এর আলাদা সারি নেই (double-click window)। বোতাম বেশি থাকে, তবে গোছানো।' },
+};
+const STATES = { none: 'কিছু বাছা নেই', pick: '2a বাছা', menu: 'ডান-click 2a' };
+
+let S = { mock: 'A', st: 'pick', snap: true, ripple: false, playing: false, view: 14, more: false, hl: true };
+try { Object.assign(S, JSON.parse(localStorage.getItem('editTimingToolbarMocks') || '{}')); } catch {}
+
+const fmt = (t) => { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s.toFixed(3).padStart(6, '0')}`; };
+const fmtClock = (t) => { const m = Math.floor(t / 60), s = Math.floor(t - m * 60); return `${m}:${String(s).padStart(2, '0')}`; };
+const picked = () => (S.st === 'none' ? null : PARTS.find((p) => p.id === '2a'));
+
+// ---------- shared pieces ----------
+const tb = (icon, label, key, { on = false, act = '', disabled = false, text = '', sm = false } = {}) =>
+  `<button class="tb ${sm ? 'sm' : ''} ${text ? 'px-2' : ''} ${on ? 'on' : ''}" ${act ? `data-act="${act}"` : ''} ${disabled ? 'disabled' : ''} title="${label}${key ? ` (${key})` : ''}" aria-label="${label}">${ic(icon, sm ? 'w-3.5 h-3.5' : 'w-4 h-4')}${text}</button>`;
+const title = () => `<h3 class="text-[14px] font-semibold text-slate-100 whitespace-nowrap">Edit timing</h3>`;
+const syncChip = () => `<span class="h-8 px-3 rounded-lg bg-emerald-500/12 text-emerald-300 text-[12px] font-semibold flex items-center gap-1.5 whitespace-nowrap" title="Every line starts with the original's">${ic('check', 'w-3.5 h-3.5')}All 3 in sync</span>`;
+const sep = () => `<span class="w-px h-5 bg-slate-700 mx-0.5"></span>`;
+const snapRipple = (sm = false) => `<div class="grp">${tb('magnet', 'Snap', 'N', { on: S.snap, act: 'snap', sm })}${tb('ripple', 'Ripple', 'Shift + drag', { on: S.ripple, act: 'ripple', sm })}</div>`;
+const undoHistory = ({ redo = false } = {}) => `<div class="grp">${tb('undo', 'Undo: moved 2a (Ctrl + Z)', '')}${redo ? tb('redo', 'Redo', 'Ctrl + Shift + Z', { disabled: true }) : ''}
+  <button class="tb px-2 text-[12px] font-medium" title="Every edit so far; Redo is in the list too">${ic('history')}History<span class="mono text-[10.5px] text-indigo-300">13</span>${ic('chev', 'w-3.5 h-3.5 text-slate-500')}</button></div>`;
+const helpBtn = () => `<button class="h-9 w-9 rounded-xl border border-edge bg-slate-950 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800" title="Shortcuts, and how editing works (?)">${ic('help')}</button>`;
+const endBtns = () => `<span class="flex items-center gap-2.5 whitespace-nowrap">
+  <span class="flex items-center gap-1.5 text-[11.5px] text-slate-400">${ic('check', 'w-3.5 h-3.5 text-emerald-400')}Saved</span>
+  <button title="Reset all edits (13). Undo brings them back." class="h-8 w-8 rounded-lg border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 flex items-center justify-center">${ic('reset', 'w-3.5 h-3.5')}</button>
+  <button class="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-xs font-semibold text-white flex items-center gap-1.5">${ic('check', 'w-3.5 h-3.5')}Done</button></span>`;
+
+function zoomGroup({ slider = false, sm = false } = {}) {
+  const p = picked();
+  const canIn = S.view > 2, canOut = S.view < TOTAL;
+  const pos = Math.round(((TOTAL - S.view) / (TOTAL - 2)) * 100);
+  return `<div class="grp ${S.hl ? 'hl' : ''}" role="group" aria-label="Zoom">
+    ${tb('zoomOut', 'Zoom out', '−', { act: 'zout', disabled: !canOut, sm })}
+    ${slider ? `<span class="slider mx-1" title="Drag to zoom"><i style="width:${pos}%"></i><b style="left:${pos}%"></b></span>` : ''}
+    ${tb('zoomIn', 'Zoom in', '=', { act: 'zin', disabled: !canIn, sm })}
+    <span class="min-w-[2.75rem] text-center mono text-[11px] text-slate-400" title="Seconds on screen">${S.view} s</span>
+    <button data-act="fit" ${canOut ? '' : 'disabled'} class="tb ${sm ? 'sm' : ''} px-2 text-[12px]" title="Whole dub (Shift + Z; again to zoom back)">${ic('fit', 'w-3.5 h-3.5')}Fit</button>
+    <button data-act="zline" ${p ? '' : 'disabled'} class="tb ${sm ? 'sm' : ''} px-2 text-[12px]" title="Zoom to the picked line">${ic('focus', 'w-3.5 h-3.5')}Line<span class="new">নতুন</span></button>
+  </div>`;
+}
+
+function field(label, value, unit) {
+  return `<label class="flex items-center gap-1.5 text-[11.5px] text-slate-400 whitespace-nowrap">${label}<span class="h-7 px-2 min-w-[2.75rem] rounded-md border border-edge bg-slate-950 mono text-[12px] text-slate-100 flex items-center">${value}</span>${unit ? `<span class="text-slate-500">${unit}</span>` : ''}</label>`;
+}
+const pickedName = (p) => `<span class="flex items-center gap-2 whitespace-nowrap"><span class="w-2 h-2 rounded-full bg-teal-400"></span><span class="text-[13px] font-semibold text-slate-100">Line 2a</span><span class="text-[11.5px] text-slate-500">Guest · locked</span></span>`;
+const pickedFields = (p) => field('Start', fmt(p.d[0]), '') + field('Speed', '100', '%') + field('Gain', '0.0', 'dB') + field('Fades', '0 / 0', 'ms');
+const labBtn = (icon, label, key, extra = '') => `<button class="h-8 px-2.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12px] text-slate-200 flex items-center gap-1.5 whitespace-nowrap ${extra}" title="${label} (${key})">${ic(icon, 'w-3.5 h-3.5 text-slate-400')}${label}<kbd class="mono text-[10px] text-slate-500">${key}</kbd></button>`;
+
+function lineMenu(x, y) {
+  const mi = (icon, label, key) => `<button class="mi">${ic(icon, 'w-3.5 h-3.5 text-slate-400')}${label}<kbd>${key}</kbd></button>`;
+  return `<div class="menu" style="left:${x};top:${y}">
+    <div class="px-2 pt-1 pb-1.5 text-[11px] text-slate-500">Line 2a · Guest</div>
+    ${mi('split', 'Split at the playhead', 'S')}${mi('link', 'Join with the next part', 'G')}${mi('align', 'Align to the original', 'A')}
+    <hr/>${mi('mic', 'Takes…', 'T')}${mi('mute', 'Mute', 'M')}${mi('lock', 'Unlock', 'L')}
+    <hr/>${mi('pauses', 'Split at pauses…', 'D')}${mi('tighten', 'Tighten…', 'Q')}
+  </div>`;
+}
+function moreMenu() {
+  const chk = (on) => `<span class="w-4 h-4 rounded border ${on ? 'bg-indigo-500 border-indigo-400' : 'border-slate-600'} flex items-center justify-center">${on ? ic('check', 'w-3 h-3 text-white') : ''}</span>`;
+  return `<div class="menu" style="right:0;top:calc(100% + 6px)">
+    <button class="mi" data-act="ripple">${chk(S.ripple)}Ripple: moving a line pushes the rest<kbd>Shift</kbd></button>
+    <button class="mi">${chk(false)}Blade: a click cuts<kbd>B</kbd></button>
+    <hr/>
+    <button class="mi">${ic('flag', 'w-3.5 h-3.5 text-slate-400')}Add a marker at the playhead<kbd>Shift M</kbd></button>
+    <hr/>
+    <div class="px-2 pt-1 pb-1 text-[11px] text-slate-500">Picked lines, or every line when none is picked</div>
+    <button class="mi">${ic('pauses', 'w-3.5 h-3.5 text-slate-400')}Split at pauses…<kbd>D</kbd></button>
+    <button class="mi">${ic('tighten', 'w-3.5 h-3.5 text-slate-400')}Tighten…<kbd>Q</kbd></button>
+  </div>`;
+}
+
+// ---------- the lanes ----------
+function lanes({ strip = '', floatBar = false, menu = false } = {}) {
+  const V = S.view;
+  const pct = (t) => `${(t / V) * 100}%`;
+  let ruler = '';
+  for (let s = 0; s <= V; s += 0.5) {
+    const big = s % 2 === 0;
+    ruler += `<span style="position:absolute;bottom:0;left:${pct(s)};width:1px;height:${big ? 10 : s % 1 === 0 ? 6 : 3}px;background:${big ? '#5a5d66' : '#34363c'}"></span>`;
+    if (big && s < V) ruler += `<span class="mono" style="position:absolute;top:3px;left:calc(${pct(s)} + 4px);font-size:10px;color:#8b8e98">0:${String(s).padStart(2, '0')}</span>`;
+  }
+  const p = picked();
+  const src = SRC.map((l) => `<div class="clip" style="left:${pct(l.t[0])};width:${pct(l.t[1] - l.t[0])};background:${l.col}"><canvas data-cv="src" data-n="${l.n}"></canvas><span class="lab" style="top:3px;bottom:auto"><span class="px-1 rounded bg-black/40">${l.n}</span></span></div>`).join('');
+  const clips = (sp) => PARTS.filter((x) => x.sp === sp).map((x) => `<div class="clip ${p && p.id === x.id ? 'picked' : ''}" data-act="pick" data-id="${x.id}" style="left:${pct(x.d[0])};width:${pct(x.d[1] - x.d[0])};background:${SPK[sp].col}cc">
+      <canvas data-cv="clip" data-id="${x.id}"></canvas>${x.edited ? '<span class="dot"></span>' : ''}
+      <span class="lab"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>${x.id}${x.off ? `<span class="mono text-[10px] font-normal text-white/70">${x.off}</span>` : ''}${x.lock ? ic('lock', 'w-2.5 h-2.5 text-white/70') : ''}</span></div>`).join('');
+  const script = SRC.map((l) => `<span class="truncate" style="position:absolute;top:4px;left:${pct(l.t[0])};width:${pct(l.t[1] - l.t[0])};font-size:11px;color:#c6c8ce;padding-left:4px">${l.hi}</span>`).join('');
+  const head = (inner, cls = '') => `<div class="px-2 flex items-center gap-1.5 border-b border-edge overflow-hidden ${cls}">${inner}</div>`;
+  const spkHead = (k) => head(`<span class="flex flex-col gap-1 w-full min-w-0"><span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full ${SPK[k].dot}"></span><span class="text-slate-200 text-[11.5px]">${SPK[k].name}</span><span class="ml-auto text-[10px] text-slate-500">${SPK[k].lines} lines</span></span>
+      <span class="ms flex items-center gap-1"><b>M</b><b>S</b><span class="flex-1 h-[3px] rounded bg-slate-700 relative mx-1"><span class="absolute -top-[3px] left-[70%] w-[9px] h-[9px] rounded-full bg-indigo-300"></span></span><span class="mono text-[9.5px] text-slate-500">0.0 dB</span></span></span>`, 'flex-[1] min-h-0');
+  // Floating bar over the picked part (Mock B).
+  let fb = '';
+  if (floatBar && p && S.st === 'pick') {
+    fb = `<div class="absolute z-20 flex items-center gap-0.5 rounded-xl border border-slate-600 bg-slate-900 p-0.5 shadow-[0_10px_30px_rgba(0,0,0,.55)]" style="left:${pct(p.d[0])};top:-40px">
+      <span class="px-1.5 text-[11px] font-semibold text-slate-200 whitespace-nowrap">2a</span>
+      ${tb('split', 'Split', 'S', { sm: true })}${tb('link', 'Join', 'G', { sm: true })}${tb('align', 'Align', 'A', { sm: true })}${tb('mic', 'Takes', 'T', { sm: true })}<span class="w-px h-4 bg-slate-700 mx-0.5"></span>${tb('mute', 'Mute', 'M', { sm: true })}${tb('lock', 'Unlock', 'L', { sm: true })}</div>`;
+  }
+  const mn = menu && p && S.st === 'menu' ? lineMenu(`calc(${pct(p.d[0])} + 40px)`, '10px') : '';
+  const viewW = Math.min(100, (V / TOTAL) * 100);
+  return `<div class="flex-1 min-h-0 flex flex-col rounded-xl border border-edge bg-slate-900/50">
+    ${strip}
+    <div class="flex-1 min-h-0 grid" style="grid-template-columns:12rem minmax(0,1fr)">
+      <div class="flex flex-col text-[11px] text-slate-400 border-r border-edge">
+        ${head(`<span class="mono text-[11px] font-semibold text-slate-200">${fmt(PLAYHEAD)}</span>`, 'h-6 shrink-0')}
+        ${head(`<span class="flex flex-col gap-1 w-full"><span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-cyan-400"></span><span class="text-slate-200 text-[11.5px]">Original</span>${ic('lock', 'w-3 h-3 text-slate-600 ml-auto')}</span><span class="ms flex items-center gap-1"><b>M</b><b>S</b><span class="flex-1 h-[3px] rounded bg-slate-700 relative mx-1"><span class="absolute -top-[3px] left-[70%] w-[9px] h-[9px] rounded-full bg-indigo-300"></span></span><span class="mono text-[9.5px] text-slate-500">0.0 dB</span></span></span>`, 'flex-[1] min-h-0')}
+        ${spkHead('host')}${spkHead('guest')}
+        ${head('Script', 'h-6 shrink-0')}
+        ${head('Whole dub', 'h-5 shrink-0 border-b-0')}
+      </div>
+      <div class="relative flex flex-col min-w-0" data-act="lanebg">
+        <div class="h-6 shrink-0 relative border-b border-edge overflow-hidden">${ruler}</div>
+        <div class="flex-[1] min-h-0 relative border-b border-edge overflow-hidden">${src}</div>
+        <div class="flex-[1] min-h-0 relative border-b border-edge overflow-hidden">${clips('host')}</div>
+        <div class="flex-[1] min-h-0 relative border-b border-edge">${clips('guest')}${fb}${mn}</div>
+        <div class="h-6 shrink-0 relative border-b border-edge overflow-hidden">${script}</div>
+        <div class="h-5 shrink-0 relative px-1 py-[3px]"><span class="block h-full rounded bg-slate-950 relative overflow-hidden">${PARTS.map((x) => `<span style="position:absolute;top:3px;bottom:3px;left:${(x.d[0] / TOTAL) * 100}%;width:${((x.d[1] - x.d[0]) / TOTAL) * 100}%;background:#2f9d7f;border-radius:2px"></span>`).join('')}<span style="position:absolute;inset:0 auto 0 0;width:${viewW}%;border:1px solid rgba(236,236,239,.6);border-radius:4px"></span></span></div>
+        <span class="ph" style="left:${pct(PLAYHEAD)}"></span>
+      </div>
+    </div>
+  </div>`;
+}
+
+function transport() {
+  return `<div class="shrink-0 flex flex-wrap items-center gap-3 pt-1">
+    <button class="w-8 h-8 rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center">${ic('prev')}</button>
+    <button data-act="play" class="w-10 h-10 rounded-full bg-slate-100 hover:bg-white text-slate-950 flex items-center justify-center" title="Play (Space)">${ic(S.playing ? 'pause' : 'play', 'w-4 h-4' + (S.playing ? '' : ' ml-0.5'))}</button>
+    <button class="w-8 h-8 rounded-full border border-edge text-slate-400 hover:text-slate-100 hover:bg-slate-800 flex items-center justify-center">${ic('next')}</button>
+    <span class="mono text-sm text-slate-100">0:00 <span class="text-slate-500">/ 0:14</span></span>
+    <span class="flex-1 min-w-[12rem] flex flex-col leading-snug"><span class="text-[12px] text-slate-400 truncate">${SRC[0].en}</span><span class="text-[13.5px] text-slate-100 truncate">${SRC[0].hi}</span></span>
+    <span class="h-8 px-2.5 rounded-lg border border-edge bg-slate-950 text-[12.5px] text-slate-200 flex items-center gap-2">1× ${ic('chev', 'w-3.5 h-3.5 text-slate-500')}</span>
+    <button class="h-8 px-2.5 rounded-lg border border-edge bg-slate-950 text-[12.5px] text-slate-200 flex items-center gap-1.5">${ic('video', 'w-3.5 h-3.5')}Add video</button>
+  </div>
+  <div class="shrink-0 flex items-center gap-2 border-t border-edge pt-3">
+    <button class="h-9 px-3 rounded-lg border border-edge text-[12.5px] text-slate-200 flex items-center gap-1.5">${ic('mic', 'w-3.5 h-3.5')}Voice<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span></button>
+    <button class="h-9 px-3 rounded-lg border border-edge text-slate-200 flex items-center gap-1.5">${ic('sliders', 'w-3.5 h-3.5')}<span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span></button>
+    <button class="h-9 px-3 rounded-lg border border-edge text-[12.5px] text-slate-200 flex items-center gap-1.5">${ic('sync', 'w-3.5 h-3.5')}Sync again</button>
+    <span class="flex-1"></span>
+    <button class="h-9 px-3 rounded-lg border border-edge text-[12.5px] text-slate-200 flex items-center gap-1.5">${ic('sub', 'w-3.5 h-3.5')}Subtitles</button>
+    <button class="h-9 px-3 rounded-lg border border-edge text-[12.5px] text-slate-200 flex items-center gap-1.5">${ic('doc', 'w-3.5 h-3.5')}Script</button>
+    <button class="h-9 px-3.5 rounded-lg bg-indigo-500 text-[12.5px] font-semibold text-white flex items-center gap-1.5">${ic('download', 'w-3.5 h-3.5')}Save the dub</button>
+  </div>`;
+}
+
+const shell = (inner) => `<div class="flex-1 min-h-0 overflow-hidden p-4 flex flex-col gap-3">${inner}</div>`;
+
+// ---------- mocks ----------
+function mockNow() {
+  const p = picked();
+  const zoomOld = `<div class="grp items-center ${S.hl ? 'hl' : ''}">${tb('zoomOut', 'Zoom out', '−', { act: 'zout' })}<span class="min-w-[3rem] text-center mono text-[11px] text-slate-400">${S.view} s</span>${tb('zoomIn', 'Zoom in', '=', { act: 'zin' })}<button data-act="fit" class="tb px-2 text-[12px]">${ic('fit', 'w-3.5 h-3.5')}Fit</button></div>`;
+  return shell(`
+    <div class="flex flex-wrap items-center gap-2">
+      ${title()}${syncChip()}${sep()}
+      <div class="grp">${tb('scissors', 'Blade', 'B')}${tb('magnet', 'Snap', 'N', { on: S.snap, act: 'snap' })}${tb('ripple', 'Ripple', 'Shift + drag', { on: S.ripple, act: 'ripple' })}${tb('flag', 'Marker', 'Shift + M')}</div>
+      ${undoHistory({ redo: true })}
+      <div class="grp">${tb('split', 'Split', 'S')}${tb('link', 'Join', 'G')}${tb('align', 'Align', 'A')}${tb('mute', 'Mute', 'M')}${tb('lock', 'Lock', 'L')}${tb('pauses', 'Split at pauses', 'D')}${tb('tighten', 'Tighten', 'Q')}${tb('mic', 'Takes', 'T')}</div>
+      ${helpBtn()}
+      <span class="ml-auto">${endBtns()}</span>
+    </div>
+    <section class="min-h-[2.75rem] rounded-xl px-3 py-1.5 flex flex-wrap items-center gap-3 ${p ? 'border border-edge bg-slate-950/60' : ''}">${p ? pickedName(p) + pickedFields(p) : ''}</section>
+    ${lanes()}
+    ${transport().replace('Add video</button>', `Add video</button>${zoomOld}`)}`);
+}
+
+function mockA() {
+  const p = picked();
+  const row = p
+    ? `${pickedName(p)}<span class="flex flex-wrap items-center gap-3">${pickedFields(p)}</span>
+       <span class="ml-auto flex flex-wrap items-center gap-1.5">${labBtn('split', 'Split', 'S')}${labBtn('link', 'Join', 'G')}${labBtn('align', 'Align', 'A')}${labBtn('mic', 'Takes', 'T')}
+       <span class="grp">${tb('mute', 'Mute', 'M', { sm: true })}${tb('lock', 'Unlock', 'L', { sm: true })}${tb('pauses', 'Split at pauses', 'D', { sm: true })}${tb('tighten', 'Tighten', 'Q', { sm: true })}</span></span>`
+    : `<span class="text-[12.5px] text-slate-500">Click a line to move, cut or retake it · right-click for everything</span>
+       <span class="ml-auto flex items-center gap-1.5"><span class="text-[11.5px] text-slate-500 mr-1">Whole dub</span>${labBtn('pauses', 'Split at pauses', 'D')}${labBtn('tighten', 'Tighten', 'Q')}</span>`;
+  return shell(`
+    <div class="flex flex-wrap items-center gap-2">
+      ${title()}${syncChip()}${sep()}${snapRipple()}${undoHistory()}
+      <span class="flex-1"></span>
+      ${zoomGroup()}${helpBtn()}${sep()}${endBtns()}
+    </div>
+    <section class="min-h-[2.75rem] rounded-xl px-3 py-1.5 flex flex-wrap items-center gap-3 border border-edge bg-slate-950/60">${row}</section>
+    ${lanes({ menu: true })}
+    ${transport()}`);
+}
+
+function mockB() {
+  const strip = `<div class="h-10 shrink-0 px-2 flex items-center gap-2 border-b border-edge bg-slate-950/70 rounded-t-xl">
+    ${snapRipple(true)}
+    <button class="h-7 px-2.5 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 text-[12px] text-slate-200 flex items-center gap-1.5">${ic('tighten', 'w-3.5 h-3.5 text-slate-400')}Whole dub${ic('chev', 'w-3.5 h-3.5 text-slate-500')}</button>
+    <span class="flex-1 text-center text-[11.5px] text-slate-500 truncate">${picked() ? 'Double-click a line for start, speed, gain and fades' : ''}</span>
+    ${zoomGroup({ slider: true, sm: true })}
+  </div>`;
+  return shell(`
+    <div class="flex flex-wrap items-center gap-2">
+      ${title()}${syncChip()}${sep()}${undoHistory()}
+      <span class="flex-1"></span>${helpBtn()}${sep()}${endBtns()}
+    </div>
+    <div class="h-3"></div>
+    ${lanes({ strip, floatBar: true, menu: true })}
+    ${transport()}`);
+}
+
+function mockC() {
+  const p = picked();
+  return shell(`
+    <div class="flex flex-wrap items-center gap-2">
+      ${title()}${syncChip()}${sep()}${undoHistory()}<div class="grp">${tb('magnet', 'Snap', 'N', { on: S.snap, act: 'snap' })}</div>
+      <span class="flex-1"></span>
+      ${zoomGroup()}
+      <span class="relative"><button data-act="more" class="h-9 px-2.5 rounded-xl border ${S.more ? 'border-indigo-400/60 bg-indigo-500/15 text-indigo-200' : 'border-edge bg-slate-950 text-slate-300'} hover:text-white flex items-center gap-1.5 text-[12px] font-medium" title="Ripple, Blade, Marker, Split at pauses, Tighten">${ic('more')}More</button>${S.more ? moreMenu() : ''}</span>
+      ${helpBtn()}${sep()}${endBtns()}
+    </div>
+    <section class="min-h-[2.75rem] rounded-xl px-3 py-1.5 flex flex-wrap items-center gap-3 ${p ? 'border border-edge bg-slate-950/60' : ''}">
+      ${p ? `${pickedName(p)}<span class="flex flex-wrap items-center gap-3">${pickedFields(p)}</span><span class="ml-auto flex items-center gap-1.5">${labBtn('align', 'Align', 'A')}${labBtn('mic', 'Takes', 'T')}<button class="h-8 w-8 rounded-lg border border-edge bg-slate-950 hover:bg-slate-800 flex items-center justify-center text-slate-300" title="Everything for this line (right-click)">${ic('more')}</button></span>`
+        : '<span class="text-[12.5px] text-slate-500">Click a line to edit it · right-click it for everything</span>'}
+    </section>
+    ${lanes({ menu: true })}
+    ${transport()}`);
+}
+
+function mockD() {
+  const p = picked();
+  const dis = !p;
+  const lab = (icon, label, key) => `<button ${dis ? 'disabled' : ''} class="tb px-2 text-[12px] ${dis ? '' : 'text-slate-200'}" title="${label} (${key})">${ic(icon, 'w-3.5 h-3.5')}${label}</button>`;
+  return shell(`
+    <div class="flex flex-wrap items-center gap-2">
+      ${title()}${syncChip()}<span class="flex-1"></span>${helpBtn()}${sep()}${endBtns()}
+    </div>
+    <div class="flex flex-wrap items-center gap-2 rounded-xl border border-edge bg-slate-950/60 p-1.5">
+      ${undoHistory({ redo: true })}${snapRipple()}
+      ${sep()}
+      <div class="grp">${p ? '<span class="px-2 text-[11.5px] font-semibold text-teal-300 whitespace-nowrap">2a</span>' : '<span class="px-2 text-[11.5px] text-slate-500 whitespace-nowrap">Pick a line</span>'}${lab('split', 'Split', 'S')}${lab('link', 'Join', 'G')}${lab('align', 'Align', 'A')}${lab('mic', 'Takes', 'T')}${tb('more', 'Mute, Lock, Split at pauses, Tighten', '')}</div>
+      <span class="flex-1"></span>
+      ${zoomGroup({ slider: true })}
+    </div>
+    ${lanes({ menu: true })}
+    ${transport()}`);
+}
+
+// ---------- matrix ----------
+const MX = [
+  ['Blade (B)', 'gone', 'B key থাকে; S দিয়েই কাটা যায়', 'gone', 'B key থাকে', 'moved', '⋯ More', 'gone', 'B key থাকে'],
+  ['Snap (N)', 'keep', 'উপরে', 'moved', 'timeline-এর মাথায়', 'keep', 'উপরে', 'keep', 'toolbar'],
+  ['Ripple', 'keep', 'উপরে', 'moved', 'timeline-এর মাথায়', 'moved', '⋯ More', 'keep', 'toolbar'],
+  ['Marker (Shift+M)', 'gone', 'key + ruler-এ ডান-click', 'gone', 'key + ruler-এ ডান-click', 'moved', '⋯ More', 'gone', 'key + ruler-এ ডান-click'],
+  ['Undo', 'keep', 'উপরে', 'keep', 'উপরে', 'keep', 'উপরে', 'keep', 'toolbar'],
+  ['Redo', 'moved', 'History-র তালিকায় + Ctrl+Shift+Z', 'moved', 'History-র তালিকায়', 'moved', 'History-র তালিকায়', 'keep', 'toolbar'],
+  ['History', 'keep', 'উপরে', 'keep', 'উপরে', 'keep', 'উপরে', 'keep', 'toolbar'],
+  ['Split (S) · Join (G)', 'moved', 'বাছা line-এর সারি', 'moved', 'line-এর উপরে ভাসমান বার', 'moved', 'ডান-click', 'keep', 'toolbar, নাম-সহ'],
+  ['Align (A) · Takes (T)', 'moved', 'বাছা line-এর সারি', 'moved', 'ভাসমান বার', 'moved', 'বাছা line-এর সারি', 'keep', 'toolbar, নাম-সহ'],
+  ['Mute (M) · Lock (L)', 'moved', 'বাছা line-এর সারি (icon)', 'moved', 'ভাসমান বার', 'moved', 'ডান-click', 'moved', 'toolbar ⋯'],
+  ['Split at pauses (D) · Tighten (Q)', 'moved', 'বাছা line-এর সারি; কিছু না বাছলে "Whole dub"', 'moved', '"Whole dub ▾"', 'moved', '⋯ More', 'moved', 'toolbar ⋯'],
+  ['Shortcuts (?)', 'keep', 'উপরে', 'keep', 'উপরে', 'keep', 'উপরে', 'keep', 'উপরে'],
+  ['Zoom − + Fit', 'moved', 'উপরে ডানে', 'moved', 'timeline-এর উপরে ডানে + slider', 'moved', 'উপরে ডানে', 'moved', 'toolbar-এর ডানে + slider'],
+  ['Zoom to picked line', 'new', 'নতুন', 'new', 'নতুন', 'new', 'নতুন', 'new', 'নতুন'],
+];
+function renderMatrix() {
+  const cols = ['A', 'B', 'C', 'D'];
+  const cls = (k) => (k === 'new' ? 'text-emerald-300' : k);
+  document.getElementById('matrix').innerHTML = `<thead><tr><th>এখন উপরে</th>${cols.map((c) => `<th class="${S.mock === c ? 'text-indigo-200' : ''}">Mock ${c} · উপরে ${MOCKS[c].top}টা</th>`).join('')}</tr></thead><tbody>${MX.map((r) => `<tr><td class="text-slate-200 whitespace-nowrap">${r[0]}</td>${cols.map((c, i) => `<td class="${cls(r[1 + i * 2])} ${S.mock === c ? 'cur' : ''}">${r[2 + i * 2]}</td>`).join('')}</tr>`).join('')}</tbody>`;
+}
+
+// ---------- waves ----------
+function amp(t, segs, seed) {
+  for (const [a, b] of segs) {
+    if (t >= a && t <= b) {
+      const edge = Math.min(1, (t - a) * 8, (b - t) * 8);
+      const syl = Math.abs(Math.sin(t * 9.1 + seed)) * 0.6 + 0.4;
+      const word = Math.abs(Math.sin(t * 2.3 + seed * 1.7)) * 0.7 + 0.3;
+      const n = (Math.sin(t * 173.3 + seed * 31) + 1) / 2;
+      return Math.min(1, edge * syl * word * (0.75 + n * 0.25));
+    }
+  }
+  return 0.02;
+}
+function drawCanvas(cv, fn, color) {
+  const r = cv.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr);
+  const ctx = cv.getContext('2d'); ctx.scale(dpr, dpr);
+  const mid = r.height / 2 - 4;
+  ctx.fillStyle = color;
+  for (let px = 0; px < r.width; px++) {
+    const a = fn(px / r.width) * (mid - 3) * 0.7;
+    ctx.fillRect(px, mid - a, 1, Math.max(1, a * 2));
+  }
+}
+function drawWaves() {
+  document.querySelectorAll('canvas[data-cv="src"]').forEach((cv) => {
+    const l = SRC.find((x) => x.n === Number(cv.dataset.n)); const len = l.t[1] - l.t[0];
+    drawCanvas(cv, (x) => amp(x * len, [[0.05, len - 0.05]], l.n * 5), 'rgba(236,236,239,.8)');
+  });
+  document.querySelectorAll('canvas[data-cv="clip"]').forEach((cv) => {
+    const x0 = PARTS.find((x) => x.id === cv.dataset.id); const len = x0.d[1] - x0.d[0];
+    drawCanvas(cv, (x) => amp(x * len, [[0.05, len - 0.05]], x0.id.charCodeAt(0) + x0.id.length * 7), 'rgba(236,236,239,.8)');
+  });
+}
+
+// ---------- render ----------
+function seg(id, items, cur, act) {
+  document.getElementById(id).innerHTML = Object.entries(items).map(([k, v]) => {
+    const l = typeof v === 'string' ? v : v.label;
+    return `<button data-act="${act}" data-k="${k}" class="px-3 py-1.5 text-[12.5px] border-r border-edge last:border-r-0 ${String(cur) === k ? 'bg-indigo-600 text-white font-semibold' : 'bg-slate-900 text-slate-300 hover:bg-slate-800'}">${l}</button>`;
+  }).join('');
+}
+function render() {
+  seg('mockSeg', MOCKS, S.mock, 'mock');
+  seg('stateSeg', STATES, S.st, 'st');
+  document.getElementById('hlBox').checked = S.hl;
+  const m = MOCKS[S.mock];
+  document.getElementById('note').innerHTML = `<b class="text-slate-100">উপরে ${m.top}টা বোতাম${S.mock === 'now' ? '' : ' (এখন 17)'}.</b> ${m.note}`;
+  const body = { now: mockNow, A: mockA, B: mockB, C: mockC, D: mockD }[S.mock]();
+  document.getElementById('frame').innerHTML = body;
+  renderMatrix();
+  requestAnimationFrame(drawWaves);
+  try { localStorage.setItem('editTimingToolbarMocks', JSON.stringify({ mock: S.mock, st: S.st, hl: S.hl })); } catch {}
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b) { if (S.more) { S.more = false; render(); } return; }
+  const a = b.dataset.act;
+  if (a !== 'more' && a !== 'ripple') S.more = false;
+  if (a === 'mock') S.mock = b.dataset.k;
+  else if (a === 'st') S.st = b.dataset.k;
+  else if (a === 'snap') S.snap = !S.snap;
+  else if (a === 'ripple') S.ripple = !S.ripple;
+  else if (a === 'play') S.playing = !S.playing;
+  else if (a === 'more') S.more = !S.more;
+  else if (a === 'zin') S.view = Math.max(2, Math.round(S.view / 2));
+  else if (a === 'zout') S.view = Math.min(TOTAL, S.view * 2);
+  else if (a === 'fit') S.view = TOTAL;
+  else if (a === 'zline') S.view = 4;
+  else if (a === 'pick') S.st = 'pick';
+  else if (a === 'lanebg') S.st = 'none';
+  render();
+});
+document.addEventListener('contextmenu', (e) => {
+  const b = e.target.closest('[data-act="pick"]');
+  if (!b) return;
+  e.preventDefault(); S.st = 'menu'; render();
+});
+document.getElementById('hlBox').addEventListener('change', (e) => { S.hl = e.target.checked; render(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { S.st = 'none'; S.more = false; render(); } });
+window.addEventListener('resize', () => requestAnimationFrame(drawWaves));
+render();
+</script>
+</body>
+</html>

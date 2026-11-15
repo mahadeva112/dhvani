@@ -16,7 +16,6 @@ import {
   Copy,
   CopyPlus,
   FileAudio,
-  Flag,
   FoldHorizontal,
   History,
   Link2,
@@ -30,9 +29,8 @@ import {
   Plus,
   MoreHorizontal,
   Play,
-  Redo2,
   RotateCcw,
-  Scissors,
+  ScanSearch,
   ScissorsLineDashed,
   SlidersHorizontal,
   SquareSplitHorizontal,
@@ -706,26 +704,6 @@ const ToolButton: React.FC<{
 const panelChip = (on: boolean) =>
   `h-6 px-2 rounded-md text-[11.5px] border whitespace-nowrap shrink-0 cursor-default disabled:opacity-40 disabled:cursor-default ${on ? 'border-indigo-400 bg-indigo-500/20 text-indigo-200' : 'border-slate-700 text-slate-300 hover:bg-slate-800'}`;
 
-/** An icon-only action on the picked line, in the tools row; its name and shortcut show below it on hover or keyboard focus. */
-const ActionButton: React.FC<{ label: string; shortcut?: string; onClick: () => void; children: React.ReactNode; title?: string }> = ({
-  label,
-  shortcut,
-  onClick,
-  children,
-  title,
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    aria-label={label}
-    aria-keyshortcuts={shortcut}
-    className="group relative h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-  >
-    {children}
-    <ButtonTip label={label} shortcut={shortcut} hint={title} />
-  </button>
-);
-
 /** Wheel or arrow-key steps on a number land in the history as one change, this long after the last step. */
 const STEP_COMMIT_MS = 450;
 
@@ -881,6 +859,21 @@ const IconButton: React.FC<{ label: string; shortcut?: string; onClick: (e: Reac
   </button>
 );
 
+/** A named action on the picked line's row, its shortcut beside the name. */
+const LineAction: React.FC<{ label: string; shortcut: string; onClick: () => void; children: React.ReactNode; title?: string }> = ({ label, shortcut, onClick, children, title }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    title={title ? `${title} (${shortcut})` : `${label} (${shortcut})`}
+    aria-keyshortcuts={shortcut}
+    className="h-7 px-2 shrink-0 rounded-md border border-slate-700 flex items-center gap-1.5 text-[11.5px] text-slate-200 hover:text-white hover:bg-slate-800 cursor-default whitespace-nowrap focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+  >
+    {children}
+    {label}
+    <kbd className="font-mono text-[10px] text-slate-500">{shortcut}</kbd>
+  </button>
+);
+
 /** Closes a menu or popup on a press or a scroll outside it, or when the window loses focus or changes size. */
 const useDismiss = (open: boolean, ref: React.RefObject<HTMLElement | null>, close: () => void) => {
   const closeRef = useRef(close);
@@ -948,12 +941,13 @@ const SHORTCUTS: { title: string; keys: [string, string][] }[] = [
   {
     title: 'Timeline',
     keys: [
-      ['B', 'Blade'],
+      ['B', 'Blade: a click cuts a line there'],
       ['N', 'Snap'],
       ['Shift + drag', 'Ripple: push the lines after along'],
       ['Drag a cut', 'Move it: both parts follow (Shift: one part)'],
       ['Esc while dragging', 'Put it back'],
       ['Shift + M', 'Marker at the playhead'],
+      ['Right-click the ruler', 'Marker there'],
       ['=  −', 'Zoom in, out'],
       ['Shift + Z', 'Whole track, and back'],
       ['Scroll  Ctrl + scroll', 'Move, zoom'],
@@ -1328,8 +1322,6 @@ export const SyncEditTimeline: React.FC<{
   onSeek: (time: number) => void;
   onPlayFrom: (time: number) => void;
   onClose: () => void;
-  /** Where the zoom buttons go: the player's transport row. Without it they sit at the end of the tools row. */
-  zoomSlot?: HTMLElement | null;
   /** A lane's header with its mute, solo, fader and meter; without it the lanes show their names. */
   renderTrackHead?: (track: 'source' | 'synth', label: string, dot: string, badge?: React.ReactNode) => React.ReactNode;
   /** With several speakers: one lane each, with a level, mute and solo. Without it, one dub lane. */
@@ -1368,7 +1360,6 @@ export const SyncEditTimeline: React.FC<{
   onSeek,
   onPlayFrom,
   onClose,
-  zoomSlot,
   renderTrackHead,
   speakerLanes,
   onOpenTakes,
@@ -1392,7 +1383,6 @@ export const SyncEditTimeline: React.FC<{
   }));
   // What the Undo and Redo buttons step through: the project's history when given.
   const undoAt = projectHistory ? projectHistory.at : history.at;
-  const undoCount = projectHistory ? projectHistory.entries.length : history.entries.length;
   const lastSent = useRef<SyncEdits | null | undefined>(edits);
   useEffect(() => {
     // Edits that changed from outside (a new sync) start the history again.
@@ -1632,9 +1622,10 @@ export const SyncEditTimeline: React.FC<{
 
   /** The marker whose note is open. */
   const [editingMarker, setEditingMarker] = useState<string | null>(null);
-  const addMarker = () => {
+  /** A marker at `at`, or at the playhead. */
+  const addMarker = (at?: number) => {
     if (!onMarkersChange) return;
-    const time = getLiveTime?.() ?? currentTime;
+    const time = at ?? getLiveTime?.() ?? currentTime;
     const near = markers.find((m) => Math.abs(m.time - time) < 0.05);
     if (near) return setEditingMarker(near.id);
     const marker = newMarker(time);
@@ -3953,18 +3944,52 @@ export const SyncEditTimeline: React.FC<{
       </div>
     );
 
-  /** The zoom buttons: on the player's transport row when it gives a place for them, else at the end of the tools. */
+  /** Zooms so the picked lines fill the lanes, with a little room either side. */
+  const zoomToPicked = () => {
+    const list = group.length > 0 ? group : current ? [current] : [];
+    if (list.length === 0) return say('Pick a line first.');
+    const from = Math.min(...list.map((c) => c.part.start));
+    const to = Math.max(...list.map((c) => partEnd(c.part)));
+    const pad = Math.max(0.4, (to - from) * 0.15);
+    zoom.setFollow(false);
+    zoom.zoomTo(to - from + pad * 2, from - pad, 0);
+  };
+  const splitPausesClick = tighten?.settings.silence === 'keep' ? closeTighten : openSplit;
+  const tightenClick = tighten?.settings.silence === 'remove' ? closeTighten : openTighten;
+  const splitPausesTitle = "Cut in the middle of every pause, as REAPER's Dynamic split: nothing moves, nothing is taken out";
+  const tightenTitle = 'Take the long silences out and close the parts up back to back: see what is cut, listen, then apply';
+  /** Mute, Lock, Split at pauses and Tighten for the picked lines: icons, their names on hover. */
+  const lineIconActions = (
+    <>
+      <IconButton label={group.length > 0 && group.every((c) => c.part.muted) ? 'Unmute' : 'Mute'} shortcut="M" onClick={act.mute}>
+        <VolumeX className="w-3.5 h-3.5" />
+      </IconButton>
+      <IconButton label={currentLocked ? 'Unlock: Sync again may move it' : 'Lock: Sync again leaves it where it is'} shortcut="L" onClick={act.lock}>
+        {currentLocked ? <LockOpen className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+      </IconButton>
+      <IconButton label={`Split at pauses: ${splitPausesTitle}`} shortcut="D" onClick={splitPausesClick}>
+        <ScissorsLineDashed className="w-3.5 h-3.5" />
+      </IconButton>
+      <IconButton label={`Tighten: ${tightenTitle}`} shortcut="Q" onClick={tightenClick}>
+        <FoldHorizontal className="w-3.5 h-3.5" />
+      </IconButton>
+    </>
+  );
+  /** The zoom buttons, at the top right of the page. */
   const zoomGroup = (
     <div className="flex items-center gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Zoom">
       <button type="button" onClick={() => zoom.zoomBy(2)} disabled={!zoom.zoomed} title="Zoom out (−)" aria-label="Zoom out" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
         <ZoomOut className="w-4 h-4" />
       </button>
-      <span className="min-w-[3.5rem] text-center font-mono text-[11px] text-slate-400 tabular-nums">{windowSeconds < 1 ? `${Math.round(windowSeconds * 1000)} ms` : windowSeconds < 60 ? `${Math.round(windowSeconds)} s` : `${(windowSeconds / 60).toFixed(1)} min`}</span>
+      <span className="min-w-[3.5rem] text-center font-mono text-[11px] text-slate-400 tabular-nums" title="Seconds on screen">{windowSeconds < 1 ? `${Math.round(windowSeconds * 1000)} ms` : windowSeconds < 60 ? `${Math.round(windowSeconds)} s` : `${(windowSeconds / 60).toFixed(1)} min`}</span>
       <button type="button" onClick={() => zoom.zoomBy(0.5)} disabled={!zoom.canZoomIn} title="Zoom in (=)" aria-label="Zoom in" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
         <ZoomIn className="w-4 h-4" />
       </button>
       <button type="button" onClick={zoom.fitAll} disabled={!zoom.zoomed} title="Whole track (Shift + Z; again to zoom back)" className="h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
         <Maximize2 className="w-3.5 h-3.5" /> Fit
+      </button>
+      <button type="button" onClick={zoomToPicked} disabled={!current && group.length === 0} title="Zoom to the picked line" className="h-8 px-2 rounded-lg flex items-center gap-1.5 text-xs text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
+        <ScanSearch className="w-3.5 h-3.5" /> Line
       </button>
     </div>
   );
@@ -4020,10 +4045,8 @@ export const SyncEditTimeline: React.FC<{
           </span>
         )}
         <span aria-hidden="true" className="w-px h-5 bg-slate-700 mx-1" />
+        {/* Only what is used all the time: Blade (B) and Marker (Shift + M, or a right-click on the ruler) are keys, Redo is in History, the picked line's actions are on its own row. */}
         <div className="flex gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5">
-          <ToolButton label="Blade" shortcut="B" hint="On: a click cuts a line in two there. Off: S splits at the pointer or the playhead." pressed={blade} onClick={() => { alignmentRequest.current?.abort(); rangeDrag.current = null; setAligningRange(false); setTakeRange(null); setRangeWords(null); setRangeTool(false); setBlade((v) => !v); }}>
-            <Scissors className="w-4 h-4" />
-          </ToolButton>
           <ToolButton label="Snap" shortcut="N" hint="Edges snap to the original's lines, other lines and the playhead, and a moved line stops at the next one instead of playing over it." pressed={snap} onClick={() => setSnap((v) => !v)}>
             <Magnet className="w-4 h-4" />
           </ToolButton>
@@ -4036,18 +4059,10 @@ export const SyncEditTimeline: React.FC<{
           >
             <ArrowRightToLine className="w-4 h-4" />
           </ToolButton>
-          {onMarkersChange && (
-            <ToolButton label="Marker" shortcut="Shift + M" hint="Puts a marker with a note at the playhead, for you to come back to. It doesn't change the dub." pressed={false} onClick={addMarker}>
-              <Flag className="w-4 h-4" />
-            </ToolButton>
-          )}
         </div>
         <div className="flex items-center gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Undo and history">
           <button type="button" onClick={act.undo} disabled={undoAt === 0} title={projectHistory?.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Undo (Ctrl + Z)'} aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
             <Undo2 className="w-4 h-4" />
-          </button>
-          <button type="button" onClick={act.redo} disabled={undoAt >= undoCount - 1} title={projectHistory?.labels.redo ? `Redo: ${projectHistory.labels.redo} (Ctrl + Shift + Z)` : 'Redo (Ctrl + Shift + Z)'} aria-label="Redo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
-            <Redo2 className="w-4 h-4" />
           </button>
           {projectHistory ? (
             <HistoryMenu history={projectHistory} className="[&>button]:border-transparent" />
@@ -4102,51 +4117,21 @@ export const SyncEditTimeline: React.FC<{
           </div>
           )}
         </div>
-        <div className="flex shrink-0 gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Actions on the picked line">
-          <ActionButton label="Split" shortcut="S" onClick={act.split} title="Cut the line at the playhead">
-            <SquareSplitHorizontal className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label="Join" shortcut="G" onClick={act.join} title="Join this part to the next part of its line">
-            <Link2 className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label="Align" shortcut="A" onClick={act.align} title="Move the line so its first word starts with the original's">
-            <AlignStartVertical className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label={group.length > 0 && group.every((c) => c.part.muted) ? 'Unmute' : 'Mute'} shortcut="M" onClick={act.mute}>
-            <VolumeX className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label={currentLocked ? 'Unlock' : 'Lock'} shortcut="L" onClick={act.lock} title="A locked line stays where it is when Sync runs again">
-            {currentLocked ? <LockOpen className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-          </ActionButton>
-          <ActionButton label="Split at pauses" shortcut="D" onClick={tighten?.settings.silence === 'keep' ? closeTighten : openSplit} title="Cut the picked lines in the middle of every pause, as REAPER's Dynamic split (every line when none is picked): nothing moves, nothing is taken out">
-            <ScissorsLineDashed className="w-4 h-4" />
-          </ActionButton>
-          <ActionButton label="Tighten" shortcut="Q" onClick={tighten?.settings.silence === 'remove' ? closeTighten : openTighten} title="Take the long silences out of the picked lines and close them up back to back (every line when none is picked): see what is cut, listen, then apply">
-            <FoldHorizontal className="w-4 h-4" />
-          </ActionButton>
-          {onOpenTakes && (
-            <ActionButton
-              label="Takes"
-              shortcut="T"
-              onClick={() => openTakes()}
-              title="Open the retake window for the picked line: voice new takes of it, or of some of its words, and use one, with tags, stability and more takes beside the words"
-            >
-              <Mic className="w-4 h-4" />
-            </ActionButton>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowHelp(true)}
-          title="Shortcuts, and how editing works (?)"
-          aria-label="Shortcuts"
-          aria-keyshortcuts="?"
-          className="h-9 w-9 rounded-xl border border-edge bg-slate-950 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
-        >
-          <CircleHelp className="w-4 h-4" />
-        </button>
-        {!zoomSlot && zoomGroup}
-        <span className="ml-auto flex items-center gap-2.5">
+        {/* Top right, where the hand goes for it: the zoom, then Shortcuts, then whether it is saved, Reset and Done. */}
+        <span className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          {zoomGroup}
+          <button
+            type="button"
+            onClick={() => setShowHelp(true)}
+            title="Shortcuts, and how editing works (?)"
+            aria-label="Shortcuts"
+            aria-keyshortcuts="?"
+            className="h-9 w-9 rounded-xl border border-edge bg-slate-950 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 cursor-default"
+          >
+            <CircleHelp className="w-4 h-4" />
+          </button>
+          <span aria-hidden="true" className="w-px h-5 bg-slate-700 mx-0.5" />
+          <span className="flex items-center gap-2.5">
           <span aria-live="polite" className="flex items-center gap-1.5 text-[11.5px] text-slate-400 whitespace-nowrap">
             {status.state === 'pending' || status.state === 'rendering' ? (
               <>
@@ -4179,9 +4164,9 @@ export const SyncEditTimeline: React.FC<{
           <button type="button" onClick={onClose} className="h-8 px-3 rounded-lg bg-indigo-500 hover:bg-indigo-400 text-xs font-semibold text-white cursor-default flex items-center gap-1.5">
             <Check className="w-3.5 h-3.5" /> Done
           </button>
+          </span>
         </span>
       </div>
-      {zoomSlot && createPortal(zoomGroup, zoomSlot)}
       {status.notice && <p className="text-[12px] text-amber-300">{status.notice}</p>}
       {onMarkersChange && (
         <MarkerList
@@ -4194,7 +4179,7 @@ export const SyncEditTimeline: React.FC<{
         />
       )}
 
-      {/* The picked line: one row, so the lanes keep the room. With nothing picked it stays empty but keeps its height, so the lanes don't jump on a click. */}
+      {/* The picked line: one row with its settings and actions, so the lanes keep the room. With nothing picked it says what to do and holds the two whole-dub tools, at the same height, so the lanes don't jump on a click. */}
       <section
         aria-label="Picked line"
         className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 min-h-[2.75rem] rounded-xl px-3 py-1.5 min-w-0 ${group.length > 1 || current ? 'border border-edge bg-slate-950/60' : ''}`}
@@ -4255,7 +4240,12 @@ export const SyncEditTimeline: React.FC<{
                 onCommit={(v) => setGroupField({ fadeOut: Math.max(0, v) / 1000 }, 'Fade out')}
               />
             </span>
-            <span className="ml-auto flex items-center gap-1">
+            <span className="ml-auto flex flex-wrap items-center gap-1">
+              <LineAction label="Align" shortcut="A" onClick={act.align} title="Move each line so its first word starts with the original's">
+                <AlignStartVertical className="w-3.5 h-3.5 text-slate-400" />
+              </LineAction>
+              {lineIconActions}
+              <span aria-hidden="true" className="w-px h-4 bg-slate-700 mx-0.5" />
               <IconButton
                 label="Everything for these lines"
                 shortcut="Right-click"
@@ -4327,7 +4317,7 @@ export const SyncEditTimeline: React.FC<{
               </span>
             ) : null}
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1.5">{lineFields(current, false)}</span>
-            <span className="ml-auto flex items-center gap-1">
+            <span className="ml-auto flex flex-wrap items-center gap-1">
               <IconButton label="Play from here" shortcut="/" onClick={() => onPlayFrom(Math.max(0, current.part.start - 0.3))}>
                 <Play className="w-3.5 h-3.5" />
               </IconButton>
@@ -4337,9 +4327,24 @@ export const SyncEditTimeline: React.FC<{
                 </IconButton>
               ) : (
                 <>
-                  <IconButton label="Align to original" shortcut="A" onClick={act.align}>
-                    <AlignStartVertical className="w-3.5 h-3.5" />
-                  </IconButton>
+                  <LineAction label="Split" shortcut="S" onClick={act.split} title="Cut the line at the playhead">
+                    <SquareSplitHorizontal className="w-3.5 h-3.5 text-slate-400" />
+                  </LineAction>
+                  <LineAction label="Join" shortcut="G" onClick={act.join} title="Join this part to the next part of its line">
+                    <Link2 className="w-3.5 h-3.5 text-slate-400" />
+                  </LineAction>
+                  {currentProblem?.fix !== 'align' && (
+                    <LineAction label="Align" shortcut="A" onClick={act.align} title="Move the line so its first word starts with the original's">
+                      <AlignStartVertical className="w-3.5 h-3.5 text-slate-400" />
+                    </LineAction>
+                  )}
+                  {onOpenTakes && (
+                    <LineAction label="Takes" shortcut="T" onClick={() => openTakes()} title="Voice new takes of the line, or of some of its words, and use one">
+                      <Mic className="w-3.5 h-3.5 text-slate-400" />
+                    </LineAction>
+                  )}
+                  <span aria-hidden="true" className="w-px h-4 bg-slate-700 mx-0.5" />
+                  {lineIconActions}
                   <IconButton label="Reset line" onClick={act.reset}>
                     <RotateCcw className="w-3.5 h-3.5" />
                   </IconButton>
@@ -4357,7 +4362,20 @@ export const SyncEditTimeline: React.FC<{
               </IconButton>
             </span>
           </>
-        ) : null}
+        ) : (
+          <>
+            <span className="text-[12px] text-slate-500 truncate">Click a line to move, cut or retake it · right-click it for everything</span>
+            <span className="ml-auto flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-500 mr-0.5 whitespace-nowrap">Whole dub</span>
+              <LineAction label="Split at pauses" shortcut="D" onClick={splitPausesClick} title={`Every line: ${splitPausesTitle}`}>
+                <ScissorsLineDashed className="w-3.5 h-3.5 text-slate-400" />
+              </LineAction>
+              <LineAction label="Tighten" shortcut="Q" onClick={tightenClick} title={`Every line: ${tightenTitle}`}>
+                <FoldHorizontal className="w-3.5 h-3.5 text-slate-400" />
+              </LineAction>
+            </span>
+          </>
+        )}
       </section>
 
       {/* A track's height being dragged: which track, and how tall against its own size */}
@@ -4448,7 +4466,11 @@ export const SyncEditTimeline: React.FC<{
           style={{ overflowX: 'clip' }}
           onWheel={wheelScroll(windowSeconds, (s) => zoom.scrollTo(zoom.viewStart() + s))}
         >
-          <div className="relative z-20 h-6 px-0 border-b border-edge bg-slate-950/40">
+          <div
+            className="relative z-20 h-6 px-0 border-b border-edge bg-slate-950/40"
+            onContextMenu={onMarkersChange ? (e) => (e.preventDefault(), addMarker(clamp(timeAt(e.clientX), 0, total))) : undefined}
+            title={onMarkersChange ? 'Click to move the playhead · right-click to put a marker here' : undefined}
+          >
             <TimelineRuler zoom={zoom} marks onSeek={(t) => onSeek(clamp(t, 0, total))} />
             {onMarkersChange && (
               <div ref={zoom.strip} className="absolute inset-0 pointer-events-none">
