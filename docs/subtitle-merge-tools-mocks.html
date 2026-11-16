@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Subtitle Card Tools</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .note { font-size:13px; color:#94a3b8; line-height:1.65; }
+  .note b { color:#e2e8f0; font-weight:600; }
+  .key { font-family: ui-monospace, Consolas, monospace; font-size:11px; border:1px solid #2f3440; border-bottom-width:2px; border-radius:5px; padding:0 5px; color:#cbd5e1; background:#15171c; }
+  .panel { background:#101217; border:1px solid #26282e; border-radius:16px; }
+  .list { background:rgba(2,6,23,.5); border:1px solid #22262f; border-radius:12px; padding:8px; display:flex; flex-direction:column; gap:8px; }
+  .scard { border:1px solid rgba(51,65,85,.7); background:#0f172a; border-radius:12px; padding:8px 12px 10px; }
+  .scard.on { border-color:rgba(99,102,241,.7); background:rgba(99,102,241,.08); }
+  .scard.fresh { box-shadow:0 0 0 2px rgba(129,140,248,.7); }
+  .stamp { font-family: ui-monospace, Consolas, monospace; font-size:11px; color:#cbd5e1; background:#020617; border:1px solid #22262f; border-radius:6px; padding:3px 7px; }
+  .num { font-family: ui-monospace, Consolas, monospace; font-size:11px; color:#94a3b8; background:#1e293b; border-radius:999px; padding:0 6px; }
+  .text { background:#020617; border:1px solid #22262f; border-radius:8px; padding:6px 10px; font-size:15px; line-height:24px; color:#f1f5f9; }
+  .count { font-family: ui-monospace, Consolas, monospace; font-size:11px; color:#64748b; width:3.25rem; text-align:right; padding-top:7px; }
+  .ib { width:26px; height:26px; border-radius:7px; display:inline-flex; align-items:center; justify-content:center; color:#94a3b8; cursor:default; position:relative; }
+  .ib:hover { background:#1f232c; color:#fff; }
+  .ib.del:hover { color:#fda4af; }
+  .ib[disabled] { opacity:.3; pointer-events:none; }
+  .ib svg, .pillb svg { width:14px; height:14px; }
+  .tip { position:absolute; top:30px; right:0; white-space:nowrap; font-size:11px; background:#020617; border:1px solid #2c303a; color:#cbd5e1; border-radius:6px; padding:3px 7px; opacity:0; pointer-events:none; transition:opacity .12s; z-index:5; }
+  .ib:hover .tip, .pillb:hover .tip { opacity:1; transition-delay:.35s; }
+  /* Mock B: one tool pill */
+  .pill { display:inline-flex; align-items:center; height:28px; border:1px solid #22262f; border-radius:9px; background:#0b0f19; overflow:visible; }
+  .pillb { height:26px; padding:0 7px; display:inline-flex; align-items:center; gap:5px; color:#94a3b8; font-size:11.5px; cursor:default; position:relative; }
+  .pillb:hover { background:#1f232c; color:#fff; }
+  .pillb:first-child { border-radius:8px 0 0 8px; } .pillb:last-child { border-radius:0 8px 8px 0; }
+  .pillb.merge { color:#a5b4fc; }
+  .pillb.merge:hover { background:rgba(99,102,241,.18); color:#e0e7ff; }
+  .pillb.del:hover { color:#fda4af; background:rgba(244,63,94,.1); }
+  .pillb[disabled] { opacity:.3; pointer-events:none; }
+  .sep { width:1px; height:16px; background:#22262f; }
+  .badge { font-size:10.5px; font-weight:600; letter-spacing:.06em; color:#a5b4fc; background:rgba(99,102,241,.15); border:1px solid rgba(99,102,241,.4); border-radius:999px; padding:2px 9px; }
+  .ghost { border:1px dashed #334155; border-radius:999px; color:#475569; font-size:11px; padding:1px 9px; text-decoration:line-through; }
+</style>
+</head>
+<body class="px-4 py-8 md:px-8">
+<div class="max-w-[1180px] mx-auto">
+  <h1 class="text-xl font-semibold text-white">Export subtitles · Merge beside the card tools</h1>
+  <p class="note mt-1 max-w-3xl">
+    আজ <b>Merge ↓</b> দুটো কার্ডের মাঝখানে আলাদা সারিতে বসে, আর বাকি টুল (Wrap, Split, Delete) কার্ডের উপরে ডানদিকে।
+    দুটো মকেই Merge উঠে গেছে বাকি টুলের পাশে, আর মাঝখানের ফাঁকা সারিটা চলে গেছে, তাই একসাথে বেশি সাবটাইটেল দেখা যায়।
+    Merge সবসময় <b>নিচের সাবটাইটেলটাকে এটার সাথে জোড়ে</b> (<span class="key">Ctrl</span> <span class="key">M</span> আগের মতোই)। শেষ কার্ডে Merge বন্ধ থাকে।
+    মকে বোতামগুলো চাপলে সত্যিই কাজ করে।
+  </p>
+  <p class="mt-3"><span class="ghost">Merge ↓ between cards</span> <span class="note">→ removed in both</span></p>
+
+  <div class="grid lg:grid-cols-2 gap-6 mt-6">
+    <!-- Mock A -->
+    <section class="panel p-4">
+      <div class="flex items-center gap-2 mb-1"><span class="badge">MOCK A</span><span class="font-semibold text-white text-[15px]">One more icon</span></div>
+      <p class="note mb-3">Merge হলো চারটে আইকনের একটা, Split-এর পাশে: <b>Wrap · Split · Merge ↓ · Delete</b>। কার্ডটা দেখতে আজকের মতোই, শুধু একটা আইকন বেশি। হোভার করলে নাম আর শর্টকাট দেখায়।</p>
+      <div class="list" id="listA"></div>
+    </section>
+
+    <!-- Mock B -->
+    <section class="panel p-4">
+      <div class="flex items-center gap-2 mb-1"><span class="badge">MOCK B</span><span class="font-semibold text-white text-[15px]">Tool pill, Merge named</span></div>
+      <p class="note mb-3">চারটে টুল একটা পিলের ভেতর। <b>Merge ↓</b> লেখাসহ indigo রঙে, তাই চোখে পড়ে; Delete একটা দাগ দিয়ে আলাদা, যাতে ভুল করে চাপা না পড়ে। কার্ডের উপরের সারি একটু চওড়া হয়।</p>
+      <div class="list" id="listB"></div>
+    </section>
+  </div>
+
+  <p class="note mt-6">দুটোতেই: কার্ডের মাঝখানের ফাঁক 8 px, Merge চাপলে নিচেরটা জুড়ে যায় আর জোড়া কার্ডটা এক মুহূর্ত indigo রিং দিয়ে দেখায়; Undo আগের মতোই আলাদা করে দেয়।</p>
+</div>
+
+<script>
+const I = {
+  wrap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><path d="m16 16-2 2 2 2"/><path d="M3 18h7"/></svg>',
+  split: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>',
+  merge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>',
+  del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
+};
+const START = [
+  { s: '00:00:00,000', e: '00:00:01,039', t: 'पॉडकास्ट में फिर', cps: 10 },
+  { s: '00:00:01,040', e: '00:00:02,084', t: 'स्वागत है।', cps: 7 },
+  { s: '00:00:02,085', e: '00:00:02,844', t: 'आज हम बात करेंगे', cps: 7 },
+  { s: '00:00:02,845', e: '00:00:04,100', t: 'ध्यान के बारे में।', cps: 9 },
+];
+const vlen = (s) => [...new Intl.Segmenter('hi', { granularity: 'grapheme' }).segment(s)].length;
+
+function render(id, kind, state) {
+  const el = document.getElementById(id);
+  el.innerHTML = '';
+  state.cues.forEach((c, i) => {
+    const last = i === state.cues.length - 1;
+    const n = String(i + 1).padStart(2, '0');
+    const below = String(i + 2).padStart(2, '0');
+    const tools = kind === 'A'
+      ? `<span class="flex items-center gap-0.5">
+           <span class="ib" data-act="wrap">${I.wrap}<span class="tip">Wrap again to 25 characters</span></span>
+           <span class="ib" data-act="split">${I.split}<span class="tip">Split from the cursor · Enter</span></span>
+           <span class="ib" data-act="merge" ${last ? 'disabled' : ''}>${I.merge}<span class="tip">Merge ${below} into ${n} · Ctrl+M</span></span>
+           <span class="ib del" data-act="del">${I.del}<span class="tip">Remove · Ctrl+Delete</span></span>
+         </span>`
+      : `<span class="pill">
+           <span class="pillb" data-act="wrap">${I.wrap}<span class="tip">Wrap again to 25 characters</span></span>
+           <span class="pillb" data-act="split">${I.split}<span class="tip">Split from the cursor · Enter</span></span>
+           <span class="pillb merge" data-act="merge" ${last ? 'disabled' : ''}>${I.merge}Merge ↓<span class="tip">Merge ${below} into ${n} · Ctrl+M</span></span>
+           <span class="sep"></span>
+           <span class="pillb del" data-act="del">${I.del}<span class="tip">Remove · Ctrl+Delete</span></span>
+         </span>`;
+    const card = document.createElement('div');
+    card.className = `scard ${i === state.on ? 'on' : ''} ${i === state.fresh ? 'fresh' : ''}`;
+    card.innerHTML = `
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 mb-2">
+        <span class="num">${n}</span>
+        <span class="stamp">${c.s}</span><span class="text-slate-600 text-xs">→</span><span class="stamp">${c.e}</span>
+        <span class="flex items-center gap-1.5 text-[11.5px]"><span class="text-emerald-300">${c.cps} cps</span>
+          <span class="w-10 h-1 rounded-full bg-slate-800 overflow-hidden"><span class="block h-full bg-emerald-400 rounded-full" style="width:${c.cps * 5}%"></span></span></span>
+        <span class="flex-1"></span>${tools}
+      </div>
+      <div class="grid grid-cols-[minmax(0,1fr)_3.25rem] gap-2 items-start">
+        <div class="text">${c.t}</div><span class="count">${vlen(c.t)}/25</span>
+      </div>`;
+    card.addEventListener('click', (ev) => {
+      const b = ev.target.closest('[data-act]');
+      state.on = i; state.fresh = null;
+      if (b?.dataset.act === 'merge' && !last) {
+        const nx = state.cues[i + 1];
+        state.cues.splice(i, 2, { s: c.s, e: nx.e, t: c.t + ' ' + nx.t, cps: Math.round((c.cps + nx.cps) / 2) });
+        state.fresh = i;
+        setTimeout(() => { state.fresh = null; render(id, kind, state); }, 1400);
+      } else if (b?.dataset.act === 'del') {
+        state.cues.splice(i, 1); state.on = Math.min(i, state.cues.length - 1);
+      }
+      render(id, kind, state);
+    });
+    el.appendChild(card);
+  });
+  const reset = document.createElement('button');
+  reset.className = 'self-end text-[11px] text-slate-500 hover:text-slate-300 px-2 py-1';
+  reset.textContent = 'Reset mock';
+  reset.onclick = () => { state.cues = START.map((c) => ({ ...c })); state.on = 0; state.fresh = null; render(id, kind, state); };
+  el.appendChild(reset);
+}
+render('listA', 'A', { cues: START.map((c) => ({ ...c })), on: 0, fresh: null });
+render('listB', 'B', { cues: START.map((c) => ({ ...c })), on: 0, fresh: null });
+</script>
+</body>
+</html>

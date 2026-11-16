@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { X, Download, Copy, Check, Captions, Play, Pause, Pencil, Undo2, FileText, ChevronDown, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { X, Download, Copy, Check, Captions, Play, Pause, Pencil, RotateCcw, FileText, ChevronDown, Loader2, RefreshCw, AlertTriangle } from 'lucide-react';
 import { AudioSegment, EditedSubtitle, SubtitleEdit } from '../types';
 import {
   SrtOptions,
@@ -20,8 +20,8 @@ import {
   generateTargetLanguageScript,
   TargetScriptFormat,
 } from '../services/srtService';
-import { editedSrt, editedVtt, fingerprint, subtitleEditKey, subtitlesAsScript } from '../services/subtitleEdits';
-import { SubtitleEditor } from './SubtitleEditor';
+import { DEFAULT_MAX_CPS, editedSrt, editedVtt, fingerprint, subtitleEditKey, subtitlesAsScript } from '../services/subtitleEdits';
+import { SubtitleEditor, loadMaxCps, saveMaxCps } from './SubtitleEditor';
 import { DUB_TIMING_LIMIT_MS, useDubWordTimings } from '../services/dubSubtitleTiming';
 import { PageScrollLock } from './usePageScrollLock';
 
@@ -236,8 +236,11 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
     }
   };
 
+  /** Reading speed limit for the Edit list's marks; not an SRT option, so kept on its own. */
+  const [maxCps, setMaxCps] = useState(loadMaxCps);
   const handleResetDefaults = () => {
     handleUpdateOptions({ ...DEFAULT_SRT_OPTIONS }, 'shorts_viral');
+    setMaxCps(saveMaxCps(DEFAULT_MAX_CPS));
   };
 
   /* Dub timings cut on the dub's own words, once ElevenLabs has placed them in the dub. */
@@ -326,12 +329,14 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
   const editedSince = Boolean(edit && edit.basis !== fingerprint(previewSrt));
   const outSrt = edit ? editedSrt(edit.cues) : previewSrt;
   const outVtt = edit ? editedVtt(edit.cues) : previewVtt;
-  /** Undo for this session's hand edits, one list per track and timing. */
+  /** Undo and redo for this session's hand edits, one list per track and timing. */
   const [undoStack, setUndoStack] = useState<{ key: string; cues: EditedSubtitle[] }[]>([]);
-  const undoHere = undoStack.filter((u) => u.key === editKey);
+  const [redoStack, setRedoStack] = useState<{ key: string; cues: EditedSubtitle[] }[]>([]);
   const saveEdit = (cues: EditedSubtitle[]) => {
     if (!edit) return;
     setUndoStack((stack) => [...stack, { key: editKey, cues: edit.cues }].slice(-100));
+    // A new change ends the way forward, as in any editor.
+    setRedoStack((stack) => stack.filter((u) => u.key !== editKey));
     onSubtitleEditChange?.(editKey, { ...edit, cues });
   };
   const undoEdit = () => {
@@ -339,11 +344,20 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
     if (!edit || lastAt < 0) return;
     onSubtitleEditChange?.(editKey, { ...edit, cues: undoStack[lastAt].cues });
     setUndoStack((stack) => stack.filter((_, i) => i !== lastAt));
+    setRedoStack((stack) => [...stack, { key: editKey, cues: edit.cues }].slice(-100));
+  };
+  const redoEdit = () => {
+    const lastAt = redoStack.map((u) => u.key).lastIndexOf(editKey);
+    if (!edit || lastAt < 0) return;
+    onSubtitleEditChange?.(editKey, { ...edit, cues: redoStack[lastAt].cues });
+    setRedoStack((stack) => stack.filter((_, i) => i !== lastAt));
+    setUndoStack((stack) => [...stack, { key: editKey, cues: edit.cues }].slice(-100));
   };
   /** The word times the automatic cut used, so a split by hand lands on a said word. */
   const subtitleWords = useMemo(() => (edit ? measuredSubtitleWords(processedSegments, options) : []), [edit, processedSegments, options]);
   const startEditing = () => {
     setUndoStack((stack) => stack.filter((u) => u.key !== editKey));
+    setRedoStack((stack) => stack.filter((u) => u.key !== editKey));
     onSubtitleEditChange?.(editKey, {
       cues: autoCues.map((c) => {
         const text = c.lines.join('\n');
@@ -559,6 +573,18 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                 ends: ['1 s', '7 s'],
                 set: (v: number) => setOpt({ maxDurationSeconds: v }),
               },
+              {
+                id: 'srt-cps',
+                label: 'Reading speed limit',
+                hint: 'Faster subtitles are marked when you edit them.',
+                value: maxCps,
+                min: 5,
+                max: 40,
+                step: 1,
+                show: `${maxCps} cps`,
+                ends: ['5 cps', '40 cps'],
+                set: (v: number) => setMaxCps(saveMaxCps(v)),
+              },
             ].map((s) => (
               <div key={s.id}>
                 <div className="flex items-baseline justify-between">
@@ -677,7 +703,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                 )}
               </div>
 
-              <div className="flex-1 min-w-0 flex flex-col justify-between gap-2 py-0.5">
+              <div className="flex-1 min-w-0 flex flex-col justify-center gap-2 py-0.5">
               {playUrl ? (
                 <div className="flex items-center gap-2.5">
                   <audio
@@ -722,18 +748,12 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                   Script changed. Sync again to match.
                 </p>
               )}
-              {shown && (
-                <p className="text-[13px] text-slate-200 leading-snug line-clamp-2" title={shown.lines.join(' ')}>
-                  {shown.lines.join(' ')}
-                </p>
-              )}
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-400">
               <span>
-                <span className="font-semibold text-slate-100 tabular-nums">{cues.length}</span> subtitles ·{' '}
-                <span className="font-semibold text-slate-100 tabular-nums">{segments.length}</span> cues
+                <span className="font-semibold text-slate-100 tabular-nums">{cues.length}</span> subtitles
               </span>
               <span>
                 longest <span className="font-semibold text-slate-100 tabular-nums">{longest.toFixed(1)} s</span>
@@ -801,19 +821,15 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
               {onSubtitleEditChange && (
                 <span className="ml-auto flex items-center gap-2">
                   {edit ? (
-                    <>
-                      <span className="text-[11.5px] text-indigo-300" title="Edited by hand: the settings no longer cut these subtitles.">
-                        Edited by hand
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => onSubtitleEditChange(editKey, null)}
-                        title="Drop your edits and use the automatic subtitles again"
-                        className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
-                      >
-                        <Undo2 className="w-3.5 h-3.5" /> Back to automatic
-                      </button>
-                    </>
+                    // Edited by hand: the settings no longer cut these, so the way back is all that is shown.
+                    <button
+                      type="button"
+                      onClick={() => onSubtitleEditChange(editKey, null)}
+                      title="Edited by hand. Drop your edits and let the settings cut the subtitles again."
+                      className="h-7 px-2.5 flex items-center gap-1.5 rounded-lg border border-edge hover:bg-slate-800 text-[11.5px] text-slate-300 cursor-default"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Back to automatic
+                    </button>
                   ) : (
                     <button
                       type="button"
@@ -840,6 +856,8 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                 cues={edit.cues}
                 maxChars={Math.max(10, options.maxCharsPerLine || 25)}
                 maxLines={Math.max(1, options.maxLinesPerCue || 1)}
+                maxCps={maxCps}
+                language={scriptTrack === 'source' ? sourceLanguage : targetLanguage}
                 words={subtitleWords}
                 activeRow={activeRow}
                 onPick={(i, seek) => {
@@ -848,7 +866,7 @@ export const SrtExportModal: React.FC<SrtExportModalProps> = ({
                 }}
                 onChange={saveEdit}
                 onUndo={undoEdit}
-                canUndo={undoHere.length > 0}
+                onRedo={redoEdit}
                 listRef={listRef}
               />
             ) : (

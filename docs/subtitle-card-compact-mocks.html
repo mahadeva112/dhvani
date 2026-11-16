@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Compact Subtitle Cards</title>
+<script src="https://cdn.tailwindcss.com/3.4.10"></script>
+<style>
+  html, body { overflow-x: clip; }
+  body { background:#06080d; color:#e2e8f0; font-family: Inter, system-ui, "Noto Sans Bengali", "Noto Sans Devanagari", sans-serif; }
+  .mono { font-family: ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+  .note { font-size:13px; color:#94a3b8; line-height:1.65; }
+  .note b { color:#e2e8f0; font-weight:600; }
+  .key { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; border:1px solid #2f3440; border-bottom-width:2px; border-radius:5px; padding:0 4px; color:#cbd5e1; background:#15171c; }
+  .panel { background:#101217; border:1px solid #26282e; border-radius:16px; }
+  .badge { font-size:10.5px; font-weight:600; letter-spacing:.06em; color:#a5b4fc; background:rgba(99,102,241,.15); border:1px solid rgba(99,102,241,.4); border-radius:999px; padding:2px 9px; }
+  .meter { font-size:11px; color:#64748b; }
+  .meter b { color:#6ee7b7; font-weight:600; }
+  .list { background:rgba(2,6,23,.5); border:1px solid #22262f; border-radius:12px; padding:6px; height:380px; overflow:auto; }
+  .ib { width:24px; height:24px; border-radius:6px; display:inline-flex; align-items:center; justify-content:center; color:#94a3b8; cursor:default; position:relative; flex:none; }
+  .ib:hover { background:#1f232c; color:#fff; }
+  .ib.del:hover { color:#fda4af; }
+  .ib.merge { color:#a5b4fc; }
+  .ib[disabled] { opacity:.25; pointer-events:none; }
+  .ib svg { width:13px; height:13px; }
+  .tip { position:absolute; bottom:28px; right:0; white-space:nowrap; font-size:11px; background:#020617; border:1px solid #2c303a; color:#cbd5e1; border-radius:6px; padding:3px 7px; opacity:0; pointer-events:none; transition:opacity .12s; z-index:20; }
+  .ib:hover .tip { opacity:1; transition-delay:.35s; }
+  .num { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; color:#64748b; }
+  .on .num { color:#a5b4fc; }
+  .t { font-family: ui-monospace, Consolas, monospace; font-size:10.5px; color:#94a3b8; font-variant-numeric: tabular-nums; }
+  .txt { font-size:14.5px; line-height:22px; color:#f1f5f9; outline:none; border-radius:6px; }
+  .txt:focus { box-shadow: inset 0 0 0 1px #6366f1; background:#020617; }
+  .cps { font-size:10.5px; font-variant-numeric: tabular-nums; }
+  .fresh { box-shadow:0 0 0 2px rgba(129,140,248,.7) !important; }
+  .hovertools { opacity:0; transition:opacity .1s; }
+  .row:hover .hovertools, .row.on .hovertools { opacity:1; }
+  /* E: seam merge */
+  .seam { height:0; position:relative; z-index:5; }
+  .seam button { position:absolute; left:50%; top:-10px; transform:translateX(-50%); height:20px; padding:0 8px; border-radius:999px; font-size:10.5px; color:#a5b4fc; background:#0b0f19; border:1px solid rgba(99,102,241,.5); opacity:0; transition:opacity .1s; cursor:default; display:flex; align-items:center; gap:4px; }
+  .seam:hover button, .seam button:focus { opacity:1; }
+  .seam::before { content:''; position:absolute; left:0; right:0; top:-8px; height:16px; }
+  /* F: shared toolbar */
+  .tb { display:flex; align-items:center; gap:2px; height:30px; padding:0 4px; border:1px solid #22262f; border-radius:9px; background:#0b0f19; }
+  .tbb { height:24px; padding:0 7px; display:inline-flex; align-items:center; gap:5px; border-radius:6px; font-size:11.5px; color:#94a3b8; cursor:default; }
+  .tbb:hover { background:#1f232c; color:#fff; }
+  .tbb.merge { color:#a5b4fc; }
+  .tbb.del:hover { color:#fda4af; }
+  .tbb[disabled] { opacity:.3; pointer-events:none; }
+  .tbb svg { width:13px; height:13px; }
+  .sep { width:1px; height:16px; background:#22262f; margin:0 3px; }
+</style>
+</head>
+<body class="px-4 py-8 md:px-8">
+<div class="max-w-[1180px] mx-auto">
+  <h1 class="text-xl font-semibold text-white">Export subtitles · four compact pro cards</h1>
+  <p class="note mt-1 max-w-3xl">
+    আজকের কার্ড প্রতি সাবটাইটেলে প্রায় <b>118 px</b> নেয় (কার্ড + মাঝের Merge সারি), তাই 380 px-এর তালিকায় মাত্র ৩টে দেখা যায়।
+    নিচের চারটে মক একই 380 px-এ <b>৫ থেকে ১১টা</b> দেখায়। সবকটাতেই Merge ↓ টুলের পাশে, শর্টকাট আগের মতো:
+    <span class="key">Enter</span> split · <span class="key">Shift</span>+<span class="key">Enter</span> new line · <span class="key">Ctrl</span>+<span class="key">M</span> merge · <span class="key">Ctrl</span>+<span class="key">Del</span> remove.
+    লেখাগুলোয় ক্লিক করে টাইপ করা যায়, বোতামগুলো সত্যিই কাজ করে।
+  </p>
+
+  <div class="grid lg:grid-cols-2 gap-6 mt-6">
+    <section class="panel p-4">
+      <div class="flex items-center gap-2 mb-1"><span class="badge">MOCK C</span><span class="font-semibold text-white text-[15px]">Slim card, tools on hover</span><span class="flex-1"></span><span class="meter">≈ <b>64 px</b> each · 5–6 seen</span></div>
+      <p class="note mb-3">কার্ড দুই সারি: উপরে নম্বর, সময়, cps; নিচে লেখা। টুল দেখায় শুধু মাউস রাখলে বা বেছে নেওয়া কার্ডে, তাই বাকি সময় তালিকা শান্ত থাকে। মাঝের ফাঁক 4 px।</p>
+      <div class="list" id="C"></div>
+    </section>
+
+    <section class="panel p-4">
+      <div class="flex items-center gap-2 mb-1"><span class="badge">MOCK D</span><span class="font-semibold text-white text-[15px]">One row, like a pro subtitle editor</span><span class="flex-1"></span><span class="meter">≈ <b>34 px</b> each · 11 seen</span></div>
+      <p class="note mb-3">প্রতি সাবটাইটেল এক সারি: <b># · In · Out · লেখা · cps · টুল</b>। Subtitle Edit / Aegisub-এর মতো টেবিল। দুই লাইনের সাবটাইটেলে সারিটা নিজে থেকে উঁচু হয়। টুল সারির ডানদিকে, হোভারে।</p>
+      <div class="list" id="D"></div>
+    </section>
+
+    <section class="panel p-4">
+      <div class="flex items-center gap-2 mb-1"><span class="badge">MOCK E</span><span class="font-semibold text-white text-[15px]">Time gutter + merge on the seam</span><span class="flex-1"></span><span class="meter">≈ <b>48 px</b> each · 7–8 seen</span></div>
+      <p class="note mb-3">বাঁদিকে সরু কলামে In/Out একটার নিচে আরেকটা, ডানদিকে পুরো জায়গা জুড়ে লেখা। Wrap/Split/Delete ডানদিকে খাড়া। দুটো সাবটাইটেলের জোড়ের দাগে মাউস রাখলে ছোট <b>Merge ↓</b> ভেসে ওঠে, জায়গা নেয় না।</p>
+      <div class="list" id="E"></div>
+    </section>
+
+    <section class="panel p-4">
+      <div class="flex items-center gap-2 mb-1"><span class="badge">MOCK F</span><span class="font-semibold text-white text-[15px]">One toolbar for the picked line</span><span class="flex-1"></span><span class="meter">≈ <b>40 px</b> each · 9 seen</span></div>
+      <p class="note mb-3">কার্ডে কোনো টুল নেই। তালিকার উপরে একটাই টুলবার, যেটা বেছে নেওয়া সাবটাইটেলে কাজ করে, নাম আর শর্টকাটসহ। DaVinci-র মতো: টুল একবার, কাজ যেখানে কার্সার।</p>
+      <div class="tb mb-2" id="Ftb"></div>
+      <div class="list" id="F" style="height:342px"></div>
+    </section>
+  </div>
+
+  <p class="note mt-6">আমার পছন্দ: রোজের কাজে <b>D</b> (সবচেয়ে বেশি দেখা যায়, পেশাদার টুলের মতো), আর একটু নরম চাইলে <b>E</b>।</p>
+</div>
+
+<script>
+const I = {
+  wrap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h15a3 3 0 1 1 0 6h-4"/><path d="m16 16-2 2 2 2"/><path d="M3 18h7"/></svg>',
+  split: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><path d="M8.12 8.12 12 12"/><path d="M20 4 8.12 15.88"/><circle cx="6" cy="18" r="3"/><path d="M14.8 14.8 20 20"/></svg>',
+  merge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/></svg>',
+  del: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
+};
+const START = [
+  ['00:00:00,000','00:00:01,039','पॉडकास्ट में फिर',10],
+  ['00:00:01,040','00:00:02,084','स्वागत है।',7],
+  ['00:00:02,085','00:00:02,844','आज हम बात करेंगे',7],
+  ['00:00:02,845','00:00:04,100','ध्यान के बारे में।',9],
+  ['00:00:04,180','00:00:05,600','जब आप चुपचाप बैठते हैं,',16],
+  ['00:00:05,610','00:00:06,900','मन बहुत भागता है।',13],
+  ['00:00:06,950','00:00:08,400','विचार आते-जाते रहते हैं।',17],
+  ['00:00:08,420','00:00:09,700','बस उन्हें देखिए,',12],
+  ['00:00:09,720','00:00:11,100','उनके पीछे मत भागिए।',14],
+  ['00:00:11,150','00:00:12,500','धीरे-धीरे मन शांत',13],
+  ['00:00:12,510','00:00:14,000','हो जाता है।',8],
+].map(([s,e,t,cps]) => ({ s, e, t, cps }));
+const cpsCol = (c) => c > 16 ? 'text-amber-300' : 'text-emerald-300';
+const short = (ts) => ts.slice(3); // 00:01,040
+const S = {};
+['C','D','E','F'].forEach(k => S[k] = { cues: START.map(c => ({...c})), on: 0, fresh: null });
+
+function act(k, i, what) {
+  const st = S[k], c = st.cues[i];
+  if (what === 'merge' && i < st.cues.length - 1) {
+    const nx = st.cues[i + 1];
+    st.cues.splice(i, 2, { s: c.s, e: nx.e, t: c.t + ' ' + nx.t, cps: Math.round((c.cps + nx.cps) / 2) });
+    st.fresh = i; st.on = i;
+    setTimeout(() => { st.fresh = null; draw(k); }, 1400);
+  } else if (what === 'del') {
+    st.cues.splice(i, 1); st.on = Math.max(0, Math.min(i, st.cues.length - 1));
+  } else if (what === 'split') {
+    const w = c.t.split(' ');
+    if (w.length > 1) {
+      const h = Math.ceil(w.length / 2);
+      st.cues.splice(i, 1, { ...c, t: w.slice(0, h).join(' ') }, { ...c, t: w.slice(h).join(' ') });
+      st.fresh = i + 1; setTimeout(() => { st.fresh = null; draw(k); }, 1400);
+    }
+  }
+  draw(k);
+}
+const tools = (k, i, last, { merge = true, vertical = false } = {}) =>
+  `<span class="${vertical ? 'flex flex-col' : 'flex items-center'} gap-0.5" data-tools>
+    <span class="ib" data-a="wrap">${I.wrap}<span class="tip">Wrap again</span></span>
+    <span class="ib" data-a="split">${I.split}<span class="tip">Split · Enter</span></span>
+    ${merge ? `<span class="ib merge" data-a="merge" ${last ? 'disabled' : ''}>${I.merge}<span class="tip">Merge ${String(i+2).padStart(2,'0')} into this · Ctrl+M</span></span>` : ''}
+    <span class="ib del" data-a="del">${I.del}<span class="tip">Remove · Ctrl+Del</span></span>
+  </span>`;
+
+function wire(k, el, i) {
+  el.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-a]');
+    if (b) { ev.stopPropagation(); act(k, i, b.dataset.a); return; }
+    if (S[k].on !== i) { S[k].on = i; draw(k); }
+  });
+  const tx = el.querySelector('.txt');
+  if (tx) tx.addEventListener('input', () => { S[k].cues[i].t = tx.innerText; });
+}
+
+const view = {
+  C(k, c, i, last, on) {
+    return `<div class="row ${on ? 'on' : ''} rounded-lg border ${on ? 'border-indigo-500/70 bg-indigo-500/[0.07]' : 'border-slate-800 bg-slate-900/80 hover:border-slate-700'} px-2.5 py-1.5 mb-1">
+      <div class="flex items-center gap-2 h-5">
+        <span class="num">${String(i+1).padStart(2,'0')}</span>
+        <span class="t">${short(c.s)} → ${short(c.e)}</span>
+        <span class="cps ${cpsCol(c.cps)}">${c.cps} cps</span>
+        <span class="flex-1"></span>
+        <span class="hovertools">${tools(k, i, last)}</span>
+      </div>
+      <div class="flex items-start gap-2"><div class="txt flex-1 px-1" contenteditable spellcheck="false">${c.t}</div><span class="t text-slate-500 pt-0.5">${[...c.t].length}/25</span></div>
+    </div>`;
+  },
+  D(k, c, i, last, on) {
+    return `<div class="row ${on ? 'on' : ''} grid grid-cols-[1.6rem_4.6rem_4.6rem_minmax(0,1fr)_2.6rem_auto] items-center gap-2 px-2 min-h-[34px] border-b border-slate-800/80 ${on ? 'bg-indigo-500/[0.10] shadow-[inset_2px_0_0_#818cf8]' : 'hover:bg-slate-800/40'}">
+      <span class="num">${String(i+1).padStart(2,'0')}</span>
+      <span class="t">${short(c.s)}</span>
+      <span class="t">${short(c.e)}</span>
+      <div class="txt px-1 truncate" contenteditable spellcheck="false">${c.t}</div>
+      <span class="cps text-right ${cpsCol(c.cps)}">${c.cps}</span>
+      <span class="hovertools">${tools(k, i, last)}</span>
+    </div>`;
+  },
+  E(k, c, i, last, on) {
+    const seam = last ? '' : `<div class="seam"><button type="button" data-a="merge" title="Merge ${String(i+2).padStart(2,'0')} into ${String(i+1).padStart(2,'0')} · Ctrl+M">${I.merge.replace('<svg', '<svg width="11" height="11"')} Merge</button></div>`;
+    return `<div class="row ${on ? 'on' : ''} flex items-stretch rounded-lg border ${on ? 'border-indigo-500/70 bg-indigo-500/[0.07]' : 'border-slate-800 bg-slate-900/80'} mb-[3px] overflow-visible">
+      <div class="shrink-0 border-r border-slate-800 pl-2 pr-2.5 py-1 flex items-center gap-2">
+        <span class="num">${String(i+1).padStart(2,'0')}</span>
+        <span class="flex flex-col"><span class="t leading-4">${short(c.s)}</span><span class="t leading-4 text-slate-500">${short(c.e)}</span></span>
+      </div>
+      <div class="flex-1 min-w-0 flex items-center px-2 py-1 gap-2">
+        <div class="txt flex-1 px-1" contenteditable spellcheck="false">${c.t}</div>
+        <span class="cps ${cpsCol(c.cps)}">${c.cps}</span>
+      </div>
+      <div class="hovertools flex items-center pr-1">${tools(k, i, last, { merge: false })}</div>
+    </div>${seam}`;
+  },
+  F(k, c, i, last, on) {
+    return `<div class="row ${on ? 'on' : ''} flex items-center gap-2.5 px-2.5 min-h-[38px] rounded-md mb-0.5 ${on ? 'bg-indigo-500/[0.12] shadow-[inset_0_0_0_1px_rgba(99,102,241,.6)]' : 'hover:bg-slate-800/40'}">
+      <span class="num w-5">${String(i+1).padStart(2,'0')}</span>
+      <span class="t w-[8.6rem] shrink-0">${short(c.s)} → ${short(c.e)}</span>
+      <div class="txt flex-1 min-w-0 px-1" contenteditable spellcheck="false">${c.t}</div>
+      <span class="cps ${cpsCol(c.cps)}">${c.cps}</span>
+    </div>`;
+  },
+};
+
+function draw(k) {
+  const st = S[k], el = document.getElementById(k);
+  const top = el.scrollTop;
+  el.innerHTML = '';
+  st.cues.forEach((c, i) => {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = view[k](k, c, i, i === st.cues.length - 1, i === st.on);
+    [...wrap.children].forEach((node) => {
+      if (node.classList.contains('row')) { wire(k, node, i); if (st.fresh === i) node.classList.add('fresh'); }
+      else node.querySelector('[data-a]')?.addEventListener('click', (e) => { e.stopPropagation(); act(k, i, 'merge'); });
+      el.appendChild(node);
+    });
+  });
+  el.scrollTop = top;
+  if (k === 'F') {
+    const i = st.on, last = i === st.cues.length - 1, n = String(i + 1).padStart(2, '0');
+    const tb = document.getElementById('Ftb');
+    tb.innerHTML = `<span class="text-[11px] text-slate-500 px-1.5">Subtitle <b class="text-slate-200 mono">${n}</b></span><span class="sep"></span>
+      <span class="tbb" data-a="wrap">${I.wrap}Wrap</span>
+      <span class="tbb" data-a="split">${I.split}Split <span class="key">Enter</span></span>
+      <span class="tbb merge" data-a="merge" ${last ? 'disabled' : ''}>${I.merge}Merge ↓ <span class="key">Ctrl M</span></span>
+      <span class="flex-1"></span>
+      <span class="tbb del" data-a="del">${I.del}Remove</span>`;
+    tb.querySelectorAll('[data-a]').forEach((b) => b.onclick = () => act('F', S.F.on, b.dataset.a));
+  }
+}
+['C','D','E','F'].forEach(draw);
+</script>
+</body>
+</html>

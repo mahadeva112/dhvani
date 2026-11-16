@@ -266,5 +266,22 @@ export function usePhoneticTyping(language: string) {
     else dismiss();
   };
 
-  return { enabled, toggle, popup, pick, dismiss, onKeyDown, onKeyUp };
+  /**
+   * The text with the Roman word before the caret already in the script, for a
+   * key the box uses itself (Enter splits a subtitle): null when there is none.
+   */
+  const finishWord = (ta: PhoneticField): { value: string; caret: number } | null => {
+    if (!enabled) return null;
+    const pos = ta.selectionStart;
+    const roman = romanAt(ta.value, pos);
+    if (!roman) return null;
+    const current = popup && popup.word === roman ? popup : null;
+    const converted = current ? current.suggestions[current.selected] : transliterateWordOffline(roman, language) || roman;
+    const start = pos - roman.length;
+    undo.current = null;
+    dismiss();
+    return { value: ta.value.substring(0, start) + converted + ta.value.substring(pos), caret: start + converted.length };
+  };
+
+  return { enabled, toggle, popup, pick, dismiss, onKeyDown, onKeyUp, finishWord };
 }
