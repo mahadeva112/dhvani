@@ -5,6 +5,13 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.91',
+    changes: [
+      'Translation reads more smoothly from part to part: parts end where a sentence ends, every part knows what the whole talk is about and uses the same form of "you", and the places where two parts meet are checked and smoothed at the end.',
+      'A translation style now sets the tone and word choice but never makes a line lose meaning or adds a pause the speaker did not make. The quick buttons in the style window are worded the same way.',
+    ],
+  },
+  {
     version: '1.4.90',
     changes: [
       'Edit timing has fewer buttons on top. The zoom is back at the top right, with a new Line button that zooms to the picked line.',
