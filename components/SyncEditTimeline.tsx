@@ -16,6 +16,7 @@ import {
   Copy,
   CopyPlus,
   FileAudio,
+  Flag,
   FoldHorizontal,
   History,
   Link2,
@@ -4045,7 +4046,7 @@ export const SyncEditTimeline: React.FC<{
           </span>
         )}
         <span aria-hidden="true" className="w-px h-5 bg-slate-700 mx-1" />
-        {/* Only what is used all the time: Blade (B) and Marker (Shift + M, or a right-click on the ruler) are keys, Redo is in History, the picked line's actions are on its own row. */}
+        {/* Only what is used all the time: Blade (B) is a key, Redo is in History, the picked line's actions are on its own row. */}
         <div className="flex gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5">
           <ToolButton label="Snap" shortcut="N" hint="Edges snap to the original's lines, other lines and the playhead, and a moved line stops at the next one instead of playing over it." pressed={snap} onClick={() => setSnap((v) => !v)}>
             <Magnet className="w-4 h-4" />
@@ -4059,6 +4060,11 @@ export const SyncEditTimeline: React.FC<{
           >
             <ArrowRightToLine className="w-4 h-4" />
           </ToolButton>
+          {onMarkersChange && (
+            <ToolButton label="Marker" shortcut="Shift + M" hint="Puts a marker with a note at the playhead, for you to come back to. Right-click the ruler to put one there. It doesn't change the dub." pressed={false} onClick={() => addMarker()}>
+              <Flag className="w-4 h-4" />
+            </ToolButton>
+          )}
         </div>
         <div className="flex items-center gap-0.5 rounded-xl border border-edge bg-slate-950 p-0.5" role="group" aria-label="Undo and history">
           <button type="button" onClick={act.undo} disabled={undoAt === 0} title={projectHistory?.labels.undo ? `Undo: ${projectHistory.labels.undo} (Ctrl + Z)` : 'Undo (Ctrl + Z)'} aria-label="Undo" className="h-8 w-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-800 disabled:opacity-35 cursor-default">
