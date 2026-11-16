@@ -151,7 +151,7 @@ const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batc
   const paused = batch.some((cue) => cue.pausedText);
   const examples = examplesBlock(targetLanguage);
   const styleDirective = customPrompt?.trim()
-    ? `TRANSLATION STYLE & PERSONA DIRECTIVE (follow strictly):\n${customPrompt.trim()}`
+    ? `TRANSLATION STYLE & PERSONA DIRECTIVE (follow it for tone, voice and word choice; where it asks for something the rules below forbid, such as leaving meaning out to save time or a pause the speaker did not make, the rules below win):\n${customPrompt.trim()}`
     : `TRANSLATION STYLE:\nNatural, idiomatic, context-aware ${targetLanguage}. Preserve meaning, register and emotional tone. Do not translate proper nouns or established technical/brand terms.`;
 
   const sourceNote = sourceLanguage && sourceLanguage !== 'Auto Detect'

@@ -26,7 +26,7 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
 - Where the translation rules that follow give examples in the language you are writing, follow their approach.
 
 2. HIS WAY OF SPEAKING
-- He speaks in thought units and pause-driven fragments, not textbook sentences. Keep his breaks: a pause before a punchline, after a deep question, before a contradiction ("No…").
+- He speaks in thought units and short spoken fragments, not textbook sentences: keep that shape. Where he really stopped inside a line, the line already marks it with "‖" and the pause rules say how to keep it. Never add a pause he did not make: no "…" and no extra comma for one.
 - A provocative line stays sharp, a calm one stays calm, humour keeps its setup and its landing. A line that lands on a point ends on its key word.
 - Keep the order of his thoughts from one sentence to the next, and never flip cause and effect. Inside a sentence, use the language's own word order: the verb, a "which / that" part and words like "only" and "even" go where the language puts them, even when that moves a word into the next or previous cue.
 - Questions stay short and spoken. A quotation keeps its speaker: put quoted words or an inner thought in double quotes, with the "said / asked / thought" verb where the language naturally puts it.
@@ -90,16 +90,16 @@ export const TRANSLATION_PRESETS: TranslationPromptPreset[] = [
     badge: 'Custom',
     category: 'persona',
     prompt: `You are an expert audio dubbing translator and dialogue adapter.
-Translate each dialogue cue into the target language adhering strictly to custom style instructions, vocabulary rules, and natural speaking rhythm.`
+Translate each dialogue cue into the target language in the tone, vocabulary and speaking rhythm set out below, as natural spoken language.`
   }
 ];
 
 export const QUICK_PROMPT_TAGS = [
   { label: 'Keep tech terms in English', tag: '\n- Retain modern technical, digital, and brand names in English script or standard loanword transliteration.' },
-  { label: 'Short & punchy sentences', tag: '\n- Keep translated sentences short, punchy, and easy to speak in quick succession.' },
-  { label: 'Respectful formal tone', tag: '\n- Use respectful, formal honorifics and polite verb conjugations throughout.' },
+  { label: 'Short & punchy sentences', tag: '\n- Prefer short, punchy spoken sentences that are easy to say in quick succession, but never drop an idea, a negation, a number or a name to make a line shorter.' },
+  { label: 'Respectful tone', tag: '\n- Use the respectful form of "you" and its polite verb forms throughout, in everyday spoken words, never bookish or officialese ones.' },
   { label: 'Casual everyday slang', tag: '\n- Use modern, conversational colloquial phrasing popular with younger audiences.' },
-  { label: 'Match exact speech duration', tag: '\n- Calibrate syllable count carefully to match the timing window of each dialogue cue.' },
+  { label: 'Fit each line to its time', tag: '\n- Keep each line close to its syllable budget through word choice, never at the cost of meaning: a clear line a little long is better than one that leaves something out.' },
   { label: 'Sanskrit/Spiritual vocabulary', tag: '\n- Use classical spiritual equivalents for philosophical concepts (Mukti, Divya, Chitta, Chetana).' },
 ];
 
@@ -137,7 +137,7 @@ export const promptFingerprint = (prompt: string) => {
  * whenever a style's text changes.
  */
 export const EARLIER_TEXTS: Record<string, string[]> = {
-  sadhguru_spoken: ['bec608bf'],
+  sadhguru_spoken: ['bec608bf', '4ed0d984'],
   natural_spoken: ['69f648d4'],
 };
 
