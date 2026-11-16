@@ -19,6 +19,10 @@ import {
   buildMeaningFixPrompt,
   readMeaningIssues,
   readFix,
+  sentenceEnding,
+  briefBlock,
+  readBrief,
+  buildSeamPrompt,
   MAX_TERMS,
 } from '../../lib/translationChecks.js';
 import { cuePauses, partSyllables, readPausedLine, withoutSplits, PAUSE_SPLIT } from '../../lib/translationPauses.js';
@@ -35,9 +39,39 @@ import { cuePauses, partSyllables, readPausedLine, withoutSplits, PAUSE_SPLIT } 
  * than collapsing the list and breaking cue order.
  */
 
-const chunk = (items, size) => {
+/**
+ * Batches of about `size` cues that end where a sentence ends, so no
+ * sentence is split between two model calls that run at the same time and
+ * never see each other's half. Each cut looks up to a quarter of `size`
+ * before and after the plain cut for the nearest cue that ends a sentence
+ * (sentenceEnding), and keeps the plain cut when there is none. A last
+ * batch only a little over `size` stays whole rather than leaving a scrap.
+ */
+export const sentenceBatches = (cues, size) => {
+  const slack = Math.max(1, Math.floor(size / 4));
+  const ends = (index) => index > 0 && index <= cues.length && sentenceEnding(cues[index - 1].text) === 'end';
   const batches = [];
-  for (let i = 0; i < items.length; i += size) batches.push(items.slice(i, i + size));
+  let start = 0;
+  while (start < cues.length) {
+    if (cues.length - start <= size + slack) {
+      batches.push(cues.slice(start));
+      break;
+    }
+    const target = start + size;
+    let end = target;
+    for (let d = 0; d <= slack; d += 1) {
+      if (target - d - start >= MIN_BATCH && ends(target - d)) {
+        end = target - d;
+        break;
+      }
+      if (ends(target + d)) {
+        end = target + d;
+        break;
+      }
+    }
+    batches.push(cues.slice(start, end));
+    start = end;
+  }
   return batches;
 };
 
@@ -112,7 +146,7 @@ const promptCue = ({ id, text, pausedText, syllables, partSyllables: parts }) =>
   ...(parts && { partSyllables: parts }),
 });
 
-const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms = [] }) => {
+const buildPrompt = ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms = [], brief = null }) => {
   const sized = batch.some((cue) => cue.syllables);
   const paused = batch.some((cue) => cue.pausedText);
   const examples = examplesBlock(targetLanguage);
@@ -167,7 +201,7 @@ HARD RULES
 
 KEY TERMS
 A key term (a concept, a name, a technical word; not everyday words) that comes up more than once is said with the same ${targetLanguage} word each time. After translating, list up to 6 key terms of these cues that may come back later in the talk, each with the exact ${targetLanguage} word your translation used for it.
-
+${briefBlock(brief)}
 THIS PART
 This is part ${batchIndex + 1} of ${batchCount}. ${sourceNote}
 ${paused ? `\n${pauseDirective(targetLanguage)}\n` : ''}${contextBlock(before, after)}${termsBlock(terms)}
@@ -178,13 +212,13 @@ Respond with ONLY this JSON:
 {"translations":[{"id":"<the same id>","translatedText":"<${targetLanguage} translation>"}],"terms":[{"english":"<key term>","translated":"<the ${targetLanguage} word used>"}]}`;
 };
 
-const translateBatchOnce = async ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, apiKey, models, generate = generateText }) => {
+const translateBatchOnce = async ({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, brief, apiKey, models, generate = generateText }) => {
   const { response, modelUsed } = await generate({
     contents: {
       role: 'user',
       parts: [
         {
-          text: buildPrompt({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms }),
+          text: buildPrompt({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, brief }),
         },
       ],
     },
@@ -283,7 +317,7 @@ const askJson = async (prompt, { apiKey, models, temperature, effort = writeEffo
  *
  * @returns {Promise<{translations: Map<string,string>, lengthFixed: number, lengthUndone: number, meaningFixed: number, termsFixed: number}>}
  */
-export const refineBatch = async (batch, translated, { targetLanguage, customPrompt = '', terms = [], apiKey, models, ask = askJson } = {}) => {
+export const refineBatch = async (batch, translated, { targetLanguage, customPrompt = '', terms = [], brief = null, apiKey, models, ask = askJson } = {}) => {
   let translations = new Map(translated);
   const ids = batch.map((cue) => cue.id);
   let lengthFixed = 0;
@@ -293,7 +327,7 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
     const review = await ask(buildMeaningReviewPrompt({ cues: batch, translations, targetLanguage }), { apiKey, models, temperature: 0, effort: reviewEffort() });
     const problems = readMeaningIssues(review, ids);
     if (problems.length) {
-      const answer = await ask(buildMeaningFixPrompt({ cues: batch, translations, problems, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2 });
+      const answer = await ask(buildMeaningFixPrompt({ cues: batch, translations, problems, targetLanguage, customPrompt, brief }), { apiKey, models, temperature: 0.2 });
       const changes = readFix(answer, ids);
       if (changes.size) {
         translations = new Map([...translations, ...changes]);
@@ -311,7 +345,7 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
     const issues = find(batch, translations);
     if (!issues.length) continue;
     try {
-      const answer = await ask(buildFixPrompt({ cues: batch, translations, issues, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.3 });
+      const answer = await ask(buildFixPrompt({ cues: batch, translations, issues, targetLanguage, customPrompt, brief }), { apiKey, models, temperature: 0.3 });
       const changes = readFix(answer, ids);
       const fixed = new Map([...translations, ...changes]);
       if (changes.size && issueScore(batch, fixed) < issueScore(batch, translations)) {
@@ -350,7 +384,7 @@ export const refineBatch = async (batch, translated, { targetLanguage, customPro
   const offTerms = termIssues(batch, translations, terms);
   if (offTerms.length) {
     try {
-      const answer = await ask(buildFixPrompt({ cues: batch, translations, issues: offTerms, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2 });
+      const answer = await ask(buildFixPrompt({ cues: batch, translations, issues: offTerms, targetLanguage, customPrompt, brief }), { apiKey, models, temperature: 0.2 });
       const changes = readFix(answer, ids);
       const fixed = new Map([...translations, ...changes]);
       if (changes.size && termIssues(batch, fixed, terms).length < offTerms.length && issueScore(batch, fixed) <= issueScore(batch, translations)) {
@@ -387,6 +421,7 @@ const resumeState = (resumeFrom, translatable) => {
   return {
     translations,
     terms: Array.isArray(resumeFrom?.terms) ? resumeFrom.terms : [],
+    brief: readBrief(resumeFrom?.brief),
     modelUsed: resumeFrom?.modelUsed ?? null,
   };
 };
@@ -420,7 +455,7 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
       if (isTimeoutError(err) && batch.length > MIN_BATCH) {
         const size = Math.max(MIN_BATCH, Math.ceil(batch.length / 2));
         logger.warn(`Fast translation batch ${batchIndex + 1} timed out; sending it again ${size} cues at a time.`);
-        for (const part of chunk(batch, size)) await sendOne(part, batchIndex);
+        for (const part of sentenceBatches(batch, size)) await sendOne(part, batchIndex);
         return;
       }
       throw err;
@@ -480,6 +515,7 @@ const translateBatchesFast = async (batches, translatable, { sourceLanguage, tar
     meaningFixed: 0,
     retriedBatches: 0,
     termsFixed: 0,
+    seamsFixed: 0,
     terms,
   };
 };
@@ -496,32 +532,138 @@ const buildGlossaryPrompt = ({ translatable, sourceLanguage, targetLanguage, cus
   }
   return `You are preparing the glossary for a ${targetLanguage} dubbing translation of one talk, before its parts are translated at the same time by different translators.
 ${sourceLanguage && sourceLanguage !== 'Auto Detect' ? `The source language is ${sourceLanguage}.\n` : ''}${customPrompt?.trim() ? `\nTRANSLATION STYLE (the translators follow it):\n${customPrompt.trim()}\n` : ''}
-Read the whole transcript below. List up to ${MAX_TERMS} key terms that come back more than once in it: concepts, names and technical words, not everyday words. For each, give the one ${targetLanguage} word or phrase every part will use for it: the word a native speaker would say out loud, not a bookish one. Keep a name, or a term a ${targetLanguage} speaker says in English, as they would say it.${script ? ` Write every term in the ${script} script only.` : ''}
+Read the whole transcript below.
+
+1. Write a short brief, in English, that every translator reads before their part:
+- "about": two or three sentences on what the talk is about, and who speaks to whom (one speaker to an audience, a conversation, questions and answers).
+- "tone": the speaker's manner in a few words (warm and conversational, playful, intense, formal...).
+- "address": how the ${targetLanguage} translation addresses the listener and how the speaker refers to themself: the one form of "you" (respectful, familiar or intimate) and its matching verb forms that every part uses, naming the ${targetLanguage} pronoun itself. Choose what a native ${targetLanguage} speaker would use for this speaker and this audience.
+
+2. List up to ${MAX_TERMS} key terms that come back more than once in it: concepts, names and technical words, not everyday words. For each, give the one ${targetLanguage} word or phrase every part will use for it: the word a native speaker would say out loud, not a bookish one. Keep a name, or a term a ${targetLanguage} speaker says in English, as they would say it.${script ? ` Write every term in the ${script} script only.` : ''}
 
 TRANSCRIPT:
 ${text}
 Respond with ONLY this JSON:
-{"terms":[{"english":"<key term>","translated":"<the ${targetLanguage} word>"}]}`;
+{"brief":{"about":"<what the talk is about>","tone":"<the speaker's manner>","address":"<the form of you and I every part uses>"},"terms":[{"english":"<key term>","translated":"<the ${targetLanguage} word>"}]}`;
 };
 
 /**
- * The talk's key terms, read from the whole transcript before any batch, so
+ * The talk's key terms and its brief (what it is about, its tone, the one
+ * form of "you"), read from the whole transcript before any batch, so
  * batches translated at once say them the same way from the first line. A
- * glossary that fails leaves the list empty: the batches still report and
- * share their own terms, as before.
+ * glossary that fails leaves both empty: the batches still report and share
+ * their own terms, as before.
  */
 const readGlossary = async (translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate }) => {
   try {
     const answer = await askJson(buildGlossaryPrompt({ translatable, sourceLanguage, targetLanguage, customPrompt }), { apiKey, models, temperature: 0.2, generate });
-    return mergeTerms([], answer?.terms);
+    return { terms: mergeTerms([], answer?.terms), brief: readBrief(answer?.brief) };
   } catch (err) {
     logger.warn(`Translation glossary skipped: ${err?.message || err}`);
-    return [];
+    return { terms: [], brief: null };
   }
 };
 
 /** An error no other batch can get past: every batch after it would fail the same way. */
 const stopsAll = (err) => err?.code === 'invalid_api_key' || err?.code === 'translation_cancelled' || err?.status === 401 || err?.status === 403;
+
+/** Cues on each side of a join that the seam pass reads and may change. */
+const SEAM_CUES = 3;
+
+/** How many "‖" pause marks a line has. */
+const pauseMarks = (text) => String(text ?? '').split(PAUSE_SPLIT).length - 1;
+
+/**
+ * The windows the seam pass reads: SEAM_CUES cues on each side of every
+ * join (`starts`: the first position of each batch), never past the middle
+ * of a neighbouring batch, so two windows never share a cue and can be
+ * smoothed at the same time.
+ *
+ * @returns {{join: number, from: number, to: number}[]}
+ */
+export const seamWindows = (starts, cueCount) => {
+  const cuts = [...new Set(starts)].filter((at) => at >= 0 && at < cueCount).sort((a, b) => a - b);
+  const windows = [];
+  for (const [index, join] of cuts.entries()) {
+    if (join === 0) continue;
+    const before = cuts[index - 1] ?? 0;
+    const next = cuts[index + 1] ?? cueCount;
+    const from = Math.max(join - SEAM_CUES, before + Math.floor((join - before) / 2));
+    const to = Math.min(join + SEAM_CUES, join + Math.floor((next - join) / 2));
+    if (from < join && to > join) windows.push({ join, from, to });
+  }
+  return windows;
+};
+
+/**
+ * The seam pass of a full translation: where two batches meet, the lines on
+ * both sides were written by separate calls, often at the same time, so the
+ * talk can stumble there (a word said twice, a "so" that follows nothing,
+ * "you" said two ways). Each join is read once and smoothed; a change is
+ * kept only when it fits the time and the key terms at least as well as
+ * before, keeps every pause mark, and a meaning review finds nothing lost.
+ * A join whose check fails keeps its lines as they were.
+ *
+ * @returns {Promise<{translations: Map<string,string>, seamsFixed: number}>}
+ */
+export const smoothSeams = async (
+  translatable,
+  translated,
+  starts,
+  { targetLanguage, customPrompt = '', terms = [], brief = null, apiKey, models, ask = askJson, parallel = 1, onProgress } = {}
+) => {
+  const translations = new Map(translated);
+  const windows = seamWindows(starts, translatable.length).filter(({ from, to }) =>
+    translatable.slice(from, to).every((cue) => translations.has(cue.id))
+  );
+  let seamsFixed = 0;
+  let done = 0;
+  let stopped = false;
+
+  const smoothOne = async ({ join, from, to }) => {
+    const cues = translatable.slice(from, to);
+    const ids = cues.map((cue) => cue.id);
+    const now = new Map(ids.map((id) => [id, translations.get(id)]));
+    const answer = await ask(buildSeamPrompt({ cues, translations: now, joinId: translatable[join].id, targetLanguage, customPrompt, brief }), {
+      apiKey,
+      models,
+      temperature: 0.2,
+    });
+    const changes = new Map(
+      [...readFix(answer, ids)].filter(([id, text]) => {
+        const cue = cues.find((c) => c.id === id);
+        return text !== now.get(id) && (!cue.pauses || pauseMarks(text) === pauseMarks(now.get(id)));
+      })
+    );
+    if (!changes.size) return;
+    const fixed = new Map([...now, ...changes]);
+    if (issueScore(cues, fixed) > issueScore(cues, now) || termIssues(cues, fixed, terms).length > termIssues(cues, now, terms).length) return;
+
+    // Smoother is no use if it says something else: a sentence the review
+    // flags keeps its lines from before.
+    const review = await ask(buildMeaningReviewPrompt({ cues, translations: fixed, targetLanguage }), { apiKey, models, temperature: 0, effort: reviewEffort() });
+    for (const issue of readMeaningIssues(review, ids, { shape: false })) for (const id of issue.ids) changes.delete(id);
+    for (const [id, text] of changes) translations.set(id, text);
+    seamsFixed += changes.size;
+  };
+
+  const queue = [...windows];
+  const worker = async () => {
+    while (queue.length && !stopped) {
+      const window = queue.shift();
+      try {
+        await smoothOne(window);
+      } catch (err) {
+        logger.warn(`Smoothing the join at cue ${window.join + 1} skipped: ${err?.message || err}`);
+        if (stopsAll(err)) stopped = true;
+      }
+      done += 1;
+      onProgress?.({ done, total: windows.length });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, parallel), queue.length) }, worker));
+  return { translations, seamsFixed };
+};
 
 /**
  * Full translation: every batch is translated and then checked (refineBatch),
@@ -529,17 +671,22 @@ const stopsAll = (err) => err?.code === 'invalid_api_key' || err?.code === 'tran
  * key terms (readGlossary). A batch still far too long after its checks is
  * translated once more and the better version kept. A batch that times out
  * is sent again in halves, and the batches not yet sent are cut to that size
- * too: a model that is slow on one batch is slow on all of them.
+ * too: a model that is slow on one batch is slow on all of them. With checks
+ * on, the joins between batches are smoothed last (smoothSeams).
  */
 const translateBatchesChecked = async (
   batches,
   translatable,
   { sourceLanguage, targetLanguage, customPrompt, apiKey, models, check, onProgress, generate, resumeFrom, onBatchDone }
 ) => {
-  const { translations, terms: resumedTerms, modelUsed: resumedModel } = resumeState(resumeFrom, translatable);
+  const { translations: resumed, terms: resumedTerms, brief: resumedBrief, modelUsed: resumedModel } = resumeState(resumeFrom, translatable);
+  let translations = resumed;
   let modelUsed = resumedModel;
   let failedBatches = 0;
   let firstError = null;
+  let seamsFixed = 0;
+  // What the whole talk is about and how it says "you", so every batch sounds like one speaker.
+  let brief = resumedBrief;
   let lengthFixed = 0;
   let lengthUndone = 0;
   let meaningFixed = 0;
@@ -549,13 +696,15 @@ const translateBatchesChecked = async (
   let terms = resumedTerms;
 
   const queue = batches.filter((batch) => !isDone(batch, translations));
+  // Where each batch starts, for the seam pass; batches done before a restart count too.
+  const starts = new Set(batches.filter((batch) => isDone(batch, translations)).map((batch) => translatable.indexOf(batch[0])));
   let batchCount = batches.length;
   let finished = batches.length - queue.length;
 
   // A run carried on after a restart keeps the terms it had; so does a talk of one batch.
   if (queue.length > 1 && !resumeFrom) {
-    onProgress?.({ stage: 'translating', batch: 1, batchCount, step: 'translate', message: `Reading the whole talk for its key terms...` });
-    terms = await readGlossary(translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate });
+    onProgress?.({ stage: 'translating', batch: 1, batchCount, step: 'translate', message: `Reading the whole talk for its key terms and tone...` });
+    ({ terms, brief } = await readGlossary(translatable, { sourceLanguage, targetLanguage, customPrompt, apiKey, models, generate }));
   }
 
   const sendOne = async (batch) => {
@@ -570,9 +719,9 @@ const translateBatchesChecked = async (
     });
     const before = translatable.slice(Math.max(0, position - CONTEXT_CUES), position).map((cue) => ({ text: cue.text, translatedText: translations.get(cue.id) }));
     const after = translatable.slice(position + batch.length, position + batch.length + CONTEXT_CUES).map((cue) => ({ text: cue.text }));
-    const batchIndex = Math.floor(position / Math.max(1, batch.length));
+    const batchIndex = Math.min(batchCount - 1, Math.floor(position / Math.max(1, batch.length)));
     const attempt = async () => {
-      const outcome = await translateBatch({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, apiKey, models, generate });
+      const outcome = await translateBatch({ batch, sourceLanguage, targetLanguage, customPrompt, batchIndex, batchCount, before, after, terms, brief, apiKey, models, generate });
       modelUsed = outcome.modelUsed;
       if (!check) return { translations: outcome.result, lengthFixed: 0, lengthUndone: 0, meaningFixed: 0, termsFixed: 0, terms: outcome.terms };
       onProgress?.({
@@ -584,7 +733,7 @@ const translateBatchesChecked = async (
       });
       const ask = (prompt, options) => askJson(prompt, { ...options, generate });
       const known = mergeTerms(terms, outcome.terms, outcome.result);
-      const refined = await refineBatch(batch, outcome.result, { targetLanguage, customPrompt, terms: known, apiKey, models, ask });
+      const refined = await refineBatch(batch, outcome.result, { targetLanguage, customPrompt, terms: known, brief, apiKey, models, ask });
       return { ...refined, terms: outcome.terms };
     };
     let kept = await attempt();
@@ -605,7 +754,8 @@ const translateBatchesChecked = async (
     termsFixed += kept.termsFixed;
     terms = mergeTerms(terms, kept.terms, kept.translations);
     for (const [id, text] of kept.translations) translations.set(id, text);
-    onBatchDone?.({ translations, terms, modelUsed });
+    starts.add(position);
+    onBatchDone?.({ translations, terms, brief, modelUsed });
   };
 
   const worker = async () => {
@@ -626,7 +776,7 @@ const translateBatchesChecked = async (
           logger.warn(`Translation of ${batch.length} cues timed out; sending ${size} cues at a time from here on.`);
           onProgress?.({ stage: 'translating', batch: finished + 1, batchCount, step: 'translate', message: `The model is slow; sending ${size} cues at a time...` });
           const waiting = queue.splice(0, Infinity).flat();
-          queue.push(...chunk(batch, size), ...chunk(waiting, size));
+          queue.push(...sentenceBatches(batch, size), ...sentenceBatches(waiting, size));
           batchCount = finished + queue.length + (running - 1);
           continue;
         }
@@ -653,10 +803,30 @@ const translateBatchesChecked = async (
 
   if (failedBatches > 0 && translations.size === 0) throw firstError;
 
+  if (check && starts.size > 1 && !(firstError && stopsAll(firstError))) {
+    const say = (message) => onProgress?.({ stage: 'translating', batch: batchCount, batchCount, step: 'check', message });
+    say('Smoothing the joins between parts...');
+    const smoothed = await smoothSeams(translatable, translations, [...starts], {
+      targetLanguage,
+      customPrompt,
+      terms,
+      brief,
+      apiKey,
+      models,
+      ask: (prompt, options) => askJson(prompt, { ...options, generate }),
+      parallel: translationParallel(),
+      onProgress: ({ done, total }) => say(`Smoothing the joins between parts: ${done} of ${total}...`),
+    });
+    translations = smoothed.translations;
+    seamsFixed = smoothed.seamsFixed;
+    if (seamsFixed) onBatchDone?.({ translations, terms, brief, modelUsed });
+  }
+
   const missingIds = translatable.filter((cue) => !translations.has(cue.id)).map((cue) => cue.id);
   if (missingIds.length > 0) {
     logger.warn(`${missingIds.length} cue(s) came back untranslated; keeping their source text.`);
   }
+  if (seamsFixed) logger.info(`Translation smoothed ${seamsFixed} cue(s) where two parts met.`);
   if (lengthFixed || lengthUndone || meaningFixed || retriedBatches || termsFixed) {
     logger.info(
       `Translation checks refit ${lengthFixed} cue(s) for length, restored the meaning of ${meaningFixed}, undid ${lengthUndone} length fit(s) that lost meaning and made ${termsFixed} use the talk's key term` +
@@ -675,7 +845,9 @@ const translateBatchesChecked = async (
     meaningFixed,
     retriedBatches,
     termsFixed,
+    seamsFixed,
     terms,
+    brief,
   };
 };
 
@@ -775,7 +947,7 @@ export const translateCueTexts = async (
     return { translations: new Map(), pausedTexts: new Map(), modelUsed: null, translatedCount: 0, missingIds: [], failedBatches: 0 };
   }
 
-  const batches = chunk(translatable, Math.max(MIN_BATCH, batchSize || config.translationBatchSize));
+  const batches = sentenceBatches(translatable, Math.max(MIN_BATCH, batchSize || config.translationBatchSize));
   const options = { sourceLanguage, targetLanguage, customPrompt, apiKey, models, onProgress, generate, resumeFrom, onBatchDone };
   const outcome = fast ? await translateBatchesFast(batches, translatable, options) : await translateBatchesChecked(batches, translatable, { ...options, check });
   return { ...outcome, ...readBack(translatable, outcome.translations) };

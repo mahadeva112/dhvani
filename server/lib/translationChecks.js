@@ -231,7 +231,7 @@ const keepPausesRule = (cues) =>
     ? `\n- A "${PAUSE_SPLIT}" is where the speaker paused, and the voice pauses there too. Keep every "${PAUSE_SPLIT}" a translation has, in the same place between the same ideas.`
     : '';
 
-export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, customPrompt = '' }) => {
+export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, customPrompt = '', brief = null }) => {
   const rows = cues.map((cue) => ({
     id: cue.id,
     english: cue.pausedText ?? cue.text,
@@ -239,7 +239,7 @@ export const buildFixPrompt = ({ cues, translations, issues, targetLanguage, cus
     ...(cue.syllables && { syllables: cue.syllables, now: dubSyllables(translations.get(cue.id)) }),
   }));
   return `You are revising a ${targetLanguage} dubbing translation so it can be spoken in sync with the original video.
-${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}${examplesSection(targetLanguage)}
+${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}${briefBlock(brief)}${examplesSection(targetLanguage)}
 "syllables" is about how many ${targetLanguage} syllables the voice says in the time the speaker took for that cue; "now" is what the translation has.
 
 FIX THESE CUES
@@ -296,8 +296,8 @@ Respond with ONLY this JSON, one entry per English sentence, "problem" empty whe
 {"sentences":[{"ids":["<id>", "..."],"backTranslation":"<literal English of the translation>","words":[{"english":"<word>","translatedAs":"<literal English of the translation's word, or empty>","same":true}],"problem":"<anything else missing, added or changed, in English; empty if nothing>","englishShaped":"<what follows English instead of ${targetLanguage}, in English; empty if nothing>"}]}`;
 
 /** Asks for the cues the reviewer found, with what it found. */
-export const buildMeaningFixPrompt = ({ cues, translations, problems, targetLanguage, customPrompt = '' }) => `You are correcting a ${targetLanguage} dubbing translation where a reviewer found the meaning changed or the sentence shaped like English.
-${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}${examplesSection(targetLanguage)}
+export const buildMeaningFixPrompt = ({ cues, translations, problems, targetLanguage, customPrompt = '', brief = null }) => `You are correcting a ${targetLanguage} dubbing translation where a reviewer found the meaning changed or the sentence shaped like English.
+${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}${briefBlock(brief)}${examplesSection(targetLanguage)}
 WHAT THE REVIEWER FOUND
 ${problems.map((p) => `- ids ${p.ids.join(', ')}: ${p.problem}`).join('\n')}
 
@@ -396,6 +396,72 @@ export const mergeTerms = (known, reported, translations = null) => {
   }
   return list;
 };
+
+/** The longest a brief's field may be, so a rambling answer cannot bloat every prompt. */
+const BRIEF_CHARS = 500;
+
+/**
+ * The talk's brief from the glossary answer ({about, tone, address}), each
+ * field trimmed, or null when it has none. It is what every part is told
+ * about the whole talk, so parts translated at the same time sound like one
+ * speaker and say "you" the same way.
+ *
+ * @returns {{about: string, tone: string, address: string}|null}
+ */
+export const readBrief = (value) => {
+  const field = (key) => String(value?.[key] ?? '').trim().slice(0, BRIEF_CHARS);
+  const brief = { about: field('about'), tone: field('tone'), address: field('address') };
+  return brief.about || brief.tone || brief.address ? brief : null;
+};
+
+/** The talk's brief as a prompt block, or '' without one. */
+export const briefBlock = (brief) => {
+  if (!brief) return '';
+  const lines = [];
+  if (brief.about) lines.push(`About: ${brief.about}`);
+  if (brief.tone) lines.push(`Tone: ${brief.tone}`);
+  if (brief.address) {
+    lines.push(`Addressing the listener: ${brief.address}`);
+    lines.push(`Every part of the talk uses this same form of "you" and of the speaker's "I", with its matching verb forms. Change it only where the speaker clearly turns to someone else.`);
+  }
+  return `\nTHE WHOLE TALK (read from the full transcript before any part was translated)\n${lines.join('\n')}\n`;
+};
+
+/**
+ * Asks for a smoother join where two parts of a talk, translated by separate
+ * calls, meet. `cues` are the last cues of one part and the first of the
+ * next; `joinId` is the first cue of the next part.
+ */
+export const buildSeamPrompt = ({ cues, translations, joinId, targetLanguage, customPrompt = '', brief = null }) => `You are smoothing the join between two parts of a ${targetLanguage} dubbing translation of one talk. The cues below are consecutive lines; the cues before the one marked "join" and the cues from it on were translated separately, so the talk may not read as one voice across that point.
+${customPrompt.trim() ? `\nTRANSLATION STYLE (keep following it):\n${customPrompt.trim()}\n` : ''}${briefBlock(brief)}
+FIX ONLY WHAT READS WRONG ACROSS THE JOIN
+- a sentence that runs across the join and is broken, said twice, or has a part missing;
+- a word or idea said on both sides of the join where the English says it once;
+- a connective ("so", "but", "and then") or reference ("this", "he", "that one") that no longer follows from what comes before it;
+- a different form of "you", or of the speaker's "I", on the two sides; a key term said one way before the join and another way after it.
+
+RULES
+- Each cue still says what its English says: no idea added or left out, the same negation, tense, certainty and who does what to whom.
+- Keep each changed line about as long as it is now: "syllables" is about how many ${targetLanguage} syllables the voice has in that cue.
+- Keep the everyday spoken forms the lines use now; never make a line bookish, formal or word for word from the English.
+- A word may move only to the next or previous cue of the same sentence. Copy sound notes in square brackets ([laughs]) exactly as they are.${keepPausesRule(cues)}
+- Most joins already read well. Return only the cues you change, each with its id copied verbatim, or an empty list when the join reads well.
+
+CUES (JSON):
+${JSON.stringify(
+  cues.map((cue) => ({
+    id: cue.id,
+    ...(cue.id === joinId && { join: true }),
+    english: cue.pausedText ?? cue.text,
+    translation: translations.get(cue.id) ?? '',
+    ...(cue.syllables && { syllables: cue.syllables }),
+  })),
+  null,
+  2
+)}
+
+Respond with ONLY this JSON:
+{"translations":[{"id":"<the same id>","translatedText":"<smoothed ${targetLanguage} line>"}]}`;
 
 /** The running term list as a prompt block, or '' when there is none yet. */
 export const termsBlock = (terms) =>

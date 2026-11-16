@@ -41,12 +41,12 @@ export const translationFingerprint = (request) =>
 const checkpointFile = (id, dir) => path.join(dir, `${id}.json`);
 
 /** Saves the translations so far. A failed write only costs the resume. */
-export const saveCheckpoint = (id, fingerprint, { translations, terms, modelUsed }, dir = CHECKPOINT_DIR) => {
+export const saveCheckpoint = (id, fingerprint, { translations, terms, brief = null, modelUsed }, dir = CHECKPOINT_DIR) => {
   if (!isValidId(id)) return;
   try {
     fs.mkdirSync(dir, { recursive: true });
     const file = checkpointFile(id, dir);
-    const body = JSON.stringify({ fingerprint, savedAt: Date.now(), translations: Object.fromEntries(translations), terms, modelUsed });
+    const body = JSON.stringify({ fingerprint, savedAt: Date.now(), translations: Object.fromEntries(translations), terms, brief, modelUsed });
     // Written aside and renamed, so a restart mid-write never leaves half a file.
     fs.writeFileSync(`${file}.tmp`, body);
     fs.renameSync(`${file}.tmp`, file);
