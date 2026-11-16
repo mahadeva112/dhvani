@@ -5,6 +5,14 @@
  */
 window.WHATS_NEW = [
   {
+    version: '1.4.92',
+    changes: [
+      'Editing subtitles in Export subtitles is more compact: one row per subtitle, with Merge next to Wrap, Split and Delete. You can type Hindi, Bangla and the other scripts with English letters (Ctrl + G turns it off), and Ctrl + Z / Ctrl + Y undo and redo. The ? at the top of the list shows every key.',
+      'The reading speed limit is now in the settings on the left, under Characters per line.',
+      'Edit timing has its Marker button back next to Snap.',
+    ],
+  },
+  {
     version: '1.4.91',
     changes: [
       'Translation reads more smoothly from part to part: parts end where a sentence ends, every part knows what the whole talk is about and uses the same form of "you", and the places where two parts meet are checked and smoothed at the end.',
